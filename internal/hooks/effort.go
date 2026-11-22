@@ -37,7 +37,7 @@ type dispatchRun struct {
 	hops     map[hopKey]hopResult
 }
 
-// hopKey and hopResult memoize runQuery within one run: preflight, freeze and label ask the same query.
+// hopKey and hopResult memoize only Claude's unchanged query; external hops depend on live eligibility.
 type hopKey struct {
 	q    agentpkg.ModelQuery
 	hint string
@@ -50,6 +50,9 @@ type hopResult struct {
 }
 
 func (r *dispatchRun) runHop(ctx context.Context, reg *providers.Registry, q agentpkg.ModelQuery, hint string) (agentpkg.ModelQuery, string, error) {
+	if q.Agent != "claude" {
+		return runQuery(ctx, reg, q, hint)
+	}
 	k := hopKey{q, hint}
 	if h, ok := r.hops[k]; ok {
 		return h.hop, h.note, h.err

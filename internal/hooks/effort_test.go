@@ -716,6 +716,34 @@ func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 	}
 }
 
+func TestDispatchRunHopRejectsNewlyExhaustedAccount(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	vaulttest.SetRecord(t, "codex", "profile", "dev")
+	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-6-1-sol")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
+	t.Setenv(route.OverlayVar, "")
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := newDispatchRun(nil)
+	q := agentpkg.ModelQuery{Agent: "codex", Fallback: router.FallbackNone}
+	ctx := context.Background()
+	first, _, err := run.runHop(ctx, reg, q, "sonnet")
+	if err != nil || first.Agent != "codex" || first.Profile != "dev" {
+		t.Fatalf("initial hop = %+v, err %v; want codex on dev", first, err)
+	}
+	now := time.Now()
+	if err := router.MarkExhausted("databricks·dev", now.Add(time.Hour), now, "test quota"); err != nil {
+		t.Fatal(err)
+	}
+	if hop, _, err := run.runHop(ctx, reg, q, "sonnet"); err == nil || !strings.Contains(err.Error(), "exhausted") {
+		t.Fatalf("hop %+v, err %v; want refusal after its account was marked exhausted", hop, err)
+	}
+}
+
 func BenchmarkDispatchEffort(b *testing.B) {
 	payloads := map[string]string{
 		"codexRun":    `{"session_id":"bench1","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"codex","description":"sonnet: fix parser","prompt":"Run: claude-code agents ask --agent codex --tools -- \"fix the parser\"\nOwned: internal/x/a.go\n\nTask: fix the parser bug in a.go"}}`,
