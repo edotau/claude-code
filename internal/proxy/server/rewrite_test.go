@@ -524,6 +524,18 @@ func TestFableRefusal(t *testing.T) {
 	}
 }
 
+func TestFableRefusalHTTP(t *testing.T) {
+	up := newRawUp(t, okRaw)
+	t.Setenv("DEV_TOKEN", "dev-workspace-token")
+	srv := setupRouter(t, clientTokenOverlay(up.URL), nil)
+	resp := post(t, srv.URL+"/p/dev/v1/messages", `{"model":"claude-fable-5-2","max_tokens":5}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(b, `"type":"invalid_request_error"`) ||
+		!strings.Contains(b, "databricks-claude-opus-5-5") || len(up.got()) != 0 {
+		t.Fatalf("status %d body %s upstream hits %d", resp.StatusCode, b, len(up.got()))
+	}
+}
+
 // A profile Select cannot resolve, or one with no Opus slot, still gets a refusal naming an Opus id.
 func TestFableRefusalNamesOpusWhenSelectFails(t *testing.T) {
 	vaulttest.UseKeyring(t)
