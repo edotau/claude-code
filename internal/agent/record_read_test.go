@@ -2,13 +2,37 @@ package agent
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 )
+
+// RecordsSince drops only files last written before since and keeps the rest newest first.
+func TestRecordsSince(t *testing.T) {
+	setConfigDir(t)
+	now := time.Now()
+	var ids []string
+	for i := range 3 {
+		ids = append(ids, fixtureRecord(t, NewRecord("codex", RunOptions{Prompt: "p"}, now.Add(time.Duration(i-3)*time.Hour))).ID)
+	}
+	old := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(paths.DispatchDir(), ids[0]+".json"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range RecordsSince(now.Add(-time.Hour)) {
+		got = append(got, r.ID)
+	}
+	if want := []string{ids[2], ids[1]}; !slices.Equal(got, want) {
+		t.Errorf("RecordsSince = %v, want %v", got, want)
+	}
+}
 
 // ReadRecentWith selects what a full decode plus the caller's own check selects, decoys and torn files included.
 func TestReadRecentWithMatchesFullDecode(t *testing.T) {

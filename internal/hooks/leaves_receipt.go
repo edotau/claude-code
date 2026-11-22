@@ -348,7 +348,7 @@ func askRecords(times []time.Time, agentName string) []agent.Record {
 	if first.IsZero() {
 		return nil
 	}
-	return slices.DeleteFunc(agent.RecentRecords(agent.AllRecords), func(r agent.Record) bool {
+	return slices.DeleteFunc(agent.RecordsSince(first), func(r agent.Record) bool {
 		return r.Owner == 0 || r.Owner != watchOwner() || r.Agent != agentName || r.Time.Before(first)
 	})
 }

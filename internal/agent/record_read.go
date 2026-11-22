@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/parallel"
@@ -32,13 +33,22 @@ func ReadRecent(n int) ([]Record, error) {
 	return recs, err
 }
 
+// RecordsSince is RecentRecords(AllRecords) without files last written before since (never opened); callers check Time.
+func RecordsSince(since time.Time) []Record {
+	recs, _ := readAllRecent(paths.DispatchDir(), "", since)
+	for i, r := range recs {
+		recs[i] = reapLost(r)
+	}
+	return recs
+}
+
 // ReadRecentWith is ReadRecent over the records whose file bytes hold needle (see eachRecent).
 func ReadRecentWith(n int, needle string) ([]Record, error) {
 	if n < 1 {
 		return nil, nil
 	}
 	if n == AllRecords {
-		return readAllRecent(paths.DispatchDir(), needle)
+		return readAllRecent(paths.DispatchDir(), needle, time.Time{})
 	}
 	var out []Record
 	err := eachRecent(paths.DispatchDir(), needle, func(r Record) bool {
@@ -79,9 +89,16 @@ func eachRecent(dir, needle string, fn func(Record) bool) error {
 	return err
 }
 
-// readAllRecent is eachRecent over every record, read concurrently (open-bound) and returned newest first.
-func readAllRecent(dir, needle string) ([]Record, error) {
+// readAllRecent is eachRecent over every record last written at or after since, read concurrently, newest first.
+func readAllRecent(dir, needle string, since time.Time) ([]Record, error) {
 	names, err := recordNames(dir)
+	if !since.IsZero() {
+		// a record is written at or after its Time, so an older mtime rules it out without opening it
+		names = slices.DeleteFunc(names, func(n string) bool {
+			fi, serr := os.Lstat(filepath.Join(dir, n))
+			return serr == nil && fi.ModTime().Before(since)
+		})
+	}
 	slices.Reverse(names)
 	probe := []byte(needle)
 	got, _ := parallel.Map(context.Background(), names, 8, func(_ context.Context, n string) (*Record, error) {
