@@ -52,6 +52,7 @@ type piUsage struct {
 // parseEvents turns Pi's JSONL into wire events; the exit code says nothing, so the stream alone decides failure.
 func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent func(piEvent) error, logs ...wire.StreamLog) (res wire.Result, _ error) {
 	t := &piTurn{open: map[string]string{}, sink: sink, lg: wire.PickLog(logs), res: &res, onMeaningful: onMeaningful, onEvent: onEvent}
+	defer t.flushLog()
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
 	if err != nil {
@@ -70,6 +71,7 @@ type piTurn struct {
 	res          *wire.Result
 	answer       []string // one entry per assistant message that spoke
 	cur          strings.Builder
+	logLine      strings.Builder
 	stop         string // the last assistant message's stop reason; only the last one decides the run
 	errMsg       string // and its error message
 	assistant    bool
@@ -124,12 +126,15 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 	case "message_update":
 		return t.delta(ev)
 	case "tool_execution_start":
+		t.flushLog()
+		t.lg.Emit("tool", ev.ToolName)
 		t.progressed = true
 		t.open[ev.ToolCallID] = ev.writePath()
 		return t.sink.Emit(wire.ToolEvent(ev.ToolName, ev.ToolCallID))
 	case "tool_execution_end":
 		return t.toolEnd(ev)
 	case "auto_retry_start":
+		t.flushLog()
 		ts.Retry(nil)
 		text := fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxAttempts, ev.DelayMs)
 		t.lg.Emit("retry", text)
@@ -145,6 +150,7 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 }
 
 func (t *piTurn) toolEnd(ev piEvent) error {
+	t.flushLog()
 	path := cmp.Or(t.open[ev.ToolCallID], ev.writePath())
 	delete(t.open, ev.ToolCallID)
 	status := "completed"
@@ -153,6 +159,7 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 	} else if path != "" {
 		t.res.Written = append(t.res.Written, path)
 	}
+	t.lg.Emit("tool", ev.ToolName+": "+status)
 	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID}, Status: status})
 }
 
@@ -199,8 +206,31 @@ func (t *piTurn) delta(ev piEvent) error {
 	sep := t.cur.Len() == 0 && len(t.answer) > 0
 	t.cur.WriteString(d)
 	t.progressed = true
-	t.lg.Emit("assistant", d)
+	t.logDelta(d)
 	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: d, Sep: sep})
+}
+
+// logDelta keeps token boundaries out of the log without delaying foreground text events.
+func (t *piTurn) logDelta(text string) {
+	if t.lg == nil {
+		return
+	}
+	for text != "" {
+		line, rest, newline := strings.Cut(text, "\n")
+		t.logLine.WriteString(line)
+		if !newline {
+			return
+		}
+		t.flushLog()
+		text = rest
+	}
+}
+
+func (t *piTurn) flushLog() {
+	if t.logLine.Len() > 0 {
+		t.lg.Emit("assistant", t.logLine.String())
+		t.logLine.Reset()
+	}
 }
 
 func (t *piTurn) messageEnd(ev piEvent) error {
@@ -208,6 +238,7 @@ func (t *piTurn) messageEnd(ev piEvent) error {
 	if m == nil || m.Role != "assistant" {
 		return nil
 	}
+	t.flushLog()
 	if text := strings.TrimSpace(t.cur.String()); text != "" {
 		t.answer = append(t.answer, text)
 	}
@@ -219,8 +250,6 @@ func (t *piTurn) messageEnd(ev piEvent) error {
 	u.CacheCreationTokens += tu.CacheWrite
 	u.OutputTokens += tu.Output
 	u.CostUSD += tu.Cost.Total
-	t.lg.Emit("result", fmt.Sprintf("message finished (%s), tokens in=%d out=%d cache_write_1h=%d",
-		cmp.Or(m.StopReason, "unknown"), tu.Input, tu.Output, tu.CacheWrite1h))
 	t.assistant, t.stop, t.errMsg = true, m.StopReason, m.ErrorMessage
 	return nil
 }
@@ -230,7 +259,7 @@ func (t *piTurn) text() string {
 	return strings.TrimSpace(strings.Join(append(slices.Clone(t.answer), t.cur.String()), "\n"))
 }
 
-// stopFailure classifies a stop reason (pi-ai StopReason): stop succeeds, everything else, unknown ones included, fails.
+// stopFailure accepts only pi-ai's stop reason "stop"; unknown reasons fail.
 func stopFailure(reason, errMsg string) string {
 	switch reason {
 	case "stop":
@@ -262,6 +291,7 @@ func (t *piTurn) failure() string {
 
 // finish settles the run once; without agent_settled (a cut-off stream) even a clean-looking run is an error.
 func (t *piTurn) finish(settled bool) error {
+	t.flushLog()
 	if t.finished {
 		return nil
 	}

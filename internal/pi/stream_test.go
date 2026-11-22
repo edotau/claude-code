@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -213,6 +214,70 @@ func TestParseEventsTextDeltaArray(t *testing.T) {
 	if err != nil || res.Answer != "ok" {
 		t.Fatalf("answer %q err %v", res.Answer, err)
 	}
+}
+
+func TestParseEventsLogCoalescesLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.log")
+	log := wire.NewLogSink(path)
+	defer log.Close()
+	data := textDelta("I") + textDelta(" had\na sec") + textDelta("ond line\nlast") +
+		msgEnd("toolUse", "") +
+		`{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"c1","toolName":"read"}` + "\n" +
+		textDelta("done") + msgEnd("stop", "") + settled
+	sink := &collectSink{}
+	res, err := parseEvents(bufio.NewReader(strings.NewReader(data)), sink, nil, nil,
+		wire.EventLogFor(wire.WithLogEvents(t.Context(), log)))
+	log.Close()
+	if err != nil || res.Answer != "I had\na second line\nlast\ndone" {
+		t.Fatalf("answer = %q, err = %v", res.Answer, err)
+	}
+	got, err := os.ReadFile(path)
+	want := "▸ assistant: I had\n▸ assistant: a second line\n▸ assistant: last\n" +
+		"▸ tool: read\n▸ tool: read: completed\n▸ assistant: done\n"
+	if err != nil || string(got) != want {
+		t.Fatalf("log = %q, err = %v; want %q", got, err, want)
+	}
+	var chunks []string
+	for _, ev := range sink.evs {
+		if ev.Type == wire.EventText {
+			chunks = append(chunks, ev.Text)
+			if ev.Sep != (ev.Text == "done") {
+				t.Errorf("text event separator changed: %+v", ev)
+			}
+		}
+	}
+	counts := []int{sink.count(wire.EventToolUse), sink.count(wire.EventToolResult)}
+	if !slices.Equal(chunks, []string{"I", " had\na sec", "ond line\nlast", "done"}) || !slices.Equal(counts, []int{1, 1}) {
+		t.Fatalf("foreground events changed: %+v", sink.evs)
+	}
+}
+
+func TestParseEventsLogFlushesPartialText(t *testing.T) {
+	for name, tail := range map[string]string{
+		"EOF": "", "decode error": `{"type":1}` + "\n",
+		"delta error": `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":{}}}` + "\n",
+		"retry":       `{"type":"auto_retry_start","attempt":1,"maxAttempts":2}` + "\n",
+		"tool":        `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var lines []string
+			lg := func(kind, text string) { lines = append(lines, kind+": "+text) }
+			_, err := parseEvents(bufio.NewReader(strings.NewReader(textDelta("par")+textDelta("tial")+tail)),
+				wire.Discard, nil, nil, lg)
+			if err == nil || len(lines) == 0 || lines[0] != "assistant: partial" {
+				t.Fatalf("log = %q, err = %v; want partial text before any boundary or error", lines, err)
+			}
+			if strings.Count(strings.Join(lines, "\n"), "assistant: partial") != 1 {
+				t.Fatalf("partial text logged more than once: %q", lines)
+			}
+		})
+	}
+}
+
+func textDelta(text string) string {
+	raw, _ := json.Marshal(text)
+	return `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":` + string(raw) + "}}\n"
 }
 
 func TestDeltaTextShapes(t *testing.T) {
