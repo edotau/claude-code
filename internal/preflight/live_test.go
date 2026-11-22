@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -290,7 +291,16 @@ func TestRunProfilePongsFailRowWhenNonePong(t *testing.T) {
 }
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+// nopT lets TestMain install the default stub; it has no test to clean up after.
+type nopT struct{}
+
+func (nopT) Helper()        {}
+func (nopT) Cleanup(func()) {}
+
+func TestMain(m *testing.M) {
+	copilotauth.StubRead(nopT{}, nil, nil) // no Copilot snapshot, as when copilot is not linked
+	os.Exit(hosttest.Main(m))
+}
 
 func BenchmarkPrintFixRows(b *testing.B) {
 	ps := []Pin{{Status: StatusOK}, {Status: statusStale}, {Status: StatusOK}, {Status: statusUnserved}}
@@ -388,15 +398,14 @@ func TestCachePongStoresFailureKind(t *testing.T) {
 }
 
 func TestStaleGithubRows(t *testing.T) {
-	old, now := router.GithubCatalogTime, time.Now()
-	t.Cleanup(func() { router.GithubCatalogTime = old })
+	now := time.Now()
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
 		"gh": {Name: "gh", Provider: "github", Login: "me"}, "nologin": {Name: "nologin", Provider: "github"}}}
 	for _, c := range []struct {
 		at   time.Time
 		want int
 	}{{time.Time{}, 1}, {now.Add(-48 * time.Hour), 1}, {now.Add(-time.Minute), 0}} {
-		router.GithubCatalogTime = func(*providers.Provider) time.Time { return c.at }
+		copilotauth.StubRead(t, nil, func(string) time.Time { return c.at })
 		if got := len(staleGithubRows(reg, now, false)); got != c.want {
 			t.Errorf("snapshot at %v: %d stale rows, want %d", c.at, got, c.want)
 		}

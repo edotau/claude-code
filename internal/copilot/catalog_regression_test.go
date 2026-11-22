@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/copilot/sdk"
 
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -23,7 +24,7 @@ func catalogScratch(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	t.Setenv("COPILOT_HOME", t.TempDir())
-	for _, key := range copilotTokenEnvs {
+	for _, key := range copilotauth.TokenEnvs {
 		t.Setenv(key, "")
 	}
 	pathstest.FakeVendor(t, "copilot", "exit 0")
@@ -35,7 +36,7 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	vaulttest.SetRecord(t, "copilot", "profile", "account-a")
 	regressionWrite(t, filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), "github.com:\n    users:\n        account-a:\n            oauth_token: ignored\n    user: account-a\n")
 	regressionWrite(t, filepath.Join(os.Getenv("COPILOT_HOME"), "config.json"), `{"lastLoggedInUser":{"login":"account-b"}}`)
-	if auth, ok := copilotAuthSource(); !ok || auth.Account != "account-a" {
+	if auth, ok := copilotauth.AuthSource(); !ok || auth.Account != "account-a" {
 		t.Fatalf("auth = %+v, %v; want account-a pinned", auth, ok)
 	}
 	old := sdkListModels
@@ -49,7 +50,7 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
 		t.Fatalf("refreshCatalog = %v, %v; listings = %d; want refusal before listing account-b", got, err, calls)
 	}
-	if _, found, err := vault.ReadSecret(catalogRecord); err != nil || found {
+	if _, found, err := vault.ReadSecret(copilotauth.CatalogRecord); err != nil || found {
 		t.Fatalf("snapshot found = %v, err = %v; want no mislabeled snapshot", found, err)
 	}
 }

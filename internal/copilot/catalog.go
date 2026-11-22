@@ -7,25 +7,24 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilot/sdk"
 
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ListModels lists the GitHub Copilot catalog through the SDK on the launch account's token (never BYOK).
 func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
-	_, tok, _, err := catalogAuth("")
+	_, tok, _, err := copilotauth.CatalogAuth("")
 	if err != nil {
 		return nil, err
 	}
@@ -78,74 +77,25 @@ func copilotCapabilities(m SDKModel) string {
 	return strings.Join(parts, " · ")
 }
 
-// catalogRecord is the sealed vault record holding the latest GitHub Copilot catalog snapshot, any account.
-const catalogRecord = "copilot-catalog"
-
-// accountRecord is account's own snapshot record, so two GitHub login rows never evict each other's listing.
-func accountRecord(account string) string { return catalogRecord + "/" + account }
-
-// catalogSnapshot is the sealed catalog of one GitHub auth (account, credential source and token digest).
-type catalogSnapshot struct {
-	Schema  int
-	Account string
-	Source  string
-	// sha256 of the token listed with; a changed token (e.g. env) must not reuse the catalog
-	TokenHash    string
-	DiscoveredAt time.Time
-	Models       []SDKModel
-}
-
-// readCatalogSnapshot is the sealed snapshot for auth and tok; ok false on a miss, another account or a vault error.
-func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
-	raw, found, err := vault.ReadSecret(accountRecord(auth.Account))
-	if err != nil || !found {
-		return catalogSnapshot{}, false
-	}
-	var s catalogSnapshot
-	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() ||
-		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != textutil.SHA256Hex([]byte(tok)) {
-		return catalogSnapshot{}, false
-	}
-	return s, true
-}
-
-// catalogToken is auth's listing token; a gh-sourced account without one errors, never another account's catalog.
-func catalogToken(auth copilotAuth) (string, error) {
-	tok, _ := copilotToken(auth)
-	if tok == "" && (auth.Source == srcPinned || auth.Source == srcActive) {
-		return "", fmt.Errorf("copilot: no token for GitHub account %s; refusing to list another account's catalog", auth.Account)
-	}
-	return tok, nil
-}
-
-// catalogAuth is the account a listing runs on: login's gh account, else the pin's; ok false = the CLI's own login.
-func catalogAuth(login string) (auth copilotAuth, tok string, ok bool, err error) {
-	if auth, ok, err = launchAuth(login); err != nil || !ok {
-		return auth, "", false, err
-	}
-	tok, err = catalogToken(auth)
-	return auth, tok, true, err
-}
-
 // saveCatalogSnapshot seals the snapshot under its account's record and catalogRecord.
-func saveCatalogSnapshot(s catalogSnapshot) error {
+func saveCatalogSnapshot(s copilotauth.Snapshot[SDKModel]) error {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return errors.New("cannot encode catalog snapshot")
 	}
 	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutSealed(key, accountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
+		if err := tx.PutSealed(key, copilotauth.AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
 			return err
 		}
-		return tx.PutSealed(key, catalogRecord, string(data), "github/copilot", s.DiscoveredAt)
+		return tx.PutSealed(key, copilotauth.CatalogRecord, string(data), "github/copilot", s.DiscoveredAt)
 	})
 }
 
 // Catalog is the current GitHub auth's sealed snapshot (expired: also a detached refresh), else a sealed live listing.
 func Catalog(ctx context.Context) ([]SDKModel, error) {
-	if auth, ok := copilotAuthSource(); ok {
-		if tok, err := catalogToken(auth); err == nil {
-			if s, hit := readCatalogSnapshot(auth, tok); hit {
+	if auth, ok := copilotauth.AuthSource(); ok {
+		if tok, err := copilotauth.CatalogToken(auth); err == nil {
+			if s, hit := copilotauth.ReadSnapshot[SDKModel](auth, tok); hit {
 				if time.Since(s.DiscoveredAt) >= serving.CacheTTL() {
 					spawnCatalogRefresh()
 				}
@@ -154,63 +104,6 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 		}
 	}
 	return refreshCatalog(ctx, "")
-}
-
-var (
-	snapshotMu  sync.Mutex
-	snapshotMap = map[string]catalogIDs{} // per row login, read once per process on its first family name
-)
-
-type catalogIDs struct {
-	ids []string
-	at  time.Time
-}
-
-func init() {
-	router.GithubCatalogIDs = snapshotIDs
-	router.GithubCatalogTime = func(p *providers.Provider) time.Time { return snapshotFor(p).at }
-	router.ResetGithubCatalog = func() {
-		snapshotMu.Lock()
-		defer snapshotMu.Unlock()
-		clear(snapshotMap)
-	}
-}
-
-// snapshotIDs is readSnapshotIDs for p's login, memoized per login.
-func snapshotIDs(p *providers.Provider) []string { return snapshotFor(p).ids }
-
-func snapshotFor(p *providers.Provider) catalogIDs {
-	login := ""
-	if p != nil {
-		login = p.Login
-	}
-	snapshotMu.Lock()
-	defer snapshotMu.Unlock()
-	ids, ok := snapshotMap[login]
-	if !ok {
-		ids = readSnapshotIDs(login)
-		snapshotMap[login] = ids
-	}
-	return ids
-}
-
-// readSnapshotIDs preserves the sealed snapshot timestamp even when no model is enabled.
-func readSnapshotIDs(login string) catalogIDs {
-	auth, tok, ok, err := catalogAuth(login)
-	if !ok || err != nil {
-		return catalogIDs{}
-	}
-	s, hit := readCatalogSnapshot(auth, tok)
-	if !hit {
-		return catalogIDs{}
-	}
-	var ids []string
-	for _, m := range s.Models {
-		if m.Enabled {
-			ids = append(ids, m.ID)
-		}
-	}
-	return catalogIDs{ids: ids, at: s.DiscoveredAt}
 }
 
 // spawnCatalogRefresh starts a detached discovery for copilot's own GitHub profile, when the registry names one.
@@ -227,7 +120,7 @@ func spawnCatalogRefresh() {
 // refreshCatalog lists live on login's account ("" = the launch account's) and seals it, whatever the snapshot's age.
 func refreshCatalog(ctx context.Context, login string) ([]SDKModel, error) {
 	// read once, so the listing and its seal name the same account
-	auth, tok, ok, err := catalogAuth(login)
+	auth, tok, ok, err := copilotauth.CatalogAuth(login)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +131,7 @@ func refreshCatalog(ctx context.Context, login string) ([]SDKModel, error) {
 	if !ok {
 		return list, nil
 	}
-	snap := catalogSnapshot{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: textutil.SHA256Hex([]byte(tok)),
+	snap := copilotauth.Snapshot[SDKModel]{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: textutil.SHA256Hex([]byte(tok)),
 		DiscoveredAt: time.Now().UTC(), Models: list}
 	if err := saveCatalogSnapshot(snap); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: catalog snapshot not saved: %v\n", err)

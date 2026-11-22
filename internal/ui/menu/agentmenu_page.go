@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
@@ -420,7 +421,7 @@ func copilotMenu(d *dialog) agentMenu {
 	plan := agent.AuthPlan(ctx, "copilot", auth)
 	auth.Account = cmp.Or(auth.Account, plan.Account)
 	st := loginOrKey(d, loggedIn, plan)
-	if auth.Source == copilot.SrcStoredToken {
+	if auth.Source == copilotauth.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
 	chain := copilot.RouteChain(ctx, d.reg)
@@ -429,7 +430,7 @@ func copilotMenu(d *dialog) agentMenu {
 	}
 	who := "gh active"
 	if auth.Account != "" {
-		who = auth.Account + " · " + copilot.ShortSource(auth.Source)
+		who = auth.Account + " · " + copilotauth.ShortSource(auth.Source)
 	}
 	rows := []billingRow{
 		{"Subscription", strings.TrimSpace("GitHub Copilot "+plan.Name) + " " + bracket(loggedIn, who, "not logged in"), modeSubscription, func() bool {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -167,7 +168,7 @@ func TestCopilotLaunchTokenForTargetLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, providers.CopilotTokenEnv, "stored-expired")
-	if a, ok := authSourceFor("work"); !ok || a.Account != "work" || a.token == "stored-expired" {
+	if a, ok := copilotauth.AuthSourceFor("work"); !ok || a.Account != "work" || a.Token == "stored-expired" {
 		t.Fatalf("target login lost to the stored token: %+v ok=%v", a, ok)
 	}
 	if _, err := copilotLaunchTokenFor("nobody"); err == nil {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -712,9 +713,10 @@ func familyEnv(t *testing.T) (*providers.Registry, *int) {
 		t.Fatal(err)
 	}
 	reads := 0
-	prev := router.GithubCatalogIDs
-	router.GithubCatalogIDs = func(*providers.Provider) []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
-	t.Cleanup(func() { router.GithubCatalogIDs = prev })
+	copilotauth.StubRead(t, func(string) []string {
+		reads++
+		return []string{"gpt-6.1-sol", "gpt-6.2-sol"}
+	}, nil)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

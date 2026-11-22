@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -87,15 +88,12 @@ func rotationCandidates(reg *providers.Registry, agentName string, p *providers.
 		}
 		return driverRunnable(agentName, p, cands)
 	}
-	if router.GithubCatalogIDs == nil {
-		return nil
-	}
 	var out []catalog.Candidate
 	var probes map[string]serving.CheckResult
 	if tools {
 		probes, _ = catalog.LoadCheckCache(p.Name)
 	}
-	for _, id := range router.GithubCatalogIDs(p) {
+	for _, id := range copilotauth.IDs(p) {
 		if catalog.ID(id) != AutoModel { // Copilot's own auto router is no model to rotate onto
 			out = append(out, catalog.Candidate{Model: id, Tools: probes[catalog.ID(id)].Tools})
 		}
@@ -297,7 +295,7 @@ func freshRotation(p *providers.Provider, now time.Time) bool {
 		listing, _ := endpoints.Load(p.Name)
 		return listing.Fresh(now)
 	}
-	return router.GithubCatalogTime != nil && now.Sub(router.GithubCatalogTime(p)) < serving.CacheTTL()
+	return now.Sub(copilotauth.Time(p)) < serving.CacheTTL()
 }
 
 // rotationPick keeps a cold listing on the tier fallback and refuses an exhausted fresh pool.

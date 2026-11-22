@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -147,7 +148,7 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
 	detail, workable := pinnedHeadroom(ctx, "")
-	if a, ok := copilotAuthSource(); ok && workable {
+	if a, ok := copilotauth.AuthSource(); ok && workable {
 		if p, ok := copilotGithubRow(reg); ok {
 			model, _ := providers.CopilotModel(reg)
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: model,
@@ -203,7 +204,7 @@ func RouteChain(ctx context.Context, reg *providers.Registry) []RouteStep {
 	if p := reg.Providers[pin]; p != nil && p.Preset == providers.PresetDatabricks {
 		steps = append(steps, RouteStep{Label: "databricks-" + pin, When: "pinned", OK: p.DatabricksUsable()})
 	}
-	a, ok := copilotAuthSource()
+	a, ok := copilotauth.AuthSource()
 	gh := "GitHub"
 	if a.Account != "" {
 		gh += " " + a.Account
@@ -619,11 +620,11 @@ var effortModels = cachedEffortModels
 
 // Model capabilities are account-independent; this read must not discover or resolve launch credentials.
 func cachedEffortModels() []SDKModel {
-	raw, found, err := vault.ReadSecret(catalogRecord)
+	raw, found, err := vault.ReadSecret(copilotauth.CatalogRecord)
 	if err != nil || !found {
 		return nil
 	}
-	var snap catalogSnapshot
+	var snap copilotauth.Snapshot[SDKModel]
 	if json.Unmarshal([]byte(raw), &snap) != nil || snap.Schema != 1 {
 		return nil
 	}

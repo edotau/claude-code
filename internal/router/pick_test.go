@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -333,7 +334,16 @@ func TestStateRoundTripScopedToConfigDir(t *testing.T) {
 }
 
 // TestMain runs in the hermetic host (hosttest): a test must never read the developer's vault pins.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+// nopT lets TestMain install the default stub; it has no test to clean up after.
+type nopT struct{}
+
+func (nopT) Helper()        {}
+func (nopT) Cleanup(func()) {}
+
+func TestMain(m *testing.M) {
+	copilotauth.StubRead(nopT{}, nil, nil) // no Copilot snapshot, as when copilot is not linked
+	os.Exit(hosttest.Main(m))
+}
 
 // A refresh recording nothing stamps the account checked: picks inside StaleAfter skip the fetch.
 func TestPickBacksOffAfterNoDataRefresh(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -197,7 +198,7 @@ func checkNoGitHubLogin(file string) error {
 		return fmt.Errorf("copilot: read %s: %w", file, err)
 	}
 	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal(commentRE().ReplaceAll(raw, nil), &cfg); err != nil {
+	if err := json.Unmarshal(copilotauth.StripComments(raw), &cfg); err != nil {
 		return fmt.Errorf("copilot: %s is unreadable (%v); delete it to launch in registry mode", file, err)
 	}
 	for _, k := range []string{"loggedInUsers", "lastLoggedInUser", "copilotTokens", "authTokens"} {

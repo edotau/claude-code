@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -457,3 +458,12 @@ func seedPreflightToken(t *testing.T, p *providers.Provider, exp time.Time) {
 		t.Fatal(err)
 	}
 }
+
+// nopT lets TestMain install the default stub; it has no test to clean up after.
+type nopT struct{}
+
+func (nopT) Helper()        {}
+func (nopT) Cleanup(func()) {}
+
+// stubNoCopilot gives every test no Copilot snapshot, as when copilot was not linked.
+func stubNoCopilot() { copilotauth.StubRead(nopT{}, nil, nil) }

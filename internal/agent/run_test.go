@@ -249,6 +249,7 @@ func TestRunStatusAndAttempts(t *testing.T) {
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
+	stubNoCopilot()
 	agentconfig.SetCatalogWarn(io.Discard)
 	StubProxyForTest("http://127.0.0.1:9999", "cct_stub-session")
 	StubRefreshListingForTest() // a stale listing would otherwise claim a discover marker

@@ -17,9 +17,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -295,8 +295,10 @@ func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads := 0
-	router.GithubCatalogIDs = func(*providers.Provider) []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
-	t.Cleanup(func() { router.GithubCatalogIDs = nil })
+	copilotauth.StubRead(t, func(string) []string {
+		reads++
+		return []string{"gpt-6.1-sol", "gpt-6.2-sol"}
+	}, nil)
 	reg := routeRegistry(t)
 	for _, c := range []struct{ agent, row, want string }{
 		{"codex", "dev", "databricks-gpt-6-2-sol"},

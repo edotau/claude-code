@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
@@ -45,15 +46,6 @@ func FamilyLatest(family string, ids []string) string {
 	}
 	return best
 }
-
-// GithubCatalogIDs lists the ids of the Copilot catalog snapshot kept for row p's account; the copilot package sets it.
-var GithubCatalogIDs func(p *providers.Provider) []string
-
-// GithubCatalogTime is the same cached snapshot's timestamp, zero on a miss.
-var GithubCatalogTime func(p *providers.Provider) time.Time
-
-// ResetGithubCatalog drops the process's memo of those snapshots, so a re-list in a child process is read again.
-var ResetGithubCatalog func()
 
 // FamilyModel is the highest READY runnable version of family on p, else today's id; ids overrides a first-party list.
 func FamilyModel(agent, family string, p *providers.Provider, ids []string, now time.Time) string {
@@ -102,8 +94,8 @@ func firstPartyIDs(p *providers.Provider) []string {
 	switch {
 	case p == nil:
 		return nil
-	case p.Provider == "github" && GithubCatalogIDs != nil:
-		return GithubCatalogIDs(p)
+	case p.Provider == "github":
+		return copilotauth.IDs(p)
 	case p.Auth.Login == "codex":
 		return providers.CodexCachedIDs()
 	}

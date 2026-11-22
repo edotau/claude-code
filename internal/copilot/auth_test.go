@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -28,7 +29,7 @@ func TestCopilotLaunchTokenRefusesOnRegistryLoadError(t *testing.T) {
 	if err == nil || tok != "" {
 		t.Fatalf("copilotLaunchTokenFor(\"\") = (%q, %v), want an error and no token", tok, err)
 	}
-	if _, got, _, err := catalogAuth(""); err == nil || got != "" {
+	if _, got, _, err := copilotauth.CatalogAuth(""); err == nil || got != "" {
 		t.Errorf("catalogAuth(\"\") = (%q, %v), want an error and no token on a registry load error", got, err)
 	}
 }

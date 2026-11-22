@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -77,7 +77,6 @@ func TestResolveModelFamily(t *testing.T) {
 	vaulttest.Use(t)
 	codexHome := t.TempDir()
 	t.Setenv("CODEX_HOME", codexHome)
-	t.Cleanup(func() { router.GithubCatalogIDs = nil })
 	cache := func(body string) {
 		if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -96,9 +95,11 @@ func TestResolveModelFamily(t *testing.T) {
 	}
 	check("codex", "dev", "sol", "databricks-gpt-6-2-sol")
 	check("codex", "dev", "databricks-gpt-6-1-sol", "databricks-gpt-6-1-sol")
-	router.GithubCatalogIDs = func(*providers.Provider) []string { return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"} }
+	copilotauth.StubRead(t, func(string) []string {
+		return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"}
+	}, nil)
 	check("copilot", "aueric_boehcp", "sol", "gpt-6.2-sol")
-	router.GithubCatalogIDs = func(*providers.Provider) []string { return nil }
+	copilotauth.StubRead(t, nil, nil)
 	check("copilot", "aueric_boehcp", "sol", "gpt-6.1-sol")
 	check("codex", "chatgpt", "sol", "gpt-6.1-sol")
 	cache(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`)

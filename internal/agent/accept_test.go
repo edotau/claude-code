@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -119,11 +119,9 @@ func TestAcceptModelGeminiEffortSuffix(t *testing.T) {
 // R8: a typed id a fresh Copilot catalog snapshot lacks is refused naming the catalog's ids; a cold snapshot is not judged.
 func TestAcceptModelGithubSnapshotRefusesUnlisted(t *testing.T) {
 	vaulttest.Use(t)
-	prevIDs, prevAt := router.GithubCatalogIDs, router.GithubCatalogTime
-	t.Cleanup(func() { router.GithubCatalogIDs, router.GithubCatalogTime = prevIDs, prevAt })
-	router.GithubCatalogIDs = func(*providers.Provider) []string { return []string{"claude-sonnet-5.5", "gpt-6.2-sol"} }
 	at := time.Now()
-	router.GithubCatalogTime = func(*providers.Provider) time.Time { return at }
+	copilotauth.StubRead(t, func(string) []string { return []string{"claude-sonnet-5.5", "gpt-6.2-sol"} },
+		func(string) time.Time { return at })
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

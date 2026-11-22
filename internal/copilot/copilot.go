@@ -20,10 +20,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilotauth"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -428,23 +428,9 @@ func (copilotEngine) FallbackNote(ft providers.Target, note string) (string, boo
 	return note, ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks
 }
 
-func (copilotEngine) Presence(_ context.Context, cell router.Cell) error {
-	if cell.Account != "" && !strings.HasPrefix(cell.Account, "github·") {
-		return nil
-	}
-	u, err := copilotPinLoginErr()
-	if err != nil {
-		return fmt.Errorf("cannot read the provider registry to check the pinned gh user: %w", err)
-	}
-	if u != "" && !slices.Contains(github.GHAccounts(), u) {
-		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
-	}
-	return nil
-}
-
 // Verify is copilot's config.json verdict (copilotStoredLogin), not AuthStatus, so provider rows print as before.
 func (copilotEngine) Verify(context.Context) (providers.AuthVerdict, string) {
-	if l := copilotStoredLogin(); l != "" {
+	if l := copilotauth.StoredLogin(); l != "" {
 		return providers.VerdictOK, "signed in as " + l
 	}
 	return providers.VerdictNeedsLogin, ""

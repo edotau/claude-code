@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	endpoints "github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -64,9 +65,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 			for _, g := range rows {
 				discoverGithub(ctx, g.Name)
 			}
-			if router.ResetGithubCatalog != nil {
-				router.ResetGithubCatalog()
-			}
+			copilotauth.Reset()
 		})
 	}
 	wg.Wait()
@@ -95,7 +94,7 @@ func staleGithubRows(reg *providers.Registry, now time.Time, force bool) []*prov
 	var out []*providers.Provider
 	for _, name := range reg.ProfilesOf("github") {
 		p := reg.Providers[name]
-		if p.Login != "" && router.GithubCatalogTime != nil && (force || now.Sub(router.GithubCatalogTime(p)) >= serving.CacheTTL()) {
+		if p.Login != "" && (force || now.Sub(copilotauth.Time(p)) >= serving.CacheTTL()) {
 			out = append(out, p)
 		}
 	}

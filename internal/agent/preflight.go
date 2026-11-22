@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
@@ -326,11 +327,14 @@ func failFinding(p *providers.Provider, model, check, detail string, now time.Ti
 
 // githubSnapshot is the ids of p's GitHub login's fresh Copilot catalog snapshot; ok false when cold or not a GitHub row.
 func githubSnapshot(p *providers.Provider, now time.Time) (ids []string, ok bool) {
-	if p.Provider != "github" || router.GithubCatalogIDs == nil || router.GithubCatalogTime == nil {
+	if p.Provider != "github" {
 		return nil, false
 	}
-	ids = router.GithubCatalogIDs(p)
-	return ids, len(ids) > 0 && now.Sub(router.GithubCatalogTime(p)) < serving.CacheTTL()
+	if now.Sub(copilotauth.Time(p)) >= serving.CacheTTL() {
+		return nil, false
+	}
+	ids = copilotauth.IDs(p)
+	return ids, len(ids) > 0
 }
 
 // githubUnlisted is a typed id a fresh Copilot catalog snapshot of p's login lacks.
