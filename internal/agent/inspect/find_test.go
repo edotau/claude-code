@@ -323,7 +323,7 @@ func TestFindPrefilterMatchesFullScan(t *testing.T) {
 			t.Fatalf("%+v: prefilter %s, full scan %s", o, a, b)
 		}
 	}
-	if got := findPrefilter(root, []string{"a.txt", "sub/b.txt", "src/code.go"}, FindOptions{Pattern: "freshtoken"}); len(got) != 0 {
-		t.Fatalf("prefilter kept %v", got)
+	if got, err := findSearchFiles(root, FindOptions{Pattern: "freshtoken"}); err != nil || fmt.Sprint(got) != "[untracked.txt]" {
+		t.Fatalf("prefilter kept %v (err %v)", got, err)
 	}
 }

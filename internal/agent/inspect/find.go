@@ -201,13 +201,6 @@ func findSearchFiles(root string, o FindOptions) ([]string, error) {
 	return hits.filter(files), err
 }
 
-func findPrefilter(root string, files []string, o FindOptions) []string {
-	if !findLiteral(o) {
-		return files
-	}
-	return findGitHits(root, o).filter(files)
-}
-
 func findGoMode(o FindOptions) bool { return o.Func || o.Def || o.Callers }
 
 type findHits map[string]bool
