@@ -1,6 +1,7 @@
 package rtkwrap
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -48,16 +49,38 @@ type call struct {
 	cwd            string
 }
 
-// command is the Pi tool-shell command c runs within, or false when any gate keeps c raw.
-func (c call) command() (string, bool) {
-	if c.mode != "on" || !c.pipe {
-		return "", false
+// gate is the Pi tool-shell command c runs within and "" to wrap it, else the reason code that keeps c raw.
+func (c call) gate() (cmd, reason string) {
+	if c.mode != "on" && c.mode != "debug" {
+		return "", "off"
+	}
+	if !c.pipe {
+		return "", "not-pipe"
 	}
 	cmd, ok := c.toolCommand()
-	if !ok || substitutes(cmd) || EnvAltered(cmd) || Vetoed(cmd, c.cwd) {
-		return "", false
+	switch {
+	case !ok:
+		return "", "not-tool-shell"
+	case substitutes(cmd):
+		return "", "substitution"
+	case sourced(cmd):
+		return "", "source-in-line"
+	case EnvAltered(cmd):
+		return "", "env-altered"
 	}
-	return cmd, c.name != "git" || gitRTKSubcommand(c.args) != "commit"
+	return cmd, c.veto(cmd)
+}
+
+// veto is the "veto:<rule>" code when the tool line or this call's own argv trips one, else "".
+func (c call) veto(cmd string) string {
+	rule := cmp.Or(VetoRule(cmd, c.cwd), VetoRule(quoteArgv(c.name, c.args), c.cwd))
+	if c.name == "git" && gitRTKSubcommand(c.args) == "commit" {
+		rule = cmp.Or(rule, "commit")
+	}
+	if rule == "" {
+		return ""
+	}
+	return "veto:" + rule
 }
 
 // toolCommand is the command line when c is the tool shell itself or its direct child; $(...) and make never are.
@@ -85,16 +108,29 @@ func quoteArgv(name string, args []string) string {
 
 // substitutes reports command or process substitution anywhere in cmd: its output feeds the shell, not the model.
 func substitutes(cmd string) bool {
-	return strings.Contains(cmd, "$(") || strings.Contains(cmd, "`") || strings.Contains(cmd, "<(") || strings.Contains(cmd, ">(")
+	_, subs := shell.ExtractSubstitutions(cmd)
+	return len(subs) > 0
 }
 
-// rewriteWraps reports whether rtk's rewrite puts every name segment behind rtk and leaves none bare.
-func rewriteWraps(rewritten, name string) bool {
+// sourced reports a segment running source, `.` or eval: it runs more commands in the tool shell, unseen by the line.
+func sourced(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(rest) > 0 && slices.Contains([]string{"source", ".", "eval"}, rest[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+// rewriteWraps reports whether rtk's rewrite puts this very invocation behind rtk and leaves no name segment bare.
+func rewriteWraps(rewritten, name string, args []string) bool {
 	wrapped := false
+	own := shell.Tokens(quoteArgv(name, args))
 	for _, seg := range shell.Segments(rewritten) {
 		t := shell.Tokens(seg)
 		if len(t) > 1 && t[0] == "rtk" && t[1] == name {
-			wrapped = true
+			wrapped = wrapped || slices.Equal(t[1:], own)
 			continue
 		}
 		if rest, _ := shell.Unwrap(t, ""); len(rest) > 0 && filepath.Base(rest[0]) == name {
@@ -141,20 +177,31 @@ func Main(args []string) int {
 	return exitNoExec
 }
 
-// wrapWith is the rtk to exec for this call, or "" when it runs raw.
+// wrapWith is the rtk to exec for this call, or "" when it runs raw; the decision is logged first.
 func wrapWith(name string, args, dirs []string, self os.FileInfo, env []string) string {
 	cwd, _ := os.Getwd()
-	pid := os.Getpid()
-	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), pipe: stdoutPipe(), pid: pid, ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
-	cmd, ok := c.command()
-	if !ok {
-		return ""
-	}
+	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
 	rtk, _ := resolve(dirs, "rtk", self)
-	if rtk == "" || !rewriteWraps(rtkRewrite(rtk, cmd, env), name) {
+	reason := c.wraps(rtk, env)
+	logDecision(c.mode, name, reason)
+	if reason != "" || c.mode == "debug" {
 		return ""
 	}
 	return rtk
+}
+
+// wraps is "" when every gate passes and rtk's rewrite of the tool line wraps this call, else the reason it stays raw.
+func (c call) wraps(rtk string, env []string) string {
+	cmd, reason := c.gate()
+	switch {
+	case reason != "":
+		return reason
+	case rtk == "":
+		return "rtk-missing"
+	case !rewriteWraps(rtkRewrite(rtk, cmd, env), c.name, c.args):
+		return "rtk-declined"
+	}
+	return ""
 }
 
 func stdoutPipe() bool {

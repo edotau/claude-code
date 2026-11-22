@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ModeEnv switches wrapping: only "on" wraps; the launch reads it from the process env, then the vault env.
+// ModeEnv switches wrapping: "on" wraps, "debug" only logs what would wrap, anything else is off; the launch reads it from the process env, then the vault env.
 const ModeEnv = "RTK_WRAP"
 
 // Names are the shimmed commands: rtk_rewrite_words entries that are real command heads (TestNamesAreRTKWords).
@@ -52,14 +52,15 @@ func Ensure(dir, bin string) error {
 	return nil
 }
 
-// LaunchEnv is env with Dir first on PATH and RTK_WRAP=on when mode is on; any failure notes once and leaves env as is.
+// LaunchEnv is env with Dir first on PATH and RTK_WRAP=<mode> when mode is on or debug; any failure notes once and leaves env as is.
 func LaunchEnv(env []string, mode string, notice io.Writer) []string {
-	if runtime.GOOS == "windows" || !strings.EqualFold(strings.TrimSpace(mode), "on") {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if runtime.GOOS == "windows" || mode != "on" && mode != "debug" {
 		return env
 	}
 	dir := Dir()
 	if err := Ensure(dir, Binary()); err != nil {
-		fmt.Fprintf(notice, "claude-code: %s=on but the rtk shims are unusable (%v); launching without them\n", ModeEnv, err)
+		fmt.Fprintf(notice, "claude-code: %s=%s but the rtk shims are unusable (%v); launching without them\n", ModeEnv, mode, err)
 		return env
 	}
 	path := os.Getenv("PATH")
@@ -71,7 +72,7 @@ func LaunchEnv(env []string, mode string, notice io.Writer) []string {
 		return strings.HasPrefix(kv, ModeEnv+"=")
 	})
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
-	return append(out, "PATH="+dir+string(os.PathListSeparator)+path, ModeEnv+"=on")
+	return append(out, "PATH="+dir+string(os.PathListSeparator)+path, ModeEnv+"="+mode)
 }
 
 // withoutDir is list minus every entry naming dir.

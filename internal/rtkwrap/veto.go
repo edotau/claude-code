@@ -18,9 +18,52 @@ var rtkMachineReadable = sync.OnceValue(func() []string { return shell.GuardWord
 var rtkValueSubcommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_value_subcommands") })
 
 // Vetoed reports whether cmd stays out of rtk: linked-worktree git, machine flags, value git, raw-only go output.
-func Vetoed(cmd, cwd string) bool {
+func Vetoed(cmd, cwd string) bool { return VetoRule(cmd, cwd) != "" }
+
+// VetoRule names the first veto cmd trips ("" when none).
+func VetoRule(cmd, cwd string) string {
+	switch {
 	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git
-	return rtkGitInLinkedWorktree(cmd, cwd) || rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoRaw(cmd)
+	case rtkGitInLinkedWorktree(cmd, cwd):
+		return "linked-worktree"
+	case rtkGitValueVetoed(cmd):
+		return "value-git"
+	case rtkMachineReadableFlag(cmd):
+		return "machine-flag"
+	case rtkGoRaw(cmd):
+		return "go-raw"
+	case rtkFileOutput(cmd):
+		return "file-output"
+	}
+	return ""
+}
+
+// rtkFileOutput: rtk drops file-output flags (`git diff --output=f`, `curl -o f`), so the file is never written.
+func rtkFileOutput(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(t) > 0 && slices.ContainsFunc(t[1:], func(a string) bool { return fileOutputFlag(t[0], a) }) {
+			return true
+		}
+	}
+	return false
+}
+
+func fileOutputFlag(name, a string) bool {
+	switch name {
+	case "git":
+		return a == "--output" || strings.HasPrefix(a, "--output=")
+	case "curl":
+		return shortFlag(a, "oO") || strings.HasPrefix(a, "--output") || strings.HasPrefix(a, "--remote-name")
+	case "wget":
+		return shortFlag(a, "O")
+	}
+	return false
+}
+
+// shortFlag reports a single-dash option cluster (`-sSo`, `-ofile`) holding any letter of set.
+func shortFlag(a, set string) bool {
+	return len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsAny(a[1:], set)
 }
 
 // rtkEnvAltered matches a command that assigns, exports, unsets or clears PATH or HOME (over-matching is safe).
