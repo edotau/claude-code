@@ -190,7 +190,11 @@ func childAlive(path string) bool {
 	}
 	pidText, token, ok := strings.Cut(strings.TrimSpace(string(data)), " ")
 	pid, err := strconv.Atoi(pidText)
-	if !ok || err != nil || pid <= 0 {
+	if ok && err == nil && pid == 0 { // pre-spawn lease: the child may exist until the job's own deadline
+		sec, _ := strconv.ParseInt(token, 10, 64)
+		return time.Now().Before(time.Unix(sec, 0))
+	}
+	if !ok || err != nil || pid < 0 {
 		return true // An unreadable identity must not permit a concurrent replay.
 	}
 	start, err := proc.StartTime(pid)
@@ -233,13 +237,17 @@ var runQueuedJob = func(ctx context.Context, self string, j Job, path string, ou
 	cmd.Stdout, cmd.Stderr = out, out
 	proc.OwnGroup(cmd) // the timeout kills the job's whole group, so its claude child cannot outlive the lock
 	cmd.WaitDelay = proc.ExecWaitDelay
+	deadline, _ := ctx.Deadline()
+	if err := os.MkdirAll(filepath.Dir(childPath(path)), 0o700); err != nil {
+		return err
+	}
+	if err := paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("0 %d\n", deadline.Unix())), 0o600); err != nil {
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	start, err := proc.StartTime(cmd.Process.Pid)
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(childPath(path)), 0o700)
-	}
 	if err == nil {
 		err = paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("%d %s\n", cmd.Process.Pid, start)), 0o600)
 	}

@@ -130,3 +130,26 @@ func TestQueueDeadWorkerWaitsForLiveChild(t *testing.T) {
 		t.Fatal("finished child was not requeued")
 	}
 }
+
+func TestQueueDeadWorkerBeforeChildIdentityHonorsLease(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := Enqueue(Job{Kind: "dream", Key: "today"}); err != nil {
+		t.Fatal(err)
+	}
+	_, path, ok := claimNext(time.Now())
+	if !ok {
+		t.Fatal("nothing claimed")
+	}
+	dead := filepath.Join(filepath.Dir(path), jobName("dream", "today")+".999999.dead.unique")
+	if err := os.Rename(path, dead); err != nil {
+		t.Fatal(err)
+	}
+	write(t, childPath(dead), "0 "+strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10)+"\n")
+	if !requeueDead() || pending() != 0 {
+		t.Fatal("a job inside its spawn lease was replayed")
+	}
+	write(t, childPath(dead), "0 "+strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10)+"\n")
+	if requeueDead() || pending() != 1 {
+		t.Fatal("an expired lease was not requeued")
+	}
+}
