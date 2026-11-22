@@ -29,13 +29,27 @@ import (
 
 // useZeroRootVault points the package at a fresh TempDir vault with HARNESS_VAULT_KEY fixed to 32
 // zero bytes, mirroring vaulttest.Use (unusable here: vaulttest imports this package).
-func useZeroRootVault(t *testing.T) string {
+func useZeroRootVault(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	t.Setenv("CLAUDE_PROFILE", "") // the launching session's marker must not steer a hermetic vault
 	return dir
+}
+
+func BenchmarkViewAt(b *testing.B) {
+	useZeroRootVault(b)
+	if err := Update(func(*Tx) error { return nil }); err != nil {
+		b.Fatal(err)
+	}
+	path := Path()
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := ViewAt(path, func(*Tx) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 // useKeyringVault is a fresh vault whose master key resolves through an in-memory keyring, not the env var.

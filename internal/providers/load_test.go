@@ -449,6 +449,27 @@ func TestLoadSharedFreshUnchangedDoesNotReparse(t *testing.T) {
 	}
 }
 
+func BenchmarkLoadRegistryCold(b *testing.B) {
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	reset := func() {
+		registryContent.Lock()
+		registryContent.doc, registryContent.reg = nil, nil
+		registryContent.Unlock()
+	}
+	b.Cleanup(reset)
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		reset()
+		b.StartTimer()
+		// Calling loadRegistry directly bypasses loadCache and lastChecked.
+		if _, err := loadRegistry(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkLoad(b *testing.B) {
 	settledVault(b)
 	b.ReportAllocs()
