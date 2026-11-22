@@ -70,9 +70,9 @@ Steps 0–3 with these planning mechanics:
    lettered options, Today, Recommended, Blocks and `Answer: —`, ticked when decided), never picked silently or left
    only in prose.
 
-For work spanning sessions: research first (`Explore`, or a carried `gemini` ask), then design interfaces and data flow. A plan
-revised mid-execution records what changed and why, re-checks dependencies and parallel-safe markers, and calls
-out scope growth.
+For work spanning sessions: research first (`Explore`, or a carried `gemini` ask), then design interfaces and data
+flow. A plan revised mid-execution records what changed and why, re-checks dependencies and parallel-safe markers,
+and calls out scope growth.
 
 Before returning, run the self-review checklist (`## Report contract`) and optionally the detector pass on the
 draft (stdin; CLI: `~/.claude/skills/evaluate-code/references/detectors.md`): `claude-code plan assumptions -
@@ -122,8 +122,8 @@ Every phase is:
 - **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
 - **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): the
   main session's `worktree commit --task` ticks it after verifying (`docs-plan-tick`).
-- **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and `findings: <path>#<key>`
-  go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs;
+- **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and
+  `findings: <path>#<key>` go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs;
   `claude-code agents ask --waves <plan>` runs it (template `## Tasks`).
 
 ### Delegation rules
