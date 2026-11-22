@@ -9,11 +9,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // hookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
-const hookBin = "$HOME/.claude/bin/claude-code"
+const hookBin = "$HOME/.claude/bin/" + paths.HookBinaryName
+
+// mainBin is the pre-split hook binary; its stale entries still count as harness-owned.
+const mainBin = "$HOME/.claude/bin/claude-code"
 
 // AgentEnv identifies the agent invoking a hook with a shared payload contract.
 const AgentEnv = "HARNESS_HOOK_AGENT"
@@ -96,7 +100,7 @@ const AsyncFlag = "--async"
 
 // Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
 var harnessCommand = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(hookBin) + ` `)
+	return regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?(?:` + regexp.QuoteMeta(hookBin) + `|` + regexp.QuoteMeta(mainBin) + `) `)
 })
 
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.

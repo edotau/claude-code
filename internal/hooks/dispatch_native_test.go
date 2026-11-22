@@ -24,7 +24,7 @@ import (
 
 // Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
-	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
+	cmdRe := regexp.MustCompile(`(?:claude-code|\.hooks) hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
 	for name, render := range map[string]func() ([]byte, error){"codex": codex.CodexJSON, "copilot": copilot.CopilotJSON} {
 		body, err := render()
 		if err != nil {

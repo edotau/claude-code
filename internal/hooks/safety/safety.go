@@ -260,11 +260,23 @@ func fedIntentVerdict(in *core.Input, cmd string) (core.Decision, string, string
 
 // programName is the basename of the command a segment runs, past rtk, wrappers and assignments.
 func programName(seg string) string {
-	rest, _ := shell.Unwrap(shell.DropRtk(shell.Tokens(seg)), "")
+	rest := unwrapAll(shell.Tokens(seg))
 	if len(rest) == 0 {
 		return ""
 	}
 	return filepath.Base(rest[0])
+}
+
+// unwrapAll drops rtk and wrappers until neither leads (`env rtk timeout 5 X`), bounded like shell nesting.
+func unwrapAll(toks []string) []string {
+	for range 8 {
+		next, _ := shell.Unwrap(shell.DropRtk(toks), "")
+		if slices.Equal(next, toks) {
+			break
+		}
+		toks = next
+	}
+	return toks
 }
 
 func pipedOn(sep string) bool { return sep == "|" || sep == "|&" }
@@ -603,7 +615,11 @@ func inertSegment(seg string) bool {
 	if len(toks) == 0 {
 		return false
 	}
-	inert, ok := inertCommands[toks[0]]
+	name := toks[0]
+	if shell.IsHarnessName(filepath.Base(name)) {
+		name = "claude-code"
+	}
+	inert, ok := inertCommands[name]
 	return ok && inert(toks)
 }
 

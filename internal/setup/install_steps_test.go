@@ -40,8 +40,10 @@ func TestSnapshotPreInstallWarnsLoudlyOnFailure(t *testing.T) {
 func installTestBinary(t *testing.T) {
 	t.Helper()
 	self := filepath.Join(t.TempDir(), "claude-code")
-	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"claude-code", paths.HookBinaryName} { // install refuses without the hooks binary
+		if err := os.WriteFile(filepath.Join(filepath.Dir(self), name), []byte("binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	selfBinary = func() (string, error) { return self, nil }
 }

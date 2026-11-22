@@ -212,7 +212,7 @@ func runsLauncher(args []string, depth int) bool {
 	if len(rest) > 0 && rest[0] == "-" {
 		rest = rest[1:]
 	}
-	if len(rest) > 0 && slices.Contains(launchers(), filepath.Base(rest[0])) {
+	if len(rest) > 0 && launcher(rest[0]) {
 		return true
 	}
 	text, ok := shell.NestedCommand(rest)
@@ -222,12 +222,18 @@ func runsLauncher(args []string, depth int) bool {
 	segs, _ := shell.SegmentsSep(text)
 	for _, seg := range segs {
 		for _, st := range shell.CommandStarts(shell.Tokens(seg)) {
-			if w := skipAssign(st); len(w) > 0 && (slices.Contains(launchers(), filepath.Base(w[0])) || runsLauncher(w, depth+1)) {
+			if w := skipAssign(st); len(w) > 0 && (launcher(w[0]) || runsLauncher(w, depth+1)) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// launcher reports an agent launcher word; .hooks counts as it hands its verbs to claude-code.
+func launcher(word string) bool {
+	name := filepath.Base(word)
+	return slices.Contains(launchers(), name) || shell.IsHarnessName(name)
 }
 
 func skipAssign(w []string) []string {
@@ -270,9 +276,9 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 	var hit *mainOnly
 	shell.EachCommand(cmd, in.CWD, func(dir string, w []string) bool {
 		switch name := filepath.Base(w[0]); {
-		case name == "claude-code" && vaultKey(shell.HarnessArgs(w)):
+		case shell.IsHarnessName(name) && vaultKey(shell.HarnessArgs(w)):
 			hit = &mainOnly{"prints the vault master key", "Only the main session reads it, after the owner approves."}
-		case name == "claude-code" && isLeaf(in) && shell.SecretFlag(shell.HarnessArgs(w)):
+		case shell.IsHarnessName(name) && isLeaf(in) && shell.SecretFlag(shell.HarnessArgs(w)):
 			hit = &mainOnly{"prints a credential's value (--secret)",
 				"A leaf gets credentials at launch: report the vault entry name you need to the main session."}
 		case kubeCLIs()[name] && prodChange(w, cmd):

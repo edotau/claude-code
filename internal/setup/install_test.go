@@ -30,6 +30,9 @@ func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	file := settings.SettingsFile()
 	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: os.ReadFile fails, not ErrNotExist
 		t.Fatal(err)
@@ -117,6 +120,9 @@ func setupCompactFixture(t *testing.T, linked []string) {
 		t.Fatal(err)
 	}
 	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	var dirs []string
 	for _, name := range linked {
 		vendor := agentid.Binary(name)
@@ -226,6 +232,9 @@ func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, se
 		t.Fatal(err)
 	}
 	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", t.TempDir()) // an empty dir: every vendor resolves to "missing", deterministically
 	noWindowsProfile(t)           // windows settings off in both fixtures alike
 	var out bytes.Buffer
@@ -238,6 +247,7 @@ func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, se
 func normalizeVerboseOutput(out, root, self string) string {
 	out = historySnapshotHash.ReplaceAllString(out, "history  <hash> (pre-install snapshot)")
 	out = strings.ReplaceAll(out, self, "$SELF")
+	out = strings.ReplaceAll(out, filepath.Join(filepath.Dir(self), paths.HookBinaryName), "$HOOKS")
 	out = strings.ReplaceAll(out, root, "$ROOT")
 	return out
 }

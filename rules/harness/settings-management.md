@@ -22,6 +22,8 @@ paths:
 
 - A fresh install (file missing) seeds it from `internal/settings/template.json` plus the hook chain in
   `internal/settings/hookspec.go`. `make install` never writes an existing file; its only audit is validity.
+- `claude-code install` refuses when `bin/.hooks` is missing; build both binaries with `make compile` first.
+- `bin/.build-stamp` is shared by both binaries; a mismatch makes `.hooks` hand over to `bin/claude-code`.
 - The launch overlay (`--settings`) fills template `env` keys missing from `settings.json`; a key you set always wins.
 - Host tools live in `internal/agent/tools/deps.go`; `install --tools --missing` (run by `make install`) installs
   only absent ones through `go install`, npm, uv/pipx or, as the fallback, brew and prints ok / installed / skipped
@@ -36,7 +38,7 @@ paths:
 
   ```json
   {"matcher": "Bash", "hooks": [{"type": "command", "async": true, "timeout": 15,
-    "command": "$HOME/.claude/bin/claude-code hook PostToolUse --async"}]}
+    "command": "$HOME/.claude/bin/.hooks hook PostToolUse --async"}]}
   ```
 
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.

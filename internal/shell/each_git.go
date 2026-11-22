@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Uninspectable is EachGit's verb (cwd as target) for nesting past maxNest, unseen code a guard must fail closed on.
@@ -39,9 +41,12 @@ func EachGit(cmd, cwd string, fn gitFn) bool {
 // harnessGlobalFlags take a host and precede the verb: remote.Flag (network/remote/ssh.go), egressFlag (cli/table.go).
 var harnessGlobalFlags = []string{"--host", "--remote"}
 
+// IsHarnessName reports a command basename that runs claude-code: itself or the .hooks binary that hands over to it.
+func IsHarnessName(name string) bool { return name == "claude-code" || name == paths.HookBinaryName }
+
 // HarnessArgs is a claude-code command's verb and its words, past the global host flags; nil for another command.
 func HarnessArgs(words []string) []string {
-	if len(words) == 0 || filepath.Base(words[0]) != "claude-code" {
+	if len(words) == 0 || !IsHarnessName(filepath.Base(words[0])) {
 		return nil
 	}
 	rest := words[1:]
@@ -145,8 +150,8 @@ func inertHarnessVerbs() map[string]bool { walkerOnce.Do(loadWalker); return wal
 
 // inertCommand reports a command whose arguments are text: an inertCommands name or an inertHarnessVerbs verb.
 func inertCommand(toks []string) bool {
-	if filepath.Base(toks[0]) == "claude-code" {
-		return len(toks) > 2 && inertHarnessVerbs()[toks[1]+" "+toks[2]]
+	if args := HarnessArgs(toks); args != nil {
+		return len(args) > 1 && inertHarnessVerbs()[args[0]+" "+args[1]]
 	}
 	return inertCommands()[filepath.Base(toks[0])]
 }
@@ -219,7 +224,8 @@ func (s *segScan) textArg(t, head string) bool {
 	if s.afterGit || s.inert || t == s.done || !commandText(t) {
 		return false
 	}
-	return !strings.HasPrefix(strings.TrimSpace(t), "claude-code ") || runner(head) // claude-code text runs only under a runner
+	first, _, _ := strings.Cut(strings.TrimSpace(t), " ")
+	return !IsHarnessName(filepath.Base(first)) || runner(head) // claude-code text runs only under a runner
 }
 
 // commandText reports a multi-word token that reads as a command line: its first word is git or a shell wrapper.
@@ -237,7 +243,7 @@ func commandText(t string) bool {
 		return false
 	}
 	name := filepath.Base(f[0])
-	return name == "git" || shellWrapperNames()[name] || name == "claude-code" && f[1] == "worktree"
+	return name == "git" || shellWrapperNames()[name] || IsHarnessName(name) && f[1] == "worktree"
 }
 
 // hereString returns the string a bare shell reads from `<<< STR` (also attached `<<<STR`).

@@ -36,6 +36,9 @@ func mainSibling() (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	if real, err := filepath.EvalSymlinks(self); err == nil { // a symlink elsewhere still finds its own siblings
+		self = real
+	}
 	full := filepath.Join(filepath.Dir(self), "claude-code")
 	return full, paths.IsFile(full)
 }

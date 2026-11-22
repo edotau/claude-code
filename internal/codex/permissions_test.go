@@ -133,7 +133,7 @@ func TestCodexApplyPermissionsSafeModeDoesNotUseGate(t *testing.T) {
 	}
 }
 
-const codexGateHooks = `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`
+const codexGateHooks = `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hooks hook PreToolUse --permission-gate"}]}]}}`
 
 func writeCodexTestHooks(t *testing.T, body string) {
 	t.Helper()
@@ -153,10 +153,10 @@ func TestCodexGateInstalled(t *testing.T) {
 		want bool
 	}{
 		{name: "synchronous PreToolUse Bash gate", body: codexGateHooks, want: true},
-		{name: "PostToolUse mention only", body: `{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`},
+		{name: "PostToolUse mention only", body: `{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hooks hook PreToolUse --permission-gate"}]}]}}`},
 		{name: "substring in unrelated command", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo --permission-gate"}]}]}}`},
-		{name: "matcher excludes Bash", body: `{"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate"}]}]}}`},
-		{name: "async gate", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook PreToolUse --permission-gate","async":true}]}]}}`},
+		{name: "matcher excludes Bash", body: `{"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hooks hook PreToolUse --permission-gate"}]}]}}`},
+		{name: "async gate", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hooks hook PreToolUse --permission-gate","async":true}]}]}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

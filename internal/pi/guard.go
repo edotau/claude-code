@@ -69,7 +69,9 @@ func renderGuard(bin string, budgetMs int64) ([]byte, error) {
 func WriteGuard(runDir string) (Guard, error) {
 	bin, err := paths.SelfBinary()
 	if err != nil {
-		bin = filepath.Join(paths.BinDir(), "claude-code") // a missing binary makes the guard block every call
+		bin = filepath.Join(paths.BinDir(), paths.HookBinaryName) // a missing binary makes the guard block every call
+	} else {
+		bin = paths.HookBinary(bin)
 	}
 	budget, err := guardBudgetMs()
 	if err != nil {

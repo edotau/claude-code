@@ -33,7 +33,7 @@ describe('dispatch-spawn', () => {
   test('session.start tells the hook the session is ready', async ($, on) => {
     const { runs } = world(on, { exitCode: 0, stdout: '{}' })
     await $.session.start({ cwd: '/r', surface: 'terminal', isInteractive: true })
-    expect(runs[0]!.argv).toEqual(['/h/.claude/bin/claude-code', 'hook', 'PreToolUse', '--dispatch-effort'])
+    expect(runs[0]!.argv).toEqual(['/h/.claude/bin/.hooks', 'hook', 'PreToolUse', '--dispatch-effort'])
     expect(JSON.parse(runs[0]!.stdin)).toEqual({ harness_spawn: 'ready', session_id: 'S1' })
   })
 

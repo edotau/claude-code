@@ -147,7 +147,7 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	return target, nil
 }
 
-// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w), writes the claude launcher, links nothing
+// installBinaryTarget installs both binaries and the stamp before writing the claude launcher.
 func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
@@ -157,6 +157,9 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	if !sameFile(self, target) {
 		fmt.Fprintf(w, "copy     %s → %s\n", self, target)
 		if !dryRun {
+			if err := os.Remove(filepath.Join(paths.BinDir(), paths.StampFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return "", err
+			}
 			data, err := os.ReadFile(self)
 			if err == nil {
 				err = paths.AtomicWrite(target, data, 0o755)
@@ -166,10 +169,47 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 			}
 		}
 	}
+	if err := installBinarySiblings(w, self, dryRun); err != nil {
+		return "", err
+	}
 	if err := writeClaudeLauncher(w, target, dryRun); err != nil {
 		return "", err
 	}
 	return target, nil
+}
+
+func installBinarySiblings(w io.Writer, self string, dryRun bool) error {
+	for _, file := range []struct {
+		name string
+		mode fs.FileMode
+	}{{paths.HookBinaryName, 0o755}, {paths.StampFile, 0o644}} {
+		source := filepath.Join(filepath.Dir(self), file.name)
+		target := filepath.Join(paths.BinDir(), file.name)
+		if sameBytes(source, target) {
+			continue
+		}
+		data, err := os.ReadFile(source)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "copy     %s → %s\n", source, target)
+		if !dryRun {
+			if err := paths.AtomicWrite(target, data, file.mode); err != nil {
+				return err
+			}
+		}
+	}
+	if !dryRun {
+		if _, err := os.Stat(filepath.Join(paths.BinDir(), paths.HookBinaryName)); errors.Is(err, fs.ErrNotExist) {
+			return errors.New("hooks binary is missing; build both binaries with make compile")
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // claudeLauncherScript is bin/claude: the harness launch, or native claude when claude-code is gone.

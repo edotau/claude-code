@@ -5,8 +5,13 @@ paths:
 ---
 # Hooks System
 
-Hooks run as `claude-code hook <Event> [--<module>|--all|--async]`. **`internal/settings/hookspec.go` is the only
-place a hook is declared** (one `Spec` per invocation); handlers live in `internal/hooks/`. To add, remove or retime
+Hooks run as `$HOME/.claude/bin/.hooks hook <Event> [--<module>|--all|--async]`.
+`make compile` builds this hooks-only binary beside `claude-code` with one shared stamp in `bin/.build-stamp`.
+Non-hook verbs or a stamp mismatch after a partial install hand over to `bin/claude-code`, preserving behavior.
+The safety scanner treats `.hooks` exactly like `claude-code`.
+
+**`internal/settings/hookspec.go` is the only place a hook is declared** (one `Spec` per invocation).
+Handlers live in `internal/hooks/`. To add, remove or retime
 one, edit both and run `make install` for projections; an existing Claude `settings.json` needs a hand edit
 (`settings-management.md`). `claude-code agents sync` re-renders each agent's native hook and config files;
 `agents sync --check` exits 1 when one is stale.

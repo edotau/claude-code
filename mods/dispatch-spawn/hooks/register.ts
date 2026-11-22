@@ -7,7 +7,7 @@ const ANSWER_KEYS = ['description', 'prompt', 'subagentType', 'model']
 
 type SpawnAnswer = Readonly<Record<string, string>>
 
-const hookArgv = (home: string): string[] => [`${home}/.claude/bin/claude-code`, ...HOOK_ARGS]
+const hookArgv = (home: string): string[] => [`${home}/.claude/bin/.hooks`, ...HOOK_ARGS]
 
 const run = (payload: object) => ({ stdin: JSON.stringify(payload), timeoutMs: QUERY_TIMEOUT_MS })
 

@@ -164,7 +164,7 @@ func dataSegment(seg string, runs, keepCommit bool) bool {
 		return false
 	}
 	name := filepath.Base(toks[0])
-	if name == "claude-code" {
+	if shell.IsHarnessName(name) {
 		return claudeCodeData(toks, keepCommit)
 	}
 	if judge, ok := dataJudges[name]; ok {
@@ -435,7 +435,11 @@ func hardDataSegment(seg string, runs bool) bool {
 	if len(toks) == 0 || runs && slices.ContainsFunc(toks, func(t string) bool { return strings.Contains(t, ">") }) {
 		return false
 	}
-	judge, ok := hardDataCommands[filepath.Base(toks[0])]
+	name := filepath.Base(toks[0])
+	if shell.IsHarnessName(name) {
+		name = "claude-code"
+	}
+	judge, ok := hardDataCommands[name]
 	return ok && judge(toks)
 }
 

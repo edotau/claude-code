@@ -378,11 +378,7 @@ const claudePrintHint = "headless claude print runs skip dispatch records, routi
 // claudePrintRun reports whether a chain segment launches a headless claude print run (-p/--print).
 func claudePrintRun(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		w, _ := shell.Unwrap(shell.Tokens(seg), "")
-		for len(w) > 0 && filepath.Base(w[0]) == "rtk" {
-			w, _ = shell.Unwrap(w[1:], "")
-		}
-		if len(w) > 0 && claudePrintArgs(filepath.Base(w[0]), w[1:]) {
+		if w := unwrapAll(shell.Tokens(seg)); len(w) > 0 && claudePrintArgs(filepath.Base(w[0]), w[1:]) {
 			return true
 		}
 	}
@@ -391,7 +387,7 @@ func claudePrintRun(cmd string) bool {
 
 // claudePrintArgs: claude-code takes -p only before its subcommand (after it -p is the vendor's or a profile); claude anywhere.
 func claudePrintArgs(prog string, args []string) bool {
-	if prog != "claude" && prog != "claude-code" {
+	if prog != "claude" && !shell.IsHarnessName(prog) { // .hooks hands -p to claude-code
 		return false
 	}
 	i := slices.IndexFunc(args, func(a string) bool { return a == "-p" || a == "--print" })

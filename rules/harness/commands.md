@@ -105,6 +105,7 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 
 ## Layout
 
+`bin/.hooks` is the hooks-only binary beside `bin/claude-code`; `bin/.build-stamp` records their shared build stamp.
 `CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/harness/<owner>/` (versioned per the
 `internal/schemas` registry; formats migrate on read, `doctor` reports `formats`),
 `state/harness/backups/` (every plaintext backup, via `paths.Backup`);

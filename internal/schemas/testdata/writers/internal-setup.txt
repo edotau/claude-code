@@ -1,5 +1,6 @@
 internal/setup/adopt.go:Record	setup-state
 internal/setup/adopt.go:copyFile	unversioned: foreign: setup backup copy of user files
+internal/setup/install_steps.go:installBinarySiblings	unversioned: foreign: installed hooks binary and build stamp
 internal/setup/install_steps.go:installBinaryTarget	unversioned: foreign: installed binary
 internal/setup/install_steps.go:seedTmuxConf	unversioned: foreign: user tmux.conf
 internal/setup/install_steps.go:writeClaudeLauncher	unversioned: foreign: bin/claude launcher script

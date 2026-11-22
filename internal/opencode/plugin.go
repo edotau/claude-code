@@ -188,7 +188,9 @@ func renderPlugin(bin string, mods []pluginModule) ([]byte, error) {
 func writePlugin() (string, error) {
 	bin, err := paths.SelfBinary()
 	if err != nil {
-		bin = filepath.Join(paths.BinDir(), "claude-code")
+		bin = filepath.Join(paths.BinDir(), paths.HookBinaryName)
+	} else {
+		bin = paths.HookBinary(bin)
 	}
 	body, err := renderPlugin(bin, pluginModules())
 	if err != nil {

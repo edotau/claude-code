@@ -65,7 +65,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 	if n := strings.Count(string(got), foreignMarker); n != 9 {
 		t.Fatalf("expected all 9 foreign groups to survive the render, found %d:\n%s", n, got)
 	}
-	if !strings.Contains(string(got), "claude-code hook PreToolUse --safety-scan") {
+	if !strings.Contains(string(got), "bin/.hooks hook PreToolUse --safety-scan") {
 		t.Errorf("rendered codex hooks missing the current harness hook:\n%s", got)
 	}
 }
