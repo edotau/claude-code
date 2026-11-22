@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -242,5 +243,30 @@ func TestReadStampAttemptsField(t *testing.T) {
 	}
 	if st, ok := readStamp(path); !ok || st.attempts != 0 {
 		t.Errorf("three-field stamp = %+v ok=%v", st, ok)
+	}
+}
+
+// Two enqueues of one dream coalesce, and the catch-up sweep drains the single job exactly once.
+func TestCatchUpSweepDrainsCoalescedJobOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var got [][]string
+	origJob, origHist := runQueuedJob, runHistoricalUpdate
+	t.Cleanup(func() { runQueuedJob, runHistoricalUpdate = origJob, origHist })
+	runQueuedJob = func(_ context.Context, _ string, j Job, _ io.Writer) error { got = append(got, j.Args); return nil }
+	runHistoricalUpdate = func(context.Context, string, sweepCand, io.Writer) error { return nil }
+	job := Job{Kind: "dream", Key: "d", Args: []string{"memory", "dream"}}
+	for i, want := range []bool{true, false} {
+		if q, err := Enqueue(job); err != nil || q != want {
+			t.Fatalf("enqueue %d = %v, %v; want queued=%v", i, q, err, want)
+		}
+	}
+	if rc := CatchUpSweep(SweepOptions{Stdout: io.Discard, Stderr: io.Discard}); rc != 0 {
+		t.Fatalf("sweep exit = %d", rc)
+	}
+	if len(got) != 1 || !slices.Equal(got[0], job.Args) {
+		t.Errorf("job runs = %v, want one run of %v", got, job.Args)
+	}
+	if n := pending(); n != 0 {
+		t.Errorf("pending = %d, want 0", n)
 	}
 }
