@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -80,8 +82,11 @@ func Parse(path string) (Plan, error) {
 
 // parseBytes parses b; a checklist item runs from its bullet through its more-indented continuation lines.
 func parseBytes(path string, b []byte) Plan {
-	lines := strings.Split(string(b), "\n")
 	p := Plan{Path: path}
+	if !bytes.Contains(b, []byte("[ ] ")) && !bytes.Contains(b, []byte("[x] ")) && !bytes.Contains(b, []byte("[X] ")) {
+		return p
+	}
+	lines := strings.Split(string(b), "\n")
 	var open fenceOpen // the fence now open, zero when none
 	check := checkLine()
 	for i := 0; i < len(lines); i++ {
@@ -169,8 +174,13 @@ func isFence(line string) bool {
 
 // parseTaskText splits a joined item into id, title and the owns/sha/claim/partial metadata.
 func parseTaskText(text string) (id, title string, owns []string, sha, claim string, partial []string) {
-	for _, m := range commentRe().FindAllStringSubmatch(text, -1) {
-		inner := strings.TrimSpace(m[1])
+	var clean strings.Builder
+	last := 0
+	for _, s := range commentRe().FindAllStringSubmatchIndex(text, -1) {
+		clean.WriteString(text[last:s[0]])
+		clean.WriteByte(' ')
+		last = s[1]
+		inner := strings.TrimSpace(text[s[2]:s[3]])
 		switch {
 		case claimWord().MatchString(inner):
 			claim = inner
@@ -178,7 +188,8 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 			partial = append(partial, textutil.SplitCSV(partialKey().FindStringSubmatch(inner)[1])...)
 		}
 	}
-	cleaned := strings.Join(strings.Fields(commentRe().ReplaceAllString(text, " ")), " ")
+	clean.WriteString(text[last:])
+	cleaned := strings.Join(strings.Fields(clean.String()), " ")
 	if m := shaParen().FindStringSubmatch(cleaned); m != nil {
 		sha = m[1]
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
@@ -187,12 +198,7 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
 	}
 	title = cleaned
-	if id = idPhase().FindString(cleaned); id == "" {
-		id = idLane().FindString(cleaned)
-	}
-	if id == "" {
-		id = idDecision().FindString(cleaned) // an owner decision item, "D2 — ..."
-	}
+	id = cmp.Or(idPhase().FindString(cleaned), idLane().FindString(cleaned), idDecision().FindString(cleaned))
 	if locs := ownsKey().FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
 		masked := ownParen().ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
 		for _, o := range textutil.SplitCSV(masked) { // a comma inside a "(note, more)" does not split
@@ -595,31 +601,51 @@ func mayHaveOpenOwned(b []byte) bool {
 
 // Status summarizes every *.md directly in each dir that carries at least one task, sorted by path.
 func Status(dirs ...string) ([]Summary, error) {
+	files, err := planFiles(dirs)
+	if err != nil {
+		return nil, err
+	}
+	plans, errs := make([]Plan, len(files)), make([]error, len(files))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
+	for i, f := range files {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, f string) {
+			defer wg.Done()
+			plans[i], errs[i] = Parse(f)
+			<-sem
+		}(i, f)
+	}
+	wg.Wait()
 	var out []Summary
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
-		}
-		for _, e := range entries {
-			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") { // a symlink may point outside plans/
-				continue
-			}
-			plan, err := Parse(filepath.Join(dir, e.Name()))
-			if err != nil {
-				return nil, err
-			}
-			if len(plan.Tasks) == 0 {
-				continue
-			}
+	for _, plan := range plans {
+		if len(plan.Tasks) > 0 {
 			out = append(out, summarize(plan))
 		}
 	}
 	slices.SortFunc(out, func(a, b Summary) int { return strings.Compare(a.Path, b.Path) })
+	if err := errors.Join(errs...); err != nil {
+		return nil, err // as before: any unreadable plan fails the whole status
+	}
 	return out, nil
+}
+
+// planFiles lists the regular *.md files directly in each existing dir.
+func planFiles(dirs []string) ([]string, error) {
+	var files []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") { // a symlink may point outside plans/
+				files = append(files, filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	return files, nil
 }
 
 // summarize counts plan's task states and lists its claims.
