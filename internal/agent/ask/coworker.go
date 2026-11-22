@@ -337,11 +337,19 @@ func reportPick(p string, live int, skipped []agent.Finding, err error) (string,
 			count = " (" + strings.Join(parts, ", ") + ")"
 		}
 		fmt.Fprintf(os.Stderr, "overlay: databricks:auto picked %s%s\n", p, count)
+		noteDeadLogin(p)
 	}
 	for _, f := range skipped {
 		fmt.Fprintf(os.Stderr, "preflight: %s failed %s\n", f.Profile, f)
 	}
 	return p, err
+}
+
+// noteDeadLogin says so when the pick is a workspace whose recorded login is dead and no service principal covers it.
+func noteDeadLogin(name string) {
+	if reg, err := providers.Load(); err == nil && reg.Providers[name] != nil && router.LoginDead(reg.Providers[name]) {
+		fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s has a dead login and no service principal; last resort\n", name)
+	}
 }
 
 // Seams of the databricks:auto pick; tests stub them, so no credential, quota state or marker is read.
@@ -356,6 +364,9 @@ var (
 // localArmFindings is p's local preflight (no network): its workspace, then model for agentName when both are known.
 func localArmFindings(p *providers.Provider, agentName, model string, now time.Time) []agent.Finding {
 	fs := agent.CheckWorkspace(p, router.LoadState(), now)
+	if len(fs) > 0 && !slices.ContainsFunc(fs, func(f agent.Finding) bool { return f.Check != "login" }) {
+		fs = nil // a dead login only ranks the workspace last (router.LoginDead); it is not skipped
+	}
 	if agentName == "" {
 		return fs
 	}

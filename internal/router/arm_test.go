@@ -2,6 +2,8 @@ package router
 
 import (
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	dbxserving "github.com/edotau/claude-code/internal/databricks/serving"
 
 	_ "github.com/edotau/claude-code/internal/nonet"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -222,12 +225,25 @@ func rankIs(ranked []string, err error, at map[int]string, n int) bool {
 	return true
 }
 
+// markLoginDead writes the recorded dead-login state of profile name.
+func markLoginDead(t *testing.T, name string) {
+	t.Helper()
+	dir := filepath.Join(paths.StateDir(), "cache", "login-state")
+	mark := `{"schema":1,"state":"needs_login","since":"2026-01-01T00:00:00Z","until":"2999-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(mark), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"ws-a": {Name: "ws-a", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://a.example.com"},
-		"ws-b": {Name: "ws-b", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://b.example.com"},
+		"ws-a": {Name: "ws-a", Provider: "databricks", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: providers.AuthOAuth}, Host: "https://a.example.com"},
+		"ws-b": {Name: "ws-b", Provider: "databricks", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: providers.AuthOAuth}, Host: "https://b.example.com"},
 		"ws-c": {Name: "ws-c", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://c.example.com"},
 		"ws-d": {Name: "ws-d", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://d.example.com"},
 		"ws-e": {Name: "ws-e", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://e.example.com"},
@@ -255,6 +271,16 @@ func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
 	ranked, _, err = RankWorkspaces(reg, baseQ("databricks", map[string]bool{"ws-c": true}, true), now)
 	if !rankIs(ranked, err, map[int]string{0: "ws-a", 4: "ws-c"}, 5) {
 		t.Fatalf("cooling vs fresh rank = %v, %v; want ws-a first, ws-c last", ranked, err)
+	}
+	// A recorded dead user login with no service principal ranks last; one the user identity covers is not demoted.
+	markLoginDead(t, "ws-a")
+	ranked, _, err = RankWorkspaces(reg, baseQ("databricks", nil, false), now)
+	if !rankIs(ranked, err, map[int]string{4: "ws-a"}, 5) {
+		t.Fatalf("dead-login rank = %v, %v; want ws-a last", ranked, err)
+	}
+	reg.Providers["ws-a"].Auth.Type = providers.AuthNone // no oauth login to be dead: back in place
+	if ranked, _, err = RankWorkspaces(reg, baseQ("databricks", nil, false), now); !rankIs(ranked, err, map[int]string{0: "ws-a"}, 5) {
+		t.Fatalf("no-login rank = %v, %v; want ws-a first", ranked, err)
 	}
 	// Non-Databricks multi-profile ranking stays strictly within its provider group.
 	ghRanked, _, err := RankWorkspaces(reg, baseQ("github", map[string]bool{"gh-a": true}, false), now)

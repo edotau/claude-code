@@ -150,8 +150,13 @@ func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[str
 }
 
 func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, counts map[string]int, picks armPicks) map[string]int {
+	dead := map[string]bool{}
+	for _, p := range ps {
+		dead[p.Name] = LoginDead(p)
+	}
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
 		return cmp.Or(
+			cmp.Compare(rank(dead[a.Name]), rank(dead[b.Name])),
 			cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])),
 			cmp.Compare(rank(stale[a.Name]), rank(stale[b.Name])),
 			cmp.Compare(counts[a.Name], counts[b.Name]),
@@ -160,6 +165,12 @@ func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, co
 		)
 	})
 	return counts
+}
+
+// LoginDead reports a recorded dead user login with no service principal to cover it: a pick of p would use that login.
+func LoginDead(p *providers.Provider) bool {
+	_, dead := providers.LoginStatus(p)
+	return dead && (p.Identity == providers.IdentityUser || !providers.SPPresent(p))
 }
 
 func workspaceCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) ([]*providers.Provider, []F, error) {

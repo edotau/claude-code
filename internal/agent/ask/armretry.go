@@ -59,7 +59,7 @@ func (r *askRun) armRun() *armRetry {
 func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 	req.YieldFallback = func(res wire.Result, err error) bool {
 		e, ok := errors.AsType[*retry.Error](err)
-		return (errors.Is(err, agent.ErrPoolExhausted) || ok && e.Kind == retry.KindRateLimit) && agent.HopFailed(res, err) &&
+		return (errors.Is(err, agent.ErrPoolExhausted) || ok && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindAuth)) && agent.HopFailed(res, err) &&
 			armsLeft(a.agentName, a.model, a.strict, a.tried)
 	}
 	return req
@@ -175,22 +175,30 @@ func launched(res wire.Result) bool {
 	return slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return !h.NotStarted })
 }
 
-// next moves a pre-progress 429 or exhausted pool within the auto-picked provider group.
+// next moves a pre-progress 429, auth rejection or exhausted pool within the auto-picked provider group.
 func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req agent.RunOptions) (agent.RunOptions, bool) {
 	if ctx.Err() != nil || !agent.HopFailed(res, err) {
 		return req, false
 	}
-	if errors.Is(err, agent.ErrPoolExhausted) {
-		if req.Repicks >= agent.MaxAutoRepicks || !a.moveExhausted() {
-			return req, false
-		}
-		if launched(res) {
-			req.Repicks++
-		}
-		return req, true
-	}
 	e, ok := errors.AsType[*retry.Error](err)
+	switch {
+	case errors.Is(err, agent.ErrPoolExhausted):
+		return a.repick(res, req, "pool exhausted")
+	case ok && e.Kind == retry.KindAuth:
+		return a.repick(res, req, "auth rejected")
+	}
 	return req, ok && e.Kind == retry.KindRateLimit && a.move(e.RetryAfter)
+}
+
+// repick moves to the next workspace within the shared re-pick cap; a launched hop spends one.
+func (a *armRetry) repick(res wire.Result, req agent.RunOptions, why string) (agent.RunOptions, bool) {
+	if req.Repicks >= agent.MaxAutoRepicks || !a.moveExhausted(why) {
+		return req, false
+	}
+	if launched(res) {
+		req.Repicks++
+	}
+	return req, true
 }
 
 // move cools the workspace that answered 429 and picks the next; false when none is left.
@@ -206,12 +214,12 @@ func (a *armRetry) move(retryAfter time.Duration) bool {
 	return true
 }
 
-func (a *armRetry) moveExhausted() bool {
+func (a *armRetry) moveExhausted(why string) bool {
 	name, err := nextArm(a.agentName, a.model, a.strict, a.tried)
 	if err != nil {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s pool exhausted, trying %s\n", a.current(), name)
+	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s %s, trying %s\n", a.current(), why, name)
 	a.tried = append(a.tried, name)
 	return true
 }
@@ -270,7 +278,7 @@ func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunO
 		}
 		a.hops = append(a.hops, wire.Hop{Agent: a.agentName, Account: "databricks·" + a.current(),
 			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true})
-		if ctx.Err() != nil || !errors.Is(err, agent.ErrPoolExhausted) || !a.moveExhausted() {
+		if ctx.Err() != nil || !errors.Is(err, agent.ErrPoolExhausted) || !a.moveExhausted("pool exhausted") {
 			return nil, err
 		}
 	}

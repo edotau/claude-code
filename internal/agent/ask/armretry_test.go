@@ -456,6 +456,8 @@ func TestArmProbeYieldsOnlyRetryableWorkspaceFailures(t *testing.T) {
 		{"pre-progress 429", retry.KindRateLimit, false, "", []string{"dev"}, true},
 		{"tool progress", retry.KindRateLimit, true, "", []string{"dev"}, false},
 		{"text progress", retry.KindRateLimit, false, "partial", []string{"dev"}, false},
+		{"pre-progress auth", retry.KindAuth, false, "", []string{"dev"}, true},
+		{"auth after tools", retry.KindAuth, true, "", []string{"dev"}, false},
 		{"quota", retry.KindQuota, false, "", []string{"dev"}, false},
 		{"last workspace", retry.KindRateLimit, false, "", []string{"dev", "qa"}, false},
 	} {
