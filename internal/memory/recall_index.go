@@ -64,12 +64,13 @@ func readRecallIndex(path string, key uint64, want map[fileKey]bool) map[fileKey
 	}
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 	body, trailer := data[:len(data)-indexTrailerLen], data[len(data)-indexTrailerLen:]
-	if string(body[:4]) != recallIndexMagic || u32(body[4:]) != recallIndexVersion ||
-		binary.LittleEndian.Uint64(body[8:]) != key || crc32.Checksum(body, indexCRC) != u32(trailer) {
+	if string(body[:4]) != recallIndexMagic || u32(body[4:]) != recallIndexVersion || binary.LittleEndian.Uint64(body[8:]) != key {
 		return make(map[fileKey]indexed)
 	}
+	sumOK := make(chan bool, 1) // the checksum runs beside segment validation; its verdict gates the result
+	go func() { sumOK <- crc32.Checksum(body, indexCRC) == u32(trailer) }()
 	m, ok := readIndexEntries(body[indexHeaderLen:], u32(body[16:]), want)
-	if !ok {
+	if !ok || !<-sumOK {
 		return make(map[fileKey]indexed)
 	}
 	return m
@@ -77,19 +78,36 @@ func readRecallIndex(path string, key uint64, want map[fileKey]bool) map[fileKey
 
 // readIndexEntries decodes count entries; false on mis-framing or trailing bytes, and a bad wanted segment is a miss.
 func readIndexEntries(data []byte, count uint32, want map[fileKey]bool) (map[fileKey]indexed, bool) {
-	m := make(map[fileKey]indexed)
+	var keys []fileKey
+	var entries []indexed
 	for range count {
 		key, entry, rest, ok := readIndexEntry(data)
 		if !ok {
 			return nil, false
 		}
 		data = rest
-		if want != nil && !want[key] || key.mode > segKnowledge || !entry.seg.Valid() {
+		if want != nil && !want[key] || key.mode > segKnowledge {
 			continue
 		}
-		m[key] = entry
+		keys = append(keys, key)
+		entries = append(entries, entry)
 	}
-	return m, len(data) == 0
+	if len(data) != 0 {
+		return nil, false
+	}
+	valid := make([]bool, len(entries)) // each segment is validated on the pool, one slot per entry
+	order := make([]int, len(entries))
+	for i := range order {
+		order[i] = i
+	}
+	forEachIndex(order, func(i int) { valid[i] = entries[i].seg.Valid() })
+	m := make(map[fileKey]indexed, len(entries))
+	for i, key := range keys {
+		if valid[i] {
+			m[key] = entries[i]
+		}
+	}
+	return m, true
 }
 
 // readIndexEntry frames one entry from the front of data and returns the bytes after it; the segment is not validated.

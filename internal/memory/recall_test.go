@@ -625,6 +625,44 @@ func TestRecallPreviewCapsAtWordBoundaries(t *testing.T) {
 
 const benchRecallPrompt = "stage the deploy pipeline staging signoff before router retry policy archive storm"
 
+var benchRecallVocab = strings.Fields("stage deploy pipeline staging signoff rollout router retry policy archive storm native recall " +
+	"memory bank hook gate lint build test review branch commit worktree vault secret provider proxy model agent " +
+	"dispatch wave plan task verify cache index segment latency budget cap")
+
+// benchBankFile writes one aged bank file of about limit bytes and returns its size; id counts blocks across files.
+func benchBankFile(b *testing.B, name string, fi, limit int, wide bool, id *int, ids *[]string, aged time.Time) int {
+	b.Helper()
+	vocab := benchRecallVocab
+	var sb strings.Builder
+	sb.WriteString("# " + filepath.Base(name) + "\n\n")
+	for sb.Len() < limit {
+		words := make([]string, 14)
+		for w := range words { // coprime strides plus one rare token per block keep BM25 scores from tying
+			words[w] = vocab[(fi*131+*id*17+w*29)%len(vocab)]
+		}
+		if wide { // a large vocabulary where the prompt's terms are rare, as in a real bank
+			for w := range words {
+				words[w] = fmt.Sprintf("w%d", (fi*131+*id*17+w*29)%6000)
+			}
+			if *id%40 == 0 {
+				words[0] = vocab[*id%len(vocab)]
+			}
+		}
+		words[len(words)-1] = fmt.Sprintf("tok%d", *id%97)
+		fmt.Fprintf(&sb, "- %s <!-- id:%08x -->\n", strings.Join(words, " "), *id)
+		if *id%25 == 0 {
+			*ids = append(*ids, fmt.Sprintf("%08x", *id))
+		}
+		*id++
+	}
+	p := Path(name + ".md")
+	write(b, p, sb.String())
+	if err := os.Chtimes(p, aged, aged); err != nil {
+		b.Fatal(err)
+	}
+	return sb.Len()
+}
+
 // benchRecallCorpus writes 40 aged bank files (about 300 KB) and a fixed access log; it returns the corpus bytes.
 func benchRecallCorpus(b *testing.B) int {
 	b.Helper()
@@ -632,9 +670,6 @@ func benchRecallCorpus(b *testing.B) int {
 	b.Setenv("HOME", b.TempDir())
 	b.Setenv(UpdateChildEnv, "")
 	b.Setenv("CLAUDE_RECALL_SEMANTIC", "0")
-	vocab := strings.Fields("stage deploy pipeline staging signoff rollout router retry policy archive storm native recall " +
-		"memory bank hook gate lint build test review branch commit worktree vault secret provider proxy model agent " +
-		"dispatch wave plan task verify cache index segment latency budget cap")
 	names := []string{"projectContext", "activeContext", "progress", "decisionLog", "conventions", "sessionHistory"}
 	for i := range 17 {
 		names = append(names, fmt.Sprintf("feedback/feedback-rule-%02d", i), fmt.Sprintf("notes/note-topic-%02d", i))
@@ -643,26 +678,7 @@ func benchRecallCorpus(b *testing.B) int {
 	total, id := 0, 1
 	var ids []string
 	for fi, name := range names {
-		var sb strings.Builder
-		sb.WriteString("# " + filepath.Base(name) + "\n\n")
-		for sb.Len() < 7500 {
-			words := make([]string, 14)
-			for w := range words { // coprime strides plus one rare token per block keep BM25 scores from tying
-				words[w] = vocab[(fi*131+id*17+w*29)%len(vocab)]
-			}
-			words[len(words)-1] = fmt.Sprintf("tok%d", id%97)
-			fmt.Fprintf(&sb, "- %s <!-- id:%08x -->\n", strings.Join(words, " "), id)
-			if id%25 == 0 {
-				ids = append(ids, fmt.Sprintf("%08x", id))
-			}
-			id++
-		}
-		p := Path(name + ".md")
-		write(b, p, sb.String())
-		if err := os.Chtimes(p, aged, aged); err != nil {
-			b.Fatal(err)
-		}
-		total += sb.Len()
+		total += benchBankFile(b, name, fi, 7500, false, &id, &ids, aged)
 	}
 	for i, hid := range ids {
 		logAccess(accessDir(), aged.Add(time.Duration(i)*time.Minute), hid, AccessShow)
@@ -670,11 +686,46 @@ func benchRecallCorpus(b *testing.B) int {
 	return total
 }
 
+// benchRecallBank is benchRecallCorpus grown to a lived-in bank: 250 small notes, 8 archives of 0.2-2 MB (about
+// 7 MB of corpus in 300 files) and a 1.3 MB access log, the shape that makes a hook process read a 15 MB index.
+func benchRecallBank(b *testing.B) int {
+	b.Helper()
+	total := benchRecallCorpus(b)
+	aged := time.Now().Add(-48 * time.Hour)
+	id := 1_000_000
+	var ids []string
+	for i := range 250 {
+		total += benchBankFile(b, fmt.Sprintf("notes/bulk-note-%03d", i), 100+i, 2000, true, &id, &ids, aged)
+	}
+	for i, kb := range []int{200, 250, 300, 450, 700, 900, 1400, 2000} {
+		total += benchBankFile(b, fmt.Sprintf("archive/archive-%02d", i), 400+i, kb*1000, true, &id, &ids, aged)
+	}
+	var sb strings.Builder
+	for i := 0; sb.Len() < 1_300_000; i++ {
+		fmt.Fprintf(&sb, "%s -- %s -- memory show\n", aged.Add(time.Duration(i)*time.Second).UTC().Format(time.RFC3339),
+			ids[i%len(ids)])
+	}
+	logPath := AccessLogPath(accessDir())
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(sb.String()); err != nil {
+		b.Fatal(err)
+	}
+	return total
+}
+
 func benchRecallColdWarm(b *testing.B, run func()) {
-	for _, cold := range []bool{true, false} {
-		name := map[bool]string{true: "cold", false: "warm"}[cold]
-		b.Run(name, func(b *testing.B) {
-			bytes := benchRecallCorpus(b)
+	for _, tc := range []struct {
+		name   string
+		cold   bool
+		corpus func(*testing.B) int
+	}{{"cold", true, benchRecallCorpus}, {"warm", false, benchRecallCorpus}, {"bank", false, benchRecallBank}} {
+		cold := tc.cold
+		b.Run(tc.name, func(b *testing.B) {
+			bytes := tc.corpus(b)
 			idx := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 			run()
 			b.ReportAllocs()
