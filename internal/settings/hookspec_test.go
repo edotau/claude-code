@@ -41,6 +41,9 @@ func TestIsHarness(t *testing.T) {
 		{"HARNESS_HOOK_AGENT=codex " + hookBin + " hook x", true},
 		{"HARNESS_HOOK_AGENT=vendor_2 " + hookBin + " hook x", true},
 		{"HARNESS_HOOK_VENDOR=codex " + hookBin + " hook x", true}, // the pre-rename marker
+		{"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/.hooks PreToolUse --safety-scan", true},
+		{"$HOME/.claude/bin/.hooks PreToolUse --safety-scan", true},
+		{"$HOME/.claude/bin/.other PreToolUse", false},
 		{"FOO=1 " + hookBin + " hook x", false},
 		{"HARNESS_HOOK_AGENT=codex foreign hook", false},
 		{hookBin + "-other hook x", false},

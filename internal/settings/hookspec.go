@@ -13,11 +13,17 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
-const hookBin = "$HOME/.claude/bin/" + paths.HookBinaryName
+// binDir holds every harness binary; $HOME expands under `sh -c`.
+const binDir = "$HOME/.claude/bin/"
+
+// hookBin is the literal binary reference in harness commands.
+const hookBin = binDir + paths.HookBinaryName
 
 // mainBin is the pre-split hook binary; its stale entries still count as harness-owned.
-const mainBin = "$HOME/.claude/bin/claude-code"
+const mainBin = binDir + "claude-code"
+
+// retiredHookBin is the hooks binary's name before 7fab0ba6d; unmarked entries naming it stay harness-owned.
+const retiredHookBin = binDir + ".hooks"
 
 // AgentEnv identifies the agent invoking a hook with a shared payload contract.
 const AgentEnv = "HARNESS_HOOK_AGENT"
@@ -98,9 +104,11 @@ const AllFlag = "--all"
 // AsyncFlag makes `hook <Event>` run only each module's Async alternatives: the background entry's command.
 const AsyncFlag = "--async"
 
-// Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
+// A HARNESS_HOOK_* marker owns any binary in binDir, so a renamed marker or binary is replaced on render, not kept.
 var harnessCommand = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?(?:` + regexp.QuoteMeta(hookBin) + `|` + regexp.QuoteMeta(mainBin) + `) `)
+	q := regexp.QuoteMeta
+	known := q(hookBin) + `|` + q(mainBin) + `|` + q(retiredHookBin)
+	return regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ (?:` + q(binDir) + `\.?\w+|` + q(mainBin) + `)|` + known + `) `)
 })
 
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // A failed later write must restore every file the plan already changed (hooks.json + config.toml pairs).
@@ -276,5 +277,29 @@ func TestRenderHooksFileRejectsNullExistingObject(t *testing.T) {
 	}
 	if string(got) != existing {
 		t.Fatalf("hooks file = %q, want original %q", got, existing)
+	}
+}
+
+// Harness entries of the retired .hooks binary are replaced by the .hookd render; the user entry survives once.
+func TestMergeHooksTopReplacesRetiredHookBinary(t *testing.T) {
+	const old = `HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/.hooks PreToolUse --safety-scan`
+	const fresh = `HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/.hookd PreToolUse --safety-scan`
+	const user = `{"hooks":[{"type":"command","command":"my-guard"}]}`
+	existing := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + old + `"}]},` + user + `]}}`
+	body := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + fresh + `"}]}]}}`
+	classify := func(item json.RawMessage) (*json.RawMessage, bool) {
+		var g settings.MatcherGroup
+		if json.Unmarshal(item, &g) == nil && len(g.Hooks) > 0 && settings.IsHarness(g.Hooks[0].Command) {
+			return nil, true
+		}
+		return &item, false
+	}
+	next, _, err := MergeHooksTop([]byte(existing), []byte(body), classify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(next["hooks"])
+	if strings.Contains(got, "/.hooks ") || strings.Count(got, fresh) != 1 || strings.Count(got, user) != 1 {
+		t.Fatalf("hooks = %s; want one %q and the user group once, no .hooks", got, fresh)
 	}
 }
