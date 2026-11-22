@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -606,5 +607,34 @@ func TestClientTarget(t *testing.T) {
 		if _, _, err := clientTarget(reg, sess, model, "v1/messages"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("clientTarget(%q) = %v; want a refusal naming %s", model, err, want)
 		}
+	}
+}
+
+func TestBuiltinSonnetSwap(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", clientTokenOverlay("http://127.0.0.1:1"))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, sub := reg.Row("dev"), reg.Row("sub")
+	r := &Router{log: io.Discard}
+	for _, c := range []struct {
+		name, model string
+		p           *providers.Provider
+		swap        bool
+	}{
+		{"built-in marked id swaps", "databricks-claude-sonnet-5[1m]", dev, true},
+		{"typed unmarked id stays", "databricks-claude-sonnet-5", dev, false},
+		{"current sonnet stays", "databricks-claude-sonnet-5-5[1m]", dev, false},
+		{"other route stays", "claude-sonnet-5[1m]", sub, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tgt := providers.PlainTarget(c.p, models.Strip1M(c.model))
+			got, ok := r.builtinSonnetSwap(reg, tgt, c.model)
+			if ok != c.swap || (ok && !strings.Contains(got.Model, "sonnet-5-5")) {
+				t.Errorf("swap(%s on %s) = %v %s, want swap=%v", c.model, c.p.Name, ok, got.Model, c.swap)
+			}
+		})
 	}
 }

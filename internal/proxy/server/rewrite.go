@@ -56,6 +56,10 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 		return providers.Target{}, model, false
 	}
 	target := parsed
+	if served, ok := r.builtinSonnetSwap(reg, target, model); ok {
+		r.noteSwap(target.Provider.Name, target.Model, served.Model, "Claude Code's built-in Sonnet 5, not pinned or typed")
+		target = served
+	}
 	if err := fableRefusal(reg, target); err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, model, false
@@ -66,6 +70,24 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 		return target, model, false
 	}
 	return target, model, true
+}
+
+// builtinSonnetSwap is the profile's current Sonnet for Claude Code's own `[1m]`-marked Sonnet 5 on Databricks; a pinned
+// or typed Sonnet 5 never carries the marker (Claude 5+ is 1M by default), so it is not swapped (R8).
+func (r *Router) builtinSonnetSwap(reg *providers.Registry, t providers.Target, raw string) (providers.Target, bool) {
+	if t.Provider.SpellingRule() != "databricks-serving" || !models.Has1M(strings.TrimSpace(raw)) {
+		return providers.Target{}, false
+	}
+	asked, _, ok := models.Resolve(t.Model)
+	if !ok || asked != "claude-sonnet-5" {
+		return providers.Target{}, false
+	}
+	sel, err := providers.Select(reg, t.Provider.Name)
+	cur := sel.Aliases[models.Sonnet]
+	if err != nil || cur.Provider != t.Provider || models.ModelKey(cur.Model) == asked {
+		return providers.Target{}, false
+	}
+	return cur, true
 }
 
 // clientTarget is the client's model on the session profile; a prefixed model is a 400 naming the path form.
