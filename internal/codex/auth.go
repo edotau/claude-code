@@ -58,8 +58,8 @@ func authFileKey() (authKey, bool) {
 }
 
 var (
-	authData  paths.Memo[authKey, []byte]
-	authState paths.Memo[authKey, providers.AuthState] // one probe per key at a time; a bare-path key is the soft entry
+	authData  = paths.NewMemo[authKey, []byte]("codex.auth")
+	authState = paths.NewMemo[authKey, providers.AuthState]("codex.authstate") // one probe per key at a time; a bare-path key is the soft entry
 )
 
 // authSoftTTL bounds how long a keyring-backed signed-in result is reused without an auth.json to stat.

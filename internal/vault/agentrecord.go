@@ -297,7 +297,7 @@ var OwnLoginProfiles = map[string]string{
 }
 
 // agentRecordCache holds the decoded records while the vault file's stamp holds; a write changes the stamp.
-var agentRecordCache paths.StampCache[map[string]AgentRecord]
+var agentRecordCache = paths.NewStampCache[map[string]AgentRecord]("vault.agentrecord")
 
 // loadAgentRecords is the one vault open behind ReadAgentRecords; a var so tests count the opens.
 var loadAgentRecords = func() (recs map[string]AgentRecord, err error) {

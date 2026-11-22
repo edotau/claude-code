@@ -71,7 +71,7 @@ type ghActiveTokenKey struct {
 type ghActive struct{ account, token string }
 
 // ghActiveTokenMemo keeps a found account until SwitchGH, a `gh auth token` failure for authMemoNegativeTTL.
-var ghActiveTokenMemo paths.Memo[ghActiveTokenKey, ghActive]
+var ghActiveTokenMemo = paths.NewMemo[ghActiveTokenKey, ghActive]("github.activetoken")
 
 // errGHTokenFailed is a `gh auth token` failure that is not a timeout, so it is worth remembering.
 var errGHTokenFailed = errors.New("gh auth token failed")
@@ -155,9 +155,9 @@ func KeepAuth(v string, _ error) time.Duration {
 
 var (
 	// keyed by the token's sha256, never the token
-	gitHubLoginMemo paths.Memo[string, string]
+	gitHubLoginMemo = paths.NewMemo[string, string]("github.login")
 	// keyed by account plus gh's environment and hosts.yml stamp
-	ghTokenMemo paths.Memo[string, string]
+	ghTokenMemo = paths.NewMemo[string, string]("github.token")
 )
 
 // GitHubLogin asks api.github.com/user who token belongs to (memoized per token); "" on any failure.

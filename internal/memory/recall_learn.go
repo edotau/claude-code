@@ -33,7 +33,7 @@ func recallLearningPath() string {
 	return filepath.Join(paths.MemoryStateDir(), "recall-learning.json")
 }
 
-var learnedBoosts paths.StampCache[map[string]float64]
+var learnedBoosts = paths.NewStampCache[map[string]float64]("memory.learnedboosts")
 
 func recallWeights() map[string]float64 {
 	path := recallLearningPath()

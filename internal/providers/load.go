@@ -59,7 +59,7 @@ func RoutingOverlay() (Routing, error) {
 }
 
 // loadCache holds the merged registry per vault.db stamp; Load hands out clones so callers may mutate freely.
-var loadCache paths.StampCache[*Registry]
+var loadCache = paths.NewStampCache[*Registry]("providers.load")
 
 var registryContent struct {
 	sync.Mutex

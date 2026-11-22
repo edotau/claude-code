@@ -692,7 +692,7 @@ func ownLoginKeep(_ bool, err error) time.Duration {
 type ownLoginKey struct{ key, env string }
 
 // InvalidateOpencodeAuth drops it; a probe in flight then is not kept
-var ownLogin paths.Memo[ownLoginKey, bool]
+var ownLogin = paths.NewMemo[ownLoginKey, bool]("opencode.ownlogin")
 
 // OpencodeOwnLoginPresent checks stored Go/Zen login or vault key, reusing the answer for ownLoginTTL.
 func OpencodeOwnLoginPresent() bool {

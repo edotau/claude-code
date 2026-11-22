@@ -105,7 +105,7 @@ type servedRead struct {
 	ok bool
 }
 
-var servedCache paths.StampCache[servedRead]
+var servedCache = paths.NewStampCache[servedRead]("serving.served")
 
 // Shared returns profile's cached listing without copying Models; callers must treat Models as read-only.
 func Shared(profile string) (Served, bool) {

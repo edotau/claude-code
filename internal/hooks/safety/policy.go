@@ -24,7 +24,7 @@ type policy struct {
 }
 
 var (
-	policyCache    paths.StampCache[policy]
+	policyCache    = paths.NewStampCache[policy]("safety.policy")
 	templatePolicy = sync.OnceValue(func() policy {
 		var doc struct {
 			Permissions settings.PermissionLists `json:"permissions"`

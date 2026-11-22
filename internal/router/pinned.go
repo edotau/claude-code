@@ -324,7 +324,7 @@ func SkipDiscovery(ctx context.Context, agent string, pool func() []string, p *p
 }
 
 // poolCache holds the vault's Discovery pool overlay per vault.db stamp.
-var poolCache paths.StampCache[[]string]
+var poolCache = paths.NewStampCache[[]string]("router.pool")
 
 // warnedPool limits the unusable-overlay warning to one per process.
 var warnedPool sync.Once

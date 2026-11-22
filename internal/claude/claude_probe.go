@@ -17,7 +17,7 @@ type claudeProbe struct {
 }
 
 // claudeProbeMemo is single-flight; only a logged-in answer is kept, so the recheck after a login sees it.
-var claudeProbeMemo paths.Memo[struct{}, claudeProbe]
+var claudeProbeMemo = paths.NewMemo[struct{}, claudeProbe]("claude.probe")
 
 // claudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
 func claudeLoginProbe() (loggedIn bool, plan string, err error) {

@@ -177,7 +177,7 @@ func AliasTier(alias string) string {
 
 var tierAlias = map[string]string{"fast": models.Haiku, "standard": models.Sonnet, "deep": models.Opus}
 
-var fitCache paths.StampCache[*Fit]
+var fitCache = paths.NewStampCache[*Fit]("catalog.fit")
 
 // LoadFit is the learned table, or nil when there is none or it cannot be read (a pick never fails on it).
 func LoadFit() *Fit {

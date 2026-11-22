@@ -39,7 +39,7 @@ func TestSudoDeniedOnlyForWholeSudoRows(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		policyCache = paths.StampCache[policy]{}
+		policyCache = paths.NewStampCache[policy]("safety.policy")
 		if got := sudoDenied(); got != want {
 			t.Errorf("%s: sudoDenied = %v, want %v", deny, got, want)
 		}

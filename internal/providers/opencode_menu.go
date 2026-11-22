@@ -31,7 +31,7 @@ func OpencodeMenuFromVault() bool {
 }
 
 // menuCache holds the vault menu per vault.db stamp; vaultOpencodeMenu hands out clones.
-var menuCache paths.StampCache[[]OpencodeModel]
+var menuCache = paths.NewStampCache[[]OpencodeModel]("providers.opencodemenu")
 
 // warnedMenu limits the unusable-overlay warning to one per process.
 var warnedMenu sync.Once

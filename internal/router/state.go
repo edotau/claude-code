@@ -135,7 +135,7 @@ type State map[string]Entry
 func StatePath() string { return filepath.Join(paths.StateDir(), "quota.json") }
 
 // stateCache holds quota.json's decoded state per file stamp; LoadState hands out clones.
-var stateCache paths.StampCache[State]
+var stateCache = paths.NewStampCache[State]("router.state")
 
 // LoadState reads quota.json; missing, corrupt or newer-schema reads as empty, never an error a pick must handle.
 func LoadState() State {

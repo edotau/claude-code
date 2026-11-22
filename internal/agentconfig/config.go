@@ -61,7 +61,7 @@ func configOverlay() ([]byte, error) {
 }
 
 // configCache holds the merged config per vault.db stamp; LoadConfig hands out clones.
-var configCache paths.StampCache[*Config]
+var configCache = paths.NewStampCache[*Config]("agentconfig.config")
 
 // LoadConfig merges the embedded defaults with configOverlay and returns defaults alone when it's absent.
 func LoadConfig() (*Config, error) {

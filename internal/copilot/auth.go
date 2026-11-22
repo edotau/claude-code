@@ -172,7 +172,7 @@ var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 	return agent.ProbeCLI(agent.ProbeContext(ctx, "copilot"), "gh", spec, false, "api", "/copilot_internal/user")
 }
 
-var copilotPlanMemo paths.Memo[string, string]
+var copilotPlanMemo = paths.NewMemo[string, string]("copilot.plan")
 
 // copilotRawPlan asks GitHub which Copilot plan account holds ("individual_pro"; 3 s cap); "" when offline.
 func copilotRawPlan(account, token string) string {

@@ -16,6 +16,12 @@ type Memo[K comparable, V any] struct {
 	m       map[K]*memoEntry[V]
 	sweepAt int    // map size that triggers the next sweep of expired entries
 	seq     uint64 // settle counter: orders entries by when they settled
+	stats   *cacheStats
+}
+
+// NewMemo returns a Memo whose hit, miss, refresh and eviction counts show in CacheStats under name.
+func NewMemo[K comparable, V any](name string) *Memo[K, V] {
+	return &Memo[K, V]{stats: registerStats(name)}
 }
 
 // memoSweepMin is the slack added after each sweep: a map never sweeps before it holds this many more entries.
@@ -58,8 +64,14 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 func (m *Memo[K, V]) claim(key K) (e *memoEntry[V], joined bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if e := m.m[key]; e != nil && (!e.settled || e.until.IsZero() || memoNow().Before(e.until)) {
-		return e, true
+	old := m.m[key]
+	if old != nil && (!old.settled || old.until.IsZero() || memoNow().Before(old.until)) {
+		m.stats.hit()
+		return old, true
+	}
+	m.stats.miss()
+	if old != nil {
+		m.stats.refresh()
 	}
 	if m.m == nil {
 		m.m = map[K]*memoEntry[V]{}
@@ -107,6 +119,7 @@ func (m *Memo[K, V]) sweep() {
 	for k, e := range m.m {
 		if !e.until.IsZero() && !now.Before(e.until) {
 			delete(m.m, k)
+			m.stats.evict(1)
 		}
 	}
 	m.sweepAt = 2*len(m.m) + memoSweepMin
@@ -126,6 +139,7 @@ func (m *Memo[K, V]) evict() {
 			return // every entry is a run in flight
 		}
 		delete(m.m, oldest)
+		m.stats.evict(1)
 	}
 }
 

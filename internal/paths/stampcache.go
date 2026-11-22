@@ -33,6 +33,13 @@ type stamp struct {
 type StampCache[T any] struct {
 	mu sync.Mutex
 	m  map[string]stampEntry[T]
+
+	stats *cacheStats
+}
+
+// NewStampCache returns a StampCache whose counts show in CacheStats under name.
+func NewStampCache[T any](name string) *StampCache[T] {
+	return &StampCache[T]{stats: registerStats(name)}
 }
 
 type stampEntry[T any] struct {
@@ -49,8 +56,12 @@ func (c *StampCache[T]) Get(path string, load func() (T, error)) (T, error) {
 		e, ok := c.m[path]
 		c.mu.Unlock()
 		if ok && e.stamp == st {
+			c.stats.hit()
 			return e.val, nil
 		}
+		c.countMiss(ok)
+	} else {
+		c.stats.miss()
 	}
 	val, err := load()
 	if err != nil {
@@ -66,6 +77,13 @@ func (c *StampCache[T]) Get(path string, load func() (T, error)) (T, error) {
 		c.mu.Unlock()
 	}
 	return val, nil
+}
+
+func (c *StampCache[T]) countMiss(replaced bool) {
+	c.stats.miss()
+	if replaced {
+		c.stats.refresh()
+	}
 }
 
 // statStamp reads path's stamp; a missing file is the absent stamp, any other stat error is returned.
