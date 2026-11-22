@@ -25,7 +25,7 @@ import (
 type loopOpts struct {
 	queue, decide, record             bool
 	verdicts                          bool
-	benchmark, epoch                  string
+	benchmark, epoch, kind            string
 	oldEpoch, productionPath, subject string
 	top                               int
 	before, after                     string
@@ -47,6 +47,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
 	fs.BoolVar(&l.record, "record", false, "add a scorecard row; a kept --after becomes rolling.txt")
+	fs.StringVar(&l.kind, "kind", "", "with --queue: only items of this kind, fix|weak")
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
@@ -297,6 +298,9 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 		return err
 	}
 	ranked := rank(items, rows, time.Now())
+	if l.kind != "" {
+		ranked = slices.DeleteFunc(ranked, func(it Item) bool { return it.Kind != l.kind })
+	}
 	if l.top > 0 && len(ranked) > l.top {
 		ranked = ranked[:l.top]
 	}

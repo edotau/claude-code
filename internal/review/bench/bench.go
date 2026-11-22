@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -38,6 +39,7 @@ type options struct {
 	count   int
 	re      string
 	base    bool
+	out     string
 	verbose bool
 	json    bool
 	loop    loopOpts
@@ -145,6 +147,7 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 	fs.IntVar(&o.count, "count", 10, "samples per benchmark")
 	fs.StringVar(&o.re, "bench", ".", "benchmark name regexp")
 	fs.BoolVar(&o.base, "base", false, "store the run as a base and as rolling.txt")
+	fs.StringVar(&o.out, "out", "", "also write the run text to this file (one package)")
 	fs.BoolVar(&o.verbose, "v", false, "also show benchmarks that did not move")
 	fs.StringVar(&format, "format", "text", "text|json")
 	loopFlags(fs, &o.loop)
@@ -162,7 +165,24 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 		return o, 2, true
 	}
 	o.json = format == "json"
+	if msg := o.flagConflict(); msg != "" {
+		fmt.Fprintln(stderr, "review bench:", msg)
+		return o, 2, true
+	}
 	return o, 0, false
+}
+
+func (o options) flagConflict() string {
+	l := o.loop
+	switch {
+	case l.kind != "" && !l.queue:
+		return "--kind needs --queue"
+	case l.kind != "" && l.kind != "fix" && l.kind != "weak":
+		return "--kind must be fix|weak"
+	case o.out != "" && (l.queue || l.decide || l.record || l.verdicts):
+		return "--out only applies to a benchmark run"
+	}
+	return ""
 }
 
 func run(o options, stderr io.Writer) (Report, error) {
@@ -174,6 +194,9 @@ func run(o options, stderr io.Writer) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	if o.out != "" && len(pkgs) != 1 {
+		return Report{}, fmt.Errorf("--out needs exactly one benchmark package, got %d", len(pkgs))
+	}
 	rep := header(top, o)
 	for _, p := range pkgs {
 		fmt.Fprintf(stderr, "review bench: %s\n", p)
@@ -182,8 +205,26 @@ func run(o options, stderr io.Writer) (Report, error) {
 			return rep, err
 		}
 		rep.Packages = append(rep.Packages, res)
+		if err := writeOut(o.out, res.File); err != nil {
+			return rep, err
+		}
 	}
 	return rep, nil
+}
+
+// writeOut copies the stored run text to out, atomically; "" is no copy.
+func writeOut(out, runFile string) error {
+	if out == "" {
+		return nil
+	}
+	b, err := os.ReadFile(runFile)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return err
+	}
+	return paths.AtomicWriteNoSync(out, b, 0o644)
 }
 
 func repoTop() (string, error) {

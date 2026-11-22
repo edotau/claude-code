@@ -1,8 +1,11 @@
 package bench
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -128,5 +131,35 @@ func TestWriteRunFileNeverOverwrites(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(file); string(b) != "first" {
 		t.Errorf("run file = %q", b)
+	}
+}
+
+func TestWriteOutCopiesRunText(t *testing.T) {
+	dir := t.TempDir()
+	run := filepath.Join(dir, "run.txt")
+	if err := os.WriteFile(run, []byte("# cpus: 8\nBenchmarkX 1 5 ns/op\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "sub", "before.txt")
+	if err := writeOut(out, run); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(out); !strings.Contains(string(b), "BenchmarkX") {
+		t.Errorf("out = %q", b)
+	}
+	if err := writeOut("", run); err != nil {
+		t.Errorf("empty out: %v", err)
+	}
+}
+
+func TestParseArgsOutAndKindConflicts(t *testing.T) {
+	for _, args := range [][]string{{"--kind", "fix"}, {"--queue", "--kind", "nope"}, {"--queue", "--out", "f"}} {
+		var stderr bytes.Buffer
+		if _, code, done := parseArgs(args, io.Discard, &stderr); code != 2 || !done {
+			t.Errorf("%v: code %d done %v (%s)", args, code, done, stderr.String())
+		}
+	}
+	if o, code, _ := parseArgs([]string{"--out", "f", "--path", "x"}, io.Discard, io.Discard); code != 0 || o.out != "f" {
+		t.Errorf("valid --out: %+v %d", o, code)
 	}
 }

@@ -1,3 +1,4 @@
+internal/review/bench/bench.go:writeOut	unversioned: output: a bench run result written to the --out file the caller names
 internal/review/bench/bench.go:writeRunFile	unversioned: text: a benchmark run and the rolling baseline under state/harness/bench
 internal/review/bench/history.go:appendHistory	bench-history
 internal/review/bench/history.go:recordEpochChanges	unversioned: jsonl: benchmark epoch changes in the scorecard

@@ -189,3 +189,18 @@ func TestRankClosedRules(t *testing.T) {
 		t.Errorf("after 7 days the reverted item must return: %+v", got)
 	}
 }
+
+func TestQueueKindFilter(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var buf strings.Builder
+	if err := runQueue(loopOpts{kind: "weak", top: 5}, false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(buf.String()) != "queue empty" {
+		t.Errorf("--kind weak over fix-only seeds:\n%s", buf.String())
+	}
+	buf.Reset()
+	if err := runQueue(loopOpts{kind: "fix", top: 1}, false, &buf); err != nil || !strings.HasPrefix(buf.String(), "1. [fix]") {
+		t.Errorf("--kind fix: %q %v", buf.String(), err)
+	}
+}
