@@ -2,6 +2,8 @@ internal/review/bench/bench.go:writeOut	unversioned: output: a bench run result 
 internal/review/bench/bench.go:writeRunFile	unversioned: text: a benchmark run and the rolling baseline under state/harness/bench
 internal/review/bench/history.go:appendHistory	bench-history
 internal/review/bench/history.go:recordEpochChanges	unversioned: jsonl: benchmark epoch changes in the scorecard
+internal/review/bench/interleave.go:mergeRuns	unversioned: text: interleaved benchmark rounds merged into before and after run files
 internal/review/bench/loop.go:recordRow	unversioned: jsonl: one scorecard row per loop iteration under state/harness/bench
 internal/review/bench/loop.go:seedFile	unversioned: jsonl: the baseline fix candidates under state/harness/bench
 internal/review/bench/loop.go:writeRolling	unversioned: text: the kept run becomes the package rolling baseline
+internal/review/bench/pending.go:writePending	unversioned: json: lane benchmark baselines and applied or dropped dispositions

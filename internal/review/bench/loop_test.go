@@ -83,22 +83,28 @@ func TestDecideMinRegressionAndTimeWeighted(t *testing.T) {
 	}
 }
 
-func TestRecordAppendsAndAdvancesRolling(t *testing.T) {
+func TestRecordAppendsAndDefersRolling(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
-	after := filepath.Join(t.TempDir(), "after.txt")
-	if err := os.WriteFile(after, []byte("BenchmarkA-8 1 1 ns/op\n"), 0o644); err != nil {
+	_, after := pendingFixture(t, "internal/x/y")
+	rolling := filepath.Join(benchRoot(), "x-y", "rolling.txt")
+	if err := paths.AtomicWrite(rolling, []byte("old baseline"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	l := loopOpts{pkg: "internal/x/y", what: "w", verdict: "kept", after: after, agent: "claude", sha: "abc", attempts: 1}
+	l := loopOpts{pkg: "internal/x/y", what: "w", verdict: "kept", after: after,
+		lane: "bench-xy", agent: "claude", sha: "abc", attempts: 1}
 	if err := recordRow(l); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
-	if err != nil || len(rows) != 1 || rows[0].Pkg != "internal/x/y" || rows[0].Verdict != "kept" || rows[0].Sha != "abc" {
+	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows = %+v", rows)
 	}
-	if b, err := os.ReadFile(filepath.Join(benchRoot(), "x-y", "rolling.txt")); err != nil || !strings.Contains(string(b), "BenchmarkA") {
+	want := Row{At: rows[0].At, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent, Sha: l.sha, Attempts: 1}
+	if rows[0] != want {
+		t.Errorf("row = %+v, want %+v", rows[0], want)
+	}
+	if b, err := os.ReadFile(rolling); err != nil || string(b) != "old baseline" {
 		t.Errorf("rolling.txt = %q, %v", b, err)
 	}
 }

@@ -25,6 +25,8 @@ import (
 type loopOpts struct {
 	queue, decide, record             bool
 	verdicts                          bool
+	pending                           bool
+	lane                              string
 	benchmark, epoch, kind            string
 	oldEpoch, productionPath, subject string
 	top                               int
@@ -38,6 +40,13 @@ type loopOpts struct {
 }
 
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
+	fs.BoolFunc("pending", "list pending lane baselines; optionally filter with --lane and --pkg", func(value string) error {
+		var err error
+		l.pending, err = strconv.ParseBool(value)
+		l.record = l.record || l.pending // Route pending through the existing loop entry point.
+		return err
+	})
+	fs.StringVar(&l.lane, "lane", "", "lane slug required for a kept --after")
 	fs.BoolVar(&l.verdicts, "verdicts", false, "report benchmark verdicts from history; never delete")
 	fs.StringVar(&l.benchmark, "benchmark", "", "exact benchmark name for a scorecard row")
 	fs.StringVar(&l.epoch, "epoch", "", "benchmark file SHA-256 for --benchmark")
@@ -46,7 +55,11 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.subject, "subject", "", "record observed subject state: present|gone")
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
-	fs.BoolVar(&l.record, "record", false, "add a scorecard row; a kept --after becomes rolling.txt")
+	fs.BoolFunc("record", "add a scorecard row; a kept --after waits for its lane to merge", func(value string) error {
+		record, err := strconv.ParseBool(value)
+		l.record = record || l.pending
+		return err
+	})
 	fs.StringVar(&l.kind, "kind", "", "with --queue: only items of this kind, fix|weak")
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
@@ -70,6 +83,8 @@ func runLoop(o options, stdout, stderr io.Writer) int {
 	l := o.loop
 	var err error
 	switch {
+	case l.pending:
+		err = runPending(l, o.json, stdout)
 	case l.verdicts:
 		err = runVerdicts(l, o.json, stdout)
 	case l.queue:
@@ -519,18 +534,6 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 	return code
 }
 
-func advanceRolling(pkg, after string) error {
-	b, err := os.ReadFile(after)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(benchRoot(), pkgDirName(pkg))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return writeRolling(dir, b)
-}
-
 // writeRolling replaces dir/rolling.txt atomically under the package lock.
 func writeRolling(dir string, body []byte) error {
 	file := filepath.Join(dir, "rolling.txt")
@@ -598,7 +601,7 @@ func recordRow(l loopOpts) error {
 		return err
 	}
 	if kept && l.after != "" { // a fix with no benchmark (process init) keeps its baseline as is
-		if err := advanceRolling(l.pkg, l.after); err != nil {
+		if err := recordPending(l, at); err != nil {
 			return err
 		}
 	}
