@@ -623,3 +623,16 @@ func TestRTKRewriteWordsMatchRTK(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudePrintRun(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`claude-code -p "hi"`: true, `claude -p hi`: true, `rtk claude-code --print x`: true,
+		`cd x && env A=1 claude --model m -p hi`: true, `claude-code databricks -p dev`: false,
+		`claude-code codex -p dev`: false, `claude-code agents ask --agent claude hi`: false,
+		`grep -p x f`: false, `claude --help -p`: false, `echo "claude -p hi"`: false,
+	} {
+		if got := claudePrintRun(cmd); got != want {
+			t.Errorf("claudePrintRun(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}

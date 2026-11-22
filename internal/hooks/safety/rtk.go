@@ -31,6 +31,15 @@ func RTKRewrite(in *core.Input) core.Result {
 	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
 		return core.Result{}
 	}
+	res := rtkRewrite(in)
+	if claudePrintRun(in.ToolCommand()) {
+		res.Context = strings.TrimSpace(res.Context + "\n" + claudePrintHint)
+	}
+	return res
+}
+
+// rtkRewrite is RTKRewrite for a Claude Bash call.
+func rtkRewrite(in *core.Input) core.Result {
 	bin := paths.RTKBinary()
 	if bin == "" {
 		return core.Result{}
@@ -362,3 +371,41 @@ func gitRTKSubcommand(args []string) string {
 
 // gitRTKGlobalBoolFlags are git's valueless global options; anything outside it and shell.GitValueOpt is unknown.
 var gitRTKGlobalBoolFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("git_valueless_global_flags") })
+
+const claudePrintHint = "headless claude print runs skip dispatch records, routing and recall; " +
+	"use `claude-code agents ask --agent claude \"<task>\"` instead"
+
+// claudePrintRun reports whether a chain segment launches a headless claude print run (-p/--print).
+func claudePrintRun(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		w, _ := shell.Unwrap(shell.Tokens(seg), "")
+		for len(w) > 0 && filepath.Base(w[0]) == "rtk" {
+			w, _ = shell.Unwrap(w[1:], "")
+		}
+		if len(w) > 0 && claudePrintArgs(filepath.Base(w[0]), w[1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+// claudePrintArgs: claude-code takes -p only before its subcommand (after it -p is the vendor's or a profile); claude anywhere.
+func claudePrintArgs(prog string, args []string) bool {
+	if prog != "claude" && prog != "claude-code" {
+		return false
+	}
+	i := slices.IndexFunc(args, func(a string) bool { return a == "-p" || a == "--print" })
+	if i < 0 || slices.ContainsFunc(args, claudeInfoFlag) {
+		return false
+	}
+	if end := slices.Index(args, "--"); end >= 0 && end < i {
+		return false
+	}
+	return prog == "claude" || !slices.ContainsFunc(args[:i], claudeWord)
+}
+
+func claudeInfoFlag(a string) bool {
+	return a == "-h" || a == "--help" || a == "--version" || a == "-v"
+}
+
+func claudeWord(a string) bool { return !strings.HasPrefix(a, "-") }
