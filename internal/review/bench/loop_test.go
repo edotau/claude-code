@@ -35,21 +35,24 @@ func TestDecide(t *testing.T) {
 	quiet := []Score{{Name: "BenchmarkA-8"}}
 	noisy := []Score{{Name: "BenchmarkA-8", Flags: []string{"noisy"}}}
 	faster := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "B/op": d("~")}}
-	if got := decide(faster, quiet); !got.Keep || len(got.Rows) != 1 {
+	if got := decide(faster, quiet, quiet); !got.Keep || len(got.Rows) != 1 {
 		t.Errorf("faster on quiet run: %+v", got)
 	}
-	if got := decide(faster, noisy); got.Keep {
+	if got := decide(faster, quiet, noisy); got.Keep {
 		t.Errorf("ns/op win on a noisy run kept: %+v", got)
 	}
 	allocs := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "allocs/op": d("-40.00%")}}
-	if got := decide(allocs, noisy); !got.Keep {
+	if got := decide(faster, noisy, quiet); got.Keep {
+		t.Errorf("ns/op win with a noisy before run kept: %+v", got)
+	}
+	if got := decide(allocs, noisy, noisy); !got.Keep {
 		t.Errorf("noisy but allocs improved must keep: %+v", got)
 	}
 	worse := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "B/op": d("+9.00%")}}
-	if got := decide(worse, quiet); got.Keep || !strings.HasPrefix(got.Rows[0], "regressed") {
+	if got := decide(worse, quiet, quiet); got.Keep || !strings.HasPrefix(got.Rows[0], "regressed") {
 		t.Errorf("a regression must revert: %+v", got)
 	}
-	if decide(map[string]map[string]Delta{"A-8": {"sec/op": d("~")}}, quiet).Keep {
+	if decide(map[string]map[string]Delta{"A-8": {"sec/op": d("~")}}, quiet, quiet).Keep {
 		t.Error("no move kept")
 	}
 }
@@ -76,11 +79,18 @@ func TestRecordAppendsAndAdvancesRolling(t *testing.T) {
 
 func TestRecordKeptWithoutAfterKeepsBaseline(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rolling := filepath.Join(benchRoot(), "p", "rolling.txt")
+	if err := os.MkdirAll(filepath.Dir(rolling), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rolling, []byte("BenchmarkOld-8 1 5 ns/op\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := recordRow(loopOpts{pkg: "internal/p", what: "w", verdict: "kept", sha: "abc"}); err != nil {
 		t.Errorf("kept without --after (no benchmark) refused: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(benchRoot(), "p", "rolling.txt")); err == nil {
-		t.Error("kept without --after wrote a rolling baseline")
+	if b, err := os.ReadFile(rolling); err != nil || string(b) != "BenchmarkOld-8 1 5 ns/op\n" {
+		t.Errorf("rolling.txt changed: %q, %v", b, err)
 	}
 }
 

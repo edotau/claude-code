@@ -288,12 +288,21 @@ func isQuiet(s Score) bool {
 	return !slices.Contains(s.Flags, "noisy") && !slices.Contains(s.Flags, "load")
 }
 
-// decide keeps on a significant ns/op win (quiet run) or a significant allocs/op or B/op drop, with no regression.
-func decide(deltas map[string]map[string]Delta, after []Score) Decision {
+func quietBoth(before, after []Score) map[string]bool {
 	quiet := map[string]bool{}
-	for _, s := range after {
+	for _, s := range before {
 		quiet[strings.TrimPrefix(s.Name, "Benchmark")] = isQuiet(s)
 	}
+	for _, s := range after {
+		n := strings.TrimPrefix(s.Name, "Benchmark")
+		quiet[n] = quiet[n] && isQuiet(s)
+	}
+	return quiet
+}
+
+// decide keeps on a significant ns/op win (quiet before and after runs) or a significant allocs/op or B/op drop, with no regression.
+func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
+	quiet := quietBoth(before, after)
 	var win, loss []string
 	for name, units := range deltas {
 		for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
@@ -329,22 +338,36 @@ func loadNoisy(text string) bool {
 	return cpus > 0 && load > cpus/2
 }
 
+// decideFiles reverts on a benchmark or unit that only one run holds, else decides on the benchstat deltas.
+func decideFiles(before, after string) (Decision, error) {
+	bt, err := os.ReadFile(before)
+	if err != nil {
+		return Decision{}, err
+	}
+	at, err := os.ReadFile(after)
+	if err != nil {
+		return Decision{}, err
+	}
+	if miss := missingBench(string(bt), string(at)); len(miss) > 0 {
+		return Decision{Rows: miss}, nil
+	}
+	deltas, err := compare(before, after)
+	if err != nil {
+		return Decision{}, err
+	}
+	return decide(deltas, scoreAll(string(bt), loadNoisy(string(bt))), scoreAll(string(at), loadNoisy(string(at)))), nil
+}
+
 func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 	if l.before == "" || l.after == "" {
 		fmt.Fprintln(stderr, "review bench: --decide needs --before and --after")
 		return 2
 	}
-	text, err := os.ReadFile(l.after)
+	d, err := decideFiles(l.before, l.after)
 	if err != nil {
 		fmt.Fprintln(stderr, "review bench:", err)
 		return 1
 	}
-	deltas, err := compare(l.before, l.after)
-	if err != nil {
-		fmt.Fprintln(stderr, "review bench:", err)
-		return 1
-	}
-	d := decide(deltas, scoreAll(string(text), loadNoisy(string(text))))
 	verdict := "REVERT"
 	if d.Keep {
 		verdict = "KEEP"
@@ -368,7 +391,15 @@ func advanceRolling(pkg, after string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "rolling.txt"), b, 0o644)
+	return writeRolling(dir, b)
+}
+
+// writeRolling replaces dir/rolling.txt atomically under the package lock.
+func writeRolling(dir string, body []byte) error {
+	file := filepath.Join(dir, "rolling.txt")
+	return paths.WithFileLockWithin(file, rollingLock, func() error {
+		return paths.AtomicWriteNoSync(file, body, 0o644)
+	})
 }
 
 func recordRow(l loopOpts) error {

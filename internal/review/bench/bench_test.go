@@ -1,6 +1,11 @@
 package bench
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
 
 const canned = `goos: darwin
 BenchmarkA-8   	  1000000	      1000 ns/op	     64 B/op	       2 allocs/op
@@ -67,5 +72,31 @@ func TestParseMemory(t *testing.T) {
 	}
 	if tot, av := parseMeminfo("MemTotal: 2048 kB\nMemAvailable: 1024 kB\n"); tot != 2 || av != 1 {
 		t.Errorf("meminfo = %d %d", tot, av)
+	}
+}
+
+func TestMissingBenchNamesRemovedBenchmark(t *testing.T) {
+	got := missingBench(canned, "BenchmarkA-8 1 1000 ns/op 64 B/op 2 allocs/op\n")
+	want := "missing after: BenchmarkB-8 ns/op"
+	if len(got) != 2 || !strings.Contains(strings.Join(got, "|"), want) {
+		t.Errorf("missing = %v, want it to hold %q", got, want)
+	}
+	if got := missingBench(canned, canned); len(got) != 0 {
+		t.Errorf("identical runs missing %v", got)
+	}
+}
+
+func TestWriteRunFileNeverOverwrites(t *testing.T) {
+	dir, at := t.TempDir(), time.Now()
+	rep := Report{Mode: "run"}
+	file, err := writeRunFile(dir, at, rep, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeRunFile(dir, at, rep, "second"); err == nil {
+		t.Error("second run in the same second overwrote the first")
+	}
+	if b, _ := os.ReadFile(file); string(b) != "first" {
+		t.Errorf("run file = %q", b)
 	}
 }

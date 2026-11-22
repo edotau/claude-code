@@ -30,6 +30,8 @@ const (
 	slowFlagSec  = 5.0
 	hundred      = 100
 	runTimeout   = 30 * time.Minute
+	waitDelay    = 10 * time.Second
+	rollingLock  = 5 * time.Second
 )
 
 type options struct {
@@ -77,6 +79,7 @@ type PkgResult struct {
 	Compared   bool     `json:"compared"`
 	Stats      RunStats `json:"stats"`
 	Benchmarks []Score  `json:"benchmarks"`
+	Missing    []string `json:"missing,omitempty"`
 }
 
 // Report is the whole run, the input of the improvement loop.
@@ -260,6 +263,8 @@ func goTest(top, pkg string, o options) (out string, stats RunStats, err error) 
 	cmd := exec.CommandContext(ctx, "go", "test", "-run", "^$", "-bench", o.re, "-benchmem",
 		"-count", strconv.Itoa(o.count), "./"+pkg)
 	cmd.Dir = top
+	ownGroup(cmd)
+	cmd.WaitDelay = waitDelay
 	var outb, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &outb, &errb
 	before, start := loadAverage(), time.Now()
@@ -280,12 +285,11 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 	if err != nil {
 		return PkgResult{}, err
 	}
-	// the time keeps a before and an after run on one commit (a dirty-tree A/B) from overwriting each other
-	file := filepath.Join(dir, time.Now().Format("2006-01-02-150405")+"-"+rep.Commit+"-"+rep.Mode+".txt")
 	head := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s", rep.lines(), pkg, o.re, o.count, stats.lines())
 	// "# " keeps run metadata out of benchstat's config keys: a differing key (commit, load) splits files into tables
 	body := "# " + strings.ReplaceAll(strings.TrimSuffix(head, "\n"), "\n", "\n# ") + "\n" + out
-	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+	file, err := writeRunFile(dir, time.Now(), rep, body)
+	if err != nil {
 		return PkgResult{}, err
 	}
 	res := PkgResult{Pkg: pkg, File: file, Stats: stats, Benchmarks: scoreAll(out, rep.NoisyRun)}
@@ -297,13 +301,60 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		}
 		res.Compared = true
 		attach(res.Benchmarks, deltas)
+		if old, err := os.ReadFile(rolling); err == nil {
+			res.Missing = missingBench(string(old), body)
+		}
 	}
 	if o.base {
-		if err := os.WriteFile(rolling, []byte(body), 0o644); err != nil {
+		if err := writeRolling(dir, []byte(body)); err != nil {
 			return res, err
 		}
 	}
 	return res, nil
+}
+
+// writeRunFile creates the run file exclusively; the time and pid keep two runs from overwriting each other.
+func writeRunFile(dir string, at time.Time, rep Report, body string) (string, error) {
+	name := fmt.Sprintf("%s-%s-%s-%d.txt", at.Format("2006-01-02-150405"), rep.Commit, rep.Mode, os.Getpid())
+	file := filepath.Join(dir, name)
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.WriteString(body)
+	return file, errors.Join(werr, f.Close())
+}
+
+// benchUnits lists "benchmark unit" for every metric a run text holds.
+func benchUnits(text string) map[string]bool {
+	_, by := parseSamples(text)
+	out := map[string]bool{}
+	for n, ss := range by {
+		for _, s := range ss {
+			for u := range s.vals {
+				out[n+" "+u] = true
+			}
+		}
+	}
+	return out
+}
+
+// missingBench names the benchmark/unit pairs that only one of the two run texts holds.
+func missingBench(before, after string) []string {
+	b, a := benchUnits(before), benchUnits(after)
+	var out []string
+	for k := range b {
+		if !a[k] {
+			out = append(out, "missing after: "+k)
+		}
+	}
+	for k := range a {
+		if !b[k] {
+			out = append(out, "missing before: "+k)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func compare(old, cur string) (map[string]map[string]Delta, error) {
@@ -461,6 +512,9 @@ func printText(w io.Writer, r Report, verbose bool) {
 			p.Pkg, p.File, st.WallSec, st.UserSec, st.SysSec, st.MaxRSSKB/kbPerMB, st.LoadBefore, st.LoadAfter)
 		if !p.Compared {
 			fmt.Fprintln(w, "  no rolling.txt baseline; run with --base to create one")
+		}
+		for _, m := range p.Missing {
+			fmt.Fprintln(w, "  "+m)
 		}
 		for _, s := range p.Benchmarks {
 			printScore(w, s, verbose)
