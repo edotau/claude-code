@@ -273,7 +273,9 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		return PkgResult{}, err
 	}
 	file := filepath.Join(dir, time.Now().Format("2006-01-02")+"-"+rep.Commit+"-"+rep.Mode+".txt")
-	body := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s%s", rep.lines(), pkg, o.re, o.count, stats.lines(), out)
+	head := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s", rep.lines(), pkg, o.re, o.count, stats.lines())
+	// "# " keeps run metadata out of benchstat's config keys: a differing key (commit, load) splits files into tables
+	body := "# " + strings.ReplaceAll(strings.TrimSuffix(head, "\n"), "\n", "\n# ") + "\n" + out
 	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
 		return PkgResult{}, err
 	}
