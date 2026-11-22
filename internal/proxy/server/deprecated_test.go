@@ -86,7 +86,7 @@ func TestFailoverRecordsInTheScopeTheCLIReads(t *testing.T) {
 	routed := *reg.Providers["dev"]
 	routed.BaseURL, routed.Headers = "https://other.example.com/d/abc/", map[string]string{"X-Tag": "t"}
 	const dep = `{"message":"This endpoint databricks-gpt-5-mini is deprecated."}`
-	r.failover(replyOf(400, dep), providers.Target{Provider: &routed, Model: "databricks-gpt-5-mini"}, true)
+	r.failover(nil, replyOf(400, dep), providers.Target{Provider: &routed, Model: "databricks-gpt-5-mini"}, true)
 	r.bg.Wait()
 	fresh, err := providers.Load()
 	if err != nil {

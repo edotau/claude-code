@@ -54,7 +54,7 @@ type Router struct {
 	reg      *providers.Registry
 	regStamp time.Time
 	regRetry time.Time            // after a failed load, no new load before this instant
-	cool     map[string]time.Time // provider → cooling-down until (after a 429)
+	cool     map[string]time.Time // provider → cooling-down until (after a 429); provider:model → a per-minute-token hold
 	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	deadAt   map[string]time.Time // provider:model → when its dead mark landed in quota.json
 	cred     map[string]time.Time // provider name → present-credential cache expiry (credTTL)
@@ -245,10 +245,16 @@ type attemptLadder struct {
 func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder attemptLadder,
 	clientModel string, count bool) (string, string, int) {
 	var lastErr error
+	tpmHopped := r.tpmFront(&ladder)
 	for i := 0; i < len(ladder.rows); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
 		t := ladder.rows[i]
 		last := i == len(ladder.rows)-1
-		done, err := r.try(w, in, body, t, clientModel, count, last)
+		tin, spare := in, (*tpmSpareSlot)(nil)
+		if last && !tpmHopped {
+			spare = &tpmSpareSlot{find: func() (providers.Target, bool) { return r.tpmHop(t, ladder.lacks(r.now())) }}
+			tin = in.WithContext(context.WithValue(in.Context(), tpmSpareKey{}, spare))
+		}
+		done, err := r.try(w, tin, body, t, clientModel, count, last)
 		if done {
 			r.clearOnSuccess(t.Provider, w.status)
 			return t.Provider.Name, t.Model, i + 1
@@ -258,6 +264,10 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody,
 			return t.Provider.Name, t.Model, i + 1
 		}
 		r.advanceLadder(&ladder, i, err)
+		if next, ok := spare.found(); ok { // failover moved on from the last row only because a spare exists
+			ladder.rows, tpmHopped = append(ladder.rows, next), true
+			r.logTPMHop(t.Provider, next.Provider, t.Model, "429 TPM")
+		}
 	}
 	return exhausted(w, ladder.rows, lastErr)
 }
@@ -560,7 +570,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 	if err != nil {
 		return false, err
 	}
-	if moveOn, hard := r.failover(resp, t, last); moveOn {
+	if moveOn, hard := r.failover(in, resp, t, last); moveOn {
 		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	if unserved(resp, p) {
@@ -608,7 +618,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	if err != nil {
 		return false, err
 	}
-	if moveOn, hard := r.failover(resp, t, last); moveOn {
+	if moveOn, hard := r.failover(in, resp, t, last); moveOn {
 		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	defer resp.Body.Close()

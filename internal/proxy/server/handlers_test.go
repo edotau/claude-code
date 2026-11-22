@@ -378,7 +378,7 @@ func TestExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
 				Header:     http.Header{"Retry-After": []string{"60"}},
 				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"` + msg + `"}}`)),
 			}
-			moveOn, hard := r.failover(resp, target, false)
+			moveOn, hard := r.failover(nil, resp, target, false)
 			if hard {
 				t.Error("an exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
 			}
@@ -400,7 +400,7 @@ func TestFailoverPromptTooLong(t *testing.T) {
 	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1"}}
 	body := `{"message":"prompt is too long: 1177204 tokens > 1000000 maximum","secret":"leak-me"}`
 	resp := &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
-	moveOn, _ := newRouter("s").failover(resp, providers.Target{Provider: p, Model: "m1"}, false)
+	moveOn, _ := newRouter("s").failover(nil, resp, providers.Target{Provider: p, Model: "m1"}, false)
 	if moveOn {
 		t.Fatal("prompt-too-long must not fail over")
 	}

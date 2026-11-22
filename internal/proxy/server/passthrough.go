@@ -227,6 +227,10 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	route string, path *url.URL, model, dialect string, body, original []byte, geminiChat bool) (string, string, string) {
 	tried := map[string]bool{p.Name: true}
 	cur := passthroughHop{p, route, path, body, model, geminiChat}
+	tc := passthroughTPM{in: in, origin: p, dialect: dialect, tried: tried, path: path, original: original}
+	if r.modelCooling(providers.Target{Provider: p, Model: model}) {
+		cur, _ = r.tpmPassthroughHop(&tc, cur, "TPM cooling")
+	}
 	for { // each hop marks a new sibling tried, so passthroughFallback ends the loop
 		target := cur.target()
 		resp, body, retried, err := r.sendHop(in, cur, target, isChatCompletion(dialect, cur.path.Path))
@@ -239,10 +243,12 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			return cur.model, "", cur.p.Name
 		}
 		cur.body = body
-		if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
-			r.coolDown(cur.p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
+		if next, ok := r.after429(&tc, cur, resp); ok {
+			_ = resp.Body.Close()
+			cur = next
+			continue
 		}
-		if passthroughRetryable(in, resp.StatusCode) {
+		if passthroughRetryable(in, resp.StatusCode) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
 			if next, ok := r.nextHop(in, p, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original); ok {
 				_ = resp.Body.Close()
 				cur = next
@@ -253,6 +259,57 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		extra := passthroughDiag(resp, len(cur.body)) + retried
 		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, cur.geminiChat, extra)
 	}
+}
+
+// passthroughTPM is one passthrough's state for its single per-minute-token hop to another workspace.
+type passthroughTPM struct {
+	in       *http.Request
+	origin   *providers.Provider
+	dialect  string
+	tried    map[string]bool
+	path     *url.URL
+	original []byte
+	hopped   bool
+}
+
+// after429 cools cur's row on a 429, plus its model on a per-minute-token one, which hops once; ok: cur moved.
+func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Response) (passthroughHop, bool) {
+	if resp.StatusCode != http.StatusTooManyRequests {
+		return cur, false
+	}
+	peek := peekBody(resp, 64<<10)
+	if !providers.ModelDenied(string(peek)) {
+		r.coolDown(cur.p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
+	}
+	if !tpmLimited(resp.StatusCode, peek) {
+		return cur, false
+	}
+	r.coolModel(providers.Target{Provider: cur.p, Model: cur.model}, resp)
+	if tc.hopped {
+		return cur, false
+	}
+	return r.tpmPassthroughHop(tc, cur, "429 TPM")
+}
+
+// tpmPassthroughHop moves cur to the next workspace in vault order serving its model on the dialect; false keeps cur.
+func (r *Router) tpmPassthroughHop(tc *passthroughTPM, cur passthroughHop, why string) (passthroughHop, bool) {
+	var route string
+	t, ok := r.tpmHop(providers.Target{Provider: cur.p, Model: cur.model}, func(t providers.Target) bool {
+		var fits bool
+		route, fits = r.siblingRoute(t, tc.origin, cur.model, tc.dialect, tc.tried)
+		return fits
+	})
+	if !ok {
+		return cur, false
+	}
+	nP, nRoute, nPath, nBody, nModel, nChat, err := r.preparePassthroughHop(tc.in, t.Provider, route, tc.path,
+		cur.model, tc.dialect, tc.original)
+	if err != nil {
+		return cur, false
+	}
+	tc.tried[t.Provider.Name], tc.hopped = true, true
+	r.logTPMHop(cur.p, t.Provider, cur.model, why)
+	return passthroughHop{nP, nRoute, nPath, nBody, nModel, nChat}, true
 }
 
 func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, route string, path *url.URL,

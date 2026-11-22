@@ -113,7 +113,7 @@ func (a *anthropicWire) round(w *statusWriter, in *http.Request, body []byte) (*
 	if err != nil {
 		return nil, false, err
 	}
-	if moveOn, hard := a.r.failover(resp, a.t, a.last); moveOn {
+	if moveOn, hard := a.r.failover(in, resp, a.t, a.last); moveOn {
 		return nil, false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -398,7 +398,7 @@ func (r *Router) chatRound(w *statusWriter, in *http.Request, t providers.Target
 	if err != nil {
 		return nil, false, err
 	}
-	if moveOn, hard := r.failover(resp, t, last); moveOn {
+	if moveOn, hard := r.failover(in, resp, t, last); moveOn {
 		return nil, false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
 	}
 	defer resp.Body.Close()

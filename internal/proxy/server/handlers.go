@@ -135,7 +135,7 @@ func rejectedAfterRemint(resp *http.Response, p *providers.Provider) bool {
 }
 
 // failover marks denied models dead, cools rate-limited providers, and drains responses when moving on.
-func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (moveOn, hard bool) {
+func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Target, last bool) (moveOn, hard bool) {
 	p := t.Provider
 	r.noteUnserved(p, resp)
 	if tooLong(resp) {
@@ -151,6 +151,10 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 			}
 		} else {
 			r.coolDown(p, resp)
+		}
+		if tpmLimited(resp.StatusCode, peek) {
+			r.coolModel(t, resp)
+			last = last && !tpmSpare(in) // walkAttempts holds a workspace to hop to
 		}
 	}
 	if last || !retryable[resp.StatusCode] {

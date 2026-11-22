@@ -2,8 +2,12 @@ package server
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,4 +144,123 @@ func (r *Router) markDead(t providers.Target) {
 		}
 		r.mu.Unlock()
 	})
+}
+
+// tpmLimited reports a Databricks 429 body naming the workspace's per-minute token budget for the model.
+func tpmLimited(status int, body []byte) bool {
+	if status != http.StatusTooManyRequests {
+		return false
+	}
+	var e struct {
+		Code    string `json:"error_code"`
+		Message string `json:"message"`
+		Error   struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &e)
+	return cmp.Or(e.Code, e.Error.Code) == "REQUEST_LIMIT_EXCEEDED" &&
+		strings.Contains(cmp.Or(e.Message, e.Error.Message), "per minute")
+}
+
+// coolModel holds t's (workspace, model) pair for resp's Retry-After (30 s default, 5 min cap) in r.cool.
+func (r *Router) coolModel(t providers.Target, resp *http.Response) {
+	now := r.now()
+	until := now.Add(retryAfter(resp.Header, now))
+	r.mu.Lock()
+	r.cool[deadKey(t)] = until
+	r.mu.Unlock()
+}
+
+func (r *Router) modelCooling(t providers.Target) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.now().Before(r.cool[deadKey(t)])
+}
+
+// tpmHop is the next usable workspace after cur in vault order that ok accepts; it may leave a session's profile scope.
+func (r *Router) tpmHop(cur providers.Target, ok func(providers.Target) bool) (providers.Target, bool) {
+	reg, err := r.registry()
+	if err != nil || cur.Provider.Preset != providers.PresetDatabricks || cur.Model == "" {
+		return providers.Target{}, false
+	}
+	state, _ := r.routeStateAt()
+	names := reg.ProfilesOf(cur.Provider.Provider)
+	start := slices.Index(names, cur.Provider.Name)
+	for k := range names {
+		p := reg.Providers[names[(start+1+k)%len(names)]]
+		if p == nil || p.Name == cur.Provider.Name || p.Preset != providers.PresetDatabricks {
+			continue
+		}
+		t := providers.Target{Provider: p, Model: cur.Model, ContextTokens: cur.ContextTokens}
+		if _, marked := state.AuthMarked(router.AccountOf(p), r.now()); marked || r.modelCooling(t) ||
+			!r.credentialPresent(p) || !ok(t) {
+			continue
+		}
+		return t, true
+	}
+	return providers.Target{}, false
+}
+
+// logTPMHop writes the one proxy.log line naming a per-minute-token hop, e.g. "dev→qa (429 TPM)".
+func (r *Router) logTPMHop(from, to *providers.Provider, model, why string) {
+	fmt.Fprintf(r.log, "proxy: %s→%s %s (%s)\n", from.Name, to.Name, agentToken(model), why)
+}
+
+// tpmSpareKey carries walkAttempts' *tpmSpareSlot for the ladder's last row into failover.
+type tpmSpareKey struct{}
+
+// tpmSpareSlot finds the last row's per-minute-token hop lazily: only a TPM 429 pays for the lookup.
+type tpmSpareSlot struct {
+	find     func() (providers.Target, bool)
+	t        providers.Target
+	ok, done bool
+}
+
+// found is the hop when failover looked one up and it exists; a nil slot or no lookup is false.
+func (s *tpmSpareSlot) found() (providers.Target, bool) {
+	if s == nil || !s.done {
+		return providers.Target{}, false
+	}
+	return s.t, s.ok
+}
+
+// tpmSpare reports whether in's last ladder row has a workspace to hop to after a TPM 429.
+func tpmSpare(in *http.Request) bool {
+	if in == nil {
+		return false
+	}
+	s, _ := in.Context().Value(tpmSpareKey{}).(*tpmSpareSlot)
+	if s == nil {
+		return false
+	}
+	if !s.done {
+		s.t, s.ok = s.find()
+		s.done = true
+	}
+	return s.ok
+}
+
+// lacks accepts a hop target the ladder does not already hold whose fresh listing, if any, has the model ready.
+func (l attemptLadder) lacks(now time.Time) func(providers.Target) bool {
+	return func(t providers.Target) bool {
+		return !slices.ContainsFunc(l.rows, func(row providers.Target) bool { return row.Provider.Name == t.Provider.Name }) &&
+			!servedUnready(t.Provider, t.Model, now)
+	}
+}
+
+// tpmFront starts a ladder whose first row holds a per-minute-token cool on its model on the next workspace instead.
+func (r *Router) tpmFront(l *attemptLadder) bool {
+	if len(l.rows) == 0 || !r.modelCooling(l.rows[0]) {
+		return false
+	}
+	next, ok := r.tpmHop(l.rows[0], l.lacks(r.now()))
+	if !ok {
+		return false
+	}
+	r.logTPMHop(l.rows[0].Provider, next.Provider, l.rows[0].Model, "TPM cooling")
+	l.rows = slices.Insert(l.rows, 0, next)
+	l.coolingFrom++
+	return true
 }
