@@ -319,7 +319,11 @@ vendor CLI untouched.
   live top-level `--carry` dispatch's level is not counted, so its child has a direct call's depth.
   `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 20,000,000; 0 = no cap; unknown usage counts 0;
-  invalid uses default; it only refuses new nested dispatches, a running one is never stopped). Both resolve env >
+  invalid uses default; it only refuses new nested dispatches, a running one is never stopped). With no
+  `HARNESS_DISPATCH_ID` in its env, a dispatch walks its parent processes once: the nearest ancestor running
+  `claude-code` whose pid and start time match a running record becomes the parent, and that record's depth,
+  permissions and children/tree-token caps apply, so `env -i` inside a leaf no longer makes a top-level dispatch
+  (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.
 - **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,

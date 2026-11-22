@@ -162,14 +162,19 @@ func inheritPermissionsContext(ctx context.Context, p permission.Permissions) (p
 	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
 		return p, fmt.Errorf("unreadable %s from the outer dispatch: %w", DispatchPermissionsEnv, err)
 	}
+	return layerOuter(p, outer), nil
+}
+
+// layerOuter is p under an outer dispatch's policy: outer whole when p is zero, else p plus outer's deny, ask and plan.
+func layerOuter(p, outer permission.Permissions) permission.Permissions {
 	if p.IsZero() {
-		return outer, nil
+		return outer
 	}
 	p.Deny, p.Ask = permission.Union(p.Deny, outer.Deny), permission.Union(p.Ask, outer.Ask)
 	if outer.Mode == permission.PermPlan {
 		p.Mode = permission.PermPlan
 	}
-	return p, nil
+	return p
 }
 
 // WithPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.

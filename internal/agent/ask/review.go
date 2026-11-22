@@ -131,7 +131,8 @@ func reviewModelOptions(name string, o ReviewOptions) (ReviewOptions, error) {
 }
 
 func reviewAuthorModel() string {
-	if id := os.Getenv(proc.DispatchIDEnv); id != "" {
+	_, values := agent.RunValues(context.Background(), nil) // an env-wiped leaf still names its dispatch
+	if id := values[proc.DispatchIDEnv]; id != "" {
 		if record, err := agent.LoadRecord(id); err == nil && record.Model != "" {
 			return record.Model
 		}

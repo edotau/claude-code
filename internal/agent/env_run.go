@@ -80,6 +80,7 @@ func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.V
 			if values[route.OverlayVar] == "" { // an ambient empty overlay must not suppress the stored one
 				delete(values, route.OverlayVar)
 			}
+			values = withAncestorDispatch(values) // an env wipe inside a leaf must not make a top-level dispatch
 		}
 	}
 	return proc.WithValues(ctx, values), values.Merge(nil)

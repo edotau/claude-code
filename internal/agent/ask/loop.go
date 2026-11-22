@@ -527,7 +527,7 @@ var loopExclusive = []string{"batch", "retry", "job", "background", "session", "
 
 func (r *askRun) checkLoopFlags() error {
 	f := r.f
-	if proc.InDispatch(r.ctx) {
+	if vctx, _ := agent.RunValues(r.ctx, nil); proc.InDispatch(vctx) { // the run values see an env-wiped dispatch too
 		return errors.New("--loop runs at top level only: this command runs inside a dispatch")
 	}
 	for _, n := range loopExclusive {

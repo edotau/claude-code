@@ -98,8 +98,11 @@ type Record struct {
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
 	// MaxDepth is the depth cap this dispatch ran under (0 = none); nil is a legacy record, read as the default cap.
-	MaxDepth *int        `json:"max_depth,omitempty"`
-	Usage    *wire.Usage `json:"usage,omitempty"`
+	MaxDepth *int `json:"max_depth,omitempty"`
+	// MaxChildren and MaxTreeTokens are the caps its children inherit; an env-wiped child reads them here.
+	MaxChildren   *int        `json:"max_children,omitempty"`
+	MaxTreeTokens *int        `json:"max_tree_tokens,omitempty"`
+	Usage         *wire.Usage `json:"usage,omitempty"`
 
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 
@@ -280,9 +283,10 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	parent := proc.Value(ctx, proc.DispatchIDEnv)
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.CoworkerContext(ctx)
+	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Route{Provider: provider, Profile: profile},
-		Experiment: experimentOf(name, req)}
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens, Widened: widened,
+		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req)}
 }
 
 // Experimenter is an optional Driver method: the trial a run of req carries, for the record.
