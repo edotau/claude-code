@@ -69,6 +69,7 @@ var agedDebris = []string{
 	"state/harness/memory/update-20260101-000000.log",
 	"state/harness/memory/stamp-sess-aaa",
 	"state/harness/memory/update-result-sess-aaa",
+	"state/harness/memory/update-results/update-result-sess-aaa",
 	"state/harness/memory/recall-seen/sess-aaa",
 	"state/harness/checkpoint/sess-aaa",
 	"state/harness/plans-scratch/x.md.dest",
@@ -173,7 +174,8 @@ func TestCleanAppliesByDefault(t *testing.T) {
 	}
 	for _, gone := range []string{
 		"state/harness/memory/update-20260101-000000.log", "state/harness/memory/stamp-sess-aaa",
-		"state/harness/memory/update-result-sess-aaa", "state/harness/memory/recall-seen/sess-aaa",
+		"state/harness/memory/update-result-sess-aaa", "state/harness/memory/update-results/update-result-sess-aaa",
+		"state/harness/memory/recall-seen/sess-aaa",
 		"state/harness/checkpoint/sess-aaa", "state/harness/plans-scratch/x.md.dest",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/statusline/ledger-abc123", "state/harness/router.log", "state/harness/dispatch/20260101-aaaa.log",

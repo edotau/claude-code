@@ -371,7 +371,7 @@ func (p *importPlan) record(rel string, a importAction) {
 	if a.data == nil {
 		return
 	}
-	if textutil.CredentialRE().Match(a.data) {
+	if credentialShaped(a.data) {
 		p.leaks = append(p.leaks, rel)
 	}
 	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data, Planned: true, PreSHA256: a.pre})
