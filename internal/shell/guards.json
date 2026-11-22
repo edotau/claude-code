@@ -8,8 +8,8 @@
     "words": ["bash", "sh", "zsh", "dash", "ksh"]
   },
   "wrapper_names": {
-    "purpose": "prefix wrappers Unwrap sees through to the command they run (drift X1: no gtimeout)",
-    "words": ["env", "sudo", "nice", "nohup", "command", "exec", "time", "timeout", "setsid", "stdbuf", "ionice",
+    "purpose": "prefix wrappers Unwrap sees through to the command they run",
+    "words": ["env", "sudo", "nice", "nohup", "command", "exec", "time", "timeout", "gtimeout", "setsid", "stdbuf", "ionice",
       "chrt"]
   },
   "wrapper_value_flags": {
@@ -20,6 +20,7 @@
       "env": ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
       "nice": ["-n", "--adjustment"],
       "timeout": ["-s", "--signal", "-k", "--kill-after"],
+      "gtimeout": ["-s", "--signal", "-k", "--kill-after"],
       "exec": ["-a"],
       "stdbuf": ["-i", "-o", "-e", "--input", "--output", "--error"],
       "ionice": ["-c", "-n", "-p", "-P", "-u"]
@@ -27,7 +28,7 @@
   },
   "wrapper_operand_commands": {
     "purpose": "wrappers that take one positional operand before their command (a duration, a priority)",
-    "words": ["timeout", "chrt"]
+    "words": ["timeout", "gtimeout", "chrt"]
   },
   "git_global_value_flags": {
     "purpose": "git global options whose value is the next word when not spelled with =",
@@ -163,7 +164,7 @@
     "words": ["-q", "--quiet", "-t", "--track", "--no-track"]
   },
   "sudo_prefix_extras": {
-    "purpose": "runners the sudo guard sees through besides wrapper_names and shell_keywords (X1: no gtimeout)",
+    "purpose": "runners the sudo guard sees through besides wrapper_names and shell_keywords",
     "words": ["builtin", "xargs", "watch", "flock", "caffeinate"]
   },
   "agents_brief_verbs": {

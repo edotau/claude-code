@@ -136,8 +136,8 @@ func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
 // footerPatterns match an agent-attribution footer in command text (CLAUDE.md hard rule 3).
 var footerPatterns = sync.OnceValue(func() []*regexp.Regexp {
 	return []*regexp.Regexp{
-		regexp.MustCompile(`(?i)co-authored-by:\s*(claude|anthropic|codex|copilot|gemini|opencode)\b`),
-		regexp.MustCompile(`(?i)generated (with|by)\s*\[?(claude( code)?|codex|github copilot|copilot|gemini|opencode)\b`),
+		regexp.MustCompile(`(?i)co-authored-by:\s*(claude|anthropic|codex|copilot|gemini|opencode|agy)\b`),
+		regexp.MustCompile(`(?i)generated (with|by)\s*\[?(claude( code)?|codex|github copilot|copilot|gemini|opencode|agy)\b`),
 	}
 })
 
