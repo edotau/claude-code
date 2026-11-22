@@ -338,7 +338,7 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 		return CleanResult{}, err
 	}
 
-	gitDir, reason := cleanBusyReason(dest, nil)
+	gitDir, reason := cleanBusyReason(dest, "", nil)
 	if reason != "" {
 		result.Reason = reason
 		return result, nil
@@ -393,15 +393,19 @@ func lockReason(locked bool, err error) string {
 }
 
 // cleanBusyReason runs the in-use (lister in, nil = live), lock and operation checks in order; returns the git dir.
-func cleanBusyReason(dest string, in func(string) ([]Proc, error)) (gitDir, reason string) {
+// A non-empty knownGitDir skips the git-dir lookup.
+func cleanBusyReason(dest, knownGitDir string, in func(string) ([]Proc, error)) (gitDir, reason string) {
 	if reason := inUseReason(dest, in); reason != "" {
 		return "", reason
 	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	gitDir, _, err := gitDirsOf(ctx, dest)
-	if err != nil {
-		return "", "lock check failed: " + err.Error()
+	gitDir = knownGitDir
+	if gitDir == "" {
+		var err error
+		if gitDir, _, err = gitDirsOf(ctx, dest); err != nil {
+			return "", "lock check failed: " + err.Error()
+		}
 	}
 	if reason := lockReason(isLockedAt(gitDir)); reason != "" {
 		return "", reason
@@ -460,6 +464,10 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 
 // CleanAll previews (or, with apply, runs) Clean for every existing, non-orphaned entry; orphans are only reported.
 func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
+	if !apply {
+		// a preview removes nothing, so one shared process scan is safe; apply keeps a fresh scan per lane
+		defer BeginScanMemo()()
+	}
 	registered, err := listPorcelain(repo)
 	if err != nil {
 		return nil, err

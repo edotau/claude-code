@@ -63,19 +63,31 @@ func List(repo *Repo) ([]Entry, error) {
 	}
 	now := time.Now()
 	var in func(string) ([]Proc, error)
-	for i := range entries {
-		entries[i].Orphaned = entries[i].Registered != entries[i].Exists
-		if entries[i].Exists {
-			if in == nil {
-				in = firstLook()
-			}
-			problems := entries[i].Problems
-			entries[i].Problems = nil
-			inspect(repo, &entries[i], target, targetErr, now)
-			entries[i].Problems = append(entries[i].Problems, problems...)
-			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
-		}
+	if slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists }) {
+		in = firstLook()
 	}
+	sem := make(chan struct{}, divergenceReads)
+	var wg sync.WaitGroup
+	for i := range entries {
+		e := &entries[i]
+		e.Orphaned = e.Registered != e.Exists
+		if !e.Exists {
+			continue
+		}
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			problems := e.Problems
+			e.Problems = nil
+			if gd, err := gitDirFromPath(e.Path); err == nil {
+				e.gitDir = gd
+			}
+			inspect(repo, e, target, targetErr, now)
+			e.Problems = append(e.Problems, problems...)
+			_, e.Busy = cleanBusyReason(e.Path, e.gitDir, in)
+		})
+	}
+	wg.Wait()
 	return entries, nil
 }
 

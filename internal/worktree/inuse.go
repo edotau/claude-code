@@ -32,7 +32,7 @@ var processesIn func(dir string) ([]Proc, error)
 var inUseSettle = time.Second
 
 // inUsePoll is the pause between settle re-checks of a busy worktree.
-const inUsePoll = 100 * time.Millisecond
+var inUsePoll = 100 * time.Millisecond
 
 // parentOf returns pid's parent pid; ancestry walks it for InUseBy's exclusion and PeerAgents.
 var parentOf func(pid int) (int, error)

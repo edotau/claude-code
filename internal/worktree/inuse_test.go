@@ -42,6 +42,9 @@ func TestInUseByWaitsOutTransientProcess(t *testing.T) {
 		return nil, nil
 	})
 	inUseSettle = time.Second
+	origPoll := inUsePoll
+	inUsePoll = time.Millisecond
+	t.Cleanup(func() { inUsePoll = origPoll })
 	reason, err := InUseBy(dest)
 	if err != nil || reason != "" {
 		t.Fatalf("InUseBy = %q, %v; want clear once the transient process exits", reason, err)
@@ -224,7 +227,7 @@ func pollInUse(t *testing.T, dest, label string, done func(string) bool) string 
 		if done(reason) {
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	return reason
 }
