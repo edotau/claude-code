@@ -12,6 +12,33 @@ import (
 
 const deadJob = "20261116T110000.000-opencode"
 
+func BenchmarkWatchTick(b *testing.B) {
+	for _, throttled := range []bool{false, true} {
+		name := "due-no-queue"
+		if throttled {
+			name = "throttled"
+		}
+		b.Run(name, func(b *testing.B) {
+			b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+			b.Setenv(agent.WatchEnv, "dry")
+			oldOwner, oldNow := watchOwner, watchNow
+			b.Cleanup(func() { watchOwner, watchNow = oldOwner, oldNow })
+			watchOwner = os.Getpid
+			now := time.Now()
+			watchNow = func() time.Time { return now }
+			in := promptIn("bench-watch")
+			watchTick(in)
+			b.ReportAllocs()
+			for b.Loop() {
+				if !throttled {
+					now = now.Add(watchEvery)
+				}
+				watchTick(in)
+			}
+		})
+	}
+}
+
 // watchStubs fixes the clock, owner, classifier output and resume launch; it returns the call counters.
 func watchStubs(t *testing.T, stale ...agent.StaleJob) (now *time.Time, checks, resumes *int) {
 	t.Helper()
@@ -111,6 +138,31 @@ func TestWatchTickModes(t *testing.T) {
 	t.Setenv(agent.WatchEnv, "dry")
 	if got := watchTick(promptIn("s1")); *resumes != 0 || !strings.Contains(got.Context, "would resume once") {
 		t.Fatalf("dry: resumes %d context %q, want the command and no launch", *resumes, got.Context)
+	}
+}
+
+func TestWatchTickQueueNotice(t *testing.T) {
+	watchStubs(t)
+	watchJobs = func(int, time.Time, agent.WatchLimits) (agent.WatchReport, error) {
+		return agent.WatchReport{Pending: 1, Queued: []agent.QueuedJob{
+			{ID: deadJob, Pool: "qa", Wait: 3 * time.Second, Ahead: 2},
+		}}, nil
+	}
+	got := watchTick(promptIn("queue"))
+	if !strings.Contains(got.Context, "queued on qa 3s, 2 ahead") || strings.Contains(got.Context, "silent") || got.SystemMessage != "" {
+		t.Fatalf("notice = %+v", got)
+	}
+}
+
+func TestWatchTickQueueFailureOnce(t *testing.T) {
+	s := agent.StaleJob{ID: deadJob, Reason: agent.WatchQueueStuck, Queue: "queued on qa 20s; daemon gone",
+		Next: []string{"claude-code", "agents", "ask", "--retry", deadJob}}
+	now, _, resumes := watchStubs(t, s)
+	first := watchTick(promptIn("queue"))
+	*now = now.Add(2 * time.Minute)
+	second := watchTick(promptIn("queue"))
+	if !strings.Contains(first.Context, "run directly: claude-code agents ask --retry "+deadJob) || second.Context != "" || *resumes != 0 {
+		t.Fatalf("first=%+v second=%+v resumes=%d", first, second, *resumes)
 	}
 }
 

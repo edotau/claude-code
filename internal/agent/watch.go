@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ const (
 	WatchSilent      = "silent"      // past the age limit and its log silent past the silence limit
 	WatchRelayGone   = "relay-gone"  // the relay that launched it finished while it runs
 	WatchUncollected = "uncollected" // finished, and nobody read its result
+	WatchQueueStuck  = "queue-stuck" // admission exceeded its budget or its daemon disappeared
 )
 
 // ResumePrompt is the one continuation the watchdog sends a dead job's session.
@@ -90,6 +92,7 @@ type StaleJob struct {
 	Age       time.Duration `json:"age_ns"`
 	Silence   time.Duration `json:"silence_ns"`
 	LastLine  string        `json:"last_line,omitempty"`
+	Queue     string        `json:"queue,omitempty"`
 	SessionID string        `json:"session_id,omitempty"`
 	Next      []string      `json:"next"` // argv of the next command, starting with claude-code
 }
@@ -99,10 +102,37 @@ func (s StaleJob) Resumable() bool { return s.Reason == WatchDead && s.SessionID
 
 // WatchReport is one pass: the stale jobs, and how many more may still turn stale.
 type WatchReport struct {
-	Stale   []StaleJob `json:"stale"`
-	Pending int        `json:"pending"`
-	Running []Record   `json:"-"` // the healthy pending jobs, for the hook's heartbeat
+	Stale   []StaleJob  `json:"stale"`
+	Pending int         `json:"pending"`
+	Running []Record    `json:"-"` // the healthy pending jobs, for the hook's heartbeat
+	Queued  []QueuedJob `json:"queued,omitempty"`
 }
+
+// QueuedJob is a daemon-observed admission wait; Ahead is -1 when only the record is available.
+type QueuedJob struct {
+	ID    string        `json:"id"`
+	Pool  string        `json:"pool"`
+	Wait  time.Duration `json:"wait_ns"`
+	Ahead int           `json:"ahead"`
+}
+
+func (q QueuedJob) Line() string {
+	line := "queued on " + textutil.PreviewRedacted(q.Pool, 60) + " " + ShortDur(q.Wait)
+	if q.Ahead >= 0 {
+		line += fmt.Sprintf(", %d ahead", q.Ahead)
+	}
+	return line
+}
+
+// QueueWatch is the serve adapter's bounded observation; Gone requires positive evidence of an absent daemon.
+type QueueWatch struct {
+	Jobs  map[string]QueuedJob
+	Limit time.Duration
+	Gone  bool
+}
+
+// WatchQueue is installed by serve to avoid an agent-to-serve import cycle; unqueued watches never call it.
+var WatchQueue func(time.Time) QueueWatch
 
 // watchAlive is the liveness probe; tests replace it.
 var watchAlive = func(r Record) bool {
@@ -212,15 +242,30 @@ type relayState struct {
 func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]Record) map[string]relayState) WatchReport {
 	var rep WatchReport
 	var stale []StaleJob
+	queue := watchQueue(recs, now)
 	rel := relays(relayCandidates(recs, now))
 	for _, r := range recs {
 		s, pending := classifyJob(r, now, lim, rel[r.ID])
+		q, queued := queuedWatch(r, now, queue)
+		if queued {
+			s, pending = StaleJob{}, true
+			if queue.Gone || q.Wait > queue.Limit {
+				s, pending = staleFrom(r, now, WatchQueueStuck), false
+				s.Queue = q.Line() + "; admission wait exceeded"
+				if queue.Gone {
+					s.Queue = q.Line() + "; daemon gone"
+				}
+				s.Next = []string{"claude-code", "agents", "ask", "--retry", r.ID}
+			} else {
+				rep.Queued = append(rep.Queued, q)
+			}
+		}
 		if s.Reason != "" {
 			stale = append(stale, s)
 		}
 		if pending {
 			rep.Pending++
-			if r.Status == "running" {
+			if r.Status == "running" && !queued {
 				rep.Running = append(rep.Running, r)
 			}
 		}
@@ -229,7 +274,30 @@ func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]R
 	return rep
 }
 
-// relayCandidates keeps the jobs whose verdict reads a relay: running, or ended and still short of settling by age or collect.
+func watchQueue(recs []Record, now time.Time) QueueWatch {
+	if WatchQueue != nil {
+		for _, r := range recs {
+			if pool, _ := r.admissionQueue(); pool != "" {
+				return WatchQueue(now)
+			}
+		}
+	}
+	return QueueWatch{}
+}
+
+func queuedWatch(r Record, now time.Time, queue QueueWatch) (QueuedJob, bool) {
+	pool, since := r.admissionQueue()
+	if pool == "" || queue.Limit <= 0 {
+		return QueuedJob{}, false
+	}
+	if q, ok := queue.Jobs[r.ID]; ok {
+		q.Wait = max(q.Wait, now.Sub(since))
+		return q, true
+	}
+	return QueuedJob{ID: r.ID, Pool: pool, Wait: now.Sub(since), Ahead: -1}, true
+}
+
+// relayCandidates keeps running jobs and ended jobs not yet settled by age or collection.
 func relayCandidates(recs []Record, now time.Time) []Record {
 	return slices.DeleteFunc(slices.Clone(recs), func(r Record) bool {
 		if r.Status == "running" {
@@ -579,7 +647,13 @@ func WatchLines(s StaleJob, width int) []string {
 		" · " + s.Reason
 	head := textutil.TruncateCells(s.Task, max(width-textutil.DisplayWidth(tail), 12), "…") + tail
 	lines := []string{textutil.TruncateCells(head, width, "…")}
-	if s.LastLine != "" {
+	if s.Queue != "" {
+		lines = []string{textutil.TruncateCells(s.ID+" · "+s.Reason, width, "…")}
+		for detail := range strings.SplitSeq(s.Queue, "; ") {
+			lines = append(lines, textutil.TruncateCells("  "+detail, width, "…"))
+		}
+	}
+	if s.LastLine != "" && s.Queue == "" {
 		lines = append(lines, textutil.TruncateCells("  last: "+s.LastLine, width, "…"))
 	}
 	return append(lines, wrapCommand(s.Next, width)...)

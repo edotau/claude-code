@@ -98,6 +98,9 @@ func watchTick(in *core.Input) core.Result {
 		res.Context = strings.Join(lines, "\n")
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
 	}
+	for _, q := range rep.Queued[:min(len(rep.Queued), watchBeatMax)] {
+		res.Context = core.JoinNonEmpty("\n", res.Context, "watch: job "+q.ID+" "+q.Line())
+	}
 	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
 		res.Context = core.JoinNonEmpty("\n", res.Context, hb)
 	}
@@ -234,6 +237,9 @@ func readSeen(path string) (map[string]bool, error) {
 
 // watchLine is the context line for one stale job; a resumable dead job is resumed once first.
 func watchLine(s agent.StaleJob, mode string) string {
+	if s.Queue != "" {
+		return "watch: job " + s.ID + " " + s.Queue + "; run directly: " + strings.Join(s.Next, " ")
+	}
 	head := fmt.Sprintf("watch: job %s (%s, %s) %s, age %s, silent %s", s.Task, s.ID, s.Agent, reasonText[s.Reason],
 		agent.ShortDur(s.Age), agent.ShortDur(s.Silence))
 	if s.LastLine != "" && s.Reason == agent.WatchSilent {

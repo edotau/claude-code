@@ -152,6 +152,83 @@ func TestQueuedAdmissionWatch(t *testing.T) {
 	}
 }
 
+func TestQueueWatchClassification(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubAlive(t, true)
+	r := watchRec(t, "running", "queued", time.Hour, time.Hour)
+	old := WatchQueue
+	t.Cleanup(func() { WatchQueue = old })
+	for _, c := range []struct {
+		name                  string
+		wait                  time.Duration
+		gone, observed, stuck bool
+	}{
+		{"waiting", 3 * time.Second, false, true, false},
+		{"boundary", 15 * time.Second, false, true, false},
+		{"overdue", 16 * time.Second, false, true, true},
+		{"restart retains total budget", 20 * time.Second, false, true, true},
+		{"gone", 3 * time.Second, true, false, true},
+		{"unresponsive", 3 * time.Second, false, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r.Progress = "queued " + watchT0.Add(-c.wait).Format(time.RFC3339Nano) + " qa"
+			WatchQueue = func(time.Time) QueueWatch {
+				q := QueueWatch{Limit: 15 * time.Second, Gone: c.gone}
+				if c.observed {
+					q.Jobs = map[string]QueuedJob{r.ID: {ID: r.ID, Pool: "qa", Wait: time.Second, Ahead: 2}}
+				}
+				return q
+			}
+			rep := classifyJobs([]Record{r}, watchT0, WatchLimits{}, func([]Record) map[string]relayState {
+				return map[string]relayState{r.ID: {finished: true}}
+			})
+			if len(rep.Running) != 0 || (len(rep.Stale) == 1) != c.stuck || (len(rep.Queued) == 1) == c.stuck {
+				t.Fatalf("report = %+v", rep)
+			}
+			if c.stuck {
+				s := rep.Stale[0]
+				if s.Reason != WatchQueueStuck || s.Resumable() || strings.Join(s.Next, " ") != "claude-code agents ask --retry "+r.ID {
+					t.Fatalf("stale = %+v", s)
+				}
+			} else if q := rep.Queued[0]; q.Wait != c.wait || (q.Ahead == 2) != c.observed {
+				t.Fatalf("queued = %+v", q)
+			}
+		})
+	}
+}
+
+func TestWatchWithoutQueueDoesNotQuery(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubAlive(t, true)
+	old := WatchQueue
+	t.Cleanup(func() { WatchQueue = old })
+	WatchQueue = func(time.Time) QueueWatch { t.Fatal("unqueued watch queried daemon"); return QueueWatch{} }
+	r := watchRec(t, "running", "quiet", time.Hour, time.Hour)
+	rep := classifyJobs([]Record{r}, watchT0, WatchLimits{}, func([]Record) map[string]relayState { return nil })
+	if len(rep.Stale) != 1 || rep.Stale[0].Reason != WatchSilent || len(rep.Queued) != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestQueueWatchLines(t *testing.T) {
+	q := QueuedJob{Pool: "databricks:qa", Wait: 20 * time.Second, Ahead: 2}
+	if got := q.Line(); got != "queued on databricks:qa 20s, 2 ahead" {
+		t.Fatal(got)
+	}
+	s := StaleJob{ID: "20261122T120000.000-codex", Reason: WatchQueueStuck,
+		Queue: q.Line() + "; admission wait exceeded", LastLine: "old log", Next: []string{"claude-code", "agents", "ask", "--retry", "job"}}
+	lines := WatchLines(s, 80)
+	got := strings.Join(lines, "\n")
+	if !strings.Contains(got, q.Line()) || !strings.Contains(got, "admission wait exceeded") || strings.Contains(got, "silent") || strings.Contains(got, "old log") {
+		t.Fatal(got)
+	}
+	for _, line := range lines {
+		if len([]rune(line)) > 80 {
+			t.Fatalf("wide line: %q", line)
+		}
+	}
+}
+
 func TestDeadJobNextCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubAlive(t, false)
