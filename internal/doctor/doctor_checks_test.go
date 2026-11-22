@@ -29,6 +29,30 @@ func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 	}
 }
 
+func TestHookBinaryStatus(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, d := hookBinaryStatus(dir); ok || !strings.Contains(d, "missing") {
+		t.Fatalf("no .hookd: %v %q", ok, d)
+	}
+	write(paths.HookBinaryName, "ELF..stamp-a..")
+	if ok, d := hookBinaryStatus(dir); ok || !strings.Contains(d, "no .build-stamp") {
+		t.Fatalf("no stamp: %v %q", ok, d)
+	}
+	write(paths.StampFile, "stamp-b\n")
+	if ok, d := hookBinaryStatus(dir); ok || !strings.Contains(d, "not built with stamp stamp-b") {
+		t.Fatalf("stale: %v %q", ok, d)
+	}
+	write(paths.StampFile, "stamp-a\n")
+	if ok, d := hookBinaryStatus(dir); !ok || !strings.Contains(d, "matches stamp stamp-a") {
+		t.Fatalf("match: %v %q", ok, d)
+	}
+}
+
 func TestRepoRootCheck(t *testing.T) {
 	const pass = "no test binaries or profiles"
 	cases := []struct {

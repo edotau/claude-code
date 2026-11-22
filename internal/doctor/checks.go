@@ -178,6 +178,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(rtkOK, false, "rtk compressor", rtkDetail)
 	ccOK, ccDetail := pathBinaryStatus()
 	check(ccOK, false, "claude-code on PATH", ccDetail)
+	hookOK, hookDetail := hookBinaryStatus(paths.BinDir())
+	check(hookOK, false, "hook binary", hookDetail)
 	tsOK, tsDetail := tailscale.Doctor(ctx)
 	check(tsOK, false, "tailscale", tsDetail)
 	for _, r := range upstreamRows(ctx) {

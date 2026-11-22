@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,6 +72,27 @@ func strayClaudeJSON() (ok bool, detail string) {
 		return false, "cannot stat " + stub + ": " + err.Error()
 	}
 	return false, "stray " + stub + "; move it aside (mv " + stub + "{,.bak})"
+}
+
+// hookBinaryStatus checks dir's .hookd exists and embeds the stamp in dir's .build-stamp (ldflags -X keeps it).
+func hookBinaryStatus(dir string) (ok bool, detail string) {
+	hook := filepath.Join(dir, paths.HookBinaryName)
+	if paths.HookBinary(filepath.Join(dir, "claude-code")) != hook {
+		return false, hook + " missing or not executable; hooks fall back to claude-code — run make install"
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, paths.StampFile))
+	stamp := strings.TrimSpace(string(raw))
+	if err != nil || stamp == "" {
+		return false, "no " + paths.StampFile + " in " + dir + "; hooks fall back to claude-code — run make install"
+	}
+	bin, err := os.ReadFile(hook)
+	if err != nil {
+		return false, "cannot read " + hook + ": " + err.Error()
+	}
+	if !bytes.Contains(bin, []byte(stamp)) {
+		return false, hook + " was not built with stamp " + stamp + "; hooks fall back to claude-code — run make install"
+	}
+	return true, hook + " matches stamp " + stamp
 }
 
 var leftoverPatterns = []string{"*.test", "*.prof", "*.pprof", "cpu.out", "mem.out", "*.cpuprofile", "*.memprofile"}
