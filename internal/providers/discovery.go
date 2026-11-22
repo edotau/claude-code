@@ -200,7 +200,7 @@ func catalogEntries(source string, body []byte, doc catalogDoc) ([]ModelInfo, er
 	case "gemini-models":
 		return geminiCatalogEntries(doc)
 	}
-	return dataCatalogEntries(source, doc)
+	return dataCatalogEntries(doc)
 }
 
 func servingCatalogEntries(body []byte) ([]ModelInfo, error) {
@@ -235,7 +235,7 @@ func geminiCatalogEntries(doc catalogDoc) ([]ModelInfo, error) {
 	return out, nil
 }
 
-func dataCatalogEntries(source string, doc catalogDoc) ([]ModelInfo, error) {
+func dataCatalogEntries(doc catalogDoc) ([]ModelInfo, error) {
 	var out []ModelInfo
 	for _, m := range doc.Data {
 		if strings.TrimSpace(m.ID) == "" {

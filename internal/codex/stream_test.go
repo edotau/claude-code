@@ -77,7 +77,9 @@ const (
 func emit(evs ...string) string {
 	var b strings.Builder
 	for _, e := range evs {
-		b.WriteString("printf '%s\\n' '" + e + "'\n")
+		b.WriteString("printf '%s\\n' '")
+		b.WriteString(e)
+		b.WriteString("'\n")
 	}
 	return b.String()
 }
