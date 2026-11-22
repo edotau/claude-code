@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -77,6 +78,36 @@ func TestReadRecentWithMatchesFullDecode(t *testing.T) {
 		}
 		if want := prefilterOracle(tc.keep); !slices.Equal(ids, want) || len(want) == 0 && name != "absent" {
 			t.Errorf("%s: prefiltered = %v, full decode = %v", name, ids, want)
+		}
+	}
+}
+
+// A FIFO named like a record (newest) is skipped by both read paths instead of blocking them.
+func TestReadRecentSkipsFIFO(t *testing.T) {
+	mkfifo := "/usr/bin/mkfifo" // TestMain's PATH holds no system tools
+	if _, err := os.Stat(mkfifo); err != nil {
+		t.Skip("no mkfifo")
+	}
+	setConfigDir(t)
+	want := fixtureRecord(t, NewRecord("codex", RunOptions{Prompt: "p"}, time.Now().Add(-time.Minute))).ID
+	if out, err := exec.Command(mkfifo, filepath.Join(paths.DispatchDir(), "99991231T235959.999-hang.json")).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo: %v %s", err, out)
+	}
+	done := make(chan []Record, 2)
+	go func() {
+		one, _ := ReadRecent(1)
+		all, _ := ReadRecentWith(AllRecords, "")
+		done <- one
+		done <- all
+	}()
+	for _, path := range []string{"ReadRecent", "readAllRecent"} {
+		select {
+		case got := <-done:
+			if len(got) != 1 || got[0].ID != want {
+				t.Errorf("%s = %v, want only %s", path, got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s blocked on the FIFO", path)
 		}
 	}
 }

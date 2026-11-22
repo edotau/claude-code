@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -107,7 +109,7 @@ func readNames(dir string, names []string, needle string) []Record {
 	slices.Reverse(names)
 	probe := []byte(needle)
 	got, _ := parallel.Map(context.Background(), names, 8, func(_ context.Context, n string) (*Record, error) {
-		b, rerr := os.ReadFile(filepath.Join(dir, n))
+		b, _, rerr := readInto(filepath.Join(dir, n), nil)
 		if rerr != nil || !bytes.Contains(b, probe) {
 			return nil, nil
 		}
@@ -125,13 +127,19 @@ func readNames(dir string, names []string, needle string) []Record {
 	return out
 }
 
-// readInto reads path into buf's storage (grown as needed) and returns the bytes and the buffer to reuse.
+var errNotRegular = errors.New("not a regular file")
+
+// readInto reads regular file path into buf's storage (grown as needed); returns the bytes and the buffer to reuse.
 func readInto(path string, buf []byte) ([]byte, []byte, error) {
-	f, err := os.Open(path)
+	// O_NONBLOCK: opening a FIFO with no writer returns at once instead of hanging the reader
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, buf, err
 	}
 	defer f.Close()
+	if fi, serr := f.Stat(); serr != nil || !fi.Mode().IsRegular() {
+		return nil, buf, errors.Join(errNotRegular, serr)
+	}
 	buf = buf[:0]
 	for {
 		if len(buf) == cap(buf) {
