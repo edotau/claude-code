@@ -12,6 +12,8 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -71,13 +73,41 @@ var parseProviderOverlay = func(doc []byte) (*Registry, error) { return Parse(de
 
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
-	reg, err := LoadShared()
+	reg, err := loadChecked(vault.Path())
 	return reg.clone(), err
 }
 
+// recheckWindow is how long LoadShared trusts its last stamp check; far below any cross-process write round trip.
+const recheckWindow = 2 * time.Millisecond
+
+type checkedRegistry struct {
+	path string
+	gen  uint64
+	at   time.Time
+	reg  *Registry
+}
+
+// lastChecked is the registry the newest successful stamp check returned; a vault write in this process voids it.
+var lastChecked atomic.Pointer[checkedRegistry]
+
 // LoadShared is Load without the deep copy: the cached registry is shared, so callers must only read it.
 func LoadShared() (*Registry, error) {
-	return loadCache.Get(vault.Path(), loadRegistry)
+	path := vault.Path()
+	if c := lastChecked.Load(); c != nil && c.path == path && c.gen == vault.WriteGen() &&
+		time.Since(c.at) < recheckWindow {
+		return c.reg, nil
+	}
+	return loadChecked(path)
+}
+
+// loadChecked runs the full stamp check and records its success for LoadShared's recheck window.
+func loadChecked(path string) (*Registry, error) {
+	gen, at := vault.WriteGen(), time.Now()
+	reg, err := loadCache.Get(path, loadRegistry)
+	if err == nil {
+		lastChecked.Store(&checkedRegistry{path: path, gen: gen, at: at, reg: reg})
+	}
+	return reg, err
 }
 
 // loadRegistry is Load's uncached merge of the vault overlay over the embedded defaults.

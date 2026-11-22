@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -107,14 +108,48 @@ type servedRead struct {
 
 var servedCache = paths.NewStampCache[servedRead]("serving.served")
 
+// recheckWindow is how long Shared trusts a path's last stamp check; far below any cross-process write round trip.
+const recheckWindow = 2 * time.Millisecond
+
+type checkedRead struct {
+	gen uint64
+	at  time.Time
+	r   servedRead
+}
+
+var (
+	checkedMu sync.Mutex
+	checked   = map[string]checkedRead{}
+	// saveGen counts this process's Saves, so a Save voids every recheck-window memo.
+	saveGen atomic.Uint64
+)
+
 // Shared returns profile's cached listing without copying Models; callers must treat Models as read-only.
 func Shared(profile string) (Served, bool) {
 	path := Path(profile)
 	if path == "" {
 		return Served{}, false
 	}
+	checkedMu.Lock()
+	c, ok := checked[path]
+	checkedMu.Unlock()
+	if ok && c.gen == saveGen.Load() && time.Since(c.at) < recheckWindow {
+		return c.r.s, c.r.ok
+	}
+	return sharedChecked(path, profile)
+}
+
+// sharedChecked runs the full stamp check and records its result for Shared's recheck window.
+func sharedChecked(path, profile string) (Served, bool) {
+	gen, at := saveGen.Load(), time.Now()
 	r, err := servedCache.Get(path, func() (servedRead, error) { return readServed(path, profile) })
-	if err != nil || !r.ok {
+	if err != nil {
+		return Served{}, false
+	}
+	checkedMu.Lock()
+	checked[path] = checkedRead{gen: gen, at: at, r: r}
+	checkedMu.Unlock()
+	if !r.ok {
 		return Served{}, false
 	}
 	return r.s, true
@@ -122,7 +157,11 @@ func Shared(profile string) (Served, bool) {
 
 // Load returns profile's cached listing; false when absent, unreadable or another schema.
 func Load(profile string) (Served, bool) {
-	s, ok := Shared(profile)
+	path := Path(profile)
+	if path == "" {
+		return Served{}, false
+	}
+	s, ok := sharedChecked(path, profile)
 	s.Models = slices.Clone(s.Models)
 	return s, ok
 }
@@ -135,9 +174,8 @@ func FreshShared(profile string, now time.Time) (Served, bool) {
 
 // Fresh returns profile's cached listing when fresh and non-empty; Models is a copy.
 func Fresh(profile string, now time.Time) (Served, bool) {
-	s, ok := FreshShared(profile, now)
-	s.Models = slices.Clone(s.Models)
-	return s, ok
+	s, ok := Load(profile)
+	return s, ok && s.Fresh(now) && len(s.Models) > 0
 }
 
 func readServed(path, profile string) (servedRead, error) {
@@ -162,6 +200,7 @@ func Save(s Served, keep ...func(cur Served) bool) error {
 		return os.ErrInvalid
 	}
 	s.Schema = servedSchema
+	defer saveGen.Add(1)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

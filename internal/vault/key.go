@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -56,6 +57,7 @@ var keyCache = paths.NewMemo[keyFlightKey, resolvedKey]("vault.key")
 // invalidateKey clears the per-process key cache so the next MasterKey re-resolves instead of serving a retired key.
 func invalidateKey() {
 	keyCache.Drop() // a resolve in flight answers its waiters but never refills the cache
+	envKeyCache.Store(nil)
 }
 
 func keyMeta() (id, kid, command string, err error) {
@@ -105,7 +107,7 @@ func MasterKey() (*Key, string, error) {
 // resolveKey finds the key for kid: env, cache, keyring, then key_command, which also runs when the keyring is dark.
 func resolveKey(id, kid, command string) (*Key, string, error) {
 	if v := EnvKey(); v != "" {
-		k, err := parseKey(v, id)
+		k, err := parseEnvKey(v, id)
 		if err != nil {
 			return nil, "env", err
 		}
@@ -122,6 +124,28 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 		return resolvedKey{k, source}, err
 	})
 	return r.key, r.source, err
+}
+
+type envKeyEntry struct {
+	sum     [sha256.Size]byte
+	vaultID string
+	key     *Key
+}
+
+// envKeyCache is the last env key parsed, found by a hash of its value; parseKey is a pure function of both.
+var envKeyCache atomic.Pointer[envKeyEntry]
+
+// parseEnvKey is parseKey memoized for one env value and vault; a malformed value is never kept.
+func parseEnvKey(value, vaultID string) (*Key, error) {
+	sum := sha256.Sum256([]byte(value))
+	if e := envKeyCache.Load(); e != nil && e.sum == sum && e.vaultID == vaultID {
+		return e.key, nil
+	}
+	k, err := parseKey(value, vaultID)
+	if err == nil {
+		envKeyCache.Store(&envKeyEntry{sum: sum, vaultID: vaultID, key: k})
+	}
+	return k, err
 }
 
 // lookupKey is resolveKey's uncached path: the keyring account, then key_command, then matchKey's fallbacks.

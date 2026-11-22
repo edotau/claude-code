@@ -90,6 +90,7 @@ func ViewAt(path string, fn func(*Tx) error) error {
 }
 
 func migrateSchemaAt(path string) error {
+	defer writeGen.Add(1)
 	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout, NoSync: noSync.Load()})
 	if err != nil {
 		return err
@@ -186,8 +187,15 @@ var noSync atomic.Bool
 // DisableSyncForTests makes commits skip fsync, which is slow on darwin.
 func DisableSyncForTests() { noSync.Store(true) }
 
+// writeGen counts this process's vault writes, bumped after each one ends, so readers' short memos can tell.
+var writeGen atomic.Uint64
+
+// WriteGen is the count of vault writes this process has finished; a change means re-read the vault.
+func WriteGen() uint64 { return writeGen.Load() }
+
 // Update runs fn in one write transaction on the vault file, creating it when missing.
 func Update(fn func(*Tx) error) error {
+	defer writeGen.Add(1)
 	path := Path()
 	if err := create(path); err != nil {
 		return err
