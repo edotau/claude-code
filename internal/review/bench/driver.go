@@ -56,8 +56,10 @@ type loopSteps struct {
 }
 
 var (
-	newDriverFn = newDriver
-	driverRun   = execRun // the subprocess runner; a test swaps it
+	newDriverFn       = newDriver
+	driverRun         = execRun // the subprocess runner; a test swaps it
+	errJobActive      = errors.New("background job cancellation failed")
+	errParentWorktree = errors.New("parent worktree removal failed")
 )
 
 // candidate is one queue item's lane and the evidence gathered for it.
@@ -211,6 +213,9 @@ func (d *driver) item(ctx context.Context, it Item) (outcome, error) {
 	}
 	fmt.Fprintf(d.out, "bench loop: %s: %s in lane %s\n", it.Pkg, it.What, c.slug)
 	if err := d.fixLeaf(ctx, &c); err != nil {
+		if errors.Is(err, errJobActive) {
+			return d.hold(c, err.Error())
+		}
 		return 0, errors.Join(err, d.clean(ctx, c))
 	}
 	if why, err := d.gates(ctx, &c); err != nil || why != "" {
@@ -220,6 +225,9 @@ func (d *driver) item(ctx context.Context, it Item) (outcome, error) {
 		return d.revert(ctx, c, why)
 	}
 	if err := d.interleave(ctx, &c); err != nil {
+		if errors.Is(err, errParentWorktree) {
+			return d.hold(c, err.Error())
+		}
 		return 0, errors.Join(err, d.clean(ctx, c))
 	}
 	switch dec := c.res.Decision; {
@@ -288,18 +296,22 @@ func (d *driver) fixLeaf(ctx context.Context, c *candidate) error {
 
 // gates is step 6's commit and step 7: a reason to revert, or "" when the fix passes.
 func (d *driver) gates(ctx context.Context, c *candidate) (string, error) {
-	status, err := source.GitInherit(c.lane, "status", "--porcelain", "--untracked-files=all")
+	head, err := source.GitInherit(c.lane, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	for line := range strings.SplitSeq(status, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		file := line[3:]
-		if _, after, ok := strings.Cut(file, " -> "); ok {
-			file = after
-		}
+	parent, err := source.GitInherit(c.lane, "rev-parse", "--verify", cmp.Or(c.parent, "HEAD")+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if head != parent {
+		return "gate: the fix leaf committed changes; hand back uncommitted", nil
+	}
+	files, err := laneStatusFiles(c.lane)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range files {
 		switch {
 		case filepath.ToSlash(filepath.Dir(file)) != c.Pkg:
 			return "gate: " + file + " is outside " + c.Pkg, nil
@@ -318,6 +330,30 @@ func (d *driver) gates(ctx context.Context, c *candidate) (string, error) {
 		return "gate: go test ./" + c.Pkg + " failed", nil
 	}
 	return "", nil
+}
+
+func laneStatusFiles(lane string) ([]string, error) {
+	status, err := source.GitInherit(lane, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	entries := strings.Split(status, "\x00")
+	for i := 0; i < len(entries); i++ {
+		entry := entries[i]
+		if len(entry) < 4 {
+			continue
+		}
+		files = append(files, entry[3:])
+		if strings.ContainsAny(entry[:2], "RC") {
+			i++
+			if i >= len(entries) || entries[i] == "" {
+				return nil, errors.New("git status: missing rename source")
+			}
+			files = append(files, entries[i])
+		}
+	}
+	return files, nil
 }
 
 // commit puts the fix on the lane branch, never main; the interleave refuses a dirty tree.
@@ -344,14 +380,12 @@ func (d *driver) interleave(ctx context.Context, c *candidate) error {
 	if _, err := source.GitInherit(c.lane, "worktree", "add", "--detach", parent, c.parent); err != nil {
 		return err
 	}
-	defer func() {
-		if _, err := source.GitInherit(c.lane, "worktree", "remove", "--force", parent); err != nil {
-			fmt.Fprintln(d.log, "bench loop: remove parent worktree:", err)
-		}
-	}()
 	var err error
 	c.res, err = Interleave(ctx, ABOptions{A: parent, B: c.lane, Pkg: c.Pkg, Rounds: abRounds, Count: abCount,
 		Work: filepath.Join(c.work, "ab")}, d.log)
+	if _, removeErr := source.GitInherit(c.lane, "worktree", "remove", "--force", parent); removeErr != nil {
+		err = errors.Join(err, fmt.Errorf("%w: %s: %w", errParentWorktree, parent, removeErr))
+	}
 	return err
 }
 
@@ -359,11 +393,11 @@ func (d *driver) interleave(ctx context.Context, c *candidate) error {
 func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 	diff, err := source.GitInherit(c.lane, "diff", "--no-ext-diff", "--no-textconv", c.parent, "HEAD")
 	if err != nil {
-		return 0, err
+		return d.hold(c, "prepare review diff: "+err.Error())
 	}
 	owned, err := ownedFiles(c.lane, c.Pkg)
 	if err != nil {
-		return 0, err
+		return d.hold(c, "prepare review files: "+err.Error())
 	}
 	pkg := "./" + c.Pkg
 	brief, err := RenderBrief("review", map[string]string{
@@ -372,7 +406,7 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 		"AfterFile": c.res.After, "Diff": "```diff\n" + diff + "\n```", "IdentityCommand": "rtk go test -count=1 " + pkg,
 	})
 	if err != nil {
-		return 0, err
+		return d.hold(c, "prepare review brief: "+err.Error())
 	}
 	env, err := d.ask(ctx, c.lane, brief, "--provider", "databricks", "--model", "opus", "--fallback", "none",
 		"--read-only")
@@ -394,7 +428,7 @@ func (d *driver) keep(c candidate) (outcome, error) {
 	err := recordRow(loopOpts{record: true, verdict: "kept", pkg: c.Pkg, what: c.What, after: c.res.After,
 		sha: c.fixSHA, lane: c.slug, dispatch: c.fixID, attempts: 1, savingMSDay: saved})
 	if err != nil {
-		return 0, err
+		return d.hold(c, "record keep: "+err.Error())
 	}
 	fmt.Fprintf(d.out, "bench: kept %s in lane %s, −%.0f ms/day (gates only); merge: claude-code worktree merge %s\n",
 		c.What, c.slug, saved, c.slug)
@@ -408,14 +442,17 @@ func (d *driver) hold(c candidate, why string) (outcome, error) {
 	return held, nil
 }
 
-// revert force-cleans the lane and records the reverted row.
+// Record rejection before destroying the only recoverable lane state.
 func (d *driver) revert(ctx context.Context, c candidate, why string) (outcome, error) {
-	fmt.Fprintf(d.out, "bench: reverted %s in lane %s: %s\n", c.What, c.slug, why)
-	if err := d.clean(ctx, c); err != nil {
-		return 0, err
+	if err := recordRow(loopOpts{record: true, verdict: "reverted", pkg: c.Pkg, what: c.What,
+		sha: cmp.Or(c.fixSHA, c.parent), dispatch: c.fixID, attempts: 1}); err != nil {
+		return d.hold(c, "record revert: "+err.Error())
 	}
-	return reverted, recordRow(loopOpts{record: true, verdict: "reverted", pkg: c.Pkg, what: c.What,
-		sha: cmp.Or(c.fixSHA, c.parent), dispatch: c.fixID, attempts: 1})
+	if err := d.clean(ctx, c); err != nil {
+		return d.hold(c, "revert recorded but lane cleanup failed: "+err.Error())
+	}
+	fmt.Fprintf(d.out, "bench: reverted %s in lane %s: %s\n", c.What, c.slug, why)
+	return reverted, nil
 }
 
 func (d *driver) clean(ctx context.Context, c candidate) error {
@@ -439,6 +476,11 @@ func (d *driver) ask(ctx context.Context, dir, brief string, flags ...string) (a
 	}
 	env.DispatchID = job.ID
 	if _, _, err := d.run(ctx, d.top, "", d.exe, "agents", "wait", job.ID, "--timeout", leafWait); err != nil {
+		cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if _, _, cancelErr := d.run(cancelCtx, d.top, "", d.exe, "agents", "cancel", job.ID); cancelErr != nil {
+			return env, errors.Join(fmt.Errorf("job %s: %w", job.ID, err), errJobActive, cancelErr)
+		}
 		return env, fmt.Errorf("job %s: %w", job.ID, err)
 	}
 	out, _, err = d.run(ctx, d.top, "", d.exe, "agents", "result", job.ID, "--format", "json")
