@@ -364,14 +364,12 @@ func TestSyncErrorFailsLaunchAndRemovesRunDir(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "package.json"), `{"name":"c","pi":{"extensions":["./e.ts"]}}`)
 	setPackages(t, dir, "")
-	for _, h := range []*agent.Headless{{Tools: true}, nil} {
-		_, _, err := piEngine{}.Wire(t.Context(), route, h)
-		if err == nil || !strings.Contains(err.Error(), "packages_approved="+dir) {
-			t.Fatalf("unapproved code: err = %v, want the approving command", err)
-		}
-		if left, _ := os.ReadDir(RunsDir("dbx")); len(left) != 0 {
-			t.Errorf("a refused launch left run dirs: %v", left)
-		}
+	_, _, err := piEngine{}.Wire(t.Context(), route, &agent.Headless{Tools: true})
+	if err == nil || !strings.Contains(err.Error(), "packages_approved="+dir) {
+		t.Fatalf("unapproved code: err = %v, want the approving command", err)
+	}
+	if left, _ := os.ReadDir(RunsDir("dbx")); len(left) != 0 {
+		t.Errorf("a refused launch left run dirs: %v", left)
 	}
 	setPackages(t, dir, dir)
 	if _, _, err := (piEngine{}).Wire(t.Context(), route, &agent.Headless{Tools: true}); err != nil {

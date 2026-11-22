@@ -69,7 +69,7 @@ func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 		return nil, nil, errors.New("pi runs only through the proxy; drop --direct")
 	}
 	if h == nil {
-		return interactiveWire(ctx, r)
+		return nil, nil, errors.New("pi has no interactive launch; dispatch with `claude-code agents ask --agent pi`")
 	}
 	thinking, err := thinkingArgv(h.Effort)
 	if err != nil {
@@ -214,11 +214,6 @@ func withGuard(env []string, dir string, tools bool) ([]string, error) {
 
 // RenderSettings adds the base settings and a cleanup that removes the run's private agent dir.
 func (e piEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
-	if l := s.Record.Launch; l != nil && !s.Headless { // the record's launch args reach the TUI argv: same allow-list
-		if err := checkPassArgs(l.Args); err != nil {
-			return nil, nil, nil, func() {}, fmt.Errorf("pi launch.args: %w", err)
-		}
-	}
 	env, argv, emu, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	for _, kv := range env {
 		if dir, ok := strings.CutPrefix(kv, agentDirEnv+"="); ok && filepath.Base(filepath.Dir(dir)) == "runs" {

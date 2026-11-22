@@ -47,9 +47,9 @@ paths:
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
-- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by `agents ask --agent pi` and
-  by `claude-code pi` (below), on a Databricks profile through the loopback proxy, with no own login. It runs the
-  models on the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
+- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
+  `agents ask --agent pi`, on a Databricks profile through the loopback proxy, with no own login. It runs the models on
+  the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
   no tools flag it runs with no tools. Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard
   extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
   `hook PreToolUse --pi-guard` (path normalized as Pi does and judged as typed and as the disk spells it,
@@ -94,16 +94,8 @@ paths:
   `claude-code agents ask --agent pi --overlay '<same>' --model <id> "<task>"` runs it (about a tenth of the input
   tokens). The label, record and `ran on` read `pi`; the brief must stand alone (no CLAUDE.md, skills or MCP), and
   another agent's `--session` or `--retry` id does not carry over. There is no swap inside another agent's dispatch.
-- **pi interactive** — `claude-code pi [--profile dev|qa|prod] [--read-only] [--print-env]` opens Pi's TUI behind the
-  same guard (first `-e`, `--no-builtin-tools`): all seven tools, or read, grep, find and ls with `--read-only`. With
-  no pin and no `--profile` it picks a profile from the Databricks pool and says which. Pi has no login of its own, so
-  it never launches plain and `--direct` is refused. Context files (`AGENTS.md`, `CLAUDE.md`) load here, not in a
-  dispatch; the work dir's `.pi` extensions, packages and settings never load. Sessions are kept in
-  `state/harness/pi/sessions`. `--print-env` is a preview: it leaves no run dir. Pi args (after `--`, or the record's
-  `launch.args`) pass only from an allow-list: `-c`/`--continue`, `-r`/`--resume`, `--session <id>`,
-  `-n`/`--name <name>`, `--thinking <level>`, `-p`/`--print`, `--verbose`, `--offline` and a prompt; any other flag
-  (`-e`, `-a`/`--approve`, `--skill`, `--tools`, `--model`, `--mode`, ...) or `@file` is refused with the harness
-  way to do it. A dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space).
+- **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
+  `--direct` is refused, and Pi has no interactive launch.
 - **pi RTK_WRAP (trial)** — `RTK_WRAP=on|debug` (process or vault env; default off; `debug` only logs and runs
   every command raw) puts `state/harness/rtkwrap/bin` first on a Pi launch's PATH. Its stand-ins (`bin/.rtkwrap`, one
   symlink per rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
@@ -299,8 +291,7 @@ vendor CLI untouched.
    - `RTK_WRAP`: `debug` for a day, then review `state/harness/rtkwrap/decisions.jsonl` for any would-wrap on
      program-parsed output, then `on`.
    - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
-7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command), and don't use
-   `claude-code pi` (being deleted).
+7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command).
 
 ## Skills and instructions parity
 

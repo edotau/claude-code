@@ -44,8 +44,7 @@ Either way you relay: never do the task yourself, even when it looks small.
 Shared flags and the headless `ask` table: `skills/subagent-workflows/references/agent-verbs.md`. Pi deltas:
 
 - Pi runs only through the loopback proxy on a Databricks profile, from a harness-generated private agent dir
-  (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`. The owner's interactive launcher is `claude-code pi`
-  (`/Users/edotau/.claude/rules/harness/agent.md` → pi interactive); the slash command is `/pi`.
+  (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`. The slash command is `/pi`.
 - `--tools` launches Pi with `--no-builtin-tools` and the harness's guard extension (`-e`), which registers the only
   tools Pi has (Pi's own tool code, wrapped): each call goes to `claude-code hook PreToolUse --pi-guard`, which
   normalizes the path exactly as Pi does (`@`, `~`, Unicode spaces; `file://` and NUL are refused; a new path with a
@@ -85,8 +84,7 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
   A dispatch passes `--no-context-files` (CLAUDE.md and AGENTS.md are not loaded), `--no-mcp` and
   `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`
   (the work dir's `.pi` extensions, packages and settings never load). The prompt goes after `--`, so Pi never
-  reads it as a flag; `claude-code pi` passes Pi only allow-listed flags (`-c`, `-r`, `--session`, `--name`,
-  `--thinking`, `-p`, `--verbose`, `--offline`).
+  reads it as a flag.
 - Pi exits 0 even when a request fails; the harness judges the run from Pi's JSON event stream: `toolUse` left
   unsettled and unknown stop reasons fail too.
 - `--effort` maps to Pi's `--thinking` levels (minimal, low, medium, high, xhigh, max).
