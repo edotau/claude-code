@@ -817,20 +817,20 @@ func depthCapCases() []depthCapCase {
 	return []depthCapCase{
 		{"top level", "", "", "", 0, 0},
 		{"depth one", "", "0", "", 1, 0},
-		{"at cap", "", "2", "", 3, 0},
-		{"above cap", "", "3", "", 4, 3},
+		{"at cap", "", "4", "", 5, 0},
+		{"above cap", "", "5", "", 6, 5},
 		{"recorded override five", "5", "4", parentJSON(4, "5"), 5, 0},
 		{"recorded unlimited", "0", "1048575", parentJSON(1048575, "0"), 1 << 20, 0},
-		{"garbage at cap", "garbage", "2", "", 3, 0},
-		{"garbage above cap", "garbage", "3", "", 4, 3},
-		{"negative above cap", "-1", "3", "", 4, 3},
+		{"garbage at cap", "garbage", "4", "", 5, 0},
+		{"garbage above cap", "garbage", "5", "", 6, 5},
+		{"negative above cap", "-1", "5", "", 6, 5},
 		{"leaf env 0 cannot lift a recorded 3", "0", "0", parentJSON(3, "3"), 4, 3},
 		{"recorded depth beats a spoofed env depth", "", "0", parentJSON(2, "5"), 3, 0},
-		{"legacy record without a cap, env 0", "0", "0", parentJSON(3, ""), 4, 3},
+		{"legacy record without a cap, env 0", "0", "0", parentJSON(5, ""), 6, 5},
 		{"legacy record without a cap, env 2", "2", "0", parentJSON(2, ""), 3, 2},
 		{"recorded 0 stays uncapped with env unset", "", "0", parentJSON(4, "0"), 5, 0},
-		{"missing record, env 0 cannot uncap", "0", "3", "", 4, 3},
-		{"corrupt record, env 0 cannot uncap", "0", "3", "{corrupt", 4, 3},
+		{"missing record, env 0 cannot uncap", "0", "5", "", 6, 5},
+		{"corrupt record, env 0 cannot uncap", "0", "5", "{corrupt", 6, 5},
 		{"missing record still nests", "0", "-5", "", 1, 0},
 	}
 }
@@ -1094,6 +1094,39 @@ func TestCutoffOfNamesEachKind(t *testing.T) {
 	rec.Finish(wire.Result{Status: "stalled"}, ErrSilent, 0)
 	if rec.Cutoff != CutoffIdle {
 		t.Errorf("Finish cutoff = %q, want %q", rec.Cutoff, CutoffIdle)
+	}
+}
+
+func TestTallyGeminiToolProgress(t *testing.T) {
+	const progress = `{"type":"progress","agent":"gemini","tool":{"name":"run_command"}}`
+	for _, tc := range []struct {
+		name, stream string
+		want         int
+	}{
+		{"gemini", progress + "\n" + progress, 2},
+		{"both", progress + "\n" + `{"type":"tool_use","agent":"gemini"}`, 1},
+		{"fallback", progress + "\n" + `{"type":"tool_use","agent":"claude"}`, 2},
+		{"other agent", `{"type":"tool_use"}` + "\n" + `{"type":"progress","agent":"codex"}`, 1},
+		{"generic progress", `{"type":"progress","agent":"gemini"}`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tl := &tally{Sink: wire.Discard}
+			dec := json.NewDecoder(strings.NewReader(tc.stream))
+			for dec.More() {
+				var ev wire.Event
+				if err := dec.Decode(&ev); err != nil {
+					t.Fatal(err)
+				}
+				if err := tl.Emit(ev); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rec := &Record{ID: "recorded-gemini", Agent: "gemini", RanIdentity: "fixture"}
+			err := withCutoffHint(ErrSilent, rec, wire.Result{}, time.Second, tl)
+			if !strings.Contains(err.Error(), fmt.Sprintf("with %d tool calls", tc.want)) {
+				t.Fatalf("receipt = %v, want %d tools", err, tc.want)
+			}
+		})
 	}
 }
 

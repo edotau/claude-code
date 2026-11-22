@@ -196,7 +196,7 @@ func DispatchKeep() int { return dispatchKeep }
 
 const dispatchPruneMargin = 20
 
-const DefaultMaxDispatchDepth = 3
+const DefaultMaxDispatchDepth = 5
 
 const maxDispatchDepthEnv = "HARNESS_DISPATCH_MAX_DEPTH"
 
@@ -708,13 +708,21 @@ func CutoffOf(err error) string {
 // tally counts the tool calls and text bytes a run streamed, so a cut-off error can say what was lost.
 type tally struct {
 	wire.Sink
-	tools, text atomic.Int64
+	tools, geminiTools, toolProgress, text atomic.Int64
 }
 
 func (t *tally) Emit(ev wire.Event) error {
 	switch ev.Type {
 	case wire.EventToolUse:
-		t.tools.Add(1)
+		if ev.Agent == "gemini" {
+			t.geminiTools.Add(1)
+		} else {
+			t.tools.Add(1)
+		}
+	case wire.EventProgress:
+		if ev.Agent == "gemini" && ev.Tool != nil {
+			t.toolProgress.Add(1)
+		}
 	case wire.EventText:
 		t.text.Add(int64(len(ev.Text)))
 	}
@@ -746,7 +754,7 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 		lost = fmt.Sprintf("%d B of text streamed", n)
 	}
 	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
-		who, kind, took.Round(time.Second), t.tools.Load(), lost, next)
+		who, kind, took.Round(time.Second), t.tools.Load()+max(t.geminiTools.Load(), t.toolProgress.Load()), lost, next)
 	if rec.RanIdentity == "" {
 		rec.RanIdentity = ranIdentityOf(rec.ID)
 	}
