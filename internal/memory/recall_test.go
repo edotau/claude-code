@@ -622,3 +622,94 @@ func TestRecallPreviewCapsAtWordBoundaries(t *testing.T) {
 		t.Errorf("undated pointer = %q, want %q", lines[3], want)
 	}
 }
+
+const benchRecallPrompt = "stage the deploy pipeline staging signoff before router retry policy archive storm"
+
+// benchRecallCorpus writes 40 aged bank files (about 300 KB) and a fixed access log; it returns the corpus bytes.
+func benchRecallCorpus(b *testing.B) int {
+	b.Helper()
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv("HOME", b.TempDir())
+	b.Setenv(UpdateChildEnv, "")
+	b.Setenv("CLAUDE_RECALL_SEMANTIC", "0")
+	vocab := strings.Fields("stage deploy pipeline staging signoff rollout router retry policy archive storm native recall " +
+		"memory bank hook gate lint build test review branch commit worktree vault secret provider proxy model agent " +
+		"dispatch wave plan task verify cache index segment latency budget cap")
+	names := []string{"projectContext", "activeContext", "progress", "decisionLog", "conventions", "sessionHistory"}
+	for i := range 17 {
+		names = append(names, fmt.Sprintf("feedback/feedback-rule-%02d", i), fmt.Sprintf("notes/note-topic-%02d", i))
+	}
+	aged := time.Now().Add(-48 * time.Hour)
+	total, id := 0, 1
+	var ids []string
+	for fi, name := range names {
+		var sb strings.Builder
+		sb.WriteString("# " + filepath.Base(name) + "\n\n")
+		for sb.Len() < 7500 {
+			words := make([]string, 14)
+			for w := range words {
+				words[w] = vocab[(fi*7+id*3+w*5)%len(vocab)]
+			}
+			fmt.Fprintf(&sb, "- %s <!-- id:%08x -->\n", strings.Join(words, " "), id)
+			if id%25 == 0 {
+				ids = append(ids, fmt.Sprintf("%08x", id))
+			}
+			id++
+		}
+		p := Path(name + ".md")
+		write(b, p, sb.String())
+		if err := os.Chtimes(p, aged, aged); err != nil {
+			b.Fatal(err)
+		}
+		total += sb.Len()
+	}
+	for i, hid := range ids {
+		logAccess(accessDir(), aged.Add(time.Duration(i)*time.Minute), hid, AccessShow)
+	}
+	return total
+}
+
+func benchRecallColdWarm(b *testing.B, run func()) {
+	for _, cold := range []bool{true, false} {
+		name := map[bool]string{true: "cold", false: "warm"}[cold]
+		b.Run(name, func(b *testing.B) {
+			bytes := benchRecallCorpus(b)
+			idx := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
+			run()
+			b.ReportAllocs()
+			for b.Loop() {
+				if cold {
+					b.StopTimer()
+					if err := os.Remove(idx); err != nil && !os.IsNotExist(err) {
+						b.Fatal(err)
+					}
+					b.StartTimer()
+				}
+				run()
+			}
+			b.ReportMetric(float64(bytes), "corpus-bytes")
+		})
+	}
+}
+
+func BenchmarkPromptRecall(b *testing.B) {
+	benchRecallColdWarm(b, func() {
+		if PromptRecall(context.Background(), "", benchRecallPrompt, io.Discard) == "" {
+			b.Fatal("prompt recall returned nothing")
+		}
+	})
+}
+
+func BenchmarkAgentRecall(b *testing.B) {
+	var tb strings.Builder
+	tb.WriteString(benchRecallPrompt + ". ")
+	for i := 0; tb.Len() < 2048; i++ {
+		fmt.Fprintf(&tb, "subtask%d must keep the build green. ", i)
+	}
+	task := tb.String()
+	benchRecallColdWarm(b, func() {
+		if blk, _ := AgentRecall(context.Background(), "", task); blk == "" {
+			b.Fatal("agent recall returned nothing")
+		}
+	})
+}
