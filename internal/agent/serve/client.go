@@ -171,12 +171,19 @@ func dial(ctx context.Context, timeout time.Duration) (net.Conn, error) {
 		_ = c.Close()
 		return nil, errors.New("agents serve: socket peer is not this user")
 	}
-	after, statErr := os.Lstat(SockPath())
-	if err := checkSock(SockPath()); err != nil || statErr != nil || !os.SameFile(before, after) {
+	if err := checkConnectedSocket(before); err != nil {
 		_ = c.Close()
-		return nil, errors.New("agents serve: socket changed while connecting")
+		return nil, err
 	}
 	return c, nil
+}
+
+func checkConnectedSocket(before os.FileInfo) error {
+	after, statErr := os.Lstat(SockPath())
+	if err := checkSock(SockPath()); err != nil || statErr != nil || !os.SameFile(before, after) {
+		return errors.New("agents serve: socket changed while connecting")
+	}
+	return nil
 }
 
 func writeRequest(c net.Conn, rq request) error {

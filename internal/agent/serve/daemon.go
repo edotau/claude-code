@@ -301,16 +301,7 @@ func listen() (*net.UnixListener, error) {
 		return nil, fmt.Errorf("agents serve: socket path %s is over %d bytes; use a shorter CLAUDE_CONFIG_DIR", path, maxSockPath)
 	}
 	if err := checkSock(path); err == nil {
-		dialer := net.Dialer{Timeout: helloTimeout}
-		c, derr := dialer.DialContext(context.Background(), "unix", path)
-		if derr == nil {
-			_ = c.Close()
-			return nil, errors.New("agents serve: another listener owns " + path)
-		}
-		if !errors.Is(derr, syscall.ECONNREFUSED) && !errors.Is(derr, os.ErrNotExist) {
-			return nil, fmt.Errorf("agents serve: cannot establish socket is stale: %w", derr)
-		}
-		if err := os.Remove(path); err != nil {
+		if err := removeStaleSocket(path); err != nil {
 			return nil, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -326,6 +317,19 @@ func listen() (*net.UnixListener, error) {
 		return nil, err
 	}
 	return ln, nil
+}
+
+func removeStaleSocket(path string) error {
+	dialer := net.Dialer{Timeout: helloTimeout}
+	c, err := dialer.DialContext(context.Background(), "unix", path)
+	if err == nil {
+		_ = c.Close()
+		return errors.New("agents serve: another listener owns " + path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("agents serve: cannot establish socket is stale: %w", err)
+	}
+	return os.Remove(path)
 }
 
 func removeSocket(want os.FileInfo) {

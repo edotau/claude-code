@@ -93,6 +93,7 @@ func TestCarryLogJoinsStreamsOnlyInBackground(t *testing.T) {
 	var answer bytes.Buffer
 	fg := agent.Record{ID: "20261122T030000.000-gemini", Agent: "gemini"}
 	out, errOut, closeLog = carryLog(fg, &answer)
+	t.Cleanup(closeLog)
 	io.WriteString(out, "the answer\n")
 	if errOut != os.Stderr {
 		t.Fatal("foreground carry: stderr left os.Stderr")
