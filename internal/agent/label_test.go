@@ -177,6 +177,18 @@ func TestResolveRunUnservedCatalogModel(t *testing.T) {
 	if r, err := ResolveRun(reg, q, now); err != nil || r.Served != "" {
 		t.Errorf("served model: %+v, %v; want it unmarked", r, err)
 	}
+	checkOwnLoginNotes(t, reg, now)
+}
+
+// checkOwnLoginNotes: claude on the ultra own-login row notes an unknown id as unverified, never a catalog id or alias.
+func checkOwnLoginNotes(t *testing.T, reg *providers.Registry, now time.Time) {
+	t.Helper()
+	for model, want := range map[string]bool{"bogus-model-xyz": true, "claude-sonnet-5-5": false, "opus": false} {
+		r, err := ResolveRun(reg, ModelQuery{Agent: "claude", Profile: "ultra", Model: model}, now)
+		if got := strings.Contains(r.Note, "unverified: "+model+" is not in the catalog"); err != nil || got != want {
+			t.Errorf("own-login %s: note %q, %v; want unverified note = %v", model, r.Note, err, want)
+		}
+	}
 }
 
 // autoOverlay is five Databricks rows (each a listing fixture) and a github row whose models are its own router.

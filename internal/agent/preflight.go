@@ -480,6 +480,26 @@ func checkRouteServed(reg *providers.Registry, r ModelRoute, none bool, now time
 	return r, nil
 }
 
+// noListingNote says aloud a typed id the catalog lacks on a non-Databricks row with no listing or snapshot to check it.
+func noListingNote(reg *providers.Registry, r ModelRoute, typed string, notAuto bool, now time.Time) ModelRoute {
+	p := reg.Row(r.Profile)
+	if p == nil || !notAuto || r.Alias != "" || p.Preset == providers.PresetDatabricks || catalogWord(typed) {
+		return r
+	}
+	if _, ok := githubSnapshot(p, now); ok {
+		return r
+	}
+	r.Note = joinNotes(r.Note, "unverified: "+typed+" is not in the catalog and "+p.Name+" has no listing")
+	return r
+}
+
+// catalogWord is typed empty, auto, a family word, an alias or a catalog id: nothing to flag.
+func catalogWord(typed string) bool {
+	name := strings.ToLower(models.Strip1M(typed))
+	_, _, known := models.Resolve(typed)
+	return known || name == "" || name == AutoModel || providers.IsFamily(name) || slices.Contains(models.AliasNames, name)
+}
+
 // CheckModelNoted is checkModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).
 func CheckModelNoted(agentName string, p *providers.Provider, model string, now time.Time, pf *Preflight) (string, *Finding) {
 	wire, failed, note := checkModel(agentName, p, model, now)

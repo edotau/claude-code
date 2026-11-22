@@ -173,7 +173,7 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 		return r, choice, err
 	}
 	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone && need.mode == autoOff, now)
-	return r, choice, err
+	return noListingNote(reg, r, cmp.Or(q.Model, q.PinModel), need.mode == autoOff, now), choice, err
 }
 
 // rowDefault is an untyped run's model on profile: the concrete pin, else the row's opus, by id if refused as an alias.
