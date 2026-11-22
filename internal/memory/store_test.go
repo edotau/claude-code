@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,7 +168,7 @@ func initStore(t *testing.T) {
 		if err := os.CopyFS(gitDir, os.DirFS(storeTemplate(t))); err != nil {
 			t.Fatal(err)
 		}
-		verifiedRoots.Store(paths.CanonDeep(gitDir), struct{}{})
+		markCopied(gitDir)
 	}
 	if err := repo.Ensure(); err != nil {
 		t.Fatal(err)
@@ -193,9 +194,16 @@ func copyInit(real func(Repo) error) func(Repo) error {
 		if err := os.CopyFS(gitDir, os.DirFS(filepath.Join(storeTmpl.dir, ".git"))); err != nil {
 			return err
 		}
-		verifiedRoots.Store(paths.CanonDeep(gitDir), struct{}{})
+		markCopied(gitDir)
 		return nil
 	}
+}
+
+// markCopied records a template copy as root-verified and remote-free; a later config edit changes the stamp.
+func markCopied(gitDir string) {
+	key := paths.CanonDeep(gitDir)
+	verifiedRoots.Store(key, struct{}{})
+	remoteFree.Store(key, configStamp(gitDir))
 }
 
 func storeTemplate(t *testing.T) string {
@@ -218,6 +226,12 @@ func TestMain(m *testing.M) {
 	StubSpawn(tb, true) // no memory test may launch a real detached worker
 	if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
 		storeTmpl.err = Repo{Dir: storeTmpl.dir}.Ensure()
+	}
+	if storeTmpl.err == nil { // git's inert sample hooks: fewer files for every per-test copy to write and remove
+		samples, _ := filepath.Glob(filepath.Join(storeTmpl.dir, ".git", "hooks", "*.sample"))
+		for _, s := range samples {
+			storeTmpl.err = errors.Join(storeTmpl.err, os.Remove(s))
+		}
 	}
 	gitInit = copyInit(gitInit)
 	code := m.Run()

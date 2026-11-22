@@ -27,8 +27,11 @@ func migFixture(t *testing.T, files map[string]string) string {
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
-		{"add", "-A"}, {"commit", "-qm", "pre"}} {
+	if out, err := migGit(dir, "init", "-q"); err != nil {
+		t.Fatalf("git init: %s", out)
+	}
+	appendFile(t, filepath.Join(dir, ".git", "config"), "[user]\n\temail = t@t\n\tname = t\n") // as git config writes it
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "pre"}} {
 		if out, err := migGit(dir, args...); err != nil {
 			t.Fatalf("git %v: %s", args, out)
 		}

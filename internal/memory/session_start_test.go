@@ -247,7 +247,7 @@ func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 func TestRecordSessionRootReportsLockTimeout(t *testing.T) {
 	isolatedConfig(t)
 	orig := sessionRootLockWait
-	sessionRootLockWait = 200 * time.Millisecond
+	sessionRootLockWait = 50 * time.Millisecond
 	t.Cleanup(func() { sessionRootLockWait = orig })
 	const id = "11111111-2222-3333-4444-555555555555"
 	cwd := canonTemp(t, t.TempDir())

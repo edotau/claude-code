@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -269,18 +268,11 @@ func TestUpdatePlansAudit(t *testing.T) {
 	run := func(context.Context, string, string) (string, error) { return "fake", nil }
 	var out bytes.Buffer
 	opts := updateOptions{Run: run, CWD: root, Out: &out}
-	var durations []time.Duration
-	for range 5 {
-		write(t, plan, body)
-		out.Reset()
-		start := time.Now()
-		if err := update(opts); err != nil {
-			t.Fatal(err)
-		}
-		durations = append(durations, time.Since(start))
+	start := time.Now()
+	if err := update(opts); err != nil {
+		t.Fatal(err)
 	}
-	slices.Sort(durations)
-	t.Logf("fake update median of 5: %s", durations[2])
+	t.Logf("fake update: %s", time.Since(start))
 	if !strings.Contains(mustRead(t, plan), "[x]") || !strings.Contains(out.String(), "plans: audit 1 plans: ticked 1") {
 		t.Fatalf("missing tick or log block: %s", out.String())
 	}
