@@ -69,12 +69,12 @@ func loginText(ctx context.Context, p *providers.Provider, v providers.AuthVerdi
 	return fmt.Sprintf("authentication failed (%s); run `%s`; %s", v, login, fallback)
 }
 
-// bodyPresize is the initial read buffer: the declared length plus one byte for EOF, capped; 512 when unknown.
+// bodyPresize is the initial read buffer: the declared length plus bytes.MinRead (ReadFrom's free space), capped.
 func bodyPresize(declared int64) int {
 	if declared <= 0 {
 		return 512
 	}
-	return int(min(declared, 1<<20)) + 1
+	return int(min(declared, 1<<20)) + bytes.MinRead
 }
 
 // readBody reads the request body up to maxBody; a read error or an oversize body is written out and returns false.
