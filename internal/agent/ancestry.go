@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -22,9 +21,9 @@ var ancestryOff = testing.Testing()
 // ancestorDispatch is the nearest running dispatch above this process, looked up once per process.
 var ancestorDispatch = sync.OnceValues(findAncestorDispatch)
 
-// CheckAncestorDispatch refuses an env-wiped ask when its nearest parent has indistinguishable running dispatches.
+// CheckAncestorDispatch refuses an env-wiped ask under a shared or finished ancestor dispatch.
 func CheckAncestorDispatch(ctx context.Context) error {
-	if proc.Value(ctx, proc.DispatchIDEnv) != "" {
+	if DispatchIDOf(ctx) != "" || proc.Value(ctx, proc.DispatchIDEnv) != "" {
 		return nil
 	}
 	_, err := ancestorDispatch()
@@ -60,7 +59,7 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 	return values.Merge(set)
 }
 
-// findAncestorDispatch recovers a unique nearest live dispatch or refuses an ambiguous batch parent.
+// findAncestorDispatch recovers a unique nearest live dispatch or refuses a shared or finished parent.
 func findAncestorDispatch() (Record, error) {
 	if ancestryOff {
 		return Record{}, nil
@@ -69,7 +68,7 @@ func findAncestorDispatch() (Record, error) {
 	if len(chain) == 0 { // top level: no ancestor runs the harness binary, so no record is read
 		return Record{}, nil
 	}
-	recs, _ := ReadRecentWith(AllRecords, inflight.RunningToken) // newest first
+	recs, _ := ReadRecentWith(AllRecords, "") // finished siblings still identify a shared live process
 	best, err := nearestDispatch(recs, chain)
 	if best.ID != "" {
 		fmt.Fprintf(NoticeOut, "claude-code: no %s in the env; parent dispatch %s found by process ancestry\n", proc.DispatchIDEnv, best.ID)
@@ -82,14 +81,14 @@ func nearestDispatch(recs []Record, chain map[int]int) (Record, error) {
 	ambiguous := false
 	for _, r := range recs {
 		n, ok := chain[r.PID]
-		if !ok || r.Status != "running" || (nearest >= 0 && n > nearest) || !liveAs(r.PID, r.PIDStart) {
+		if !ok || (nearest >= 0 && n > nearest) || !liveAs(r.PID, r.PIDStart) {
 			continue
 		}
 		if nearest == n {
 			ambiguous = true
 		} else {
 			best, nearest = r, n
-			ambiguous = false
+			ambiguous = r.Status != "running" || r.BatchID != ""
 		}
 	}
 	if ambiguous {
