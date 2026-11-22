@@ -16,10 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// probeTimeout bounds one gh call; kept local so this package stays a leaf below internal/agent.
+const probeTimeout = 8 * time.Second
 
 // ghUserRE matches the host-level `user: <name>` line (the active account) in gh's hosts.yml.
 var ghUserRE = sync.OnceValue(func() *regexp.Regexp {
@@ -48,7 +50,7 @@ func GHActiveAccount() string {
 
 // SwitchGH makes login gh's active account (`gh auth switch`); a seam so tests never touch the real gh.
 var SwitchGH = func(login string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "switch", "--hostname", "github.com", "--user", login).CombinedOutput()
 	ghActiveTokenMemo.Drop()
@@ -134,7 +136,7 @@ func ghEnvOverridesToken() bool {
 
 // ghAuthToken runs `gh auth token` plus extra; a failure, not a timeout, is errGHTokenFailed.
 func ghAuthToken(extra ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", append([]string{"auth", "token"}, extra...)...).Output()
 	if err != nil && ctx.Err() == nil {
