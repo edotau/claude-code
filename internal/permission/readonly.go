@@ -743,15 +743,31 @@ func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 	if !ok || slices.ContainsFunc(reads, func(r Rule) bool { return r.Arg == "" }) {
 		return true
 	}
+	return slices.ContainsFunc(ops, func(o string) bool { return operandDenied(reads, o, at) })
+}
+
+// operandDenied: a Read deny covers o; after a cd to an unknown dir a relative o may sit under any dir.
+func operandDenied(reads []Rule, o string, at opDir) bool {
+	if at.lost && !path.IsAbs(filepath.ToSlash(o)) && (climbs(o) || slices.ContainsFunc(reads, func(r Rule) bool {
+		return tailMatches(r.Arg, o) || tailMatches(ExpandHome("Read", r.Arg), o)
+	})) {
+		return true
+	}
 	deny := Permissions{Deny: reads}
-	return slices.ContainsFunc(ops, func(o string) bool {
-		// after a cd to an unknown dir a climbing operand cannot be placed
-		return at.lost && climbs(o) && !path.IsAbs(filepath.ToSlash(o)) ||
-			slices.ContainsFunc(operandForms(o, at.dir), func(f string) bool { return deny.Decide("Read", f) == Deny })
-	})
+	return slices.ContainsFunc(operandForms(o, at), func(f string) bool { return deny.Decide("Read", f) == Deny })
 }
 
 func climbs(o string) bool { return slices.Contains(strings.Split(filepath.ToSlash(o), "/"), "..") }
+
+// tailMatches reports a relative operand o that pattern matches when joined to some dir: its last elements glob o.
+func tailMatches(pattern, o string) bool {
+	pc, oc := strings.Split(paths.CleanGlob(pattern), "/"), strings.Split(path.Clean(filepath.ToSlash(o)), "/")
+	if len(pc) < len(oc) {
+		return slices.Contains(pc, "**")
+	}
+	tail := pc[len(pc)-len(oc):]
+	return slices.Contains(tail, "**") || paths.GlobMatch(strings.Join(tail, "/"), strings.Join(oc, "/"))
+}
 
 // noFileCommands read no file: builtins whose arguments are printed, never opened (a redirect never reaches here).
 var noFileCommands = sync.OnceValue(func() []string { return shell.GuardWords("no_file_commands") })
@@ -787,11 +803,12 @@ func denyParentDirs(pattern string) []string {
 	return dirs
 }
 
-// operandForms: o as typed, cleaned, joined to dir (else cwd), symlink-resolved if it climbs, and its sub-paths.
-func operandForms(o, dir string) []string {
+// operandForms: o as typed, cleaned, joined to at's dir (else cwd unless lost), resolved if it climbs, sub-paths.
+func operandForms(o string, at opDir) []string {
 	c := path.Clean(o)
 	forms := []string{o, c}
-	if dir == "" {
+	dir := at.dir
+	if dir == "" && !at.lost {
 		dir, _ = os.Getwd()
 	}
 	abs := o

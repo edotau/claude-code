@@ -228,18 +228,33 @@ func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	}
 	code := shellCode(arg) // judge what bash runs: a comment can hide a quote that ends one
 	d := p.decideBash(code, 0, cwd)
-	if unrolled, ok := unrollFor(code); ok && d != Allow { // loosen only a catch-all refusal; a Deny rule always stands
-		if u := p.decideBash(unrolled, 1, cwd); u != Deny && (d != Deny || !p.explicitDeny(code, cwd)) {
-			d = max(d, u)
-		}
+	if d == Allow || p.Mode != PermPlan && !slices.Contains(p.Deny, ReadOnlyDeny[0]) { // loosen only a catch-all refusal
+		return d
 	}
-	return d
+	unrolled, ok := unrollFor(code)
+	if !ok {
+		return d
+	}
+	u := p.decideBash(unrolled, 1, cwd)
+	if u == Deny || d == Deny && p.explicitDeny(code, cwd) { // a Deny rule always stands
+		return d
+	}
+	if p.explicitAsk(code, cwd) {
+		u = min(u, Ask)
+	}
+	return max(d, u)
 }
 
-// explicitDeny reports a Deny rule other than the read-only catch-all matching cmd.
+// explicitDeny reports a Deny rule other than the read-only catch-all matching cmd (Read denies: the unrolled verdict).
 func (p Permissions) explicitDeny(cmd, cwd string) bool {
 	rules := slices.DeleteFunc(slices.Clone(p.Deny), func(r Rule) bool { return r.Tool == "Bash" && r.Arg == NotReadOnlyShellArg })
 	return Permissions{Deny: rules}.decideBash(cmd, 0, cwd) == Deny
+}
+
+// explicitAsk reports an Ask rule matching cmd as a whole or one of its segments.
+func (p Permissions) explicitAsk(cmd, cwd string) bool {
+	return anyRule(p.Ask, "Bash", strings.TrimSpace(cmd), false) ||
+		Permissions{Mode: PermAllow, Ask: p.Ask}.decideBash(cmd, 0, cwd) == Ask
 }
 
 // shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
@@ -557,7 +572,7 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 }
 
 var forLoop = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?s)^\s*for[ \t]+([a-z_][a-z0-9_]*)[ \t]+in((?:[ \t]+[A-Za-z0-9._/@%+=:,][A-Za-z0-9._/@%+=:,-]*)+)` +
+	return regexp.MustCompile(`(?s)^\s*for[ \t]+([a-z_][a-z0-9_]*)[ \t]+in((?:[ \t]+[A-Za-z0-9._/@%+:,][A-Za-z0-9._/@%+=:,-]*)+)` + // zsh expands a leading `=`
 		`[ \t]*[;\n]\s*do[ \t\n]+(.*?)[ \t]*[;\n]\s*done\s*$`)
 })
 
@@ -656,6 +671,9 @@ func tildeWord(t, home string) string {
 func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
 	if len(rawToks) == 0 { // a blank line, a trailing `;` or a masked substitution; `env` or `x=1` alone is judged
+		if hasWrite(seg) { // `> f function a` tokenizes to nothing but still writes f
+			return min(p.decideOne("Bash", strings.TrimSpace(seg)), Ask), true
+		}
 		return Allow, false
 	}
 	toks := commandWords(UnwrapXargs(rawToks))
@@ -671,7 +689,7 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 	if d == Allow && hasWrite(seg) { // a quoted `<` is text, not a redirect
 		d = Ask
 	}
-	if d == Allow && readOnlyReadDenied(p, judged, at) {
+	if d != Deny && readOnlyReadDenied(p, judged, at) { // an Ask rule never outranks a Read deny
 		d = Deny
 	}
 	return d, true
@@ -728,11 +746,19 @@ func xargsTakesNext(opt string, values []string) bool {
 	return false
 }
 
-// mayMoveCwd reports a segment that may change the shell's cwd: any cd, pushd or popd word, or eval and source.
+// mayMoveCwd: a cd, pushd, popd, eval or source word, or `.` as a command (a case arm too); `cat .` moves nothing.
 func mayMoveCwd(seg string) bool {
-	return slices.ContainsFunc(shell.Tokens(seg), func(t string) bool {
-		return slices.Contains(cwdMovingWords(), t)
-	})
+	toks := shell.Tokens(seg)
+	if cmd, _ := shell.Unwrap(toks, ""); len(cmd) > 0 && slices.Contains(cwdMovingWords(), cmd[0]) {
+		return true
+	}
+	for _, start := range shell.CommandStarts(toks) { // a nested command: `time cd x`, `if x; then cd y`
+		if cmd, _ := shell.Unwrap(start, ""); len(cmd) > 0 && slices.Contains(cwdMovingWords(), cmd[0]) {
+			return true
+		}
+	}
+	// a case arm (`a) cd x`) hides its command after `)`; an argument like `grep cd f` never moves cwd
+	return unquotedAny(seg, ")") && slices.ContainsFunc(toks, func(t string) bool { return slices.Contains(cwdMovingWords(), t) })
 }
 
 var cwdMovingWords = sync.OnceValue(func() []string { return shell.GuardWords("cwd_moving_words") })

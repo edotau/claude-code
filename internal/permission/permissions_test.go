@@ -234,6 +234,31 @@ func TestPermissionBashSegments(t *testing.T) {
 	}
 }
 
+// Given a Read deny, a write or an Ask rule hidden behind a `.` operand, a function header or a loop, Then it stands.
+func TestPermissionConfiguredRuleStands(t *testing.T) {
+	ro := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/secret.env"}}, ReadOnlyDeny...)}
+	ask := Permissions{Allow: []Rule{ReadOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "for *"}}, Deny: ReadOnlyDeny}
+	askcat := Permissions{Allow: []Rule{ReadOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "cat *"}},
+		Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/.env"}}, ReadOnlyDeny...)}
+	cases := []struct {
+		p    Permissions
+		cmd  string
+		want Decision
+	}{
+		{ro, "cat .; cat secret.env", Deny}, {ro, "for f in . secret.env; do cat $f; done", Deny},
+		{ro, "> /tmp/pwn function a; git status", Deny}, {askcat, "cat .env", Deny},
+		{askcat, "for x in .env; do cat $x; done", Deny}, {ask, "for x in a b; do git status; done", Ask},
+		{ro, "for f in =ls; do cat $f; done", Deny}, {ro, "grep cd f; cat secret.env", Deny},
+		{Permissions{Allow: []Rule{ReadOnlyAllow}}, "for f in a b; do cat $f; done", Ask}, {ro, "cat .; cat ../x", Allow},
+		{ro, "for f in a b; do cat $f; done", Allow}, {ro, "git status; git status", Allow},
+	}
+	for _, c := range cases {
+		if got := c.p.DecideAt("/work/repo", "Bash", c.cmd); got != c.want {
+			t.Errorf("%q: got %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
+
 // Given path globs, Then ** crosses directories, * stays in one, and a leading ./ is ignored.
 func TestPermissionPathGlobs(t *testing.T) {
 	p := mustPerms(t, "auto", []string{"Edit(internal/**)", "Read(src/*.go)"}, nil, nil)
