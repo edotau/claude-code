@@ -40,7 +40,8 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	if claudeBase != "" {
 		prov[id+"-claude"] = map[string]any{"npm": "@ai-sdk/anthropic", "name": "Claude (claude-code)", "options": providerOptions(p, cred, claudeBase, true), "models": claude}
 	}
-	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": defID + "/" + model, "provider": prov})
+	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": defID + "/" + model, "provider": prov,
+		"permission": nativeWebOff()})
 	if err != nil {
 		return nil, err
 	}

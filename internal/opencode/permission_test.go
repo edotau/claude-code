@@ -169,6 +169,23 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	}
 }
 
+// TestApplyPermissionsKeepsNativeWebOff: a policy (plan mode allows webfetch) keeps a Databricks launch's web denies.
+func TestApplyPermissionsKeepsNativeWebOff(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{"permission": nativeWebOff()})
+	req := agent.RunOptions{Tools: true, ReadOnly: true}
+	got, err := opencodeApplyPermissions([]string{opencodeConfigEnv + "=" + string(body)}, req, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perm, _ := strings.CutPrefix(got[len(got)-1], opencodePermissionEnv+"=")
+	if !strings.Contains(perm, `"webfetch":"deny"`) || !strings.Contains(perm, `"websearch":"deny"`) || !nativeWebPinnedOff(got) {
+		t.Errorf("native web tools not denied: %v", got)
+	}
+	if plain, _ := opencodeApplyPermissions([]string{opencodeConfigEnv + `={}`}, req, false); nativeWebPinnedOff(plain) {
+		t.Errorf("non-Databricks launch lost native web tools: %v", plain)
+	}
+}
+
 func TestOpencodeReadOnlyLaunch(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

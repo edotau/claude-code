@@ -200,6 +200,9 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions, gated bool) ([
 	if req.Permissions.IsZero() {
 		return env, nil
 	}
+	if nativeWebPinnedOff(env) { // the policy replaces the launch's permission block; keep its native web denies
+		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), permission.Rule{Tool: "WebFetch"}, permission.Rule{Tool: "WebSearch"})
+	}
 	perm, err := opencodePermission(req.Permissions, gated)
 	if err != nil {
 		return nil, retry.Fatal("opencode", err)
@@ -209,6 +212,28 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions, gated bool) ([
 		return nil, err
 	}
 	return append(env, opencodePermissionEnv+"="+string(perm)), nil
+}
+
+// nativeWebOff denies opencode's native web tools so a Databricks row's web use goes through the web_search MCP.
+func nativeWebOff() map[string]any {
+	return map[string]any{"webfetch": "deny", "websearch": "deny"}
+}
+
+// nativeWebPinnedOff reports whether env's inline config carries nativeWebOff's denies.
+func nativeWebPinnedOff(env []string) bool {
+	for _, kv := range env {
+		body, ok := strings.CutPrefix(kv, opencodeConfigEnv+"=")
+		if !ok {
+			continue
+		}
+		var cfg struct {
+			Permission map[string]any `json:"permission"`
+		}
+		if json.Unmarshal([]byte(body), &cfg) == nil && cfg.Permission["webfetch"] == "deny" && cfg.Permission["websearch"] == "deny" {
+			return true
+		}
+	}
+	return false
 }
 
 // refusePolicyEnv refuses --env setting a name the permission policy owns: --env goes last and would replace it.
