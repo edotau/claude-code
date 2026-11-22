@@ -126,6 +126,9 @@ func hasGit(path string) bool {
 	if !fi.IsDir() {
 		return true
 	}
+	if _, err := os.Lstat(filepath.Join(path, "HEAD")); err == nil {
+		return true // a repo's .git always holds HEAD, so skip the open+readdir
+	}
 	d, err := os.Open(path)
 	if err != nil {
 		return false
