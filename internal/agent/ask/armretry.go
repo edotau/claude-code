@@ -197,12 +197,10 @@ func (a *armRetry) repickAuth(res wire.Result, req agent.RunOptions, e *retry.Er
 	if e.Status == http.StatusForbidden {
 		why = "refused (403)"
 	}
-	cur := a.current()
-	next, again := a.repick(res, req, why)
-	if again && e.AuthReason == "" {
-		coolArm(cur, 0)
+	if e.AuthReason == "" {
+		coolArm(a.current(), 0)
 	}
-	return next, again
+	return a.repick(res, req, why)
 }
 
 // repick moves to the next workspace within the shared re-pick cap; a launched hop spends one.
