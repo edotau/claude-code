@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -224,10 +225,23 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 // would let the child's ask trailer land before the redaction buffer flushes the answer's end.
 func carryLog(rec agent.Record, out io.Writer) (io.Writer, io.Writer, func()) {
 	if rec.Background {
-		return out, out, func() {}
+		locked := &lockedWriter{w: out} // the child's stdout and stderr copy from two goroutines
+		return locked, locked, func() {}
 	}
 	sink := wire.NewLogSink(rec.LogPath())
 	return io.MultiWriter(out, sink.Stream()), os.Stderr, sink.Close
+}
+
+// lockedWriter serializes writes to w, which is not safe for concurrent use.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 // settleChild is child once its process has exited: a record left running is ended, since nothing else will end it.
