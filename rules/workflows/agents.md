@@ -33,14 +33,14 @@ agent: `skills/subagent-workflows/SKILL.md`.
 
 ## Slash commands
 
-All are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself.
+All are owner-only (`disable-model-invocation: true`); each launcher specifies its dispatch tool.
 
 - `/codex` · `/copilot` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — one Agent call
   (`subagent_type` = the name) whose brief opens `Run: claude-code agents ask --agent <type> [flags] --tools`. There
   is no `/claude`: the name could collide.
 - `/gemini [--host <h>] [--profile <p>] [--model <m>] <task>` — no subagent: the session runs
-  `agents ask --carry --background --agent gemini [flags] --tools --read-only - < brief` (with `--host`, which
-  `--carry` refuses, a plain `agents ask --background`), then `agents result -f <id>`.
+  `agents ask --carry --background --agent gemini [flags] --tools --read-only - < brief`, then
+  `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
 - `/coworker --agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>` — the same
   dispatch (gemini on a `claude` leaf), run here on the Databricks arm with its requests sent through the other
   machine (default overlay `{"provider":"databricks","profile":"auto","remote":"auto"}`; `--overlay` replaces it).

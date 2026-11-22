@@ -54,6 +54,8 @@ const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hop
 const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
 // Agents whose relay subagent is retired: a claude leaf runs their stage from a `Run:` line, so the ran-on gate holds.
 const RELAY_RETIRED = ['gemini']
+// ANSI-C quotes decode task escapes; hex apostrophes also pass the hook's literal-quote check.
+const stepTaskArg = (p) => "$'" + p.replace(/[\\'\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')) + "'"
 const stepRecord = (name, who, label, r) => {
   const { ranOn, canon, ok } = ranOnVerdict(r)
   if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
@@ -72,10 +74,11 @@ const stepExt = (name, v, d, f) => {
     : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
   const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + route
   const retired = RELAY_RETIRED.includes(who)
-  const how = retired ? 'the `Run:` line above plus `--attach <file>`' : `\`${ask} --attach <file>\``
+  const how = retired ? 'Run the `Run:` line above exactly; its quoted argument is the complete task. Never do it in-context.'
+    : `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: retired ? 'claude' : who }, profile, provider,
-    task: (p) => (retired ? `Run: ${ask}\n` : '') + `Agent: ${who}\nRun the task below with ${how}: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.` +
+    task: (p) => (retired ? `Run: ${ask} -- ${stepTaskArg(p)}\n` : '') + `Agent: ${who}\n${how}` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },
