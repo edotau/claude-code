@@ -24,6 +24,24 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 - **No real input:** say so, ask for exactly what is needed, and mark anything written as unverified.
 - **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code.
 
+### TEST
+
+A repair executor owns only the named existing test files; the brief supplies failures and intended behavior.
+
+1. Run touched-package tests, never the full suite, and capture actual failures; do not infer them from a diff.
+2. Group failures by cause, not file, and classify each group with evidence:
+   - **Test wrong:** the contract deliberately changed; update the expectation while keeping the test's intent.
+   - **Code wrong:** the asserted contract was not meant to change; report the regression, do not edit the test.
+   - **Vacuous:** a passing test no longer exercises its moved/renamed subject; explicitly report the lost guard.
+3. Before changing an assertion, write a `TASK:` note (`skills/problem-solving/references/notes.md`) comparing the
+   assertion, intended contract and observed behavior: repair only when behavior matches the contract and the
+   assertion does not. If uncertain, name the missing evidence and return it to the caller.
+4. Repair only test-wrong groups; check every moved/renamed subject still has a real assertion.
+5. Re-run the scoped tests and report before/after counts from actual output, with the evidence and verdict per group.
+
+Never change product code to green a repair, delete a test to clear a failure, or invent a framework when none exists.
+Recommend a justified deletion instead; report a missing suite or failed dispatch to the caller.
+
 ## Scope — logic, not a coverage number
 
 Default per feature: basic tests that it works (a couple of seconds to run at most) before it has been used a while;

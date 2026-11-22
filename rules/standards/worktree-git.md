@@ -27,7 +27,29 @@
 5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;`; a docs
    commit gates on a clean `claude-code agents diff --check`.
 
-Executor mechanics: `agents/copilot.md` → LAST-MILE.
+Executor mechanics: [LAST-MILE](#last-mile).
+
+## LAST-MILE
+
+Any executor given an authorized landing brief lands already-verified work; inspect the tree before resuming.
+
+1. Merge verified branches in dependency order with `claude-code worktree merge <name>` (`--dry-run` previews;
+   `--verify <cmd>` sets the gate). Return conflicts needing code decisions to the caller; never change product code.
+2. After the final merge, run lint, build and tests of the merged packages once: individually green branches can fail
+   together. The release/full build, test and security chain remains main-session-only, once, with owner approval.
+3. Separate your changes from pre-existing dirt. Inspect `rtk git diff --no-ext-diff --no-textconv HEAD -- <paths>`
+   and scan the staged diff for secrets. Leave every unrelated index entry untouched and report it under `excluded`.
+4. Use the named-file commit command above (`--dry-run` previews the set); working-tree content is what lands.
+   Use the user's message, otherwise confirm a Conventional message first. Verify the selected content builds and
+   tests independently where supported, in an isolated snapshot under the shared-checkout rules below.
+5. Check `rtk git log --no-ext-diff --no-textconv -1 --format=%B` before reporting AI-attribution `none (verified)`.
+   Report the commit hash and resulting tree state.
+
+Lead with `DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`, scoped gate results, `excluded` and blockers.
+For a dispatched job, keep its actual `ask: ran on …` receipt and job/session ids, then the verdict under `## Result`
+(`skills/subagent-workflows/SKILL.md` → External relay contract); never invent a receipt or verb.
+Do not write memory; propose it in the report. Never force-push shared history or rewrite published commits (rule 4).
+Test repair, including the prohibitions on deleting tests or inventing a framework: `testing-guidelines.md` → TEST.
 
 ## Worktrees
 
