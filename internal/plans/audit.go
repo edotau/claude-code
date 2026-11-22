@@ -374,11 +374,33 @@ func (a *auditRun) ownedSubjects(plan string, tasks []Task, history []auditCommi
 	return nil
 }
 
+var snapshotSHA = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("(?m)^Date: .*Snapshot:[^`\\n]*`([0-9a-f]{7,40})`")
+})
+
+// planSnapshot is the commit the plan header names as its base; "-" (no sha has that prefix) when it names none.
+func planSnapshot(plan string) string {
+	head, err := os.ReadFile(plan)
+	if err != nil {
+		return "-"
+	}
+	if m := snapshotSHA().FindSubmatch(head[:min(len(head), 4096)]); m != nil {
+		return string(m[1])
+	}
+	return "-"
+}
+
+// predates: the commit is older than the plan's day or the plan was written on top of it, so it delivers no task.
+func (r *reach) predates(plan string, c auditCommit, snapshot int) bool {
+	return c.day < filepath.Base(plan)[:10] || snapshot >= 0 && r.index(c.sha) >= snapshot
+}
+
 // ownedSubject ticks t from the first landed commit since the plan's day whose subject overlaps and files cover owns:.
 func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) error {
 	words, owns, candidate := auditWords(t.Title), auditOwns(*t), ""
+	snapshot := a.landed.index(planSnapshot(plan))
 	for _, c := range history {
-		if c.day < filepath.Base(plan)[:10] || !auditOverlap(words, c.words) {
+		if a.landed.predates(plan, c, snapshot) || !auditOverlap(words, c.words) {
 			continue
 		}
 		if len(taskTrailerValues(c.message)) > 0 && !namesTask(c.message, plan, t.ID) {

@@ -184,3 +184,20 @@ func TestRecheckJobRevertsDespiteLogErrors(t *testing.T) {
 		t.Fatalf("reverted %d err %v:\n%s", len(rep.Reverted), err, got)
 	}
 }
+
+func TestPlanSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	for body, want := range map[string]string{
+		"# Plan: x\n\nDate: 2026-10-05. Snapshot: harness `3a1197f64` (main).\n": "3a1197f64",
+		"# Plan: x\n\nDate: 2026-10-05. Snapshot: `<sha>`\n":                     "-",
+		"# Plan: x\n": "-",
+	} {
+		file := filepath.Join(dir, "p.md")
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := planSnapshot(file); got != want {
+			t.Errorf("planSnapshot(%q) = %q, want %q", body, got, want)
+		}
+	}
+}
