@@ -62,3 +62,20 @@ the same required `--pkg`, `--what`, and `--benchmark` fields. Such rows do not 
 History rejects corrupt, incomplete, or newer-schema rows. Existing scorecard rows stay readable.
 All verdicts are reports only. No code here deletes benchmarks or history, including `dead` results;
 D6 requires the owner to approve every deletion batch.
+
+## The fix loop
+
+`claude-code review bench --loop [--max N]` (default 3) runs `driver.go`, one loop at a time under
+`state/harness/bench/loop.lock`. Per item: a quiet check (busy defers, exit 0), the top `fix` item at 1 s/day or
+more whose package has benchmarks, a lane `bench-<pkg>-<yyyymmdd>-<n>`, a before run, a Databricks fix leaf
+(`briefs/fix.tmpl`), scope gates (inside the package, no `*_test.go`), a lane commit, `go test`, an interleaved
+A/B run against a detached parent worktree, the in-package decide, and an Opus review (`briefs/review.tmpl`).
+KEEP records a pending row and prints the merge notice; REVERT force-cleans the lane and records it; an owner
+review or failed judge holds the lane unrecorded; no comparison drops the item and stops. It stops after
+2 reverts in a row and never merges, pushes or commits outside the lane. `agents ask` and `worktree` run as
+subprocesses of this binary, because `internal/agent` and `internal/worktree` import this package.
+
+```bash
+cd /Users/edotau/.claude
+claude-code review bench --loop --max 1
+```
