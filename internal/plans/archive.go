@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -93,11 +94,37 @@ func movePlan(c Change, to string) error {
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
 	}
-	if err := os.Rename(c.Plan, to); err != nil {
+	if err := moveFile(c.Plan, to); err != nil {
 		return err
 	}
 	if err := appendAuditLog(c); err != nil {
-		return errors.Join(err, os.Rename(to, c.Plan))
+		return errors.Join(err, moveFile(to, c.Plan))
+	}
+	return nil
+}
+
+// rename is a seam so a test can simulate a cross-device rename.
+var rename = os.Rename
+
+// moveFile renames from to to; across devices it copies (mode and mtime kept), then removes from.
+func moveFile(from, to string) error {
+	err := rename(from, to)
+	if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+	info, err := os.Stat(from)
+	if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	if err := writePlan(to, b, info.Mode().Perm()); err != nil {
+		return err
+	}
+	if err := errors.Join(os.Chtimes(to, info.ModTime(), info.ModTime()), os.Remove(from)); err != nil {
+		return errors.Join(err, os.Remove(to))
 	}
 	return nil
 }
