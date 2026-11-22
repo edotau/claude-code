@@ -46,6 +46,35 @@ func fixedUsage(out string) func(context.Context) ([]byte, error) {
 	return func(context.Context) ([]byte, error) { return []byte(out), nil }
 }
 
+func TestFreshQuotasWaitsForFetchInFlight(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	file := filepath.Join(t.TempDir(), "agy-usage.json")
+	stubUsage(t, func(context.Context) ([]byte, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			_ = os.WriteFile(file, []byte("stale"), 0o600) // the in-flight run's disk write
+		}
+		return []byte(usageSample), nil
+	})
+	file = filepath.Join(paths.StateDir(), "agy-usage.json")
+	go func() { _, _ = Quotas(t.Context()) }()
+	<-started
+	done := make(chan error, 1)
+	go func() { _, err := freshQuotas(t.Context()); done <- err }()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("fetches = %d, want 2 (forced read must not reuse the in-flight one)", n)
+	}
+	if _, err := os.Stat(file); err == nil {
+		t.Error("in-flight fetch rewrote the cache after the invalidation")
+	}
+}
+
 func TestParseQuotasSample(t *testing.T) {
 	rows := ParseQuotas([]byte("banner line\n" + usageSample + "Gemini Models\tOdd Limit\tn/a\t-\nGemini Models\tNo Reset Remaining\t40%\n"))
 	if len(rows) != 6 {

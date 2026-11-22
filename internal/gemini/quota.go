@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -92,6 +93,8 @@ func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, er
 var (
 	quotaNow  = time.Now
 	quotaMemo = paths.NewMemo[struct{}, quotaRead]("gemini-quota")
+	// quotaFetchMu serializes fetches with freshQuotas' invalidation, as the old cache mutex did.
+	quotaFetchMu sync.Mutex
 )
 
 type quotaRead struct {
@@ -118,6 +121,8 @@ func readUsage(ctx context.Context) (quotaRead, error) {
 }
 
 func fetchUsage(ctx context.Context) (quotaRead, error) {
+	quotaFetchMu.Lock()
+	defer quotaFetchMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
 	out, runErr := quotaRun(ctx)
@@ -299,8 +304,10 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 
 // freshQuotas drops the process and disk caches and reads agy's /usage again.
 func freshQuotas(ctx context.Context) ([]QuotaRow, error) {
+	quotaFetchMu.Lock() // waits out a fetch in flight, whose disk write would otherwise land after the removal
 	quotaMemo.Drop()
 	_ = os.Remove(filepath.Join(paths.StateDir(), "agy-usage.json"))
+	quotaFetchMu.Unlock()
 	return Quotas(ctx)
 }
 
