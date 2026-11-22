@@ -276,9 +276,8 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "review simplify: %v\n", err)
 		return 2
 	}
-	base := simplifyBase(parsed.base)
 	if len(paths) == 0 {
-		changed, err := changedSimplifyFiles(base)
+		changed, err := changedSimplifyFiles(simplifyBase(parsed.base))
 		if err != nil {
 			fmt.Fprintf(stderr, "review simplify: %s\n", err)
 			return 1
@@ -287,7 +286,7 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	}
 	files, unreadable := simplifyTargets(paths, stderr)
 	if parsed.fail {
-		return failOnNewViolations(files, base, stdout, stderr)
+		return failOnNewViolations(files, simplifyBase(parsed.base), stdout, stderr)
 	}
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)
