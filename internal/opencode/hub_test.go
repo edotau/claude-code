@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/edotau/claude-code/internal/textutil"
 	"io"
 	"os"
 	"os/exec"
@@ -351,7 +352,7 @@ func emitScript(lines ...string) string {
 	var b strings.Builder
 	b.WriteString("cat > /dev/null\n")
 	for _, l := range lines {
-		b.WriteString("printf '%s\\n' '" + l + "'\n")
+		textutil.WriteStrings(&b, "printf '%s\\n' '", l, "'\n")
 	}
 	return b.String()
 }
