@@ -52,8 +52,6 @@ const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `cl
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
 const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
-// Agents whose relay subagent is retired: a claude leaf runs their stage from a `Run:` line, so the ran-on gate holds.
-const RELAY_RETIRED = ['gemini', 'opencode', 'codex', 'copilot']
 // ANSI-C quotes decode task escapes; hex apostrophes also pass the hook's literal-quote check.
 const stepTaskArg = (p) => "$'" + p.replace(/[\\'\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')) + "'"
 const stepRecord = (name, who, label, r) => {
@@ -73,12 +71,12 @@ const stepExt = (name, v, d, f) => {
   const route = provider ? ` --overlay '${JSON.stringify({ provider, profile: profile || 'auto', ...(v.model ? { model: v.model } : {}) })}'`
     : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
   const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + route
-  const retired = RELAY_RETIRED.includes(who)
-  const how = retired ? 'Run the `Run:` line above exactly; its quoted argument is the complete task. Never do it in-context.'
+  const external = who !== 'claude'
+  const how = external ? 'Run the `Run:` line above exactly; its quoted argument is the complete task. Never do it in-context.'
     : `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
   return {
-    agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: retired ? 'claude' : who }, profile, provider,
-    task: (p) => (retired ? `Run: ${ask} -- ${stepTaskArg(p)}\n` : '') + `Agent: ${who}\n${how}` +
+    agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
+    task: (p) => (external ? `Run: ${ask} -- ${stepTaskArg(p)}\n` : '') + `Agent: ${who}\n${how}` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },

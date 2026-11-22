@@ -25,11 +25,12 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 
 - A stage runs on `agent` = `claude` (in-context, session profile, `model` = `haiku|sonnet|opus|fable`) or
   `codex|copilot|gemini|opencode`: a `sonnet` `claude` leaf whose brief opens with the ask as its `Run:` line
-  so the ran-on gate holds runs
+  runs the quoted task so the ran-on gate holds; all four external relays are retired. A routed `claude` stage keeps
+  its attachment brief and also runs on a `claude` leaf. The external `Run:` line is
   `claude-code agents ask --agent <a> --fallback agents --format json --tools|--read-only --effort <e> [--profile <p>]
-  [--provider <x>] [--model <m>] -- <quoted task>`, and the stage reports `ran on`
+  [--overlay '<route>'] [--model <m>] -- <quoted task>`, and the stage reports `ran on`
   (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin; `profile`/`provider`
-  (run args or per stage) become `--profile`/`--provider`: the lead profile, or that provider's signed-in profile. After
+  (run args or per stage) become `--profile` or a provider/profile/model `--overlay` route. After
   a 429/quota/auth failure, even mid-run, the `--fallback agents` order runs (the requested target, the agent's pin,
   then other agents, never Claude), then BLOCKED ([cost-routing.md](cost-routing.md) → Fallback); an editing successor
   checks `git diff` first. gemini defaults to Google; a named Databricks profile or the arm runs it there. A run
