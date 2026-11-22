@@ -373,6 +373,10 @@ func cmdVersion(args []string) int {
 		versionPage.Fprint(os.Stderr)
 		return 0
 	}
+	if paths.BuildStamp != "" { // make compile's shared stamp: .hooks and claude-code from one build match
+		fmt.Println("claude-code", textutil.BuildVersion(), "stamp", paths.BuildStamp)
+		return 0
+	}
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
 }
