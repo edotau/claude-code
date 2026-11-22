@@ -126,7 +126,10 @@ func RunBench(args []string, stdout, stderr io.Writer) int {
 	if o.json {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(rep)
+		if err := enc.Encode(rep); err != nil {
+			fmt.Fprintln(stderr, "review bench: write json:", err)
+			return 1
+		}
 		return 0
 	}
 	printText(stdout, rep, o.verbose)
@@ -243,9 +246,12 @@ func header(top string, o options) Report {
 	}
 	return Report{
 		Env: env, Bench: o.re, Count: o.count, Mode: mode,
-		NoisyRun: env.Load1 > float64(runtime.NumCPU())/2,
+		NoisyRun: env.Load1 > float64(runtime.NumCPU())/2 || hookLoaded(),
 	}
 }
+
+// The post-commit hook reports load the load average misses, such as active dispatches.
+func hookLoaded() bool { return os.Getenv("HARNESS_BENCH_UNDER_LOAD") == "true" }
 
 // benchPackages maps --path files (else the changed files) to package dirs that hold a Benchmark func.
 func benchPackages(top string, targets []string) ([]string, error) {
@@ -368,11 +374,15 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	switch {
 	case err == nil:
 		if !sameEpochs(string(old), body) {
-			res.Missing = append(res.Missing, "benchmark epoch changed; this run starts a new package baseline")
+			next := "this run starts a new package baseline"
+			if hookLoaded() {
+				next = "baseline held under load"
+			}
+			res.Missing = append(res.Missing, "benchmark epoch changed; "+next)
 			base = true
 			break
 		}
-		deltas, err := compare(rolling, res.File)
+		deltas, err := compareSnapshot(dir, old, res.File)
 		if err != nil {
 			return err
 		}
@@ -382,11 +392,28 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
+	if hookLoaded() {
+		return nil // a loaded run never becomes the baseline later runs trust
+	}
 	if base || seed && err != nil {
 		res.Baseline = true
 		return writeRolling(dir, []byte(body))
 	}
 	return nil
+}
+
+// compareSnapshot compares the validated baseline bytes, not a rolling.txt a peer may replace meanwhile.
+func compareSnapshot(dir string, old []byte, cur string) (map[string]map[string]Delta, error) {
+	f, err := os.CreateTemp(dir, ".rolling-*.txt") // same dir: the hook's benchstat shim keys on the package dir
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name())
+	_, werr := f.Write(old)
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return nil, err
+	}
+	return compare(f.Name(), cur)
 }
 
 // writeRunFile creates the run file exclusively; the time and pid keep two runs from overwriting each other.

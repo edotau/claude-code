@@ -62,7 +62,7 @@ var benchRunTimeout = benchDeadline
 var benchMeasurementLock = benchLock
 
 // The worker owns lifecycle writes; fd 3 keeps its measurement lock alive if the worker dies mid-command.
-const benchScript = `b=$1; r=$2; top=$3; sha=$4; shift 4
+const benchScript = `b=$1; r=$2; top=$3; sha=$4; load=$5; shift 5
 leader=$$
 (
   exec 3>&-
@@ -75,7 +75,7 @@ trap '[ -z "${w:-}" ] || { git -C "$top" worktree remove --force "$w" >/dev/null
 w=$(mktemp -d "$r.wt.XXXXXX") || exit 1
 git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" ||
   exit 1
-nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
+HARNESS_BENCH_UNDER_LOAD=$load nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
 exit $?`
 
 type benchJob struct {
@@ -175,6 +175,8 @@ func benchRecover(state string) {
 			base := strings.TrimSuffix(file, ".job.json")
 			if benchPending(base) {
 				benchWorker(base, false)
+			} else if job, ok := benchUndelivered(base); ok {
+				benchDeliver(base, job)
 			}
 		}
 		time.Sleep(benchPollWait)
@@ -185,6 +187,30 @@ func benchPending(base string) bool {
 	raw, err := os.ReadFile(base + ".marker")
 	var m benchMarker
 	return err != nil || json.Unmarshal(raw, &m) != nil || m.Exit == nil
+}
+
+// A worker that died between completion and delivery leaves an exit with no notice outcome.
+func benchUndelivered(base string) (benchJob, bool) {
+	var m benchMarker
+	var job benchJob
+	raw, err := os.ReadFile(base + ".marker")
+	if err != nil || json.Unmarshal(raw, &m) != nil || m.Exit == nil || m.Notice != "" {
+		return job, false
+	}
+	if m.PID > 0 && m.PID != os.Getpid() && proc.Alive(m.PID) {
+		return job, false
+	}
+	raw, err = os.ReadFile(base + ".job.json")
+	if err != nil || json.Unmarshal(raw, &job) != nil || job.SessionID == "" {
+		return job, false
+	}
+	return job, true
+}
+
+func benchDeliver(base string, job benchJob) {
+	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":%q,"harness_bench":{"result":%q,"sha":%q}}`,
+		job.SessionID, base+".json", job.SHA)))
+	benchFinish(in)
 }
 
 func benchComplete(base string, m benchMarker, code int) error {
@@ -266,9 +292,7 @@ func benchWorker(base string, rerun bool) {
 	if benchComplete(base, m, code) != nil {
 		return
 	}
-	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":%q,"harness_bench":{"result":%q,"sha":%q}}`,
-		job.SessionID, base+".json", job.SHA)))
-	benchFinish(in)
+	benchDeliver(base, job)
 }
 
 func benchLock() (*os.File, error) {
@@ -320,7 +344,8 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 		return -1
 	}
 	top, sha, files := job.Top, job.SHA, job.Files
-	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha}
+	// The runner must see admission load before it writes history verdicts or advances rolling.txt.
+	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha, strconv.FormatBool(underLoad)}
 	for _, p := range files {
 		rel, err := filepath.Rel(top, p)
 		if err != nil {
