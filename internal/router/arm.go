@@ -186,7 +186,7 @@ func workspaceCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], no
 		if q.Provider != "" && q.Provider != providers.GroupDatabricks {
 			return nil, skipped, errors.New("overlay " + q.Provider + ":auto: no " + q.Provider + " profile passes the preflight (claude-code doctor)")
 		}
-		return nil, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
+		return nil, skipped, errors.New("overlay databricks·auto: no Databricks workspace passes the preflight (claude-code doctor)")
 	}
 	return usable, skipped, nil
 }

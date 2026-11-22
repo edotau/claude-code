@@ -261,7 +261,7 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return "", fmt.Errorf("overlay databricks:auto: %w", err)
+		return "", fmt.Errorf("overlay databricks·auto: %w", err)
 	}
 	q := armQuery{
 		AgentName:   agentName,
@@ -287,7 +287,7 @@ func typedModel(model string) bool {
 
 // errUnserved names model and up to five served ids the workspaces' findings offer instead.
 func errUnserved(model string, skipped []agent.Finding) error {
-	return &agent.UnacceptedError{Kind: agent.UnacceptedUnserved, Agent: "this agent", Profile: "databricks:auto", Model: model,
+	return &agent.UnacceptedError{Kind: agent.UnacceptedUnserved, Agent: "this agent", Profile: "databricks·auto", Model: model,
 		Detail: "no signed-in Databricks workspace serves it", Nearest: nearestWorkspaceIDs(skipped)}
 }
 
@@ -336,7 +336,7 @@ func reportPick(p string, live int, skipped []agent.Finding, err error) (string,
 		if len(parts) > 0 {
 			count = " (" + strings.Join(parts, ", ") + ")"
 		}
-		fmt.Fprintf(os.Stderr, "overlay: databricks:auto picked %s%s\n", p, count)
+		fmt.Fprintf(os.Stderr, "overlay: databricks·auto picked %s%s\n", p, count)
 		noteDeadLogin(p)
 	}
 	for _, f := range skipped {
@@ -348,7 +348,7 @@ func reportPick(p string, live int, skipped []agent.Finding, err error) (string,
 // noteDeadLogin says so when the pick is a workspace whose recorded login is dead and no service principal covers it.
 func noteDeadLogin(name string) {
 	if reg, err := providers.Load(); err == nil && reg.Providers[name] != nil && router.LoginDead(reg.Providers[name]) {
-		fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s has a dead login and no service principal; last resort\n", name)
+		fmt.Fprintf(os.Stderr, "overlay: databricks·auto: %s has a dead login and no service principal; last resort\n", name)
 	}
 }
 

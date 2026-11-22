@@ -141,7 +141,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 		next, again := a.next(ctx, res, err, req)
 		if !again {
 			if len(a.tried) > 1 && err != nil {
-				err = fmt.Errorf("databricks:auto: tried %s: %w", strings.Join(a.tried, ", "), err)
+				err = fmt.Errorf("databricks·auto: tried %s: %w", strings.Join(a.tried, ", "), err)
 			}
 			return p, res, err
 		}
@@ -222,7 +222,7 @@ func (a *armRetry) move(retryAfter time.Duration) bool {
 	if err != nil {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s rate limited, trying %s\n", cur, name)
+	fmt.Fprintf(os.Stderr, "overlay: databricks·auto: %s rate limited, trying %s\n", cur, name)
 	a.tried = append(a.tried, name)
 	return true
 }
@@ -232,7 +232,7 @@ func (a *armRetry) moveExhausted(why string) bool {
 	if err != nil {
 		return false
 	}
-	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s %s, trying %s\n", a.current(), why, name)
+	fmt.Fprintf(os.Stderr, "overlay: databricks·auto: %s %s, trying %s\n", a.current(), why, name)
 	a.tried = append(a.tried, name)
 	return true
 }
@@ -245,7 +245,7 @@ func coolArm(name string, retryAfter time.Duration) {
 		_, err = router.MarkCooling(router.AccountOf(reg.Providers[name]), now.Add(min(cmp.Or(retryAfter, armCoolHold), armCoolMax)), now)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "overlay: databricks:auto: could not cool %s: %v\n", name, err)
+		fmt.Fprintf(os.Stderr, "overlay: databricks·auto: could not cool %s: %v\n", name, err)
 	}
 }
 
@@ -253,7 +253,7 @@ func coolArm(name string, retryAfter time.Duration) {
 func nextArm(agentName, model string, strict bool, tried []string) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return "", fmt.Errorf("overlay databricks:auto: %w", err)
+		return "", fmt.Errorf("overlay databricks·auto: %w", err)
 	}
 	return reportPick(pickWith(reg, armQuery{AgentName: agentName, Model: model, Strict: strict, Tried: tried}, time.Now()))
 }
