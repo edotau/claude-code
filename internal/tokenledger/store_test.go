@@ -199,6 +199,113 @@ func TestSessionTotalsIgnoresLinesOfOtherSessions(t *testing.T) {
 	if err != nil || in != 11 || out != 22 || cr != 33 {
 		t.Fatalf("SessionTotals = %d, %d, %d, %v; want 11, 22, 33, nil", in, out, cr, err)
 	}
+	t.Run("ledger changes", checkSessionTotalsChanges)
+	for _, appended := range []bool{false, true} {
+		name := "unchanged allocations"
+		if appended {
+			name = "appended allocations"
+		}
+		t.Run(name, func(t *testing.T) { checkSessionTotalsAllocations(t, appended) })
+	}
+}
+
+func checkSessionTotalsChanges(t *testing.T) {
+	withLedgerDir(t)
+	const row = `{"session":"abc","input":9,"output":2,"cache_read":3}` + "\n"
+	for _, tc := range []struct{ name, mode, data string }{
+		{"initial", "write", row + `{"session":"other","input":99}` + "\n"},
+		{"append", "append", row},
+		{"malformed and future", "append", "bad\n" + `{"schema":2,"session":"abc","input":99}` + "\n"},
+		{"partial", "append", `{"session":"abc","input":`},
+		{"complete without newline", "append", "7}"},
+		{"final newline", "append", "\n"},
+		{"truncate", "write", row},
+		{"same size rewrite", "write", strings.ReplaceAll(row, "9", "8")},
+		{"replacement", "replace", strings.ReplaceAll(row, "9", "5")},
+		{"missing", "remove", ""},
+		{"recreated", "write", row},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changeTestLedger(t, tc.mode, tc.data)
+			for _, id := range []string{"abc", "other", "absent", ""} {
+				checkSessionTotalsFullRead(t, id)
+			}
+		})
+	}
+}
+
+func changeTestLedger(t testing.TB, mode, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if mode == "remove" {
+		if err := os.Remove(Path()); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if mode == "replace" {
+		if err := os.Rename(Path(), Path()+".old"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if mode == "append" {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+	f, err := os.OpenFile(Path(), flags, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := f.WriteString(data)
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("write: %v; close: %v", writeErr, closeErr)
+	}
+}
+
+func checkSessionTotalsFullRead(t *testing.T, id string) {
+	t.Helper()
+	entries, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want [3]int
+	for _, e := range entries {
+		if id != "" && e.Session == id {
+			want[0], want[1], want[2] = want[0]+e.Input, want[1]+e.Output, want[2]+e.CacheRead
+		}
+	}
+	in, out, cr, err := SessionTotals(id)
+	if err != nil || [3]int{in, out, cr} != want {
+		t.Fatalf("session %q: totals = %v, %v; full read = %v", id, [3]int{in, out, cr}, err, want)
+	}
+}
+
+const sessionTotalsHistoryRows = 20000
+
+func checkSessionTotalsAllocations(t *testing.T, appended bool) {
+	withLedgerDir(t)
+	const row = `{"session":"abc","input":1}` + "\n"
+	changeTestLedger(t, "write", row)
+	measure := func() float64 {
+		checkSessionTotalsFullRead(t, "abc")
+		return testing.AllocsPerRun(1, func() {
+			if appended {
+				changeTestLedger(t, "append", row)
+			}
+			if _, _, _, err := SessionTotals("abc"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	small := measure()
+	changeTestLedger(t, "append", strings.Repeat(row, sessionTotalsHistoryRows))
+	large := measure()
+	if large > small*2+20 {
+		t.Fatalf("allocations scale with ledger history: small=%.0f, large=%.0f", small, large)
+	}
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
@@ -231,6 +338,41 @@ func BenchmarkRead(b *testing.B) {
 	for b.Loop() {
 		if _, err := Read(); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSessionTotalsAppended(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	const row = `{"schema":1,"session":"s","input":100,"output":20,"cache_read":5}` + "\n"
+	if err := os.MkdirAll(filepath.Dir(Path()), 0o700); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(Path(), []byte(strings.Repeat(row, sessionTotalsHistoryRows)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	f, err := os.OpenFile(Path(), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			b.Error(err)
+		}
+	})
+	if _, _, _, err := SessionTotals("s"); err != nil {
+		b.Fatal(err)
+	}
+	rows := sessionTotalsHistoryRows
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := f.WriteString(row); err != nil {
+			b.Fatal(err)
+		}
+		rows++
+		in, out, cr, err := SessionTotals("s")
+		if err != nil || [3]int{in, out, cr} != [3]int{rows * 100, rows * 20, rows * 5} {
+			b.Fatalf("totals = %d, %d, %d, %v; rows = %d", in, out, cr, err, rows)
 		}
 	}
 }

@@ -4,8 +4,11 @@ package tokenledger
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -81,19 +84,82 @@ func (e Entry) ProfileName() string {
 	return e.Provider
 }
 
-// SessionTotals sums tokens of every entry stamped with the parent session id ("" matches nothing); read errors return.
+type sessionLedger struct {
+	info   os.FileInfo
+	offset int64
+	totals map[string][3]int
+}
+
+var sessionLedgers = struct {
+	sync.Mutex
+	files map[string]*sessionLedger
+}{files: make(map[string]*sessionLedger)}
+
+// SessionTotals sums tokens stamped with the parent session id; an empty id matches nothing.
 func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	if id == "" {
 		return 0, 0, 0, nil
 	}
-	quoted, _ := json.Marshal(id) // a line of this session holds the quoted id; the Session check drops lookalikes
-	entries, err := readMatching(quoted)
-	for _, e := range entries {
-		if e.Session == id {
-			in, out, cacheRead = in+e.Input, out+e.Output, cacheRead+e.CacheRead
-		}
+	path := Path()
+	sessionLedgers.Lock()
+	defer sessionLedgers.Unlock()
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		delete(sessionLedgers.files, path)
+		return 0, 0, 0, nil
 	}
-	return in, out, cacheRead, err
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	info, err := f.Stat()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	c := sessionLedgers.files[path]
+	if !c.reusable(info) {
+		c = &sessionLedger{totals: make(map[string][3]int)}
+		sessionLedgers.files[path] = c
+	}
+	totals, err := c.readTail(f, info.Size(), id)
+	if err != nil {
+		delete(sessionLedgers.files, path)
+	}
+	c.info = info
+	return totals[0], totals[1], totals[2], err
+}
+
+func (c *sessionLedger) reusable(info os.FileInfo) bool {
+	return c != nil && os.SameFile(c.info, info) && info.Size() >= c.info.Size() &&
+		(info.Size() != c.info.Size() || info.ModTime().Equal(c.info.ModTime()))
+}
+
+func (c *sessionLedger) readTail(f *os.File, size int64, id string) ([3]int, error) {
+	if c.offset == size {
+		return c.totals[id], nil
+	}
+	var tail [3]int
+	_, err := textutil.ScanRawLines(io.NewSectionReader(f, c.offset, size-c.offset), false, func(line []byte) {
+		complete := line[len(line)-1] == '\n'
+		if complete {
+			c.offset += int64(len(line))
+		}
+		var e Entry
+		if _, err := schemas.Decode(format, line, &e); err != nil || e.Session == "" {
+			return
+		}
+		// An unterminated entry counts now but must be re-read if the next write extends it.
+		if !complete {
+			if e.Session == id {
+				tail = [3]int{e.Input, e.Output, e.CacheRead}
+			}
+			return
+		}
+		sum := c.totals[e.Session]
+		c.totals[e.Session] = [3]int{sum[0] + e.Input, sum[1] + e.Output, sum[2] + e.CacheRead}
+	})
+	sum := c.totals[id]
+	return [3]int{sum[0] + tail[0], sum[1] + tail[1], sum[2] + tail[2]}, err
 }
 
 const schemaVersion = 1
