@@ -50,12 +50,36 @@ func TestDecide(t *testing.T) {
 	if got := decide(allocs, noisy, noisy); !got.Keep {
 		t.Errorf("noisy but allocs improved must keep: %+v", got)
 	}
-	worse := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "B/op": d("+9.00%")}}
+	worse := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "B/op": d("+29.00%")}}
 	if got := decide(worse, quiet, quiet); got.Keep || !strings.HasPrefix(got.Rows[0], "regressed") {
 		t.Errorf("a regression must revert: %+v", got)
 	}
 	if decide(map[string]map[string]Delta{"A-8": {"sec/op": d("~")}}, quiet, quiet).Keep {
 		t.Error("no move kept")
+	}
+}
+
+func TestDecideMinRegressionAndTimeWeighted(t *testing.T) {
+	d := func(c string) Delta { return Delta{Change: c, Significant: true} }
+	quiet := []Score{{Name: "BenchmarkA-8"}}
+	cases := []struct {
+		name  string
+		units map[string]Delta
+		keep  bool
+		rule  string
+	}{
+		{"minor memory", map[string]Delta{"sec/op": d("-15.76%"), "allocs/op": d("+1.47%")}, true, "minor"},
+		{"minor time", map[string]Delta{"sec/op": d("+1.50%"), "B/op": d("-10.00%")}, true, "minor"},
+		{"speedup outweighs", map[string]Delta{"sec/op": d("-15.00%"), "B/op": d("+9.00%")}, true, "time-weighted"},
+		{"memory exceeds speedup", map[string]Delta{"sec/op": d("-5.00%"), "B/op": d("+9.00%")}, false, "reverts"},
+		{"slower blocks weighting", map[string]Delta{"sec/op": d("+3.00%"), "allocs/op": d("-50.00%"),
+			"B/op": d("+2.50%")}, false, "reverts"},
+	}
+	for _, c := range cases {
+		got := decide(map[string]map[string]Delta{"A-8": c.units}, quiet, quiet)
+		if got.Keep != c.keep || !strings.Contains(got.Rule, c.rule) {
+			t.Errorf("%s: keep=%v rule=%q, want keep=%v rule~%q", c.name, got.Keep, got.Rule, c.keep, c.rule)
+		}
 	}
 }
 

@@ -302,6 +302,7 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 type Decision struct {
 	Keep         bool
 	NoComparison bool // no benchmark is in both runs, so neither KEEP nor REVERT
+	Rule         string
 	Rows         []string
 }
 
@@ -323,26 +324,93 @@ func quietBoth(before, after []Score) map[string]bool {
 	return quiet
 }
 
-// decide keeps on a significant ns/op win (both runs quiet) or allocs/op or B/op drop, with no regression.
-func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
-	quiet := quietBoth(before, after)
-	var win, loss []string
+// minRegressionPct is the smallest significant regression, in percent, that counts toward REVERT.
+const minRegressionPct = 2.0
+
+// changePct is the size of a benchstat change such as "+1.25%" or "-15.76%", in percent.
+func changePct(change string) float64 {
+	v, _ := strconv.ParseFloat(strings.TrimSuffix(strings.TrimLeft(change, "+-"), "%"), 64)
+	return v
+}
+
+type benchRow struct {
+	unit, text string
+	pct        float64
+}
+
+// sortRows splits significant deltas into wins (sec/op only on quiet runs) and regressions.
+func sortRows(deltas map[string]map[string]Delta, quiet map[string]bool) (win, loss []benchRow) {
 	for name, units := range deltas {
 		for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
 			d := units[u]
-			row := fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P)
+			r := benchRow{u, fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P), changePct(d.Change)}
 			switch {
 			case !d.Significant:
 			case strings.HasPrefix(d.Change, "+"):
-				loss = append(loss, "regressed: "+row)
+				loss = append(loss, r)
 			case u != "sec/op" || quiet[name]:
-				win = append(win, "improved: "+row)
+				win = append(win, r)
 			}
 		}
 	}
-	slices.Sort(win)
-	slices.Sort(loss)
-	return Decision{Keep: len(win) > 0 && len(loss) == 0, Rows: append(loss, win...)}
+	return win, loss
+}
+
+// bestSpeedup is the largest sec/op win, or 0 when a sec/op row regresses by minRegressionPct or more.
+func bestSpeedup(win, loss []benchRow) float64 {
+	for _, r := range loss {
+		if r.unit == "sec/op" && r.pct >= minRegressionPct {
+			return 0
+		}
+	}
+	best := 0.0
+	for _, r := range win {
+		if r.unit == "sec/op" {
+			best = max(best, r.pct)
+		}
+	}
+	return best
+}
+
+// decide keeps on a significant win with no regression that counts: under 2% is minor, a speedup outweighs less memory.
+func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
+	win, loss := sortRows(deltas, quietBoth(before, after))
+	speed := bestSpeedup(win, loss)
+	var counted, outweighed, minor, wins []string
+	for _, r := range loss {
+		switch {
+		case r.pct < minRegressionPct:
+			minor = append(minor, "minor: "+r.text)
+		case r.unit != "sec/op" && r.pct <= speed:
+			outweighed = append(outweighed, "outweighed: "+r.text)
+		default:
+			counted = append(counted, "regressed: "+r.text)
+		}
+	}
+	for _, r := range win {
+		wins = append(wins, "improved: "+r.text)
+	}
+	for _, s := range [][]string{counted, outweighed, minor, wins} {
+		slices.Sort(s)
+	}
+	d := Decision{Keep: len(wins) > 0 && len(counted) == 0, Rule: decideRule(len(wins), counted, outweighed, minor, speed)}
+	d.Rows = slices.Concat(counted, outweighed, minor, wins)
+	return d
+}
+
+// decideRule names the rule that decided the verdict.
+func decideRule(wins int, counted, outweighed, minor []string, speed float64) string {
+	switch {
+	case len(counted) > 0:
+		return fmt.Sprintf("a significant regression of %.0f%% or more reverts", minRegressionPct)
+	case wins == 0:
+		return "no significant improvement"
+	case len(outweighed) > 0:
+		return fmt.Sprintf("time-weighted: the -%.2f%% sec/op win outweighs smaller B/op and allocs/op regressions", speed)
+	case len(minor) > 0:
+		return fmt.Sprintf("regressions under %.0f%% are minor and do not count", minRegressionPct)
+	}
+	return "significant improvement, no regression"
 }
 
 var headerNum = regexp.MustCompile(`(?m)^# (cpus|load-before|load-after): ([0-9.]+)`)
@@ -418,6 +486,9 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 		verdict, code = "KEEP", 0
 	}
 	fmt.Fprintln(stdout, verdict)
+	if d.Rule != "" {
+		fmt.Fprintln(stdout, "  rule: "+d.Rule)
+	}
 	for _, r := range d.Rows {
 		fmt.Fprintln(stdout, "  "+r)
 	}
