@@ -104,8 +104,7 @@ func isMeaningful(ev piEvent) bool {
 		if ev.Update == nil {
 			return false
 		}
-		var d string
-		return json.Unmarshal(ev.Update.Delta, &d) == nil && strings.TrimSpace(d) != ""
+		return strings.TrimSpace(deltaText(ev.Update.Delta)) != ""
 	case "message_end":
 		return ev.Message != nil && ev.Message.Role == "assistant" && ev.Message.Usage.Output > 0
 	}
@@ -167,15 +166,29 @@ func (ev piEvent) writePath() string {
 	return strings.TrimPrefix(a.Path, "@")
 }
 
+// deltaText is a delta's text: a string, or the text parts of a content array (qwen sends one); else "".
+func deltaText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct{ Text string }
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text)
+	}
+	return b.String()
+}
+
 // delta streams assistant text; a later message's first chunk starts a new turn.
 func (t *piTurn) delta(ev piEvent) error {
 	if ev.Update == nil || ev.Update.Type != "text_delta" || len(ev.Update.Delta) == 0 {
 		return nil
 	}
-	var d string
-	if err := json.Unmarshal(ev.Update.Delta, &d); err != nil {
-		return fmt.Errorf("decode pi text_delta: %w", err)
-	}
+	d := deltaText(ev.Update.Delta)
 	if d == "" {
 		return nil
 	}

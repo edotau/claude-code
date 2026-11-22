@@ -204,3 +204,12 @@ func TestParseEventsOnEventErrorStopsBeforeForwarding(t *testing.T) {
 		t.Errorf("err = %v, forwarded %v; want the guard error and no events", err, sink.evs)
 	}
 }
+
+func TestParseEventsTextDeltaArray(t *testing.T) {
+	data := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":[{"type":"text","text":"o"},{"type":"text","text":"k"}]}}` + "\n" +
+		msgEnd("stop", "") + settled
+	res, _, _, err := parseFixture(t, data)
+	if err != nil || res.Answer != "ok" {
+		t.Fatalf("answer %q err %v", res.Answer, err)
+	}
+}
