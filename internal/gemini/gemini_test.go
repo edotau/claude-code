@@ -269,8 +269,14 @@ func TestParseAgyToolStepMarksProgress(t *testing.T) {
 {"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"DONE"}}
 {"event":123}`
 		sink := &agySinkRec{}
-		if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), sink, false, nil, nil); err == nil {
+		var normalized strings.Builder
+		out := wire.Multi(sink, wire.NewJSONLSink(&normalized, "fixture"))
+		if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), out, false, nil, nil); err == nil {
 			t.Fatal("want the decode error")
+		}
+		if stepType == "tool" && (!strings.Contains(normalized.String(), `"agent":"gemini"`) ||
+			!strings.Contains(normalized.String(), `"tool":{`)) {
+			t.Fatal("tool progress lacks the Gemini tool marker")
 		}
 		if slices.Contains(sink.types, wire.EventToolUse) {
 			t.Errorf("%s step: placeholder tool_use reached the sink: %v", stepType, sink.types)
@@ -282,6 +288,28 @@ func TestParseAgyToolStepMarksProgress(t *testing.T) {
 	}
 	if got := run("planner"); len(got) != 0 {
 		t.Errorf("planning step: %d progress marks, want 0", len(got))
+	}
+}
+
+func TestAgyToolProgressIsPastFirstOutput(t *testing.T) {
+	const stream = `{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE"}}
+{"event":"step_update","step_update":{"step_type":"tool","state":"DONE"}}`
+	idle := agent.NewIdleTimeout("gemini", time.Hour, nil)
+	defer idle.Stop()
+	sink := &idleSink{Sink: wire.Discard, idle: idle}
+	if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), sink, false, nil, nil); err == nil {
+		t.Fatal("expected missing result")
+	}
+	idle.Beat("stdout")
+	idle.Kill()
+	if err := idle.Err(); !errors.Is(err, agent.ErrSilent) || agent.CutoffOf(err) != agent.CutoffIdle {
+		t.Fatalf("post-tool silence = %v, want idle cutoff", err)
+	}
+	control := agent.NewIdleTimeout("gemini", time.Hour, nil)
+	defer control.Stop()
+	control.Kill()
+	if !errors.Is(control.Err(), agent.ErrStalled) {
+		t.Fatal("a run without output must remain a first-output stall")
 	}
 }
 

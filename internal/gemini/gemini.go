@@ -414,6 +414,7 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 	}
 	start := time.Now()
 	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{Idle: idle})
+	err = agyMissingResultErr(err, r.DebugFile, tail.String())
 	return res, agyPrintTimeoutErr(err, r, tail.String(), time.Since(start))
 }
 
@@ -438,10 +439,9 @@ type idleSink struct {
 }
 
 func (s *idleSink) Emit(ev wire.Event) error {
+	s.idle.Spoke()
 	if ev.Type == wire.EventProgress {
 		s.idle.Pause()
-	} else {
-		s.idle.Spoke()
 	}
 	return s.Sink.Emit(ev)
 }
@@ -605,7 +605,7 @@ func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamL
 	if !t.sawResult {
 		t.flush()
 		res.Answer = t.ans.String()
-		return res, errors.New("agy: stream ended without a result event")
+		return res, errAgyMissingResult
 	}
 	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, t.deniedTools(), once)
 }
@@ -706,7 +706,7 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink wire.Sink) error {
 	if !start {
 		return nil
 	}
-	return sink.Emit(wire.Event{Type: wire.EventProgress})
+	return sink.Emit(wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}})
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
