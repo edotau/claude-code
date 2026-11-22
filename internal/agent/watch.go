@@ -247,7 +247,7 @@ func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]R
 	for _, r := range recs {
 		s, pending := classifyJob(r, now, lim, rel[r.ID])
 		q, queued := queuedWatch(r, now, queue)
-		if queued {
+		if queued && r.Status == "running" && pending {
 			s, pending = StaleJob{}, true
 			if queue.Gone || q.Wait > queue.Limit {
 				s, pending = staleFrom(r, now, WatchQueueStuck), false

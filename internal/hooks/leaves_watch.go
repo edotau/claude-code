@@ -88,6 +88,19 @@ func watchTick(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	key, now := watchKey(in.SessionID, owner), watchNow()
+	if err := os.MkdirAll(agent.WatchDir(), 0o700); err != nil {
+		return core.Result{Stderr: errText("watch", err)}
+	}
+	var res core.Result
+	_, err := paths.TryFileLock(filepath.Join(agent.WatchDir(), key+".lock"), 0, func() error {
+		res = watchTickLocked(key, owner, now, mode)
+		return nil
+	})
+	res.Stderr = core.JoinNonEmpty("\n", res.Stderr, errText("watch", err))
+	return res
+}
+
+func watchTickLocked(key string, owner int, now time.Time, mode string) core.Result {
 	if due, err := claimTick(key, now); !due {
 		return core.Result{Stderr: errText("watch", err)}
 	}
@@ -186,6 +199,9 @@ func pruneWatch(now time.Time) error {
 	}
 	var errs []error
 	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".lock") {
+			continue // Unlinking a held lock would let another hook lock a different inode.
+		}
 		if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > watchKeep {
 			if err := os.Remove(filepath.Join(agent.WatchDir(), e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				errs = append(errs, err)
