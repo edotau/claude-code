@@ -169,6 +169,102 @@ func TestLeafWallUnnamedTarget(t *testing.T) {
 	}
 }
 
+// leafScan is Scan for leaf a1's Bash cmd in cwd: whether it is a floor block.
+func leafScan(cwd, cmd string) (bool, string) {
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "agent_id": "a1",
+		"tool_input": map[string]string{"command": cmd}})
+	r := Scan(core.ParseInput(bytes.NewReader(payload)))
+	return r.Decision == core.Block && r.Floor, r.Reason
+}
+
+// touch, ln and target-dir copies reach the dir from any cwd, through env -C, rtk, a cd or a symlink.
+func TestLeafWallOperandWrites(t *testing.T) {
+	cfg, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	setStateWallDispatch(t, stateWallCases[0])
+	sd := paths.StateDir() // <cfg>/state/harness
+	link := filepath.Join(t.TempDir(), "s")
+	if err := os.MkdirAll(sd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sd, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, c := range []struct {
+		cwd, cmd string
+		block    bool
+	}{
+		{cfg, "touch state/harness/x", true},
+		{"/tmp", "touch " + link + "/x", true},
+		{"/tmp", "cd " + link + " && touch x", true},
+		{cfg, "env -C state/harness touch x", true},
+		{cfg, "rtk touch state/harness/x", true},
+		{cfg, "touch state/x", false},
+		{"/tmp", `cd "$D" && touch ` + sd + "/x", true},
+		{sd, "ln -s /tmp/evil harness/x", true},
+		{"/tmp", "ln -sf /tmp/evil " + sd + "/harness/dispatch/d1.json", true},
+		{"/tmp", "ln -s /tmp/evil " + link, true},
+		{sd, "cp --target-directory harness /tmp/x", true},
+		{sd, "cp -t. /tmp/x", true},
+		{sd, "install -d sub", true},
+		{cfg, "touch ordinary/x", false},
+		{"/tmp", `cd "$D" && touch x`, false},
+		{"/tmp", "ln -s " + sd + "/harness/x /tmp/l", false},
+		{"/tmp", "ln -s a b", false},
+		{"/tmp", "cp -t /tmp/out " + sd + "/x", false},
+		{sd, "install -d -m 755 /tmp/x", false},
+	} {
+		if got, reason := leafScan(c.cwd, c.cmd); got != c.block {
+			t.Errorf("%q in %s: floor block %v, want %v: %s", c.cmd, c.cwd, got, c.block, reason)
+		}
+	}
+}
+
+// A config dir spelled through a symlink still walls a cwd or target already in its resolved form.
+func TestLeafWallResolvedConfigSpelling(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(t.TempDir(), "cfg")
+	if err := os.Symlink(real, cfg); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	resolved := filepath.Join(real, "state", "harness")
+	if err := os.MkdirAll(filepath.Join(resolved, "dispatch"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		allow, cmd string
+		block      bool
+	}{
+		{"", "echo x > y", true},
+		{"", "tee y", true},
+		{"", "cp /tmp/a y", true},
+		{"", "git log -1", false},
+		{"Write(/state/harness/dispatch/**)", "tee dispatch/y", false},
+		{"Write(/state/harness/dispatch/**)", "tee y", true},
+	} {
+		setStateWallDispatch(t, stateWallCase{dispatchID: "d1", depth: "0", allow: c.allow})
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": resolved,
+			"tool_input": map[string]string{"command": c.cmd}})
+		r := Scan(core.ParseInput(bytes.NewReader(payload)))
+		if got := r.Decision == core.Block && r.Floor; got != c.block {
+			t.Errorf("%q (allow %q): floor block %v, want %v: %s", c.cmd, c.allow, got, c.block, r.Reason)
+		}
+	}
+	setStateWallDispatch(t, stateWallCase{dispatchID: "d1", depth: "0"})
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Edit", "cwd": "/tmp",
+		"tool_input": map[string]string{"file_path": filepath.Join(resolved, "x"), "old_string": "a", "new_string": "b"}})
+	if r := protectedEdit(core.ParseInput(bytes.NewReader(payload))); r.Decision != core.Block {
+		t.Errorf("Edit of the resolved spelling: decision %v, want block", r.Decision)
+	}
+}
+
 func TestLeafWallReachabilityControls(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

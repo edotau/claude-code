@@ -657,6 +657,27 @@ func TestPlacementPlanAgentWritesOnlyPlans(t *testing.T) {
 	}
 }
 
+// A patch key beside file_path cannot hide the file, and the block is a floor no agent allow lifts.
+func TestPlacementPlanAgentToolPathAndFloor(t *testing.T) {
+	cfg, _ := planAgentTestHome(t)
+	for _, c := range []struct {
+		input map[string]string
+		block bool
+	}{
+		{map[string]string{"file_path": cfg + "/CLAUDE.md", "input": "*** Add File: plans/ok.md"}, true},
+		{map[string]string{"filePath": cfg + "/x.go", "patch": "*** Add File: plans/ok.md"}, true},
+		{map[string]string{"file_path": cfg + "/plans/x.txt", "input": "*** Add File: plans/ok.txt"}, false},
+		{map[string]string{"file_path": cfg + "/x.go"}, true},
+	} {
+		b, _ := json.Marshal(map[string]any{"tool_name": "Write", "agent_type": "Plan", "agent_id": "sub-1", "cwd": cfg,
+			"tool_input": c.input})
+		r := Placement(core.ParseInput(bytes.NewReader(b)))
+		if (r.Decision == core.Block) != c.block || c.block && !r.Floor {
+			t.Errorf("%v: decision %v floor %v, want block %v (floor)", c.input, r.Decision, r.Floor, c.block)
+		}
+	}
+}
+
 func TestPlacementPlanSymlinkParent(t *testing.T) {
 	cfg, err := planAgentTestHome(t)
 	if err != nil {

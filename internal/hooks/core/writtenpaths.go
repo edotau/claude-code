@@ -308,6 +308,128 @@ func intoDir(dst string, srcs []string) []string {
 	return out
 }
 
+// OperandWrites are the touch, ln, install -d and -t DIR targets WrittenPaths leaves out, so its callers keep verdicts.
+func OperandWrites(cmd, cwd string) []string {
+	if !strings.Contains(cmd, "touch") && !strings.Contains(cmd, "ln") && !strings.Contains(cmd, "install") &&
+		!strings.Contains(cmd, "-t") {
+		return nil
+	}
+	return appendOperandWrites(nil, DropDataHeredocs(cmd), cwd, 0)
+}
+
+func appendOperandWrites(out []string, cmd, cwd string, depth int) []string {
+	shell.EachSegmentDir(cmd, cwd, func(seg string, toks []string, dir string, lost bool) {
+		if lost {
+			dir = ""
+		}
+		if nested, ok := shell.NestedCommand(toks); ok && depth < nestedDepth {
+			out = appendOperandWrites(out, nested, dir, depth+1)
+			return
+		}
+		words, _ := shell.Redirects(seg)
+		rest, at := shell.Unwrap(shell.DropRtk(words), dir)
+		for _, t := range operandTargets(rest) {
+			if p := resolveTarget(t, at); filepath.IsAbs(p) && !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	})
+	return out
+}
+
+// argSpec names a command's value flags: short letters, and long names as their short letter.
+type argSpec struct {
+	values string
+	long   map[string]byte
+}
+
+var linkArgs = argSpec{"St", map[string]byte{"--suffix": 'S', "--target-directory": 't'}}
+
+// operandSpecs are the commands operandTargets reads.
+var operandSpecs = map[string]argSpec{
+	"touch": {"AtrdT", map[string]byte{"--reference": 'r', "--date": 'd', "--time": 'T'}},
+	"ln":    linkArgs, "cp": linkArgs, "mv": linkArgs,
+	"install": {"mogSt", map[string]byte{"--mode": 'm', "--owner": 'o', "--group": 'g', "--suffix": 'S',
+		"--target-directory": 't', "--directory": 'd'}},
+}
+
+// scan splits args into operands and the flags set (a value flag keeps its value, attached or the next word).
+func (s argSpec) scan(args []string) (ops []string, flags map[byte]string) {
+	flags = map[byte]string{}
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--":
+			return append(ops, args[i+1:]...), flags
+		case strings.HasPrefix(a, "--"):
+			i = s.longFlag(args, i, flags)
+		case len(a) > 1 && a[0] == '-':
+			i = s.shortFlags(args, i, flags)
+		case a != "" && a != "-":
+			ops = append(ops, a)
+		}
+	}
+	return ops, flags
+}
+
+// longFlag records args[i] when it is a known long flag; it returns the last index it read.
+func (s argSpec) longFlag(args []string, i int, flags map[byte]string) int {
+	name, val, attached := strings.Cut(args[i], "=")
+	c, ok := s.long[name]
+	if !ok {
+		return i
+	}
+	if !attached && strings.IndexByte(s.values, c) >= 0 && i+1 < len(args) {
+		i, val = i+1, args[i+1]
+	}
+	flags[c] = val
+	return i
+}
+
+// shortFlags records a short cluster up to its first value flag; it returns the last index it read.
+func (s argSpec) shortFlags(args []string, i int, flags map[byte]string) int {
+	a := args[i]
+	for j := 1; j < len(a); j++ {
+		if c := a[j]; strings.IndexByte(s.values, c) < 0 {
+			flags[c] = ""
+		} else if flags[c] = a[j+1:]; j+1 < len(a) || i+1 == len(args) {
+			return i
+		} else {
+			flags[c] = args[i+1]
+			return i + 1
+		}
+	}
+	return i
+}
+
+// operandTargets are the files a touch, ln, install -d or -t DIR copy names; destinations reads the other forms.
+func operandTargets(toks []string) []string {
+	if len(toks) < 2 {
+		return nil
+	}
+	name := filepath.Base(toks[0])
+	spec, ok := operandSpecs[name]
+	if !ok {
+		return nil
+	}
+	ops, flags := spec.scan(toks[1:])
+	if name == "touch" {
+		return ops
+	}
+	if dir, ok := flags['t']; ok {
+		return []string{dir}
+	}
+	if _, dirs := flags['d']; name == "install" && dirs {
+		return ops
+	}
+	if name != "ln" || len(ops) == 0 {
+		return nil
+	}
+	if len(ops) == 1 { // the link lands in cwd under the target's name
+		return []string{filepath.Base(ops[0])}
+	}
+	return ops[len(ops)-1:]
+}
+
 // DropHeredocBodies drops each body whose closing line bodyEnd returns (-1 keeps it); guarded keeps all if a file runs.
 func DropHeredocBodies(cmd string, guarded bool, bodyEnd func(lines []string, i int) int) string {
 	if !strings.Contains(cmd, "<<") { // no heredoc: every bodyEnd keeps the line

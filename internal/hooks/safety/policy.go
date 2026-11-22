@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shell"
 )
 
 // policy is the settings.json permissions safety-scan reads: Bash rules per tier, Edit/Write globs as written.
@@ -212,7 +211,7 @@ func globNeedle(g, home string) string {
 func extraGlobs(leaf bool) []string {
 	globs := settingsGlobs(leaf)
 	if leaf {
-		globs = append(globs, stateGlob())
+		globs = append(globs, stateGlobs()...)
 	}
 	return globs
 }
@@ -226,8 +225,22 @@ func settingsGlobs(leaf bool) []string {
 	return globs
 }
 
-// stateGlob is the harness state dir (dispatch records, permission sources) as a "//abs" glob.
-func stateGlob() string { return "/" + filepath.Join(paths.StateDir(), "**") }
+// stateGlobs are the harness state dir as "//abs" globs, spelled as configured and symlink-resolved.
+func stateGlobs() []string {
+	globs := []string{"/" + filepath.Join(paths.StateDir(), "**")}
+	if real := "/" + filepath.Join(paths.Real(paths.StateDir()), "**"); real != globs[0] {
+		globs = append(globs, real)
+	}
+	return globs
+}
+
+// stateSpelling respells a path under the resolved state dir under the configured one, as grant rules spell it.
+func stateSpelling(f string) string {
+	if rel, ok := paths.RelWithin(paths.Real(paths.StateDir()), paths.Real(f)); ok {
+		return filepath.Join(paths.StateDir(), rel)
+	}
+	return f
+}
 
 // leafWallVerdict blocks a leaf's dispatch-env tamper and harness-state write as floor walls (R13, 2026-11-22).
 func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, string) {
@@ -242,10 +255,10 @@ func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, 
 	if !mayTouchState(cmd, in.CWD) {
 		return core.Allow, "", ""
 	}
-	globs := []string{stateGlob()}
+	globs := stateGlobs()
 	p := protectedWrite(cmd, in.CWD, globs, false)
 	if p == "" {
-		p = stateCWDTouch(cmd, in.CWD)
+		p = stateOperandWrite(cmd, in.CWD)
 	}
 	if p != "" && !bashGranted(in.CWD, cmd) && !wallGranted(in.CWD, p) {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes the harness state dir, which a leaf only reads", p,
@@ -265,7 +278,8 @@ func mayTouchState(cmd, cwd string) bool {
 	}
 	// A relative target, a case variant or a symlink reaches the dir without naming it: resolve each target.
 	inside := func(p string) bool { return paths.InsideDir(p, paths.StateDir()) }
-	return slices.ContainsFunc(core.WrittenPaths(cmd, cwd), inside) || slices.ContainsFunc(core.RemovedPaths(cmd, cwd), inside)
+	return slices.ContainsFunc(core.WrittenPaths(cmd, cwd), inside) || slices.ContainsFunc(core.RemovedPaths(cmd, cwd), inside) ||
+		stateOperandWrite(cmd, cwd) != ""
 }
 
 // Only literal destinations extend the old interpreter wall; folded path text in output data is not a destination.
@@ -282,45 +296,14 @@ func stateInterpreterWrite(cmd, plain string, globs []string) (string, string) {
 	return mentionedGlob(globs, paths.FoldCase(destinations), false)
 }
 
-var touchValueFlag = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^-[acfhmos]*[Artd]$|^--(?:reference|date)$`)
-})
-
-// touch is absent from the shared write extractor; inspect its operands only when its cwd is already in state.
-func stateCWDTouch(cmd, cwd string) string {
-	var target string
-	shell.EachSegmentDir(cmd, cwd, func(seg string, _ []string, dir string, lost bool) {
-		if lost || !paths.InsideDir(dir, paths.StateDir()) {
-			return
+// stateOperandWrite is the first state path a touch, ln, install -d or -t DIR copy creates ("" if none).
+func stateOperandWrite(cmd, cwd string) string {
+	for _, p := range core.OperandWrites(cmd, cwd) {
+		if paths.InsideDir(p, paths.StateDir()) {
+			return p
 		}
-		words, _ := shell.Redirects(seg)
-		rest, _ := shell.Unwrap(words, dir)
-		if len(rest) == 0 || filepath.Base(rest[0]) != "touch" {
-			return
-		}
-		flags := true
-		for i := 1; i < len(rest); i++ {
-			a := rest[i]
-			if flags {
-				switch {
-				case a == "--":
-					flags = false
-					continue
-				case touchValueFlag().MatchString(a):
-					i++
-					continue
-				case strings.HasPrefix(a, "-"):
-					continue
-				}
-			}
-			p := paths.AnchorPath(paths.ExpandHome(a), dir)
-			if paths.InsideDir(p, paths.StateDir()) {
-				target = p
-				return
-			}
-		}
-	})
-	return target
+	}
+	return ""
 }
 
 const stateHint = "The harness writes its own state; a dispatch the main session starts may lift this with " +
@@ -362,20 +345,21 @@ func editProtected(cwd, f, form string, globs []string) bool {
 	if !hit || !wallGranted(cwd, f) { // dropping the state glob only removes matches
 		return hit
 	}
-	state := foldedGlobs([]string{stateGlob()}, cwd)
+	state := foldedGlobs(stateGlobs(), cwd)
 	globs = slices.DeleteFunc(slices.Clone(globs), func(g string) bool { return slices.Contains(state, g) })
 	return matchesProtected(f, globs) || f != form && protectedPath(f, globs)
 }
 
 // wallGranted reports a main-started dispatch's explicit Edit/Write allow covering f under the state dir.
 func wallGranted(cwd, f string) bool {
-	if !protectedPath(f, foldedGlobs([]string{stateGlob()}, cwd)) {
+	if !protectedPath(f, foldedGlobs(stateGlobs(), cwd)) {
 		return false
 	}
 	p, ok := mainGrant()
 	if !ok {
 		return false
 	}
+	f = stateSpelling(f)
 	deny := permission.Permissions{Mode: permission.PermAllow, Deny: p.Deny}
 	if deny.DecideAt(cwd, "Write", f) == permission.Deny || deny.DecideAt(cwd, "Edit", f) == permission.Deny {
 		return false
