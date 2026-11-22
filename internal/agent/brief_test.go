@@ -91,7 +91,7 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 		}
 	}
 	for _, want := range []string{"basic tests that a new feature works", "a bug fix shows its live\n  before/after run",
-		"- A `python3` heredoc that rewrites a file is a splice script.\n" +
+		"- A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.\n" +
 			"- Every `rm` names a literal path: no `$(...)`, unquoted variable or glob; never `rm` in `bash -c`/`sh -c`.\n" +
 			"- Never read/export live vault or provider config (`vault ls`, `vault get`) unless the brief names it; use fixtures.",
 		"other cases are proposals in the hand-back", "Order: format → lint → live check → your package or exact tests"} {
