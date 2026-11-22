@@ -184,7 +184,7 @@ func findTracked(root string, o FindOptions) ([]string, error) {
 	files = slices.Compact(files)
 	files = slices.DeleteFunc(files, func(p string) bool {
 		return p == "" || (len(sel) > 0 && !inPaths(sel, p)) ||
-			((o.Func || o.Def || o.Callers) && !strings.HasSuffix(p, ".go"))
+			(findGoMode(o) && !strings.HasSuffix(p, ".go"))
 	})
 	return files, nil
 }
@@ -208,6 +208,8 @@ func findPrefilter(root string, files []string, o FindOptions) []string {
 	return findGitHits(root, o).filter(files)
 }
 
+func findGoMode(o FindOptions) bool { return o.Func || o.Def || o.Callers }
+
 type findHits map[string]bool
 
 func (hits findHits) filter(files []string) []string {
@@ -223,7 +225,8 @@ func findGitHits(root string, o FindOptions) findHits {
 	if o.IgnoreCase {
 		args = append(args, "--ignore-case")
 	}
-	raw, err := proc.RunGitRaw(context.Background(), root, append(args, "-e", o.Pattern)...)
+	args = append(append(args, "-e", o.Pattern, "--"), findPathspecs(root, o)...)
+	raw, err := proc.RunGitRaw(context.Background(), root, args...)
 	if exit, ok := errors.AsType[*exec.ExitError](err); err != nil && (!ok || exit.ExitCode() != 1) {
 		return nil
 	}
@@ -232,6 +235,26 @@ func findGitHits(root string, o FindOptions) findHits {
 		hits[p] = true
 	}
 	return hits
+}
+
+// findPathspecs scopes git grep to a superset of findTracked's files; globs and "." fall back to the Go suffix alone.
+func findPathspecs(root string, o FindOptions) []string {
+	sel, err := cleanPaths(root, o.Paths)
+	specs := make([]string, 0, len(sel))
+	for _, s := range sel {
+		if s == "." || strings.ContainsAny(s, "*?") {
+			specs = nil
+			break
+		}
+		specs = append(specs, ":(top,literal)"+s)
+	}
+	if err == nil && len(specs) > 0 {
+		return specs
+	}
+	if findGoMode(o) {
+		return []string{":(top)*.go"}
+	}
+	return nil
 }
 
 // findLiteral reports a content search whose pattern git -F can match as Go would; -i skips K, S and non-ASCII (Go folds them).
@@ -254,7 +277,7 @@ func findFile(root *os.Root, p string, o FindOptions, re *regexp.Regexp) ([]Find
 	if o.Name {
 		return []FindMatch{{Path: p}}, nil
 	}
-	if o.Func || o.Def || o.Callers {
+	if findGoMode(o) {
 		return findGo(p, data, o, re)
 	}
 	return findContent(p, data, o, re), nil
