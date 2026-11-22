@@ -98,3 +98,10 @@ func PatchEdits(patch string) []FileEdit {
 	closeHunk()
 	return out
 }
+
+// WriteStrings appends each part to b in order, with no intermediate string built.
+func WriteStrings(b *strings.Builder, parts ...string) {
+	for _, p := range parts {
+		b.WriteString(p)
+	}
+}

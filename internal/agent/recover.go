@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // DefaultRecoveryCap is the event-log tail RecoveryPrompt keeps when capBytes is not positive.
@@ -33,7 +34,7 @@ func RecoveryPrompt(rec Record, capBytes int) (string, error) {
 	}
 	b.WriteString(") stopped before it finished. The log below is what it did.")
 	if rec.Wrote != nil && len(*rec.Wrote) > 0 {
-		fmt.Fprintf(&b, " Files it changed: %s.", strings.Join(*rec.Wrote, ", "))
+		textutil.WriteStrings(&b, " Files it changed: ", strings.Join(*rec.Wrote, ", "), ".")
 	}
 	b.WriteString(" Check the working tree before redoing any step, then continue from where it stopped" +
 		" and finish with the report the brief asked for.\n\n--- earlier attempt log ---\n")
@@ -76,7 +77,7 @@ func renderEvent(b *strings.Builder, line []byte) {
 		}
 		b.WriteString(ev.Text)
 	case ev.Type == wire.EventToolUse && ev.Tool != nil:
-		fmt.Fprintf(b, "\n[tool: %s]\n", ev.Tool.Name)
+		textutil.WriteStrings(b, "\n[tool: ", ev.Tool.Name, "]\n")
 	}
 }
 
