@@ -51,14 +51,11 @@ func agentAllowTool(tool string) bool {
 	return false
 }
 
-// allowedRule names the rule that was overridden, else the reason's first 60 runes.
+// allowedRule names the overridden rule and the full reason, whose hint names the allowed shape.
 func allowedRule(r core.Result) string {
-	if r.Rule != "" {
-		return r.Rule
+	reason := strings.TrimSpace(r.Reason)
+	if r.Rule == "" || reason == "" {
+		return r.Rule + reason
 	}
-	s := []rune(strings.TrimSpace(r.Reason))
-	if len(s) > 60 {
-		s = s[:60]
-	}
-	return string(s)
+	return r.Rule + "\n" + reason
 }

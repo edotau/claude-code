@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -54,5 +55,18 @@ func TestAgentBashAllowKeepsFloor(t *testing.T) {
 	in := core.ParseInputFor(bytes.NewReader(payload), "copilot")
 	if r := agentBashAllow(in, safety.Scan(in)); r.Decision != core.Block {
 		t.Errorf("copilot leaf Edit of settings.json under --permissions allow: decision %v, want block", r.Decision)
+	}
+}
+
+// The allow note keeps the rule and the block's full reason, so the leaf sees the allowed-shape hint.
+func TestAgentBashAllowNoteKeepsHint(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(agent.DispatchPermissionsEnv, "")
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": t.TempDir(), "agent_id": "a1",
+		"tool_input": map[string]string{"command": "claude-code vault get NAME --secret"}})
+	in := core.ParseInput(bytes.NewReader(payload))
+	if note := agentBashAllow(in, safety.Scan(in)).Context; !strings.Contains(note, "main session only") ||
+		!strings.Contains(note, "report the vault entry name you need") {
+		t.Errorf("allow note lacks the rule or its allowed-shape hint: %q", note)
 	}
 }
