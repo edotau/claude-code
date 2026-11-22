@@ -218,6 +218,33 @@ func TestInitialResult(t *testing.T) {
 	}
 }
 
+// A no-response or empty turn with no text or tool is a typed fatal errNoResponse; anything else passes through.
+func TestNoResponse(t *testing.T) {
+	rpc := errors.New("send prompt: JSON-RPC Error -32603: No response was returned. Send your message again to retry.")
+	outage := errors.New("503 service unavailable")
+	for _, c := range []struct {
+		name string
+		out  sdk.Result
+		err  error
+		want bool
+	}{
+		{"rpc no response", sdk.Result{}, rpc, true},
+		{"empty answer", sdk.Result{}, nil, true},
+		{"rpc after text", sdk.Result{Text: "part"}, rpc, false},
+		{"empty after tool", sdk.Result{ToolRan: true}, nil, false},
+		{"other failure", sdk.Result{}, outage, false},
+		{"answered", sdk.Result{Text: "ok"}, nil, false},
+	} {
+		got := noResponse(c.out, c.err)
+		if is := errors.Is(got, errNoResponse); is != c.want || is && !isFatal(got) {
+			t.Errorf("%s: err = %v, want no-response %v (typed fatal)", c.name, got, c.want)
+		}
+		if !c.want && got != c.err {
+			t.Errorf("%s: err = %v, want %v passed through", c.name, got, c.err)
+		}
+	}
+}
+
 func isFatal(err error) bool {
 	re, ok := errors.AsType[*retry.Error](err)
 	return ok && re.Kind == retry.KindFatal

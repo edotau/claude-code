@@ -71,7 +71,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	}
 	out, err := copilotAsk(ctx, opts, prompt, images)
 	lg := wire.EventLogFor(ctx)
-	err = markToolRan(out, sink, err)
+	err = markToolRan(out, sink, noResponse(out, err))
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
@@ -306,6 +306,23 @@ func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) 
 		}
 	}
 	return res, err
+}
+
+// errNoResponse is a turn with no text and no tool run; the auto re-pick keys on this text, a typed model just fails.
+var errNoResponse = errors.New(agent.NoResponse)
+
+// noResponse types a run that produced nothing as errNoResponse (fatal); any other outcome passes err through.
+func noResponse(out sdk.Result, err error) error {
+	if strings.TrimSpace(out.Text) != "" || out.ToolRan {
+		return err
+	}
+	switch {
+	case err == nil:
+		return copilotFatal(fmt.Errorf("%w (the CLI exited 0 with an empty answer)", errNoResponse))
+	case strings.Contains(err.Error(), "No response was returned"):
+		return copilotFatal(fmt.Errorf("%w: %w", errNoResponse, err))
+	}
+	return err
 }
 
 func copilotFatal(err error) error {

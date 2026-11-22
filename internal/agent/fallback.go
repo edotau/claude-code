@@ -924,6 +924,9 @@ var requestSizeErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)context length|maximum context|exceed context limit|prompt is too long|input length`)
 })
 
+// NoResponse opens an agent error for a model that answered nothing before any text or tool: an auto ask re-picks.
+const NoResponse = "model returned no response"
+
 // pickGoneErr is an endpoint or CLI saying the picked model does not exist there.
 var pickGoneErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ENDPOINT_NOT_FOUND|ProviderModelNotFoundError|Model "[^"]+" is not available|model "[^"]+" is not on the [^ ]+ menu`)
@@ -948,9 +951,10 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	return ""
 }
 
-// autoRefusal is a pick refusal an auto ask re-picks past: a size refusal holds nothing, a model one skips ran for 7 days.
+// autoRefusal is a pick refusal an auto ask re-picks past: a size refusal or no response holds nothing, a model one
+// skips ran for 7 days.
 func autoRefusal(ctx context.Context, disp Dispatch, requested, ran, msg string) bool {
-	if requestSizeErr().MatchString(msg) {
+	if requestSizeErr().MatchString(msg) || strings.Contains(msg, NoResponse) {
 		return autoRetryable(disp, requested, ran) != nil
 	}
 	return (capabilityErr().MatchString(msg) || pickGoneErr().MatchString(msg)) && skipAutoModel(ctx, disp, requested, ran)
