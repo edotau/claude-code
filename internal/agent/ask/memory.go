@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -90,15 +93,56 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.
 func memorySink(w io.Writer) wire.Sink { return maskedEvents{wire.NewTextSink(w)} }
 
+// memorySignals cancels ctx on a catchable kill so the run finalizes its record; stop names the signal, if any.
+func memorySignals(parent context.Context) (context.Context, func() os.Signal) {
+	ctx, cancel := context.WithCancel(parent)
+	sigs, got := make(chan os.Signal, 1), make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		select {
+		case s := <-sigs:
+			got <- s
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() os.Signal {
+		signal.Stop(sigs)
+		cancel()
+		select {
+		case s := <-got:
+			return s
+		default:
+			return nil
+		}
+	}
+}
+
+// memoryReceipt is the worker log's end line; a started line with none after it means an uncatchable kill.
+func memoryReceipt(pid int, id string, took time.Duration, sig os.Signal, err error) string {
+	outcome := "ok"
+	if err != nil {
+		outcome = "error: " + err.Error()
+	}
+	if sig != nil {
+		outcome += " (signal " + sig.String() + ")"
+	}
+	return fmt.Sprintf("memory job: pid %d dispatch %s ended after %s: %s", pid, cmp.Or(id, "-"), took.Round(time.Millisecond), outcome)
+}
+
 // MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
 func MemoryRunner() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		c := newClient()
 		c.Refresh = nil
 		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		ctx, stop := memorySignals(ctx)
 		opts := memoryRunOptions(ctx, prompt, workdir)
 		opts.Env = memory.ChildEnv(ctx)
+		start := time.Now()
+		fmt.Fprintf(os.Stderr, "memory job: pid %d started %s\n", os.Getpid(), start.Format(time.RFC3339))
 		res, err := c.Run(ctx, opts, memorySink(os.Stdout))
+		fmt.Fprintln(os.Stderr, memoryReceipt(os.Getpid(), res.DispatchID, time.Since(start), stop(), err))
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback

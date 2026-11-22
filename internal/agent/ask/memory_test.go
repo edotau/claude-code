@@ -6,9 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -148,5 +151,33 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 	}
 	if off := run("--safe-mode", task); off != task {
 		t.Errorf("--safe-mode prompt = %q, want the bare task", off)
+	}
+}
+
+// A catchable kill cancels the memory run's context, and the receipt names the signal.
+func TestMemorySignalsCancelAndNameTheKill(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGHUP delivery on windows")
+	}
+	ctx, stop := memorySignals(t.Context())
+	self, _ := os.FindProcess(os.Getpid())
+	if err := self.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGHUP did not cancel the memory run")
+	}
+	sig := stop()
+	if sig != syscall.SIGHUP {
+		t.Fatalf("stop() = %v, want SIGHUP", sig)
+	}
+	got := memoryReceipt(7, "", 1500*time.Millisecond, sig, ctx.Err())
+	if want := "memory job: pid 7 dispatch - ended after 1.5s: error: context canceled (signal hangup)"; got != want {
+		t.Errorf("receipt = %q, want %q", got, want)
+	}
+	if _, stop := memorySignals(t.Context()); stop() != nil {
+		t.Error("stop() with no signal named one")
 	}
 }
