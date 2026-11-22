@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -38,6 +39,13 @@ func (e *UnacceptedError) Unwrap() error { return ErrModelRoute }
 
 func (e *UnacceptedError) Error() string { return ErrModelRoute.Error() + ": " + e.Reason() }
 
+// lazyUnacceptedError preserves Nearest for structured inspection without computing it during pool scans.
+type lazyUnacceptedError func() *UnacceptedError
+
+func (e lazyUnacceptedError) Error() string        { return e().Error() }
+func (e lazyUnacceptedError) Unwrap() error        { return e() }
+func (e lazyUnacceptedError) Is(target error) bool { return target == ErrModelRoute }
+
 // Reason is the refusal without the ErrModelRoute prefix, for callers that word their own.
 func (e *UnacceptedError) Reason() string {
 	var b strings.Builder
@@ -63,11 +71,13 @@ func (e *UnacceptedError) Reason() string {
 func AcceptModel(agentName string, p *providers.Provider, model string, now time.Time) (note string, err error) {
 	model = strings.TrimSpace(model)
 	refuse := func(k UnacceptedKind, detail string) error {
-		e := &UnacceptedError{Kind: k, Agent: agentName, Profile: p.Name, Model: model, Detail: detail}
-		if k != UnacceptedPrefixed {
-			e.Nearest = nearestAccepted(agentName, p, model, now)
-		}
-		return e
+		return lazyUnacceptedError(sync.OnceValue(func() *UnacceptedError {
+			e := &UnacceptedError{Kind: k, Agent: agentName, Profile: p.Name, Model: model, Detail: detail}
+			if k != UnacceptedPrefixed {
+				e.Nearest = nearestAccepted(agentName, p, model, now)
+			}
+			return e
+		}))
 	}
 	reg, _ := providers.Load()
 	if e := prefixedRefusal(reg, agentName, p.Name, model); e != nil {
@@ -168,8 +178,23 @@ func ownsModel(p *providers.Provider, id string) bool {
 	return slices.ContainsFunc(picked, func(m providers.ModelInfo) bool { return m.ID == id })
 }
 
-// AcceptedIDs is p's fresh READY chat ids the agent can run, else p's models then the agent's catalog ids (fresh false).
+// AcceptedIDs returns runnable READY chat ids, falling back to profile and agent catalog ids when cold.
 func AcceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []string, fresh bool) {
+	key, err := routingListKey(agentName, p, false, now)
+	if err != nil {
+		return acceptedIDs(agentName, p, now)
+	}
+	out, err := acceptedMemo.Do(key, func(acceptedList, error) time.Duration { return 0 }, func() (acceptedList, error) {
+		ids, fresh := acceptedIDs(agentName, p, now)
+		return acceptedList{ids: ids, fresh: fresh}, nil
+	})
+	if err != nil {
+		return acceptedIDs(agentName, p, now)
+	}
+	return slices.Clone(out.ids), out.fresh
+}
+
+func acceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []string, fresh bool) {
 	if s, ok := serving.Fresh(p.Name, now); ok {
 		chat := chatServed(s)
 		for _, m := range s.Models {

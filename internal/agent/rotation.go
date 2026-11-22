@@ -48,7 +48,7 @@ func rotationPool(agentName, alias string, p *providers.Provider, tools bool, no
 	if err != nil || !router.RotationRow(p) {
 		return nil
 	}
-	cands := withoutDeprecated(p, rotationCandidates(reg, agentName, p, tools, now))
+	cands := withoutDeprecated(p, memoCandidates(reg, agentName, p, tools, now))
 	tiers := []string{"fast", "standard", "deep"}
 	if t := rotationTiers[alias]; t != "" {
 		tiers = []string{t}

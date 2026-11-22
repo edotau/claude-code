@@ -145,8 +145,7 @@ func LoadState() State {
 
 // sharedState is the cached state itself: read-only, never indexed into for writes or handed out.
 func sharedState() State {
-	s, _ := stateCache.Get(StatePath(), loadState)
-	return s
+	return memoState()
 }
 
 // clone returns a deep copy of s: each entry's discovery maps are fresh.
@@ -196,6 +195,7 @@ func tryUpdate(wait time.Duration, fn func(State)) (bool, error) {
 
 // writeState applies fn to the loaded state and writes it back; the caller holds the state lock.
 func writeState(path string, fn func(State)) error {
+	defer invalidateStateMemo()
 	raw, err := os.ReadFile(path)
 	s := State{}
 	if err == nil {
