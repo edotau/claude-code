@@ -104,6 +104,11 @@ paths:
   `-n`/`--name <name>`, `--thinking <level>`, `-p`/`--print`, `--verbose`, `--offline` and a prompt; any other flag
   (`-e`, `-a`/`--approve`, `--skill`, `--tools`, `--model`, `--mode`, ...) or `@file` is refused with the harness
   way to do it. A dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space).
+- **pi RTK_WRAP (trial)** — `RTK_WRAP=on` (process or vault env; default off) puts `state/harness/rtkwrap/bin`
+  first on a Pi launch's PATH. Its stand-ins (`bin/.rtkwrap`, one symlink per rtk command) run `rtk <cmd>` only when
+  stdout is a pipe and Pi's own tool shell ran the command. Substitutions, env changes, `git commit` and the hook's
+  vetoes stay raw, and any failure runs the real binary. Rollback: `RTK_WRAP=off`, or delete `bin/.rtkwrap`. Plan:
+  `/Users/edotau/.claude/plans/2026-11-22-rtk-wrap-and-parallel-rewrite.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
