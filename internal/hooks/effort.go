@@ -8,11 +8,13 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/workflows"
 )
@@ -37,7 +39,7 @@ type dispatchRun struct {
 	hops     map[hopKey]hopResult
 }
 
-// hopKey and hopResult memoize only Claude's unchanged query; external hops depend on live eligibility.
+// hopKey and hopResult memoize runQuery; an external hop is reused only while its eligibility generation holds.
 type hopKey struct {
 	q    agentpkg.ModelQuery
 	hint string
@@ -47,21 +49,24 @@ type hopResult struct {
 	hop  agentpkg.ModelQuery
 	note string
 	err  error
+	gen  router.Generation
 }
 
 func (r *dispatchRun) runHop(ctx context.Context, reg *providers.Registry, q agentpkg.ModelQuery, hint string) (agentpkg.ModelQuery, string, error) {
-	if q.Agent != "claude" {
-		return runQuery(ctx, reg, q, hint)
-	}
 	k := hopKey{q, hint}
-	if h, ok := r.hops[k]; ok {
+	// Claude's query never reads eligibility: namesRoute returns it unchanged
+	if h, ok := r.hops[k]; ok && (q.Agent == "claude" || h.gen.Holds(time.Now())) {
 		return h.hop, h.note, h.err
+	}
+	var gen router.Generation
+	if q.Agent != "claude" {
+		gen = router.TakeGeneration(time.Now())
 	}
 	hop, note, err := runQuery(ctx, reg, q, hint)
 	if r.hops == nil {
 		r.hops = map[hopKey]hopResult{}
 	}
-	r.hops[k] = hopResult{hop, note, err}
+	r.hops[k] = hopResult{hop, note, err, gen}
 	return hop, note, err
 }
 

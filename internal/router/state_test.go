@@ -590,3 +590,22 @@ func TestVerdictCacheBoundsAndIsolation(t *testing.T) {
 		t.Fatal("failure counted as success")
 	}
 }
+
+// A freshly written quota.json still holds; its mark's expiry and the next write each end the generation.
+func TestGenerationEndsAtBoundaryAndWrite(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	if err := MarkExhausted("databricks·dev", now.Add(500*time.Millisecond), now, "q"); err != nil {
+		t.Fatal(err)
+	}
+	g := TakeGeneration(now)
+	if !g.Holds(now.Add(100*time.Millisecond)) || g.Holds(now.Add(600*time.Millisecond)) {
+		t.Fatal("generation must hold before the mark expires and end at its expiry")
+	}
+	if ran, err := MarkCooling("databricks·qa", now.Add(time.Hour), now); !ran || err != nil {
+		t.Fatalf("mark cooling: ran %v, err %v", ran, err)
+	}
+	if g.Holds(now.Add(100 * time.Millisecond)) {
+		t.Fatal("generation held across a quota.json write")
+	}
+}

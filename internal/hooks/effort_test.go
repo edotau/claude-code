@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -716,8 +717,10 @@ func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 	}
 }
 
-func TestDispatchRunHopRejectsNewlyExhaustedAccount(t *testing.T) {
-	vaulttest.Use(t)
+// codexHopRun seeds codex on databricks dev, ages the config past the racy window and takes the first hop.
+func codexHopRun(t *testing.T) (*dispatchRun, *providers.Registry, agentpkg.ModelQuery, *int) {
+	t.Helper()
+	cfg := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	vaulttest.SetRecord(t, "codex", "profile", "dev")
 	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-6-1-sol")
@@ -728,19 +731,60 @@ func TestDispatchRunHopRejectsNewlyExhaustedAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := newDispatchRun(nil)
-	q := agentpkg.ModelQuery{Agent: "codex", Fallback: router.FallbackNone}
-	ctx := context.Background()
-	first, _, err := run.runHop(ctx, reg, q, "sonnet")
-	if err != nil || first.Agent != "codex" || first.Profile != "dev" {
+	old := time.Now().Add(-time.Hour)
+	if err := filepath.WalkDir(cfg, func(p string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chtimes(p, old, old)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls, orig := 0, runQuery
+	t.Cleanup(func() { runQuery = orig })
+	runQuery = func(ctx context.Context, reg *providers.Registry, q agentpkg.ModelQuery, hint string) (agentpkg.ModelQuery, string, error) {
+		calls++
+		return orig(ctx, reg, q, hint)
+	}
+	run, q := newDispatchRun(nil), agentpkg.ModelQuery{Agent: "codex", Fallback: router.FallbackNone}
+	if first, _, err := run.runHop(context.Background(), reg, q, "sonnet"); err != nil || first.Agent != "codex" || first.Profile != "dev" {
 		t.Fatalf("initial hop = %+v, err %v; want codex on dev", first, err)
 	}
+	return run, reg, q, &calls
+}
+
+func TestDispatchRunHopRejectsNewlyExhaustedAccount(t *testing.T) {
+	run, reg, q, _ := codexHopRun(t)
 	now := time.Now()
 	if err := router.MarkExhausted("databricks·dev", now.Add(time.Hour), now, "test quota"); err != nil {
 		t.Fatal(err)
 	}
-	if hop, _, err := run.runHop(ctx, reg, q, "sonnet"); err == nil || !strings.Contains(err.Error(), "exhausted") {
+	if hop, _, err := run.runHop(context.Background(), reg, q, "sonnet"); err == nil || !strings.Contains(err.Error(), "exhausted") {
 		t.Fatalf("hop %+v, err %v; want refusal after its account was marked exhausted", hop, err)
+	}
+}
+
+// TestDispatchRunHopSeesOtherProcessMark: an unchanged state reuses the hop; another process's mark recomputes it.
+func TestDispatchRunHopSeesOtherProcessMark(t *testing.T) {
+	if os.Getenv("HOOKS_TEST_MARK_EXHAUSTED") != "" {
+		now := time.Now()
+		if err := router.MarkExhausted("databricks·dev", now.Add(time.Hour), now, "peer quota"); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	run, reg, q, calls := codexHopRun(t)
+	ctx := context.Background()
+	if _, _, err := run.runHop(ctx, reg, q, "sonnet"); err != nil || *calls != 1 {
+		t.Fatalf("unchanged state: runQuery calls %d, err %v; want the hop reused", *calls, err)
+	}
+	peer := exec.Command(os.Args[0], "-test.run=^TestDispatchRunHopSeesOtherProcessMark$")
+	peer.Env = append(os.Environ(), "HOOKS_TEST_MARK_EXHAUSTED=1")
+	if out, err := peer.CombinedOutput(); err != nil {
+		t.Fatalf("peer mark: %v\n%s", err, out)
+	}
+	if hop, _, err := run.runHop(ctx, reg, q, "sonnet"); err == nil || !strings.Contains(err.Error(), "exhausted") {
+		t.Fatalf("hop %+v, err %v (calls %d); want refusal after another process marked the account", hop, err, *calls)
 	}
 }
 
