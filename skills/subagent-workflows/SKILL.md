@@ -34,8 +34,7 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 | Leaf | Role | Output |
 | --- | --- | --- |
-| `claude` | In-context work on Sonnet unless the call names a model | Status and verification |
-| `pi` | Review, exploration, audits and self-tested edits on any Databricks model | Cited findings |
+| `claude` | In-context work on Sonnet unless the call names a model; dispatches a step it needs another agent for | Status and verification |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
@@ -53,7 +52,8 @@ select external execution; never overwrite another machine's pins.
 ### Carried dispatch (main session, no relay)
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
-task, then follow it with one wait call. None has a relay subagent; codex handles cross-family
+task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
+model for review, audits and self-tested edits. No external agent has a relay subagent; codex handles cross-family
 review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini read-only research and
 codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
@@ -69,9 +69,10 @@ Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; aut
 
 ### External relay contract
 
-For a `claude` leaf running a workflow stage whose brief opens with `Run:`:
+For a `claude` leaf whose brief opens with `Run:` (a workflow stage), or that dispatches a step of its own task
+(`agents/claude.md` → Work here or dispatch); the wait, hand-back and receipt rules bind both:
 
-- A thin pipe, in this order:
+- A `Run:` stage is a thin pipe, in this order:
   1. You do none of the work yourself.
   2. Run the `Run:` line once, flags, model and quoted task unchanged. If it has no task argument, write everything
      after that line unchanged to the path `claude-code agents brief --path <agent>` prints (Read it first), and
@@ -291,7 +292,7 @@ files only.
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, `pi`; external work agents run carried). A job
+  the Agent tool with a harness type (`claude`; external work agents run carried, Pi as a plain ask). A job
   expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can

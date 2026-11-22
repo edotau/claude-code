@@ -8,9 +8,9 @@ What you get on top of a stock install:
 
 - **Providers and a model proxy**: Anthropic, Databricks, OpenAI, GitHub Copilot, Google or a custom endpoint, with
   model aliases per profile and a loopback proxy that translates dialects and fails over on 429/5xx.
-- **Agents**: run one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`claude-code agents ask`), or start
-  their interactive CLIs through the same registry (`claude-code codex`). External work agents run carried;
-  workflow stages use a Claude leaf with a `Run:` line.
+- **Agents**: run one-shot tasks on Claude, Codex, Gemini, OpenCode, Copilot or Pi (`claude-code agents ask`), or
+  start their interactive CLIs through the same registry (`claude-code codex`). External work agents run carried,
+  Pi as a plain ask; the one worker subagent is `claude`, and workflow stages use a Claude leaf with a `Run:` line.
 - **Guards**: hooks that stop or ask about destructive commands, leaked secrets and staging files another agent
   holds (see [Safety](#safety)).
 - **Memory and status line**: one memory bank shared by every workspace, and a status line showing provider, model,
@@ -106,7 +106,6 @@ For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-mess
 | `agents ask` without `--tools` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |
 | `agents ask --read-only` | Reads, URL fetches and an allow list of read commands run; other Bash and all writes are denied | dispatched agents |
 | Unsetting or overriding the `HARNESS_DISPATCH_*` variables | Blocked, so a nested dispatch keeps its limits | leaves |
-| A relay (an agent that only forwards a task) | May run `claude-code` verbs, read-only commands and `go build\|vet\|test` in listed shapes, never `worktree commit` | relay leaves |
 | Writing `settings.json` from Bash or a leaf | Blocked | main (Bash) and leaves |
 
 Codex, Copilot, Gemini and OpenCode launched through `claude-code <agent>` also lose inherited `*_KEY`, `*_TOKEN`,

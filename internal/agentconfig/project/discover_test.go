@@ -348,7 +348,7 @@ func TestAgentFilesTie(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("no agent files found in " + dir)
 	}
-	required := []string{"claude", "pi"}
+	required := []string{"claude"}
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
@@ -357,14 +357,14 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "pi"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
 
 func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "opencode"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "pi"} {
 		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); !os.IsNotExist(err) {
 			t.Fatalf("%s relay file should be absent: %v", name, err)
 		}
@@ -372,7 +372,11 @@ func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"agents ask --carry --background --agent " + name, "--tools - < <that path>"} {
+		ask, tail := "agents ask --carry --background --agent "+name, "--tools - < <that path>"
+		if name == "pi" { // --carry refuses pi: a plain ask
+			ask, tail = "agents ask --background --agent pi", "--tools --autonomous - < <that path>"
+		}
+		for _, want := range []string{ask, tail} {
 			if !strings.Contains(string(data), want) {
 				t.Errorf("/%s lacks %q", name, want)
 			}

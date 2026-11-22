@@ -24,8 +24,8 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 | `code-evaluator` → `code-engineer` {skill} | `cells`, `deltas` |
 
 - A stage runs on `agent` = `claude` (in-context, session profile, `model` = `haiku|sonnet|opus|fable`) or
-  `codex|copilot|gemini|opencode`: a `sonnet` `claude` leaf whose brief opens with the ask as its `Run:` line
-  runs the quoted task so the ran-on gate holds; all four external relays are retired. A routed `claude` stage keeps
+  `codex|copilot|gemini|opencode|pi`: a `sonnet` `claude` leaf whose brief opens with the ask as its `Run:` line
+  runs the quoted task so the ran-on gate holds; no external agent has a relay subagent. A routed `claude` stage keeps
   its attachment brief and also runs on a `claude` leaf. The external `Run:` line is
   `claude-code agents ask --agent <a> --fallback agents --format json --tools|--read-only --effort <e> [--profile <p>]
   [--overlay '<route>'] [--model <m>] -- <quoted task>`, and the stage reports `ran on`

@@ -11,8 +11,8 @@ measurements. Aliases come from `internal/providers/defaults.json` and the vault
 `internal/models`; `internal/router/table.json` holds price/account rows and the Databricks tier buckets (the
 models an alias picks on a workspace; `rules/harness/providers.md` → Model selection).
 
-A relay runs one task. `gemini` needs tools for file reads or search; use its read-only mode for research. An OpenCode
-run may write outside its intended workdir: verify the actual tree and owned files.
+A dispatch runs one task. `gemini` needs tools for file reads or search; use its read-only mode for research. An
+OpenCode run may write outside its intended workdir: verify the actual tree and owned files.
 
 ## Ask flags and lifecycle
 

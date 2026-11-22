@@ -84,10 +84,14 @@ paths:
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
-  reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work. A pi leaf
-  launched through the `pi` subagent relay carries a file deny on the live checkout, so its shell is the verify shell:
-  it builds, vets and runs scoped tests on its own edits; `make`, the live check and any write stay with the main
-  session or a paired gate leaf. The tool-name
+  reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work. The deny
+  comes only from the ask: its `--deny` flags plus those inherited from the dispatch above, never from the caller's
+  type, so a main-session or `claude`-leaf ask gets the same guard. A `--tools` run with no file deny keeps the whole
+  bash, judged by `safety-scan` and `permission-gate` only; one editing a worktree adds
+  `--deny 'Edit(<live checkout>/**)' --deny 'Write(<live checkout>/**)'` and so runs the verify shell: it builds,
+  vets and runs scoped tests (`go test -count=1 ./<pkg>`, so a test really runs); `make`, the live check and any
+  write stay with the main session or a paired gate leaf. An overlay setting `HARNESS_HOOK_*` is refused too, and
+  Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
   `claude-code gateway resolve <agent> --overlay '{"provider":"databricks","profile":"dev"}'` names the model, then
@@ -315,7 +319,7 @@ vendor CLI untouched.
   callbacks are registered (each guard would run twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
-- **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 3; 0 = no cap; invalid uses default); a
+- **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 5; 0 = no cap; invalid uses default); a
   live top-level `--carry` dispatch's level is not counted, so its child has a direct call's depth.
   `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 20,000,000; 0 = no cap; unknown usage counts 0;
