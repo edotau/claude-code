@@ -12,6 +12,8 @@ the prefix is written by the caller, never left to the hook (CLAUDE.md guideline
 - **As typed:** `claude-code`, `git grep`, `gofmt -l` and anything `rtk rewrite` leaves empty.
 - **Exact output** (a file list a later step consumes, a count or bytes you compare): `git grep`, or
   `rtk bypass <cmd>`; `rtk grep` groups and truncates matches.
+- **Code search:** tracked files first: `git grep -n` (25 ms here) or `rtk rg -n` (27 ms), symbols with
+  `claude-code agents find`; `rtk grep -rn` walks every file (126–150 ms), so keep it for ignored or untracked paths.
 - **Never in program code:** Go `exec`, Makefile recipes, hook commands, CI and scripts whose output a program parses
   run the bare tool; rtk changes the output format.
 - **Docs, skills, agents, commands and brief templates:** a command block an agent will run is written in its rtk form;
