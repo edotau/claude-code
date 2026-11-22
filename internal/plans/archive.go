@@ -24,30 +24,54 @@ func Archive(ctx context.Context, root string, dryRun bool) ([]Change, []Finding
 		if err := ctx.Err(); err != nil {
 			return changes, findings, err
 		}
-		s, ok := archivable(d.plan)
-		if !ok {
-			continue
-		}
-		to := filepath.Join(dest, filepath.Base(d.path))
-		if _, err := os.Lstat(to); err == nil {
-			findings = append(findings, Finding{strings.TrimSuffix(filepath.Base(d.path), ".md"), "", "archive target exists", to})
-			continue
-		} else if !os.IsNotExist(err) {
+		err := paths.WithFileLock(plansLock(), func() error {
+			c, f, err := archivePlan(d.path, dest, dryRun)
+			if c != nil {
+				changes = append(changes, *c)
+			}
+			if f != nil {
+				findings = append(findings, *f)
+			}
+			return err
+		})
+		if err != nil {
 			return changes, findings, err
 		}
-		c := Change{
-			Time: now(), Plan: d.path, Action: "archive", Rule: "all tasks closed",
-			Evidence: fmt.Sprintf("%d/%d ticked, %d struck", s.Ticked, len(d.plan.Tasks), s.Dropped),
-			Reopen:   fmt.Sprintf("mv %s %s", to, d.path),
-		}
-		if !dryRun {
-			if err := movePlan(c, to); err != nil {
-				return changes, findings, err
-			}
-		}
-		changes = append(changes, c)
 	}
 	return changes, findings, nil
+}
+
+// archivePlan requires the plans lock through the eligibility check, move and audit rollback.
+func archivePlan(planPath, dest string, dryRun bool) (*Change, *Finding, error) {
+	b, err := os.ReadFile(planPath)
+	if os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	p := parseBytes(planPath, b)
+	s, ok := archivable(p)
+	if !ok {
+		return nil, nil, nil
+	}
+	to := filepath.Join(dest, filepath.Base(planPath))
+	if _, err := os.Lstat(to); err == nil {
+		return nil, &Finding{strings.TrimSuffix(filepath.Base(planPath), ".md"), "", "archive target exists", to}, nil
+	} else if !os.IsNotExist(err) {
+		return nil, nil, err
+	}
+	c := Change{
+		Time: now(), Plan: planPath, Action: "archive", Rule: "all tasks closed",
+		Evidence: fmt.Sprintf("%d/%d ticked, %d struck", s.Ticked, len(p.Tasks), s.Dropped),
+		Reopen:   fmt.Sprintf("mv %s %s", to, planPath),
+	}
+	if !dryRun {
+		if err := movePlan(c, to); err != nil {
+			return nil, nil, err
+		}
+	}
+	return &c, nil, nil
 }
 
 // archivable is a plan with tasks, none open and none still claimed.
