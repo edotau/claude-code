@@ -75,10 +75,10 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
 - **Split** a role only when its expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
   is that agent's leaf type (`codex`, `copilot`…).
-- **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves and
-  `claude` (`gemini`: `haiku`), `Plan` inherits; raise one call with the Agent tool's `model`. `inherit` in a file
-  means the session model (the hook pins nothing); `model: inherit` on a call reads as unset. **Tools:** list them;
-  a read-only role gets none that write.
+- **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
+  (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier; `gemini`: `haiku`), `Plan` inherits; raise
+  one call with the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
+  `model: inherit` on a call reads as unset. **Tools:** list them; a read-only role gets none that write.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A new external agent type is added once, in `agentid.All()`

@@ -2,7 +2,6 @@
 name: claude
 description: |
   In-context implementation, design, simplification and review on Sonnet by default; one scoped terminal leaf.
-model: sonnet
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 maxTurns: 150
