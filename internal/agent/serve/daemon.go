@@ -24,7 +24,8 @@ import (
 const (
 	wireSchema      = 1
 	maxRequestBytes = 4 << 10
-	maxConns        = MaxQueue + 16
+	maxConns        = 16       // short-lived slots: reading a request and answering status
+	maxWaiters      = MaxQueue // long-lived slots: an admit waiting for its grant
 	ioTimeout       = 5 * time.Second
 	helloTimeout    = 500 * time.Millisecond
 	maxSockPath     = 104 // sun_path on macOS; Linux allows 108
@@ -75,6 +76,7 @@ type daemon struct {
 	st      State
 	kick    chan struct{}
 	conns   chan struct{}
+	waiters chan struct{}
 	peerPID func(*net.UnixConn) (int, error)
 }
 
@@ -94,10 +96,23 @@ func Serve(ctx context.Context, ceiling int) error {
 	if !paths.TryLock(lock) {
 		return errors.New("agents serve: another daemon owns the listener")
 	}
-	return serveLocked(ctx, ceiling)
+	st := State{PID: os.Getpid(), Started: time.Now().UTC(), Exe: proxy.ExeHash(), Cap: ceiling}
+	if err := writeLockOwner(lock, st); err != nil {
+		return err
+	}
+	return serveLocked(ctx, st)
 }
 
-func serveLocked(ctx context.Context, ceiling int) error {
+// writeLockOwner records "<pid> <started-unix-nano>" in the held lock, so its owner is known without serve.json.
+func writeLockOwner(lock *os.File, st State) error {
+	if err := lock.Truncate(0); err != nil {
+		return err
+	}
+	_, err := lock.WriteAt(fmt.Appendf(nil, "%d %d\n", st.PID, st.Started.UnixNano()), 0)
+	return err
+}
+
+func serveLocked(ctx context.Context, st State) error {
 	ln, err := listen()
 	if err != nil {
 		return err
@@ -108,16 +123,15 @@ func serveLocked(ctx context.Context, ceiling int) error {
 		return err
 	}
 	defer removeSocket(fi)
-	st := State{PID: os.Getpid(), Started: time.Now().UTC(), Exe: proxy.ExeHash(), Cap: ceiling}
 	cleanup, err := writeState(st)
 	if err != nil {
 		_ = ln.Close()
 		return err
 	}
 	defer cleanup()
-	d := &daemon{q: NewQueue(RecordSources(), ceiling), st: st, kick: make(chan struct{}, 1),
-		conns: make(chan struct{}, maxConns), peerPID: peerPID}
-	fmt.Fprintf(os.Stderr, "agents serve: pid %d on %s (cap %d)\n", st.PID, SockPath(), ceiling)
+	d := &daemon{q: NewQueue(RecordSources(), st.Cap), st: st, kick: make(chan struct{}, 1),
+		conns: make(chan struct{}, maxConns), waiters: make(chan struct{}, maxWaiters), peerPID: peerPID}
+	fmt.Fprintf(os.Stderr, "agents serve: pid %d on %s (cap %d)\n", st.PID, SockPath(), st.Cap)
 	var wg sync.WaitGroup
 	wg.Go(func() { d.schedule(ctx) })
 	context.AfterFunc(ctx, func() { _ = ln.Close() })
@@ -126,7 +140,7 @@ func serveLocked(ctx context.Context, ceiling int) error {
 	return nil
 }
 
-// accept holds a slot for each connection's entire lifetime, before starting its handler.
+// accept takes a connection slot before starting each handler; an admit trades it for a waiter slot.
 func (d *daemon) accept(ctx context.Context, ln *net.UnixListener, wg *sync.WaitGroup) {
 	for {
 		c, err := ln.AcceptUnix()
@@ -144,9 +158,10 @@ func (d *daemon) accept(ctx context.Context, ln *net.UnixListener, wg *sync.Wait
 			continue
 		}
 		wg.Go(func() {
-			defer func() { <-d.conns }()
 			defer c.Close()
-			d.serveConn(ctx, c)
+			release := sync.OnceFunc(func() { <-d.conns })
+			defer release()
+			d.serveConn(ctx, c, release)
 		})
 	}
 }
@@ -166,8 +181,8 @@ func (d *daemon) schedule(ctx context.Context) {
 	}
 }
 
-// serveConn reads one request from a same-uid peer and answers it.
-func (d *daemon) serveConn(ctx context.Context, c *net.UnixConn) {
+// serveConn reads one request from a same-uid peer and answers it; release frees its connection slot.
+func (d *daemon) serveConn(ctx context.Context, c *net.UnixConn, release func()) {
 	rq, err := d.readRequest(c)
 	if err != nil {
 		return
@@ -176,6 +191,14 @@ func (d *daemon) serveConn(ctx context.Context, c *net.UnixConn) {
 	case "status":
 		send(c, reply{State: "status", Status: d.status()})
 	case "admit":
+		select {
+		case d.waiters <- struct{}{}:
+		default:
+			send(c, reply{State: StateRefused, Reason: "the daemon's waiter slots are full"})
+			return
+		}
+		defer func() { <-d.waiters }()
+		release()
 		d.admit(ctx, c, rq)
 	default:
 		send(c, reply{State: StateRefused, Reason: "unknown op"})

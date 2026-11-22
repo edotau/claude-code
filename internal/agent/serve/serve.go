@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -100,17 +99,26 @@ func writeState(st State) (func(), error) {
 	}, nil
 }
 
-// Running verifies the socket peer, or the recorded daemon and its lifetime lock when the socket is unavailable.
+// Running verifies the socket peer, or the daemon named in its held lifetime lock when the socket is unavailable.
 func Running() (State, bool) {
 	st, readErr := ReadState()
 	got, err := QueryStatus(time.Second)
 	if err != nil || got.PID <= 0 || !proc.Alive(got.PID) {
-		return st, readErr == nil && daemonProcess(st.PID) && daemonLocked()
+		return lockedDaemon(st, readErr)
 	}
 	if readErr != nil || st.PID != got.PID || !st.Started.Equal(got.Started) {
 		st = State{Schema: stateSchema, PID: got.PID, Started: got.Started, Cap: got.Cap}
 	}
 	return st, true
+}
+
+// lockedDaemon is the lock's owner, with serve.json's exe hash and cap when that file names the same daemon.
+func lockedDaemon(st State, readErr error) (State, bool) {
+	owner, ok := lockOwner()
+	if ok && readErr == nil && st.PID == owner.PID && st.Started.Equal(owner.Started) {
+		return st, true
+	}
+	return owner, ok
 }
 
 // Start runs the daemon detached unless one already runs on this binary; one on an older build is restarted.
@@ -192,21 +200,44 @@ func withServeLock(name string, fn func() error) error {
 	}
 }
 
+// daemonProcess scans argv in order, so flags before --serve or a split binary path still match.
 func daemonProcess(pid int) bool {
 	if pid <= 0 || proc.Comm(pid) != "claude-code" {
 		return false
 	}
 	argv, err := proc.Argv(pid)
-	return err == nil && len(argv) >= 4 && slices.Equal(argv[1:4], []string{"agents", "serve", "--serve"})
-}
-
-func daemonLocked() bool {
-	f, err := openServeFile("daemon.lock", os.O_CREATE|os.O_RDWR)
-	if err != nil {
+	if err != nil || len(argv) == 0 {
 		return false
 	}
+	want := []string{"agents", "serve", "--serve"}
+	for _, a := range argv[1:] {
+		if len(want) > 0 && a == want[0] {
+			want = want[1:]
+		}
+	}
+	return len(want) == 0
+}
+
+// lockOwner reads the held daemon.lock's "<pid> <started-unix-nano>" when that pid is the serve daemon.
+func lockOwner() (State, bool) {
+	f, err := openServeFile("daemon.lock", os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return State{}, false
+	}
 	defer f.Close()
-	return !paths.TryLock(f)
+	if paths.TryLock(f) {
+		return State{}, false
+	}
+	b, err := io.ReadAll(io.LimitReader(f, 64))
+	var pid int
+	var nano int64
+	if err != nil || len(b) == 0 || b[len(b)-1] != '\n' {
+		return State{}, false
+	}
+	if _, err := fmt.Sscanf(string(b), "%d %d\n", &pid, &nano); err != nil || !daemonProcess(pid) {
+		return State{}, false
+	}
+	return State{Schema: stateSchema, PID: pid, Started: time.Unix(0, nano).UTC()}, true
 }
 
 func removeStoppedState() error {
