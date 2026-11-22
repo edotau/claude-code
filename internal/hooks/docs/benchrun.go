@@ -110,15 +110,19 @@ func benchStart(in *core.Input, top, sha string, files []string) {
 	fmt.Fprintln(f, "running")
 }
 
-// primaryTrunkHead is HEAD's full sha when top is the primary checkout, on main or master, with HEAD at sha; else "".
+// primaryTrunkHead is sha's full id when top is the primary checkout on main or master and HEAD holds sha; else "".
+// HEAD may be ahead: the async hook runs after later commits land.
 func primaryTrunkHead(ctx context.Context, top, sha string) string {
-	out, err := proc.RunGit(ctx, top, "rev-parse", "HEAD", "--git-dir", "--git-common-dir")
+	out, err := proc.RunGit(ctx, top, "rev-parse", sha+"^{commit}", "--git-dir", "--git-common-dir")
 	rows := strings.Fields(out)
 	if err != nil || len(rows) != 3 || !strings.HasPrefix(rows[0], sha) || rows[1] != rows[2] {
 		return ""
 	}
 	branch, err := proc.RunGit(ctx, top, "symbolic-ref", "--short", "HEAD")
 	if b := strings.TrimSpace(branch); err != nil || b != "main" && b != "master" {
+		return ""
+	}
+	if _, err := proc.RunGit(ctx, top, "merge-base", "--is-ancestor", rows[0], "HEAD"); err != nil {
 		return ""
 	}
 	return rows[0]

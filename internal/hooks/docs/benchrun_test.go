@@ -88,3 +88,29 @@ func TestBenchOnCommitSkipRules(t *testing.T) {
 		t.Errorf("spawned = %v, want one run for pkg/x.go", spawned)
 	}
 }
+
+func TestBenchCommitFormsAndLaggingHead(t *testing.T) {
+	for _, cmd := range []string{"rtk git add a && rtk git commit -m x", "git -C /r commit -qm x", "claude-code worktree commit --task p 1 -m x f.go"} {
+		if !tickMatch.MatchString(cmd) {
+			t.Errorf("tickMatch missed %q", cmd)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("bench post-commit runs are unix only")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir, sha := benchRepo(t)
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "y").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	var spawned int
+	origSpawn, origLoad := benchSpawn, benchLoad
+	t.Cleanup(func() { benchSpawn, benchLoad = origSpawn, origLoad })
+	benchSpawn = func([]string, string) int { spawned++; return 1 }
+	benchLoad = func() float64 { return 0 }
+	in := core.ParseInput(strings.NewReader(`{"session_id":"s1","tool_name":"Bash"}`))
+	benchOnCommit(context.Background(), in, dir, sha[:7]) // HEAD is already one commit past sha
+	if spawned != 1 {
+		t.Errorf("spawned %d runs for a commit HEAD has moved past, want 1", spawned)
+	}
+}
