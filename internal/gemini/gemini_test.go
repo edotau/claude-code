@@ -225,24 +225,37 @@ func TestAgyPrintTimeoutIsDeadlineCutoff(t *testing.T) {
 		{"log missing, elapsed under limit", "", missing, partialMsg, 3 * time.Second},
 		{"log readable without line, elapsed past limit", "", logAt("I1120 ok\n"), partialMsg, 14 * time.Second},
 	} {
-		got := agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit, DebugFile: c.log}, c.stderr, c.took)
+		got := agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit, DebugFile: c.log}, c.stderr, c.took, false)
 		if got.Error() != c.want || (c.want == timeoutMsg) != (agent.CutoffOf(got) == agent.CutoffDeadline) {
 			t.Errorf("%s: err = %q cutoff %q, want %q", c.name, got, agent.CutoffOf(got), c.want)
 		}
 	}
-	e, ok := errors.AsType[*retry.Error](agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit}, stderr, 0))
+	e, ok := errors.AsType[*retry.Error](agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit}, stderr, 0, false))
 	if !ok || agent.StatusOf(e) != wire.StatusStalled {
 		t.Errorf("status = %v, want the cutoff status %q", e, wire.StatusStalled)
+	}
+}
+
+// A stream that ended with no result event under agy's print timer is the same deadline cutoff.
+func TestAgyPrintTimeoutMissingResult(t *testing.T) {
+	stderr := `AGY_ERROR: {"status":"DEADLINE_EXCEEDED","reason":"print_timeout"}`
+	missingErr := errors.Join(errAgyMissingResult, errors.New("agy diagnostics: "+stderr))
+	for _, answered := range []bool{false, true} {
+		got := agyPrintTimeoutErr(missingErr, agyRequest{PrintTimeout: 10 * time.Second}, stderr, 0, answered)
+		e, ok := errors.AsType[*retry.Error](got)
+		if !ok || agent.CutoffOf(got) != agent.CutoffDeadline || e.Progressed != answered {
+			t.Errorf("answered=%v: err = %v cutoff %q", answered, got, agent.CutoffOf(got))
+		}
 	}
 }
 
 func TestAgyPrintTimeoutLeavesOtherErrors(t *testing.T) {
 	stderr := `"reason":"print_timeout"`
 	other := errors.New("agy: not signed in")
-	if got := agyPrintTimeoutErr(other, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute); got != other {
+	if got := agyPrintTimeoutErr(other, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute, false); got != other {
 		t.Errorf("an unrelated error was rewritten: %v", got)
 	}
-	if got := agyPrintTimeoutErr(nil, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute); got != nil {
+	if got := agyPrintTimeoutErr(nil, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute, false); got != nil {
 		t.Errorf("nil became %v", got)
 	}
 }
