@@ -50,22 +50,14 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", oldHead, newHead))
 }
 
-// keepsHead: head already is label (sameLabel), or its picked form, so a resubmitted rewrite stays byte-identical.
+// keepsHead: head already is label (sameLabel), so a resubmitted rewrite stays byte-identical.
 func keepsHead(head, label string) bool {
-	if h := strings.TrimSpace(head); !labelShaped(h, label) {
-		return false
-	} else if h == agentpkg.PickedLabel(label) {
-		return true
-	}
-	return sameLabel(head, label)
+	return labelShaped(strings.TrimSpace(head), label) && sameLabel(head, label)
 }
 
 // sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
 func sameLabel(head, label string) bool {
 	head = strings.TrimSpace(head)
-	if agentpkg.IsPickedLabel(head) || agentpkg.IsPickedLabel(label) { // a picked label equals only itself
-		return head == label
-	}
 	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
 	if strings.Contains(head, "/") { // a provider-qualified head matches only the identical label
 		return head == label
@@ -102,13 +94,13 @@ var modelIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 
 const legacyAutoHead = "auto (next:"
 
-// labelShaped: head is the label, `auto`, a legacy `auto (next: <id>)`, a model id, or a model id in parentheses.
+// labelShaped: head is the label, `auto`, a legacy `auto (next: <id>)`, a model id, or a retired `(<id>)`.
 func labelShaped(head, label string) bool {
 	if head == label || head == agentpkg.AutoModel || (strings.HasPrefix(head, legacyAutoHead) && strings.HasSuffix(head, ")")) {
 		return true
 	}
-	if agentpkg.IsPickedLabel(head) {
-		head = head[1 : len(head)-1]
+	if in, ok := strings.CutPrefix(head, "("); ok {
+		head = strings.TrimSuffix(in, ")")
 	}
 	return slices.Contains(models.AliasNames, head) || agentid.Known(head) ||
 		(modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789"))
@@ -248,16 +240,10 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
-// pickedKey marks a context whose auto Run: line was frozen to its pick, so the label stays a picked one.
-type pickedKey struct{}
-
 // labelModel is the model the dispatch's ask runs (the resolver's wire id, else the own model) and the route's note.
 func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (label, note string) {
-	r, ok, auto, err := labelRoute(ctx, run, updated, st, task)
+	r, ok, _, err := labelRoute(ctx, run, updated, st, task)
 	label = r.Label()
-	if _, frozen := ctx.Value(pickedKey{}).(bool); (auto || frozen) && label != "" {
-		label = agentpkg.PickedLabel(label)
-	}
 	switch {
 	case err != nil:
 		return "", fmt.Sprintf("dispatch-effort: no description label: the %s route does not resolve offline (%v); "+

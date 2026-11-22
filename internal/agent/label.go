@@ -55,14 +55,6 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	return labelHop(reg, q, pin, chain.Dispatches[0])
 }
 
-// PickedLabel is the description label of a model the run picked itself: the id in parentheses.
-func PickedLabel(id string) string { return "(" + id + ")" }
-
-// IsPickedLabel reports a PickedLabel-shaped head.
-func IsPickedLabel(head string) bool {
-	return strings.HasPrefix(head, "(") && strings.HasSuffix(head, ")")
-}
-
 // AutoRun reports a query whose run picks its own model: a typed or pinned auto, not a concrete model.
 func AutoRun(ctx context.Context, q ModelQuery) bool {
 	auto := IsAuto(cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)))

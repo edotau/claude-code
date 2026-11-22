@@ -158,7 +158,7 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 }
 
-// A Run: line's --model auto is frozen to the ranked model in an overlay, labelled `(<id>)`.
+// A Run: line's --model auto is frozen to the ranked model in an overlay, labelled with the bare `<id>`.
 func TestLabelModelAutoRunLine(t *testing.T) {
 	useAgentsDir(t, "claude")
 	vaulttest.Use(t)
@@ -180,14 +180,13 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	d, _ := r.UpdatedInput["description"].(string)
 	p, _ := r.UpdatedInput["prompt"].(string)
 	id, _, _ := strings.Cut(d, ":")
-	id = strings.Trim(id, "()")
 	frozen := strings.Contains(p, `"model":"`+id+`"`) && !strings.Contains(p, "--model")
 	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || !frozen {
-		t.Errorf("auto dispatch = %+v (%s), want a (<id>) label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
+		t.Errorf("auto dispatch = %+v (%s), want a bare <id> label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
 	}
 }
 
-// An auto Run: line is labelled (<id>); a typed model keeps the bare id; a prefixed one gets none.
+// Every Run: line is labelled with the bare id, a retired (<id>) head included; a prefixed model gets none.
 func TestAutoRunLineLabelsNext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "m-1")
@@ -198,10 +197,10 @@ func TestAutoRunLineLabelsNext(t *testing.T) {
 		return d
 	}
 	for _, c := range []struct{ model, desc, want string }{
-		{"auto", "do x", "(m-1): do x"}, {"auto", "m-1: do x", "(m-1): do x"}, {"auto", "(m-1): do x", "(m-1): do x"},
-		{"auto", "auto: do x", "(m-1): do x"}, {"auto", "auto (next: m-1): do x", "(m-1): do x"},
-		{"auto", "(wip): fix x", "(m-1): (wip): fix x"}, {"auto", "auto (retry) job: fix x", "(m-1): auto (retry) job: fix x"},
-		{"m-1", "(m-1): do x", "(m-1): do x"},                             // the hook's own frozen output resubmitted stays identical
+		{"auto", "do x", "m-1: do x"}, {"auto", "m-1: do x", "m-1: do x"}, {"auto", "(m-1): do x", "m-1: do x"},
+		{"auto", "auto: do x", "m-1: do x"}, {"auto", "auto (next: m-1): do x", "m-1: do x"},
+		{"auto", "(wip): fix x", "m-1: (wip): fix x"}, {"auto", "auto (retry) job: fix x", "m-1: auto (retry) job: fix x"},
+		{"m-1", "(m-1): do x", "m-1: do x"}, {"m-1", "m-1: do x", "m-1: do x"}, {"m-1", "(wip): fix x", "m-1: (wip): fix x"},
 		{"dev:auto", "do x", "do x"}, {"m-2", "(m-0): do x", "m-1: do x"}, // a prefixed model gets no label
 	} {
 		if got := run(c.model, c.desc); got != c.want {
