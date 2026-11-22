@@ -353,6 +353,9 @@ func waveOverlap(w Wave) error {
 			continue
 		}
 		for _, own := range t.Owns {
+			if strings.EqualFold(strings.TrimSpace(own), "none") {
+				continue // `owns: none` marks a task that edits no file, so it shares nothing
+			}
 			for _, prev := range slices.Sorted(maps.Keys(owners)) {
 				id := owners[prev]
 				if id != t.ID && OwnsOverlap(prev, own) {

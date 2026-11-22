@@ -2,6 +2,7 @@ package plans
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -70,6 +71,13 @@ func TestWavesRefusals(t *testing.T) {
 				t.Fatalf("want typed refusal for %s, got %v", c.id, err)
 			}
 		})
+	}
+}
+
+func TestWavesOwnsNoneSharesNothing(t *testing.T) {
+	none := "- [ ] Phase 1.%d — leaf: claude, Agent: claude — owns: none\n"
+	if _, err := ParseWaves(wavesFile(t, fmt.Sprintf(none, 1)+fmt.Sprintf(none, 2))); err != nil {
+		t.Fatalf("two owns: none tasks in one wave: %v", err)
 	}
 }
 
