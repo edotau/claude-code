@@ -1,3 +1,4 @@
+internal/review/bench/bench.go:compareSnapshot	unversioned: text: a temporary copy of the validated rolling baseline for one comparison
 internal/review/bench/bench.go:writeOut	unversioned: output: a bench run result written to the --out file the caller names
 internal/review/bench/bench.go:writeRunFile	unversioned: text: a benchmark run and the rolling baseline under state/harness/bench
 internal/review/bench/history.go:appendHistory	bench-history

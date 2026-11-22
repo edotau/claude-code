@@ -408,7 +408,7 @@ func compareSnapshot(dir string, old []byte, cur string) (map[string]map[string]
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	_, werr := f.Write(old)
 	if err := errors.Join(werr, f.Close()); err != nil {
 		return nil, err
