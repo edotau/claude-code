@@ -73,10 +73,10 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 				t.Errorf("piped line %d is clipped: %q", i, line)
 			}
 			switch {
-			case strings.Contains(line, "↑"):
-				subagents = append(subagents, line)
 			case strings.Contains(line, "↳"):
 				dispatches = append(dispatches, line)
+			case strings.Contains(line, "↑"):
+				subagents = append(subagents, line)
 			case strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   "):
 				sessions = append(sessions, line)
 			}
@@ -164,15 +164,14 @@ func TestRenderWriteErrors(t *testing.T) {
 	}
 }
 
-func TestDispatchCellsFlagsFallback(t *testing.T) {
-	row := strings.Join(dispatchCells(Dispatch{Agent: "codex", Fallback: "claude"}, time.Now()), " ")
-	if !strings.Contains(row, "claude→codex") || !strings.Contains(row, "⚠ fallback") {
-		t.Errorf("dispatchCells(fallback) = %q, want the chain and the flag", row)
+func TestJobCellsFlagFallback(t *testing.T) {
+	if cells := jobCells(Dispatch{Agent: "codex", Fallback: "claude"}, time.Now(), nil); cells[0] != "claude→codex ⚠" {
+		t.Errorf("jobCells(fallback) = %q, want the chain and the flag", cells)
 	}
 }
 
-// Root, child and grandchild nest by Parent with subtree sums in 80 columns; a legacy dispatch renders as before.
-func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
+// Root, child and grandchild nest by Parent, each row its own tokens, in 80 columns; a legacy dispatch as before.
+func TestRenderNestsDispatches(t *testing.T) {
 	use := func(in, out int) *wire.Usage { return &wire.Usage{InputTokens: in, OutputTokens: out} }
 	legacy := Dispatch{ID: "legacy-codex", Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "9s", Task: "old task"}
 	chain := []Dispatch{
@@ -188,13 +187,13 @@ func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
 	}
 	// legacy first, then the chain given grandchild-first: the children must still follow their parents
 	lines := render(0, legacy, chain[2], chain[1], chain[0])
-	for i, want := range []string{"legacy-codex", "root-claude", "└─ child-codex", "└─ grand-opencode"} {
-		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) {
+	for i, want := range []string{"codex  gpt-6", "claude  sonnet", "└─ codex  gpt-6", "   └─ opencode  default"} {
+		if i+1 >= len(lines) || !strings.Contains(strings.Join(strings.Fields(lines[i+1]), "  "), strings.Join(strings.Fields(want), "  ")) {
 			t.Fatalf("row %d want %q in %q", i, want, strings.Join(lines, "\n"))
 		}
 	}
-	for i, want := range []string{"1.5k Σ75.5k", "28k Σ74k", "46k"} {
-		if got := lines[i+2]; !strings.Contains(got, want) || (i == 2 && strings.Contains(got, "Σ")) {
+	for i, want := range []string{"↑1k ↓500", "↑20k ↓8k", "↑40k ↓6k"} {
+		if got := strings.Join(strings.Fields(lines[i+2]), " "); !strings.Contains(got, want) || strings.Contains(got, "Σ") {
 			t.Errorf("row %q: want tokens %q", got, want)
 		}
 	}
@@ -471,12 +470,12 @@ func TestRenderSessionTotalSurvivesActiveFilter(t *testing.T) {
 	}}
 	for _, workflow := range []bool{false, true} {
 		s := Session{ID: "session", Status: statusActive, Subagents: []Subagent{sub}}
-		wantTotals := 3
+		wantTotals := 2 // session and subagent; a dispatch row carries its own tokens, not a subtree Σ
 		if workflow {
 			s.Subagents = nil
 			s.Workflows = []WorkflowRun{{Status: statusRunning,
 				Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}}}
-			wantTotals = 5
+			wantTotals = 4
 		}
 		s = cacheSessionTotals(s)
 		for i, view := range []Session{activeSession(s), s} {

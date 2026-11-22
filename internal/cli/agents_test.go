@@ -215,7 +215,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 	cfgDir(t)
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	writeDispatch(t, "20261024T000003.000-codex", "ok", os.Getpid(), time.Minute)
-	stdout := okAgents(t, "tree", "--days", "1")
+	stdout := okAgents(t, "tree", "--days", "1", "--detail") // the default row carries no id
 	if !strings.Contains(stdout, "000002") {
 		t.Errorf("running dispatch from another repo missing:\n%s", stdout)
 	}

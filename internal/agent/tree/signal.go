@@ -3,7 +3,7 @@
 package tree
 
 import (
-	"fmt"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -22,21 +22,18 @@ func applySignal(d Dispatch, rec agent.Record, now time.Time) Dispatch {
 		return d
 	}
 	d.LastSignal, d.SignalSource = agent.LastSignal(rec)
+	if d.Live = rec.QueueLine(now); d.Live != "" { // waiting for serve admission is not silence
+		d.queued, d.queuedAt = queueMark(rec.Progress)
+		return d
+	}
 	d.Quiet = now.Sub(d.LastSignal) > quietAfter
 	d.Live = agent.ProgressOf(rec, now).Fragment(80)
 	return d
 }
 
-// signalText is the row's liveness column: "⚠ quiet 7m" past the threshold, else the progress fragment (event age, tools, doing), "" when not running.
-func signalText(d Dispatch, now time.Time) string {
-	if d.LastSignal.IsZero() {
-		return ""
-	}
-	if d.Quiet {
-		return "⚠ quiet " + age(d.LastSignal, now)
-	}
-	if d.Live != "" {
-		return d.Live
-	}
-	return fmt.Sprintf("last=%s", max(now.Sub(d.LastSignal), 0).Round(time.Second))
+// queueMark reads the "queued <RFC3339Nano> <pool>" mark that QueueLine has already validated.
+func queueMark(progress string) (pool string, since time.Time) {
+	stamp, pool, _ := strings.Cut(strings.TrimPrefix(progress, "queued "), " ")
+	since, _ = time.Parse(time.RFC3339Nano, stamp)
+	return pool, since
 }

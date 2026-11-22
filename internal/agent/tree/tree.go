@@ -86,7 +86,7 @@ type Dispatch struct {
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
 	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is no overlay confinement
-	Task           string `json:"task,omitempty"`    // first line of the prompt
+	Task           string `json:"task,omitempty"`    // first line of the brief's task, past any Owned/Mode/Verify header
 
 	Files []string `json:"files,omitempty"` // --files: files the run wrote that are still dirty, repo-relative
 	Note  string   `json:"note,omitempty"`  // --files: the run's latest undelivered note to its dispatcher
@@ -104,6 +104,12 @@ type Dispatch struct {
 	cwd       string    // dispatch workdir (repo fallback); matches a duplicate session row
 	started   time.Time // dispatch start; a matching session must be updated at or after it
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
+
+	carry    bool      // the outer record of a carried dispatch: its row folds in the child doing the work
+	takeover bool      // a Pi takeover that finished a cut-off carried child
+	launch   string    // the profile, else provider, the request was launched on; "" when it named none
+	queued   string    // the serve pool the job waits on for admission; "" once admitted
+	queuedAt time.Time // when that admission wait began
 }
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
@@ -151,6 +157,9 @@ type Tree struct {
 	Sessions   []Session  `json:"sessions"`
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 	Free       []string   `json:"free,omitempty"`       // --files: dirty files in this repo that no live leaf holds
+
+	detail   bool   // --detail: each dispatch row is followed by its id and task
+	selected string // the interactive --watch selection: the dispatch row with this id prints reversed
 }
 
 // Options scopes a build by Days (ignored with Session) or one Session id; Now defaults to time.Now.

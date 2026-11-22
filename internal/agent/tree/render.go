@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -51,7 +50,7 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 	var l layout
 	l.active = true
 	addRepos(&l, tree.Sessions, true, now, home)
-	addJobs(&l, tree.Dispatches, now)
+	addJobs(&l, tree.Dispatches, now, tree.detail, tree.selected)
 	l.active = false
 	addRepos(&l, tree.Sessions, false, now, home)
 	addFree(&l, tree.Free)
@@ -88,32 +87,6 @@ func (s Session) isActive() bool {
 func (sub Subagent) running() bool {
 	live := func(d Dispatch) bool { return d.Status == statusRunning }
 	return sub.Status == statusRunning || slices.ContainsFunc(sub.Dispatches, live)
-}
-
-// addJobs adds the machine-wide running dispatch jobs under a "dispatches" header.
-func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
-	if len(dispatches) == 0 {
-		return
-	}
-	l.sep()
-	l.free(0, "dispatches")
-	for _, n := range nestDispatches(dispatches) { // the id already ends in the agent name; where it runs and on what model come next
-		d := n.Dispatch
-		pinned := providers.AgentRecord(d.Agent).EffectiveRoute()
-		profile := pinned.Profile
-		if pinned.Provider == providers.GroupDatabricks && profile == "auto" {
-			profile = pinned.Provider
-		}
-		where := cmp.Or(d.Route, d.Provider, profile, "own login")
-		id := d.ID
-		if n.level > 0 {
-			id = n.guide + id
-		}
-		l.add(levelJob, id, where, cmp.Or(d.Model, "default"), durationText(d.Duration),
-			signalText(d, now), joinText(n.tokenText(), "  ", textutil.OneLine(cmp.Or(d.Task, d.Repo))))
-		l.mark(d.Status == statusRunning, 1<<0)
-		addHeld(l, 4, d.Files, d.Note)
-	}
 }
 
 // repoGroup is one cwd's sessions, newest first.
@@ -236,26 +209,13 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 		textutil.OneLine(stripPaths(subTask(sub), home, cwd)))
 	l.mark(sub.Status == statusRunning, 1<<0)
 	addHeld(l, 8, sub.Files, "")
-	for _, n := range nestDispatches(sub.Dispatches) {
-		cells := dispatchCells(n.Dispatch, now)
-		cells[len(cells)-1] = joinText(cells[len(cells)-1], " · ", n.tokenText())
-		l.add(levelDispatch, append([]string{nest + n.guide + "↳"}, cells...)...)
-		l.mark(n.Status == statusRunning, 1<<2)
+	for _, n := range jobRows(sub.Dispatches) {
+		cells := append(append([]string{nest + n.guide + "↳"}, jobCells(n.Dispatch, now, nil)...), "")
+		l.add(levelDispatch, cells...)
+		l.mark(n.Status == statusRunning, 1<<0)
+		l.spanLast(n.queued != "", false)
 		addHeld(l, 10, n.Files, n.Note)
 	}
-}
-
-// dispatchCells is a dispatch row after its marker: agent, state, duration, signal (progress line, "⚠ quiet 7m"), model.
-func dispatchCells(d Dispatch, now time.Time) []string {
-	name := d.Agent
-	if d.Fallback != "" {
-		name = d.Fallback + "→" + d.Agent
-	}
-	signal := signalText(d, now)
-	if d.Fallback != "" {
-		signal = strings.TrimSpace(signal + " ⚠ fallback")
-	}
-	return []string{name, d.Status, durationText(d.Duration), signal, d.Model}
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
@@ -323,6 +283,9 @@ func Show(claudeDir string, opts Options, v View) int {
 	var f *frame
 	if v.Watch {
 		opts.scans = loadScanCache()
+		if code, ok := watchKeys(claudeDir, opts, v); ok {
+			return code
+		}
 		if rowWidth(os.Stdout) > 0 {
 			f = &frame{paint: activePaint(os.Stdout)}
 		}
@@ -351,6 +314,7 @@ func show(claudeDir string, opts Options, v View, f *frame) int {
 	if v.JSON {
 		return 0
 	}
+	listing.detail = v.All
 	if f != nil {
 		f.width = rowWidth(os.Stdout)
 		err = f.draw(os.Stdout, listing, time.Now())
@@ -373,8 +337,13 @@ type frame struct {
 // draw writes one frame in a single write: cursor home, each row cleared to its end, then the rest of the screen.
 func (f *frame) draw(w io.Writer, tree *Tree, now time.Time) error {
 	f.text.Reset()
-	f.out.Reset()
 	renderTree(&f.text, tree, now, f.width, f.paint)
+	return f.flush(w)
+}
+
+// flush writes f.text as one frame: cursor home, each row cleared to its end, then the rest of the screen.
+func (f *frame) flush(w io.Writer) error {
+	f.out.Reset()
 	f.out.WriteString("\x1b[H")
 	for rest := f.text.Bytes(); len(rest) > 0; {
 		i := bytes.IndexByte(rest, '\n')
@@ -410,18 +379,6 @@ func (d Dispatch) tokens() int64 {
 		return 0
 	}
 	return int64(d.Usage.InputTokens + d.Usage.CacheCreationTokens + d.Usage.CacheReadTokens + d.Usage.OutputTokens)
-}
-
-// tokenText is "24k" for the dispatch's own tokens, plus "Σ70k" when it has children; "" with nothing to show.
-func (n nested) tokenText() string {
-	own := ""
-	if t := n.tokens(); t > 0 {
-		own = textutil.CompactCount(t)
-	}
-	if !n.children || n.sum == 0 {
-		return own
-	}
-	return joinText(own, " ", "Σ"+textutil.CompactCount(n.sum))
 }
 
 // joinText is a and b around sep, or just the one that is not empty.

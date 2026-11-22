@@ -340,12 +340,13 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
 	}
-	task, _, _ := strings.Cut(strings.TrimSpace(rec.Request.Prompt), "\n")
+	task, _, _ := strings.Cut(briefTask(rec.Request.Prompt), "\n")
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage,
+		carry: rec.Request.Carry, takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
 	}, rec, now)
 }
 

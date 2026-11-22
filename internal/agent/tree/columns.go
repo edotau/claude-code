@@ -15,10 +15,16 @@ const (
 	levelSession         // label state age branch | title
 	levelRun             // "workflow <name>" state age | id
 	levelSubagent        // marker type model ↑in ↓out total age idle | description
-	levelDispatch        // marker agent state duration signal | model
-	levelJob             // id where model duration signal | task
+	levelDispatch        // marker agent model·route ↑in ↓out since elapsed, no text
+	levelJob             // the same cells as levelDispatch, for the machine-wide list
 	levelCount
 )
+
+// jobCols are a dispatch row's columns: marker, agent, model · route, ↑in, ↓out, since last event, elapsed.
+var jobCols = []col{{}, {max: 18}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true}}
+
+// spanFrom is the first of the two token columns a queued row's span covers.
+const spanFrom = 3
 
 // col shapes one fixed column; the last cell of every row is free text, clipped to the width and never padded.
 type col struct {
@@ -33,9 +39,12 @@ var levelCols = [levelCount][]col{
 	levelSession:  {{max: 20}, {}, {right: true}, {max: 12}, {right: true}},
 	levelRun:      {{}, {}, {right: true}},
 	levelSubagent: {{}, {max: 10}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true, optional: true}, {right: true, optional: true}},
-	levelDispatch: {{}, {max: 14}, {}, {right: true}, {}},
-	levelJob:      {{}, {max: 15}, {fit: true}, {right: true}, {}},
+	levelDispatch: jobCols,
+	levelJob:      jobCols,
 }
+
+// noText marks the levels whose rows end in their last fixed column, with an empty text cell.
+var noText = [levelCount]bool{levelDispatch: true, levelJob: true}
 
 // levelIndent is the left indent of each level's rows.
 var levelIndent = [levelCount]int{levelSession: 2, levelRun: 4, levelSubagent: 4, levelDispatch: 6, levelJob: 2}
@@ -56,6 +65,8 @@ type row struct {
 	level, indent int
 	cells         []string
 	hot           uint8 // bit c set: fixed cell c is painted when the layout is rendered with a paint
+	span          bool  // cell spanFrom fills its column and the next one, left-aligned
+	sel           bool  // the interactive selection: the whole row prints in reverse video
 }
 
 // layout collects rows in print order so column widths can be measured across a whole level before any line is built.
@@ -82,6 +93,11 @@ func (l *layout) sep() {
 	}
 }
 
+// spanLast makes the last row's token cells one span, and selects it when sel is true.
+func (l *layout) spanLast(span, sel bool) {
+	l.rows[len(l.rows)-1].span, l.rows[len(l.rows)-1].sel = span, sel
+}
+
 func (l *layout) free(indent int, text string) {
 	l.rows = append(l.rows, row{level: levelFree, indent: indent, cells: []string{text}})
 }
@@ -101,6 +117,11 @@ func (l *layout) lines(width int, paint string) []string {
 			copy(leafWidths[:], ws)
 			leafWidths[5] = 0
 			ws = leafWidths[:len(ws)]
+		}
+		if r.sel {
+			r.hot = 0 // a cell's paint reset would end the reverse video early
+			out[i] = "\x1b[7m" + r.line(ws, width, paint) + "\x1b[27m"
+			continue
 		}
 		out[i] = r.line(ws, width, paint)
 	}
@@ -128,8 +149,21 @@ func levelWidths(rows []row) [levelCount][]int {
 	}
 	for _, r := range rows {
 		for c := range levelCols[r.level] {
-			ws[r.level][c] = max(ws[r.level][c], textutil.DisplayWidth(r.cells[c]))
+			if !r.span || c != spanFrom && c != spanFrom+1 {
+				ws[r.level][c] = max(ws[r.level][c], textutil.DisplayWidth(r.cells[c]))
+			}
 		}
+	}
+	for _, r := range rows { // a span wider than its two columns widens the first, so ↑ and ↓ stay side by side
+		if !r.span {
+			continue
+		}
+		w := ws[r.level]
+		room := w[spanFrom]
+		if w[spanFrom+1] > 0 {
+			room += len(gap) + w[spanFrom+1]
+		}
+		w[spanFrom] += max(textutil.DisplayWidth(r.cells[spanFrom])-room, 0)
 	}
 	return ws
 }
@@ -154,8 +188,12 @@ func fitModels(rows []row, ws [levelCount][]int, width int) {
 		return
 	}
 	for level, cols := range levelCols {
+		room := minFitText
+		if noText[level] { // the row ends at its last column, whose trailing gap is trimmed
+			room = -len(gap)
+		}
 		for c, k := range cols {
-			over := minFitText - (width - prefixWidth(ws[level], levelIndent[level]))
+			over := room - (width - prefixWidth(ws[level], levelIndent[level]))
 			if !k.fit || ws[level][c] == 0 || over <= 0 {
 				continue
 			}
@@ -191,11 +229,12 @@ func (r row) line(ws []int, width int, paint string) string {
 	b.WriteString(strings.Repeat(" ", r.indent))
 	pos := r.indent
 	for c := range levelCols[r.level] {
-		if ws[c] == 0 {
+		size := r.cellSize(ws, c)
+		if size == 0 {
 			continue
 		}
-		r.writeCell(&b, c, ws[c], width <= 0 || pos+ws[c] <= width, paint)
-		pos += ws[c] + len(gap)
+		r.writeCell(&b, c, size, width <= 0 || pos+size <= width, paint)
+		pos += size + len(gap)
 		b.WriteString(gap)
 	}
 	text := r.cells[len(r.cells)-1]
@@ -214,12 +253,25 @@ func (r row) line(ws []int, width int, paint string) string {
 	return line
 }
 
+// cellSize is fixed cell c's printed width: a span covers the next column too, which then prints nothing.
+func (r row) cellSize(ws []int, c int) int {
+	switch {
+	case !r.span || c < spanFrom || c > spanFrom+1:
+		return ws[c]
+	case c == spanFrom+1:
+		return 0
+	case ws[c+1] > 0:
+		return ws[c] + len(gap) + ws[c+1]
+	}
+	return ws[c]
+}
+
 func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint string) {
 	hot := paint != "" && r.hot>>c&1 != 0 && visible
 	if hot {
 		b.WriteString(paint)
 	}
-	b.WriteString(textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right))
+	b.WriteString(textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right && (!r.span || c != spanFrom)))
 	if hot {
 		b.WriteString(ansi.Reset)
 	}
