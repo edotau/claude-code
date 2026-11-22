@@ -357,7 +357,8 @@ func noteDeadLogin(name string) {
 var (
 	armFindings = localArmFindings
 	armCooling  = func(p *providers.Provider, now time.Time) bool {
-		return router.LoadState().CoolingUntil(router.AccountOf(p)).After(now)
+		st, account := router.LoadState(), router.AccountOf(p)
+		return st[account].Status(now) == router.StateExhausted || st.CoolingUntil(account).After(now)
 	}
 	armLive func([]*providers.Provider) map[string]int
 )

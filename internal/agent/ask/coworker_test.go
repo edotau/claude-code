@@ -596,19 +596,33 @@ func poolFixture(t *testing.T, live map[string]int) *providers.Registry {
 
 // Three picks in a row spread over three workspaces, least busy first; a workspace without the model is never picked.
 func TestPickWithSpreadsAndFiltersByModel(t *testing.T) {
+	cooling := armCooling
 	live := map[string]int{"dev": 3, "prod": 0, "qa": 1}
 	reg := poolFixture(t, live)
+	armCooling = cooling
 	var got []string
-	for range 3 {
+	for _, c := range []struct {
+		want      string
+		exhausted bool
+	}{
+		{"prod", false}, {"qa", false}, {"dev", false},
+		{"qa", true},
+	} {
+		if c.exhausted {
+			now := time.Now()
+			if err := router.MarkExhausted("databricks·prod", now.Add(time.Minute), now, "dispatch stalled (no output in 5m0s)"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		name, _, _, err := pickWith(reg, armQuery{}, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
 		got = append(got, name)
+		if name != c.want {
+			t.Fatalf("picks = %v, want next pick %q (prod exhausted: %v)", got, c.want, c.exhausted)
+		}
 		live[name] += 3 // the launched run's marker: each next pick sees it
-	}
-	if want := []string{"prod", "qa", "dev"}; !slices.Equal(got, want) {
-		t.Fatalf("three sequential picks = %v, want %v", got, want)
 	}
 	armFindings = servesOnly("dev", "prod")
 	for range 4 {
