@@ -126,6 +126,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 		return nil
 	}
 	top := toplevel(dir)
+	benchOnCommit(ctx, in, dir, sha)
 	results, tied, err := plans.DeferTick(top, sha, nil, in.SessionID)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)

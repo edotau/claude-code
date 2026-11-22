@@ -425,7 +425,7 @@ var native = map[string]core.Runner{
 	"codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure":     Release,
 	"dispatch-workflow":    AfterTool,
-	"docs-plan-tick":       docs.Tick,
+	"docs-plan-tick":       docs.TickOrBench,
 	"docs-plan-reminder":   reminderWatched,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),
 	"docs-plan-save":       viaStderr(docs.Save),

@@ -1,2 +1,3 @@
+internal/hooks/docs/benchrun.go:benchStart	unversioned: marker: post-commit bench run record and payload, pruned after 7 days
 internal/hooks/docs/plan.go:claimPlanFile	unversioned: marker: reserved dated plan file, replaced by the plan
 internal/hooks/docs/plan.go:dropRecord	unversioned: marker: plan mirror record emptied when it cannot be removed
