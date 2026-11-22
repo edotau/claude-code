@@ -9,7 +9,8 @@ the prefix is written by the caller, never left to the hook (CLAUDE.md guideline
   misses are `rtk grep -n`, `rtk git diff`, `rtk go test`. One file is the Read tool, never `cat`/`head` (in a
   pipeline `rtk read f`, `--head-lines|--tail-lines N`). A pipeline prefixes its first command
   (`rtk git log --oneline | head`).
-- **As typed:** `claude-code`, `git grep`, `gofmt -l` and anything `rtk rewrite` leaves empty.
+- **As typed:** `claude-code`, `git grep`, `gofmt -l`, `go vet` and `go test -v|-list` (rtk 1.1.0 reports a failed
+  vet as "No issues found" and drops verbose test output), and anything `rtk rewrite` leaves empty.
 - **Exact output** (a file list a later step consumes, a count or bytes you compare): `git grep`, or
   `rtk bypass <cmd>`; `rtk grep` groups and truncates matches.
 - **Code search:** tracked files first: `git grep -n` (25 ms here) or `rtk rg -n` (27 ms), symbols with
