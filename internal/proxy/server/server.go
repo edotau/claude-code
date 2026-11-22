@@ -503,16 +503,14 @@ func (r *Router) try(w *statusWriter, in *http.Request, body proxyBody, t provid
 	count, last bool) (bool, error) {
 	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
 	route, ok := providers.AnthropicRoute(t.Provider, t.Model)
+	if job, yes := r.anthropicSearchJob(t, body.raw, route, clientModel, last); yes && !count {
+		return r.tryAnthropicSearch(w, in, body.raw, job)
+	}
 	if ok && (!count || t.Provider.Preset != providers.PresetDatabricks) && !searchOverChat(t.Provider, body.raw) {
 		return r.tryAnthropic(w, in, body, t, route, clientModel, count, last)
 	}
 	if count {
-		out, err := translate.CountTokens(body.raw)
-		if err != nil {
-			return false, err
-		}
-		writeJSON(w, http.StatusOK, out)
-		return true, nil
+		return answerCount(w, body.raw)
 	}
 	wire, servable, why := providers.WireFor(t.Provider, t.Model)
 	if !servable {
@@ -524,6 +522,15 @@ func (r *Router) try(w *statusWriter, in *http.Request, body proxyBody, t provid
 		return true, nil
 	}
 	return r.tryOpenAI(w, in, body.raw, t, clientModel, last)
+}
+
+func answerCount(w http.ResponseWriter, body []byte) (bool, error) {
+	out, err := translate.CountTokens(body)
+	if err != nil {
+		return false, err
+	}
+	writeJSON(w, http.StatusOK, out)
+	return true, nil
 }
 
 func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body proxyBody, t providers.Target, route,
