@@ -19,8 +19,7 @@ import (
 const (
 	recallIndexFile           = "recall.idx"
 	recallIndexMagic          = "CCRI"
-	recallIndexVersion uint32 = 2 // bump on any encode or ref change the encoderKey samples cannot see
-	racyWindow                = 2 * time.Second
+	recallIndexVersion uint32 = 2  // bump on any encode or ref change the encoderKey samples cannot see
 	indexHeaderLen            = 20 // magic, version, encoder key, entry count
 	indexTrailerLen           = 4  // CRC-32C of every byte before it
 )
@@ -207,7 +206,7 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	encodeMissing(files, missing, segs)
 	for j, i := range missing {
 		info := infos[j]
-		if segs[i] != nil && persist && time.Since(info.ModTime()) >= racyWindow {
+		if segs[i] != nil && persist && time.Since(info.ModTime()) >= paths.RacyWindow {
 			added[fileKey{files[i].Path, files[i].Mode}] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}

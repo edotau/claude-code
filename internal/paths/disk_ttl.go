@@ -60,7 +60,7 @@ func (d *DiskTTL[T]) read() (v T, fresh, existed bool) {
 	if err != nil {
 		return v, false, false
 	}
-	if Stale(fi.ModTime(), d.ttlFor(fi.ModTime()), racyWindow, stampNow()) {
+	if Stale(fi.ModTime(), d.ttlFor(fi.ModTime()), RacyWindow, stampNow()) {
 		return v, false, true
 	}
 	data, err := os.ReadFile(d.Path)

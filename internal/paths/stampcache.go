@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// racyWindow excludes recent modification or change times that may hide a same-tick rewrite.
-const racyWindow = 2 * time.Second
+// RacyWindow excludes recent modification or change times that may hide a same-tick rewrite.
+const RacyWindow = 2 * time.Second
 
 var stampNow = time.Now
 
@@ -100,5 +100,5 @@ func statStamp(path string) (stamp, error) {
 }
 
 func settled(st stamp, now time.Time) bool {
-	return !st.present || max(st.mtime, st.ctime) <= now.Add(-racyWindow).UnixNano()
+	return !st.present || max(st.mtime, st.ctime) <= now.Add(-RacyWindow).UnixNano()
 }
