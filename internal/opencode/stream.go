@@ -70,6 +70,9 @@ func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), 
 		onMeaningful: onMeaningful, onTool: onTool, onEvent: onEvent}
 	tr, err := wire.DecodeEvents(br, lg, "decode opencode json", true, nil, t.handle)
 	res.Transport, res.Answer = tr, t.ans.String()
+	if res.Answer == "" && t.toolRan {
+		res.Answer = agent.NoTextAnswer
+	}
 	if err != nil {
 		return res, err
 	}
@@ -88,6 +91,7 @@ type ocTurn struct {
 	errs         []string
 	seenTools    map[string]bool
 	fired        bool
+	toolRan      bool
 	onMeaningful func()
 	onTool       func(openCodeEvent)
 	onEvent      func(openCodeEvent)
@@ -145,9 +149,8 @@ func (t *ocTurn) tool(ev openCodeEvent) error {
 	if ev.Part.State.Status != "completed" {
 		return nil
 	}
-	if path, _ := ev.Part.State.Input["filePath"].(string); path != "" && openCodeWriteTools[ev.Part.Tool] {
-		t.res.Written = append(t.res.Written, path)
-	}
+	t.toolRan = true
+	t.res.Written = append(t.res.Written, writtenPaths(ev)...)
 	if t.onTool != nil {
 		t.onTool(ev)
 	}
@@ -155,6 +158,25 @@ func (t *ocTurn) tool(ev openCodeEvent) error {
 }
 
 var openCodeWriteTools = map[string]bool{"write": true, "edit": true, "multiedit": true}
+
+// patchFileRE matches the files an apply_patch envelope adds, updates or moves to.
+var patchFileRE = regexp.MustCompile(`(?m)^\*\*\* (?:Add File|Update File|Move to): (.+?)\s*$`)
+
+// writtenPaths lists the files a completed write, edit or apply_patch call changed.
+func writtenPaths(ev openCodeEvent) []string {
+	in := ev.Part.State.Input
+	if path, _ := in["filePath"].(string); path != "" && openCodeWriteTools[ev.Part.Tool] {
+		return []string{path}
+	}
+	if patch, _ := in["patchText"].(string); ev.Part.Tool == "apply_patch" {
+		var out []string
+		for _, m := range patchFileRE.FindAllStringSubmatch(patch, -1) {
+			out = append(out, m[1])
+		}
+		return out
+	}
+	return nil
+}
 
 func (t *ocTurn) stepFinish(ev openCodeEvent) {
 	tk := ev.Part.Tokens

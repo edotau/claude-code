@@ -41,3 +41,12 @@ func TestParseOpenCodeEventsWritten(t *testing.T) {
 		t.Fatalf("Written = %v, err = %v; want only /x/b.txt", res.Written, err)
 	}
 }
+
+// The live 2026-11-22 GPT shape: apply_patch with patchText, and no closing text.
+func TestParseOpenCodeEventsApplyPatch(t *testing.T) {
+	stream := `{"type":"tool_use","part":{"tool":"apply_patch","callID":"c1","state":{"status":"completed","input":{"patchText":"*** Begin Patch\n*** Add File: notes4-dbg.txt\n+alpha\n*** End Patch"}}}}`
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil, nil, nil)
+	if err != nil || !slices.Equal(res.Written, []string{"notes4-dbg.txt"}) || res.Answer != agent.NoTextAnswer {
+		t.Fatalf("Written = %v, answer = %q, err = %v", res.Written, res.Answer, err)
+	}
+}
