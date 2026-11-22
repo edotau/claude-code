@@ -59,6 +59,9 @@ func printProxyState(ps proxy.Status) error {
 	} else {
 		fmt.Fprintln(&buf, "fallback ", strings.Join(ps.Fallback, " → "))
 	}
+	if ps.Cache != "" {
+		fmt.Fprintln(&buf, "cache    ", ps.Cache, " (hits/misses/refreshes/evictions)")
+	}
 	return stdoutf("", "%s", buf.String())
 }
 

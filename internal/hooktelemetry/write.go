@@ -47,6 +47,7 @@ type telemetryLine struct {
 	Rule    string  `json:"rule,omitempty"`
 	Verdict string  `json:"verdict,omitempty"`
 	N       int     `json:"n,omitempty"` // set on a folded counter row: passes in the minute, Ms is their max
+	Cache   string  `json:"cache,omitempty"` // paths.CacheSummary at record time
 }
 
 const telemetrySidLen = 8
@@ -125,6 +126,7 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 	defer func() { _ = day.f.Close() }()
 	var fold foldState
 	folded := false
+	cache := paths.CacheSummary()
 	for _, r := range rows {
 		if time.Now().After(deadline) {
 			break
@@ -137,7 +139,7 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 			continue
 		}
 		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome,
-			r.Sid[:min(len(r.Sid), telemetrySidLen)], r.Tool, r.Rule, r.Verdict, 0})
+			r.Sid[:min(len(r.Sid), telemetrySidLen)], r.Tool, r.Rule, r.Verdict, 0, cache})
 		if err != nil {
 			return
 		}

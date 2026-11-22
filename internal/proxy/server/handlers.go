@@ -443,6 +443,9 @@ func (r *Router) health(w http.ResponseWriter) {
 	w.Header().Set(proxy.HeaderDispatchTag, "1")
 	w.Header().Set(proxy.HeaderSessions, strconv.Itoa(r.sessions.count()))
 	w.Header().Set(proxy.HeaderInflight, strconv.FormatInt(r.inflight.Load(), 10))
+	if c := proxy.CacheSummary(); c != "" {
+		w.Header().Set(proxy.HeaderCache, c)
+	}
 	_, _ = io.WriteString(w, "ok\n")
 }
 

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
@@ -882,4 +883,23 @@ func TestStateWriteDrainBound(t *testing.T) {
 		close(release)
 		r.bg.Wait()
 	})
+}
+
+// /healthz carries the daemon's cache counters for `gateway proxy --status`.
+func TestHealthzReportsCacheCounters(t *testing.T) {
+	m := paths.NewMemo[string, int]("healthz-cache-test")
+	keep := func(int, error) time.Duration { return time.Minute }
+	for range 2 {
+		_, _ = m.Do("k", keep, func() (int, error) { return 1, nil })
+	}
+	up := newUpstream(t, ok)
+	srv := setup(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	h, err := http.DefaultClient.Do(testRequest(t, http.MethodGet, srv.URL+"/healthz", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = h.Body.Close()
+	if got := h.Header.Get(proxy.HeaderCache); !strings.Contains(got, "healthz-cache-test=1/1/") {
+		t.Fatalf("cache header = %q", got)
+	}
 }

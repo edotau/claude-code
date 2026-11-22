@@ -310,6 +310,7 @@ const (
 	HeaderSessions = "X-Claude-Code-Proxy-Sessions"
 	HeaderInflight = "X-Claude-Code-Proxy-Inflight"
 	HeaderConfig   = "X-Claude-Code-Proxy-Config"
+	HeaderCache    = "X-Claude-Code-Proxy-Cache"
 
 	HeaderDispatchTag = "X-Claude-Code-Proxy-Dispatch-Tag" // "1" when the daemon strips a /d/<id> prefix
 )
@@ -325,6 +326,7 @@ type HolderState struct {
 	Sessions int
 	Inflight int64
 	Config   string
+	Cache    string
 
 	DispatchTag bool
 }
@@ -339,6 +341,7 @@ func Holder(ctx context.Context, port int) (HolderState, bool) {
 	st.PID, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
 	st.Build = resp.Header.Get(HeaderBuild)
 	st.Config = resp.Header.Get(HeaderConfig)
+	st.Cache = resp.Header.Get(HeaderCache)
 	st.DispatchTag = resp.Header.Get(HeaderDispatchTag) == "1"
 	st.Sessions, _ = strconv.Atoi(resp.Header.Get(HeaderSessions))
 	st.Inflight, _ = strconv.ParseInt(resp.Header.Get(HeaderInflight), 10, 64)
@@ -466,6 +469,7 @@ type Status struct {
 	URL      string   `json:"url,omitempty"`
 	Started  string   `json:"started,omitempty"`
 	Fallback []string `json:"fallback"`
+	Cache    string   `json:"cache,omitempty"`
 	Log      string   `json:"-"`
 }
 
@@ -475,6 +479,9 @@ func LoadStatus(ctx context.Context) (Status, error) {
 	if st, ok := Running(ctx); ok {
 		ps.Running, ps.PID, ps.URL = true, st.PID, Base(st.Port)
 		ps.Started = st.Started.Local().Format(time.RFC3339)
+		if h, ok := Holder(ctx, st.Port); ok {
+			ps.Cache = h.Cache
+		}
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -483,3 +490,6 @@ func LoadStatus(ctx context.Context) (Status, error) {
 	ps.Fallback = append([]string{}, reg.Fallback...)
 	return ps, nil
 }
+
+// CacheSummary is this process's named cache counters, as /healthz and `gateway proxy --status` show them.
+func CacheSummary() string { return paths.CacheSummary() }

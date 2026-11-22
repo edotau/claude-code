@@ -1,7 +1,9 @@
 package paths
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -72,4 +74,16 @@ func CacheStats() []CacheStat {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// CacheSummary renders CacheStats as "name=hits/misses/refreshes/evictions ..."; empty when nothing counted.
+func CacheSummary() string {
+	var b strings.Builder
+	for _, c := range CacheStats() {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%s=%d/%d/%d/%d", c.Name, c.Hits, c.Misses, c.Refreshes, c.Evictions)
+	}
+	return b.String()
 }
