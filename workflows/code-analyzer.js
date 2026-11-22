@@ -247,7 +247,8 @@ function stArgs(a, known) {
 // stageAsk runs one stage agent; a throw becomes null (cause in ST_ERR); st.done records an external stage's ran-on.
 const ST_ERR = {}
 const stWhy = (label, msg) => (ST_ERR[label] ? msg + ': ' + ST_ERR[label] : msg)
-const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prompt), {
+const ST_RTK = ' Bash whose output you read goes through rtk (`rtk grep`, `rtk git diff`, `rtk go test`); one file is the Read tool, never cat/head.'
+const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prompt + ST_RTK), {
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
 }).catch((e) => { ST_ERR[label] = String((e && e.message) || e); log(label + ' failed: ' + ST_ERR[label]); return null }).then((r) => st.done(label, r))

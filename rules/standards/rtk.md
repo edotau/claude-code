@@ -1,12 +1,13 @@
 # rtk — Compact Shell Output
 
 **Every Bash call whose output a model reads is written in its `rtk` form.** `rtk rewrite '<cmd>'` prints that form
-(empty output: run the command as typed). The `rtk-rewrite` hook is skipped in auto mode and a rewrite stalls it, so
+(empty output: run the command as typed). In auto mode the `rtk-rewrite` hook only hints (a rewrite stalls it), so
 the prefix is written by the caller, never left to the hook (CLAUDE.md guideline 6).
 
 - **Prefixed:** `git` (except `git grep`), `gh`, `go`, `grep`, `rg`, `find`, `ls`, `tree`, `diff`, `make`, `docker`,
-  `kubectl`, `oc`, `curl`, `wc`, `ps`, `du`, `df`, `stat`, `jq`, `ssh`, `golangci-lint`; `cat f` becomes `rtk read f`,
-  and `head`/`tail -N f` become `rtk read f --head-lines|--tail-lines N`. A pipeline prefixes its first command
+  `kubectl`, `oc`, `curl`, `wc`, `ps`, `du`, `df`, `stat`, `jq`, `ssh`, `golangci-lint`; the usual
+  misses are `rtk grep -n`, `rtk git diff`, `rtk go test`. One file is the Read tool, never `cat`/`head` (in a
+  pipeline `rtk read f`, `--head-lines|--tail-lines N`). A pipeline prefixes its first command
   (`rtk git log --oneline | head`).
 - **As typed:** `claude-code`, `git grep`, `gofmt -l` and anything `rtk rewrite` leaves empty.
 - **Exact output** (a file list a later step consumes, a count or bytes you compare): `git grep`, or

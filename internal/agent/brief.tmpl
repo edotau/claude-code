@@ -20,8 +20,8 @@ Task:
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
   before/after run; other cases are proposals in the hand-back (case, what it guards, runtime); need more, say why.
-- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk read <file>` for cat; exact
-  bytes: `rtk bypass <cmd>`.
+- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
+  is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
 - Order: format → lint → live check → your package or exact tests (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.

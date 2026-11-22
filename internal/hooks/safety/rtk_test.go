@@ -48,6 +48,10 @@ func TestRTKSkipsCodex(t *testing.T) {
 	if got, ok := rtkOut(t, strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1)); ok {
 		t.Fatalf("auto-mode command rewritten to %q", got)
 	}
+	auto := RTKRewrite(core.ParseInput(strings.NewReader(strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1))))
+	if auto.UpdatedInput != nil || !strings.Contains(auto.Context, "git log --oneline -20") {
+		t.Fatalf("auto mode = %+v, want a context hint and no rewrite", auto)
+	}
 	if got, ok := rtkOut(t, payload); !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
 	}

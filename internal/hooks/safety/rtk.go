@@ -28,8 +28,7 @@ var rtkValueSubcommands = sync.OnceValue(func() map[string]bool { return shell.G
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func RTKRewrite(in *core.Input) core.Result {
-	// auto mode's classifier gives no verdict on a hook-changed input, forcing a verbatim resend
-	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" || in.Nested("permission_mode") == "auto" {
+	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
 		return core.Result{}
 	}
 	bin := paths.RTKBinary()
@@ -43,6 +42,10 @@ func RTKRewrite(in *core.Input) core.Result {
 	rewritten := rtkRewritten(bin, cmd)
 	if rewritten == "" {
 		return core.Result{}
+	}
+	// auto mode's classifier gives no verdict on a hook-changed input, so hint the rtk form instead of rewriting
+	if in.Nested("permission_mode") == "auto" {
+		return core.Result{Context: "rtk: write the next call as: " + rewritten}
 	}
 
 	// updatedInput REPLACES the whole tool_input, so every original key (description, timeout…) must be echoed back.

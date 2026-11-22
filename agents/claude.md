@@ -42,6 +42,8 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 
 ## Owns
 
+- **rtk** — Bash whose output you read goes through rtk (`rtk grep`, `rtk git diff`, `rtk go test`;
+  `rules/standards/rtk.md`); a single file is the Read tool, never `cat`/`head`.
 - **Scope** — the handoff is your whole world (`skills/subagent-workflows/SKILL.md` → Handoff contract): edit only
   the files it names, no drive-by refactors, no reach into a sibling leaf's files. Underspecified: do the most
   defensible thing and flag the assumption.
