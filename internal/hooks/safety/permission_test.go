@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -439,5 +442,66 @@ func TestDispatchAsk(t *testing.T) {
 				t.Errorf("dispatchAsk = %v %q, want %v containing %q", got, reason, c.want, c.reason)
 			}
 		})
+	}
+}
+
+// benchTree is a temp tree holding real/a.txt and link, a symlink to real; it returns the root, real and link.
+func benchTree(b *testing.B) (root, real, link string) {
+	b.Helper()
+	root, err := filepath.EvalSymlinks(b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	real, link = filepath.Join(root, "real"), filepath.Join(root, "link")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "a.txt"), []byte("x"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		b.Fatal(err)
+	}
+	return root, real, link
+}
+
+// BenchmarkPermissionGate fixes the settings and tree and varies the call and a read-only dispatch policy or none.
+func BenchmarkPermissionGate(b *testing.B) {
+	benchSettings(b)
+	root, real, link := benchTree(b)
+	roPolicy, err := json.Marshal(permission.Permissions{
+		Allow: []permission.Rule{permission.ReadOnlyAllow},
+		Deny:  append(slices.Clone(permission.ReadOnlyDeny), permission.Rule{Tool: "Read", Arg: ".env"}),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := func(tool string, input map[string]string) *core.Input {
+		raw, _ := json.Marshal(map[string]any{"tool_name": tool, "cwd": root, "tool_input": input})
+		return core.ParseInput(bytes.NewReader(raw))
+	}
+	calls := []struct {
+		name string
+		in   *core.Input
+	}{
+		{"bash-ls", payload("Bash", map[string]string{"command": "ls -la"})},
+		{"bash-chain", payload("Bash", map[string]string{"command": "git status && go vet ./... && wc -l a.txt"})},
+		{"bash-write", payload("Bash", map[string]string{"command": "rm " + filepath.Join(real, "a.txt")})},
+		{"edit-plain", payload("Edit", map[string]string{"file_path": filepath.Join(real, "a.txt")})},
+		{"edit-symlink", payload("Edit", map[string]string{"file_path": filepath.Join(link, "a.txt")})},
+		{"read-plain", payload("Read", map[string]string{"file_path": filepath.Join(real, "a.txt")})},
+		{"read-symlink", payload("Read", map[string]string{"file_path": filepath.Join(link, "a.txt")})},
+	}
+	for _, env := range []struct{ name, val string }{{"readonly", string(roPolicy)}, {"unset", ""}} {
+		for _, c := range calls {
+			b.Run(env.name+"/"+c.name, func(b *testing.B) {
+				b.Setenv(agent.DispatchPermissionsEnv, env.val)
+				b.ReportAllocs()
+				benchSink = PermissionGate(c.in)
+				for b.Loop() {
+					benchSink = PermissionGate(c.in)
+				}
+			})
+		}
 	}
 }
