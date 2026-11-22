@@ -1,7 +1,7 @@
 # Agent CLI verbs — shared skeleton
 
-`codex`, `copilot`, `opencode` and `pi` point here for the verb table and the shared procedure; each agent
-file keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; this is the relay/script CLI reference.
+`codex`, `copilot` and `pi` point here for the verb table and the shared procedure; OpenCode uses the same
+CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the relay/script CLI reference.
 
 ## Verbs
 

@@ -69,7 +69,7 @@ func ownJob(ids []string, arg string) string {
 	return ""
 }
 
-// relayLeaf is a codex|copilot|gemini|opencode leaf's own view of in, with its transcript path filled in.
+// relayLeaf is an external relay's own view of in, with its transcript path filled in.
 func relayLeaf(in *core.Input) (core.Input, bool) {
 	id := in.SubagentID()
 	if id == "" || in.Agent() != core.AgentClaude {

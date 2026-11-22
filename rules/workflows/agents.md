@@ -35,14 +35,14 @@ agent: `skills/subagent-workflows/SKILL.md`.
 
 All are owner-only (`disable-model-invocation: true`); each launcher specifies its dispatch tool.
 
-- `/codex` · `/copilot` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — one Agent call
+- `/codex` · `/copilot` `[--host <h>] [--profile <p>] [--model <m>] <task>` — one Agent call
   (`subagent_type` = the name) whose brief opens `Run: claude-code agents ask --agent <type> [flags] --tools`. There
   is no `/claude`: the name could collide.
-- `/gemini [--host <h>] [--profile <p>] [--model <m>] <task>` — no subagent: the session runs
-  `agents ask --carry --background --agent gemini [flags] --tools --read-only - < brief`, then
+- `/gemini` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — no subagent: the session runs
+  `agents ask --carry --background --agent <type> [flags] --tools - < brief` (`gemini` adds `--read-only`), then
   `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
 - `/coworker --agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>` — the same
-  dispatch (gemini on a `claude` leaf), run here on the Databricks arm with its requests sent through the other
+  dispatch (gemini/opencode on a `claude` leaf), run here on the Databricks arm with its requests sent through the other
   machine (default overlay `{"provider":"databricks","profile":"auto","remote":"auto"}`; `--overlay` replaces it).
   Not a new agent type. The route travels whole (provider, profile, host, remote); workflow steps take it from one
   source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;

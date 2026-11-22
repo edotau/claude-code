@@ -20,7 +20,7 @@ site in a script (`internal/hooks/leaves.go` `Effort`).
 | Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
 | Expert pool | `code-engineer.js` sizing router | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort` |
 | Producer-reviewer | fix, test repair, gate · rederive | implementer vs blind re-deriver | repaired tests and gate exit codes |
-| Supervisor | main session + leaves | `claude`, `codex`/`copilot`/`opencode`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
+| Supervisor | main session + leaves | `claude`, `codex`/`copilot`, `Explore`; carried `opencode` ask | dispatch cap, `dispatch-stop` ran-on |
 | Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline

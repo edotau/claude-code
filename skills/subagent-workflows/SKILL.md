@@ -29,7 +29,7 @@ Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-en
 
 ## Leaf types
 
-Shell `agents ask` belongs only inside an external relay or a requested script. Owner shortcuts:
+Shell `agents ask` belongs in a carried dispatch, external relay or requested script. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
 | Leaf | Role | Output |
@@ -37,7 +37,6 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `claude` | In-context work on Sonnet unless the call names a model | Status and verification |
 | `codex` | Cross-family review, plan vetting, delegated edits | Verdict or status with evidence |
 | `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
-| `opencode` | Code/docs work and requested model discovery | Status and verification |
 | `pi` | Review, exploration, audits and self-tested edits on any Databricks model | Cited findings |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
@@ -56,11 +55,11 @@ select external execution; never overwrite another machine's pins.
 ### Carried dispatch (main session, no relay)
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
-task, then follow it with one wait call. Gemini has no relay subagent, so this is its only main-session form
-(read-only research and codebase sweeps, cited findings); the other three still have relays until each is retired:
+task, then follow it with one wait call. Gemini and opencode have no relay subagent; gemini handles read-only research
+and codebase sweeps, while opencode handles code and docs work. Codex and copilot still have relays:
 
 ```bash
-claude-code agents ask --carry --background --agent gemini [ask flags] - < BRIEF
+claude-code agents ask --carry --background --agent <agent> [ask flags] - < BRIEF
 claude-code agents result -f <id>
 ```
 
@@ -69,7 +68,7 @@ ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi car
 
 ### External relay contract
 
-For `codex`, `copilot`, `opencode` and `pi` wrappers:
+For `codex`, `copilot` and `pi` wrappers:
 
 - A thin pipe; a brief that starts with `Run:` is a relay job, in this order:
   1. You do none of the work yourself.
@@ -294,7 +293,7 @@ files only.
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `opencode`, `pi`; gemini runs carried). A job
+  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `pi`; gemini and opencode run carried). A job
   expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can

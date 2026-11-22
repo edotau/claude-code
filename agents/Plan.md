@@ -41,7 +41,7 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 All dispatched by the manager, never by Plan itself:
 
 - **`claude` leaves** — implementation of the approved plan's phases on your pin.
-- **`copilot` / `opencode` leaves (experimental)** — a phase for another agent or account (`Agent:`, `Run:`), e.g.
+- **`copilot` leaves or a carried `opencode` ask (experimental)** — a phase for another agent or account, e.g.
   to spread quota or get another model family; name a fallback if the external agent is unavailable.
 - **`codex`** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
   brief `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
