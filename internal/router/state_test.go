@@ -171,6 +171,30 @@ func TestClearAuthNoWriteWhenUnmarked(t *testing.T) {
 	}
 }
 
+func TestNoOpUpdateKeepsFileStamp(t *testing.T) {
+	useConfigDir(t)
+	now := time.Now()
+	if err := MarkChecked("openai·chatgpt", "no data", now); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-time.Hour)
+	if err := os.Chtimes(StatePath(), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkChecked("openai·chatgpt", "no data", now); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(StatePath()); !fi.ModTime().Equal(old) {
+		t.Fatalf("a no-op update rewrote quota.json (mtime %v)", fi.ModTime())
+	}
+	if err := MarkChecked("openai·chatgpt", "changed", now); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(StatePath()); fi.ModTime().Equal(old) {
+		t.Fatal("a real update did not write quota.json")
+	}
+}
+
 func TestClearProviderAuthClearsRouterAndDispatchMarks(t *testing.T) {
 	useConfigDir(t)
 	for _, a := range []string{ProviderAccount("dbx"), "anthropic·dbx", "openai·dbx", "anthropic·other", ProviderAccount("dbx2")} {

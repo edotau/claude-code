@@ -196,7 +196,13 @@ func tryUpdate(wait time.Duration, fn func(State)) (bool, error) {
 
 // writeState applies fn to the loaded state and writes it back; the caller holds the state lock.
 func writeState(path string, fn func(State)) error {
-	s, err := loadState()
+	raw, err := os.ReadFile(path)
+	s := State{}
+	if err == nil {
+		s, err = decodeState(raw)
+	} else if errors.Is(err, os.ErrNotExist) {
+		err = nil
+	}
 	if err != nil {
 		if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
 			return err
@@ -209,6 +215,10 @@ func writeState(path string, fn func(State)) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
+	}
+	if bytes.Equal(data, raw) {
+		// a no-op update keeps the file stamp, so the state cache keeps hitting
+		return nil
 	}
 	return paths.AtomicWrite(path, data, 0o600)
 }
