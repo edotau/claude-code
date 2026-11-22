@@ -23,7 +23,7 @@ var planPage = helptext.Page{
 	About: "Plan checklists (ticked/total, live claims) and plan detectors for vague steps and goals.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
-		{"tick", "tick tasks in --range <a>..<b>; --audit closes this week's plans"},
+		{"tick", "tick tasks in --range <a>..<b>; --audit closes and archives plans"},
 		{"task", "tick, reopen or strike one task by hand"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
@@ -109,6 +109,8 @@ func cmdPlanTick(args []string) int {
 	plan := fs.String("plan", "", "plan file (default: matching recent or claimed plans)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
 	audit := fs.Bool("audit", false, "audit this week's plans: tick, strike or report what git proves")
+	all := fs.Bool("all", false, "with --audit: every age and repo home; cap 1000 writes")
+	archive := fs.Bool("archive", false, "with --audit: archive closed plans after auditing")
 	verify := fs.Bool("verify", false, "internal: verify --task ids on --sha, tick the green")
 	sha := fs.String("sha", "", "with --verify: the landed commit")
 	session := fs.String("session", "", "with --verify: the session that gets the result notice")
@@ -118,11 +120,14 @@ func cmdPlanTick(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if (*all || *archive) && !*audit {
+		return helptext.FailUsage("plan tick: --all and --archive require --audit")
+	}
+	if *audit && (*rng != "" || *plan != "" || *verify) {
+		return helptext.FailUsage("plan tick: --audit takes neither --range, --plan nor --verify")
+	}
 	if *verify {
 		return runTickVerify(*plan, *sha, tasks, *session)
-	}
-	if *audit && (*rng != "" || *plan != "") {
-		return helptext.FailUsage("plan tick: --audit takes neither --range nor --plan")
 	}
 	if *rng == "" && !*audit {
 		return helptext.Fail("plan tick: --range <a>..<b> is required")
@@ -139,7 +144,7 @@ func cmdPlanTick(args []string) int {
 		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
 	if *audit {
-		return cmdPlanAudit(top, *dryRun, *format)
+		return cmdPlanAudit(top, plans.AuditOpts{DryRun: *dryRun, All: *all}, *archive, *format)
 	}
 	return tickRange(top, *rng, *plan, *dryRun)
 }
@@ -248,8 +253,18 @@ func tickNotice(session, line string) {
 }
 
 // cmdPlanAudit runs plans.Audit and prints its report as text or one JSON object.
-func cmdPlanAudit(top string, dryRun bool, format string) int {
-	rep, err := plans.Audit(context.Background(), top, dryRun)
+func cmdPlanAudit(top string, opts plans.AuditOpts, archive bool, format string) int {
+	ctx := context.Background()
+	rep, err := plans.Audit(ctx, top, opts)
+	if err == nil && archive {
+		var changes []plans.Change
+		var findings []plans.Finding
+		changes, findings, err = plans.Archive(ctx, top, opts.DryRun)
+		rep.Changed, rep.Reported = append(rep.Changed, changes...), append(rep.Reported, findings...)
+		if opts.DryRun {
+			fmt.Fprintln(os.Stderr, "plan tick: note: the dry-run archive list omits plans this run's ticks would close")
+		}
+	}
 	if err == nil && format == helptext.JSON {
 		err = helptext.WriteJSON(os.Stdout, rep)
 	} else if err == nil {
@@ -347,6 +362,7 @@ func planSpec() *helptext.Node {
 			helptext.CompletionFormatFlag()}},
 		"assumptions": {Flags: []helptext.Flag{helptext.BoolFlag("json")}}, "goals": {Flags: []helptext.Flag{helptext.BoolFlag("json")}},
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
+			{Name: "all", IsBool: true}, {Name: "archive", IsBool: true},
 			{Name: "verify", IsBool: true}, {Name: "sha"}, {Name: "task"}, {Name: "session"}, helptext.CompletionFormatFlag()}},
 		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}}},
 	}}

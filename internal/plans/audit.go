@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	auditWriteCap = 20
-	auditLogKeep  = 1000
-	auditIDCells  = 48
+	auditWriteCap    = 20
+	auditAllWriteCap = 1000
+	auditLogKeep     = 2 * auditAllWriteCap // an --all run never evicts the Reopen lines of the run before it
+	auditIDCells     = 48
 	// JobChangeCap is how many plan changes one judged job run may keep; later ones are reverted.
 	JobChangeCap = 10
 )
@@ -62,7 +63,10 @@ type AuditReport struct {
 	Changed   []Change  `json:"changed"`
 	Reported  []Finding `json:"reported"`
 	Remaining int       `json:"remaining"`
+	WriteCap  int       `json:"write_cap,omitempty"`
 }
+
+type AuditOpts struct{ DryRun, All bool }
 
 // reach answers whether a commit is in the history of one ref.
 type reach struct {
@@ -70,6 +74,7 @@ type reach struct {
 	root   string
 	ref    string
 	recent []string // newest first
+	full   []string // the ref's whole history, sorted; loaded on the first miss in recent
 }
 
 func newReach(ctx context.Context, root, ref, since string) (*reach, error) {
@@ -77,7 +82,7 @@ func newReach(ctx context.Context, root, ref, since string) (*reach, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &reach{ctx, root, ref, strings.Fields(out)}, nil
+	return &reach{ctx: ctx, root: root, ref: ref, recent: strings.Fields(out)}, nil
 }
 
 // index is sha's position among the recent commits of the ref (0 newest), -1 when absent.
@@ -90,8 +95,20 @@ func (r *reach) has(sha string) bool {
 	if r.index(sha) >= 0 {
 		return true
 	}
-	_, err := proc.RunGitInherit(r.ctx, r.root, "merge-base", "--is-ancestor", sha, r.ref)
-	return err == nil
+	sha = strings.ToLower(sha)
+	if !shaHex().MatchString(sha) { // a sha starting with "-" would reach git as an option
+		return false
+	}
+	if r.full == nil {
+		out, err := proc.RunGitInherit(r.ctx, r.root, "rev-list", r.ref, "--")
+		if err != nil {
+			_, err := proc.RunGitInherit(r.ctx, r.root, "merge-base", "--is-ancestor", sha, r.ref)
+			return err == nil
+		}
+		r.full = slices.Sorted(strings.FieldsSeq(out)) // one rev-list replaces a merge-base per miss: same ancestry set
+	}
+	i, _ := slices.BinarySearch(r.full, sha)
+	return i < len(r.full) && strings.HasPrefix(r.full[i], sha)
 }
 
 type auditRun struct {
@@ -101,17 +118,29 @@ type auditRun struct {
 	trunk, landed *reach
 	rep           AuditReport
 	writes        int
+	subjects      map[string][][]string  // trunk subject to its commits' sorted files: a rebased lane sha still lands
+	off           map[string]auditCommit // tick shas the trunk lacks, by lowercased sha
 }
 
 // Audit ticks and strikes what git and the plan prove, and reports the rest; it never guesses.
-func Audit(ctx context.Context, root string, dryRun bool) (AuditReport, error) {
-	a := &auditRun{ctx: ctx, root: root, dry: dryRun, rep: AuditReport{DryRun: dryRun, Changed: []Change{}, Reported: []Finding{}}}
+func Audit(ctx context.Context, root string, opts AuditOpts) (AuditReport, error) {
+	a := &auditRun{ctx: ctx, root: root, dry: opts.DryRun,
+		rep: AuditReport{DryRun: opts.DryRun, Changed: []Change{}, Reported: []Finding{}, WriteCap: auditWriteCap}}
+	if opts.All {
+		a.rep.WriteCap = auditAllWriteCap
+		if err := a.otherHomes(); err != nil {
+			return a.rep, err
+		}
+	}
 	trunk, _, _, err := trunkBranch(ctx, root)
 	if err != nil {
 		return a.rep, err
 	}
-	dated, since := recentPlans(root)
-	a.rep.Plans = len(dated)
+	dated, since, err := auditPlans(Home(root), opts.All)
+	if err != nil {
+		return a.rep, err
+	}
+	a.rep.Plans += len(dated)
 	if len(dated) == 0 {
 		return a.rep, nil
 	}
@@ -122,34 +151,252 @@ func Audit(ctx context.Context, root string, dryRun bool) (AuditReport, error) {
 	if err != nil {
 		return a.rep, err
 	}
+	history, err := a.subjectCommits(since)
+	if err != nil {
+		return a.rep, err
+	}
+	a.subjects = map[string][][]string{}
+	for _, c := range history {
+		key := subjectKey(c.subject)
+		a.subjects[key] = append(a.subjects[key], c.files)
+	}
+	a.offTrunk(dated)
 	for _, d := range dated {
-		tasks := slices.Clone(d.plan.Tasks)
-		a.check(d.path, tasks)
-		if err := a.trailers(d.path, tasks, commits); err != nil {
-			return a.rep, err
-		}
-		if err := a.process(d.path, tasks); err != nil {
+		if err := a.auditPlan(d, commits, history); err != nil {
 			return a.rep, err
 		}
 	}
 	return a.rep, nil
 }
 
+func (a *auditRun) auditPlan(d datedPlan, commits []Commit, history []auditCommit) error {
+	if err := a.ctx.Err(); err != nil {
+		return err
+	}
+	tasks := slices.Clone(d.plan.Tasks)
+	a.check(d.path, tasks)
+	if err := a.trailers(d.path, tasks, commits); err != nil {
+		return err
+	}
+	if err := a.ownedSubjects(d.path, tasks, history); err != nil {
+		return err
+	}
+	return a.process(d.path, tasks)
+}
+
+// otherHomes reports every dated plan of the other repo homes by name; nothing there is parsed or judged.
+func (a *auditRun) otherHomes() error {
+	skip := MirrorDests()
+	for _, home := range Dirs(true)[1:] {
+		if paths.SamePath(home, Home(a.root)) {
+			continue
+		}
+		entries, err := os.ReadDir(home)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			p := filepath.Join(home, e.Name())
+			if e.Type().IsRegular() && datedName().MatchString(e.Name()) && !slices.Contains(skip, p) {
+				a.rep.Plans++
+				a.report(p, "", "no checkout", "no slug-to-checkout mapping for "+filepath.Base(home))
+			}
+		}
+	}
+	return nil
+}
+
 // recentPlans lists the dated plans within recentDays, oldest first, and the day before the oldest one.
 func recentPlans(root string) (dated []datedPlan, since string) {
-	home := Home(root)
-	entries, _ := os.ReadDir(home) // no plans home is no plans
+	dated, since, _ = auditPlans(Home(root), false)
+	return dated, since
+}
+
+func auditPlans(home string, all bool) (dated []datedPlan, since string, err error) {
+	entries, err := os.ReadDir(home)
+	if os.IsNotExist(err) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
 	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
 	for _, d := range loadDatedPlans(entries, home, MirrorDests()) {
-		if filepath.Base(d.path)[:10] >= cutoff {
+		if all || filepath.Base(d.path)[:10] >= cutoff {
 			dated = append(dated, d)
 		}
 	}
 	if len(dated) == 0 {
-		return nil, ""
+		return nil, "", nil
 	}
 	oldest, _ := time.Parse(time.DateOnly, filepath.Base(dated[0].path)[:10]) // datedName guarantees the shape
-	return dated, oldest.AddDate(0, 0, -1).Format(time.DateOnly)
+	return dated, oldest.AddDate(0, 0, -1).Format(time.DateOnly), nil
+}
+
+type auditCommit struct {
+	sha, day, subject, message string
+	words, files               []string // files sorted
+}
+
+// subjectCommits lists local and remote trunk commits since a date with message and changed files, in one pass.
+func (a *auditRun) subjectCommits(since string) ([]auditCommit, error) {
+	args := []string{"log", a.trunk.ref}
+	if a.landed.ref != a.trunk.ref {
+		args = append(args, a.landed.ref)
+	}
+	return a.gitCommits(append(args, "--since="+since)...)
+}
+
+// gitCommits runs a git log or show and parses each commit's sha, day, subject, message and sorted files.
+func (a *auditRun) gitCommits(args ...string) ([]auditCommit, error) {
+	args = append(args, "--no-renames", "-z", "--name-only", "--format=%x01%H%x00%cs%x00%s%x00%B%x00", "--")
+	out, err := proc.RunGitInherit(a.ctx, a.root, args...)
+	if err != nil {
+		return nil, err
+	}
+	var commits []auditCommit
+	for rec := range strings.SplitSeq(out, "\x01") {
+		parts := strings.SplitN(rec, "\x00", 5)
+		if len(parts) < 4 {
+			continue
+		}
+		c := auditCommit{sha: parts[0], day: parts[1], subject: parts[2], message: parts[3], words: auditWords(parts[2])}
+		if len(parts) == 5 {
+			for f := range strings.SplitSeq(parts[4], "\x00") {
+				if f = strings.TrimLeft(f, "\n"); f != "" { // -z puts a newline between the message and the file list
+					c.files = append(c.files, f)
+				}
+			}
+		}
+		slices.Sort(c.files)
+		commits = append(commits, c)
+	}
+	return commits, nil
+}
+
+// offTrunk caches, in one git show, the commit of every tick sha the trunk lacks, so rebased spawns nothing.
+func (a *auditRun) offTrunk(dated []datedPlan) {
+	a.off = map[string]auditCommit{}
+	var shas []string
+	for _, d := range dated {
+		for _, t := range d.plan.Tasks {
+			if sha := strings.ToLower(t.Sha); t.Done && shaHex().MatchString(sha) && !a.trunk.has(sha) {
+				shas = append(shas, sha)
+			}
+		}
+	}
+	if len(shas) == 0 {
+		return
+	}
+	slices.Sort(shas)
+	commits, err := a.gitCommits(append([]string{"show"}, slices.Compact(shas)...)...)
+	if err != nil {
+		return // one unknown sha fails the batch; rebased then reads each sha alone
+	}
+	for _, c := range commits {
+		for _, sha := range shas {
+			if strings.HasPrefix(c.sha, sha) {
+				a.off[sha] = c
+			}
+		}
+	}
+}
+
+// subjectKey folds whitespace so git's %s and a message's first paragraph compare equal.
+func subjectKey(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+func auditWords(title string) []string {
+	const stop = " a an and are the for from into with without this that then than only all any add new fix feat refactor docs test tests plan phase task code file files run use update remove "
+	if loc := waveAttr().FindStringIndex(title); loc != nil {
+		title = title[:loc[0]]
+	}
+	words := slices.DeleteFunc(textutil.Tokenize(title), func(w string) bool {
+		return len(w) < 3 || w[0] < 'a' || w[0] > 'z' || strings.Contains(stop, " "+w+" ") // letter-led ASCII words only, as before
+	})
+	slices.Sort(words)
+	return slices.Compact(words)
+}
+
+func auditOverlap(title, subject []string) bool {
+	shared := 0
+	for _, w := range title {
+		if slices.Contains(subject, w) {
+			shared++
+		}
+	}
+	return shared >= 2
+}
+
+func (a *auditRun) ownedSubjects(plan string, tasks []Task, history []auditCommit) error {
+	for i := range tasks {
+		t := &tasks[i]
+		if !open(*t) {
+			continue
+		}
+		if !judgeable(*t) || t.ID != "" && countID(tasks, t.ID) > 1 {
+			continue
+		}
+		if found, ok := findTask(Plan{Tasks: tasks}, cmp.Or(t.ID, t.Title)); !ok || found.Start != t.Start {
+			continue
+		}
+		if err := a.ownedSubject(plan, t, history); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ownedSubject ticks t from the first landed commit since the plan's day whose subject overlaps and files cover owns:.
+func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) error {
+	words, owns, candidate := auditWords(t.Title), auditOwns(*t), ""
+	for _, c := range history {
+		if c.day < filepath.Base(plan)[:10] || !auditOverlap(words, c.words) {
+			continue
+		}
+		if len(taskTrailerValues(c.message)) > 0 && !namesTask(c.message, plan, t.ID) {
+			continue // the commit names its own task
+		}
+		if candidate == "" {
+			candidate = c.sha[:7] + " " + c.subject
+		}
+		if a.ownedEvidence(owns, c.files) && a.landed.has(c.sha) {
+			return a.tick(plan, t, c.sha[:7], "owned files + subject")
+		}
+	}
+	problem := "open task: no landed evidence"
+	if candidate != "" {
+		problem = "subject overlap only"
+	}
+	a.report(plan, cmp.Or(t.ID, t.Title), problem, candidate)
+	return nil
+}
+
+// auditOwns is t's owns: (a wave attribute wins) with backticks dropped; ownEntries strips notes and spaces.
+func auditOwns(t Task) []string {
+	if owns := waveAttributes(t.Title)["owns"]; owns != "" {
+		_, _, t.Owns, _, _, _ = parseTaskText("owns: " + strings.TrimRight(owns, ". "))
+	}
+	owns := make([]string, len(t.Owns))
+	for i, o := range t.Owns {
+		owns[i] = strings.ReplaceAll(o, "`", "")
+	}
+	return owns
+}
+
+// ownedEvidence holds when the commit's files cover every owns: entry and each entry stays inside the checkout.
+func (a *auditRun) ownedEvidence(owns, files []string) bool {
+	if all, _ := covers(a.root, owns, files); !all {
+		return false // also false with no owns:
+	}
+	for _, entry := range ownEntries(owns, files) {
+		if !filepath.IsAbs(entry) {
+			entry = filepath.Join(a.root, entry)
+		}
+		if !paths.Within(entry, a.root) {
+			return false
+		}
+	}
+	return true
 }
 
 // openRefs reads trunk's recent history and, when origin has the trunk, the history a tick must be reachable from.
@@ -183,7 +430,7 @@ func (a *auditRun) trailerCommits(since, ref string) ([]Commit, error) {
 
 // apply counts a write against the cap, does it unless dry, and logs it; false means it was not made.
 func (a *auditRun) apply(c Change, write func() error) (bool, error) {
-	if a.writes >= auditWriteCap {
+	if a.writes >= a.rep.WriteCap {
 		a.rep.Remaining++
 		return false, nil
 	}
@@ -256,6 +503,9 @@ func (a *auditRun) check(plan string, tasks []Task) {
 		}
 	}
 	for _, t := range tasks {
+		if verify := TaskVerify(t); verify != "" && open(t) {
+			a.report(slug, cmp.Or(t.ID, t.Title), "verify not run", verify)
+		}
 		if problem, evidence := a.suspect(t, lines[t.ID]); problem != "" {
 			a.report(slug, cmp.Or(t.ID, t.Title), problem, evidence)
 		}
@@ -273,10 +523,28 @@ func (a *auditRun) suspect(t Task, same []string) (problem, evidence string) {
 		return "open task carries a sha", t.Sha
 	case t.Done && t.Claim != "":
 		return "ticked task still holds a claim", t.Claim
-	case t.Done && t.Sha != "" && !a.trunk.has(t.Sha):
+	case t.Done && t.Sha != "" && !a.trunk.has(t.Sha) && !a.rebased(t.Sha):
 		return "tick sha is not on trunk", t.Sha
 	}
 	return "", ""
+}
+
+// rebased reports whether a trunk commit under another sha has sha's subject and the same changed files.
+func (a *auditRun) rebased(sha string) bool {
+	sha = strings.ToLower(sha)
+	if !shaHex().MatchString(sha) {
+		return false
+	}
+	c, ok := a.off[sha]
+	if !ok {
+		commit, err := readCommit(a.ctx, a.root, sha)
+		if err != nil {
+			return false
+		}
+		c.subject, _, _ = strings.Cut(strings.TrimSpace(commit.Message), "\n\n")
+		c.files = slices.Sorted(slices.Values(commit.Files))
+	}
+	return slices.ContainsFunc(a.subjects[subjectKey(c.subject)], func(f []string) bool { return slices.Equal(f, c.files) })
 }
 
 func isProcessStep(t Task) bool {
@@ -394,21 +662,17 @@ func appendAuditLog(c Change) error {
 
 // WriteText prints changed rows, then reported rows, then one summary line.
 func (r AuditReport) WriteText(w io.Writer) error {
-	verb := map[string]string{"tick": "ticked", "strike": "struck"}
+	verb := map[string]string{"tick": "ticked", "strike": "struck", "archive": "archived"}
 	if r.DryRun {
-		verb = map[string]string{"tick": "would tick", "strike": "would strike"}
+		verb = map[string]string{"tick": "would tick", "strike": "would strike", "archive": "would archive"}
 	}
 	row := func(plan, id, what, evidence string) error {
 		_, err := fmt.Fprintf(w, "%s: %s: %s: %s\n", plan, textutil.CapRunes(id, auditIDCells, "…"), what, evidence)
 		return err
 	}
-	ticks, strikes := 0, 0
+	counts := map[string]int{}
 	for _, c := range r.Changed {
-		if c.Action == "tick" {
-			ticks++
-		} else {
-			strikes++
-		}
+		counts[c.Action]++
 		if err := row(strings.TrimSuffix(filepath.Base(c.Plan), ".md"), c.ID, verb[c.Action], c.Evidence); err != nil {
 			return err
 		}
@@ -419,10 +683,13 @@ func (r AuditReport) WriteText(w io.Writer) error {
 		}
 	}
 	tail := ""
-	if r.Remaining > 0 {
-		tail = fmt.Sprintf(", %d more over the cap of %d writes", r.Remaining, auditWriteCap)
+	if counts["archive"] > 0 {
+		tail = fmt.Sprintf(", %s %d", verb["archive"], counts["archive"])
 	}
-	_, err := fmt.Fprintf(w, "plans: audit %d plans: %s %d, %s %d, reported %d%s\n", r.Plans, verb["tick"], ticks, verb["strike"], strikes, len(r.Reported), tail)
+	if r.Remaining > 0 {
+		tail += fmt.Sprintf(", %d more over the cap of %d writes", r.Remaining, cmp.Or(r.WriteCap, auditWriteCap))
+	}
+	_, err := fmt.Fprintf(w, "plans: audit %d plans: %s %d, %s %d, reported %d%s\n", r.Plans, verb["tick"], counts["tick"], verb["strike"], counts["strike"], len(r.Reported), tail)
 	return err
 }
 

@@ -52,14 +52,14 @@ func TestAuditTicksPushedAndReportsTheRest(t *testing.T) {
 	repo, a, b, c, pushed := auditFixture(t)
 	all := func() string { return readFile(t, a) + readFile(t, b) + readFile(t, c) }
 	before, ctx := all(), context.Background()
-	dry, err := Audit(ctx, repo, true)
+	dry, err := Audit(ctx, repo, AuditOpts{DryRun: true})
 	if err != nil || len(dry.Changed) != 7 || all() != before {
 		t.Fatalf("dry run must plan 7 changes and write none: %d %v", len(dry.Changed), err)
 	}
 	if _, err := os.Stat(auditLogFile()); err == nil {
 		t.Fatal("a dry run must not log")
 	}
-	got, err := Audit(ctx, repo, false)
+	got, err := Audit(ctx, repo, AuditOpts{})
 	if err != nil || len(got.Changed) != 7 {
 		t.Fatalf("changed=%d err=%v", len(got.Changed), err)
 	}
@@ -71,7 +71,7 @@ func TestAuditTicksPushedAndReportsTheRest(t *testing.T) {
 	}
 	checkAuditWrites(t, a, b, pushed)
 	after := all()
-	if again, err := Audit(ctx, repo, false); err != nil || len(again.Changed) != 0 || all() != after {
+	if again, err := Audit(ctx, repo, AuditOpts{}); err != nil || len(again.Changed) != 0 || all() != after {
 		t.Fatalf("a second run must change nothing: %d %v", len(again.Changed), err)
 	}
 }
@@ -95,7 +95,7 @@ func TestAuditStrikesProcessStepsOfAStruckPlan(t *testing.T) {
 	repo := gitRepo(t, "main")
 	plan := filepath.Join(Home(repo), "2026-10-04-d.md")
 	writeFile(t, plan, "- [ ] ~~1.1 Gone~~\n- [ ] Full suite once\n- [ ] Handoff\n")
-	got, err := Audit(context.Background(), repo, false)
+	got, err := Audit(context.Background(), repo, AuditOpts{})
 	if err != nil || len(got.Changed) != 2 || strings.Count(readFile(t, plan), "~~ — superseded: plan closed: every build task struck") != 2 {
 		t.Fatalf("closing steps strike with the reason: %+v %v\n%s", got.Changed, err, readFile(t, plan))
 	}

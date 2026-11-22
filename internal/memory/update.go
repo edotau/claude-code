@@ -366,7 +366,7 @@ func auditUpdatePlans(o updateOptions) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	report, err := plans.Audit(ctx, top, false)
+	report, err := plans.Audit(ctx, top, plans.AuditOpts{})
 	if len(report.Changed) > 0 || len(report.Reported) > 0 {
 		err = errors.Join(err, report.WriteText(o.Out))
 	}
