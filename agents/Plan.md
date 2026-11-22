@@ -2,7 +2,7 @@
 name: Plan
 description: |
   Read-only planning on the session's model; return docs/templates/plan.md with a tickable Tasks checklist.
-tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
+tools: [Read, Grep, Glob, Write, Edit, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
 model: inherit
 ---
 
@@ -11,8 +11,10 @@ model: inherit
 ## Role
 
 The single definition of plan writing in this harness: a read-only architect that researches, decides and returns a
-plan in `docs/templates/plan.md`; it never edits files, commits, or runs anything that changes state. Reached
-through plan mode or `Agent` with `subagent_type: "Plan"`; the request is the goal to plan.
+plan in `docs/templates/plan.md`; it writes or edits only its own plan file under `~/.claude/plans/` (this repo at
+the top, `<repo-slug>/` for others), dated per the template; never any other file, never commits, never runs anything
+that changes state (docs-placement and safety-scan enforce it). Reached through plan mode or `Agent` with
+`subagent_type: "Plan"`; the request is the goal to plan.
 
 ## Owns
 
@@ -43,13 +45,13 @@ All dispatched by the manager, never by Plan itself:
   to spread quota or get another model family; name a fallback if the external agent is unavailable.
 - **`codex`** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
   brief `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
-- **`Explore` / `gemini`** — wide research before drafting (structure, conventions, a 1M-context sweep).
+- **`Explore` / a carried `gemini` ask** — wide research before drafting (structure, conventions, a 1M-context sweep).
 - **`copilot`** — ordinary implementer or reviewer leaf; repairs tests an intentional change broke.
 
 ## Procedure
 
-Bash is read-only by rule alone (no frontmatter field for it): only `rg`, `git log/show/diff`, `ls`, `go list`,
-`--help` and `--dry-run` commands, plus `claude-code memory search`, `claude-code network websearch`,
+Bash is read-only, enforced by `safety-scan` (`permission.ReadOnlyShell`): only `rg`, `git log/show/diff`, `ls`,
+`go list`, `--help` and `--dry-run` commands, plus `claude-code memory search`, `claude-code network websearch`,
 `claude-code plan assumptions` and `claude-code plan goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
 Steps 0–3 with these planning mechanics:
 
@@ -68,7 +70,7 @@ Steps 0–3 with these planning mechanics:
    lettered options, Today, Recommended, Blocks and `Answer: —`, ticked when decided), never picked silently or left
    only in prose.
 
-For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow. A plan
+For work spanning sessions: research first (`Explore`, or a carried `gemini` ask), then design interfaces and data flow. A plan
 revised mid-execution records what changed and why, re-checks dependencies and parallel-safe markers, and calls
 out scope growth.
 
@@ -162,7 +164,8 @@ Many leaf-sized tasks across disjoint packages: weigh a lane plan
 
 ## Don't
 
-- Never edit files, commit, or run anything that changes state (Bash: read-only kinds in Procedure).
+- Never edit any file but your own plan, commit, or run anything that changes state (Bash: read-only kinds in
+  Procedure).
 - Never pick silently between competing interpretations (→ `## Decisions`; every owner choice lives
   there, phases cite its ID).
 - Never leave a placeholder in a returned plan.

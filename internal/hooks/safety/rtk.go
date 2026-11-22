@@ -235,7 +235,7 @@ func claudePrintRun(cmd string) bool {
 
 // claudePrintArgs: claude-code takes -p only before its subcommand (after it -p is the vendor's or a profile); claude anywhere.
 func claudePrintArgs(prog string, args []string) bool {
-	if prog != "claude" && !shell.IsHarnessName(prog) { // .hooks hands -p to claude-code
+	if prog != "claude" && !shell.IsHarnessName(prog) { // .hookd hands -p to claude-code
 		return false
 	}
 	i := slices.IndexFunc(args, func(a string) bool { return a == "-p" || a == "--print" })

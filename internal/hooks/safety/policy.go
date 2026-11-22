@@ -208,9 +208,18 @@ func globNeedle(g, home string) string {
 
 // extraGlobs are the built-in protected files: settings.local.json, and for a leaf settings.json and the state dir.
 func extraGlobs(leaf bool) []string {
+	globs := settingsGlobs(leaf)
+	if leaf {
+		globs = append(globs, stateGlob())
+	}
+	return globs
+}
+
+// settingsGlobs are extraGlobs without the state dir.
+func settingsGlobs(leaf bool) []string {
 	globs := []string{"/" + filepath.Join(paths.ConfigDir(), "settings.local.json")}
 	if leaf {
-		globs = append(globs, "/"+filepath.Join(paths.ConfigDir(), "settings.json"), stateGlob())
+		globs = append(globs, "/"+filepath.Join(paths.ConfigDir(), "settings.json"))
 	}
 	return globs
 }
@@ -228,6 +237,9 @@ func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, 
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
 			"dispatch set them."+ownerRoute), "dispatch env tamper"
 	}
+	if !mayTouchState(cmd, in.CWD) {
+		return core.Allow, "", ""
+	}
 	globs := []string{stateGlob()}
 	if p := protectedWrite(cmd, in.CWD, globs, false); p != "" && !bashGranted(in.CWD, cmd) && !wallGranted(in.CWD, p) {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes the harness state dir, which a leaf only reads", p,
@@ -238,6 +250,16 @@ func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, 
 			needle, stateHint), "interpreter harness state write"
 	}
 	return core.Allow, "", ""
+}
+
+// mayTouchState is false when cmd names no state text, expansion or quote seam and no target resolves into the dir.
+func mayTouchState(cmd, cwd string) bool {
+	if strings.Contains(cmd, "state") || strings.ContainsAny(cmd, "$\\'\"`*?[{") {
+		return true
+	}
+	// A relative target, a case variant or a symlink reaches the dir without naming it: resolve each target.
+	inside := func(p string) bool { return paths.InsideDir(p, paths.StateDir()) }
+	return slices.ContainsFunc(core.WrittenPaths(cmd, cwd), inside) || slices.ContainsFunc(core.RemovedPaths(cmd, cwd), inside)
 }
 
 const stateHint = "The harness writes its own state; a dispatch the main session starts may lift this with " +
@@ -275,10 +297,12 @@ func bashGranted(cwd, cmd string) bool {
 
 // editProtected reports f (typed as form) under globs; a main-granted state path is judged without the state glob.
 func editProtected(cwd, f, form string, globs []string) bool {
-	if wallGranted(cwd, f) {
-		state := foldedGlobs([]string{stateGlob()}, cwd)
-		globs = slices.DeleteFunc(slices.Clone(globs), func(g string) bool { return slices.Contains(state, g) })
+	hit := matchesProtected(f, globs) || f != form && protectedPath(f, globs)
+	if !hit || !wallGranted(cwd, f) { // dropping the state glob only removes matches
+		return hit
 	}
+	state := foldedGlobs([]string{stateGlob()}, cwd)
+	globs = slices.DeleteFunc(slices.Clone(globs), func(g string) bool { return slices.Contains(state, g) })
 	return matchesProtected(f, globs) || f != form && protectedPath(f, globs)
 }
 

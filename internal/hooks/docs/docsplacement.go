@@ -33,6 +33,9 @@ var placementTools = map[string]bool{"write": true, "edit": true, "multiedit": t
 
 // Placement is docs-placement: a placement block wins, else the plan path rewrite and template gate decide.
 func Placement(in *core.Input) core.Result {
+	if res := planAgentBlock(in); res.Decision == core.Block {
+		return res
+	}
 	if res, ok := noteRedirect(in); ok {
 		return res
 	}
@@ -53,6 +56,24 @@ func Placement(in *core.Input) core.Result {
 	gated := planGate(in, dest, err)
 	gated.Stderr = core.JoinNonEmpty("\n", placed.Stderr, gated.Stderr)
 	return gated
+}
+
+// planAgentBlock confines the Plan subagent's file writes to the plans home .
+func planAgentBlock(in *core.Input) core.Result {
+	if in.Nested("agent_type") != "Plan" {
+		return core.Result{}
+	}
+	switch strings.ToLower(in.CanonicalTool()) {
+	case "write", "edit", "multiedit", "create":
+	default:
+		return core.Result{}
+	}
+	path := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	home := filepath.Join(paths.ConfigDir(), "plans")
+	if path != "" && paths.InsideDir(path, home) {
+		return core.Result{}
+	}
+	return core.Result{Decision: core.Block, Reason: "docs-placement: BLOCKED — the Plan agent writes only its plan under " + home + "/", Rule: "plan-agent-write"}
 }
 
 // noteRedirect rewrites a top-level native note in the memory store into feedback/ or notes/, never denying.

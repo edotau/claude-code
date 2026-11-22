@@ -128,3 +128,28 @@ func TestLeafStateWall(t *testing.T) {
 		})
 	}
 }
+
+// The test name stays free of the word the mayTouchState text test looks for: t.TempDir paths carry it.
+func TestLeafWallUnnamedTarget(t *testing.T) {
+	cfg, err := filepath.EvalSymlinks(t.TempDir()) // the state glob is unresolved; macOS temp sits under /var -> /private
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	setStateWallDispatch(t, stateWallCases[0])
+	link := filepath.Join(t.TempDir(), "s")
+	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(paths.StateDir(), link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for cwd, cmd := range map[string]string{"/tmp": "echo x > " + filepath.Join(link, "x"),
+		filepath.Dir(paths.StateDir()): "echo x > " + filepath.Join(filepath.Base(paths.StateDir()), "x")} {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "agent_id": "a1",
+			"tool_input": map[string]string{"command": cmd}})
+		if r := Scan(core.ParseInput(bytes.NewReader(payload))); r.Decision != core.Block || !r.Floor {
+			t.Errorf("%q in %s: decision %v floor %v, want a floor block", cmd, cwd, r.Decision, r.Floor)
+		}
+	}
+}

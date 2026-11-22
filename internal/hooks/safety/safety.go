@@ -210,6 +210,9 @@ func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, st
 	if d != core.Allow {
 		return d, warn, detail, true
 	}
+	if d, msg, detail := planBashVerdict(in, cmd); d != core.Allow {
+		return d, msg, detail, true
+	}
 	if d, msg, detail := leafWallVerdict(in, cmd, plain); d != core.Allow {
 		return d, warn + msg, detail, true
 	}
@@ -434,7 +437,7 @@ const (
 // builtinVerdict is the rest: settings.local.json and leaf settings.json writes, main-only rules, SQL.
 func builtinVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
 	leaf := isLeaf(in)
-	globs := slices.DeleteFunc(extraGlobs(leaf), func(g string) bool { return g == stateGlob() }) // leafWallVerdict's
+	globs := settingsGlobs(leaf) // the state dir is leafWallVerdict's
 	if p := protectedWrite(cmd, in.CWD, globs, leaf); p != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
 			"Edit it by hand, or run it yourself in a terminal."), "protected write"
@@ -770,16 +773,22 @@ var leafSettings = sync.OnceValue(func() *regexp.Regexp {
 
 // protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
 func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
-	globs := sync.OnceValue(func() []string { return foldedGlobs(raw, cwd) })
+	var globs []string
+	folded := false
+	fold := func() []string {
+		if !folded {
+			globs, folded = foldedGlobs(raw, cwd), true
+		}
+		return globs
+	}
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		if (protectedPath(p, globs()) || leaf && leafSettings().MatchString(p)) && !tempWriteAllowed(cmd, p) {
+		if (protectedPath(p, fold()) || leaf && leafSettings().MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
 	removed := core.RemovedPaths(cmd, cwd)
-	allowed := sync.OnceValue(func() bool { return removalAllowed(cmd, removed) })
 	for _, p := range removed {
-		if protectedPath(p, globs()) && !allowed() {
+		if protectedPath(p, fold()) && !removalAllowed(cmd, removed) {
 			return p
 		}
 	}

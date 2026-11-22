@@ -84,8 +84,13 @@ var envMutation = sync.OnceValue(func() *regexp.Regexp {
 		`\$ENV\s*\{\s*` + key + `\s*\}\s*=(?:[^=~]|$)|\bdelete\s+(?:local\s+)?\$ENV\s*\{`)
 })
 
+var envMarkers = []string{"ENV", "environ", "putenv", "unsetenv", "process.env"}
+
 // interpTamper is the dispatch variable an interpreter text changes in its environment, else "".
 func interpTamper(text string) string {
+	if !slices.ContainsFunc(envMarkers, func(m string) bool { return strings.Contains(text, m) }) {
+		return "" // every envMutation branch spells one of these outside any quote seam
+	}
 	text = joinLiterals(text)
 	if !strings.Contains(text, "HARNESS_DISPATCH_") || !envMutation().MatchString(text) {
 		return ""
@@ -272,7 +277,7 @@ func runsLauncher(args []string, depth int) bool {
 	return false
 }
 
-// launcher reports an agent launcher or interpreter word; .hooks counts as it hands its verbs to claude-code.
+// launcher reports an agent launcher or interpreter word; .hookd counts as it hands its verbs to claude-code.
 func launcher(word string) bool {
 	name := filepath.Base(word)
 	return slices.Contains(launchers(), name) || shell.IsHarnessName(name) || shell.IsInterpreter(name)

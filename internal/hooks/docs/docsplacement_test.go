@@ -591,3 +591,29 @@ func BenchmarkPlacementWrite(b *testing.B) {
 		})
 	}
 }
+
+func TestPlacementPlanAgentWritesOnlyPlans(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	cases := []struct {
+		name, agent, path string
+		block             bool
+	}{
+		{"plan to plans home", "Plan", filepath.Join(cfg, "plans", "2026-11-22-x.md"), false},
+		{"plan to repo subdir of plans", "Plan", filepath.Join(cfg, "plans", "repo", "2026-11-22-x.md"), false},
+		{"plan to source file", "Plan", filepath.Join(cfg, "internal", "foo.go"), true},
+		{"plan dotdot escape", "Plan", filepath.Join(cfg, "plans", "..", "internal", "foo.go"), true},
+		{"plan to a sibling dir", "Plan", filepath.Join(cfg, "plans-x", "a.md"), true},
+		{"main session to source file", "", filepath.Join(cfg, "internal", "foo.go"), false},
+		{"other agent to source file", "claude", filepath.Join(cfg, "internal", "foo.go"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b, _ := json.Marshal(map[string]any{"tool_name": "Write", "agent_type": c.agent, "tool_input": map[string]string{"file_path": c.path}})
+			r := planAgentBlock(core.ParseInput(bytes.NewReader(b)))
+			if r.Decision == core.Block != c.block {
+				t.Fatalf("decision = %v, block want %v", r.Decision, c.block)
+			}
+		})
+	}
+}

@@ -34,6 +34,11 @@ local-only git repo outside every project, so handoffs and reports never ride a 
 One exception inside a repo: a new plan-named `.md` (`plan`/`plans` as a whole word) at the root or in `docs/`,
 tracked or ignored, is redirected to the dated plans home (`docs-placement`).
 
+## The Plan agent
+
+A `Write`/`Edit` from the `Plan` subagent (payload `agent_type`) passes only under `~/.claude/plans/`; any other path
+blocks. Its Bash passes only `permission.ReadOnlyShell` (a `safety-scan` floor block no `--allow` lifts).
+
 ## When the gate blocks
 
 It names the canonical home; re-issue the write there. When the file name holds plan, report or handoff, it names the
