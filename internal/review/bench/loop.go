@@ -548,7 +548,7 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 func writeRolling(dir string, body []byte) error {
 	file := filepath.Join(dir, "rolling.txt")
 	return paths.WithFileLockWithin(file, rollingLock, func() error {
-		return paths.AtomicWriteNoSync(file, body, 0o644)
+		return paths.AtomicWrite(file, body, 0o644)
 	})
 }
 
