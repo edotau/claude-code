@@ -226,7 +226,20 @@ func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	if tool != "Bash" {
 		return p.decideOne(tool, arg)
 	}
-	return p.decideBash(shellCode(arg), 0, cwd) // judge what bash runs: a comment can hide a quote that ends one
+	code := shellCode(arg) // judge what bash runs: a comment can hide a quote that ends one
+	d := p.decideBash(code, 0, cwd)
+	if unrolled, ok := unrollFor(code); ok && d != Allow { // loosen only a catch-all refusal; a Deny rule always stands
+		if u := p.decideBash(unrolled, 1, cwd); u != Deny && (d != Deny || !p.explicitDeny(code, cwd)) {
+			d = max(d, u)
+		}
+	}
+	return d
+}
+
+// explicitDeny reports a Deny rule other than the read-only catch-all matching cmd.
+func (p Permissions) explicitDeny(cmd, cwd string) bool {
+	rules := slices.DeleteFunc(slices.Clone(p.Deny), func(r Rule) bool { return r.Tool == "Bash" && r.Arg == NotReadOnlyShellArg })
+	return Permissions{Deny: rules}.decideBash(cmd, 0, cwd) == Deny
 }
 
 // shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
@@ -542,6 +555,65 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 	}
 	return worst
 }
+
+var forLoop = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?s)^\s*for[ \t]+([a-z_][a-z0-9_]*)[ \t]+in((?:[ \t]+[A-Za-z0-9._/@%+=:,][A-Za-z0-9._/@%+=:,-]*)+)` +
+		`[ \t]*[;\n]\s*do[ \t\n]+(.*?)[ \t]*[;\n]\s*done\s*$`)
+})
+
+// maxUnrolled caps the unrolled body bytes (words × body length).
+const maxUnrolled = 64 << 10
+
+// zshTiedVars are lowercase names zsh ties to PATH-like variables.
+var zshTiedVars = []string{"path", "cdpath", "fpath", "manpath", "mailpath", "module_path"}
+
+// unrollFor is a literal-word for loop as its body once per word, $x replaced; false for any other shape.
+func unrollFor(cmd string) (string, bool) {
+	m := forLoop().FindStringSubmatch(cmd)
+	if m == nil || slices.Contains(zshTiedVars, m[1]) || !loopBodyOK(m[3]) ||
+		len(strings.Fields(m[2]))*len(m[3]) > maxUnrolled {
+		return "", false
+	}
+	var out []string
+	ref := regexp.MustCompile(`\$(\{` + m[1] + `\}|` + m[1] + `\b)`) // m[1] is an identifier: no regexp metacharacter
+	for w := range strings.FieldsSeq(m[2]) {
+		s := ref.ReplaceAllLiteralString(m[3], w)
+		if strings.Contains(s, "$") || unquotedAny(s, "(){}") { // another variable, a group or a subshell
+			return "", false
+		}
+		out = append(out, s)
+	}
+	return strings.Join(out, "; "), true
+}
+
+// loopBodyOK: no backtick, backslash, single-quoted $ or nested control word.
+func loopBodyOK(body string) bool {
+	if strings.ContainsAny(body, "`\\") {
+		return false
+	}
+	at := shell.QuoteAt(body)
+	for i := range len(body) {
+		if body[i] == '$' && at[i] != 0 && at[i] != '"' {
+			return false
+		}
+	}
+	return !slices.ContainsFunc(shell.Segments(body), func(seg string) bool {
+		return slices.ContainsFunc(shell.Tokens(seg), func(t string) bool { return slices.Contains(loopControlWords, t) })
+	})
+}
+
+func unquotedAny(s, chars string) bool {
+	at := shell.QuoteAt(s)
+	for i := range len(s) {
+		if at[i] == 0 && strings.IndexByte(chars, s[i]) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+var loopControlWords = []string{"for", "while", "until", "do", "done", "break", "continue", "select", "case", "if",
+	"function", "eval", "source"}
 
 var subOpener = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[$<>]\\(|`") })
 
