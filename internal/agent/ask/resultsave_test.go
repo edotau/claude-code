@@ -100,6 +100,29 @@ func TestSaveResultMasksVaultValue(t *testing.T) {
 	}
 }
 
+// A carried background log splices the ask trailer into the answer. One broken line is the log's, so the saved answer
+// is not appended; a second missing line means the log never held it, so it is.
+func TestResultTextKeepsASplitAnswer(t *testing.T) {
+	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
+	answer := "line one\nline two\nline three"
+	rec := agent.Record{ID: "c-opencode", Agent: "opencode", Status: "ok", Model: "m",
+		Usage: &wire.Usage{InputTokens: 1, OutputTokens: 1}}
+	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
+	env := wire.NewEnvelope(wire.Result{Agent: "opencode", Status: "ok", Model: "m", Answer: answer,
+		Usage: wire.Usage{InputTokens: 1, OutputTokens: 1}}, nil, rec.ID)
+	if err := events.Emit(wire.ResultEvent(env)); err != nil {
+		t.Fatal(err)
+	}
+	events.Close()
+	split := "line one\nline twoask: ran on x\nline three\n"
+	if got := strings.Count(resultText(rec, split), "line three"); got != 1 {
+		t.Errorf("split answer printed %d times, want 1", got)
+	}
+	if got := resultText(rec, "line one\n"); strings.Count(got, answer) != 1 {
+		t.Errorf("partial log = %q, want the saved answer once", got)
+	}
+}
+
 func TestResultTextShowsCutoff(t *testing.T) {
 	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
 	text := resultText(agent.Record{ID: "x-codex", Agent: "codex", Status: "stalled", Cutoff: "deadline", Error: "cut off"}, "")

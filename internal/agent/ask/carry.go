@@ -37,6 +37,7 @@ const noRecordFmt = "carried ask exited %d without finishing a dispatch record"
 // takeoverBrief is the fixed Pi takeover brief: agent, cutoff, the original task, the partial output.
 const takeoverBrief = `A carried %s run was cut off (%s) before it finished.
 Continue the task below from where it stopped and finish it; say what you changed.
+Read every file named below that you need, and batch all of those independent reads into one response.
 
 Task:
 %s
@@ -196,9 +197,9 @@ func carrySpawn(ctx context.Context, rec agent.Record, format string) int {
 func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	out, closeLog := carryLog(rec, out)
+	out, errOut, closeLog := carryLog(rec, out)
 	start, tail := time.Now(), &tailWriter{max: carryTail}
-	code := carryExec(ctx, rec.Request.CarryArgv, strings.NewReader(rec.Request.Prompt), carryEnv(ctx, rec), io.MultiWriter(out, tail), os.Stderr)
+	code := carryExec(ctx, rec.Request.CarryArgv, strings.NewReader(rec.Request.Prompt), carryEnv(ctx, rec), io.MultiWriter(out, tail), errOut)
 	child, found := agent.LatestChild(rec.ID)
 	if found {
 		child = settleChild(child, code)
@@ -218,13 +219,15 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 	return code
 }
 
-// carryLog tees a foreground carrier's output into rec's log (redacted); a --job child's stdout already is the log.
-func carryLog(rec agent.Record, out io.Writer) (io.Writer, func()) {
+// carryLog tees a foreground carrier's answer into rec's log (redacted), keeping the trailer on os.Stderr.
+// A background carrier's answer and trailer share one stream: a --job child's stdout is the log, so a second stream
+// would let the child's ask trailer land before the redaction buffer flushes the answer's end.
+func carryLog(rec agent.Record, out io.Writer) (io.Writer, io.Writer, func()) {
 	if rec.Background {
-		return out, func() {}
+		return out, out, func() {}
 	}
 	sink := wire.NewLogSink(rec.LogPath())
-	return io.MultiWriter(out, sink.Stream()), sink.Close
+	return io.MultiWriter(out, sink.Stream()), os.Stderr, sink.Close
 }
 
 // settleChild is child once its process has exited: a record left running is ended, since nothing else will end it.
@@ -266,7 +269,7 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 	cut := cmp.Or(child.Cutoff, child.Status)
 	fmt.Fprintf(os.Stderr, "ask: carry: %s was cut off (%s); pi takes over\n", child.ID, cut)
 	brief := fmt.Sprintf(takeoverBrief, rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
-	code := carryExec(ctx, argv, strings.NewReader(brief), carryEnv(ctx, rec), out, os.Stderr)
+	code := carryExec(ctx, argv, strings.NewReader(brief), carryEnv(ctx, rec), out, carryErr(rec, out))
 	pi, ok := agent.LatestChild(rec.ID)
 	if !ok || pi.ID == child.ID || pi.Agent != agentid.Pi {
 		fmt.Fprintf(os.Stderr, "ask: carry: pi takeover left no record (exit %d)\n", code)
@@ -283,6 +286,14 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 		fmt.Fprintf(os.Stderr, "ask: pi takeover %s ended %s\n", pi.ID, pi.Status)
 	}
 	return code, pi, true
+}
+
+// carryErr is a takeover's stderr: the foreground trailer stays on os.Stderr, a background one joins the answer stream.
+func carryErr(rec agent.Record, out io.Writer) io.Writer {
+	if rec.Background {
+		return out
+	}
+	return os.Stderr
 }
 
 // takeoverArgv is Pi's line: the inner line's tools tier, permission, workdir, format and overlay-cap flags.

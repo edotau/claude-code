@@ -1,8 +1,11 @@
 package ask
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -75,6 +78,43 @@ func TestRunCarryTakesOverCutOffChild(t *testing.T) {
 		t.Fatalf("runCarry = %d after %d calls, want 0 after 2", code, calls)
 	}
 	checkOuter(t, outer, child, piID)
+}
+
+// A background carrier sends the answer and the ask trailer down one stream, so the trailer cannot land mid-answer.
+// A foreground carrier keeps the trailer on stderr and tees only the answer into the record log.
+func TestCarryLogJoinsStreamsOnlyInBackground(t *testing.T) {
+	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
+	bg := agent.Record{ID: "b", Background: true}
+	out, errOut, closeLog := carryLog(bg, io.Discard)
+	closeLog()
+	if out != errOut {
+		t.Fatal("background carry: stdout and stderr are different writers")
+	}
+	var answer bytes.Buffer
+	fg := agent.Record{ID: "20261122T030000.000-gemini", Agent: "gemini"}
+	out, errOut, closeLog = carryLog(fg, &answer)
+	io.WriteString(out, "the answer\n")
+	if errOut != os.Stderr {
+		t.Fatal("foreground carry: stderr left os.Stderr")
+	}
+	if answer.String() != "the answer\n" {
+		t.Fatalf("foreground stdout = %q, want the answer only", answer.String())
+	}
+	log, err := os.ReadFile(fg.LogPath())
+	if err != nil || string(log) != "the answer\n" {
+		t.Fatalf("foreground log = %q (%v), want the answer only", log, err)
+	}
+}
+
+// A takeover brief tells Pi to read every file it needs and to batch the independent reads into one response.
+func TestTakeoverBriefAsksForOneReadBatch(t *testing.T) {
+	got := fmt.Sprintf(takeoverBrief, "codex", "deadline", "the task", 4, "tail")
+	if !strings.Contains(got, "batch all of those independent reads into one response") {
+		t.Fatalf("takeover brief = %q, want the one-batch read instruction", got)
+	}
+	if !strings.Contains(got, "the task") || !strings.Contains(got, "tail") {
+		t.Fatalf("takeover brief = %q, want the task and the partial output kept", got)
+	}
 }
 
 // checkOuter asserts the outer record ran as pi, holds pi's result event under its own id, and pi links the child.
