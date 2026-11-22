@@ -551,7 +551,9 @@ type statusEntry struct{ Code, Path string }
 
 // Status lists dirty paths (untracked files individually), limited to pathspecs when given.
 func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
-	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all"}
+	before, pinned := indexStamp(r)
+	// No optional locks: status must not rewrite the index, so an unchanged stamp proves nobody else did.
+	args := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"}
 	if len(pathspecs) > 0 {
 		args = append(append(args, "--"), pathspecs...)
 	}
@@ -566,7 +568,62 @@ func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
 			entries = append(entries, statusEntry{Code: "D ", Path: e.From}) // a rename also deletes its source
 		}
 	}
+	rememberIndex(r, before, pinned && len(pathspecs) == 0, entries)
 	return entries, nil
+}
+
+// rememberIndex records what a full status saw staged when the index and HEAD held still across it.
+func rememberIndex(r Repo, before indexState, full bool, entries []statusEntry) {
+	after, ok := indexStamp(r)
+	if !full || !ok || !before.same(after) {
+		indexMemo.Delete(r.Dir)
+		return
+	}
+	for _, e := range entries {
+		if x := (e.Code + " ")[0]; x != ' ' && x != '?' && x != '!' {
+			after.staged = append(after.staged, e.Path)
+		}
+	}
+	indexMemo.Store(r.Dir, after)
+}
+
+// indexMemo maps a repo dir to the index-vs-HEAD state its last full Status saw, so Commit can skip `diff --cached`.
+var indexMemo sync.Map
+
+// indexState pins the index file and HEAD id a status ran against, and the paths staged against HEAD then.
+type indexState struct {
+	fi     fs.FileInfo
+	head   string
+	staged []string
+}
+
+// indexStamp reads the index file's identity and HEAD's id; ok is false when either cannot be pinned without git.
+func indexStamp(r Repo) (indexState, bool) {
+	fi, err := os.Stat(filepath.Join(r.Dir, ".git", "index"))
+	if err != nil {
+		return indexState{}, false
+	}
+	head, ok := r.headSHA()
+	return indexState{fi: fi, head: head}, ok
+}
+
+// same reports one index file (git replaces it by rename on every write) at one size and mtime, under one HEAD.
+func (s indexState) same(o indexState) bool {
+	return s.head == o.head && s.fi.Size() == o.fi.Size() && s.fi.ModTime().Equal(o.fi.ModTime()) && os.SameFile(s.fi, o.fi)
+}
+
+// knownStaged is what the last full Status saw staged, when the index and HEAD are still exactly what it saw.
+func knownStaged(r Repo) ([]string, bool) {
+	v, ok := indexMemo.Load(r.Dir)
+	if !ok {
+		return nil, false
+	}
+	memo := v.(indexState)
+	now, ok := indexStamp(r)
+	if !ok || !memo.same(now) {
+		return nil, false
+	}
+	return memo.staged, true
 }
 
 // head is the short sha of HEAD, "" when the repo has no commits yet.
@@ -592,7 +649,7 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 	if err != nil {
 		return "", false, err
 	}
-	if len(staged) == 0 { // the staged-names diff already answers what `diff --cached --quiet` would
+	if !staged {
 		return "", false, nil
 	}
 	args := []string{"commit", "-m", subject}
@@ -672,18 +729,31 @@ func isHexID(s string) bool {
 	return true
 }
 
-// stageRels stages rels and returns every path the index now differs from HEAD in.
-func (r Repo) stageRels(rels []string) ([]string, error) {
+// stageRels stages rels and reports whether the index now differs from HEAD.
+func (r Repo) stageRels(rels []string) (bool, error) {
 	stage, err := r.stageable(rels)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	for chunk := range slices.Chunk(stage, 200) { // keeps the argv under the Windows command-line limit
-		if _, err := r.run(append([]string{"add", "-A", "--"}, chunk...)...); err != nil {
-			return nil, err
+	known, ok := knownStaged(r)
+	if ok {
+		if err := refuseUnexpected(known, rels); err != nil {
+			return false, err
 		}
 	}
-	return r.checkStaged(rels)
+	added := false
+	for chunk := range slices.Chunk(stage, 200) { // keeps the argv under the Windows command-line limit
+		out, err := r.run(append([]string{"add", "-A", "-v", "--"}, chunk...)...)
+		if err != nil {
+			return false, err
+		}
+		added = added || out != ""
+	}
+	if ok && len(known) == 0 { // index was HEAD, so `add -v` naming a change is exactly what diff --cached would list
+		return added, nil
+	}
+	staged, err := r.checkStaged(rels)
+	return len(staged) > 0, err
 }
 
 // stageable validates rels and drops the absent-and-untracked ones (`add` rejects a pathspec matching nothing).
@@ -855,19 +925,26 @@ func (r Repo) checkStaged(rels []string) (staged []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	want := make(map[string]bool, len(rels))
-	for _, rel := range rels {
-		want[filepath.ToSlash(rel)] = true
-	}
 	for p := range strings.SplitSeq(out, "\x00") {
-		if p != "" && !want[p] {
-			return nil, fmt.Errorf("memory repo: unexpected staged change: %s", p)
-		}
 		if p != "" {
 			staged = append(staged, p)
 		}
 	}
-	return staged, nil
+	return staged, refuseUnexpected(staged, rels)
+}
+
+// refuseUnexpected errors on the first staged path that is not one of rels.
+func refuseUnexpected(staged, rels []string) error {
+	want := make(map[string]bool, len(rels))
+	for _, rel := range rels {
+		want[filepath.ToSlash(rel)] = true
+	}
+	for _, p := range staged {
+		if !want[p] {
+			return fmt.Errorf("memory repo: unexpected staged change: %s", p)
+		}
+	}
+	return nil
 }
 
 // validateRel rejects any rel that is not a plain store-relative path to a regular (or absent) file.
