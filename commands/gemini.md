@@ -2,7 +2,7 @@
 description: "Send a task to the gemini agent on its own pin, here or on --host <host>"
 argument-hint: "[--host <host>] [--profile <p>] [--model <m>] <task>"
 disable-model-invocation: true
-allowed-tools: Bash(claude-code agents label gemini *), Agent
+allowed-tools: Bash(claude-code agents label gemini *), Bash(claude-code agents brief --path gemini), Read, Write, Bash(claude-code agents ask --carry --background --agent gemini *), Bash(claude-code agents ask --background --agent gemini *), Bash(claude-code agents result -f *)
 ---
 
 # /gemini
@@ -11,15 +11,18 @@ allowed-tools: Bash(claude-code agents label gemini *), Agent
 /gemini [--host <host>] [--profile <p>] [--model <m>] <task>
 ```
 
-Launcher only. Empty `$ARGUMENTS` or `help`: print the block above and stop. Otherwise:
+Launcher only, carried with no relay subagent. Empty `$ARGUMENTS` or `help`: print the block above and stop.
+Otherwise:
 
 1. Take the leading `--host <host>`, `--profile <p>` and `--model <m>` off `$ARGUMENTS`; the rest is the task.
-2. Run `claude-code agents label gemini [--model <m> from step 1] --task -` with the step 3 prompt on stdin (prints
-   `<label>:`; empty output means no prefix: use the description alone).
-3. Make ONE Agent tool call: `subagent_type: gemini`, description `<label>: <first ~8 words of the task>`, and a
-   prompt whose first line is
-   `Run: claude-code agents ask --agent gemini [the flags from step 1] --tools --read-only`,
-   then a blank line, then the task verbatim.
+2. Run `claude-code agents brief --path gemini`, Read the path it prints, then Write the task verbatim to it.
+3. Run `claude-code agents label gemini [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
+   output means no prefix).
+4. Run ONE Bash call (the ask's own `--background` returns at once), description
+   `<label>: <first ~8 words of the task>`:
+   `claude-code agents ask --carry --background --agent gemini [flags from step 1] --tools --read-only - < <that path>`.
+   `--carry` refuses `--host`, so with `--host` drop `--carry` and add `--host <host>`.
+5. Read the id from its `job <id> started` line, then wait with ONE `claude-code agents result -f <id>`.
 
-Relay the leaf's report with its `ran on` line; never do the task yourself. Commands:
+Relay the result with its `ran on` line; never do the task yourself. Commands:
 `~/.claude/rules/workflows/agents.md` → Slash commands.

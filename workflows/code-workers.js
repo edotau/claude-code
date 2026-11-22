@@ -56,6 +56,8 @@ const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `cl
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
 const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
+// Agents whose relay subagent is retired: a claude leaf runs their stage from a `Run:` line, so the ran-on gate holds.
+const RELAY_RETIRED = ['gemini']
 const stepRecord = (name, who, label, r) => {
   const { ranOn, canon, ok } = ranOnVerdict(r)
   if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
@@ -73,9 +75,11 @@ const stepExt = (name, v, d, f) => {
   const route = provider ? ` --overlay '${JSON.stringify({ provider, profile: profile || 'auto', ...(v.model ? { model: v.model } : {}) })}'`
     : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
   const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + route
+  const retired = RELAY_RETIRED.includes(who)
+  const how = retired ? 'the `Run:` line above plus `--attach <file>`' : `\`${ask} --attach <file>\``
   return {
-    agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
-    task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.` +
+    agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: retired ? 'claude' : who }, profile, provider,
+    task: (p) => (retired ? `Run: ${ask}\n` : '') + `Agent: ${who}\nRun the task below with ${how}: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },

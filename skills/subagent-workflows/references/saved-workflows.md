@@ -24,7 +24,8 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 | `code-evaluator` → `code-engineer` {skill} | `cells`, `deltas` |
 
 - A stage runs on `agent` = `claude` (in-context, session profile, `model` = `haiku|sonnet|opus|fable`) or
-  `codex|copilot|gemini|opencode`: a `sonnet` leaf of that type runs
+  `codex|copilot|gemini|opencode`: a `sonnet` leaf of that type (a `claude` leaf for an agent in `RELAY_RETIRED`,
+  gemini today, whose brief opens with the ask as its `Run:` line so the ran-on gate holds) runs
   `claude-code agents ask --agent <a> --fallback agents --format json --tools|--read-only --effort <e> [--profile <p>]
   [--provider <x>] [--model <m>] --attach <file>`, and the stage reports `ran on`
   (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin; `profile`/`provider`

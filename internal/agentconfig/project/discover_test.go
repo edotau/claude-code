@@ -310,8 +310,8 @@ func checkAgentFileSource(agent Source) []string {
 		defects = append(defects, fmt.Sprintf("%s: name = %v, want %q", file, agent.frontmatter["name"], agent.dirName))
 	}
 	tools := agentFileTools(agent.frontmatter["tools"])
-	external := []string{"codex", "copilot", "gemini", "opencode"}
-	leaves := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	external := []string{"codex", "copilot", "opencode"}
+	leaves := []string{"claude", "codex", "copilot", "opencode"}
 	if slices.Contains(external, agent.dirName) && !slices.Contains(tools, "Bash") {
 		defects = append(defects, file+": external leaf tools must include Bash")
 	}
@@ -353,7 +353,7 @@ func TestAgentFilesTie(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("no agent files found in " + dir)
 	}
-	required := []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}
+	required := []string{"claude", "codex", "copilot", "opencode", "pi"}
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
@@ -362,7 +362,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode", "pi"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "codex", "copilot", "opencode", "pi"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
@@ -370,7 +370,7 @@ func TestAgentFilesTie(t *testing.T) {
 // Each /<agent> launcher dispatches its roster agent's ask through the Agent tool, and that agent has a file.
 func TestAgentLaunchersTieToRoster(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+	for _, name := range []string{"codex", "copilot", "opencode"} {
 		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
 			t.Errorf("/%s: %v", name, err)
@@ -396,12 +396,10 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 		{"missing required", "copilot", "", "", "copilot.md"},
 		{"codex without Bash", "codex", "codex", "[Read]", "codex.md"},
 		{"copilot without Bash", "copilot", "copilot", "Read", "copilot.md"},
-		{"gemini without Bash", "gemini", "gemini", "[Read]", "gemini.md"},
 		{"opencode without Bash", "opencode", "opencode", "Read", "opencode.md"},
 		{"claude with Agent", "claude", "claude", "[Read, Bash, Agent]", "claude.md"},
 		{"codex with Agent", "codex", "codex", "Read, Bash, Agent", "codex.md"},
 		{"copilot with Agent", "copilot", "copilot", "[Read, Bash, Agent]", "copilot.md"},
-		{"gemini with Agent", "gemini", "gemini", "Read, Bash, Agent", "gemini.md"},
 		{"opencode with Agent", "opencode", "opencode", "[Read, Bash, Agent]", "opencode.md"},
 	}
 	for _, tc := range cases {
@@ -418,7 +416,7 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 					writeAgentFileFixture(t, path, tc.declared, tc.tools)
 				}
 			}
-			required := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+			required := []string{"claude", "codex", "copilot", "opencode"}
 			assertAgentFileDefects(t, checkAgentFiles(dir, required), tc.want)
 		})
 	}
@@ -426,7 +424,7 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 
 func writeAgentFileFixtures(t *testing.T, dir string) {
 	t.Helper()
-	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+	for _, name := range []string{"claude", "codex", "copilot", "opencode"} {
 		writeAgentFileFixture(t, filepath.Join(dir, name+".md"), name, "[Read, Bash]")
 	}
 }

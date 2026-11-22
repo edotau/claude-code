@@ -31,8 +31,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | Phase | Agent / command | Output | Gate |
 |-------|----------------|--------|------|
 | 1. Review (MEDIUM+) | `Plan`, or a `codex` leaf | Refined Task Brief | READY / NEEDS CLARIFICATION |
-| 2. Codebase intel | Scoped `Explore` leaves, or one `gemini` sweep | Codebase Context Brief | Structure, conventions, deps |
-| 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a `gemini` leaf | Prior art + library refs | ≥1 reference, or "nothing found" |
+| 2. Codebase intel | Scoped `Explore` leaves, or one carried `gemini` sweep | Codebase Context Brief | Structure, conventions, deps |
+| 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a carried `gemini` ask | Prior art + library refs | ≥1 reference, or "nothing found" |
 | 4. Plan (MEDIUM+) | plan mode or `Plan` | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test |
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
@@ -47,8 +47,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
   downstream agent. Scope them to the directories the task touches: a repo-wide sweep is the biggest avoidable token
   cost. Skip if a brief exists this session and nothing changed.
 - **3 Research** order: `gh search code|repos`, web search via `skills/web-explorer/SKILL.md`, package registries
-  (prefer battle-tested libraries). Dispatch the research leaf (`gemini`, fallback `claude`) and `Plan` in one
-  message, in the background; relay findings to the running `Plan` with `SendMessage`, or merge at review.
+  (prefer battle-tested libraries). Start the research (a carried `gemini` ask, fallback a `claude` leaf) and `Plan` in
+  one message, in the background; relay findings to the running `Plan` with `SendMessage`, or merge at review.
 - **4 Plan** (rules `agents/Plan.md`, shape `docs/templates/plan.md`): review the draft before asking approval —
   in-context for MEDIUM, a `codex` leaf for HIGH+, per `skills/evaluate-code/references/task-review.md` → Plan review.
 - **5 Refine**: one brief per sub-task with the fields in `skills/subagent-workflows/SKILL.md` → Handoff contract.
