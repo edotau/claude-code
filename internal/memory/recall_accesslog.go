@@ -33,11 +33,6 @@ const (
 	accessLockWait    = 500 * time.Millisecond
 )
 
-// logAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
-func logAccess(dir string, now time.Time, entry, reason string) {
-	logAccessBatch(dir, now, []string{entry}, reason, "")
-}
-
 // accessLines renders one log line per entry, sharing the timestamp and sanitized reason.
 func accessLines(now time.Time, entries []string, reason string) string {
 	var lines strings.Builder

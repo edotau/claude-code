@@ -243,3 +243,7 @@ func TestLogBriefRecallTwiceCreditsOnce(t *testing.T) {
 		t.Errorf("session records = %d, want 2:\n%s", got, data)
 	}
 }
+
+func logAccess(dir string, now time.Time, entry, reason string) {
+	logAccessBatch(dir, now, []string{entry}, reason, "")
+}

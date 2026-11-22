@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -154,35 +153,4 @@ func LaunchOrigin(cwd string) string {
 		return o
 	}
 	return Resolve(cwd).Origin
-}
-
-// routeMatch reports whether query names raw as a whole word, with or without its leading dot.
-func routeMatch(query, raw string) bool {
-	name := strings.ToLower(strings.TrimPrefix(raw, "."))
-	if len(name) < 4 {
-		return false
-	}
-	return routeWord(query, strings.ToLower(raw)) || routeWord(query, name)
-}
-
-// routeWord uses the same separator set at both ends, so dotted names stay whole.
-func routeWord(query, name string) bool {
-	for offset := 0; offset <= len(query)-len(name); {
-		i := strings.Index(query[offset:], name)
-		if i < 0 {
-			return false
-		}
-		i += offset
-		end := i + len(name)
-		if (i == 0 || !routeWordByte(query[i-1])) && (end == len(query) || !routeWordByte(query[end])) {
-			return true
-		}
-		offset = i + 1
-	}
-	return false
-}
-
-// routeWordByte reports whether c continues a route word.
-func routeWordByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-'
 }

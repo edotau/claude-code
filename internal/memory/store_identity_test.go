@@ -190,21 +190,3 @@ func TestWithBankLockContention(t *testing.T) {
 		t.Fatal("fn must run once the bank lock is released")
 	}
 }
-
-// A routed name must appear as a whole word; a substring of it, or a key under 4 chars, never matches.
-func TestRouteMatchWholeWordAndShortKeysIgnored(t *testing.T) {
-	for _, c := range []struct {
-		query, key string
-		want       bool
-	}{
-		{"check Tester.GitHub.io, then deploy", "tester.github.io", true},
-		{"check .project", ".project", true},
-		{"my-tester.github.io", "tester.github.io", false},
-		{"tester.github.ion", "tester.github.io", false},
-		{"abc is here", "abc", false},
-	} {
-		if got := routeMatch(strings.ToLower(c.query), c.key); got != c.want {
-			t.Errorf("routeMatch(%q, %q) = %v, want %v", c.query, c.key, got, c.want)
-		}
-	}
-}

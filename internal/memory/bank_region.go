@@ -112,7 +112,7 @@ func readRow(path, dir string) pointerRow {
 	defer f.Close()
 	var head strings.Builder
 	sc := bufio.NewScanner(f)
-	for fences := 0; sc.Scan() && fences < 2; {
+	for fences := 0; fences < 2 && sc.Scan(); {
 		line := sc.Text()
 		if strings.TrimSpace(line) == "---" {
 			fences++
@@ -132,6 +132,9 @@ func readRow(path, dir string) pointerRow {
 			row.Desc, row.OK = strings.Join(strings.Fields(desc), " "), name != ""
 			row.Name = cmp.Or(name, stem)
 		}
+	}
+	if sc.Err() != nil {
+		row.OK = false
 	}
 	return row
 }
