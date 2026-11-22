@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -194,13 +196,13 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 // build scans claudeDir/projects for every session in scope, newest first.
 func build(claudeDir string, opts Options) (*Tree, error) {
 	now := opts.now()
-	sessionFiles, err := sessionTranscriptsInScope(claudeDir, opts, now)
+	sessionFiles, all, err := sessionTranscriptsInScope(claudeDir, opts, now)
 	if err != nil {
 		return nil, err
 	}
 	reg := readRegistry(claudeDir)
 	if opts.Session == "" { // live sessions stay listed past --days, under --detail too
-		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
+		sessionFiles = appendLiveTranscripts(all, reg, sessionFiles)
 	}
 	scans := opts.scans
 	if scans == nil {
@@ -221,12 +223,12 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 	return tree, nil
 }
 
-func appendLiveTranscripts(claudeDir string, reg map[string]regEntry, sessionFiles []string) []string {
+func appendLiveTranscripts(all []transcriptFile, reg map[string]regEntry, sessionFiles []string) []string {
 	have := map[string]bool{}
 	for _, f := range sessionFiles {
 		have[sessionIDFromPath(f)] = true
 	}
-	return append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
+	return append(sessionFiles, liveTranscripts(all, reg, have)...)
 }
 
 // finished is true for a subagent with a result in: finished or error.
@@ -252,31 +254,66 @@ const (
 	statusStale    = "stale"
 )
 
-// sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days.
-func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([]string, error) {
+// transcriptFile is one projects/*/*.jsonl match; ok is false when its Stat failed.
+type transcriptFile struct {
+	path  string
+	mtime time.Time
+	ok    bool
+}
+
+// sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days;
+// all is every projects/*/*.jsonl in glob order (nil for --session).
+func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) (files []string, all []transcriptFile, err error) {
 	if opts.Session != "" {
-		return plainSessionGlob(claudeDir, opts.Session)
+		files, err = plainSessionGlob(claudeDir, opts.Session)
+		return files, nil, err
 	}
 	days := opts.Days
 	if days <= 0 {
 		days = 1
 	}
-	pattern := filepath.Join(claudeDir, "projects", "*", "*.jsonl")
-	candidates, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
-	}
+	all = projectTranscripts(claudeDir)
 	cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
-	var files []string
-	for _, f := range candidates {
-		info, statErr := os.Stat(f)
-		if statErr != nil || info.ModTime().Before(cutoff) {
-			continue
+	for _, f := range all {
+		if f.ok && !f.mtime.Before(cutoff) {
+			files = append(files, f.path)
 		}
-		files = append(files, f)
 	}
 	slices.Sort(files)
-	return files, nil
+	return files, all, nil
+}
+
+// projectTranscripts is filepath.Glob(projects/*/*.jsonl) with each match stat-ed, one project dir per worker.
+func projectTranscripts(claudeDir string) []transcriptFile {
+	dirs := sortedNames(filepath.Join(claudeDir, "projects"))
+	perDir, _ := parallel.Map(context.Background(), dirs, 8, func(_ context.Context, d string) ([]transcriptFile, error) {
+		dir := filepath.Join(claudeDir, "projects", d)
+		var out []transcriptFile
+		for _, n := range sortedNames(dir) {
+			if ok, _ := filepath.Match("*.jsonl", n); !ok {
+				continue
+			}
+			f := transcriptFile{path: filepath.Join(dir, n)}
+			if info, err := os.Stat(f.path); err == nil {
+				f.mtime, f.ok = info.ModTime(), true
+			}
+			out = append(out, f)
+		}
+		return out, nil
+	})
+	return slices.Concat(perDir...)
+}
+
+// sortedNames is dir's entry names sorted, as filepath.Glob reads them; an unreadable or non-dir path has none.
+func sortedNames(dir string) []string {
+	d, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer d.Close() // read-only handle: a close error loses nothing
+	names, _ := d.Readdirnames(-1)
+	slices.Sort(names)
+	return names
 }
 
 // buildSession reads one session's main transcript, its subagents dir and its workflow runs.
@@ -326,10 +363,15 @@ func sessionStatus(updated, now time.Time) string {
 
 // plainSessionGlob globs projects/*/<id>.jsonl; an id with a separator or glob metacharacter is rejected.
 func plainSessionGlob(claudeDir, id string) ([]string, error) {
-	if id != filepath.Base(id) || id == ".." || strings.ContainsAny(id, `*?[]\`) {
+	if !plainSessionID(id) {
 		return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", id)
 	}
 	return filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
+}
+
+// plainSessionID is an id with no separator or glob metacharacter.
+func plainSessionID(id string) bool {
+	return id == filepath.Base(id) && id != ".." && !strings.ContainsAny(id, `*?[]\`)
 }
 
 // buildSubagent reads sidecar meta, tail and mtime; tokens and historical dispatch IDs share one full scan.
@@ -355,7 +397,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scan
 		Model:       e.Model,
 		LastTool:    act.Tool,
 		Updated:     updated,
-		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, scans.recs.Load(e.IDs)),
+		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, scans.records(e.IDs)),
 	}
 	if act.Tool != "" || act.Text != "" {
 		sub.Activity = &act
@@ -445,18 +487,19 @@ func applyRegistry(s Session, e regEntry) Session {
 	return s
 }
 
-// liveTranscripts finds projects/*/<id>.jsonl for each registry entry not already in have.
-func liveTranscripts(claudeDir string, reg map[string]regEntry, have map[string]bool) []string {
+// liveTranscripts picks projects/*/<id>.jsonl out of all for each registry entry not already in have.
+func liveTranscripts(all []transcriptFile, reg map[string]regEntry, have map[string]bool) []string {
+	byName := map[string][]string{}
+	for _, f := range all {
+		n := filepath.Base(f.path)
+		byName[n] = append(byName[n], f.path)
+	}
 	var files []string
 	for id := range reg {
-		if have[id] {
-			continue
-		}
-		matches, err := plainSessionGlob(claudeDir, id)
-		if err != nil {
+		if have[id] || !plainSessionID(id) {
 			continue // a registry name that is not a plain session id has no transcript
 		}
-		files = append(files, matches...)
+		files = append(files, byName[id+".jsonl"]...)
 	}
 	return files
 }

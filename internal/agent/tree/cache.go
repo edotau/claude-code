@@ -5,12 +5,16 @@ package tree
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -53,13 +57,14 @@ type scanEntry struct {
 	Act    *Activity `json:"act,omitempty"`
 }
 
-// scanCache is state/harness/cache/agents-tree-scan.json: transcript path -> scanEntry.
+// scanCache is state/harness/cache/agents-tree-scan.json: transcript path -> scanEntry, decoded on first lookup.
 type scanCache struct {
-	Schema int                   `json:"schema"`
-	Files  map[string]*scanEntry `json:"files"`
-	used   map[string]bool
-	dirty  bool
-	recs   agent.RecordIndex // one dispatch-dir listing shared by every subagent of a build
+	Schema  int                        `json:"schema"`
+	Files   map[string]json.RawMessage `json:"files"` // untouched entries are written back verbatim
+	entries map[string]*scanEntry      // looked-up entries, re-encoded into Files on save
+	used    map[string]bool
+	dirty   bool
+	recs    agent.RecordIndex // one dispatch-dir listing shared by every subagent of a build
 }
 
 var scanCacheFormat = schemas.Register(schemas.Format{
@@ -78,35 +83,83 @@ func loadScanCache() *scanCache {
 		c = &scanCache{}
 	}
 	if c.Files == nil {
-		c.Files = map[string]*scanEntry{}
+		c.Files = map[string]json.RawMessage{}
 	}
-	c.Schema, c.used = scanCacheSchema, map[string]bool{}
+	c.Schema, c.entries, c.used = scanCacheSchema, map[string]*scanEntry{}, map[string]bool{}
 	return c
 }
 
-// saveScanCache drops entries whose transcript is gone and writes the file when anything changed; best effort.
+// lookup returns path's entry, decoding it on first use; a missing or undecodable entry is nil.
+func (c *scanCache) lookup(path string) *scanEntry {
+	if e, ok := c.entries[path]; ok {
+		return e
+	}
+	raw, ok := c.Files[path]
+	if !ok {
+		return nil
+	}
+	e := &scanEntry{}
+	if json.Unmarshal(raw, e) != nil {
+		e = nil
+	}
+	c.entries[path] = e
+	return e
+}
+
+// saveScanCache writes the file when anything changed, first dropping entries whose transcript is gone; best effort.
 func saveScanCache(c *scanCache) {
+	if !c.dirty {
+		return
+	}
 	for p := range c.Files {
 		if c.used[p] {
 			continue
 		}
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			delete(c.Files, p)
-			c.dirty = true
+			delete(c.entries, p)
 		}
 	}
-	if c.dirty {
-		if data, err := json.Marshal(c); err == nil && os.MkdirAll(filepath.Dir(scanCachePath()), 0o700) == nil {
-			_ = paths.AtomicWriteNoSync(scanCachePath(), data, 0o600) // rebuilt on the next scan if torn
+	for p, e := range c.entries {
+		if e == nil {
+			continue
 		}
-		c.dirty = false
+		if raw, err := json.Marshal(e); err == nil {
+			c.Files[p] = raw
+		}
 	}
+	if data, err := json.Marshal(c); err == nil && os.MkdirAll(filepath.Dir(scanCachePath()), 0o700) == nil {
+		_ = paths.AtomicWriteNoSync(scanCachePath(), data, 0o600) // rebuilt on the next scan if torn
+	}
+	c.dirty = false
 }
 
 // next readies a cache kept across watch ticks: the dispatch-dir listing and the used set are per build.
 func (c *scanCache) next() {
 	clear(c.used)
 	c.recs = agent.RecordIndex{}
+}
+
+// records loads ids through the build's index, first dropping a gone full built-in id so it never lists the dir.
+func (c *scanCache) records(ids []string) []agent.Record {
+	ids = slices.DeleteFunc(slices.Clone(ids), func(id string) bool {
+		if !fullBuiltinID(id) {
+			return false
+		}
+		_, err := os.Stat(filepath.Join(paths.DispatchDir(), id+".json"))
+		return errors.Is(err, fs.ErrNotExist)
+	})
+	return c.recs.Load(ids)
+}
+
+// fullBuiltinID is a whole record id for a roster agent: no other record name starts with it plus ".json".
+func fullBuiltinID(id string) bool {
+	const stamp = "20060102T150405.000"
+	if len(id) < len(stamp)+2 || id[len(stamp)] != '-' || !slices.Contains(agentid.All(), id[len(stamp)+1:]) {
+		return false
+	}
+	_, err := time.Parse(stamp, id[:len(stamp)])
+	return err == nil
 }
 
 // totals sums the entry's responses into Tokens.
@@ -193,7 +246,7 @@ func (c *scanCache) scan(path string) *scanEntry {
 	}
 	var e *scanEntry
 	if c != nil {
-		e = c.Files[path]
+		e = c.lookup(path)
 		c.used[path] = true
 	}
 	if e != nil && e.Size == info.Size() && e.MtimeNS == info.ModTime().UnixNano() {
@@ -205,7 +258,7 @@ func (c *scanCache) scan(path string) *scanEntry {
 	}
 	e.Size, e.MtimeNS = info.Size(), info.ModTime().UnixNano()
 	if c != nil {
-		c.Files[path], c.dirty = e, true
+		c.entries[path], c.dirty = e, true
 	}
 	return e
 }
