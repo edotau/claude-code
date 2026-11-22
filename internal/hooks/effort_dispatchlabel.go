@@ -147,8 +147,15 @@ func WithDispatchLabels(next core.Runner) core.Runner {
 			defer func() { out.panicV = recover(); done <- out }()
 			out.line = dispatchLabelsLine(in)
 		}()
+		var out labelOut
+		joined := false
+		defer func() {
+			if !joined {
+				<-done // next panicked: join the worker before the dispatcher recovers, so no write outlives the module
+			}
+		}()
 		res := next(in)
-		out := <-done
+		out, joined = <-done, true
 		if out.panicV != nil {
 			panic(out.panicV) // re-raised on the module's goroutine, where the dispatcher recovers it
 		}

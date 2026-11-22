@@ -58,6 +58,25 @@ func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 	}
 }
 
+// A panicking module still joins the label worker: its marker is written before the panic leaves the wrapper.
+func TestWithDispatchLabelsJoinsWorkerOnPanic(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := func() *core.Input {
+		return core.ParseInputFor(strings.NewReader(`{"session_id":"s4","model":"databricks-claude-sonnet-5-5"}`), core.AgentClaude)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("next's panic was swallowed")
+			}
+		}()
+		WithDispatchLabels(func(*core.Input) core.Result { panic("module") })(in())
+	}()
+	if again := dispatchLabelsLine(in()); again != "" {
+		t.Fatalf("worker had not written its marker when the panic escaped; line = %q", again)
+	}
+}
+
 // The session-start output grows by exactly one line, the Run-flag rule, and it fits 120 characters.
 func TestDispatchLabelsLineEndsWithRunFlagRule(t *testing.T) {
 	useAgentsDir(t, "Explore")
