@@ -6,16 +6,19 @@ import (
 	"context"
 	"debug/buildinfo"
 	"encoding/json"
+	"fmt"
 	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -54,9 +57,36 @@ var gofmtMatchesRuntime = sync.OnceValue(func() bool {
 	if err != nil {
 		return false
 	}
-	info, err := buildinfo.ReadFile(p)
-	return err == nil && info.GoVersion == runtime.Version()
+	return cachedGofmtMatchesRuntime(p)
 })
+
+var readGofmtBuildInfo = buildinfo.ReadFile
+
+// The disk verdict survives hook processes; tool metadata and the harness Go version invalidate it.
+func cachedGofmtMatchesRuntime(p string) bool {
+	p = paths.Real(p)
+	cache := filepath.Join(paths.StateDir(), "gofmt-runtime")
+	key := ""
+	if fi, err := os.Stat(p); err == nil {
+		key = fmt.Sprintf("%q %d %d %q\n", p, fi.Size(), fi.ModTime().UnixNano(), runtime.Version())
+		if data, err := os.ReadFile(cache); err == nil {
+			switch string(data) {
+			case key + "true\n":
+				return true
+			case key + "false\n":
+				return false
+			}
+		}
+	}
+	info, err := readGofmtBuildInfo(p)
+	match := err == nil && info.GoVersion == runtime.Version()
+	if key != "" {
+		if err := paths.AtomicWriteNoSync(cache, []byte(key+strconv.FormatBool(match)+"\n"), 0o600); err != nil {
+			fmt.Fprintf(os.Stderr, "format-stop: cache gofmt version: %v\n", err)
+		}
+	}
+	return match
+}
 
 // formatGoInProcess is gofmt -w without the spawn: unchanged bytes stay unwritten, a parse error leaves the file.
 func formatGoInProcess(path string) bool {

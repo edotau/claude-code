@@ -1,11 +1,14 @@
 package quality
 
 import (
+	"debug/buildinfo"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -21,6 +24,45 @@ func TestMain(m *testing.M) {
 	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
+}
+
+func TestGofmtRuntimeCache(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tool := filepath.Join(t.TempDir(), "gofmt")
+	if err := os.WriteFile(tool, []byte("fake gofmt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := readGofmtBuildInfo
+	t.Cleanup(func() { readGofmtBuildInfo = original })
+	calls, version := 0, runtime.Version()
+	readGofmtBuildInfo = func(path string) (*buildinfo.BuildInfo, error) {
+		if path != paths.Real(tool) {
+			t.Fatalf("buildinfo path = %q, want %q", path, paths.Real(tool))
+		}
+		calls++
+		return &buildinfo.BuildInfo{GoVersion: version}, nil
+	}
+	check := func(want bool, reads int) {
+		t.Helper()
+		if got := cachedGofmtMatchesRuntime(tool); got != want || calls != reads {
+			t.Fatalf("match = %v, reads = %d; want %v, %d", got, calls, want, reads)
+		}
+	}
+	check(true, 1)
+	check(true, 1)
+	version = "different Go version"
+	changed := time.Now().Add(time.Hour)
+	if err := os.Chtimes(tool, changed, changed); err != nil {
+		t.Fatal(err)
+	}
+	check(false, 2)
+	check(false, 2)
+	cache := filepath.Join(paths.StateDir(), "gofmt-runtime")
+	if err := os.WriteFile(cache, []byte("malformed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check(false, 3)
+	check(false, 3)
 }
 
 func TestMakeRecipeAndTargetLine(t *testing.T) {
