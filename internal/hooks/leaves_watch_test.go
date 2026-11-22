@@ -129,6 +129,18 @@ func TestWatchTickResumesADeadJobOnce(t *testing.T) {
 	}
 }
 
+func TestWatchTickFailedResumeLeavesNoMarker(t *testing.T) {
+	watchStubs(t, deadStale())
+	startResume = func([]string) (string, error) { return "", os.ErrDeadlineExceeded }
+	got := watchTick(promptIn("s1"))
+	if !strings.Contains(got.Context, "the one resume failed") {
+		t.Fatalf("context %q, want the failed resume named", got.Context)
+	}
+	if _, err := os.Stat(agent.WatchMarker("resumed", deadJob)); !os.IsNotExist(err) {
+		t.Fatalf("resume marker after a failed launch: %v, want none", err)
+	}
+}
+
 func TestWatchTickModes(t *testing.T) {
 	_, checks, resumes := watchStubs(t, deadStale())
 	t.Setenv(agent.WatchEnv, "OFF")
@@ -156,12 +168,12 @@ func TestWatchTickQueueNotice(t *testing.T) {
 
 func TestWatchTickQueueFailureOnce(t *testing.T) {
 	s := agent.StaleJob{ID: deadJob, Reason: agent.WatchQueueStuck, Queue: "queued on qa 20s; daemon gone",
-		Next: []string{"claude-code", "agents", "ask", "--retry", deadJob}}
+		Next: []string{"claude-code", "agents", "result", "-f", deadJob}}
 	now, _, resumes := watchStubs(t, s)
 	first := watchTick(promptIn("queue"))
 	*now = now.Add(2 * time.Minute)
 	second := watchTick(promptIn("queue"))
-	if !strings.Contains(first.Context, "run directly: claude-code agents ask --retry "+deadJob) || second.Context != "" || *resumes != 0 {
+	if !strings.Contains(first.Context, "next: claude-code agents result -f "+deadJob) || second.Context != "" || *resumes != 0 {
 		t.Fatalf("first=%+v second=%+v resumes=%d", first, second, *resumes)
 	}
 }

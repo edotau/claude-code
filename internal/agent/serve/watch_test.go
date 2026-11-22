@@ -15,7 +15,7 @@ func TestQueueWatchPools(t *testing.T) {
 		{Pool: "dev", Waiting: []Waiter{{ID: "c", Since: now}}},
 	}}
 	got := queueWatch(status, nil, now)
-	if got.Gone || got.Limit != requeueWindow || len(got.Jobs) != 3 {
+	if got.Gone || got.Limit <= requeueWindow || len(got.Jobs) != 3 {
 		t.Fatalf("snapshot = %+v", got)
 	}
 	if got.Jobs["b"].Ahead != 1 || got.Jobs["b"].Pool != "qa" || got.Jobs["a"].Wait != 3*time.Second || got.Jobs["c"].Ahead != 0 {
@@ -32,8 +32,36 @@ func TestQueueWatchAbsence(t *testing.T) {
 		{context.DeadlineExceeded, false}, {os.ErrPermission, false},
 	} {
 		got := queueWatch(Status{}, c.err, time.Now())
-		if got.Gone != c.gone || got.Limit != requeueWindow || len(got.Jobs) != 0 {
+		if got.Gone != c.gone || got.Limit <= requeueWindow || len(got.Jobs) != 0 {
 			t.Fatalf("%v: %+v", c.err, got)
+		}
+	}
+}
+
+func TestWatchQueueGoneNeedsEveryProbe(t *testing.T) {
+	oldStatus, oldGap := watchStatus, goneGap
+	t.Cleanup(func() { watchStatus, goneGap = oldStatus, oldGap })
+	goneGap = 0
+	for _, c := range []struct {
+		name    string
+		answers []error
+		gone    bool
+		probes  int
+	}{
+		{"restart answers again", []error{syscall.ECONNREFUSED, nil}, false, 2},
+		{"absent throughout", nil, true, goneProbes},
+		{"timeout is not absence", []error{context.DeadlineExceeded}, false, 1},
+	} {
+		n := 0
+		watchStatus = func(time.Duration) (Status, error) {
+			n++
+			if n <= len(c.answers) {
+				return Status{}, c.answers[n-1]
+			}
+			return Status{}, ErrNotRunning
+		}
+		if got := watchQueue(time.Now()); got.Gone != c.gone || n != c.probes {
+			t.Fatalf("%s: gone %v after %d probes, want %v after %d", c.name, got.Gone, n, c.gone, c.probes)
 		}
 	}
 }

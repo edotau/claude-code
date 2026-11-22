@@ -157,14 +157,15 @@ func WatchMarker(kind, id string) string {
 	return filepath.Join(WatchDir(), kind+"-"+id)
 }
 
-// ResumedAs is the job id the watchdog resumed id as; "" when it never did.
+// ResumedAs is the job id the watchdog resumed id as; an empty marker is a claim whose launch never finished.
 func ResumedAs(id string) (string, bool) {
 	p := WatchMarker("resumed", id)
 	if p == "" {
 		return "", false
 	}
 	b, err := os.ReadFile(p)
-	return strings.TrimSpace(string(b)), err == nil
+	next := strings.TrimSpace(string(b))
+	return next, err == nil && next != ""
 }
 
 // Watch classifies owner's jobs (and the jobs the watchdog resumed for them) at now.
@@ -255,7 +256,7 @@ func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]R
 				if queue.Gone {
 					s.Queue = q.Line() + "; daemon gone"
 				}
-				s.Next = []string{"claude-code", "agents", "ask", "--retry", r.ID}
+				s.Next = []string{"claude-code", "agents", "result", "-f", r.ID} // alive: a retry would run it twice
 			} else {
 				rep.Queued = append(rep.Queued, q)
 			}

@@ -196,7 +196,7 @@ func checkQueueWatchReport(t *testing.T, rep WatchReport, id string, c queueWatc
 	}
 	if c.stuck {
 		s := rep.Stale[0]
-		if s.Reason != WatchQueueStuck || s.Resumable() || strings.Join(s.Next, " ") != "claude-code agents ask --retry "+id {
+		if s.Reason != WatchQueueStuck || s.Resumable() || strings.Join(s.Next, " ") != "claude-code agents result -f "+id {
 			t.Fatalf("stale = %+v", s)
 		}
 		return
@@ -252,6 +252,10 @@ func TestDeadJobNextCommand(t *testing.T) {
 	want := "claude-code agents ask --agent codex --session ses-1 --background --tools --workdir /w -- " + ResumePrompt
 	if !got.Resumable() || strings.Join(got.Next, " ") != want {
 		t.Fatalf("next %q, want %q", strings.Join(got.Next, " "), want)
+	}
+	marker(t, "resumed", r.ID, "") // a claim whose launch never finished hides nothing
+	if got, _ = classifyJob(r, watchT0, WatchLimits{}, relayState{}); got.Reason != WatchDead {
+		t.Fatalf("an empty resume marker hides the dead job: %q", got.Reason)
 	}
 	marker(t, "resumed", r.ID, "20261116T120100.000-codex\n")
 	if got, _ = classifyJob(r, watchT0, WatchLimits{}, relayState{}); got.Reason != "" {

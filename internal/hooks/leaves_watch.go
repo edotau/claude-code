@@ -254,7 +254,7 @@ func readSeen(path string) (map[string]bool, error) {
 // watchLine is the context line for one stale job; a resumable dead job is resumed once first.
 func watchLine(s agent.StaleJob, mode string) string {
 	if s.Queue != "" {
-		return "watch: job " + s.ID + " " + s.Queue + "; run directly: " + strings.Join(s.Next, " ")
+		return "watch: job " + s.ID + " " + s.Queue + "; next: " + strings.Join(s.Next, " ")
 	}
 	head := fmt.Sprintf("watch: job %s (%s, %s) %s, age %s, silent %s", s.Task, s.ID, s.Agent, reasonText[s.Reason],
 		agent.ShortDur(s.Age), agent.ShortDur(s.Silence))
@@ -289,6 +289,9 @@ func resumeOnce(s agent.StaleJob, mode string) string {
 	}
 	id, err := startResume(s.Next)
 	if err != nil {
+		if rerr := os.Remove(marker); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			err = errors.Join(err, rerr)
+		}
 		return fmt.Sprintf("the one resume failed (%v); not retried. Resume by hand: %s", err, cmd)
 	}
 	if werr := writeWatch(marker, []byte(id+"\n"), os.O_TRUNC); werr != nil {
