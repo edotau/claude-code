@@ -112,6 +112,13 @@ func TestPlanTickQuietCommitFallsBackToHead(t *testing.T) {
 	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
 }
 
+// rtk's compressed `ok <sha>` output behind `cd ~/dir && rtk git commit` still reaches the tick.
+func TestPlanTickRtkCommitShape(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	tick("cd ~/widgets && rtk git add a/one.go && rtk git commit -m x", "ok 2 files changed, 3 insertions(+)\nok "+sha+"\n")
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
+}
+
 // A quiet commit followed by a command that prints output still ticks its HEAD.
 func TestPlanTickQuietCommitWithOtherOutput(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)

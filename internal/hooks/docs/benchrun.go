@@ -30,12 +30,17 @@ const (
 // benchSpawn starts the detached bench run; a seam so tests spawn nothing.
 var benchSpawn = func(args []string, dir string) int { return proc.SpawnDetachedPID("sh", args, dir, nil) }
 
+// benchLoadWait caps the sysctl probe, far under the docs-plan-tick budget.
+const benchLoadWait = time.Second
+
 // benchLoad is the 1-minute load average; a seam for tests.
-var benchLoad = func() float64 {
+var benchLoad = func(ctx context.Context) float64 {
 	raw, err := os.ReadFile("/proc/loadavg")
 	if err != nil {
 		var out []byte
-		if out, err = exec.CommandContext(context.Background(), "sysctl", "-n", "vm.loadavg").Output(); err != nil {
+		ctx, cancel := context.WithTimeout(ctx, benchLoadWait)
+		defer cancel()
+		if out, err = exec.CommandContext(ctx, "sysctl", "-n", "vm.loadavg").Output(); err != nil {
 			return 0
 		}
 		raw = out
@@ -48,8 +53,11 @@ var benchLoad = func() float64 {
 	return v
 }
 
-// benchScript runs the bench at low priority, then hands the result back to this module for the notice.
-const benchScript = `b=$1; r=$2; p=$3; shift 3
+// benchScript benches a detached worktree of sha at low priority, then hands the result back to this module for the notice.
+const benchScript = `b=$1; r=$2; p=$3; top=$4; sha=$5; shift 5
+w=$(mktemp -d "$r.wt.XXXXXX") || exit 1
+trap 'git -C "$top" worktree remove --force "$w" >/dev/null 2>&1; rm -rf "$w"' EXIT
+git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" || exit 1
 nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
 "$b" hook PostToolUse --docs-plan-tick <"$p" >/dev/null 2>&1`
 
@@ -69,12 +77,12 @@ func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
 		return
 	}
 	if files := benchedFiles(ctx, top, sha); len(files) > 0 {
-		benchStart(in, top, sha, files)
+		benchStart(ctx, in, top, sha, files)
 	}
 }
 
 // benchStart records the run's marker, applies the busy skip and spawns the detached run.
-func benchStart(in *core.Input, top, sha string, files []string) {
+func benchStart(ctx context.Context, in *core.Input, top, sha string, files []string) {
 	state := filepath.Join(paths.StateDir(), "bench", "post-commit")
 	if os.MkdirAll(state, 0o700) != nil {
 		return
@@ -86,7 +94,7 @@ func benchStart(in *core.Input, top, sha string, files []string) {
 		return
 	}
 	defer f.Close()
-	if load := benchLoad(); load > float64(runtime.NumCPU())/2 {
+	if load := benchLoad(ctx); load > float64(runtime.NumCPU())/2 {
 		fmt.Fprintf(f, "skipped: busy (load %.2f)\n", load)
 		return
 	}
@@ -99,9 +107,13 @@ func benchStart(in *core.Input, top, sha string, files []string) {
 		fmt.Fprintln(f, "skipped: no spawn")
 		return
 	}
-	args := []string{"-c", benchScript, "sh", bin, base + ".json", base + ".in.json"}
+	args := []string{"-c", benchScript, "sh", bin, base + ".json", base + ".in.json", top, sha}
 	for _, p := range files {
-		args = append(args, "--path", p)
+		rel, err := filepath.Rel(top, p)
+		if err != nil {
+			rel = p
+		}
+		args = append(args, "--path", rel)
 	}
 	if benchSpawn(args, top) == 0 {
 		fmt.Fprintln(f, "skipped: spawn failed")

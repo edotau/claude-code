@@ -65,7 +65,7 @@ func TestBenchOnCommitSkipRules(t *testing.T) {
 	t.Cleanup(func() { benchSpawn, benchLoad = origSpawn, origLoad })
 	benchSpawn = func(args []string, _ string) int { spawned = append(spawned, args); return 1 }
 	load := 0.0
-	benchLoad = func() float64 { return load }
+	benchLoad = func(context.Context) float64 { return load }
 	in := core.ParseInput(strings.NewReader(`{"session_id":"s1","tool_name":"Bash"}`))
 	leaf := core.ParseInput(strings.NewReader(`{"session_id":"s1","agent_id":"a1","tool_name":"Bash"}`))
 
@@ -83,8 +83,7 @@ func TestBenchOnCommitSkipRules(t *testing.T) {
 	}
 	_ = os.Remove(marker[0])
 	benchOnCommit(context.Background(), in, dir, sha[:7])
-	real, _ := filepath.EvalSymlinks(dir)
-	if len(spawned) != 1 || !strings.Contains(strings.Join(spawned[0], " "), "--path "+filepath.Join(real, "pkg", "x.go")) {
+	if len(spawned) != 1 || !strings.Contains(strings.Join(spawned[0], " "), "--path "+filepath.Join("pkg", "x.go")) {
 		t.Errorf("spawned = %v, want one run for pkg/x.go", spawned)
 	}
 }
@@ -107,7 +106,7 @@ func TestBenchCommitFormsAndLaggingHead(t *testing.T) {
 	origSpawn, origLoad := benchSpawn, benchLoad
 	t.Cleanup(func() { benchSpawn, benchLoad = origSpawn, origLoad })
 	benchSpawn = func([]string, string) int { spawned++; return 1 }
-	benchLoad = func() float64 { return 0 }
+	benchLoad = func(context.Context) float64 { return 0 }
 	in := core.ParseInput(strings.NewReader(`{"session_id":"s1","tool_name":"Bash"}`))
 	benchOnCommit(context.Background(), in, dir, sha[:7]) // HEAD is already one commit past sha
 	if spawned != 1 {

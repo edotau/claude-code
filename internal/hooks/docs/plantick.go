@@ -60,17 +60,7 @@ func Tick(in *core.Input) core.Result {
 	}
 	var stderr bytes.Buffer
 	stderr.WriteString(ff.Stderr)
-	var shas []string
-	for _, m := range core.CommitLine().FindAllStringSubmatch(out, -1) {
-		if !slices.Contains(shas, m[1]) {
-			shas = append(shas, m[1])
-		}
-	}
-	if len(shas) == 0 && !in.ToolFailed() && realCommit(cmd) && (strings.TrimSpace(out) == "" || quietFlag().MatchString(cmd)) {
-		if sha := recentHead(in.CWD, cmd); sha != "" {
-			shas = append(shas, sha)
-		}
-	}
+	shas := landedShas(in, cmd, out)
 	for _, sha := range shas {
 		blocks = append(blocks, tickCommit(in, cmd, sha, &stderr)...)
 	}
@@ -78,6 +68,36 @@ func Tick(in *core.Input) core.Result {
 	res.Context = core.JoinContext(blocks...)
 	return res
 }
+
+// landedShas is the commit shas cmd's output names, else the recent HEAD for a commit whose output has none.
+func landedShas(in *core.Input, cmd, out string) []string {
+	var shas []string
+	for _, re := range []*regexp.Regexp{core.CommitLine(), rtkCommitLine()} {
+		for _, m := range re.FindAllStringSubmatch(out, -1) {
+			if !slices.Contains(shas, m[1]) {
+				shas = append(shas, m[1])
+			}
+		}
+	}
+	if len(shas) > 0 || in.ToolFailed() || !landsQuietly(cmd, out) {
+		return shas
+	}
+	if sha := recentHead(in.CWD, cmd); sha != "" {
+		shas = append(shas, sha)
+	}
+	return shas
+}
+
+// landsQuietly reports a real commit command whose output cannot name its sha.
+func landsQuietly(cmd, out string) bool {
+	return verbCommit().MatchString(cmd) || realCommit(cmd) && (strings.TrimSpace(out) == "" || quietFlag().MatchString(cmd))
+}
+
+// rtkCommitLine matches the `ok <sha>` line rtk prints in place of git's `[branch sha] subject` line.
+var rtkCommitLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^ok ([0-9a-f]{7,40})\s*$`) })
+
+// verbCommit matches the worktree commit verb, whose output carries no sha line.
+var verbCommit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bclaude-code\s+worktree\s+commit\b`) })
 
 // quietFlag matches commit's -q/--quiet (alone or bundled), which prints no summary line to find a sha in.
 var quietFlag = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s(?:--quiet|-[a-zA-Z]*q[a-zA-Z]*)(?:\s|$)`) })
