@@ -2,6 +2,7 @@ internal/agent/brief.go:reserveBrief	unversioned: marker: empty relay brief file
 internal/agent/cutoffs.go:updateCutoffs	dispatch-cutoffs
 internal/agent/job.go:SpawnArgvContext	unversioned: log: vendor job log, humans only
 internal/agent/launch.go:WriteFiles	unversioned: per-launch 0600 files: settings-overlay row; copilot's foreign registry
+internal/agent/limits.go:liveDispatchChildren	unversioned: cache: .children.idx admission index, rebuilt when missing or bad
 internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file, flock only, no content
 internal/agent/record.go:ClaimDispatchID	unversioned: marker: exclusive hook-launch claim containing the dispatch ID
 internal/agent/record.go:Save	dispatch-record
