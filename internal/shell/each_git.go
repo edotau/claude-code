@@ -41,7 +41,7 @@ func EachGit(cmd, cwd string, fn gitFn) bool {
 // harnessGlobalFlags take a host and precede the verb: remote.Flag (network/remote/ssh.go), egressFlag (cli/table.go).
 var harnessGlobalFlags = []string{"--host", "--remote"}
 
-// IsHarnessName reports a command basename that runs claude-code: itself or the .hooks binary that hands over to it.
+// IsHarnessName reports a command basename that runs claude-code: itself or the .hookd binary that hands over to it.
 func IsHarnessName(name string) bool { return name == "claude-code" || name == paths.HookBinaryName }
 
 // HarnessArgs is a claude-code command's verb and its words, past the global host flags; nil for another command.

@@ -28,8 +28,8 @@ GO_VERSION      := $(shell awk '/^go /{print $$2; exit}' go.mod)
 export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
-HOOK_BIN         = $(dir $(BIN)).hooks
-HOOK_BIN_MAX     = 23068672# 22 MiB; bin/.hooks is about 19 MiB on macOS, 20 on Linux
+HOOK_BIN         = $(dir $(BIN)).hookd
+HOOK_BIN_MAX     = 23068672# 22 MiB; bin/.hookd is about 19 MiB on macOS, 20 on Linux
 STAMP_FILE       = $(dir $(BIN)).build-stamp
 # RTK_WRAP shim (internal/rtkwrap): Pi's shim dir links each wrapped command here.
 RTKWRAP_BIN      = $(dir $(BIN)).rtkwrap
@@ -57,7 +57,7 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 ##@ Go
 .PHONY: compile
-compile:  ## Compile bin/claude-code, bin/.hooks and bin/.rtkwrap, no install
+compile:  ## Compile bin/claude-code, bin/.hookd and bin/.rtkwrap, no install
 	@mkdir -p $(dir $(BIN))
 	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)-$$$$"; tmp=".new.$$$$"; \
 	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
@@ -121,8 +121,8 @@ tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
 	done
 
 .PHONY: clean
-clean:  ## Remove bin/claude-code and bin/.hooks
-	@rm -f "$(BIN)" "$(HOOK_BIN)" "$(STAMP_FILE)"
+clean:  ## Remove bin/claude-code and bin/.hookd
+	@rm -f "$(BIN)" "$(HOOK_BIN)" "$(dir $(BIN)).hooks" "$(STAMP_FILE)"
 	@echo -e "$(C_OK)cleaned: $(BIN) $(HOOK_BIN) $(STAMP_FILE)"
 
 .PHONY: sweep

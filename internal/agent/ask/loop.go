@@ -484,7 +484,7 @@ func (s *loopSink) Write(p []byte) (int, error) {
 	}
 }
 
-// loopAsk is the seam the planner's in-process ask goes through; nil runs runCtx (no init: bin/.hooks links ask).
+// loopAsk is the seam the planner's in-process ask goes through; nil runs runCtx (no init: bin/.hookd links ask).
 var loopAsk func(ctx context.Context, args []string, out io.Writer) int
 
 // loopMode handles --loop and --loop-resume, which end the run before a single task is built.

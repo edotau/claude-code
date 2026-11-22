@@ -14,11 +14,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Main is the bin/.hooks entry: `<Event> …` (or `hook <Event> …`) runs here; anything else goes to claude-code.
+// Main is the bin/.hookd entry: `<Event> …` (or `hook <Event> …`) runs here; anything else goes to claude-code.
 func Main(args []string) int {
 	rest := args[1:]
 	if len(rest) >= 2 && rest[0] == "hook" {
-		rest = rest[1:] // the older `.hooks hook <Event>` form
+		rest = rest[1:] // the older `.hookd hook <Event>` form
 	}
 	isHook := len(rest) >= 1 && slices.Contains(settings.HookEvents(), rest[0])
 	if full, ok := mainSibling(); ok && (!isHook || !stampMatches(filepath.Dir(full))) {
@@ -28,11 +28,11 @@ func Main(args []string) int {
 		}
 		// before AdoptEnvKey so claude-code keeps the vault key
 		err := proc.Exec(full, fwd, os.Environ())
-		fmt.Fprintln(os.Stderr, ".hooks: cannot run claude-code:", err)
+		fmt.Fprintln(os.Stderr, ".hookd: cannot run claude-code:", err)
 		return 2
 	}
 	if !isHook {
-		fmt.Fprintln(os.Stderr, ".hooks: only hook verbs run here and claude-code is not beside it")
+		fmt.Fprintln(os.Stderr, ".hookd: only hook verbs run here and claude-code is not beside it")
 		return 2
 	}
 	vault.AdoptEnvKey()

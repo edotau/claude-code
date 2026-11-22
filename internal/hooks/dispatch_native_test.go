@@ -22,9 +22,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Every command in the rendered codex/copilot hook files is `.hooks <Event> --<module>` for a module on that event.
+// Every command in the rendered codex/copilot hook files is `.hookd <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
-	cmdRe := regexp.MustCompile(`(?:claude-code hook|\.hooks) (\S+)(?: --([a-z][a-z0-9-]*))?`)
+	cmdRe := regexp.MustCompile(`(?:claude-code hook|\.hookd) (\S+)(?: --([a-z][a-z0-9-]*))?`)
 	for name, render := range map[string]func() ([]byte, error){"codex": codex.CodexJSON, "copilot": copilot.CopilotJSON} {
 		body, err := render()
 		if err != nil {
