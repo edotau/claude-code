@@ -288,7 +288,7 @@ func TestRunProviderPinChangeWarmsUnlessDryRun(t *testing.T) {
 	if rc := Run(Options{Provider: "qa", In: strings.NewReader(""), Out: &out}, "provider"); rc != 0 {
 		t.Fatalf("rc=%d out=%s", rc, out.String())
 	}
-	if vault.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
-		t.Fatalf("pin=%q requests=%d cached=%v out=%s", vault.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
+	if vault.GetAgentRecord("claude").Route.Profile != "qa" || *n == 0 || !cached(t) {
+		t.Fatalf("pin=%q requests=%d cached=%v out=%s", vault.GetAgentRecord("claude").Route.Profile, *n, cached(t), out.String())
 	}
 }

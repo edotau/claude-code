@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
@@ -459,7 +460,7 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 		t.Fatalf("profile absent: %v", err)
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(reg.Providers[profile]), "profile-auth")
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil { // own login = on
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "chatgpt"}}); err != nil { // own login = on
 		t.Fatal(err)
 	}
 	old := ask.RouteRefresh

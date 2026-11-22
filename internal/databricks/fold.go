@@ -378,12 +378,12 @@ func repointRecord(r vault.AgentRecord, from, to string) (vault.AgentRecord, []s
 	}
 	if rt := r.EffectiveRoute(); rt.Profile == from {
 		rt.Provider, rt.Profile = cmp.Or(rt.Provider, providers.GroupDatabricks), to
-		r.Route, r.Profile, r.Account = rt, "", ""
+		r.Route = rt
 		fields = append(fields, "")
 	}
 	if rt := r.EffectiveFallbackRoute(); rt.Profile == from {
 		rt.Provider, rt.Profile = cmp.Or(rt.Provider, providers.GroupDatabricks), to
-		r.FallbackRoute, r.Fallback = rt, ""
+		r.FallbackRoute = rt
 		fields = append(fields, " fallback")
 	}
 	r.Model = spec(r.Model, " model")

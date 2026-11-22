@@ -52,11 +52,11 @@ func RouteIn(reg *providers.Registry, profile string) route.Route {
 	return route.Route{}
 }
 
-// WithProfile stores rt as r's route and clears the legacy keys; a zero rt keeps a non-empty name as a legacy pin.
+// WithProfile stores rt as r's route; a zero rt keeps a non-empty name as an unresolved profile.
 func WithProfile(r vault.AgentRecord, rt route.Route, name string) vault.AgentRecord {
-	r.Route, r.Profile, r.Account = rt, "", ""
+	r.Route = rt
 	if rt.IsZero() {
-		r.Profile = name
+		r.Route = route.Route{Profile: name}
 	}
 	return r
 }
@@ -69,7 +69,6 @@ func withAccount(r vault.AgentRecord, account string) vault.AgentRecord {
 	case r.Route.Account != "":
 		r.Route = route.Route{}
 	}
-	r.Account = ""
 	return r
 }
 

@@ -561,7 +561,7 @@ func TestUnpinAllModelsMarksDialogChanged(t *testing.T) {
 	}
 	d := &dialog{reg: reg, out: discardWriter{}}
 	unpinAllModels(d)
-	if got := vault.GetAgentRecord("claude"); len(got.Aliases) != 0 || got.Profile != "ultra" {
+	if got := vault.GetAgentRecord("claude"); len(got.Aliases) != 0 || got.Route.Profile != "ultra" {
 		t.Fatalf("unpin all must clear aliases and retain the profile: %+v", got)
 	}
 	if !d.changed {

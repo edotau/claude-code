@@ -228,7 +228,6 @@ func routeForm(reg *Registry, recs map[string]vault.AgentRecord) map[string]vaul
 	out := make(map[string]vault.AgentRecord, len(recs))
 	for a, r := range recs {
 		r.Route, r.FallbackRoute = CompleteRoute(reg, r.EffectiveRoute()), CompleteRoute(reg, r.EffectiveFallbackRoute())
-		r.Profile, r.Account, r.Fallback = "", "", ""
 		out[a] = r
 	}
 	return out

@@ -536,7 +536,7 @@ func pinProfile(rec vault.AgentRecord) string {
 	case rt.Profile != "":
 		return rt.Profile
 	}
-	return rec.Profile
+	return ""
 }
 
 // PinsPool reports an external agent whose record profile is PoolPin.

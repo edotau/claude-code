@@ -67,7 +67,7 @@ func setRecordField(r vault.AgentRecord, field, val string) (vault.AgentRecord, 
 	case isAlias:
 		r = r.WithAlias(alias, val)
 	case field == "profile":
-		r.Profile = val
+		r = r.WithPin("PROFILE", val)
 	case field == "model":
 		r.Model = val
 	case field == "effort":
@@ -75,7 +75,7 @@ func setRecordField(r vault.AgentRecord, field, val string) (vault.AgentRecord, 
 	case field == "context":
 		r.Context = val
 	case field == "account":
-		r.Account = val
+		r = r.WithPin("GITHUB_USER", val)
 	default:
 		return r, false
 	}

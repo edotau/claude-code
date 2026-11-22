@@ -380,7 +380,11 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 
 // vaultRecordCells is one agent record as table cells; claude's aliases fold into MODEL as alias=id.
 func vaultRecordCells(r vault.AgentRecord) map[string]string {
-	cells := map[string]string{"PROFILE": r.Profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Account}
+	profile := r.Route.Profile
+	if r.Route.Provider == "databricks" && profile == "auto" {
+		profile = "databricks"
+	}
+	cells := map[string]string{"PROFILE": profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Route.Account}
 	for _, alias := range models.AliasNames {
 		if v := r.Aliases[alias]; v != "" {
 			cells["MODEL"] = strings.TrimSpace(cells["MODEL"] + " " + alias + "=" + v)
@@ -404,7 +408,7 @@ func vaultAgentTable(names []string, width int, color bool) string {
 	}
 	rows, codes := make([][]string, len(names)), make([]string, len(names))
 	for i, n := range names {
-		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Profile == "", color)
+		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Route.Profile == "", color)
 	}
 	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
 	return table.Styled(head, colMax, rows, width, codes, color)

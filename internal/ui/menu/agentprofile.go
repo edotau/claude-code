@@ -25,7 +25,7 @@ import (
 
 // agentPinRows is the profile section: Pin / default, Databricks, Model (a record one without a catalog), Fallback.
 func agentPinRows(d *dialog, agent string) []billingRow {
-	cur := vault.GetAgentRecord(agent).Profile
+	cur := configure.AgentField(vault.GetAgentRecord(agent), "PROFILE")
 	provider := "pinned profile"
 	if d.reg != nil {
 		if p := d.reg.Providers[cur]; p != nil && p.Provider != "" {
@@ -71,7 +71,7 @@ func recordModelRow(d *dialog, agent string) billingRow {
 
 // fallbackRow is the Fallback row: the profile agent falls back to when its own is unavailable, none when empty.
 func fallbackRow(d *dialog, agent string) billingRow {
-	cur := vault.GetAgentRecord(agent).Fallback
+	cur := configure.AgentField(vault.GetAgentRecord(agent), "FALLBACK")
 	desc := "profile fails: " + checked(cur != "", cmp.Or(cur, "none"))
 	if agent == "copilot" && cur == "" {
 		if fb := copilotFallback(copilot.RouteChain(context.Background(), d.reg)); fb != "" {
@@ -137,7 +137,7 @@ func pickProfileName(d *dialog, agent string, names []string, cur string) (name 
 
 // agentActiveOn turns an off agent on after a successful sign-in, by seeding its own login's profile.
 func agentActiveOn(d *dialog, agent string) {
-	if agentpkg.VaultAgentIsClaude(agent) || vault.GetAgentRecord(agent).Profile != "" {
+	if agentpkg.VaultAgentIsClaude(agent) || configure.AgentField(vault.GetAgentRecord(agent), "PROFILE") != "" {
 		return
 	}
 	profile := signInProfile(d, agent)
@@ -172,7 +172,7 @@ func signInProfile(d *dialog, agent string) string {
 // writeAgentField sets one record field (a vault.AgentRecord.WithPin name) and prints it; (false, nil) if unchanged.
 func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 	if field == "MODEL" {
-		if err := configure.ValidateAgentModel(agent, vault.GetAgentRecord(agent).Profile, val); err != nil {
+		if err := configure.ValidateAgentModel(agent, configure.AgentField(vault.GetAgentRecord(agent), "PROFILE"), val); err != nil {
 			return false, err
 		}
 	}
@@ -208,10 +208,10 @@ func seedLabel(agent, profile string) string {
 // seedDefaults is each agent's choice; only a first run (no profile set) pre-selects each agent's own login.
 func seedDefaults(d *dialog) map[string]string {
 	recs := vault.AgentRecords(agentpkg.RosterNames())
-	firstRun := !slices.ContainsFunc(slices.Collect(maps.Values(recs)), func(r vault.AgentRecord) bool { return r.Profile != "" })
+	firstRun := !slices.ContainsFunc(slices.Collect(maps.Values(recs)), func(r vault.AgentRecord) bool { return configure.AgentField(r, "PROFILE") != "" })
 	out := map[string]string{}
 	for _, a := range seedAgents() {
-		out[a] = recs[a].Profile
+		out[a] = configure.AgentField(recs[a], "PROFILE")
 		if firstRun && out[a] == "" && !agentpkg.VaultAgentIsClaude(a) && d.reg != nil {
 			out[a] = signInProfile(d, a)
 		}
@@ -250,7 +250,7 @@ func saveSeed(d *dialog, choice map[string]string) bool {
 	err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		for a, p := range choice {
 			r := m[a]
-			r.Profile = p
+			r = configure.WithProfile(r, configure.RouteIn(d.reg, p), p)
 			m[a] = r
 		}
 	})
@@ -269,7 +269,7 @@ func seedOnFirstRun(d *dialog, section string) {
 		return
 	}
 	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if r.Profile != "" {
+		if configure.AgentField(r, "PROFILE") != "" {
 			return
 		}
 	}
@@ -283,7 +283,7 @@ func seedOnFirstRun(d *dialog, section string) {
 func seedRow() homeRow {
 	n := 0
 	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if r.Profile != "" {
+		if configure.AgentField(r, "PROFILE") != "" {
 			n++
 		}
 	}
@@ -303,7 +303,7 @@ func dbxWorkspaceRow(d *dialog, agent string) *billingRow {
 	if len(signedIn) == 0 {
 		return nil
 	}
-	cur := vault.GetAgentRecord(agent).Profile
+	cur := configure.AgentField(vault.GetAgentRecord(agent), "PROFILE")
 	desc := "workspace: pick one"
 	if slices.Contains(all, cur) {
 		desc = "workspace: " + textutil.TruncateCells(cur, 40, "…")
@@ -324,7 +324,7 @@ func pinWorkspace(d *dialog, agent, ws string) (changed bool) {
 	all := providers.DatabricksProfiles(d.reg)
 	var moved []string
 	for _, a := range seedAgents() {
-		if a != agent && !slices.Contains(all, vault.GetAgentRecord(a).Profile) {
+		if a != agent && !slices.Contains(all, configure.AgentField(vault.GetAgentRecord(a), "PROFILE")) {
 			continue
 		}
 		ch, err := writeAgentField(d, a, "PROFILE", ws)

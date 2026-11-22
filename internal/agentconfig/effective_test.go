@@ -30,7 +30,7 @@ func pin(t *testing.T, agent, profile, fallback string) {
 	t.Helper()
 	err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		r := m[agent]
-		r.Profile, r.Fallback, r.Model = profile, fallback, "m1"
+		r.Route.Profile, r.FallbackRoute.Profile, r.Model = profile, fallback, "m1"
 		m[agent] = r
 	})
 	if err != nil {
@@ -71,7 +71,7 @@ func TestFor(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || got.Profile != c.want || got.Model != "m1" || got.Fallback != c.fallback {
+			if err != nil || got.Profile != c.want || got.Model != "m1" || got.FallbackRoute.Profile != c.fallback {
 				t.Fatalf("ForContext(%s) = %+v, %v; want profile %s", c.agent, got, err, c.want)
 			}
 		})

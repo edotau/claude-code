@@ -41,7 +41,7 @@ func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 		}
 		return sel.Provider, true
 	}
-	if p := d.reg.Providers[vault.GetAgentRecord(name).Profile]; p != nil && p.Protocol != "" {
+	if p := d.reg.Providers[configure.AgentField(vault.GetAgentRecord(name), "PROFILE")]; p != nil && p.Protocol != "" {
 		return p, false
 	}
 	p, err := opencode.HubStart(d.reg, name, "")
@@ -111,7 +111,7 @@ func modelListed(p *providers.Provider, claude bool, model string) bool {
 // copilotRouteDesc is copilot's Model row detail: its route, then the pinned (else default) model.
 func copilotRouteDesc(d *dialog) string {
 	model, _ := providers.CopilotModel(d.reg)
-	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfileContext(context.Background()))
+	name := cmp.Or(configure.AgentField(vault.GetAgentRecord("copilot"), "PROFILE"), providers.SessionProfileContext(context.Background()))
 	if p := d.reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
 		return modelDesc("databricks-"+name, model, snapshotHas(p, model))
 	}
@@ -189,7 +189,7 @@ var copilotSourceFn = copilot.CopilotModelSource
 // pickCopilotModel pins copilot's model and clears effort/context pins it cannot honor; never github-copilot's models.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile)
+	cat, serr := copilotSourceFn(ctx, d.reg, configure.AgentField(vault.GetAgentRecord("copilot"), "PROFILE"))
 	cancel()
 	if serr != nil {
 		d.printf("copilot: model source unavailable (%v); using the GitHub catalog\n", serr)

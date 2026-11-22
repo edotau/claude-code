@@ -285,7 +285,7 @@ func armCopilotLogin(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	skipWithoutSh(t)
-	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Profile: "personal"}); err != nil {
+	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Route: route.Route{Profile: "personal"}}); err != nil {
 		t.Fatal(err)
 	}
 	gh, bin := t.TempDir(), t.TempDir()

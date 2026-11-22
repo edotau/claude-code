@@ -21,7 +21,8 @@ const geminiLogin = "antigravity"
 
 // Effective is an agent's effective settings after the launch flags are applied.
 type Effective struct {
-	Agent string
+	Profile string `json:"profile,omitempty"`
+	Agent   string
 	vault.AgentRecord
 }
 

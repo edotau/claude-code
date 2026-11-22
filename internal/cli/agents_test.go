@@ -807,7 +807,7 @@ func TestAgentProfileClearAndOff(t *testing.T) {
 func assertCopilotProfileOff(t *testing.T) {
 	t.Helper()
 	onOff := func(name string) (int, string, string) { return profileCmd(t, name, "--off") }
-	pin := func(name string) string { return providers.AgentRecord(name).Profile }
+	pin := func(name string) string { return providers.AgentRecord(name).Route.Profile }
 
 	// copilot off leaves its record without a profile.
 	if code, out, errOut := onOff("copilot"); code != 0 || !strings.Contains(out, "copilot: off") || pin("copilot") != "" {
@@ -839,7 +839,7 @@ func assertClaudeProfileOffRefused(t *testing.T) {
 // assertCodexProfilePins covers codex's unknown-profile refusal, set and --clear.
 func assertCodexProfilePins(t *testing.T) {
 	t.Helper()
-	pin := func(name string) string { return providers.AgentRecord(name).Profile }
+	pin := func(name string) string { return providers.AgentRecord(name).Route.Profile }
 	// unknown profile is refused and leaves the pin unset.
 	if code, _, _ := profileCmd(t, "codex", "nosuchprofile"); code == 0 || pin("codex") != "" {
 		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, pin("codex"))

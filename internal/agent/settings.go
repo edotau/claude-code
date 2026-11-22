@@ -106,7 +106,7 @@ var recordFieldOwners = []struct {
 	set          func(vault.AgentRecord) bool
 }{
 	{"context", agentid.Copilot, func(r vault.AgentRecord) bool { return r.Context != "" }},
-	{"account", agentid.Copilot, func(r vault.AgentRecord) bool { return r.Account != "" }},
+	{"account", agentid.Copilot, func(r vault.AgentRecord) bool { return r.Route.Account != "" }},
 	{"aliases", agentid.Claude, func(r vault.AgentRecord) bool { return len(r.Aliases) > 0 }},
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -296,9 +297,9 @@ func TestSettingsMerge(t *testing.T) {
 			want: vault.AgentRecord{Permissions: &vault.AgentPolicy{}, Launch: &vault.AgentLaunch{Env: []string{"X=1"}},
 				Extras: map[string]string{"approvalPolicy": "on-request"}}},
 		{name: "record block over both", agent: "codex", overlay: overlay,
-			stored: vault.AgentRecord{Profile: "dev", Permissions: &vault.AgentPolicy{Mode: "plan"},
+			stored: vault.AgentRecord{Route: route.Route{Profile: "dev"}, Permissions: &vault.AgentPolicy{Mode: "plan"},
 				Launch: &vault.AgentLaunch{Args: []string{"-y"}}, Extras: map[string]string{"sandboxMode": "read-only"}},
-			want: vault.AgentRecord{Profile: "dev", Permissions: &vault.AgentPolicy{Mode: "plan"},
+			want: vault.AgentRecord{Route: route.Route{Profile: "dev"}, Permissions: &vault.AgentPolicy{Mode: "plan"},
 				Launch: &vault.AgentLaunch{Args: []string{"-y"}},
 				Extras: map[string]string{"approvalPolicy": "on-request", "sandboxMode": "read-only"}}},
 		{name: "extras empty unsets a built-in key", agent: "gemini",

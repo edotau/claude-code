@@ -21,14 +21,9 @@ const PoolKey = "discovery-models"
 
 // AgentRecord is one agent's vault record; every field is optional and a zero record is not stored.
 type AgentRecord struct {
-	Profile string `json:"profile,omitempty"` // "" = off (claude: "" = automatic pick, always on)
-	Model   string `json:"model,omitempty"`
-	Effort  string `json:"effort,omitempty"`
-	Context string `json:"context,omitempty"` // copilot only today
-	Account string `json:"account,omitempty"` // copilot GitHub user
-	// Fallback is the one profile the agent falls back to when its Profile is unavailable.
-	Fallback string `json:"fallback,omitempty"`
-	// Route and FallbackRoute replace Profile/Account/Fallback; read them through EffectiveRoute.
+	Model         string      `json:"model,omitempty"`
+	Effort        string      `json:"effort,omitempty"`
+	Context       string      `json:"context,omitempty"` // copilot only today
 	Route         route.Route `json:"route,omitzero"`
 	FallbackRoute route.Route `json:"fallbackRoute,omitzero"`
 	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
@@ -63,30 +58,14 @@ func (r AgentRecord) IsZero() bool {
 	if len(r.Aliases) != 0 || len(r.Extras) != 0 {
 		return false
 	}
-	return r.Profile+r.Model+r.Effort+r.Context+r.Account+r.Fallback == ""
+	return r.Model+r.Effort+r.Context == ""
 }
 
-// EffectiveRoute is the stored Route, else the legacy account or profile (a bare profile: caller fills provider).
-func (r AgentRecord) EffectiveRoute() route.Route {
-	if !r.Route.IsZero() {
-		return r.Route
-	}
-	if r.Account != "" {
-		return route.Route{Provider: "github", Account: r.Account}
-	}
-	return legacyRoute(r.Profile)
-}
+// EffectiveRoute is the stored dispatch route.
+func (r AgentRecord) EffectiveRoute() route.Route { return r.Route }
 
-// EffectiveFallbackRoute is the stored FallbackRoute, else the legacy Fallback profile read like Profile.
-func (r AgentRecord) EffectiveFallbackRoute() route.Route {
-	if !r.FallbackRoute.IsZero() {
-		return r.FallbackRoute
-	}
-	if r.Fallback == "" && r.Route.IsZero() && r.Account != "" { // D6: a legacy copilot profile beside its account
-		return legacyRoute(r.Profile)
-	}
-	return legacyRoute(r.Fallback)
-}
+// EffectiveFallbackRoute is the stored fallback route.
+func (r AgentRecord) EffectiveFallbackRoute() route.Route { return r.FallbackRoute }
 
 func legacyRoute(profile string) route.Route {
 	switch profile {
@@ -98,12 +77,12 @@ func legacyRoute(profile string) route.Route {
 	return route.Route{Profile: profile}
 }
 
-// WithPin returns r with the legacy pin field set to val; ACTIVE=off clears the profile, any other ACTIVE is a no-op.
+// WithPin returns r with the pin set to val; ACTIVE=off clears the route, any other ACTIVE is a no-op.
 func (r AgentRecord) WithPin(field, val string) AgentRecord {
 	val = strings.TrimSpace(val)
 	switch field {
 	case "PROFILE":
-		r.Profile = val
+		r.Route = legacyRoute(val)
 	case "MODEL":
 		r.Model = val
 	case "EFFORT":
@@ -111,10 +90,13 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 	case "CONTEXT":
 		r.Context = val
 	case "GITHUB_USER":
-		r.Account = val
+		r.Route = route.Route{}
+		if val != "" {
+			r.Route = route.Route{Provider: "github", Account: val}
+		}
 	case "ACTIVE":
 		if val == "off" {
-			r.Profile = ""
+			r.Route = route.Route{}
 		}
 	default:
 		r = r.WithAlias(strings.ToLower(strings.TrimSuffix(field, "_MODEL")), val)
@@ -156,53 +138,9 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 		if out == nil { // a stored JSON null decodes the map to nil; writes into it would panic
 			out = map[string]AgentRecord{}
 		}
-		for n, r := range out {
-			out[n] = r.withLegacy()
-		}
 		t.nameGithubProfiles(out)
 	}
 	return out, nil
-}
-
-// withLegacy mirrors Route and FallbackRoute into the legacy fields that readers not yet moved still use.
-func (r AgentRecord) withLegacy() AgentRecord {
-	if !r.Route.IsZero() && r.Profile == "" && r.Account == "" {
-		r.Profile, r.Account = legacyFields(r.Route)
-	}
-	if !r.FallbackRoute.IsZero() && r.Fallback == "" {
-		r.Fallback, _ = legacyFields(r.FallbackRoute)
-	}
-	return r
-}
-
-// withoutLegacy drops empty or mirrored legacy fields; one an old writer changed wins over the object.
-func (r AgentRecord) withoutLegacy() AgentRecord {
-	if !r.Route.IsZero() {
-		if p, a := legacyFields(r.Route); r.Profile+r.Account == "" || (r.Profile == p && r.Account == a) {
-			r.Profile, r.Account = "", ""
-		} else {
-			r.Route = route.Route{}
-		}
-	}
-	if !r.FallbackRoute.IsZero() {
-		if p, _ := legacyFields(r.FallbackRoute); r.Fallback == "" || r.Fallback == p {
-			r.Fallback = ""
-		} else {
-			r.FallbackRoute = route.Route{}
-		}
-	}
-	return r
-}
-
-// legacyFields is the profile and account a route was spelled as before route objects.
-func legacyFields(rt route.Route) (profile, account string) {
-	switch {
-	case rt.Account != "":
-		return "", rt.Account
-	case rt.Provider == "databricks" && rt.Profile == "auto":
-		return "databricks", ""
-	}
-	return rt.Profile, ""
 }
 
 func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
@@ -214,7 +152,9 @@ func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
 		return s
 	}
 	for n, r := range recs {
-		r.Profile, r.Fallback, r.Model = cmp.Or(renames[r.Profile], r.Profile), cmp.Or(renames[r.Fallback], r.Fallback), spec(r.Model)
+		r.Route.Profile = cmp.Or(renames[r.Route.Profile], r.Route.Profile)
+		r.FallbackRoute.Profile = cmp.Or(renames[r.FallbackRoute.Profile], r.FallbackRoute.Profile)
+		r.Model = spec(r.Model)
 		if r.Aliases != nil {
 			r.Aliases = maps.Clone(r.Aliases)
 			for a, v := range r.Aliases {
@@ -275,7 +215,7 @@ func (t *Tx) PutAgentRecords(recs map[string]AgentRecord) error {
 	kept := map[string]AgentRecord{}
 	for n, r := range recs {
 		if !r.IsZero() {
-			kept[n] = r.withoutLegacy()
+			kept[n] = r
 		}
 	}
 	if len(kept) == 0 {
@@ -286,6 +226,75 @@ func (t *Tx) PutAgentRecords(recs map[string]AgentRecord) error {
 		return err
 	}
 	return t.Put(Overlay, AgentRecordsKey, string(b))
+}
+
+func (t *Tx) migrateAgentRecords() error {
+	raw, ok := t.Get(Overlay, AgentRecordsKey)
+	if !ok {
+		return nil
+	}
+	var records map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &records); err != nil {
+		return fmt.Errorf("vault: migrate %s: %w", AgentRecordsKey, err)
+	}
+	for name, raw := range records {
+		converted, err := migrateAgentRecord(raw)
+		if err != nil {
+			return fmt.Errorf("vault: migrate agent %q: %w", name, err)
+		}
+		records[name] = converted
+	}
+	b, err := json.Marshal(records)
+	if err != nil {
+		return err
+	}
+	return t.Put(Overlay, AgentRecordsKey, string(b))
+}
+
+func migrateAgentRecord(raw json.RawMessage) (json.RawMessage, error) {
+	var old struct {
+		Profile, Account, Fallback string
+		Route, FallbackRoute       route.Route
+	}
+	if err := json.Unmarshal(raw, &old); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		return raw, nil
+	}
+	lead, fallback := legacyRoute(old.Profile), legacyRoute(old.Fallback)
+	if old.Account != "" {
+		lead = route.Route{Provider: "github", Account: old.Account}
+		if old.Fallback == "" && old.Route.IsZero() {
+			fallback = legacyRoute(old.Profile)
+		}
+	}
+	if err := migrateRouteField(fields, "route", old.Route, lead); err != nil {
+		return nil, err
+	}
+	if err := migrateRouteField(fields, "fallbackRoute", old.FallbackRoute, fallback); err != nil {
+		return nil, err
+	}
+	delete(fields, "profile")
+	delete(fields, "account")
+	delete(fields, "fallback")
+	return json.Marshal(fields)
+}
+
+func migrateRouteField(fields map[string]json.RawMessage, key string, stored, legacy route.Route) error {
+	if !stored.IsZero() || legacy.IsZero() {
+		return nil
+	}
+	b, err := json.Marshal(legacy)
+	if err != nil {
+		return err
+	}
+	fields[key] = b
+	return nil
 }
 
 // PoolOverlay is the stored discovery pool JSON.

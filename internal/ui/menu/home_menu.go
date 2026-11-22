@@ -296,7 +296,7 @@ func rawPlanID(d *dialog, name string, st agentState) string {
 // agentAccount prefers the pinned workspace or login, then the agent's known account.
 func agentAccount(d *dialog, name string, st agentState) string {
 	rec := vault.GetAgentRecord(name)
-	pin := rec.Profile
+	pin := configure.AgentField(rec, "PROFILE")
 	if d.reg != nil {
 		if p := d.reg.Providers[pin]; p != nil {
 			if p.Preset == providers.PresetDatabricks {
@@ -307,8 +307,8 @@ func agentAccount(d *dialog, name string, st agentState) string {
 			}
 		}
 	}
-	if name == "copilot" && rec.Account != "" {
-		return rec.Account
+	if name == "copilot" && rec.Route.Account != "" {
+		return rec.Route.Account
 	}
 	if st.tier.Account != "" {
 		return st.tier.Account

@@ -185,10 +185,10 @@ func seedFoldReference(t *testing.T, dir, kind string) {
 	err := vault.Update(func(tx *vault.Tx) error {
 		switch kind {
 		case "agent":
-			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{"profile":"`+old+`"}}`)
+			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{"route":{"profile":"`+old+`"}}}`)
 		case "agent-refs":
 			return tx.Put(vault.Overlay, vault.AgentRecordsKey,
-				`{"claude":{"fallback":"`+old+`","model":"`+old+`:m1","aliases":{"opus":"`+old+`:m2"}}}`)
+				`{"claude":{"fallbackRoute":{"profile":"`+old+`"},"model":"`+old+`:m1","aliases":{"opus":"`+old+`:m2"}}}`)
 		case "agent-route":
 			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{
 				"route":{"provider":"databricks","profile":"`+old+`","identity":"sp","host":"worker"},

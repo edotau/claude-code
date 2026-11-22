@@ -136,7 +136,7 @@ func TestSetAgentPinFallback(t *testing.T) {
 	if changed, err := SetAgentPin("claude", "FALLBACK", "anthropic"); err != nil || !changed {
 		t.Fatalf("SetAgentPin(FALLBACK) = (%v, %v), want applied", changed, err)
 	}
-	if rec := vault.GetAgentRecord("claude"); rec.Fallback != "anthropic" || len(rec.Aliases) != 0 {
+	if rec := vault.GetAgentRecord("claude"); rec.FallbackRoute.Profile != "anthropic" || len(rec.Aliases) != 0 {
 		t.Errorf("record = %+v, want fallback anthropic and no alias", rec)
 	}
 	if ev, _ := audit.Read(time.Time{}); slices.ContainsFunc(ev, func(e audit.Event) bool { return e.Action == audit.ModelPin }) {
@@ -145,7 +145,7 @@ func TestSetAgentPinFallback(t *testing.T) {
 	if _, err := SetAgentPin("claude", "FALLBACK", "nosuch"); err == nil {
 		t.Error("an unknown fallback profile was accepted")
 	}
-	if got := vault.GetAgentRecord("claude").Fallback; got != "anthropic" {
+	if got := vault.GetAgentRecord("claude").FallbackRoute.Profile; got != "anthropic" {
 		t.Errorf("a refused write changed the fallback to %q", got)
 	}
 }

@@ -31,7 +31,7 @@ func TestAgentRecordsNullRemainsWritable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	want := AgentRecord{Profile: "dev", Model: "new-model"}
+	want := AgentRecord{Model: "new-model", Route: route.Route{Profile: "dev"}}
 	if err := SetAgentRecord("claude", want); err != nil {
 		t.Fatal(err)
 	}
@@ -42,10 +42,10 @@ func TestAgentRecordsNullRemainsWritable(t *testing.T) {
 
 func TestFallbackRoundTrip(t *testing.T) {
 	useZeroRootVault(t)
-	if err := SetAgentRecord("codex", AgentRecord{Fallback: "dev"}); err != nil {
+	if err := SetAgentRecord("codex", AgentRecord{FallbackRoute: route.Route{Profile: "dev"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := GetAgentRecord("codex"); got.Fallback != "dev" {
+	if got := GetAgentRecord("codex"); got.FallbackRoute.Profile != "dev" {
 		t.Fatalf("fallback-only record dropped: %+v", got)
 	}
 }
@@ -75,7 +75,7 @@ func TestEmptyLaunchBlockSurvivesRoundTrip(t *testing.T) {
 func TestSettingsBlocksRoundTrip(t *testing.T) {
 	useZeroRootVault(t)
 	want := AgentRecord{
-		Profile:     "chatgpt",
+		Route:       route.Route{Profile: "chatgpt"},
 		Permissions: &AgentPolicy{Mode: "auto", Allow: []string{"Bash(ls:*)"}, Ask: []string{"Edit"}, Deny: []string{"Bash(rm:*)"}},
 		Launch:      &AgentLaunch{Env: []string{"X=1"}, Args: []string{"--flag"}},
 		Extras:      map[string]string{"approvalPolicy": "never", "sandboxMode": ""},
@@ -89,11 +89,11 @@ func TestSettingsBlocksRoundTrip(t *testing.T) {
 }
 
 func TestRecordWithoutNewBlocksKeepsItsBytes(t *testing.T) {
-	b, err := json.Marshal(AgentRecord{Profile: "dev", Model: "m", Effort: "high", Fallback: "x", Aliases: map[string]string{"opus": "o"}})
+	b, err := json.Marshal(AgentRecord{Model: "m", Effort: "high", Aliases: map[string]string{"opus": "o"}, Route: route.Route{Profile: "dev"}, FallbackRoute: route.Route{Profile: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"profile":"dev","model":"m","effort":"high","fallback":"x","aliases":{"opus":"o"}}`
+	const want = `{"model":"m","effort":"high","route":{"profile":"dev"},"fallbackRoute":{"profile":"x"},"aliases":{"opus":"o"}}`
 	if string(b) != want {
 		t.Fatalf("record JSON = %s, want %s", b, want)
 	}
@@ -112,22 +112,22 @@ func cachedRecords(t *testing.T) *int {
 // A record written in this process is what the next read returns, though the earlier read was cached.
 func TestReadAgentRecordsSeesAWrite(t *testing.T) {
 	useZeroRootVault(t)
-	if err := SetAgentRecord("codex", AgentRecord{Profile: "a"}); err != nil {
+	if err := SetAgentRecord("codex", AgentRecord{Route: route.Route{Profile: "a"}}); err != nil {
 		t.Fatal(err)
 	}
 	opens := cachedRecords(t)
 	for range 2 {
-		if got := GetAgentRecord("codex").Profile; got != "a" {
+		if got := GetAgentRecord("codex").Route.Profile; got != "a" {
 			t.Fatalf("profile = %q, want a", got)
 		}
 	}
 	if *opens != 1 {
 		t.Fatalf("two settled reads opened the vault %d times, want 1 (the cache)", *opens)
 	}
-	if err := SetAgentRecord("codex", AgentRecord{Profile: "b"}); err != nil {
+	if err := SetAgentRecord("codex", AgentRecord{Route: route.Route{Profile: "b"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := GetAgentRecord("codex").Profile; got != "b" {
+	if got := GetAgentRecord("codex").Route.Profile; got != "b" {
 		t.Errorf("read after a write = %q, want b", got)
 	}
 }
@@ -135,18 +135,18 @@ func TestReadAgentRecordsSeesAWrite(t *testing.T) {
 // A vault file replaced by another process (stamp changed) is read fresh, not served from the cache.
 func TestReadAgentRecordsSeesAnExternalWrite(t *testing.T) {
 	useZeroRootVault(t)
-	if err := SetAgentRecord("codex", AgentRecord{Profile: "external"}); err != nil {
+	if err := SetAgentRecord("codex", AgentRecord{Route: route.Route{Profile: "external"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SetAgentRecord("codex", AgentRecord{Profile: "local"}); err != nil {
+	if err := SetAgentRecord("codex", AgentRecord{Route: route.Route{Profile: "local"}}); err != nil {
 		t.Fatal(err)
 	}
 	opens := cachedRecords(t)
-	if got := GetAgentRecord("codex").Profile; got != "local" || *opens != 1 {
+	if got := GetAgentRecord("codex").Route.Profile; got != "local" || *opens != 1 {
 		t.Fatalf("profile = %q after %d opens, want local", got, *opens)
 	}
 	if err := os.WriteFile(Path()+".new", raw, 0o600); err != nil {
@@ -155,7 +155,7 @@ func TestReadAgentRecordsSeesAnExternalWrite(t *testing.T) {
 	if err := os.Rename(Path()+".new", Path()); err != nil {
 		t.Fatal(err)
 	}
-	if got := GetAgentRecord("codex").Profile; got != "external" {
+	if got := GetAgentRecord("codex").Route.Profile; got != "external" {
 		t.Errorf("read after the file was replaced = %q, want external", got)
 	}
 }
@@ -190,7 +190,7 @@ func TestLoginRenamesKeepsCollidingRows(t *testing.T) {
 func TestAgentRecordsRenameOldGithubProfile(t *testing.T) {
 	useZeroRootVault(t)
 	const provs = `{"providers":{"github":{"business":{"login":"octo-user"}}}}`
-	const recs = `{"copilot":{"profile":"business","fallback":"business","model":"business:gpt-5","aliases":{"opus":"business:o"}}}`
+	const recs = `{"copilot":{"route":{"profile":"business"},"fallbackRoute":{"profile":"business"},"model":"business:gpt-5","aliases":{"opus":"business:o"}}}`
 	if err := Update(func(tx *Tx) error {
 		if err := tx.Put(Overlay, "providers", provs); err != nil {
 			return err
@@ -199,7 +199,7 @@ func TestAgentRecordsRenameOldGithubProfile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	want := AgentRecord{Profile: "octo-user", Fallback: "octo-user", Model: "octo-user:gpt-5", Aliases: map[string]string{"opus": "octo-user:o"}}
+	want := AgentRecord{Model: "octo-user:gpt-5", Aliases: map[string]string{"opus": "octo-user:o"}, Route: route.Route{Profile: "octo-user"}, FallbackRoute: route.Route{Profile: "octo-user"}}
 	if err := View(func(tx *Tx) error {
 		got, err := tx.AgentRecords()
 		if err == nil && !reflect.DeepEqual(got["copilot"], want) {
@@ -215,19 +215,27 @@ func TestEffectiveRouteReadsLegacy(t *testing.T) {
 	db := route.Route{Provider: "databricks", Profile: "auto"}
 	cases := []struct {
 		name      string
-		rec       AgentRecord
+		rec       string
 		want, fbk route.Route
 	}{
-		{"pool pin", AgentRecord{Profile: "databricks"}, db, route.Route{}},
-		{"copilot account+fallback", AgentRecord{Profile: "copilot", Account: "me", Fallback: "dev"},
+		{"pool pin", `{"profile":"databricks"}`, db, route.Route{}},
+		{"copilot account+fallback", `{"profile":"copilot","account":"me","fallback":"dev"}`,
 			route.Route{Provider: "github", Account: "me"}, route.Route{Profile: "dev"}},
-		{"plain profile", AgentRecord{Profile: "ultra"}, route.Route{Profile: "ultra"}, route.Route{}},
-		{"copilot account+profile", AgentRecord{Profile: "qa", Account: "me"},
+		{"plain profile", `{"profile":"ultra"}`, route.Route{Profile: "ultra"}, route.Route{}},
+		{"copilot account+profile", `{"profile":"qa","account":"me"}`,
 			route.Route{Provider: "github", Account: "me"}, route.Route{Profile: "qa"}},
-		{"route object wins", AgentRecord{Profile: "ultra", Route: db, FallbackRoute: db, Fallback: "dev"}, db, db},
+		{"route object wins", `{"profile":"ultra","route":{"provider":"databricks","profile":"auto"},"fallbackRoute":{"provider":"databricks","profile":"auto"},"fallback":"dev"}`, db, db},
 	}
 	for _, c := range cases {
-		if got, fbk := c.rec.EffectiveRoute(), c.rec.EffectiveFallbackRoute(); got != c.want || fbk != c.fbk {
+		raw, err := migrateAgentRecord(json.RawMessage(c.rec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rec AgentRecord
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			t.Fatal(err)
+		}
+		if got, fbk := rec.EffectiveRoute(), rec.EffectiveFallbackRoute(); got != c.want || fbk != c.fbk {
 			t.Errorf("%s: got %+v / %+v, want %+v / %+v", c.name, got, fbk, c.want, c.fbk)
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -354,7 +355,7 @@ func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
 	qaProfile(t, srv.URL, false)
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "chatgpt"}}); err != nil {
 		t.Fatal(err)
 	}
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) })
@@ -387,7 +388,7 @@ func TestSwitchSkipsUnservable(t *testing.T) {
 	qaProfile(t, srv.URL, false)
 	t.Chdir(t.TempDir())
 	for name, p := range map[string]string{"codex": "chatgpt", "gemini": "antigravity"} {
-		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: p}); err != nil {
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Route: route.Route{Profile: p}}); err != nil {
 			t.Fatal(err)
 		}
 	}

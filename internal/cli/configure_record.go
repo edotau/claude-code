@@ -269,9 +269,9 @@ func setField(agent, field, val string) error {
 			m[agent] = configure.WithProfile(r, rt, val)
 			return
 		}
-		r.Fallback, r.FallbackRoute = "", rt
+		r.FallbackRoute = rt
 		if legacy {
-			r.Fallback = val
+			r.FallbackRoute = route.Route{Profile: val}
 		}
 		m[agent] = r
 	})

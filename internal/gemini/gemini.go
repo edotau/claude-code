@@ -116,7 +116,7 @@ func (geminiEngine) FollowsPin(p *providers.Provider) bool {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
 	}
-	return rec.Profile == p.Name
+	return rec.Route.Profile == p.Name
 }
 
 // NoRoute refuses a Databricks row that no GEMINI_PROFILE pin selected: never silently.

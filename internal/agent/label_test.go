@@ -76,6 +76,7 @@ func TestStoredPoolPinWorkspace(t *testing.T) {
 	}}
 	for _, pin := range []string{`{"profile":"databricks"}`, `{"route":{"provider":"databricks","profile":"auto"}}`} {
 		vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, `{"codex":`+pin+`}`)
+		vaulttest.Put(t, vault.Meta, "schema", "7")
 		for _, tc := range []struct{ session, typed, want string }{
 			{"qa", "", "qa"}, {"login", "", "b-first"}, {"", "", "b-first"},
 			{"qa", "auto", "auto"}, {"qa", "b-first", "b-first"},

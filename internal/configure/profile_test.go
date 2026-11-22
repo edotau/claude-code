@@ -10,6 +10,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude and codex rows ApplyProfile and AgentPins need
 	_ "github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -24,10 +25,10 @@ func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 "dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"oauth"}},
 "qa":{"preset":"databricks","host":"https://adb-2.azuredatabricks.net","cliProfile":"qa","auth":{"type":"key","command":"echo x"}}}}}`)
 	t.Chdir(t.TempDir())
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "qa"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "qa"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Profile: "dev", Model: "pinned"}); err != nil {
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Model: "pinned", Route: route.Route{Profile: "dev"}}); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := ApplyProfile([]string{"claude", "codex"}, "qa")
@@ -38,7 +39,7 @@ func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 		t.Errorf("changed = %v, want [claude]", changed)
 	}
 	recs := vault.AgentRecords(agentpkg.RosterNames())
-	if recs["claude"].Profile != "qa" || recs["claude"].Model != "pinned" || recs["codex"].Profile != "qa" {
+	if recs["claude"].Route.Profile != "qa" || recs["claude"].Model != "pinned" || recs["codex"].Route.Profile != "qa" {
 		t.Errorf("records = %+v", recs)
 	}
 }
@@ -53,7 +54,7 @@ func TestAgentProfileOffClearExclusive(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{
 "qa":{"preset":"databricks","host":"https://adb-2.azuredatabricks.net","cliProfile":"qa","auth":{"type":"key","command":"echo x"}}}}}`)
 	t.Chdir(t.TempDir())
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "qa", Model: "pinned"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "pinned", Route: route.Route{Profile: "qa"}}); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -61,13 +62,13 @@ func TestAgentProfileOffClearExclusive(t *testing.T) {
 	if err := AgentProfile(&out, "codex", "", false, true); err != nil || out.String() != "codex: off\n" {
 		t.Fatalf("--off = %v, %q", err, out.String())
 	}
-	if rec := vault.GetAgentRecord("codex"); rec.Profile != "" || rec.Model != "pinned" {
+	if rec := vault.GetAgentRecord("codex"); rec.Route.Profile != "" || rec.Model != "pinned" {
 		t.Errorf("record after --off = %+v, want empty profile, model kept", rec)
 	}
 	if err := AgentProfile(&out, "codex", "", true, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := vault.GetAgentRecord("codex").Profile; got != vault.OwnLoginProfiles["codex"] {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != vault.OwnLoginProfiles["codex"] {
 		t.Errorf("profile after --clear = %q, want own login %q", got, vault.OwnLoginProfiles["codex"])
 	}
 	if err := AgentProfile(&out, "claude", "", false, true); err == nil || !strings.Contains(err.Error(), "always on") {
@@ -86,7 +87,7 @@ func assertAgentProfileExclusive(t *testing.T, out *bytes.Buffer) {
 			t.Errorf("AgentProfile(%q, clear=%v, off=%v) = nil, want exclusive error", c.profile, c.clear, c.off)
 		}
 	}
-	if got := vault.GetAgentRecord("codex").Profile; got != "qa" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "qa" {
 		t.Fatalf("profile after rejected calls = %q, want qa", got)
 	}
 }

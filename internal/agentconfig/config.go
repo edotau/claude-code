@@ -182,10 +182,10 @@ func mergeRecord(base, over vault.AgentRecord) vault.AgentRecord {
 	out.Model, out.Effort = cmp.Or(over.Model, base.Model), cmp.Or(over.Effort, base.Effort)
 	out.Context = cmp.Or(over.Context, base.Context)
 	if !over.EffectiveRoute().IsZero() { // a route is taken whole from one layer
-		out.Route, out.Profile, out.Account = over.Route, over.Profile, over.Account
+		out.Route = over.Route
 	}
 	if !over.EffectiveFallbackRoute().IsZero() {
-		out.FallbackRoute, out.Fallback = over.FallbackRoute, over.Fallback
+		out.FallbackRoute = over.FallbackRoute
 	}
 	if len(over.Aliases) > 0 {
 		out.Aliases = over.Aliases

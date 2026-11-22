@@ -144,7 +144,7 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 	if !rotatesUnderAuto(agentName) {
 		return nil
 	}
-	profile := strings.TrimSpace(vault.GetAgentRecord(agentName).Profile)
+	profile := strings.TrimSpace(pinProfile(vault.GetAgentRecord(agentName)))
 	if profile != PoolPin {
 		if p := reg.Row(profile); router.RotationRow(p) {
 			return []*providers.Provider{p}

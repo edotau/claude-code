@@ -363,7 +363,7 @@ func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	f.picks = []int{5, 0, -1}
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
-		if got := vault.GetAgentRecord(a).Profile; got != "qa" {
+		if got := vault.GetAgentRecord(a).Route.Profile; got != "qa" {
 			t.Errorf("%s profile = %q, want qa", a, got)
 		}
 	}
@@ -386,7 +386,7 @@ func TestDbxApplyPerAgentSetsOnePin(t *testing.T) {
 		if a == "codex" {
 			want = "qa"
 		}
-		if got := vault.GetAgentRecord(a).Profile; got != want {
+		if got := vault.GetAgentRecord(a).Route.Profile; got != want {
 			t.Errorf("%s profile = %q, want %q", a, got, want)
 		}
 	}

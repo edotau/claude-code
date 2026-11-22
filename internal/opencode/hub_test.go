@@ -479,7 +479,7 @@ func setupWorkdirFixture(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "test-key")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	// no profile = off
-	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Profile: "zen-free"}); err != nil {
+	if err := vault.SetAgentRecord("opencode", (vault.AgentRecord{}).WithPin("PROFILE", "zen-free")); err != nil {
 		t.Fatal(err)
 	}
 }

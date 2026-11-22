@@ -551,7 +551,7 @@ func agentRoutesMenu(d *dialog) (allOK, changed bool) {
 func agentRouteRows(d *dialog) ([]string, [][2]string) {
 	var names []string
 	var rows [][2]string
-	cur := vault.GetAgentRecord(d.o.Agent).Profile
+	cur := configure.AgentField(vault.GetAgentRecord(d.o.Agent), "PROFILE")
 	session := configure.CurrentProvider(d.reg)
 	for _, n := range configure.SeedProfiles(d.reg, d.o.Agent) {
 		p := d.reg.Providers[n]

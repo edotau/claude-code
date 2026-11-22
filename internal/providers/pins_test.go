@@ -329,17 +329,17 @@ func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 func TestAgentRecordsReadStoredRecords(t *testing.T) {
 	vaulttest.Use(t)
 	if err := vault.Update(func(tx *vault.Tx) error {
-		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": {Profile: "chatgpt", Model: "m1"}})
+		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": {Model: "m1", Route: route.Route{Profile: "chatgpt"}}})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := AgentRecord("codex"); got.Profile != "chatgpt" || got.Model != "m1" {
+	if got := AgentRecord("codex"); got.Route.Profile != "chatgpt" || got.Model != "m1" {
 		t.Errorf("AgentRecord(codex) = %+v", got)
 	}
 	if got := AgentRecord("gemini"); !reflect.DeepEqual(got, vault.AgentRecord{}) {
 		t.Errorf("AgentRecord(gemini) = %+v, want zero", got)
 	}
-	if recs := AgentRecords(); len(recs) != 1 || recs["codex"].Profile != "chatgpt" {
+	if recs := AgentRecords(); len(recs) != 1 || recs["codex"].Route.Profile != "chatgpt" {
 		t.Errorf("AgentRecords = %+v, want only codex", recs)
 	}
 }
@@ -396,7 +396,7 @@ func TestProfilesOfOverlayRowsFollowDefaults(t *testing.T) {
 func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, " qa ")
-	if got := AgentRecord("claude").Profile; got != "" {
+	if got := AgentRecord("claude").Route.Profile; got != "" {
 		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfileContext only", got)
 	}
 	if got := SessionProfileContext(t.Context()); got != "qa" {
@@ -577,10 +577,10 @@ func TestConfigFixEmptyPinClearsAcrossProfiles(t *testing.T) {
 	reg := &Registry{Default: "current", Providers: map[string]*Provider{
 		"current": {Name: "current"}, "other": {Name: "other"},
 	}}
-	before := vault.AgentRecord{Profile: "current", Model: "all-model", Aliases: map[string]string{
+	before := vault.AgentRecord{Model: "all-model", Aliases: map[string]string{
 		"opus": "old-opus", "sonnet": "keep-sonnet",
-	}}
-	want := vault.AgentRecord{Profile: "current", Model: "all-model", Aliases: map[string]string{"sonnet": "keep-sonnet"}}
+	}, Route: route.Route{Profile: "current"}}
+	want := vault.AgentRecord{Model: "all-model", Aliases: map[string]string{"sonnet": "keep-sonnet"}, Route: route.Route{Profile: "current"}}
 	for _, profile := range []string{"", "current", "other"} {
 		t.Run("profile="+profile, func(t *testing.T) {
 			set, err := ParseModelPins(reg, profile, false, []string{"opus="})
@@ -630,13 +630,14 @@ func TestSessionProfileOnlyUsesRecordProfile(t *testing.T) {
 }
 
 func TestRecordDiffRouteFormRedactsEnv(t *testing.T) {
-	legacy := map[string]vault.AgentRecord{"codex": {Profile: "qa", Fallback: "dev"}}
-	migrated := map[string]vault.AgentRecord{"codex": {Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
-	if got := recordDiff(nil, legacy, migrated); len(got) != 0 {
+	legacy := map[string]vault.AgentRecord{"codex": {Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
+	reg := &Registry{Providers: map[string]*Provider{"qa": {Provider: "databricks"}, "dev": {Provider: "databricks"}}}
+	migrated := map[string]vault.AgentRecord{"codex": {
+		Route: route.Route{Provider: "databricks", Profile: "qa"}, FallbackRoute: route.Route{Provider: "databricks", Profile: "dev"}}}
+	if got := recordDiff(reg, legacy, migrated); len(got) != 0 {
 		t.Fatalf("legacy vs migrated = %v, want none", got)
 	}
-	after := map[string]vault.AgentRecord{"codex": {Profile: "qa", Fallback: "dev", Permissions: &vault.AgentPolicy{Mode: "auto"},
-		Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}}}
+	after := map[string]vault.AgentRecord{"codex": {Permissions: &vault.AgentPolicy{Mode: "auto"}, Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}, Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
 	got := strings.Join(recordDiff(nil, legacy, after), "\n")
 	if !strings.Contains(got, "codex.permissions.mode: (unset) → auto") || !strings.Contains(got, "codex.launch.env: (changed)") ||
 		strings.Contains(got, "s3cret") {

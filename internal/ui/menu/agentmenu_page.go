@@ -271,7 +271,7 @@ func codexMenu(d *dialog) agentMenu {
 		}
 	}
 	key, ensure := codexKeyRow(d, loggedIn)
-	pinned := vault.GetAgentRecord("codex").Profile
+	pinned := configure.AgentField(vault.GetAgentRecord("codex"), "PROFILE")
 	return agentMenu{st, []billingRow{
 		{"Subscription", "ChatGPT plan login (profile chatgpt) " + bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -426,7 +426,7 @@ func copilotMenu(d *dialog) agentMenu {
 	}
 	chain := copilot.RouteChain(ctx, d.reg)
 	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK {
-		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
+		st = agentState{mode: backendLabel(d.reg, configure.AgentField(vault.GetAgentRecord("copilot"), "PROFILE")), verified: true}
 	}
 	who := "gh active"
 	if auth.Account != "" {
@@ -724,7 +724,7 @@ var (
 	setupVerify = configure.VerifyAgent
 
 	setupRoute = func(d *dialog, agent string) (bool, error) {
-		return pickAgentProfile(d, agent, vault.GetAgentRecord(agent).Profile)
+		return pickAgentProfile(d, agent, configure.AgentField(vault.GetAgentRecord(agent), "PROFILE"))
 	}
 )
 

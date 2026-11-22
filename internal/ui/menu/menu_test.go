@@ -114,7 +114,7 @@ func TestSeedSaveMarksChanged(t *testing.T) {
 	if !saveSeed(d, map[string]string{"codex": "chatgpt"}) {
 		t.Fatalf("saveSeed failed: %s", out)
 	}
-	if vault.GetAgentRecord("codex").Profile != "chatgpt" || !d.changed {
+	if vault.GetAgentRecord("codex").Route.Profile != "chatgpt" || !d.changed {
 		t.Fatalf("saved seed must persist and set changed: changed=%v, out=%s", d.changed, out)
 	}
 }

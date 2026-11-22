@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -40,7 +41,7 @@ func TestValidateRecord(t *testing.T) {
 		{"claude", vault.AgentRecord{Effort: "max", Aliases: map[string]string{"opus": "x"}}, ""},
 		{"codex", vault.AgentRecord{Effort: "minimal"}, ""},
 		{"codex", vault.AgentRecord{Effort: "max"}, ""}, // clamped at launch, reported by EffortClamp
-		{"copilot", vault.AgentRecord{Effort: "high", Context: "1m", Account: "octo"}, ""},
+		{"copilot", vault.AgentRecord{Effort: "high", Context: "1m", Route: route.Route{Provider: "github", Account: "octo"}}, ""},
 		{"gemini", vault.AgentRecord{Effort: "xhigh"}, ""},
 		{"opencode", vault.AgentRecord{Effort: "low"}, ""},
 		{"claude", vault.AgentRecord{Effort: "minimal"}, `effort "minimal" for claude`},
@@ -51,7 +52,7 @@ func TestValidateRecord(t *testing.T) {
 		{"claude", vault.AgentRecord{Context: "1m"}, "claude: context is copilot only"},
 		{"codex", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "codex: aliases is claude only"},
 		{"copilot", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "copilot: aliases is claude only"},
-		{"gemini", vault.AgentRecord{Account: "octo"}, "gemini: account is copilot only"},
+		{"gemini", vault.AgentRecord{Route: route.Route{Provider: "github", Account: "octo"}}, "gemini: account is copilot only"},
 		{"opencode", vault.AgentRecord{Extras: map[string]string{"k": "v"}}, ""}, // no CLI.Extras declared: not checked yet
 		{"codex", vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "yolo"}}, `unknown permission mode "yolo"`},
 		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"OPENAI_API_KEY=x"}}}, "codex launch.env:"},

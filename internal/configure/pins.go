@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -60,9 +61,9 @@ func withField(rec vault.AgentRecord, field, val string) vault.AgentRecord {
 	switch field {
 	case "FALLBACK":
 		val = strings.TrimSpace(val)
-		rec.FallbackRoute, rec.Fallback = routeFor(val), ""
+		rec.FallbackRoute = routeFor(val)
 		if rec.FallbackRoute.IsZero() {
-			rec.Fallback = val
+			rec.FallbackRoute = route.Route{Profile: val}
 		}
 		return rec
 	case "GITHUB_USER":

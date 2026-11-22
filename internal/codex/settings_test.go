@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -66,12 +67,12 @@ func TestCodexConfigFromRecordExtras(t *testing.T) {
 func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	vaulttest.Use(t)
 	putCodexOverlay(t, map[string]string{extraVerbosity: "high"})
-	putCodexRecord(t, vault.AgentRecord{Effort: "max", Profile: "chatgpt"})
+	putCodexRecord(t, vault.AgentRecord{Effort: "max", Route: route.Route{Profile: "chatgpt"}})
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string { return p }); err != nil {
 		t.Fatal(err)
 	}
 	rec := vault.GetAgentRecord("codex")
-	if rec.Effort != "max" || rec.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
+	if rec.Effort != "max" || rec.Route.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
 		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high moved in", rec)
 	}
 	if ov, err := readCodexOverlay(); err != nil || len(ov) != 0 {

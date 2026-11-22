@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -13,7 +14,7 @@ import (
 func TestExportShowsAgentRecords(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X=1"]}}}}`)
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt", Model: "m1"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "m1", Route: route.Route{Profile: "chatgpt"}}); err != nil {
 		t.Fatal(err)
 	}
 	var d Doc

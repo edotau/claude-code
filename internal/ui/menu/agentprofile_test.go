@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -39,11 +40,11 @@ func TestProfileRowPicksOffAndOwnLogin(t *testing.T) {
 	if !strings.Contains(out, "1) off") || !strings.Contains(out, "2) chatgpt") {
 		t.Errorf("picker = %q, want off then the own login chatgpt", out)
 	}
-	if r := vault.GetAgentRecord("codex"); r.Profile != "chatgpt" || r.Model != "keep-me" {
+	if r := vault.GetAgentRecord("codex"); r.Route.Profile != "chatgpt" || r.Model != "keep-me" {
 		t.Errorf("record after own-login pick = %+v, want profile chatgpt, model kept", r)
 	}
 	runProfile(t, reg, "codex", "1\n")
-	if r := vault.GetAgentRecord("codex"); r.Profile != "" || r.Model != "keep-me" {
+	if r := vault.GetAgentRecord("codex"); r.Route.Profile != "" || r.Model != "keep-me" {
 		t.Errorf("record after off = %+v, want profile off, model kept", r)
 	}
 }
@@ -56,7 +57,7 @@ func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 	if !strings.Contains(out, "2) "+opencode.OwnLogin) {
 		t.Errorf("picker = %q, want zen-free as row 2", out)
 	}
-	if got := vault.GetAgentRecord("opencode").Profile; got != opencode.OwnLogin {
+	if got := vault.GetAgentRecord("opencode").Route.Profile; got != opencode.OwnLogin {
 		t.Errorf("profile = %q, want %q", got, opencode.OwnLogin)
 	}
 }
@@ -82,14 +83,14 @@ func TestAgentActiveOnSeedsOnlyEmptyProfile(t *testing.T) {
 	vaulttest.SetRecord(t, "claude", "profile", "")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	agentActiveOn(d, "codex")
-	if got := vault.GetAgentRecord("codex").Profile; got != "chatgpt" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "chatgpt" {
 		t.Fatalf("off codex after sign-in = %q, want chatgpt", got)
 	}
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "openai"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "openai"}}); err != nil {
 		t.Fatal(err)
 	}
 	agentActiveOn(d, "codex")
-	if got := vault.GetAgentRecord("codex").Profile; got != "openai" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "openai" {
 		t.Errorf("chosen profile overridden: %q, want openai", got)
 	}
 }
@@ -98,7 +99,7 @@ func seedDialog(t *testing.T, script string) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	reg := menuTestEnv(t)
 	vaulttest.SetRecord(t, "claude", "profile", "")
-	if got := vault.AgentRecords(agentpkg.RosterNames())["claude"].Profile; got != "" {
+	if got := vault.AgentRecords(agentpkg.RosterNames())["claude"].Route.Profile; got != "" {
 		t.Fatalf("claude record = %q, want a first-run start", got)
 	}
 	out := &bytes.Buffer{}
@@ -119,8 +120,8 @@ func TestSeedDismissWritesNothing(t *testing.T) {
 	d, _ := seedDialog(t, "\n")
 	runSeed(d)
 	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if r.Profile != "" {
-			t.Errorf("%s wrote profile %q on dismiss", a, r.Profile)
+		if r.Route.Profile != "" {
+			t.Errorf("%s wrote profile %q on dismiss", a, r.Route.Profile)
 		}
 	}
 }
@@ -141,8 +142,8 @@ func TestSeedPickWritesProfilesOnly(t *testing.T) {
 	d.br = bufio.NewReader(strings.NewReader(script))
 	runSeed(d)
 	recs := vault.AgentRecords(agentpkg.RosterNames())
-	if recs["copilot"].Profile != want || recs["codex"].Profile != "" {
-		t.Errorf("records = copilot %q codex %q, want %q and off", recs["copilot"].Profile, recs["codex"].Profile, want)
+	if recs["copilot"].Route.Profile != want || recs["codex"].Route.Profile != "" {
+		t.Errorf("records = copilot %q codex %q, want %q and off", recs["copilot"].Route.Profile, recs["codex"].Route.Profile, want)
 	}
 	// reopening shows the stored value
 	d2, out2 := seedDialog(t, "\n")
@@ -159,7 +160,7 @@ func TestSeedFirstRunNonInteractivePointsAtRow(t *testing.T) {
 		t.Errorf("no pointer line: %q", out)
 	}
 	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if r.Profile != "" {
+		if r.Route.Profile != "" {
 			t.Fatalf("non-interactive first run wrote %+v", r)
 		}
 	}
@@ -176,7 +177,7 @@ func TestSeedFromSignInSetsRecord(t *testing.T) {
 		t.Skipf("copilot sign-in profile = %q, not %q", got, profiles[0])
 	}
 	agentActiveOn(d, "copilot")
-	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Profile; got != profiles[0] || !d.changed {
+	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Route.Profile; got != profiles[0] || !d.changed {
 		t.Errorf("copilot profile = %q (changed=%v), want %q; dialog said %q", got, d.changed, profiles[0], out)
 	}
 }
@@ -189,7 +190,7 @@ func TestPinCopilotProfileEmptyRefusedKeepsPin(t *testing.T) {
 	if pinCopilotProfile(d, "") {
 		t.Fatalf("empty pin must be refused: %s", d.out)
 	}
-	if got := vault.GetAgentRecord("copilot"); got.Profile != "copilot" || got.Model != "keep-model" {
+	if got := vault.GetAgentRecord("copilot"); got.Route.Profile != "copilot" || got.Model != "keep-model" {
 		t.Fatalf("refused pin must keep the record: %+v", got)
 	}
 }
@@ -199,7 +200,7 @@ func TestSaveSeedMarksDialogChanged(t *testing.T) {
 	if !saveSeed(d, map[string]string{"codex": "chatgpt"}) {
 		t.Fatalf("saveSeed failed: %s", out)
 	}
-	if got := vault.GetAgentRecord("codex").Profile; got != "chatgpt" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "chatgpt" {
 		t.Fatalf("codex profile = %q, want chatgpt", got)
 	}
 	if !d.changed {
@@ -214,8 +215,8 @@ func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
 		t.Fatal("saveSeed reported success for an unknown profile")
 	}
 	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if r.Profile != "" {
-			t.Errorf("%s persisted profile %q after a failed save", a, r.Profile)
+		if r.Route.Profile != "" {
+			t.Errorf("%s persisted profile %q after a failed save", a, r.Route.Profile)
 		}
 	}
 }
@@ -254,7 +255,7 @@ func workspaceFixture(t *testing.T, d *dialog) {
 func profiles(agents ...string) map[string]string {
 	m := map[string]string{}
 	for _, a := range agents {
-		m[a] = vault.GetAgentRecord(a).Profile
+		m[a] = vault.GetAgentRecord(a).Route.Profile
 	}
 	return m
 }
@@ -266,10 +267,10 @@ func TestDatabricksPickSyncsAgentsOnWorkspaces(t *testing.T) {
 	workspaceFixture(t, d)
 	before := profiles("claude", "gemini", "copilot")
 	_, out := pickWorkspace(t, d, "codex", "2\n", mintM2M)
-	if got := vault.GetAgentRecord("codex").Profile; got != "prod" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "prod" {
 		t.Errorf("page agent codex on own login: profile = %q, want prod", got)
 	}
-	if got := vault.GetAgentRecord("opencode").Profile; got != "prod" {
+	if got := vault.GetAgentRecord("opencode").Route.Profile; got != "prod" {
 		t.Errorf("opencode on qa: profile = %q, want prod", got)
 	}
 	if got := profiles("claude", "gemini", "copilot"); !reflect.DeepEqual(got, before) {
@@ -296,10 +297,10 @@ func TestPinPickerSyncsOnlyWorkspacePicks(t *testing.T) {
 		if _, err := pickAgentProfile(d, "codex", ""); err != nil {
 			t.Fatal(err)
 		}
-		if got := vault.GetAgentRecord("codex").Profile; got != tc.pick {
+		if got := vault.GetAgentRecord("codex").Route.Profile; got != tc.pick {
 			t.Errorf("pick %s: codex = %q", tc.pick, got)
 		}
-		if got := vault.GetAgentRecord("opencode").Profile; got != tc.opencode {
+		if got := vault.GetAgentRecord("opencode").Route.Profile; got != tc.opencode {
 			t.Errorf("pick %s: opencode = %q, want %s", tc.pick, got, tc.opencode)
 		}
 	}
@@ -324,7 +325,7 @@ func TestDatabricksPinSurvivesFailedTokenCheck(t *testing.T) {
 		return databricks.MintResult{}, "", errors.New("invalid_client\nbad secret")
 	}
 	_, out := pickWorkspace(t, d, "codex", "1\n", fail)
-	if got := vault.GetAgentRecord("codex").Profile; got != "qa" {
+	if got := vault.GetAgentRecord("codex").Route.Profile; got != "qa" {
 		t.Errorf("profile = %q after a failed check, want qa kept", got)
 	}
 	if !strings.Contains(out, "databricks qa: invalid_client bad secret · fix: "+providers.LoginCommand("qa")) {
@@ -349,7 +350,7 @@ func TestOwnSignInReplacesWorkspacePin(t *testing.T) {
 		vaulttest.SetRecord(t, a, "profile", "qa")
 		rows := []billingRow{{label: "Login", run: func() bool { return false }}}
 		activateOnSignIn(d, a, rows)
-		if rows[0].run() || vault.GetAgentRecord(a).Profile != "qa" {
+		if rows[0].run() || vault.GetAgentRecord(a).Route.Profile != "qa" {
 			t.Fatalf("%s failed sign-in changed the workspace pin", a)
 		}
 		rows = []billingRow{{label: "Login", run: func() bool { return true }}}
@@ -358,7 +359,7 @@ func TestOwnSignInReplacesWorkspacePin(t *testing.T) {
 			t.Fatalf("%s own login failed", a)
 		}
 		want := signInProfile(d, a)
-		if got := vault.GetAgentRecord(a).Profile; got != want || got == "qa" || got == "" {
+		if got := vault.GetAgentRecord(a).Route.Profile; got != want || got == "qa" || got == "" {
 			t.Errorf("%s profile = %q, want own login %q", a, got, want)
 		}
 	}
@@ -389,7 +390,7 @@ func TestDatabricksSignedInDevAppearsAlongsideQaAndProd(t *testing.T) {
 		if !strings.Contains(out, "1) dev") || !strings.Contains(out, "2) qa") || !strings.Contains(out, "3) prod") {
 			t.Fatalf("%s picker = %q, want dev, qa and prod", a, out)
 		}
-		if vault.GetAgentRecord(a).Profile != "dev" {
+		if vault.GetAgentRecord(a).Route.Profile != "dev" {
 			t.Fatalf("%s did not pin dev", a)
 		}
 	}

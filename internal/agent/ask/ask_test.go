@@ -275,7 +275,7 @@ func agyJobFixture(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Profile: "antigravity"}); err != nil { // no profile = off
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Route: route.Route{Profile: "antigravity"}}); err != nil { // no profile = off
 		t.Fatal(err)
 	}
 	script := "cat > /dev/null\n" +
@@ -969,7 +969,7 @@ func cliEnv(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
 	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
-		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: profile}); err != nil {
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Route: route.Route{Profile: profile}}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -279,7 +279,7 @@ func activateAgents(t *testing.T, agents ...string) {
 	if err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		for _, a := range agents {
 			r := m[a]
-			r.Profile = profiles[a]
+			r.Route.Profile = profiles[a]
 			m[a] = r
 		}
 	}); err != nil {
@@ -622,7 +622,7 @@ func setupWorkdirFixture(t *testing.T) {
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	t.Setenv("OPENCODE_API_KEY", "test-key")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Profile: "zen-free"}); err != nil { // no profile = off
+	if err := vault.SetAgentRecord("opencode", (vault.AgentRecord{}).WithPin("PROFILE", "zen-free")); err != nil { // no profile = off
 		t.Fatal(err)
 	}
 }

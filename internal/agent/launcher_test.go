@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
@@ -270,7 +271,7 @@ func TestLaunchProfileIgnoresLastUsed(t *testing.T) {
 	hermetic(t, "")
 	t.Chdir(t.TempDir())
 	vaulttest.SetRecord(t, "opencode", "profile", "antigravity")
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "openai"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "openai"}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := testLaunchProfile(t, "opencode", LaunchOptions{}).Provider; got != "antigravity" {

@@ -85,12 +85,12 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 		calls++
 		return -1, nil
 	})
-	cur := vault.GetAgentRecord("claude").Profile
+	cur := vault.GetAgentRecord("claude").Route.Profile
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
 	if rc != 0 || calls != 1 {
 		t.Fatalf("rc=%d calls=%d, want rc=0 after exactly one picker call", rc, calls)
 	}
-	if got := vault.GetAgentRecord("claude").Profile; got != cur {
+	if got := vault.GetAgentRecord("claude").Route.Profile; got != cur {
 		t.Errorf("provider pin changed: %q -> %q", cur, got)
 	}
 }
@@ -130,13 +130,13 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 	if !keepOrPin(d, "subscription", "subscription") {
 		t.Fatal("keepOrPin(same) = false")
 	}
-	if got := vault.GetAgentRecord("claude").Profile; got != "" {
+	if got := vault.GetAgentRecord("claude").Route.Profile; got != "" {
 		t.Errorf("vault pin written on a same-as-current pick: %q", got)
 	}
 	if !keepOrPin(d, "subscription", "anthropic") {
 		t.Fatal("keepOrPin(different) = false")
 	}
-	if got := vault.GetAgentRecord("claude").Profile; got != "anthropic" {
+	if got := vault.GetAgentRecord("claude").Route.Profile; got != "anthropic" {
 		t.Errorf("claude profile = %q, want %q after an explicit different pick", got, "anthropic")
 	}
 }

@@ -35,8 +35,10 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the one vault layout this build reads; the upgrades from older layouts live in git history.
-const schemaVersion = 7
+// schemaVersion is the current vault layout; schema 7 upgrades atomically on open.
+const schemaVersion = 8
+
+var errSchemaMigration = errors.New("vault: schema migration needs a write transaction")
 
 // Lock-wait bounds for bbolt opens; vars so tests can shorten them.
 var (
@@ -64,14 +66,40 @@ func ViewAt(path string, fn func(*Tx) error) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	return db.View(func(tx *bbolt.Tx) error {
+	err = db.View(func(tx *bbolt.Tx) error {
 		t := &Tx{tx}
 		if err := checkSchema(t); err != nil {
 			return err
 		}
 		return fn(t)
 	})
+	closeErr := db.Close()
+	if errors.Is(err, errSchemaMigration) {
+		if closeErr != nil {
+			return closeErr
+		}
+		if err := migrateSchemaAt(path); err != nil {
+			return err
+		}
+		return ViewAt(path, fn)
+	}
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
+
+func migrateSchemaAt(path string) error {
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{Timeout: writeLockTimeout, NoSync: noSync.Load()})
+	if err != nil {
+		return err
+	}
+	err = db.Update(func(tx *bbolt.Tx) error { return checkSchema(&Tx{tx}) })
+	closeErr := db.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func checkSchema(t *Tx) error {
@@ -82,6 +110,15 @@ func checkSchema(t *Tx) error {
 	}
 	if n > schemaVersion {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
+	}
+	if n == 7 {
+		if !t.tx.Writable() {
+			return errSchemaMigration
+		}
+		if err := t.migrateAgentRecords(); err != nil {
+			return err
+		}
+		return t.Put(Meta, "schema", strconv.Itoa(schemaVersion))
 	}
 	if n < schemaVersion {
 		return fmt.Errorf("vault: schema %d is older than this build reads (schema %d); open it once with a "+

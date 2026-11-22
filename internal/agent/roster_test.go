@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -47,7 +48,7 @@ func (fixtureGemini) FollowsPin(p *providers.Provider) bool {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gemini: vault unreadable, pins ignored: %v\n", err)
 	}
-	return !GeminiGatewayRow(p) || recs["gemini"].Profile == p.Name
+	return !GeminiGatewayRow(p) || recs["gemini"].Route.Profile == p.Name
 }
 
 // NoRoute refuses an unpinned Databricks row like geminiEngine.NoRoute (internal/gemini/gemini.go:115).
@@ -304,10 +305,10 @@ func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
 // SetAgentRecord round-trips, and an empty profile turns an external agent off.
 func TestSetAgentRecordRoundTripAndOff(t *testing.T) {
 	vaulttest.Use(t)
-	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Profile: "antigravity", Model: "g"}); err != nil {
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Model: "g", Route: route.Route{Profile: "antigravity"}}); err != nil {
 		t.Fatal(err)
 	}
-	if r := vault.GetAgentRecord("gemini"); r.Profile != "antigravity" || r.Model != "g" || !AgentActive("gemini") {
+	if r := vault.GetAgentRecord("gemini"); r.Route.Profile != "antigravity" || r.Model != "g" || !AgentActive("gemini") {
 		t.Fatalf("gemini = %+v active=%v", r, AgentActive("gemini"))
 	}
 	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Model: "g"}); err != nil {
