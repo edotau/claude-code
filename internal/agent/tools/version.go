@@ -36,6 +36,9 @@ func versionOutput(ctx context.Context, path string, timeout time.Duration, arg 
 	cmd := exec.CommandContext(ctx, path, arg)
 	// a version probe gets no login or route credential
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, ""))
+	if filepath.Base(path) == "pi" {
+		cmd.Env = append(cmd.Env, PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
+	}
 	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
 	out, err := cmd.Output()
 	if err != nil {

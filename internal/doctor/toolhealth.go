@@ -64,9 +64,12 @@ var agentHelp = func(ctx context.Context, spec agent.Schema) (version, help stri
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append(append([]string(nil), spec.CLI.HelpArgv...), helpFlagIfBare(spec)...)...)
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // a help probe gets no credential
+	if spec.Name == "pi" {
+		cmd.Env = append(cmd.Env, tools.PiNodePathEnv(ctx)...) // the launcher's Node, else an older PATH node crashes
+	}
 	cmd.WaitDelay = 200 * time.Millisecond
 	out, runErr := cmd.CombinedOutput() // some CLIs print help on stderr or exit non-zero
-	if len(out) == 0 {
+	if len(out) == 0 || (runErr != nil && !strings.Contains(strings.ToLower(string(out)), "usage")) {
 		return version, "", fmt.Errorf("no help output: %v", runErr)
 	}
 	return version, string(out), nil

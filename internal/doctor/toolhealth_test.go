@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -90,5 +91,11 @@ func TestCheckToolHealthReportsFlagDrift(t *testing.T) {
 	text = strings.ReplaceAll(text, "--ephemeral", "--ephemeral-run")
 	if ok, got := row(); ok || got != "drift: --ephemeral (installed 0.166.0)" {
 		t.Errorf("help without --ephemeral = %v %q, want drift naming it (a longer flag does not count)", ok, got)
+	}
+	agentHelp = func(context.Context, agent.Schema) (string, string, error) {
+		return "", "", errors.New("no help output")
+	}
+	if _, got := row(); got != "skipped: help unavailable" {
+		t.Errorf("failed help = %q, want skipped", got)
 	}
 }
