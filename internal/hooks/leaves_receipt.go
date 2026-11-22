@@ -296,17 +296,12 @@ func briefWords(s leafScan) []string {
 // unattributedNote tops a report whose ask no dispatch record could be tied to.
 const unattributedNote = "NOTE: the relay's ask could not be attributed to a dispatch record, so the work may have been done by the relay model."
 
-// missingIDReceipt binds the records askBound proves are this relay's, else holds on a running candidate, else notes.
+// Only proven matches can hold the hand-back; other candidates may belong to siblings.
 func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, bool) {
 	recs := askRecords(lr.scan.askTimes, st)
 	tied := slices.DeleteFunc(slices.Clone(recs), func(r agent.Record) bool { return !askBound(lr.scan.asks, r) })
 	if len(tied) > 0 {
 		return dispatchReceipts(in, lr, tied, "looked up by session, agent, brief and launch time")
-	}
-	if running := runningAfter(recs, lr.holdUntil); len(running) > 0 {
-		if res, held := dispatchReceipts(in, lr, running, "a running dispatch of this agent launched after the relay's ask"); held {
-			return res, true
-		}
 	}
 	note := unattributedNote
 	if len(recs) > 0 {
@@ -322,15 +317,6 @@ func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, boo
 		res.UpdatedInput["message"] = labelUnverified(msg)
 	}
 	return res, false
-}
-
-func runningAfter(recs []agent.Record, holdUntil time.Time) []agent.Record {
-	if holdExpired(holdUntil) {
-		return nil
-	}
-	return slices.DeleteFunc(slices.Clone(recs), func(r agent.Record) bool {
-		return !jobRunning(r) || time.Since(r.Time) >= leafStopMaxWait
-	})
 }
 
 // labelUnverified prefixes each relay-written `ask: ran on` line, keeping the text.

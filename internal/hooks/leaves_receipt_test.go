@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -380,16 +379,12 @@ func missingIDResult(in *core.Input) (string, bool) {
 	return msg, false
 }
 
-func receiptRecord(status, id, prompt string, start time.Time, pid int) string {
-	return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"owner":4242,"model":"m","request":{"prompt":%q}}`,
-		id, start.Format(time.RFC3339), status, pid, prompt)
-}
-
 func TestReceiptFixMissingIDBindsOnlyOnProof(t *testing.T) {
 	const a, b = "20261116T120000.000-codex", "20261116T120010.000-codex"
 	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	recAs := func(status, id, prompt string, start time.Time) string {
-		return receiptRecord(status, id, prompt, start, os.Getpid())
+		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"owner":4242,"model":"m","request":{"prompt":%q}}`,
+			id, start.Format(time.RFC3339), status, os.Getpid(), prompt)
 	}
 	untied := func(id string, start time.Time) string { return recAs("running", id, "sibling", start) }
 	for _, tc := range []struct {
@@ -399,27 +394,19 @@ func TestReceiptFixMissingIDBindsOnlyOnProof(t *testing.T) {
 		wantBlock bool
 		want      []string
 		not       string
-		askAt     time.Time
 	}{
-		{"one tied in window", map[string]string{a: "ok"}, nil, false, []string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote, time.Time{}},
-		{"tied running is held", map[string]string{a: "running"}, nil, true, []string{"Run `claude-code agents result -f " + a}, "", time.Time{}},
-		{"one untied", map[string]string{a: "ok"}, map[string]string{a: recAs("ok", a, "sibling", at.Add(time.Second))}, false,
-			[]string{unattributedNote, a}, "supplied the receipt", time.Time{}},
-		{"untied running is held", map[string]string{a: "running"}, map[string]string{a: untied(a, at.Add(20*time.Second))}, true,
-			[]string{"Run `claude-code agents result -f " + a}, "", time.Time{}},
-		{"several untied running siblings are held", map[string]string{a: "running", b: "running"},
-			map[string]string{a: untied(a, at.Add(time.Second)), b: untied(b, at.Add(2*time.Second))}, true,
-			[]string{"Run `claude-code agents result -f "}, "", time.Time{}},
-		{"fresh sibling after ask deadline", nil, map[string]string{b: receiptRecord("running", b, "sibling", time.Now(), 0)}, false,
-			[]string{unattributedNote, b}, "supplied the receipt", at.Add(-leafStopMaxWait)},
-		{"two tied, one running, is held", map[string]string{a: "ok", b: "running"}, nil, true, []string{"Run `claude-code agents result -f " + b}, "", time.Time{}},
+		{"one tied in window", map[string]string{a: "ok"}, nil, false, []string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote},
+		{"tied running is held", map[string]string{a: "running"}, nil, true, []string{"Run `claude-code agents result -f " + a}, ""},
+		{"untied running siblings", nil, map[string]string{a: untied(a, at.Add(time.Second)), b: untied(b, at.Add(2*time.Second))}, false,
+			[]string{unattributedNote, "Candidates", a, b}, "supplied the receipt"},
+		{"two tied, one running, is held", map[string]string{a: "ok", b: "running"}, nil, true, []string{"Run `claude-code agents result -f " + b}, ""},
 		{"tied outside window", map[string]string{a: "ok"}, map[string]string{a: recAs("ok", a, "x", at.Add(askLaunchWindow+time.Minute))}, false,
-			[]string{unattributedNote, a}, "supplied the receipt", time.Time{}},
+			[]string{unattributedNote, a}, "supplied the receipt"},
 		{"tied plus untied sibling", map[string]string{a: "ok", b: "ok"}, map[string]string{b: untied(b, at.Add(time.Second))}, false,
-			[]string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote, time.Time{}},
+			[]string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := missingIDTx(t, cmp.Or(tc.askAt, at), tc.rows)
+			in := missingIDTx(t, at, tc.rows)
 			for id, raw := range tc.override {
 				writeDispatch(t, id, raw)
 			}
