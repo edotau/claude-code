@@ -292,7 +292,21 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		// the guard's -e stays first: Pi keeps the first registration of a tool name, so a package never shadows a guarded tool
 		p.Argv = append(p.Argv, PackageArgv(loadedAt(dirs))...)
 	}
-	p.Argv = append(p.Argv, "--", promptArg(p.Prompt))
+	p.Argv = append(p.Argv, "--")
+	for _, f := range req.Attach { // Pi reads a leading-@ positional itself, so no size cap or smuggled prompt text applies
+		p.Argv = append(p.Argv, "@"+f)
+	}
+	p.Argv = append(p.Argv, promptArg(p.Prompt))
+}
+
+// Attach refuses a path Pi could not read; the file itself rides argv as @path in After.
+func (piEngine) Attach(prompt string, paths []string, _ bool) (string, error) {
+	for _, f := range paths {
+		if st, err := os.Stat(f); err != nil || !st.Mode().IsRegular() {
+			return "", fmt.Errorf("--%w %s: not a readable regular file", agent.ErrBadAttach, f)
+		}
+	}
+	return prompt, nil
 }
 
 // promptArg goes after "--", where Pi reads text, never a flag (-a, -e); a leading @ would still read a file unguarded.

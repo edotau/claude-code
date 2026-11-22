@@ -217,6 +217,9 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 	if err != nil {
 		return "", nil, nil, err
 	}
+	if err := agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
+		return "", nil, nil, err
+	}
 	h := agent.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
 	cred, err := opencodeCredential(l.provider.OpencodeID)

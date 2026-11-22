@@ -275,6 +275,9 @@ func joinNames(dir string, names []string) []string {
 
 // copilotPrompt inlines text attachments; the SDK never resolves @<path>, so images ride as absolute file paths.
 func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err error) {
+	if err = agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
+		return "", nil, err
+	}
 	images, rest := agent.SplitImages(req.Attach)
 	if images, err = absPaths(images); err != nil {
 		return "", nil, err

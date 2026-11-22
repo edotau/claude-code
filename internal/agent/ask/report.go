@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -192,6 +193,9 @@ func reportAsk(out io.Writer, format, save string, p *agent.Prepared, res wire.R
 		}
 	}
 	if err := cmp.Or(err, writeErr); err != nil {
+		if errors.Is(err, agent.ErrBadAttach) || errors.Is(err, agent.ErrPromptTooLarge) { // refused before launch
+			return helptext.FailUsage("ask: %v", err)
+		}
 		return helptext.Fail("ask: %v", err)
 	}
 	return 0

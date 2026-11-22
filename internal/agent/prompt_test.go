@@ -2,9 +2,12 @@ package agent
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 func TestIsText(t *testing.T) {
@@ -88,5 +91,15 @@ func TestRubricPrompt(t *testing.T) {
 	}
 	if _, err := rubricPrompt(file, strings.Repeat("x", MaxPromptBytes)); err == nil {
 		t.Error("oversize prompt must be an error, never truncated")
+	}
+}
+
+func TestCheckAttachReadableHonorsReadDeny(t *testing.T) {
+	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Read", Arg: "/secret/*"}}}
+	if err := CheckAttachReadable(deny, []string{"/ok/a.txt", "/secret/b.txt"}); !errors.Is(err, ErrBadAttach) || !strings.Contains(err.Error(), "/secret/b.txt") {
+		t.Errorf("err = %v, want a denied-attach error naming /secret/b.txt", err)
+	}
+	if err := CheckAttachReadable(deny, []string{"/ok/a.txt"}); err != nil {
+		t.Errorf("allowed path refused: %v", err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 // Preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
@@ -53,6 +54,16 @@ func AttachSuffix(prompt string, paths []string) string {
 
 // ErrBadAttach marks an unreadable or binary --attach file: a request fault no other agent can fix.
 var ErrBadAttach = errors.New("attach")
+
+// CheckAttachReadable refuses an --attach path a dispatch Read deny forbids: delivery reads it for the agent.
+func CheckAttachReadable(perm permission.Permissions, paths []string) error {
+	for _, p := range paths {
+		if perm.Decide("Read", p) == permission.Deny {
+			return fmt.Errorf("--%w %s: denied by a Read rule", ErrBadAttach, p)
+		}
+	}
+	return nil
+}
 
 // AttachInline embeds each path as a <file path="…">content</file> block: the fallback with no live-read channel.
 func AttachInline(prompt string, paths []string) (string, error) {

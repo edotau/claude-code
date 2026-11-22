@@ -253,7 +253,9 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		p.Result.Provider = t.Provider.Name
 		p.Result.Model = v.RanModel(t)
 	}
-	p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
+	if err = CheckAttachReadable(req.Permissions, req.Attach); err == nil {
+		p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
+	}
 	if err != nil {
 		return p, retry.Fatal(name, err)
 	}

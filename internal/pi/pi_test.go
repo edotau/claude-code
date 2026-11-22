@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -243,6 +244,17 @@ func TestAfterPutsPromptLast(t *testing.T) {
 	}
 	if slices.Contains(p.Argv, "--tools") {
 		t.Errorf("--tools would re-enable builtin tools: %v", p.Argv)
+	}
+}
+
+func TestAfterDeliversAttachmentsBeforePrompt(t *testing.T) {
+	p := &agent.CLIPrep{Argv: []string{"--mode", "json"}, Prompt: "@x"}
+	piEngine{}.After(p, agent.RunOptions{Attach: []string{"/a/f.txt"}})
+	if n := len(p.Argv); p.Argv[n-3] != "--" || p.Argv[n-2] != "@/a/f.txt" || p.Argv[n-1] != " @x" {
+		t.Errorf("argv = %v", p.Argv)
+	}
+	if _, err := (piEngine{}).Attach("t", []string{"/nonexistent/f.txt"}, false); !errors.Is(err, agent.ErrBadAttach) {
+		t.Errorf("missing attach err = %v", err)
 	}
 }
 

@@ -53,6 +53,9 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 	if req.ReadOnly && req.SafeMode { // --safe-mode loads no hooks, so nothing would limit Bash to the read-only list
 		return wire.Result{}, retry.Fatal("claude", errors.New("--read-only cannot run under --safe-mode: the shell gate is a hook"))
 	}
+	if err := agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
+		return wire.Result{}, retry.Fatal("claude", err)
+	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return wire.Result{}, err
