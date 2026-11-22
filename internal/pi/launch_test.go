@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -92,13 +93,38 @@ func TestExperimentIsOneTrial(t *testing.T) {
 	for _, c := range []struct{ codemode, rtk, want string }{
 		{"", "", "none"}, {"", "debug", "none"}, {"", " ON ", "rtk-wrap"}, {"on", "", "codemode"}, {"only", "debug", "codemode"},
 	} {
-		if got, err := experiment(c.codemode, c.rtk); err != nil || got != c.want {
+		if got, err := experiment(c.codemode, c.rtk, "--codemode"); err != nil || got != c.want {
 			t.Errorf("experiment(%q, %q) = %q, %v; want %q", c.codemode, c.rtk, got, err, c.want)
 		}
 	}
-	_, err := experiment("on", "on")
-	if err == nil || !strings.Contains(err.Error(), "--codemode") || !strings.Contains(err.Error(), "RTK_WRAP=on") {
+	_, err := experiment("on", "on", "PI_CODEMODE=on")
+	if err == nil || !strings.Contains(err.Error(), "PI_CODEMODE=on") || !strings.Contains(err.Error(), "RTK_WRAP=on") {
 		t.Errorf("codemode with RTK_WRAP=on: err = %v, want a refusal naming both", err)
+	}
+}
+
+func TestResolveCodemode(t *testing.T) {
+	for name, c := range map[string]struct {
+		typed, setting, rtk, want string
+		tools, ok                 bool
+	}{
+		"setting":      {"", "only", "", "only", true, true},
+		"case":         {"", " On ", "", "on", true, true},
+		"typed wins":   {"on", "only", "on", "on", true, true},
+		"no tools":     {"", "only", "", "", false, true},
+		"bad value":    {"", "yes", "", "", true, true},
+		"unset":        {"", "", "", "", true, true},
+		"with rtkwrap": {"", "only", "on", "only", true, false},
+	} {
+		t.Setenv(CodemodeEnv, c.setting)
+		t.Setenv(rtkwrap.ModeEnv, c.rtk)
+		got, err := ResolveCodemode(c.typed, c.tools)
+		if got != c.want || (err == nil) != c.ok {
+			t.Errorf("%s: got %q, %v; want %q ok=%v", name, got, err, c.want, c.ok)
+		}
+		if err != nil && !strings.Contains(err.Error(), "PI_CODEMODE=only") {
+			t.Errorf("%s: refusal %q must name the setting", name, err)
+		}
 	}
 }
 

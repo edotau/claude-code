@@ -132,7 +132,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // flags and any spec, stdin included, are parsed, so dryness is final; a dry run reaps nothing
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
+	r := &askRun{ctx: carrierContext(ctx), f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
@@ -299,7 +299,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if err := validateCodemode(f.codemode, f.name); err != nil {
+	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {

@@ -127,7 +127,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.StringVar(&f.codemode, "codemode", "", "pi only, with --tools: "+strings.Join(pi.CodemodeModes, "|")+", tools via scripts")
+	fs.StringVar(&f.codemode, "codemode", "", "pi only, with --tools: "+strings.Join(pi.CodemodeModes, "|")+", tools via scripts (setting PI_CODEMODE)")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (15m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -180,18 +180,19 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// validateCodemode checks --codemode against the resolved agent: only pi has a codemode tool.
-func validateCodemode(mode, ag string) error {
-	if mode == "" {
-		return nil
-	}
-	if !slices.Contains(pi.CodemodeModes, mode) {
-		return fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
+// validateCodemode checks --codemode against the resolved agent (only pi has a codemode tool) and returns the mode
+// to run: the typed one, else pi's PI_CODEMODE setting under --tools.
+func validateCodemode(mode, ag string, tools bool) (string, error) {
+	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
+		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
 	if ag != agentid.Pi {
-		return fmt.Errorf("--codemode applies to pi only; %s has no codemode tool", ag)
+		if mode != "" {
+			return "", fmt.Errorf("--codemode applies to pi only; %s has no codemode tool", ag)
+		}
+		return "", nil
 	}
-	return nil
+	return pi.ResolveCodemode(mode, tools)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.

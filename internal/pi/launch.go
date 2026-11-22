@@ -85,9 +85,27 @@ const (
 // CodemodeModes are the --codemode values: Pi's codemode.mode setting.
 var CodemodeModes = []string{"on", "only"}
 
+// CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
+const CodemodeEnv = "PI_CODEMODE"
+
+const codemodeFlag = "--codemode"
+
+// ResolveCodemode is the typed --codemode, else the PI_CODEMODE setting under --tools; any other setting value is off.
+func ResolveCodemode(typed string, tools bool) (string, error) {
+	if typed != "" || !tools {
+		return typed, nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(cmp.Or(os.Getenv(CodemodeEnv), providers.CustomEnv()[CodemodeEnv])))
+	if !slices.Contains(CodemodeModes, mode) {
+		return "", nil
+	}
+	_, err := experiment(mode, rtkMode(), CodemodeEnv+"="+mode)
+	return mode, err
+}
+
 // Experiment is the trial a run of req carries, from the same RTK_WRAP sources Wire reads.
 func (piEngine) Experiment(req agent.RunOptions) string {
-	x, _ := experiment(req.Codemode, rtkMode())
+	x, _ := experiment(req.Codemode, rtkMode(), codemodeFlag)
 	return x
 }
 
@@ -96,11 +114,11 @@ func rtkMode() string {
 }
 
 // experiment is the one trial a dispatch carries; RTK_WRAP=debug never changes output, so it is none.
-func experiment(codemode, rtk string) (string, error) {
+func experiment(codemode, rtk, src string) (string, error) {
 	wrap := strings.EqualFold(strings.TrimSpace(rtk), "on")
 	switch {
 	case codemode != "" && wrap:
-		return "", fmt.Errorf("pi: --codemode and %s=on are two experiments; a dispatch carries one, drop either", rtkwrap.ModeEnv)
+		return "", fmt.Errorf("pi: %s and %s=on are two experiments; a dispatch carries one, drop either", src, rtkwrap.ModeEnv)
 	case codemode != "":
 		return "codemode", nil
 	case wrap:
@@ -131,7 +149,7 @@ func checkCodemode(req agent.RunOptions, env []string) error {
 	if !req.Tools {
 		return errors.New("pi: --codemode needs --tools: its scripts call the guarded tools")
 	}
-	_, err := experiment(req.Codemode, lastEnv(env, rtkwrap.ModeEnv))
+	_, err := experiment(req.Codemode, lastEnv(env, rtkwrap.ModeEnv), codemodeFlag)
 	return err
 }
 
