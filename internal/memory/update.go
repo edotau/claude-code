@@ -92,7 +92,19 @@ type UpdateResult struct {
 }
 
 func resultPath(sessionID string) string {
-	return filepath.Join(paths.MemoryStateDir(), "update-result-"+filepath.Base(sessionID))
+	return filepath.Join(receiptDir(), "update-result-"+filepath.Base(sessionID))
+}
+
+// receiptDir keeps receipts out of the crowded state dir; its first creation moves the old flat receipts in once.
+func receiptDir() string {
+	dir := filepath.Join(paths.MemoryStateDir(), "update-results")
+	if _, err := os.Stat(dir); err == nil || os.MkdirAll(dir, 0o700) != nil {
+		return dir
+	}
+	for _, p := range transcript.GlobIn(paths.MemoryStateDir(), "update-result-*") {
+		_ = os.Rename(p, filepath.Join(dir, filepath.Base(p)))
+	}
+	return dir
 }
 
 // writeUpdateResult persists r for sessionID; a blank id (manual run) records nothing.

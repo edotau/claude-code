@@ -54,7 +54,7 @@ func statBank() bankStat {
 			s.Updated = fi.ModTime()
 		}
 		// The visible surface for commitStore's refusal to stage credential-shaped values.
-		if textutil.CredentialRE().Match(data) {
+		if credentialShaped(data) {
 			s.Credentials = append(s.Credentials, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}
@@ -331,7 +331,7 @@ func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []strin
 	return problems
 }
 
-// bankStats aggregates every update receipt under paths.MemoryStateDir() into update-success and bank-updated rates.
+// bankStats aggregates every update receipt under receiptDir() into update-success and bank-updated rates.
 type bankStats struct {
 	Updates     int // receipt files parsed
 	OK          int
@@ -343,7 +343,7 @@ type bankStats struct {
 	Newest      time.Time
 }
 
-// collectBankStats scans paths.MemoryStateDir()/update-result-*. Unreadable or statusless receipts are skipped.
+// collectBankStats scans receiptDir()/update-result-*. Unreadable or statusless receipts are skipped.
 func collectBankStats() bankStats {
 	var s bankStats
 	for _, rc := range readReceipts() {
@@ -388,7 +388,7 @@ func (s bankStats) Report() string {
 	var b strings.Builder
 	b.WriteString("== memory stats (receipts on disk) ==\n")
 	if s.Updates == 0 {
-		b.WriteString("updates: no receipts yet (state/harness/memory/update-result-*)\n")
+		b.WriteString("updates: no receipts yet (state/harness/memory/update-results/)\n")
 		return b.String()
 	}
 	fmt.Fprintf(&b, "updates: %d receipt(s)", s.Updates)
@@ -471,10 +471,10 @@ type receipt struct {
 	r  UpdateResult
 }
 
-// readReceipts returns every parseable paths.MemoryStateDir()/update-result-* receipt, skipping unreadable ones.
+// readReceipts returns every parseable receiptDir()/update-result-* receipt, skipping unreadable ones.
 func readReceipts() []receipt {
 	var out []receipt
-	for _, p := range transcript.GlobIn(paths.MemoryStateDir(), "update-result-*") {
+	for _, p := range transcript.GlobIn(receiptDir(), "update-result-*") {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})

@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"regexp/syntax"
 	"slices"
 	"strings"
 	"sync"
@@ -716,12 +718,105 @@ func (r Repo) stageable(rels []string) ([]string, error) {
 	return present, nil
 }
 
+// credentialShaped is CredentialRE().Match(data), run anchored at each lead literal instead of scanning every byte.
+func credentialShaped(data []byte) bool {
+	c := credentialScan()
+	if c.lits == nil {
+		return textutil.CredentialRE().Match(data)
+	}
+	for _, lit := range c.lits {
+		for i := 0; ; {
+			n := bytes.Index(data[i:], lit)
+			if n < 0 {
+				break
+			}
+			at := i + n
+			// The byte before at rides along so a leading \b sees the same context as a whole-text scan.
+			if at == 0 && c.atStart.Match(data) || at > 0 && c.afterByte.Match(data[at-1:]) {
+				return true
+			}
+			i = at + 1
+		}
+	}
+	return false
+}
+
+// credentialScanner holds the literals one of which starts every CredentialRE match, and its anchored forms.
+type credentialScanner struct {
+	lits               [][]byte // nil: some match has no literal start, so callers scan the whole text
+	atStart, afterByte *regexp.Regexp
+}
+
+var credentialScan = sync.OnceValue(func() credentialScanner {
+	pat := textutil.CredentialRE().String()
+	c := credentialScanner{
+		atStart:   regexp.MustCompile(`\A(?:` + pat + `)`),
+		afterByte: regexp.MustCompile(`\A(?s:.)(?:` + pat + `)`),
+	}
+	re, err := syntax.Parse(pat, syntax.Perl)
+	if err != nil {
+		return c
+	}
+	lits, _ := leadLiterals(re)
+	for _, l := range lits {
+		if l == "" {
+			return credentialScanner{}
+		}
+		c.lits = append(c.lits, []byte(l))
+	}
+	return c
+})
+
+// leadLiterals returns strings one of which starts every match of r, and whether r matches exactly those strings.
+func leadLiterals(r *syntax.Regexp) ([]string, bool) {
+	switch r.Op {
+	case syntax.OpLiteral:
+		if r.Flags&syntax.FoldCase != 0 {
+			return []string{""}, false
+		}
+		return []string{string(r.Rune)}, true
+	case syntax.OpEmptyMatch, syntax.OpWordBoundary, syntax.OpBeginText, syntax.OpBeginLine:
+		return []string{""}, true
+	case syntax.OpCapture:
+		return leadLiterals(r.Sub[0])
+	case syntax.OpAlternate:
+		var out []string
+		exact := true
+		for _, sub := range r.Sub {
+			l, e := leadLiterals(sub)
+			out, exact = append(out, l...), exact && e
+		}
+		return out, exact
+	case syntax.OpConcat:
+		return concatLiterals(r.Sub)
+	}
+	return []string{""}, false
+}
+
+// concatLiterals extends the lead literals through subs while each one matches exactly its literals.
+func concatLiterals(subs []*syntax.Regexp) ([]string, bool) {
+	out := []string{""}
+	for _, sub := range subs {
+		l, exact := leadLiterals(sub)
+		var next []string
+		for _, a := range out {
+			for _, b := range l {
+				next = append(next, a+b)
+			}
+		}
+		if out = next; !exact {
+			return out, false
+		}
+	}
+	return out, true
+}
+
 func checkStageContent(abs, rel string) error {
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return err
 	}
-	if textutil.CredentialRE().Match(data) {
+	if credentialShaped(data) {
 		return fmt.Errorf("credential-shaped content: %s", rel)
 	}
 	return nil
@@ -732,7 +827,7 @@ func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []
 	var clean []string
 	for _, rel := range rels {
 		if keep == nil || !keep(rel) {
-			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE().Match(data) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && credentialShaped(data) {
 				fmt.Fprintf(os.Stderr, "memory: skipping credential-shaped file %s (scrub it; it is not committed)\n", rel)
 				continue
 			}
@@ -746,7 +841,7 @@ func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []
 func (r Repo) refuseCredentialShaped(rels []string, keep func(rel string) bool) error {
 	for _, rel := range rels {
 		if keep(rel) {
-			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE().Match(data) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && credentialShaped(data) {
 				return fmt.Errorf("credential-shaped content: %s", rel)
 			}
 		}
