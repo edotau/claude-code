@@ -26,6 +26,10 @@ type WaveTask struct {
 	Findings string   `json:"findings,omitempty"`
 	Leaf     string   `json:"leaf,omitempty"`
 	Manual   bool     `json:"manual,omitempty"`
+	Done     bool     `json:"done,omitempty"` // ticked in the plan
+	// BlockedBy names the task ids that must be done first; BlockedText is a prose blocker only main can lift.
+	BlockedBy   []string `json:"blocked_by,omitempty"`
+	BlockedText string   `json:"blocked_text,omitempty"`
 }
 
 // Wave groups packages and manual verifiers with their gate and table proof.
@@ -52,8 +56,9 @@ const maxWavePackages = 10000
 
 var waveID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^(?:Phase\s+)?(\d+)\.(\d+|V)\b`) })
 var waveAttr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\b(leaf|agent|profile|verify|findings|owns):\s*`)
+	return regexp.MustCompile(`(?i)\b(leaf|agent|profile|verify|findings|owns):\s*|\b(?-i:(Blocked\s+by))\b:?\s*`)
 })
+var blockerID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\b(?:Phase\s+)?(\d+)\.(\d+|V)\b`) })
 var packageRange = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\d+)\.(\d+|V)(?:\s*[-–]\s*(\d+)\.(\d+|V))?`) })
 
 // gitWord is one shell word piece: a bare character or a quoted run.
@@ -100,7 +105,9 @@ func ParseWaves(file string) (WavePlan, error) {
 		attrs := waveAttributes(task.Title)
 		t := WaveTask{ID: "Phase " + m[1] + "." + strings.ToUpper(m[2]), Wave: n, Agent: attrs["agent"],
 			Leaf: attrs["leaf"], Profile: attrs["profile"], Owns: ownEntries(task.Owns, nil),
-			Verify: attrs["verify"], Findings: attrs["findings"], Task: bodies[m[1]+"."+strings.ToUpper(m[2])]}
+			Verify: attrs["verify"], Findings: attrs["findings"], Task: bodies[m[1]+"."+strings.ToUpper(m[2])],
+			Done: task.Done}
+		t.BlockedBy, t.BlockedText = blockers(attrs["blocked by"])
 		if t.Task == "" {
 			t.Task = "Implement " + t.ID + " from " + file
 		}
@@ -126,7 +133,10 @@ func waveAttributes(title string) map[string]string {
 		if i+1 < len(matches) {
 			end = matches[i+1][0]
 		}
-		key := strings.ToLower(title[m[2]:m[3]])
+		key := "blocked by"
+		if m[2] >= 0 {
+			key = strings.ToLower(title[m[2]:m[3]])
+		}
 		val := strings.Trim(strings.TrimSpace(title[m[1]:end]), " ,—–")
 		if key == "agent" || key == "leaf" || key == "profile" {
 			val = strings.TrimRight(val, ".,;:")
@@ -134,6 +144,22 @@ func waveAttributes(title string) map[string]string {
 		out[key] = val
 	}
 	return out
+}
+
+// blockers splits a Blocked by value into task ids and any leftover prose, which names no task.
+func blockers(val string) ([]string, string) {
+	var ids []string
+	for _, m := range blockerID().FindAllStringSubmatch(val, -1) {
+		if id := "Phase " + m[1] + "." + strings.ToUpper(m[2]); !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	rest := strings.FieldsFunc(blockerID().ReplaceAllString(val, " "), func(r rune) bool { return strings.ContainsRune(" ,;.&", r) })
+	rest = slices.DeleteFunc(rest, func(w string) bool { return strings.EqualFold(w, "and") })
+	if len(rest) == 0 {
+		return ids, ""
+	}
+	return ids, strings.Trim(val, " .")
 }
 
 type phaseScan struct {
@@ -232,6 +258,50 @@ func (p *WavePlan) validate() error {
 		}
 	}
 	slices.SortFunc(p.Waves, func(a, b Wave) int { return a.Number - b.Number })
+	return checkBlockers(all)
+}
+
+// checkBlockers refuses a Blocked by that names an unknown task, an open task of a later wave, or a cycle.
+func checkBlockers(all []WaveTask) error {
+	byID := make(map[string]WaveTask, len(all))
+	for _, t := range all {
+		byID[t.ID] = t
+	}
+	for _, t := range all {
+		for _, id := range t.BlockedBy {
+			b, ok := byID[id]
+			switch {
+			case !ok:
+				return &WaveError{t.ID, "Blocked by: unknown task " + id}
+			case !b.Done && b.Wave > t.Wave:
+				return &WaveError{t.ID, "Blocked by: " + id + " runs in a later wave"}
+			}
+		}
+	}
+	state := map[string]int{} // 1 visiting, 2 done
+	for _, t := range all {
+		if cycle := blockerCycle(t.ID, byID, state, nil); cycle != nil {
+			return &WaveError{cycle[0], "Blocked by: cycle " + strings.Join(cycle, " -> ")}
+		}
+	}
+	return nil
+}
+
+// blockerCycle walks id's blockers depth first and returns the first cycle found, closed on its first id.
+func blockerCycle(id string, byID map[string]WaveTask, state map[string]int, path []string) []string {
+	switch state[id] {
+	case 1:
+		return append(path[slices.Index(path, id):], id)
+	case 2:
+		return nil
+	}
+	state[id] = 1
+	for _, b := range byID[id].BlockedBy {
+		if cycle := blockerCycle(b, byID, state, append(path, id)); cycle != nil {
+			return cycle
+		}
+	}
+	state[id] = 2
 	return nil
 }
 
@@ -503,5 +573,10 @@ func manifestTask(t WaveTask) (WaveTask, error) {
 	}
 	t.ID = "Phase " + m[1] + "." + strings.ToUpper(m[2])
 	t.Owns = ownEntries(t.Owns, nil)
+	for i, b := range t.BlockedBy { // an id that does not parse stays as written and is refused as unknown
+		if m := waveID().FindStringSubmatch(b); m != nil && m[0] == b {
+			t.BlockedBy[i] = "Phase " + m[1] + "." + strings.ToUpper(m[2])
+		}
+	}
 	return t, nil
 }

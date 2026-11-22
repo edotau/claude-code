@@ -137,6 +137,8 @@ func leafElapsed(l LeafState) string {
 // leafReason says in a few words why a leaf failed, the first cause found in the order the checks run.
 func leafReason(l LeafState, w WaveState) string {
 	switch {
+	case l.Blocked != "":
+		return "skipped: " + l.Blocked
 	case l.DispatchID == "":
 		return "no dispatch: the launch failed"
 	case l.Status != LeafStateOK:
@@ -169,6 +171,7 @@ func (r *runner) preview(p plans.WavePlan) {
 				specs[i].Scope = map[bool]string{true: "scoped", false: "detect-only"}[enforced]
 			}
 		}
+		specs = dryOrder(specs, r.waits(w))
 		for _, task := range p.Manual {
 			manual = append(manual, task.ID)
 		}
@@ -179,7 +182,7 @@ func (r *runner) preview(p plans.WavePlan) {
 func drySummary(specs []Spec) string {
 	var packages []string
 	for _, p := range specs {
-		packages = append(packages, strings.TrimSpace(p.ID+" owns: "+strings.Join(p.Owns, ",")+" "+p.Scope))
+		packages = append(packages, strings.TrimSpace(p.ID+" owns: "+strings.Join(p.Owns, ",")+" "+p.Scope+" "+p.Waits))
 	}
 	return "  launch: " + strings.Join(packages, "; ")
 }

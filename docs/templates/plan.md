@@ -117,6 +117,10 @@ part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 everything after the last `owns:`:
 `... Agent: codex — verify: go test ./internal/claude — findings: reports/x.md#key — owns: internal/claude/gate.go`.
 `verify:` defaults to `claude-code agents diff --check` on the owned files.
+`Blocked by: 1.1, Phase 1.2` (also before `owns:`) starts a task once those tasks are ticked or finished ok: a
+same-wave blocker runs in an earlier round of the wave, an earlier wave's must be ticked or verified, a later wave's
+open task, an unknown id or a cycle is refused before anything runs; a failed blocker skips the task, naming it.
+Prose naming no task id (`Blocked by the option-B leaves`) holds the task for main; `--dry-run` shows each wait.
 A tick runs `verify:` on the landed commit first; only `go build|vet|test ./…`, `claude-code agents diff --check` and
 `claude-code doctor …` (and their `rtk` forms) run there. The wave gate is the first `bash` fence
 under `## Phases` unless `--gate CMD` overrides it; a gate or `verify:` with a git write verb (add, commit, stash,

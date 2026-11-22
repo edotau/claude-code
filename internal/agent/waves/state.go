@@ -25,6 +25,7 @@ const (
 	WaveStateFailed  = "failed"
 	WaveStateRunning = "running"
 	LeafStateOK      = "ok"
+	LeafStateSkipped = "skipped" // never launched: a blocker failed or only main can lift its hold
 )
 
 // FingerprintFunc returns the content fingerprint of path, or FingerprintAbsent when it does not exist.
@@ -73,6 +74,7 @@ type LeafState struct {
 	Wrote        []CheckViolation  `json:"wrote,omitempty"`      // other packages' paths changed while it ran alone
 	Scoped       bool              `json:"scoped"`               // launched with writes to other packages' files denied
 	ElapsedMs    int64             `json:"elapsed_ms,omitempty"` // the dispatch's run time, from its routing proof
+	Blocked      string            `json:"blocked,omitempty"`    // why a skipped leaf never launched
 }
 
 // FingerprintGit returns a FingerprintFunc hashing files with `git hash-object`; paths outside dir are refused.

@@ -26,6 +26,7 @@ type Spec struct {
 	ID, Agent, Profile, Task, Workdir, Verify string
 	Owns                                      []string
 	Scope                                     string // dry-run only: scoped or detect-only
+	Waits                                     string // dry-run only: the siblings it waits on, or its hold
 }
 
 // LaunchOptions supplies wave-wide routing and the memory reports directory.
@@ -50,6 +51,7 @@ type Envelope struct {
 	Scoped     bool   `json:"-"` // the leaf launched with its writes confined to its own files
 	// Foreign are other packages' paths that changed while this leaf ran alone, so its own writes.
 	Foreign []CheckViolation `json:"-"`
+	Blocked string           `json:"-"` // why a skipped leaf never launched
 }
 
 type launchLine struct {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,30 @@ func TestWavesRefusals(t *testing.T) {
 				t.Fatalf("want typed refusal for %s, got %v", c.id, err)
 			}
 		})
+	}
+}
+
+func TestWavesBlockedBy(t *testing.T) {
+	task := func(id, blocked, own string) string {
+		return "- [ ] Phase " + id + " — leaf: claude, Agent: claude" + blocked + " — owns: " + own + "\n"
+	}
+	ok := task("1.1", "", "a.go") + task("1.2", " — Blocked by: 1.1", "b.go") + task("1.3", ". Blocked by the B leaves", "c.go")
+	p, err := ParseWaves(wavesFile(t, ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Waves[0].Tasks; !slices.Equal(got[1].BlockedBy, []string{"Phase 1.1"}) || got[2].BlockedText != "the B leaves" ||
+		got[2].Agent != "claude" {
+		t.Fatalf("blockers: %+v", got)
+	}
+	for name, raw := range map[string]string{
+		"unknown": task("1.1", " — Blocked by: 1.9", "a.go"),
+		"cycle":   task("1.1", " — Blocked by: 1.2", "a.go") + task("1.2", " — Blocked by: Phase 1.1", "b.go"),
+		"later":   task("1.1", " — Blocked by: 2.1", "a.go") + task("2.1", "", "b.go"),
+	} {
+		if _, err := ParseWaves(wavesFile(t, raw)); err == nil || !strings.Contains(err.Error(), "Blocked by") {
+			t.Fatalf("%s: want Blocked by refusal, got %v", name, err)
+		}
 	}
 }
 

@@ -41,6 +41,7 @@ type runner struct {
 	o                        Options
 	h                        runHooks
 	state                    State
+	plan                     plans.WavePlan // read once; Blocked by looks up ticks and waves across it
 	path, dir, slug, reports string
 	day                      time.Time // fixed at start so report names agree across midnight
 }
@@ -93,6 +94,7 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	if err = r.validate(p); err != nil {
 		return 2, err
 	}
+	r.plan = p
 	if r.o.DryRun {
 		r.preview(p)
 		return 0, nil
@@ -225,7 +227,7 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return 0, nil
 	}
 	defer r.notify(w.Number)
-	envelopes, launchErr := r.launch(ctx, launch, specs)
+	envelopes, launchErr := r.launchRounds(ctx, launch, specs, r.waits(w))
 	ws, err = r.record(ws, envelopes)
 	if err != nil {
 		return 1, err

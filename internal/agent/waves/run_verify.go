@@ -72,7 +72,7 @@ func (r *runner) record(w WaveState, envelopes []Envelope) (WaveState, error) {
 		}
 		l := w.Leaves[i]
 		l.Status, l.DispatchID, l.Saved, l.Verdict, l.Scoped = e.Status, e.DispatchID, e.Report, "pending", e.Scoped
-		l.Wrote = relFiles(r.o.Dir, e.Foreign)
+		l.Wrote, l.Blocked = relFiles(r.o.Dir, e.Foreign), e.Blocked
 		fingerprints, err := FingerprintAll(r.fingerprint, l.Owns)
 		if err != nil {
 			return w, err
