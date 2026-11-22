@@ -138,6 +138,8 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
   `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner requested it.
 - Ask the leaf to list the files it actually changed in its report.
+- A type with no agent file (`general-purpose`, `Explore`) gets no leaf rules: paste the `## Leaf rules` lines of
+  `internal/agent/brief.tmpl` (no foreground `sleep`, no git or `sudo` probes in `~/.claude`) into its brief.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
   another leaf.
 - `claude-code agents brief --task F --own P…` (or `--read-only`) prints the brief: `Owned:`, mode, your task, the leaf
