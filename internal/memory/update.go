@@ -95,14 +95,41 @@ func resultPath(sessionID string) string {
 	return filepath.Join(receiptDir(), "update-result-"+filepath.Base(sessionID))
 }
 
-// receiptDir keeps receipts out of the crowded state dir; its first creation moves the old flat receipts in once.
+const receiptSubdir = "update-results"
+
+// Retry legacy moves until none remain; never replace a receipt a writer has already published.
 func receiptDir() string {
-	dir := filepath.Join(paths.MemoryStateDir(), "update-results")
-	if _, err := os.Stat(dir); err == nil || os.MkdirAll(dir, 0o700) != nil {
+	state := paths.MemoryStateDir()
+	dir := filepath.Join(state, receiptSubdir)
+	marker := filepath.Join(dir, ".migrated")
+	if _, err := os.Stat(marker); err == nil {
+		return dir
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "memory update: inspect receipt migration marker: %v\n", err)
 		return dir
 	}
-	for _, p := range transcript.GlobIn(paths.MemoryStateDir(), "update-result-*") {
-		_ = os.Rename(p, filepath.Join(dir, filepath.Base(p)))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return dir
+	}
+	for _, p := range transcript.GlobIn(state, "update-result-*") {
+		dst := filepath.Join(dir, filepath.Base(p))
+		if err := os.Link(p, dst); err != nil {
+			if !errors.Is(err, os.ErrExist) {
+				continue
+			}
+			// Finish an interrupted unlink, but preserve distinct files on a name collision.
+			srcInfo, _ := os.Lstat(p)
+			dstInfo, _ := os.Lstat(dst)
+			if !os.SameFile(srcInfo, dstInfo) {
+				continue
+			}
+		}
+		_ = os.Remove(p)
+	}
+	if len(transcript.GlobIn(state, "update-result-*")) == 0 {
+		if err := paths.AtomicWrite(marker, nil, 0o600); err != nil {
+			fmt.Fprintf(os.Stderr, "memory update: mark receipt migration complete: %v\n", err)
+		}
 	}
 	return dir
 }
@@ -119,7 +146,13 @@ func writeUpdateResult(sessionID string, r UpdateResult) error {
 
 // readUpdateResult loads sessionID's result; ok=false when absent or unparseable.
 func readUpdateResult(sessionID string) (UpdateResult, bool) {
-	data, err := os.ReadFile(resultPath(sessionID))
+	// Bulk readers already migrated the directory; don't rescan the state dir for each receipt.
+	state := paths.MemoryStateDir()
+	name := "update-result-" + filepath.Base(sessionID)
+	data, err := os.ReadFile(filepath.Join(state, receiptSubdir, name))
+	if errors.Is(err, os.ErrNotExist) {
+		data, err = os.ReadFile(resultPath(sessionID))
+	}
 	if err != nil {
 		return UpdateResult{}, false
 	}
