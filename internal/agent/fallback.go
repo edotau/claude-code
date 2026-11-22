@@ -213,9 +213,9 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	return res, hops, false, err
 }
 
-// noteDropped1M says when opencode or pi runs a typed [1m] request at the bare model's window (R8: no silent swap).
+// noteDropped1M says when opencode runs a typed [1m] request at the bare model's window (R8: no silent swap); Pi applies it.
 func noteDropped1M(agent string, req RunOptions, notify func(string)) {
-	if notify != nil && (agent == agentid.OpenCode || agent == agentid.Pi) && (req.Typed1M || models.Has1M(req.Model)) {
+	if notify != nil && agent == agentid.OpenCode && (req.Typed1M || models.Has1M(req.Model)) {
 		notify(agent + ": runs the bare model at its default window; [1m] is not applied")
 	}
 }
