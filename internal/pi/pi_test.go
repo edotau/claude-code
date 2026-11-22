@@ -386,3 +386,9 @@ func TestEmptyPackageListSyncsNothing(t *testing.T) {
 		t.Error("an empty list created the package store")
 	}
 }
+
+func TestWebHint(t *testing.T) {
+	if webHint(false) != "" || !strings.Contains(webHint(true), "claude-code network websearch") {
+		t.Errorf("webHint = %q / %q", webHint(false), webHint(true))
+	}
+}

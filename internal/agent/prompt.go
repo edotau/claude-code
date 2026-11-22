@@ -20,6 +20,9 @@ func Preamble(text string) string {
 	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
 }
 
+// WebViaCLI is the one line an agent with no native web tool on a Databricks row gets for web lookups.
+const WebViaCLI = "For web search or fetching a page, run `claude-code network websearch --query \"<q>\"` or `--extract <url>` in the shell."
+
 // MaxPromptBytes keeps a prompt passed as one argv element under the kernel's 128 KiB MAX_ARG_STRLEN.
 const MaxPromptBytes = 96 << 10
 

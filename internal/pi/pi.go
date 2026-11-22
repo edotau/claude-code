@@ -279,8 +279,8 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if req.SystemPrompt != "" {
 		p.Argv = append(p.Argv, "--system-prompt", req.SystemPrompt)
 	}
-	if req.AppendSystemPrompt != "" {
-		p.Argv = append(p.Argv, "--append-system-prompt", req.AppendSystemPrompt)
+	if extra := strings.TrimSpace(req.AppendSystemPrompt + webHint(req.Tools)); extra != "" {
+		p.Argv = append(p.Argv, "--append-system-prompt", extra)
 	}
 	var dirs []string
 	p.Env, dirs = takePackageDirs(p.Env)
@@ -297,6 +297,14 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		p.Argv = append(p.Argv, "@"+f)
 	}
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
+}
+
+// webHint tells a tools run to search the web through the Tavily CLI: Pi has no web tool and runs with --no-mcp.
+func webHint(tools bool) string {
+	if !tools {
+		return ""
+	}
+	return "\n\n" + agent.WebViaCLI
 }
 
 // Attach refuses a path Pi could not read; the file itself rides argv as @path in After.

@@ -874,3 +874,13 @@ func TestRunAgySilentChildStalls(t *testing.T) {
 		t.Fatalf("err = %v, want ErrStalled", err)
 	}
 }
+
+func TestNewAgyRequestWebHint(t *testing.T) {
+	dbx := agent.CLIPrep{Prompt: "q", Target: providers.Target{Provider: &providers.Provider{}}}
+	if got := newAgyRequest(dbx, agent.RunOptions{Tools: true}).Prompt; !strings.HasPrefix(got, agent.WebViaCLI) {
+		t.Errorf("databricks tools prompt = %q", got)
+	}
+	if got := newAgyRequest(agent.CLIPrep{Prompt: "q"}, agent.RunOptions{Tools: true}).Prompt; got != "q" {
+		t.Errorf("own-login prompt = %q", got)
+	}
+}

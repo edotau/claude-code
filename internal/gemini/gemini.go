@@ -827,8 +827,12 @@ func agyArgEffort(base, arg string) string {
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
 func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	model, effort := agyModelEffort(req, p.Target)
+	prompt := p.Prompt
+	if req.Tools && p.Target.Provider != nil {
+		prompt = agent.WebViaCLI + "\n\n" + prompt
+	}
 	return agyRequest{
-		Prompt: p.Prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools,
+		Prompt: prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 		SettingsArgv: p.Argv, Permissions: req.Permissions,
 	}
@@ -857,6 +861,9 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
+	}
+	if areq.Tools && p.Target.Provider != nil {
+		b.intro += agent.WebViaCLI + "\n\n"
 	}
 	b.tools, b.resumed, b.dn = areq.Tools, req.SessionID != "", &agyDenier{p: areq.Permissions, cwd: areq.Cwd}
 	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
