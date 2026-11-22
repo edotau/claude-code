@@ -91,6 +91,9 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 - A brief naming a skill: read `skills/<name>/SKILL.md` and its `references/` first.
 - Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`); Read a file before you Write or Edit it.
 - Wait on a dispatch with `claude-code agents result -f <id>` or `agents wait <id>`, never a `sleep` loop.
+- Never a foreground `sleep` (`run_in_background` and wait for the notification, or an `until` loop in a background
+  command); never `git checkout|switch|stash|reset|restore` or `sudo` in `~/.claude`: use `git show <rev>:<path>`.
+- Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
 
 ### Design — self-contained planning
 
