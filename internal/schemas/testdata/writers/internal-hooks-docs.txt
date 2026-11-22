@@ -1,3 +1,7 @@
+internal/hooks/docs/benchrun.go:benchAnnotate	unversioned: marker: post-commit bench run record, annotated with the compared commit and baseline
+internal/hooks/docs/benchrun.go:benchComplete	unversioned: marker: post-commit bench run record closed with end time and exit status
+internal/hooks/docs/benchrun.go:benchFinish	unversioned: marker: post-commit bench run record marked done or failed before its notice
 internal/hooks/docs/benchrun.go:benchStart	unversioned: marker: post-commit bench run record and payload, pruned after 7 days
+internal/hooks/docs/benchrun.go:benchWorker	unversioned: marker: post-commit bench queue entry and worker lock, pruned after 7 days
 internal/hooks/docs/plan.go:claimPlanFile	unversioned: marker: reserved dated plan file, replaced by the plan
 internal/hooks/docs/plan.go:dropRecord	unversioned: marker: plan mirror record emptied when it cannot be removed
