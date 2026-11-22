@@ -43,9 +43,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
 5. **Finish at the requested boundary.** Reviews and edit-only tasks stop there. To land an authorized change,
    follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
-   `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then a subagent
-   pulls, installs and live-checks WSL. Full `make audit` runs on main after each worktree merge (automatic) and at
-   session end; `make install` after pulls.
+   `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then install and
+   live-check on the Mac (the required check; WSL is a periodic sync, R19). Full `make audit` runs on main after each
+   worktree merge (automatic) and at session end; `make install` after pulls.
 
 ## Behavioral guidelines
 
