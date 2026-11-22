@@ -260,7 +260,7 @@ func hasBenchmarks(dir string) bool {
 func goTest(top, pkg string, o options) (out string, stats RunStats, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-run", "^$", "-bench", o.re, "-benchmem",
+	cmd := exec.CommandContext(ctx, "go", "test", "-trimpath", "-run", "^$", "-bench", o.re, "-benchmem", // -trimpath: snapshot dirs share cache entries
 		"-count", strconv.Itoa(o.count), "./"+pkg)
 	cmd.Dir = top
 	ownGroup(cmd)
