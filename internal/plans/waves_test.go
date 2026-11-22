@@ -74,6 +74,14 @@ func TestWavesRefusals(t *testing.T) {
 	}
 }
 
+func TestWavesDoneTaskSharesNothing(t *testing.T) {
+	raw := "- [x] Phase 1.1 — leaf: claude, Agent: claude — owns: a.go (abc1234)\n" +
+		"- [ ] Phase 1.2 — leaf: claude, Agent: claude — owns: a.go\n"
+	if _, err := ParseWaves(wavesFile(t, raw)); err != nil {
+		t.Fatalf("an open task sharing a ticked task's file: %v", err)
+	}
+}
+
 func TestWavesOwnsNoneSharesNothing(t *testing.T) {
 	none := "- [ ] Phase 1.%d — leaf: claude, Agent: claude — owns: none\n"
 	if _, err := ParseWaves(wavesFile(t, fmt.Sprintf(none, 1)+fmt.Sprintf(none, 2))); err != nil {

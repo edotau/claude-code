@@ -349,8 +349,8 @@ func ownsRefusal(own string) string {
 func waveOverlap(w Wave) error {
 	owners := map[string]string{}
 	for _, t := range w.Tasks {
-		if t.Manual {
-			continue
+		if t.Manual || t.Done {
+			continue // a ticked task launches nothing, so its files are free
 		}
 		for _, own := range t.Owns {
 			if strings.EqualFold(strings.TrimSpace(own), "none") {
