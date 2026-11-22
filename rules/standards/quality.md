@@ -69,4 +69,5 @@ what makes a test a guard: `testing-guidelines.md`.
 Review done (`/code-review`), applicable scoped checks green, manual check for user-facing changes, docs and links
 current; approve when no CRITICAL/HIGH remains (severity scale:
 `skills/evaluate-code/references/completion-criteria.md`). Every finding, LOW included, is fixed in the same round;
-only owner-judgment items go to a report. A bug noticed mid-task is fixed right away without asking.
+only owner-judgment items go to a report. Anything noticed mid-task (a bug, an editor or lint finding, dead code)
+is fixed right away without asking (R25, `standing-requirements.md`).
