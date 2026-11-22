@@ -170,8 +170,9 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: invokedModel(lreq), NotStarted: true}, ce
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
+	gm := gateModel(disp, lreq)
 	held := &retry.Permit{Account: key, Release: release,
-		Recheck: func() *retry.Error { return accountRefused(disp, lreq.Model) }}
+		Recheck: func() *retry.Error { return accountRefused(disp, gm) }}
 	defer func() {
 		if r := recover(); r != nil {
 			if !retry.InBatch(ctx) {
@@ -191,7 +192,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		held.Release()
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
-	if skip := accountRefused(disp, lreq.Model); skip != nil {
+	if skip := accountRefused(disp, gm); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: invokedModel(lreq), NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
@@ -209,7 +210,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	res.Invoked = launchedModel(runCtx, disp, lreq)
 	res, lreq, more, err := repick(runCtx, disp, lreq, res, err, sink, notify)
 	hops = append(append(hops, more...), hopOf(disp, lreq, res, err))
-	noteFailure(disp, lreq, ranModel(lreq.Model, res), err)
+	noteFailure(disp, lreq, ranModel(disp, lreq, res), err)
 	return res, hops, false, err
 }
 
@@ -256,7 +257,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		limit = max(0, MaxAutoRepicks-lreq.Repicks)
 	}
 	for len(tried) < limit {
-		ran := ranModel(lreq.Model, res)
+		ran := ranModel(disp, lreq, res)
 		next := retryModel(ctx, disp, lreq, ran, err)
 		if next == "" {
 			break
@@ -280,7 +281,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 	}
 	if auto {
-		err = finishRepicks(append(tried, ranModel(lreq.Model, res)), err)
+		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
 	return res, lreq, hops, err
 }
@@ -327,12 +328,15 @@ func triedPicks(picks []string, err error) error {
 	return &out
 }
 
-// ranModel is the model that served an auto request (the envelope's), else the requested one.
-func ranModel(requested string, res wire.Result) string {
-	if IsAuto(requested) && res.Model != "" {
+// ranModel is the model that served an auto or cell request (the envelope's), a cell's tier pick, else the one asked.
+func ranModel(disp Dispatch, req RunOptions, res wire.Result) string {
+	if (IsAuto(req.Model) || req.CellModel) && res.Model != "" {
 		return res.Model
 	}
-	return requested
+	if req.CellModel { // the cell's model is a placeholder the engine never launches
+		return gateModel(disp, req)
+	}
+	return req.Model
 }
 
 func noteFailure(disp Dispatch, req RunOptions, model string, err error) {
@@ -792,6 +796,17 @@ func accountRefused(disp Dispatch, model string) *retry.Error {
 		return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
 	}
 	return nil
+}
+
+// gateModel is the model a per-model quota gate judges: for a bare ladder cell, the tier pick the engine launches.
+func gateModel(disp Dispatch, req RunOptions) string {
+	if !req.CellModel || disp.Agent == nil || !router.PerModelQuota(disp.Account) {
+		return req.Model
+	}
+	if t, _, _, err := SchemaFor(disp.Agent.Name()).targetPeek(req); err == nil && t.Model != "" {
+		return t.Model
+	}
+	return req.Model
 }
 
 // rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
