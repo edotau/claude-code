@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hooktelemetry"
@@ -573,8 +574,8 @@ func decodeCandidate(line string) (candidate, string) {
 		return c, "invalid record: not valid UTF-8"
 	}
 	d := jsontext.NewDecoder(strings.NewReader(line))
-	if _, err := d.ReadValue(); err != nil {
-		if se, ok := errors.AsType[*jsontext.SyntacticError](err); ok && se.Err == jsontext.ErrDuplicateName {
+	if err := readCandidateJSON(d); err != nil {
+		if errors.Is(err, jsontext.ErrDuplicateName) {
 			return c, "invalid record: duplicate key"
 		}
 		return c, "invalid record: not valid JSON"
@@ -595,6 +596,40 @@ func decodeCandidate(line string) (candidate, string) {
 		return c, "invalid record: unknown field (allowed: id, evidence, repeats, change, target, kind, size, status, enforced_by)"
 	}
 	return c, ""
+}
+
+func readCandidateJSON(d *jsontext.Decoder) error {
+	if d.PeekKind() != '{' {
+		return d.SkipValue()
+	}
+	if _, err := d.ReadToken(); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for d.PeekKind() != '}' {
+		key, err := d.ReadToken()
+		if err != nil {
+			return err
+		}
+		// Match encoding/json's Unicode case folding, including long s and Kelvin sign.
+		name := strings.Map(func(r rune) rune {
+			for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+				if next < r {
+					return next
+				}
+			}
+			return r
+		}, key.String())
+		if seen[name] {
+			return jsontext.ErrDuplicateName
+		}
+		seen[name] = true
+		if err := d.SkipValue(); err != nil {
+			return err
+		}
+	}
+	_, err := d.ReadToken()
+	return err
 }
 
 // checkCandidateLine returns one record's problems, none quoting its text; seen maps ids to their first line.
