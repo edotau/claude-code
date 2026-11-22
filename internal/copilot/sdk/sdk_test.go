@@ -341,10 +341,29 @@ func TestAssistantCollectorSumsUsage(t *testing.T) {
 	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: " hi "}})
 	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m", InputTokens: n(200), OutputTokens: n(25)}})
 	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantUsageData{Model: "m"}})
-	text, _, got := col.snapshot()
+	text, _, got, _ := col.snapshot()
 	want := wire.Usage{InputTokens: 500, CacheReadTokens: 600, CacheCreationTokens: 100, OutputTokens: 75}
 	if got != want || text != "hi" {
 		t.Fatalf("snapshot = %q, %+v; want hi, %+v", text, got, want)
+	}
+}
+
+func TestAssistantCollectorStampsFirstEventOnce(t *testing.T) {
+	const firstDelay = 250 * time.Millisecond
+	start := time.Now()
+	now := start.Add(firstDelay)
+	old := wire.Clock
+	wire.Clock = func() time.Time { return now }
+	t.Cleanup(func() { wire.Clock = old })
+	col := assistantCollector{transport: wire.TransportTracker{Start: start}}
+	if _, _, _, tr := col.snapshot(); tr != nil {
+		t.Fatalf("no events: transport = %+v, want nil", tr)
+	}
+	col.onEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "view"}})
+	now = start.Add(time.Second)
+	col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "hi"}})
+	if _, _, _, tr := col.snapshot(); tr == nil || tr.FirstEventMs != firstDelay.Milliseconds() || tr.MaxGapMs != (time.Second-firstDelay).Milliseconds() {
+		t.Fatalf("transport = %+v, want first event 250ms and gap 750ms", tr)
 	}
 }
 
@@ -354,7 +373,7 @@ func TestAssistantCollectorSeparatesMessages(t *testing.T) {
 	for _, s := range []string{"Let me check the file.", "", "The answer is 4."} {
 		col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: s}})
 	}
-	if text, _, _ := col.snapshot(); text != "Let me check the file.\n\nThe answer is 4." {
+	if text, _, _, _ := col.snapshot(); text != "Let me check the file.\n\nThe answer is 4." {
 		t.Fatalf("text = %q, want the two messages separated by a blank line", text)
 	}
 }

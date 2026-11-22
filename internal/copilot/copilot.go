@@ -70,6 +70,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		return res, copilotFatal(err)
 	}
 	out, err := copilotAsk(ctx, opts, prompt, images)
+	res.Transport = out.Transport
 	lg := wire.EventLogFor(ctx)
 	err = markToolRan(out, sink, noResponse(out, err))
 	if err != nil {
@@ -83,7 +84,6 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		}
 		return copilotPartial(res, out, err, sink)
 	}
-	// the SDK returns the whole text, so one line per run
 	lg.Emit("assistant", out.Text)
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = strings.TrimSpace(out.Model)

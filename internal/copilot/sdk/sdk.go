@@ -90,8 +90,9 @@ type Result struct {
 	SessionID string
 	Model     string
 	// a tool request was approved, so the run may have side effects
-	ToolRan bool
-	Usage   wire.Usage
+	ToolRan   bool
+	Usage     wire.Usage
+	Transport *wire.Transport
 	// FinishReason is the last model call's; ContentFiltered is set if any call was blocked or truncated by a filter.
 	FinishReason    string
 	ContentFiltered bool
@@ -524,6 +525,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	if strings.TrimSpace(prompt) == "" {
 		return Result{}, errors.New("empty prompt")
 	}
+	started := wire.Clock()
 	client, stopClient, err := startClient(ctx, o, &err)
 	if err != nil {
 		return Result{}, err
@@ -545,7 +547,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	defer stop()
 	idle := agent.NewIdleTimeout("copilot", agent.IdleLimitFor("copilot"), stop)
 	defer idle.Stop()
-	col := assistantCollector{idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
+	col := assistantCollector{transport: wire.TransportTracker{Start: started}, idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
 		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}
 		_, _ = session.RPC.UI.HandlePendingSessionLimitsExhausted(context.WithoutCancel(ctx),
 			&rpc.UIHandlePendingSessionLimitsExhaustedRequest{RequestID: id, Response: cancel})
@@ -557,8 +559,8 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	if stall := idle.Err(); stall != nil {
 		sendErr = stall // the partial text and session id still ride back
 	}
-	text, model, usage := col.snapshot()
-	res := Result{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
+	text, model, usage, transport := col.snapshot()
+	res := Result{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage, Transport: transport}
 	res.FinishReason, res.ContentFiltered = col.finish()
 	res.Written = col.writtenPaths()
 	// the partial text and session id still ride back, so a caller can hand the task off
@@ -586,6 +588,7 @@ type assistantCollector struct {
 	idle      *agent.IdleTimeout
 	openTools int
 	written   []string
+	transport wire.TransportTracker
 }
 
 // limitError names the budgetCredits cap when the SDK reported it reached; nil otherwise.
@@ -600,9 +603,11 @@ func (c *assistantCollector) limitError() error {
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
+	now := wire.Clock()
 	c.logLive(ev)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.transport.Event(now)
 	c.watch(ev)
 	root := ev.AgentID == nil || *ev.AgentID == "" // sub-agent text and model are not the answer; their usage is still billed
 	switch d := ev.Data.(type) {
@@ -710,8 +715,8 @@ func tokenCount(p *int64) int {
 	return int(*p)
 }
 
-// snapshot returns the text plus any task_complete summary it lacks, the last model and the summed usage.
-func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
+// snapshot returns the text plus any task_complete summary it lacks, model, usage and stream timing.
+func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage, transport *wire.Transport) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	text, summary := strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)
@@ -719,7 +724,7 @@ func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 	if summary != "" && !strings.Contains(text, summary) {
 		text = strings.TrimSpace(text + "\n\n" + summary)
 	}
-	return text, c.model, c.usage
+	return text, c.model, c.usage, c.transport.Result()
 }
 
 // sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
