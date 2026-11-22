@@ -54,7 +54,7 @@ type ResultOptions struct {
 	After                      int64
 }
 
-// Result prints a job's log, ask line and resume command (json: its envelope); exit 1 for an errored or lost job.
+// Result prints a job's log, ask line and resume command (json: envelope); exit 1 for an errored, lost or running job.
 func Result(o ResultOptions) int {
 	prefix := cmp.Or(o.Prefix, "agents result")
 	if o.Agent == "" && o.Ref == "" {
@@ -107,6 +107,9 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 		return 1
 	}
 	if o.Events {
+		if rec.Status == "running" {
+			return helptext.Fail("%s: job %s is still running", prefix, rec.ID)
+		}
 		return resultExit(rec)
 	}
 	if out.last != 0 && out.last != '\n' {
