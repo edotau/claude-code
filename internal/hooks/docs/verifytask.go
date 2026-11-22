@@ -14,6 +14,11 @@ func BriefTask(cwd, brief, planTask string) (plans.Task, bool) {
 	if !ok {
 		return plans.Task{}, false
 	}
+	return PlanBriefTask(parsed, brief, planTask)
+}
+
+// PlanBriefTask is BriefTask over an already parsed active plan.
+func PlanBriefTask(parsed plans.Plan, brief, planTask string) (plans.Task, bool) {
 	if planTask != "" {
 		return matchTaskByID(parsed, normTask(planTask))
 	}

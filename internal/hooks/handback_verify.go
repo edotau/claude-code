@@ -24,8 +24,10 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	if top == "" {
 		return nil
 	}
-	dirty := dirtyPaths(top)
-	planPath, active, _ := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
+	dirtyc := make(chan []string, 1)
+	go func() { dirtyc <- dirtyPaths(top) }() // git status overlaps the plan parse
+	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
+	dirty := <-dirtyc
 	recTask := recordPlanTask(loadRecords(lr.ids))
 	named, task, isNamed, ok := docs.NamedPlanTask(lr.scan.brief, recTask)
 	if isNamed {
@@ -33,7 +35,7 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 			return nil
 		}
 		planPath = named
-	} else if task, ok = docs.BriefTask(in.CWD, lr.scan.brief, recTask); !ok {
+	} else if task, ok = docs.PlanBriefTask(active, lr.scan.brief, recTask); !hasActive || !ok {
 		if task, ok = untiedTask(active, dirty); !ok {
 			return nil
 		}
