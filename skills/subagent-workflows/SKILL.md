@@ -35,7 +35,6 @@ Shell `agents ask` belongs in a carried dispatch, external relay or requested sc
 | Leaf | Role | Output |
 | --- | --- | --- |
 | `claude` | In-context work on Sonnet unless the call names a model | Status and verification |
-| `codex` | Cross-family review, plan vetting, delegated edits | Verdict or status with evidence |
 | `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
 | `pi` | Review, exploration, audits and self-tested edits on any Databricks model | Cited findings |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
@@ -55,8 +54,9 @@ select external execution; never overwrite another machine's pins.
 ### Carried dispatch (main session, no relay)
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
-task, then follow it with one wait call. Gemini and opencode have no relay subagent; gemini handles read-only research
-and codebase sweeps, while opencode handles code and docs work. Codex and copilot still have relays:
+task, then follow it with one wait call. Codex, gemini and opencode have no relay subagent; codex handles cross-family
+review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini read-only research and
+codebase sweeps, opencode code and docs work. Copilot still has a relay:
 
 ```bash
 claude-code agents ask --carry --background --agent <agent> [ask flags] - < BRIEF
@@ -68,7 +68,7 @@ ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi car
 
 ### External relay contract
 
-For `codex`, `copilot` and `pi` wrappers:
+For `copilot` and `pi` wrappers:
 
 - A thin pipe; a brief that starts with `Run:` is a relay job, in this order:
   1. You do none of the work yourself.
@@ -220,7 +220,7 @@ Write it before the first dispatch of a multi-part request, re-check it on every
 | A: fix flag parse | `/r/internal/cli/args.go` | none | claude |
 | B: fix flag help | `/r/internal/cli/args.go` | A (lane 2 of 2) | claude (lane of A) |
 | C: add retry | `/r/internal/net/retry.go` | none | copilot |
-| D: review A | read-only | A | codex |
+| D: review A | read-only | A | codex (carried) |
 
 - **Hot file:** when 2+ queued tasks own one file, first dispatch a split (extract by function into a new file in the
   same package, behavior unchanged) so they run in parallel; if not worth it, show that file's queue and length.
@@ -293,7 +293,7 @@ files only.
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `pi`; gemini and opencode run carried). A job
+  the Agent tool with a harness type (`claude`, `copilot`, `pi`; codex, gemini and opencode run carried). A job
   expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can

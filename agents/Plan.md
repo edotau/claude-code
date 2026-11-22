@@ -43,7 +43,7 @@ All dispatched by the manager, never by Plan itself:
 - **`claude` leaves** — implementation of the approved plan's phases on your pin.
 - **`copilot` leaves or a carried `opencode` ask (experimental)** — a phase for another agent or account, e.g.
   to spread quota or get another model family; name a fallback if the external agent is unavailable.
-- **`codex`** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
+- **a carried `codex` ask** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
   brief `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / a carried `gemini` ask** — wide research before drafting (structure, conventions, a 1M-context sweep).
 - **`copilot`** — ordinary implementer or reviewer leaf; repairs tests an intentional change broke.

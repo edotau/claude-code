@@ -65,7 +65,7 @@ func TestSelectAgent(t *testing.T) {
 		"help":  {Name: "help", Prompt: "H.", Agent: "gemini"},
 	}
 	for _, c := range []struct{ ref, agent, persona string }{
-		{"codex", "codex", ""},              // the roster name beats agents/codex.md
+		{"codex", "codex", ""},              // the roster name beats a codex.md persona
 		{"sec", "codex", "sec"},             // an agents key resolves to def.Agent
 		{"plain", "claude", "plain"},        // an agents key with no agent runs on claude
 		{"codex:helper", "codex", "helper"}, // vendor:name loads agents/<name>.md

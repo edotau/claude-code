@@ -20,7 +20,7 @@ Quality review plus the discipline lens for LLM-code failure modes. Read-only: f
 - **Audit a transcript** → [Audit a transcript](#audit-a-transcript).
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not is the code good).
 - **Scan tech debt** → [Tech debt](#tech-debt).
-- **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (run by `agents/codex.md`).
+- **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (run by a carried `codex` ask).
 - **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `workflows/code-evaluator.js`).
 - **Vet a task brief or plan** → `references/task-review.md`.
 

@@ -39,7 +39,7 @@ const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_er
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
 const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
 // Agents whose relay subagent is retired: a claude leaf runs their stage from a `Run:` line, so the ran-on gate holds.
-const RELAY_RETIRED = ['gemini', 'opencode']
+const RELAY_RETIRED = ['gemini', 'opencode', 'codex']
 // ANSI-C quotes decode task escapes; hex apostrophes also pass the hook's literal-quote check.
 const stepTaskArg = (p) => "$'" + p.replace(/[\\'\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')) + "'"
 const stepRecord = (name, who, label, r) => {

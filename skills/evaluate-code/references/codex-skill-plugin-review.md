@@ -1,7 +1,7 @@
 # Skill and Plugin Review Procedures
 
 Any reviewer runs these; on codex via `claude-code codex ask "<the mode section below + the artifact path>"`
-(`agents/codex.md` → Skill or plugin audit).
+(`skills/subagent-workflows/references/agents-and-models.md` → Codex task guidance).
 
 ## SKILL mode
 

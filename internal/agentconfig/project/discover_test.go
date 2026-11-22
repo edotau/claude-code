@@ -310,8 +310,8 @@ func checkAgentFileSource(agent Source) []string {
 		defects = append(defects, fmt.Sprintf("%s: name = %v, want %q", file, agent.frontmatter["name"], agent.dirName))
 	}
 	tools := agentFileTools(agent.frontmatter["tools"])
-	external := []string{"codex", "copilot"}
-	leaves := []string{"claude", "codex", "copilot"}
+	external := []string{"copilot"}
+	leaves := []string{"claude", "copilot"}
 	if slices.Contains(external, agent.dirName) && !slices.Contains(tools, "Bash") {
 		defects = append(defects, file+": external leaf tools must include Bash")
 	}
@@ -353,7 +353,7 @@ func TestAgentFilesTie(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("no agent files found in " + dir)
 	}
-	required := []string{"claude", "codex", "copilot", "pi"}
+	required := []string{"claude", "copilot", "pi"}
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
@@ -362,7 +362,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "pi"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "copilot", "pi"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
@@ -370,7 +370,7 @@ func TestAgentFilesTie(t *testing.T) {
 // Each /<agent> launcher dispatches its roster agent's ask through the Agent tool, and that agent has a file.
 func TestAgentLaunchersTieToRoster(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot"} {
+	for _, name := range []string{"copilot"} {
 		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
 			t.Errorf("/%s: %v", name, err)
@@ -387,22 +387,24 @@ func TestAgentLaunchersTieToRoster(t *testing.T) {
 	}
 }
 
-func TestOpenCodeLauncherIsCarried(t *testing.T) {
+func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 	root := repoRoot(t)
-	if _, err := os.Stat(filepath.Join(root, "agents", "opencode.md")); !os.IsNotExist(err) {
-		t.Fatalf("opencode relay file should be absent: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, "commands", "opencode.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"agents ask --carry --background --agent opencode", "--tools - < <that path>"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("/opencode lacks %q", want)
+	for _, name := range []string{"codex", "opencode"} {
+		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); !os.IsNotExist(err) {
+			t.Fatalf("%s relay file should be absent: %v", name, err)
 		}
-	}
-	if strings.Contains(string(data), "subagent_type: opencode") {
-		t.Error("/opencode still names the retired relay type")
+		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"agents ask --carry --background --agent " + name, "--tools - < <that path>"} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("/%s lacks %q", name, want)
+			}
+		}
+		if strings.Contains(string(data), "subagent_type: "+name) {
+			t.Errorf("/%s still names the retired relay type", name)
+		}
 	}
 }
 
@@ -413,10 +415,8 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 		{name: "good"},
 		{"name mismatch", "claude", "wrong", "[Read, Bash]", "claude.md"},
 		{"missing required", "copilot", "", "", "copilot.md"},
-		{"codex without Bash", "codex", "codex", "[Read]", "codex.md"},
 		{"copilot without Bash", "copilot", "copilot", "Read", "copilot.md"},
 		{"claude with Agent", "claude", "claude", "[Read, Bash, Agent]", "claude.md"},
-		{"codex with Agent", "codex", "codex", "Read, Bash, Agent", "codex.md"},
 		{"copilot with Agent", "copilot", "copilot", "[Read, Bash, Agent]", "copilot.md"},
 	}
 	for _, tc := range cases {
@@ -433,7 +433,7 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 					writeAgentFileFixture(t, path, tc.declared, tc.tools)
 				}
 			}
-			required := []string{"claude", "codex", "copilot"}
+			required := []string{"claude", "copilot"}
 			assertAgentFileDefects(t, checkAgentFiles(dir, required), tc.want)
 		})
 	}
@@ -441,7 +441,7 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 
 func writeAgentFileFixtures(t *testing.T, dir string) {
 	t.Helper()
-	for _, name := range []string{"claude", "codex", "copilot"} {
+	for _, name := range []string{"claude", "copilot"} {
 		writeAgentFileFixture(t, filepath.Join(dir, name+".md"), name, "[Read, Bash]")
 	}
 }

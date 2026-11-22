@@ -24,8 +24,8 @@ five: print the block above and stop. Otherwise:
    passed through unchanged; the default overlay is used only when none is given.
 2. Run `claude-code agents label <type> [--model <m> from step 1] --task -` with the step 3 prompt on stdin (prints
    `<label>:`; empty output means no prefix: use the description alone).
-3. Make ONE Agent tool call: `subagent_type: <type>` (gemini/opencode: `claude`, their relay subagents are retired),
-   description `<label>: <first ~8 words of the task>`, and a prompt whose first line is
+3. Make ONE Agent tool call: `subagent_type: <type>` (codex/gemini/opencode: `claude`, their relay subagents
+   are retired), description `<label>: <first ~8 words of the task>`, and a prompt whose first line is
    `Run: claude-code agents ask --agent <type> --overlay '<overlay JSON or file path>'
    [--model <m>] --tools --autonomous` (one line; codex drops --autonomous with a note), then a blank line, then the
    task verbatim.

@@ -47,6 +47,12 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 	if r := blocked("copilot", "do it"); r != "" {
 		t.Errorf("copilot with its file added still blocked: %s", r)
 	}
+	if err := os.Remove(filepath.Join(cfg, "agents", "codex.md")); err != nil {
+		t.Fatal(err)
+	}
+	if r := blocked("codex", "do it"); !strings.Contains(r, "is not on the roster") {
+		t.Errorf("codex with its file removed = %q, want blocked", r)
+	}
 	if err := os.Remove(filepath.Join(cfg, "agents", "Plan.md")); err != nil {
 		t.Fatal(err)
 	}

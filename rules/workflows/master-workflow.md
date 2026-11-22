@@ -30,7 +30,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 
 | Phase | Agent / command | Output | Gate |
 |-------|----------------|--------|------|
-| 1. Review (MEDIUM+) | `Plan`, or a `codex` leaf | Refined Task Brief | READY / NEEDS CLARIFICATION |
+| 1. Review (MEDIUM+) | `Plan`, or a carried `codex` ask | Refined Task Brief | READY / NEEDS CLARIFICATION |
 | 2. Codebase intel | Scoped `Explore` leaves, or one carried `gemini` sweep | Codebase Context Brief | Structure, conventions, deps |
 | 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a carried `gemini` ask | Prior art + library refs | ≥1 reference, or "nothing found" |
 | 4. Plan (MEDIUM+) | plan mode or `Plan` | Plan with task breakdown | User approval |
@@ -50,7 +50,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
   (prefer battle-tested libraries). Start the research (a carried `gemini` ask, fallback a `claude` leaf) and `Plan` in
   one message, in the background; relay findings to the running `Plan` with `SendMessage`, or merge at review.
 - **4 Plan** (rules `agents/Plan.md`, shape `docs/templates/plan.md`): review the draft before asking approval —
-  in-context for MEDIUM, a `codex` leaf for HIGH+, per `skills/evaluate-code/references/task-review.md` → Plan review.
+  in-context for MEDIUM, a carried `codex` ask for HIGH+, per `skills/evaluate-code/references/task-review.md` → Plan review.
 - **5 Refine**: one brief per sub-task with the fields in `skills/subagent-workflows/SKILL.md` → Handoff contract.
 - **6 Dispatch**: shapes `skills/subagent-workflows/references/patterns.md`; a plan's `Phase W.k` waves run with
   `claude-code agents ask --waves <plan>` (never commits; `references/agent-verbs.md`).
