@@ -58,24 +58,29 @@ func TestInterleaveAlternatesMergesAndNamesCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(order, ","); got != "aaa111,bbb222,aaa111,bbb222,aaa111,bbb222" {
-		t.Errorf("order = %s", got)
+	before, err := os.ReadFile(res.Before)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if peak.Load() != 1 {
-		t.Errorf("peak concurrent benchmark runs = %d, want 1", peak.Load())
+	checks := []struct {
+		ok  bool
+		msg string
+	}{
+		{strings.Join(order, ",") == "aaa111,bbb222,aaa111,bbb222,aaa111,bbb222", fmt.Sprintf("order = %v", order)},
+		{peak.Load() == 1, fmt.Sprintf("peak concurrent benchmark runs = %d, want 1", peak.Load())},
+		{strings.Contains(log.String(), "A aaa111"), "log lacks A commit:\n" + log.String()},
+		{strings.Contains(log.String(), "B bbb222"), "log lacks B commit:\n" + log.String()},
+		{res.Decision.Keep, fmt.Sprintf("result = %+v", res)},
+		{res.CommitA == "aaa111", fmt.Sprintf("result = %+v", res)},
+		{res.CommitB == "bbb222", fmt.Sprintf("result = %+v", res)},
+		{strings.Count(string(before), "BenchmarkA-8") == 3, fmt.Sprintf("merged before holds %d samples, want 3:\n%s", strings.Count(string(before), "BenchmarkA-8"), before)},
+		{strings.Count(string(before), epochPrefix) == 1, fmt.Sprintf("merged before headers wrong:\n%s", before)},
+		{!loadNoisy(string(before)), fmt.Sprintf("merged before headers wrong:\n%s", before)},
 	}
-	if !strings.Contains(log.String(), "A aaa111") || !strings.Contains(log.String(), "B bbb222") {
-		t.Errorf("log lacks both commits:\n%s", log.String())
-	}
-	if !res.Decision.Keep || res.CommitA != "aaa111" || res.CommitB != "bbb222" {
-		t.Errorf("result = %+v", res)
-	}
-	before, _ := os.ReadFile(res.Before)
-	if n := strings.Count(string(before), "BenchmarkA-8"); n != 3 {
-		t.Errorf("merged before holds %d samples, want 3:\n%s", n, before)
-	}
-	if strings.Count(string(before), epochPrefix) != 1 || loadNoisy(string(before)) {
-		t.Errorf("merged before headers wrong:\n%s", before)
+	for _, check := range checks {
+		if !check.ok {
+			t.Error(check.msg)
+		}
 	}
 }
 

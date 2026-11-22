@@ -81,15 +81,12 @@ func (o ABOptions) normalized() (ABOptions, error) {
 	if o.Pkg == "" || filepath.IsAbs(o.Pkg) || o.Rounds < 1 || o.Count < 1 {
 		return o, errors.New("interleave: need a relative Pkg, Rounds >= 1 and Count >= 1")
 	}
-	for _, d := range []*string{&o.A, &o.B} {
-		abs, err := filepath.Abs(*d)
-		if err == nil {
-			abs, err = filepath.EvalSymlinks(abs)
-		}
+	for _, dir := range []*string{&o.A, &o.B} {
+		abs, err := canonicalWorktree(*dir)
 		if err != nil {
-			return o, fmt.Errorf("interleave: worktree: %w", err)
+			return o, err
 		}
-		*d = abs
+		*dir = abs
 	}
 	if o.A == o.B {
 		return o, errors.New("interleave: A and B are the same worktree")
@@ -97,14 +94,31 @@ func (o ABOptions) normalized() (ABOptions, error) {
 	if o.Bench == "" {
 		o.Bench = "."
 	}
-	if o.Work == "" {
+	var err error
+	o.Work, err = ensureWorkDir(o.Work)
+	return o, err
+}
+
+func ensureWorkDir(work string) (string, error) {
+	if work == "" {
 		w, err := os.MkdirTemp("", "bench-ab-")
 		if err != nil {
-			return o, err
+			return "", err
 		}
-		o.Work = w
+		work = w
 	}
-	return o, os.MkdirAll(o.Work, 0o755)
+	return work, os.MkdirAll(work, 0o755)
+}
+
+func canonicalWorktree(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err != nil {
+		return "", fmt.Errorf("interleave: worktree: %w", err)
+	}
+	return abs, nil
 }
 
 // preflight refuses a dirty worktree, or two worktrees at one commit, before any benchmark starts.

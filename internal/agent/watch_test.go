@@ -152,17 +152,19 @@ func TestQueuedAdmissionWatch(t *testing.T) {
 	}
 }
 
+type queueWatchCase struct {
+	name                  string
+	wait                  time.Duration
+	gone, observed, stuck bool
+}
+
 func TestQueueWatchClassification(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubAlive(t, true)
 	r := watchRec(t, "running", "queued", time.Hour, time.Hour)
 	old := WatchQueue
 	t.Cleanup(func() { WatchQueue = old })
-	for _, c := range []struct {
-		name                  string
-		wait                  time.Duration
-		gone, observed, stuck bool
-	}{
+	for _, c := range []queueWatchCase{
 		{"waiting", 3 * time.Second, false, true, false},
 		{"boundary", 15 * time.Second, false, true, false},
 		{"overdue", 16 * time.Second, false, true, true},
@@ -182,18 +184,26 @@ func TestQueueWatchClassification(t *testing.T) {
 			rep := classifyJobs([]Record{r}, watchT0, WatchLimits{}, func([]Record) map[string]relayState {
 				return map[string]relayState{r.ID: {finished: true}}
 			})
-			if len(rep.Running) != 0 || (len(rep.Stale) == 1) != c.stuck || (len(rep.Queued) == 1) == c.stuck {
-				t.Fatalf("report = %+v", rep)
-			}
-			if c.stuck {
-				s := rep.Stale[0]
-				if s.Reason != WatchQueueStuck || s.Resumable() || strings.Join(s.Next, " ") != "claude-code agents ask --retry "+r.ID {
-					t.Fatalf("stale = %+v", s)
-				}
-			} else if q := rep.Queued[0]; q.Wait != c.wait || (q.Ahead == 2) != c.observed {
-				t.Fatalf("queued = %+v", q)
-			}
+			checkQueueWatchReport(t, rep, r.ID, c)
 		})
+	}
+}
+
+func checkQueueWatchReport(t *testing.T, rep WatchReport, id string, c queueWatchCase) {
+	t.Helper()
+	if len(rep.Running) != 0 || (len(rep.Stale) == 1) != c.stuck || (len(rep.Queued) == 1) == c.stuck {
+		t.Fatalf("report = %+v", rep)
+	}
+	if c.stuck {
+		s := rep.Stale[0]
+		if s.Reason != WatchQueueStuck || s.Resumable() || strings.Join(s.Next, " ") != "claude-code agents ask --retry "+id {
+			t.Fatalf("stale = %+v", s)
+		}
+		return
+	}
+	q := rep.Queued[0]
+	if q.Wait != c.wait || (q.Ahead == 2) != c.observed {
+		t.Fatalf("queued = %+v", q)
 	}
 }
 
