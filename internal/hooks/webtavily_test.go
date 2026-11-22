@@ -7,10 +7,21 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-func TestWebTavilyOffDatabricksLeavesResult(t *testing.T) {
-	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1/p/no-such-profile")
-	in := core.ParseInputFor(strings.NewReader(`{"tool_name":"WebFetch","tool_input":{"url":"https://example.com","prompt":"p"},"tool_response":{"result":"x"}}`), "claude")
-	if r := WebTavily(in); r.UpdatedToolOutput != nil {
-		t.Errorf("got a replacement off Databricks: %v", r.UpdatedToolOutput)
+func TestWebTavilySkipsWithoutCallingTavily(t *testing.T) {
+	search := `{"tool_name":"WebSearch","tool_input":{"query":"q"},"tool_response":{"query":"q","results":[]}}`
+	for _, tc := range []struct{ name, key, payload, verdict string }{
+		{"no key is a no-op", "", search, ""},
+		{"databricks search is the proxy's", "qwzxmplrtv", search, webSkipProxy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tavilyKeyName, tc.key)
+			prev := sessionOnDatabricks
+			sessionOnDatabricks = func() bool { return true }
+			t.Cleanup(func() { sessionOnDatabricks = prev })
+			r := WebTavily(core.ParseInputFor(strings.NewReader(tc.payload), "claude"))
+			if r.UpdatedToolOutput != nil || r.Verdict != tc.verdict {
+				t.Errorf("got verdict %q, output %v; want %q and none", r.Verdict, r.UpdatedToolOutput, tc.verdict)
+			}
+		})
 	}
 }

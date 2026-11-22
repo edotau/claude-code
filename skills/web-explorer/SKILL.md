@@ -7,8 +7,8 @@ allowed-tools: Bash, mcp__web_search__web_search, mcp__claude-in-chrome__tabs_co
 # Web Explore
 
 One path to the public web for every agent. Tavily is the default; Claude's built-in `WebSearch` / `WebFetch` are an
-optional extra after Tavily, never instead of it. Training data goes stale: search rather than guess a version or
-price.
+optional extra after Tavily, never instead of it. On a harness Claude launch the built-ins answer through Tavily too
+(`web-tavily` hook, `rules/harness/hooks.md`). Training data goes stale: search rather than guess a version or price.
 
 ## Ladder
 

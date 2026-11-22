@@ -201,9 +201,9 @@ var Registry = []Group{
 		// A detached pass masks the ended session's transcripts in place once they sit idle (Claude only).
 		{Name: "secrets-end", Event: EventSessionEnd, Budget: 2 * sec},
 	}},
-	// AgentOnly: only a Databricks Claude launch's --settings carries it (LaunchSettings), never settings.json.
+	// AgentOnly: every Claude launch's --settings carries it (LaunchSettings), never settings.json.
 	{Name: "web", AgentOnly: true, Events: []EventSpec{
-		{Name: "web-tavily", Event: EventPostToolUse, Matcher: "WebFetch", Budget: 25 * sec},
+		{Name: "web-tavily", Event: EventPostToolUse, Matcher: "WebFetch|WebSearch", Budget: 25 * sec},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},

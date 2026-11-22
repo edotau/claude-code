@@ -26,12 +26,12 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 	if databricks {
 		doc["remoteControlAtStartup"] = false // Remote Control needs the claude.ai login; Databricks has none
 		doc["disableRemoteControl"] = true
-		doc["hooks"] = webTavilyHooks()
 	}
+	doc["hooks"] = webTavilyHooks()
 	return doc, nil
 }
 
-// webTavilyHooks is the Databricks-only PostToolUse entry that answers WebFetch through Tavily.
+// webTavilyHooks is the PostToolUse entry that answers WebFetch and WebSearch through Tavily.
 func webTavilyHooks() map[string]any {
 	for _, g := range Registry {
 		for _, s := range g.Events {

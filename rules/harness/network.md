@@ -46,6 +46,9 @@ paths:
   a `--batch` line without `profile` and the `--job` child of a `--background` run do.
 - A `--host` ask that cannot run fails before the task with one line naming what the target lacks: the `claude-code`
   binary, the agent's CLI, the Databricks profile or the model.
+- Claude's built-in `WebFetch` and `WebSearch` answer through Tavily on every Claude launch: the `web-tavily`
+  PostToolUse hook in the launch `--settings` replaces the result (`rules/harness/hooks.md`); on a Databricks profile
+  the proxy already ran the search through Tavily, so the hook replaces only fetches there.
 - `doctor --mcp` is read-only: propose the fix (`claude mcp remove <name> -s <scope>`, or move a token to `${ENV}` via
   `vault set`); never remove or rotate without the user's confirmation.
 - `clean` applies by default (`--dry-run` previews) and never sweeps credentials or settings.
