@@ -363,6 +363,19 @@ func TestActivePrefersWorktreeClaim(t *testing.T) {
 	}
 }
 
+// checkItem agrees with the checkLine regex it replaced on boundary lines.
+func TestParseCheckItemMatchesRegex(t *testing.T) {
+	lines := []string{"", "- [ ] ", "- [ ]", "- [x] a", "* [X] b", "+ [ ] c", "\t \f- [ ] d", "-  [ ] e", "- [y] f",
+		"- [ ]x", "[ ] g", "- [ ] ~~h~~ i", "  -[ ] j", "- [ ] \r", "\v- [ ] k", "- [ ] é\xff"}
+	for _, l := range lines {
+		indent, mark, rest, ok := checkItem(l)
+		m := checkLine().FindStringSubmatch(l)
+		if ok != (m != nil) || ok && (indent != len(m[1]) || string(mark) != m[2] || rest != m[3]) {
+			t.Errorf("checkItem(%q) = %d %q %q %v, regex %q", l, indent, mark, rest, ok, m)
+		}
+	}
+}
+
 // Checkbox lines inside fenced code, nested or tilde fences included, are not tasks.
 func TestParseSkipsFencedCheckboxes(t *testing.T) {
 	cases := map[string]struct{ md, want string }{
@@ -726,6 +739,21 @@ func benchPlan() []byte {
 
 func BenchmarkParseBytes(b *testing.B) {
 	raw := benchPlan()
+	b.ReportAllocs()
+	for b.Loop() {
+		parseBytes("p.md", raw)
+	}
+}
+
+// BenchmarkParseBytesProse is a real plan's shape: prose and table rows between the tasks.
+func BenchmarkParseBytesProse(b *testing.B) {
+	const sections = 200
+	var sb strings.Builder
+	for range sections {
+		sb.WriteString("Some prose about the phase [ ] that wraps.\n| 3 orphans | 3.1–3.5 | spill | 3.V |\n\n")
+		sb.WriteString("- [x] 1.1 Wire the thing (abc1234)\n  * not a task line\n\n")
+	}
+	raw := []byte(sb.String())
 	b.ReportAllocs()
 	for b.Loop() {
 		parseBytes("p.md", raw)

@@ -88,25 +88,36 @@ func parseBytes(path string, b []byte) Plan {
 	}
 	lines := strings.Split(string(b), "\n")
 	var open fenceOpen // the fence now open, zero when none
-	check := checkLine()
 	for i := 0; i < len(lines); i++ {
 		if ch, n, rest := fenceMarker(lines[i]); n > 0 {
 			open = open.next(ch, n, rest)
 			continue
 		}
-		m := check.FindStringSubmatch(lines[i])
-		if open.n > 0 || m == nil {
+		indent, mark, first, ok := checkItem(lines[i])
+		if open.n > 0 || !ok {
 			continue
 		}
-		cont, end := continuation(lines, i, len(m[1]))
+		cont, end := continuation(lines, i, indent)
 		// the leading strike marker is stripped so a struck task keeps its id
-		text := strings.TrimPrefix(m[3]+cont, "~~")
-		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X", Dropped: struck(m[3])}
+		text := strings.TrimPrefix(first+cont, "~~")
+		t := Task{Start: i, End: end, Done: mark != ' ', Dropped: struck(first)}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
 		p.Tasks = append(p.Tasks, t)
 		i = end
 	}
 	return p
+}
+
+// checkItem is checkLine's match without the regex: leading whitespace width, the box mark and the text after it.
+func checkItem(line string) (indent int, mark byte, rest string, ok bool) {
+	for indent < len(line) && strings.IndexByte("\t\n\f\r ", line[indent]) >= 0 {
+		indent++
+	}
+	l := line[indent:]
+	if len(l) < 6 || l[0] != '-' && l[0] != '*' || l[1:3] != " [" || l[4:6] != "] " || strings.IndexByte(" xX", l[3]) < 0 {
+		return 0, 0, "", false
+	}
+	return indent, l[3], l[6:], true
 }
 
 // struck reports whether a checklist item's first line opens with "~~" and closes it again later on the same line.
