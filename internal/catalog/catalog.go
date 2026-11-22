@@ -61,12 +61,19 @@ func byName(infos []providers.ModelInfo) map[string]providers.ModelInfo {
 	return out
 }
 
-func servedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
-	if m, ok := served[p.ModelPrefix+id]; ok {
-		return m, true
+// servedName is the served endpoint name for id on p: the ModelPrefix spelling first, else the bare id.
+func servedName(served map[string]providers.ModelInfo, p *providers.Provider, id string) (string, bool) {
+	for _, name := range []string{p.ModelPrefix + id, id} {
+		if _, ok := served[name]; ok {
+			return name, true
+		}
 	}
-	m, ok := served[id]
-	return m, ok
+	return "", false
+}
+
+func servedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
+	name, ok := servedName(served, p, id)
+	return served[name], ok
 }
 
 // UsableIn keeps infos' READY chat endpoints whose wire on p (providers.WireFor) is one of dialects, sorted by name.

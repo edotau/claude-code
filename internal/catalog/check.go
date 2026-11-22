@@ -42,13 +42,8 @@ func targets(ids []string, all bool, served map[string]providers.ModelInfo, p *p
 	for _, raw := range ids {
 		id := ID(raw)
 		t := serving.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
-		if _, ok := served[p.ModelPrefix+id]; ok {
-			t.Wire = p.ModelPrefix + id
-		} else if _, ok := served[id]; ok {
-			t.Wire = id
-		} else {
-			t.Missing = true
-		}
+		wire, ok := servedName(served, p, id)
+		t.Wire, t.Missing = wire, !ok
 		out = append(out, t)
 	}
 	return out

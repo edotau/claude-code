@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestIDCanonical(t *testing.T) {
@@ -13,6 +14,24 @@ func TestIDCanonical(t *testing.T) {
 	} {
 		if got := ID(in); got != want {
 			t.Errorf("ID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The probe target's wire is the prefixed served name first, else the bare one; neither marks it missing.
+func TestTargetsServedLookup(t *testing.T) {
+	served := map[string]providers.ModelInfo{"databricks-glm-5-2": {}, "kimi-k3": {}, "acme-kimi-k3": {}, "both": {},
+		"databricks-both": {}}
+	for _, tc := range []struct{ prefix, id, wire string }{
+		{"databricks-", "glm-5-2", "databricks-glm-5-2"},
+		{"databricks-", "kimi-k3", "kimi-k3"},
+		{"databricks-", "both", "databricks-both"},
+		{"acme-", "kimi-k3", "acme-kimi-k3"},
+		{"databricks-", "absent-1", ""},
+	} {
+		got := targets([]string{tc.id}, false, served, &providers.Provider{ModelPrefix: tc.prefix}, nil)[0]
+		if got.Wire != tc.wire || got.Missing != (tc.wire == "") {
+			t.Errorf("%s%s: wire %q missing %v, want wire %q", tc.prefix, tc.id, got.Wire, got.Missing, tc.wire)
 		}
 	}
 }
