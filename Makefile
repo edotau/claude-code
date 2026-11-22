@@ -102,6 +102,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
 		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
+	@if $(BIN) agents serve --status >/dev/null 2>&1; then \
+		$(BIN) agents serve --restart || echo -e "$(C_NOTE)agents serve did not restart (install itself succeeded)"; fi
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
 # fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.

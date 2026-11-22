@@ -72,6 +72,7 @@ claude-code agents ask --spec task.json --dry-run   # resolved route and argv; n
 claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code agents serve --start [--cap N] | --status | --restart | --stop   # queue --background jobs per pool
+                                                 # make install restarts a running daemon, never starts one
 claude-code agents ask --agent pi --read-only "<q>"   # Pi on Databricks; read/grep/find/ls
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
