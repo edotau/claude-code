@@ -425,33 +425,10 @@ func TestLaunchRefusesOwnLoginAuto(t *testing.T) {
 	}
 }
 
-func TestPlainPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
-	_, err := plainPlan(Schema{Name: agentid.Pi}, nil)
-	if usage, ok := err.(*UsageError); !ok || !strings.Contains(usage.Msg, "no login of its own") || !strings.Contains(usage.Msg, "--profile <profile>") {
-		t.Fatalf("plainPlan(pi) = %v, want the no-own-login refusal", err)
-	}
-}
-
-func TestPoolLaunchOnlyForUnpinnedNoOwnLogin(t *testing.T) {
-	vaulttest.Use(t)
-	o, pooled, err := poolLaunch(agentid.Pi, LaunchOptions{})
-	if err != nil || !pooled || o.Model != AutoModel || o.Provider != poolName {
-		t.Fatalf("unpinned pi = %+v %v %v, want the pool pick", o, pooled, err)
-	}
-	for _, in := range []struct {
-		name string
-		o    LaunchOptions
-	}{{agentid.Pi, LaunchOptions{Provider: "dev"}}, {agentid.Pi, LaunchOptions{Model: "opus"}}, {agentid.Codex, LaunchOptions{}}} {
-		if _, pooled, err := poolLaunch(in.name, in.o); pooled || err != nil {
-			t.Errorf("%s %+v pooled = %v, %v", in.name, in.o, pooled, err)
-		}
-	}
-}
-
-func TestPoolPickedRefusalNamesTheWayForward(t *testing.T) {
-	err := poolPicked(agentid.Pi, "", errors.New("no profile serves pi"))
-	if err == nil || !strings.Contains(err.Error(), "claude-code pi --profile <profile>") || !strings.Contains(err.Error(), "claude-code databricks login") {
-		t.Fatalf("err = %v", err)
+func TestLaunchPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
+	_, err := LaunchPlan(context.Background(), agentid.Pi, LaunchOptions{}, nil)
+	if usage, ok := err.(*UsageError); !ok || usage.Msg != "pi has no interactive launch; dispatch with `claude-code agents ask --agent pi`" {
+		t.Fatalf("LaunchPlan(pi) = %v, want the one-line no-interactive-launch refusal", err)
 	}
 }
 

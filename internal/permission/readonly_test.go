@@ -265,8 +265,7 @@ var verifyDenied = []string{
 	// claude-code: only agents diff (findings 1, 2)
 	"claude-code agents ask --dry-run --agent pi x", "claude-code agents ask --dry-run --dry-run=false --agent pi x",
 	"claude-code agents ask --system-prompt --dry-run --agent pi x", "claude-code agents ask --agent pi -- --dry-run",
-	"claude-code agents ask --dry-run=true --agent pi x", "claude-code pi --print-env",
-	"claude-code codex -- exec -- --print-env",
+	"claude-code agents ask --dry-run=true --agent pi x", "claude-code codex -- exec -- --print-env",
 	"claude-code pi ask --tools --system-prompt --print-env x", "claude-code gemini --print-env",
 	"claude-code agents diff --check --fix", "claude-code agents diff --check --path -x",
 	"claude-code agents fix --path a",

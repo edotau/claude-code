@@ -225,15 +225,6 @@ func WithDryRun(ctx context.Context) context.Context {
 // IsDryRun is true on a --print-env preview; an engine's Wire reads it to leave no per-run files behind.
 func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(bool); return v }
 
-type readOnlyKey struct{}
-
-// WithReadOnly marks an interactive launch that asked for --read-only; an engine's Wire reads it with IsReadOnly.
-func WithReadOnly(ctx context.Context) context.Context {
-	return context.WithValue(ctx, readOnlyKey{}, true)
-}
-
-func IsReadOnly(ctx context.Context) bool { v, _ := ctx.Value(readOnlyKey{}).(bool); return v }
-
 // routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, key, err := launchRouter(ctx, p.Name)

@@ -386,15 +386,15 @@ func profileHintOr(spec Schema, o LaunchOptions, err error) error {
 }
 
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
+	if agentid.Routing(name).NoOwnLogin { // fail closed: such an agent runs only as a guarded dispatch
+		return Plan{}, &UsageError{Msg: name + " has no interactive launch; dispatch with `claude-code agents ask --agent " + name + "`"}
+	}
 	ctx, spec, err := cliSpec(ctx, name, o)
 	if err != nil {
 		return Plan{}, err
 	}
 	if authArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
-	}
-	if slices.Contains(args, "--read-only") { // Wire sees no args: the flag rides the context
-		ctx = WithReadOnly(ctx)
 	}
 	args, err = checkedLaunchArgs(spec, o.File, args)
 	if err != nil {
@@ -422,43 +422,12 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	return cliLaunch(ctx, spec, name, o, args, flagModel, reg, sel)
 }
 
-// routeTyped resolves the typed --model once, else (an agent with no login of its own, unpinned) the pool's pick.
+// routeTyped resolves the typed --model once; every launch below spells from that route.
 func routeTyped(ctx context.Context, name string, o LaunchOptions) (_ LaunchOptions, own bool, autoProvider string, err error) {
-	if err := refusePinnedPrefix(ctx, name, o); err != nil {
+	if err := refusePinnedPrefix(ctx, name, o); err != nil || o.Model == "" {
 		return o, false, "", err
 	}
-	o, pooled, err := poolLaunch(name, o)
-	if err != nil || o.Model == "" { // the typed model resolves once; every launch below spells from that route
-		return o, false, "", err
-	}
-	o, own, autoProvider, err = routeLaunch(ctx, name, o)
-	if pooled {
-		err = poolPicked(name, o.Provider, err)
-	}
-	return o, own, autoProvider, err
-}
-
-// poolLaunch sends an unpinned, untyped launch of an agent with no login of its own to the Databricks pool pick.
-func poolLaunch(name string, o LaunchOptions) (LaunchOptions, bool, error) {
-	if !agentid.Routing(name).NoOwnLogin || o.Provider != "" || o.Model != "" || !o.Route.IsZero() {
-		return o, false, nil
-	}
-	pinned, err := launchProfile(name, o)
-	if err != nil || pinned.Provider != "" {
-		return o, false, err
-	}
-	o.Provider, o.Model = poolName, AutoModel // the pool's own route, as the overlay {"provider":"databricks","profile":"auto"}
-	return o, true, nil
-}
-
-// poolPicked is the stderr line naming the pool's pick, or the refusal that names the two ways forward.
-func poolPicked(name, profile string, err error) error {
-	if err != nil {
-		return &UsageError{Msg: fmt.Sprintf("%s: no usable Databricks profile in the pool (%v); run `claude-code %s --profile <profile>` "+
-			"or `claude-code databricks login`", name, strings.TrimPrefix(err.Error(), "--model "+AutoModel+": "), name)}
-	}
-	fmt.Fprintf(NoticeOut, "claude-code: %s: no profile pinned; picked %s from the Databricks pool\n", name, profile)
-	return nil
+	return routeLaunch(ctx, name, o)
 }
 
 // routeLaunch resolves o.Model into the row and wire id the launch runs; own is true on the agent's own sign-in.
@@ -712,10 +681,6 @@ func passthrough(spec Schema, name string, reason error, args []string) (Plan, e
 
 // plainPlan is the agent's own CLI on its own login: no routing env, but the agent spec's launch env/args still apply.
 func plainPlan(spec Schema, args []string) (Plan, error) {
-	if agentid.Routing(spec.Name).NoOwnLogin { // fail closed: such an agent's plain CLI would run with no harness guard
-		return Plan{}, &UsageError{Msg: spec.Name + " has no login of its own; plain passthrough and --direct are refused: " +
-			"run `claude-code " + spec.Name + " --profile <profile>`"}
-	}
 	opts, _, err := ParseArgs(args, false)
 	if err != nil {
 		return Plan{}, err
