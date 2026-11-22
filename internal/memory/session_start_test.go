@@ -242,6 +242,22 @@ func TestStartWorkersRetriesFailedWakeForPendingJob(t *testing.T) {
 	}
 }
 
+// A catchup-only wake whose spawn fails frees its ten-minute slot for the next start.
+func TestStartWorkersFailedSpawnFreesCatchupSlot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := spawn.catchup
+	calls := 0
+	spawn.catchup = func(string, string) bool { calls++; return calls > 1 }
+	t.Cleanup(func() { spawn.catchup = orig })
+	now := time.Now()
+	for range 3 {
+		startWorkers("/tmp", "00000000-0000-4000-8000-0000000000a1", now, false)
+	}
+	if calls != 2 {
+		t.Fatalf("spawn calls = %d, want 2 (the failed one retried, the started one holding the slot)", calls)
+	}
+}
+
 // A corrupt or relative root-<id> file is replaced by the first valid root instead of lingering all session.
 func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 	isolatedConfig(t)

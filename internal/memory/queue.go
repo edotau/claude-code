@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -85,6 +86,11 @@ func queueAdd(dir string, j Job) (bool, error) {
 	if err := errors.Join(writeErr, f.Close()); err != nil {
 		return false, err
 	}
+	if !j.NotBefore.IsZero() { // the mtime is the due time, so queuedDue never reads a waiting job
+		if err := os.Chtimes(tmp, j.NotBefore, j.NotBefore); err != nil {
+			return false, err
+		}
+	}
 	if err := os.Link(tmp, final); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return false, nil
@@ -113,6 +119,9 @@ func pending() int { return len(queued()) }
 
 func queuedDue(now time.Time) bool {
 	for _, path := range queued() {
+		if fi, err := os.Stat(path); err != nil || fi.ModTime().After(now) {
+			continue
+		}
 		if j, ok := readJob(path); ok && !j.NotBefore.After(now) {
 			return true
 		}
@@ -168,12 +177,12 @@ func claimedJob(dst string, now time.Time) (Job, bool) {
 	return j, true
 }
 
-// finish drops a completed running job.
+// finish drops a completed running job, then its child identity: a death between them leaves only a stale identity.
 func finish(path string) error {
-	if err := os.Remove(childPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(childPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -202,7 +211,8 @@ func childAlive(path string) bool {
 }
 
 // requeueDead returns running jobs whose worker died to the queue with attempts+1; the third attempt goes to failed/.
-func requeueDead() (orphanAlive bool) {
+// A job whose child still runs stays in running/; the rest of the queue drains regardless.
+func requeueDead() {
 	_, _ = paths.TryFileLock(filepath.Join(queueDir(), "recovery.lock"), 0, func() error {
 		runs, _ := filepath.Glob(filepath.Join(queueDir(), "running", "*.json.*"))
 		for _, p := range runs {
@@ -210,7 +220,6 @@ func requeueDead() (orphanAlive bool) {
 				continue
 			}
 			if childAlive(p) {
-				orphanAlive = true
 				continue
 			}
 			j, ok := readJob(p)
@@ -227,7 +236,6 @@ func requeueDead() (orphanAlive bool) {
 		}
 		return nil
 	})
-	return orphanAlive
 }
 
 // runQueuedJob is the subprocess boundary; tests never execute their own binary.
@@ -244,12 +252,20 @@ var runQueuedJob = func(ctx context.Context, self string, j Job, path string, ou
 	if err := paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("0 %d\n", deadline.Unix())), 0o600); err != nil {
 		return err
 	}
+	gate, closeGate, err := gateChild(cmd)
+	if err != nil {
+		return err
+	}
+	defer closeGate() // a worker killed before the release closes the gate empty, so the child exits unrun
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	start, err := proc.StartTime(cmd.Process.Pid)
 	if err == nil {
 		err = paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("%d %s\n", cmd.Process.Pid, start)), 0o600)
+	}
+	if err == nil && gate != nil {
+		_, err = gate.Write([]byte{'1'})
 	}
 	if err != nil {
 		if cmd.Cancel != nil {
@@ -262,6 +278,42 @@ var runQueuedJob = func(ctx context.Context, self string, j Job, path string, ou
 	return cmd.Wait()
 }
 
+// queueGateEnv tells a queued child to wait on fd 3 for the parent's go byte; no byte before EOF means exit.
+const queueGateEnv = "HARNESS_QUEUE_GATE"
+
+// gateChild wires cmd's fd 3 to a pipe the parent writes after recording the child; closeGate drops both parent ends.
+func gateChild(cmd *exec.Cmd) (w *os.File, closeGate func(), err error) {
+	if runtime.GOOS == "windows" { // ExtraFiles is unsupported there
+		return nil, func() {}, nil
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	cmd.ExtraFiles = []*os.File{r}
+	cmd.Env = append(os.Environ(), queueGateEnv+"=1")
+	return w, func() { _ = r.Close(); _ = w.Close() }, nil
+}
+
+// awaitGate reports whether the parent released the child; the env is cleared so grandchildren do not wait.
+func awaitGate(r io.Reader) bool {
+	_ = proc.Unsetenv(queueGateEnv)
+	var b [1]byte
+	n, _ := io.ReadFull(r, b[:])
+	return n == 1
+}
+
+func init() {
+	if os.Getenv(queueGateEnv) == "" {
+		return
+	}
+	f := os.NewFile(3, "queue-gate")
+	if !awaitGate(f) {
+		os.Exit(0)
+	}
+	_ = f.Close()
+}
+
 // drainQueue runs every due job serially; a failed job is finished, never retried.
 func drainQueue(out io.Writer) {
 	self, err := os.Executable()
@@ -269,9 +321,7 @@ func drainQueue(out io.Writer) {
 		fmt.Fprintln(out, "memory queue:", err)
 		return
 	}
-	if requeueDead() {
-		return
-	}
+	requeueDead()
 	for {
 		j, path, ok := claimNext(time.Now())
 		if !ok {

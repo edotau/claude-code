@@ -67,12 +67,22 @@ func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 			fmt.Fprintf(os.Stderr, "memory-start: queue dream: %v\n", err)
 		}
 	}
-	if queued || queuedDue(now) || looksLikeSessionID(sessionID) && catalog.ClaimEvery("memory-catchup", catchupEvery, now) {
-		if !spawn.catchup(cwd, sessionID) {
-			fmt.Fprintln(os.Stderr, "memory-start: wake catchup worker failed")
+	claimed := false
+	wake := queued || queuedDue(now)
+	if !wake && looksLikeSessionID(sessionID) {
+		claimed = catalog.ClaimEvery(catchupStamp, catchupEvery, now)
+		wake = claimed
+	}
+	if wake && !spawn.catchup(cwd, sessionID) {
+		fmt.Fprintln(os.Stderr, "memory-start: wake catchup worker failed")
+		if claimed { // the slot is for a started sweep; a failed spawn frees it for the next start
+			_ = os.Remove(filepath.Join(paths.StateDir(), "preflight", catchupStamp))
 		}
 	}
 }
+
+// catchupStamp names catalog.ClaimEvery's stamp file under StateDir()/preflight.
+const catchupStamp = "memory-catchup"
 
 // bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.
 func bankLoadNote(prefix string) string {
