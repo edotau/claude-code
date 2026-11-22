@@ -689,7 +689,7 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 	if d == Allow && hasWrite(seg) { // a quoted `<` is text, not a redirect
 		d = Ask
 	}
-	if d != Deny && readOnlyReadDenied(p, judged, at) { // an Ask rule never outranks a Read deny
+	if d != Deny && (readOnlyReadDenied(p, judged, at) || p.diffNotRegular(judged, at)) { // an Ask never outranks these
 		d = Deny
 	}
 	return d, true

@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -601,6 +602,99 @@ func TestReadOnlyCLIFlagAllowList(t *testing.T) {
 		rows = append(rows, roCase{c, true})
 	}
 	checkReadOnly(t, rows)
+}
+
+// Literal readers take only their listed flags and operand counts; output, exec, clock and file options are refused.
+func TestReadOnlyLiteralReaders(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no ~/.jq
+	var rows []roCase
+	for _, c := range []string{
+		"jq -r '.a | .b' f.json", "jq -c -s 'map(.n) | sort | .[length/2|floor]' a.json b.json", "jq -e .x f",
+		"cat f.json | jq '.[]'", "rtk jq -r .name f.json", "uniq -c f", "sort -c f | uniq -d", "uniq", "jq . -",
+		"comm -1 -2 a b", "comm -3 - b", "diff -u readonly.go readonly_text.go", "diff -q -w readonly.go ./explain.go",
+		"stat f.go", "stat ./a /b", "uniq -", "basename -",
+		"file -b f.png", "file a b", "date", "date -u +%Y-%m-%d", "TZ=UTC date '+%s'", "basename /a/b.go .go",
+		"basename a/b", "dirname /a/b", "sort -c", "sort -c f", "ls | sort -c",
+	} {
+		rows = append(rows, roCase{c, true})
+	}
+	for _, c := range []string{
+		// jq: file, module and argument options; environment and modules in the filter
+		"jq --from-file p.jq f", "jq -f p.jq f", "jq -L /tmp/m . f", "jq --slurpfile x a .", "jq --rawfile x a .",
+		"jq --args . a", "jq --arg x y . f", "jq -rc . f", "jq 'env.HOME' f", "jq '$ENV.PATH' f", "jq '$ ENV' f",
+		"jq 'import \"m\" as m; .' f", "jq 'include \"m\"; .' f", "jq -n modulemeta", "jq", "jq . *.json",
+		"jq . f > out", "jq . $(echo f)", "jq . f{1,2}",
+		// uniq, comm, diff: output operands and options
+		"uniq a out", "uniq -c a out", "uniq -i f", "uniq --group f", "comm a", "comm a b c", "comm --output-delimiter=x a b",
+		"diff a", "diff a b c", "diff --output=x a b", "diff -l a b", "diff --paginate a b", "diff -r a b", "diff -ub a b",
+		"diff * b", "rtk diff a b",
+		// stat, file, date, basename, dirname, sort
+		"stat", "stat -f %z f", "stat -c %s f", "file -C -m x", "file -z f.gz", "file -Z f.gz", "file", "file *",
+		"date 0101010170", "date -s 2020-01-01", "date --set=x", "date -f dates", "date -u 0101 +%s", "date +%s +%s",
+		"basename", "basename a b c", "basename -a a b", "dirname a b", "dirname -z a",
+		"sort f", "sort -o x f", "sort -c a b", "sort -c -o x f", "sort --compress-program=sh -c f", "sort -cu f",
+		// still refused
+		"awk '{print $1}' f", "xargs echo", "sed s/a/b/ f",
+		// a flag after the first operand is a BSD operand (uniq writes a file named -c)
+		"uniq /dev/null -c", "uniq f -d", "comm a b -3", "file f -b", "sort -c f -u", "jq . f -r", "date +%s -u",
+		"stat f -", "stat -",
+		// diff: stdin, devices, directories and missing files spool or walk
+		"diff - readonly.go", "diff readonly.go -", "diff /dev/null readonly.go", "diff /dev/stdin readonly.go",
+		"diff . ../permission", "diff readonly.go missing.go", "diff a b",
+	} {
+		rows = append(rows, roCase{c, false})
+	}
+	checkReadOnly(t, rows)
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".jq"), []byte("def leak: env;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checkReadOnly(t, []roCase{{"jq leak", false}, {"jq . f", false}}) // jq sources ~/.jq; no option turns it off
+}
+
+// The verify shell takes a literal reader's own flag forms; a diff after a cd judges its operands in that dir.
+func TestVerifyShellLiteralReaders(t *testing.T) {
+	d := t.TempDir()
+	for _, n := range []string{"x", "-"} { // diff - reads stdin even beside a file named -
+		if err := os.WriteFile(filepath.Join(d, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, cmd := range []string{"date -u", "sort -c", "uniq -c", "date +%s", "cd " + d + " && diff x x"} {
+		if !VerifyShell(cmd) {
+			t.Errorf("VerifyShell(%q) = false, want true", cmd)
+		}
+	}
+	for _, cmd := range []string{"uniq /dev/null -c", "diff - readonly.go", "node --version x",
+		"cd " + d + " && diff x readonly.go", "cd " + d + " && diff . x", "cd " + d + " && diff - x"} {
+		if VerifyShell(cmd) {
+			t.Errorf("VerifyShell(%q) = true, want false", cmd)
+		}
+	}
+}
+
+// A literal reader's file operands meet Read denies; diff takes only regular files, so no directory walk.
+func TestLiteralReadersHonorReadDeny(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	d := t.TempDir()
+	for _, n := range []string{"a/x", "b/x"} {
+		if err := os.MkdirAll(filepath.Join(d, filepath.Dir(n)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, n), []byte(n), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/r/state/vault.db"}}, ReadOnlyDeny...)}
+	for cmd, want := range map[string]Decision{
+		"jq . /r/state/vault.db": Deny, "jq '.vault' /r/a.json": Allow, "uniq /r/state/vault.db": Deny,
+		"stat /r/state/vault.db": Deny, "diff /r/state /tmp/x": Deny, "diff " + d + "/a/x " + d + "/b/x": Allow,
+		"diff " + d + "/a " + d + "/b": Deny,
+		"comm /r/state/vault.db b":     Deny, "date -u +%s": Allow, "basename /r/state/vault.db": Allow,
+	} {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("%q = %v, want %v", cmd, got, want)
+		}
+	}
 }
 
 // The read-only check runs on every Bash call of a --read-only agent.

@@ -61,7 +61,7 @@ func verifySegment(seg string, raw bool) bool {
 // flag on an unlisted command (`node --version`) and a `go list` module query, which fetches into the module cache.
 func verifyRefused(toks []string) bool {
 	return toks[0] == "git" && gitRepoChoice(toks[1:]) || goListFetches(toks) ||
-		len(toks) == 2 && strings.HasPrefix(toks[1], "-") && !helpCommand(toks[0])
+		len(toks) == 2 && strings.HasPrefix(toks[1], "-") && !helpCommand(toks[0]) && literalReaders[toks[0]] == nil
 }
 
 // goListFetches is a `go list` with a module@version query, -versions or -retracted.
@@ -292,7 +292,8 @@ func rtkPlain(toks []string) []string {
 	if toks[1] == "bypass" && len(toks) > 2 { // rtk bypass runs the rest as typed
 		return toks[2:]
 	}
-	if rtkPlainSubcommands()[toks[1]] || textReaders[toks[1]] { // rtk passes an unknown subcommand through
+	if rtkPlainSubcommands()[toks[1]] || textReaders[toks[1]] || literalReaders[toks[1]] != nil && toks[1] != "diff" {
+		// rtk passes an unknown subcommand through; rtk diff is rtk's own
 		return toks[1:]
 	}
 	if toks[1] == "read" {
@@ -314,7 +315,7 @@ func claudeHelp(toks []string) bool {
 
 // rawSegmentOK is the as-typed part of the check: no write, `<` or expansion, and only a `time` or locale prefix.
 func rawSegmentOK(seg string, rawToks, toks []string) bool {
-	if hasWrite(seg) || shell.Expands(seg) || braceExpands(seg) {
+	if hasWrite(seg) || expandsWords(seg, rtkPlain(toks)[0]) {
 		return false
 	}
 	if name := rtkPlain(toks)[0]; slices.Contains([]string{"rg", "find", "git", "go", "claude-code"}, name) || readOnlyCLIs()[name] != nil {
@@ -384,7 +385,7 @@ func readOnlyCommand(toks []string) bool {
 	case "sed":
 		return sedPrintMatches(strings.Join(toks, " "))
 	}
-	return readOnlyCLI(toks)
+	return literalOrCLI(toks)
 }
 
 var plainReadCommands = sync.OnceValue(func() map[string]bool {
@@ -882,6 +883,9 @@ func commandOperands(name string, args, files []string) ([]string, bool) {
 		return claudeReadOperands(args, files)
 	case "go":
 		return nil, true
+	}
+	if literalReaders[name] != nil {
+		return literalReaderOperands(name, files), true
 	}
 	_, cli := readOnlyCLIs()[name]
 	return nil, cli // rg and find search the tree; a cluster or cloud CLI reads no repo path
