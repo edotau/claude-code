@@ -328,12 +328,13 @@ func triedPicks(picks []string, err error) error {
 	return &out
 }
 
-// ranModel is the model that served an auto or cell request (the envelope's), a cell's tier pick, else the one asked.
+// ranModel resolves auto picks and per-model quota cells; other requests keep the model asked.
 func ranModel(disp Dispatch, req RunOptions, res wire.Result) string {
-	if (IsAuto(req.Model) || req.CellModel) && res.Model != "" {
+	cell := req.CellModel && router.PerModelQuota(disp.Account)
+	if (IsAuto(req.Model) || cell) && res.Model != "" {
 		return res.Model
 	}
-	if req.CellModel { // the cell's model is a placeholder the engine never launches
+	if cell { // the cell's model is a placeholder the engine never launches
 		return gateModel(disp, req)
 	}
 	return req.Model
