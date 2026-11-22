@@ -225,6 +225,23 @@ func TestStartSessionProbesBankOnce(t *testing.T) {
 	}
 }
 
+func TestStartWorkersRetriesFailedWakeForPendingJob(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := Enqueue(Job{Kind: "dream", Key: "today"}); err != nil {
+		t.Fatal(err)
+	}
+	orig := spawn.catchup
+	calls := 0
+	spawn.catchup = func(string, string) bool { calls++; return calls > 1 }
+	t.Cleanup(func() { spawn.catchup = orig })
+	now := time.Now()
+	startWorkers("/tmp", "probe", now, false)
+	startWorkers("/tmp", "probe", now, false)
+	if calls != 2 {
+		t.Fatalf("coalesced pending job wake attempts = %d, want 2", calls)
+	}
+}
+
 // A corrupt or relative root-<id> file is replaced by the first valid root instead of lingering all session.
 func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 	isolatedConfig(t)

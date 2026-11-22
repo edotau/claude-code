@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func TestQueueDuplicateEnqueueCoalesces(t *testing.T) {
@@ -99,5 +101,32 @@ func checkQueueDeadWorker(t *testing.T, pid int) {
 	}
 	if _, err := os.Stat(filepath.Join(queueDir(), "failed", jobName("update", "s"))); err != nil || pending() != 0 {
 		t.Fatalf("third death should land in failed/: stat err %v, pending %d", err, pending())
+	}
+}
+
+func TestQueueDeadWorkerWaitsForLiveChild(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := Enqueue(Job{Kind: "dream", Key: "today"}); err != nil {
+		t.Fatal(err)
+	}
+	_, path, ok := claimNext(time.Now())
+	if !ok {
+		t.Fatal("nothing claimed")
+	}
+	dead := filepath.Join(filepath.Dir(path), jobName("dream", "today")+".999999.dead.unique")
+	if err := os.Rename(path, dead); err != nil {
+		t.Fatal(err)
+	}
+	start, err := proc.StartTime(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, childPath(dead), strconv.Itoa(os.Getpid())+" "+start+"\n")
+	if !requeueDead() || pending() != 0 || !childAlive(dead) {
+		t.Fatal("a live child was replayed")
+	}
+	write(t, childPath(dead), strconv.Itoa(os.Getpid())+" stale\n")
+	if requeueDead() || pending() != 1 {
+		t.Fatal("finished child was not requeued")
 	}
 }

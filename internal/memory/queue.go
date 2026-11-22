@@ -111,6 +111,15 @@ func queued() []string {
 
 func pending() int { return len(queued()) }
 
+func queuedDue(now time.Time) bool {
+	for _, path := range queued() {
+		if j, ok := readJob(path); ok && !j.NotBefore.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
 // claimNext moves the oldest due job into running/ and returns it with its running path.
 func claimNext(now time.Time) (Job, string, bool) {
 	type cand struct {
@@ -161,18 +170,43 @@ func claimedJob(dst string, now time.Time) (Job, bool) {
 
 // finish drops a completed running job.
 func finish(path string) error {
+	if err := os.Remove(childPath(path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
 }
 
+func childPath(path string) string {
+	return filepath.Join(queueDir(), "children", filepath.Base(path))
+}
+
+func childAlive(path string) bool {
+	data, err := os.ReadFile(childPath(path))
+	if err != nil {
+		return false
+	}
+	pidText, token, ok := strings.Cut(strings.TrimSpace(string(data)), " ")
+	pid, err := strconv.Atoi(pidText)
+	if !ok || err != nil || pid <= 0 {
+		return true // An unreadable identity must not permit a concurrent replay.
+	}
+	start, err := proc.StartTime(pid)
+	return err != nil && !errors.Is(err, proc.ErrNoProcess) || err == nil && start == token
+}
+
 // requeueDead returns running jobs whose worker died to the queue with attempts+1; the third attempt goes to failed/.
-func requeueDead() {
+func requeueDead() (orphanAlive bool) {
 	_, _ = paths.TryFileLock(filepath.Join(queueDir(), "recovery.lock"), 0, func() error {
 		runs, _ := filepath.Glob(filepath.Join(queueDir(), "running", "*.json.*"))
 		for _, p := range runs {
 			if !queueOwnerDead(p) {
+				continue
+			}
+			if childAlive(p) {
+				orphanAlive = true
 				continue
 			}
 			j, ok := readJob(p)
@@ -189,16 +223,35 @@ func requeueDead() {
 		}
 		return nil
 	})
+	return orphanAlive
 }
 
 // runQueuedJob is the subprocess boundary; tests never execute their own binary.
-var runQueuedJob = func(ctx context.Context, self string, j Job, out io.Writer) error {
+var runQueuedJob = func(ctx context.Context, self string, j Job, path string, out io.Writer) error {
 	cmd := exec.CommandContext(ctx, self, j.Args...)
 	cmd.Dir = j.CWD
 	cmd.Stdout, cmd.Stderr = out, out
 	proc.OwnGroup(cmd) // the timeout kills the job's whole group, so its claude child cannot outlive the lock
 	cmd.WaitDelay = proc.ExecWaitDelay
-	return cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	start, err := proc.StartTime(cmd.Process.Pid)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(childPath(path)), 0o700)
+	}
+	if err == nil {
+		err = paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("%d %s\n", cmd.Process.Pid, start)), 0o600)
+	}
+	if err != nil {
+		if cmd.Cancel != nil {
+			_ = cmd.Cancel()
+		} else {
+			_ = cmd.Process.Kill()
+		}
+		return errors.Join(err, cmd.Wait())
+	}
+	return cmd.Wait()
 }
 
 // drainQueue runs every due job serially; a failed job is finished, never retried.
@@ -208,7 +261,9 @@ func drainQueue(out io.Writer) {
 		fmt.Fprintln(out, "memory queue:", err)
 		return
 	}
-	requeueDead()
+	if requeueDead() {
+		return
+	}
 	for {
 		j, path, ok := claimNext(time.Now())
 		if !ok {
@@ -216,7 +271,7 @@ func drainQueue(out io.Writer) {
 		}
 		fmt.Fprintf(out, "queue %s %s\n", j.Kind, j.Key)
 		ctx, cancel := context.WithTimeout(context.Background(), updateTimeout+2*time.Minute)
-		if err := runQueuedJob(ctx, self, j, out); err != nil {
+		if err := runQueuedJob(ctx, self, j, path, out); err != nil {
 			fmt.Fprintf(out, "queue %s %s: %v\n", j.Kind, j.Key, err)
 		}
 		cancel()

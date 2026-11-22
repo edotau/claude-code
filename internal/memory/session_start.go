@@ -67,8 +67,10 @@ func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 			fmt.Fprintf(os.Stderr, "memory-start: queue dream: %v\n", err)
 		}
 	}
-	if queued || looksLikeSessionID(sessionID) && catalog.ClaimEvery("memory-catchup", catchupEvery, now) {
-		spawn.catchup(cwd, sessionID)
+	if queued || queuedDue(now) || looksLikeSessionID(sessionID) && catalog.ClaimEvery("memory-catchup", catchupEvery, now) {
+		if !spawn.catchup(cwd, sessionID) {
+			fmt.Fprintln(os.Stderr, "memory-start: wake catchup worker failed")
+		}
 	}
 }
 

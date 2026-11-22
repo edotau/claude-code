@@ -252,7 +252,10 @@ func TestCatchUpSweepDrainsCoalescedJobOnce(t *testing.T) {
 	var got [][]string
 	origJob, origHist := runQueuedJob, runHistoricalUpdate
 	t.Cleanup(func() { runQueuedJob, runHistoricalUpdate = origJob, origHist })
-	runQueuedJob = func(_ context.Context, _ string, j Job, _ io.Writer) error { got = append(got, j.Args); return nil }
+	runQueuedJob = func(_ context.Context, _ string, j Job, _ string, _ io.Writer) error {
+		got = append(got, j.Args)
+		return nil
+	}
 	runHistoricalUpdate = func(context.Context, string, sweepCand, io.Writer) error { return nil }
 	job := Job{Kind: "dream", Key: "d", Args: []string{"memory", "dream"}}
 	for i, want := range []bool{true, false} {
