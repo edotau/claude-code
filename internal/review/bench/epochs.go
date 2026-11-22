@@ -28,13 +28,17 @@ func benchmarkFunc(name string) string {
 }
 
 func benchmarkEpochs(top, pkg string) (map[string]benchmarkEpoch, error) {
-	files, err := filepath.Glob(filepath.Join(top, pkg, "*_test.go"))
+	dir := filepath.Join(top, pkg)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]benchmarkEpoch{}
 	for _, file := range files {
-		epochs, err := fileEpochs(top, file)
+		if file.IsDir() || !strings.HasSuffix(file.Name(), "_test.go") {
+			continue
+		}
+		epochs, err := fileEpochs(top, filepath.Join(dir, file.Name()))
 		if err != nil {
 			return nil, err
 		}
