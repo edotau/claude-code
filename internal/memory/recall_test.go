@@ -686,8 +686,7 @@ func benchRecallCorpus(b *testing.B) int {
 	return total
 }
 
-// benchRecallBank is benchRecallCorpus grown to a lived-in bank: 250 small notes, 8 archives of 0.2-2 MB (about
-// 7 MB of corpus in 300 files) and a 1.3 MB access log, the shape that makes a hook process read a 15 MB index.
+// benchRecallBank models a lived-in bank whose 15 MB index is read by a hook process.
 func benchRecallBank(b *testing.B) int {
 	b.Helper()
 	total := benchRecallCorpus(b)

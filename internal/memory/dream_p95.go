@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	dreamP95Window  = 7 * 24 * time.Hour
-	dreamP95MinRuns = 200
-	dreamP95Growth  = 1.2
+	dreamP95Window       = 7 * 24 * time.Hour
+	dreamP95MinRuns      = 200
+	dreamP95Growth       = 1.2
+	dreamBenchQueueAge   = 14 * 24 * time.Hour
+	dreamBenchQueueLimit = 200
 )
 
 type dreamBenchEntry struct {
@@ -191,5 +193,66 @@ func queueDreamBench(entry dreamBenchEntry) error {
 	if err != nil {
 		return err
 	}
-	return paths.AppendLine(filepath.Join(paths.StateDir(), "bench", "queue.jsonl"), data)
+	file := filepath.Join(paths.StateDir(), "bench", "queue.jsonl")
+	return paths.WithFileLockWithin(file, 5*time.Second, func() error {
+		kept, err := compactDreamBenchQueue(file, entry, time.Now())
+		if err != nil {
+			return err
+		}
+		if err := paths.AtomicWrite(file, kept, 0o600); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(append(data, '\n'))
+		return errors.Join(err, f.Close())
+	})
+}
+
+func compactDreamBenchQueue(file string, incoming dreamBenchEntry, now time.Time) ([]byte, error) {
+	data, err := os.ReadFile(file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	type row struct {
+		entry dreamBenchEntry
+		line  string
+	}
+	latest := map[string]row{}
+	cutoff := now.Add(-dreamBenchQueueAge)
+	incomingKey := dreamBenchQueueKey(incoming)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		var entry dreamBenchEntry
+		if json.Unmarshal([]byte(line), &entry) != nil || entry.At.Before(cutoff) {
+			continue
+		}
+		key := dreamBenchQueueKey(entry)
+		if key == incomingKey {
+			continue
+		}
+		if entry.At.Before(latest[key].entry.At) {
+			continue
+		}
+		latest[key] = row{entry: entry, line: line}
+	}
+	rows := slices.Collect(maps.Values(latest))
+	slices.SortFunc(rows, func(a, b row) int { return a.entry.At.Compare(b.entry.At) })
+	if len(rows) >= dreamBenchQueueLimit {
+		rows = rows[len(rows)-dreamBenchQueueLimit+1:]
+	}
+	var kept []byte
+	for _, row := range rows {
+		kept = append(append(kept, row.line...), '\n')
+	}
+	return kept, nil
+}
+
+func dreamBenchQueueKey(entry dreamBenchEntry) string {
+	name := entry.Module
+	if name == "" {
+		name = entry.Pkg
+	}
+	return entry.Source + "\x00" + name
 }
