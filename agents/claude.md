@@ -95,6 +95,8 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 - Never a foreground `sleep` (`run_in_background` and wait for the notification, or an `until` loop in a background
   command); never `git checkout|switch|stash|reset|restore` or `sudo` in `~/.claude`: use `git show <rev>:<path>`.
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
+- Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
+  `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
 - Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 

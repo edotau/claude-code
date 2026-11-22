@@ -14,6 +14,8 @@ Task:
 - Never a foreground `sleep`: `run_in_background` and wait for the notification, a background `until` loop, or
   `claude-code agents result -f <id>`; no `sudo` or `git switch`; read history with `git show <rev>:<path>` or `git log`.
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
+- Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
+  `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
 - Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 - Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
