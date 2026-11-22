@@ -12,10 +12,6 @@ import (
 )
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
-func databricksResponses(ctx context.Context, reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
-	return (&pickGate{reg: reg}).databricksResponses(ctx, now, canServe)
-}
-
 func (pg *pickGate) databricksResponses(ctx context.Context, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
 	profile, p, ok := pg.sessionDatabricks(ctx, "codex", canServe)
 	if !ok {

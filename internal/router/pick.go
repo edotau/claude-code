@@ -500,11 +500,7 @@ func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
 	return nil
 }
 
-// score fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
-func (t *RouteTable) score(cs []Candidate, st State, now time.Time) []Candidate {
-	return t.scoreVia(ProviderAccount, cs, st, now)
-}
-
+// scoreVia fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
 func (t *RouteTable) scoreVia(acct accountFn, cs []Candidate, st State, now time.Time) []Candidate {
 	sc := pickScope{State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))

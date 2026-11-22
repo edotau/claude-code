@@ -54,7 +54,7 @@ func TestOldColonKeysNoLongerMatch(t *testing.T) {
 	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, FallbackAgents)), "codex") {
 		t.Error("the new-format auth mark did not gate codex")
 	}
-	if _, ok := old.accountAuthMarked("openai·chatgpt", now0); ok {
+	if _, ok := old.authMarkedVia(ProviderAccount, "openai·chatgpt", now0); ok {
 		t.Error("old key matched the new account")
 	}
 }
@@ -309,12 +309,12 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 		{"nodot", "", false},
 		{"anthropic·", "", false},
 	} {
-		got, ok := s.accountAuthMarked(c.account, at.Add(time.Minute))
+		got, ok := s.authMarkedVia(ProviderAccount, c.account, at.Add(time.Minute))
 		if got != c.want || ok != c.ok {
 			t.Errorf("accountAuthMarked(%q) = %q, %v; want %q, %v", c.account, got, ok, c.want, c.ok)
 		}
 	}
-	if _, ok := s.accountAuthMarked("anthropic·dev", at.Add(authMarkTTL)); ok {
+	if _, ok := s.authMarkedVia(ProviderAccount, "anthropic·dev", at.Add(authMarkTTL)); ok {
 		t.Error("an expired provider mark still gates the dispatch account")
 	}
 }

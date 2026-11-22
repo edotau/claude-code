@@ -421,11 +421,7 @@ func ClearProviderAuth(provider string) error {
 	})
 }
 
-// accountAuthMarked checks the account's own mark, then the router's mark on its profile ("<provider>·<p>" → p).
-func (s State) accountAuthMarked(account string, now time.Time) (string, bool) {
-	return s.authMarkedVia(ProviderAccount, account, now)
-}
-
+// authMarkedVia checks the account's own mark, then the router's mark on its profile ("<provider>·<p>" → p).
 func (s State) authMarkedVia(acct accountFn, account string, now time.Time) (string, bool) {
 	if reason, ok := s.AuthMarked(account, now); ok {
 		return reason, ok
