@@ -87,18 +87,24 @@ func pickWire(p *providers.Provider, wire string) (string, bool) {
 	return providers.ProtocolOpenAI, has(providers.ProtocolOpenAI)
 }
 
-// compatFor is Pi's per-model compat: Databricks refuses thinking.type=enabled on every Claude id but haiku-4*.
-func compatFor(wire string) map[string]any {
+// compatFor is Pi's per-model compat for Databricks: no thinking.type=enabled on Claude, max_tokens on plain chat.
+func compatFor(wire, w string) map[string]any {
 	if models.FamilyKind(wire) == models.FamilyClaude && !strings.Contains(wire, "haiku-4") {
 		return map[string]any{"forceAdaptiveThinking": true}
+	}
+	if w == providers.ProtocolOpenAI && !models.IsOpenAIReasoning(wire) {
+		return map[string]any{"maxTokensField": "max_tokens"}
 	}
 	return nil
 }
 
+// chatMaxTokens is the output limit for a chat-wire model with no known one: some serving endpoints cap output at 8192.
+const chatMaxTokens = 8192
+
 // chatCompat is the dbx-chat provider's compat: Databricks' chat route rejects the store parameter (HTTP 400).
 var chatCompat = map[string]any{"supportsStore": false}
 
-func modelEntry(p *providers.Provider, wire, label string) map[string]any {
+func modelEntry(p *providers.Provider, wire, label, w string) map[string]any {
 	e := map[string]any{
 		"id":        wire,
 		"name":      label,
@@ -107,6 +113,8 @@ func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 	e["contextWindow"] = providers.ContextTokens(p, wire, false)
 	if l, ok := providers.LimitsFor(p, wire); ok && l.Output > 0 {
 		e["maxTokens"] = l.Output
+	} else if w == providers.ProtocolOpenAI {
+		e["maxTokens"] = chatMaxTokens
 	}
 	return e
 }
@@ -154,8 +162,8 @@ func BuildConfig(p, src *providers.Provider, bases Bases, want string) (modelsJS
 		ids[pp.wire] = pp.id
 	}
 	for _, it := range items {
-		e := modelEntry(p, it.wire, it.label)
-		if c := compatFor(it.wire); c != nil {
+		e := modelEntry(p, it.wire, it.label, it.w)
+		if c := compatFor(it.wire, it.w); c != nil {
 			e["compat"] = c
 		}
 		byWire[it.w] = append(byWire[it.w], e)

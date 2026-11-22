@@ -18,10 +18,11 @@ import (
 )
 
 type piModel struct {
-	ID            string `json:"id"`
-	Reasoning     bool   `json:"reasoning"`
-	ContextWindow int    `json:"contextWindow"`
-	MaxTokens     int    `json:"maxTokens"`
+	ID            string         `json:"id"`
+	Reasoning     bool           `json:"reasoning"`
+	ContextWindow int            `json:"contextWindow"`
+	MaxTokens     int            `json:"maxTokens"`
+	Compat        map[string]any `json:"compat"`
 }
 
 type piOut struct {
@@ -82,6 +83,14 @@ func buildChecks(pr map[string]piProv, full Bases, menu map[string]string, mj, s
 	}
 }
 
+func compatChecks(pr map[string]piProv) []buildCheck {
+	return []buildCheck{
+		{"chat non-GPT gets max_tokens and a capped limit", pr["dbx-chat"].Models[2].Compat["maxTokensField"] == "max_tokens" && pr["dbx-chat"].Models[2].MaxTokens <= 8192},
+		{"GPT chat keeps max_completion_tokens", compatFor("databricks-gpt-5-4-mini", providers.ProtocolOpenAI) == nil},
+		{"claude compat unchanged", len(pr["dbx-claude"].Models[0].Compat) == 1 && pr["dbx-claude"].Models[0].Compat["forceAdaptiveThinking"] == true},
+	}
+}
+
 func TestBuildConfig(t *testing.T) {
 	p := testProvider(t)
 	full := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
@@ -93,7 +102,7 @@ func TestBuildConfig(t *testing.T) {
 	if err := json.Unmarshal(mj, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range buildChecks(out.Providers, full, menu, string(mj), string(sj)) {
+	for _, c := range append(buildChecks(out.Providers, full, menu, string(mj), string(sj)), compatChecks(out.Providers)...) {
 		if !c.ok {
 			t.Errorf("%s: models=%s settings=%s", c.name, mj, sj)
 		}
