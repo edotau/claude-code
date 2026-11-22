@@ -102,6 +102,38 @@ func followedBy(args []string, flag, val string) bool {
 	return false
 }
 
+func TestCodexDatabricksDisablesNativeWebSearchPerLaunch(t *testing.T) {
+	putCodexRecord(t, vault.AgentRecord{})
+	pathstest.FakeVendor(t, "codex", `echo '{"models":[]}'`)
+	for _, preset := range []string{providers.PresetDatabricks, ""} {
+		for _, headless := range []bool{false, true} {
+			t.Run(fmt.Sprintf("preset=%s/headless=%t", preset, headless), func(t *testing.T) {
+				p := &providers.Provider{Name: "test", Preset: preset}
+				var h *agent.Headless
+				if headless {
+					h = &agent.Headless{Tools: true}
+				}
+				_, argv, err := (codexEngine{}).Wire(t.Context(), agent.WireRoute{
+					Provider: p, Base: "https://example.test/v1", Model: "databricks-gpt-6-sol",
+				}, h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got, want := followedBy(argv, "-c", `web_search="disabled"`), preset == providers.PresetDatabricks; got != want {
+					t.Errorf("native search disabled = %t, want %t", got, want)
+				}
+				block, err := codexBlockFromArgv(argv)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(block, "web_search") {
+					t.Error("per-launch web search setting leaked into rendered config")
+				}
+			})
+		}
+	}
+}
+
 func assertCodexSchemaCleanup(t *testing.T, capture string) {
 	t.Helper()
 	schema, err := os.ReadFile(capture)

@@ -265,6 +265,9 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	}
 	argv := proc.Values{"model_provider": agentconfig.TOMLQuote(id), "model": agentconfig.TOMLQuote(model),
 		"model_providers." + id: agentconfig.TOMLInline(fields)}.Args("-c")
+	if p.Preset == providers.PresetDatabricks {
+		argv = append(argv, "-c", `web_search="disabled"`)
+	}
 	if path := codexCatalog(ctx, p); path != "" {
 		argv = append(argv, "-c", "model_catalog_json="+agentconfig.TOMLQuote(path))
 		env = env.With(settings.CodexCatalogEnv, path)
