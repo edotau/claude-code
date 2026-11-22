@@ -3,6 +3,7 @@ package bench
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +33,21 @@ func TestRankWeakFirstThenScoreAndSkipSettled(t *testing.T) {
 	}
 }
 
+func decideDelta(t *testing.T, c string) Delta {
+	t.Helper()
+	pct := 0.0
+	if c != "~" {
+		var err error
+		pct, err = strconv.ParseFloat(strings.TrimSuffix(c, "%"), 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return Delta{Old: "100", New: strconv.FormatFloat(100+pct, 'f', -1, 64), Change: c, Significant: c != "~"}
+}
+
 func TestDecide(t *testing.T) {
-	d := func(c string) Delta { return Delta{Change: c, Significant: c != "~"} }
+	d := func(c string) Delta { return decideDelta(t, c) }
 	quiet := []Score{{Name: "BenchmarkA-8"}}
 	noisy := []Score{{Name: "BenchmarkA-8", Flags: []string{"noisy"}}}
 	faster := map[string]map[string]Delta{"A-8": {"sec/op": d("-20.00%"), "B/op": d("~")}}
@@ -60,7 +74,10 @@ func TestDecide(t *testing.T) {
 }
 
 func TestDecideMinRegressionAndTimeWeighted(t *testing.T) {
-	d := func(c string) Delta { return Delta{Change: c, Significant: true} }
+	d := func(c string) Delta { return decideDelta(t, c) }
+	values := func(old, next, change string) Delta {
+		return Delta{Old: old, New: next, Change: change, Significant: true}
+	}
 	quiet := []Score{{Name: "BenchmarkA-8"}}
 	cases := []struct {
 		name  string
@@ -68,6 +85,18 @@ func TestDecideMinRegressionAndTimeWeighted(t *testing.T) {
 		keep  bool
 		rule  string
 	}{
+		{"zero baseline allocations", map[string]Delta{"B/op": values("0", "16", "?"),
+			"allocs/op": values("0", "1", "?")}, false, "reverts"},
+		{"zero baseline blocks speedup", map[string]Delta{"sec/op": d("-20%"), "B/op": values("0", "16", "?")}, false, "reverts"},
+		{"positive to zero", map[string]Delta{"B/op": values("16", "0", "?")}, true, "significant improvement"},
+		{"zero to zero", map[string]Delta{"B/op": values("0", "0", "?")}, false, "no significant improvement"},
+		{"numeric regression", map[string]Delta{"B/op": values("16", "32", "?")}, false, "reverts"},
+		{"numeric improvement", map[string]Delta{"B/op": values("32", "16", "?")}, true, "significant improvement"},
+		{"unparsed values", map[string]Delta{"B/op": values("bad", "worse", "?")}, false, "no significant improvement"},
+		{"unparsed new value", map[string]Delta{"B/op": values("16", "bad", "-10%")}, false, "no significant improvement"},
+		{"nonfinite old value", map[string]Delta{"B/op": values("NaN", "16", "?")}, false, "no significant improvement"},
+		{"nonfinite new value", map[string]Delta{"B/op": values("16", "+Inf", "?")}, false, "no significant improvement"},
+		{"negative value", map[string]Delta{"B/op": values("16", "-1", "?")}, false, "no significant improvement"},
 		{"minor memory", map[string]Delta{"sec/op": d("-15.76%"), "allocs/op": d("+1.47%")}, true, "minor"},
 		{"minor time", map[string]Delta{"sec/op": d("+1.50%"), "B/op": d("-10.00%")}, true, "minor"},
 		{"speedup outweighs", map[string]Delta{"sec/op": d("-15.00%"), "B/op": d("+9.00%")}, true, "time-weighted"},

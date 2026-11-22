@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -373,10 +374,20 @@ func quietBoth(before, after []Score) map[string]bool {
 // minRegressionPct is the smallest significant regression, in percent, that counts toward REVERT.
 const minRegressionPct = 2.0
 
-// changePct is the size of a benchstat change such as "+1.25%" or "-15.76%", in percent.
-func changePct(change string) float64 {
-	v, _ := strconv.ParseFloat(strings.TrimSuffix(strings.TrimLeft(change, "+-"), "%"), 64)
-	return v
+func changePct(d Delta) (float64, bool) {
+	old, oldErr := strconv.ParseFloat(d.Old, 64)
+	next, newErr := strconv.ParseFloat(d.New, 64)
+	if oldErr != nil || newErr != nil ||
+		!(old >= 0 && old <= math.MaxFloat64 && next >= 0 && next <= math.MaxFloat64) {
+		return 0, false
+	}
+	if old == 0 {
+		if next > 0 {
+			return math.Inf(1), true
+		}
+		return 0, true
+	}
+	return (next - old) / old * 100, true
 }
 
 type benchRow struct {
@@ -389,10 +400,11 @@ func sortRows(deltas map[string]map[string]Delta, quiet map[string]bool) (win, l
 	for name, units := range deltas {
 		for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
 			d := units[u]
-			r := benchRow{u, fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P), changePct(d.Change)}
+			pct, ok := changePct(d)
+			r := benchRow{u, fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P), math.Abs(pct)}
 			switch {
-			case !d.Significant:
-			case strings.HasPrefix(d.Change, "+"):
+			case !d.Significant || !ok || pct == 0:
+			case pct > 0:
 				loss = append(loss, r)
 			case u != "sec/op" || quiet[name]:
 				win = append(win, r)
