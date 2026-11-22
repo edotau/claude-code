@@ -210,3 +210,18 @@ func TestQueueKindFilter(t *testing.T) {
 		t.Errorf("--kind fix: %q %v", buf.String(), err)
 	}
 }
+
+func TestRecordRowScorecardFailureLeavesNoPending(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	_, after := pendingFixture(t, "internal/p")
+	if err := os.MkdirAll(filepath.Join(benchRoot(), "scorecard.jsonl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	l := loopOpts{pkg: "internal/p", what: "speed", verdict: "kept", after: after, sha: "abc", lane: "bench-p"}
+	if err := recordRow(l); err == nil {
+		t.Fatal("recordRow succeeded with an unwritable scorecard")
+	}
+	if _, err := os.Stat(pendingFile()); !os.IsNotExist(err) {
+		t.Fatalf("failed scorecard write left pending state: %v", err)
+	}
+}

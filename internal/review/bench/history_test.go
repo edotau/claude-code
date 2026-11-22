@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -99,5 +100,34 @@ func TestRootPackageHistoryIsReported(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"verdict":"dead"`) {
 		t.Fatalf("root package was not reported: %s", &out)
+	}
+}
+
+func TestRecordRunConcurrentRecordsOneEpochChange(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(benchRoot(), "p")
+	s := Score{Name: "BenchmarkA-8", Epoch: strings.Repeat("a", 64), Source: "bench_test.go"}
+	if _, err := recordRun(dir, Report{}, PkgResult{Pkg: "p", Benchmarks: []Score{s}}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	s.Epoch = strings.Repeat("b", 64)
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for range 8 {
+		wg.Go(func() {
+			_, err := recordRun(dir, Report{}, PkgResult{Pkg: "p", Benchmarks: []Score{s}}, time.Now().UTC())
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("bench-change rows=%d err=%v, want 1", len(rows), err)
 	}
 }

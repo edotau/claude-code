@@ -92,7 +92,16 @@ func appendHistory(dir string, rows []observation) error {
 	return paths.AppendLine(filepath.Join(dir, "history.jsonl"), []byte(data.String()))
 }
 
-func recordRun(dir string, rep Report, res PkgResult, at time.Time) ([]Verdict, error) {
+// recordRun holds history.lock (not AppendLine's history.jsonl.lock) so concurrent runs see each other's rows.
+func recordRun(dir string, rep Report, res PkgResult, at time.Time) (verdicts []Verdict, err error) {
+	err = paths.WithFileLock(filepath.Join(dir, "history"), func() error {
+		verdicts, err = recordRunLocked(dir, rep, res, at)
+		return err
+	})
+	return verdicts, err
+}
+
+func recordRunLocked(dir string, rep Report, res PkgResult, at time.Time) ([]Verdict, error) {
 	history, err := readHistory(filepath.Join(dir, "history.jsonl"))
 	if err != nil {
 		return nil, err

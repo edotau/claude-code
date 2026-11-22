@@ -610,13 +610,34 @@ func recordRow(l loopOpts) error {
 	if err != nil {
 		return err
 	}
-	if kept && l.after != "" { // a fix with no benchmark (process init) keeps its baseline as is
-		if err := recordPending(l, at); err != nil {
-			return err
-		}
+	pending := kept && l.after != "" // a fix with no benchmark (process init) keeps its baseline as is
+	if err := checkPending(l, pending); err != nil {
+		return err
 	}
+	// Scorecard first: a crash after it leaves a verdict with the old baseline, never a baseline with no verdict.
 	if err := paths.AppendLine(filepath.Join(benchRoot(), "scorecard.jsonl"), data); err != nil {
 		return err
 	}
+	if pending {
+		if err := recordPending(l, at); err != nil {
+			return fmt.Errorf("scorecard row written, pending baseline not: %w", err)
+		}
+	}
 	return recordEvidence(l, at)
+}
+
+// checkPending rejects a baseline recordPending would refuse, before the scorecard row is written.
+func checkPending(l loopOpts, pending bool) error {
+	if !pending {
+		return nil
+	}
+	if !paths.SafeName(l.lane) {
+		return errors.New("a kept --after needs a --lane slug")
+	}
+	body, err := os.ReadFile(l.after)
+	if err != nil {
+		return err
+	}
+	_, err = pendingEpochs(string(body))
+	return err
 }
