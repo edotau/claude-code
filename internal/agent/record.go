@@ -104,6 +104,9 @@ type Record struct {
 	MaxTreeTokens *int        `json:"max_tree_tokens,omitempty"`
 	Usage         *wire.Usage `json:"usage,omitempty"`
 
+	// A nil policy is a legacy record; an empty policy is a recorded launch with no rules.
+	ExportedPolicy *permission.Permissions `json:"exported_policy,omitempty"`
+
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 
 	// PreDirtyTouched: files dirty before the run that differ after it; advisory, may be the dispatcher's own work.
@@ -359,8 +362,12 @@ func ancestorPolicy(parent string) (p permission.Permissions, readOnly bool) {
 			break
 		}
 		req := rec.Request
-		p.Deny, p.Ask = permission.Union(p.Deny, req.Permissions.Deny), permission.Union(p.Ask, req.Permissions.Ask)
-		if req.Permissions.Mode == "plan" {
+		policy := req.Permissions
+		if rec.ExportedPolicy != nil {
+			policy = *rec.ExportedPolicy
+		}
+		p.Deny, p.Ask = permission.Union(p.Deny, policy.Deny), permission.Union(p.Ask, policy.Ask)
+		if policy.Mode == "plan" {
 			p.Mode = "plan"
 		}
 		readOnly = readOnly || req.ReadOnly
@@ -823,6 +830,7 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	r.Error = ""
 	r.Finish(res, err, took)
 	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
+		r.ExportedPolicy = current.ExportedPolicy
 		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
 		if err != nil && current.Failed() && current.Error != "" && current.Error != r.Error {
 			r.Error += "; " + current.Error

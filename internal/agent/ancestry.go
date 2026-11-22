@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,21 +33,26 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 		return values
 	}
 	set := proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)}
-	if values[DispatchPermissionsEnv] == "" {
-		if p := chainPolicy(rec); !p.IsZero() {
-			raw, _ := json.Marshal(p) // strings and string slices always marshal
-			set[DispatchPermissionsEnv] = string(raw)
-		}
+	p, err := inheritPermissionsContext(proc.WithValues(context.Background(), values), chainPolicy(rec))
+	if err == nil && !p.IsZero() { // leave a malformed inherited policy intact so checkRun refuses it
+		raw, _ := json.Marshal(p) // strings and string slices always marshal
+		set[DispatchPermissionsEnv] = string(raw)
 	}
-	for key, n := range map[string]*int{maxDispatchChildrenEnv: rec.MaxChildren, maxTreeTokensEnv: rec.MaxTreeTokens} {
-		if n != nil && values[key] == "" {
-			set[key] = strconv.Itoa(*n)
+	for key, n := range map[string]*int{
+		maxDispatchDepthEnv: rec.MaxDepth, maxDispatchChildrenEnv: rec.MaxChildren, maxTreeTokensEnv: rec.MaxTreeTokens,
+	} {
+		if n != nil {
+			limit := *n
+			if existing, err := strconv.Atoi(values[key]); err == nil && existing >= 0 {
+				limit = minDispatchCap(n, &existing, limit)
+			}
+			set[key] = strconv.Itoa(limit)
 		}
 	}
 	return values.Merge(set)
 }
 
-// findAncestorDispatch is the running record whose pid and start time match the nearest live ancestor; newest on a tie.
+// findAncestorDispatch recovers the nearest live dispatch, combining restrictions when a batch shares its process.
 func findAncestorDispatch() (Record, bool) {
 	if ancestryOff {
 		return Record{}, false
@@ -55,17 +62,66 @@ func findAncestorDispatch() (Record, bool) {
 		return Record{}, false
 	}
 	recs, _ := ReadRecentWith(AllRecords, inflight.RunningToken) // newest first
+	best, ok := nearestDispatch(recs, chain)
+	if ok {
+		fmt.Fprintf(NoticeOut, "claude-code: no %s in the env; parent dispatch %s found by process ancestry\n", proc.DispatchIDEnv, best.ID)
+	}
+	return best, ok
+}
+
+func nearestDispatch(recs []Record, chain map[int]int) (Record, bool) {
 	best, nearest := Record{}, -1
 	for _, r := range recs {
-		if n, ok := chain[r.PID]; ok && r.Status == "running" && (nearest < 0 || n < nearest) && liveAs(r.PID, r.PIDStart) {
+		n, ok := chain[r.PID]
+		if !ok || r.Status != "running" || (nearest >= 0 && n > nearest) || !liveAs(r.PID, r.PIDStart) {
+			continue
+		}
+		if nearest == n {
+			best = restrictDispatch(best, r)
+		} else {
 			best, nearest = r, n
 		}
 	}
-	if nearest < 0 {
-		return Record{}, false
+	return best, nearest >= 0
+}
+
+// restrictDispatch keeps a deepest non-carrier identity for accounting, never a sibling's weaker launch restrictions.
+func restrictDispatch(a, b Record) Record {
+	p, q := chainPolicy(a), chainPolicy(b)
+	readOnly := a.Request.ReadOnly || b.Request.ReadOnly
+	p.Deny, p.Ask = permission.Union(p.Deny, q.Deny), permission.Union(p.Ask, q.Ask)
+	p.Allow = slices.DeleteFunc(slices.Clone(p.Allow), func(r permission.Rule) bool { return !slices.Contains(q.Allow, r) })
+	if readOnly {
+		p.Deny = permission.Union(p.Deny, permission.ReadOnlyDeny)
 	}
-	fmt.Fprintf(NoticeOut, "claude-code: no %s in the env; parent dispatch %s found by process ancestry\n", proc.DispatchIDEnv, best.ID)
-	return best, true
+	if p.Mode == permission.PermPlan || q.Mode == permission.PermPlan {
+		p.Mode = permission.PermPlan
+	} else if p.Mode != q.Mode {
+		p.Mode = permission.PermDefault
+	}
+	depth := minDispatchCap(a.MaxDepth, b.MaxDepth, DefaultMaxDispatchDepth)
+	children := minDispatchCap(a.MaxChildren, b.MaxChildren, DefaultMaxDispatchChildren)
+	tokens := minDispatchCap(a.MaxTreeTokens, b.MaxTreeTokens, DefaultMaxTreeTokens)
+	if b.Depth > a.Depth || b.Depth == a.Depth && a.Request.Carry && !b.Request.Carry {
+		a, b = b, a
+	}
+	a.ExportedPolicy, a.MaxDepth, a.MaxChildren, a.MaxTreeTokens = &p, &depth, &children, &tokens
+	a.Request.ReadOnly = readOnly
+	return a
+}
+
+func minDispatchCap(a, b *int, fallback int) int {
+	x, y := fallback, fallback
+	if a != nil && *a >= 0 {
+		x = *a
+	}
+	if b != nil && *b >= 0 {
+		y = *b
+	}
+	if x == 0 || y > 0 && y < x {
+		return y
+	}
+	return x
 }
 
 // dispatchExe is the binary every dispatch record's pid runs: the ask process or its --job child.
@@ -83,12 +139,15 @@ func dispatchAncestors() map[int]int {
 	return chain
 }
 
-// chainPolicy is the policy rec exported to its children: each recorded level's defaults and request, layered.
+// chainPolicy prefers the complete launch snapshot; legacy levels reconstruct defaults and requests until a snapshot.
 func chainPolicy(rec Record) permission.Permissions {
 	var p permission.Permissions
 	seen := map[string]bool{}
 	for ok := true; ok && !seen[rec.ID] && len(seen) < maxAncestorWalk; rec, ok = parentRecord(rec.Parent) {
 		seen[rec.ID] = true
+		if rec.ExportedPolicy != nil {
+			return layerOuter(p, *rec.ExportedPolicy)
+		}
 		own := rec.Request.Permissions
 		if def, err := DefaultPermissions(rec.Agent); err == nil { // an unreadable default keeps the request's own rules
 			own, _ = permission.Resolve(def, own)

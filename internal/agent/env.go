@@ -177,8 +177,17 @@ func layerOuter(p, outer permission.Permissions) permission.Permissions {
 	return p
 }
 
-// WithPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.
+// WithPermissionsEnv exports p to children and snapshots the policy on the dispatch record, including an empty policy.
 func WithPermissionsEnv(ctx context.Context, p permission.Permissions) context.Context {
+	if id := DispatchIDOf(ctx); id != "" {
+		_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+			r.ExportedPolicy = &p
+			return r, true
+		})
+		if err != nil {
+			fmt.Fprintf(NoticeOut, "claude-code: dispatch %s exported policy not saved: %v\n", id, err)
+		}
+	}
 	if p.IsZero() {
 		return ctx
 	}
