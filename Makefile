@@ -77,7 +77,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
-		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION))
+		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) || \
+		echo -e "$(C_NOTE)a dev tool failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(MAKE) --no-print-directory tools-sync)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
