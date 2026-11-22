@@ -94,7 +94,7 @@ func compatChecks(pr map[string]piProv) []buildCheck {
 func TestBuildConfig(t *testing.T) {
 	p := testProvider(t)
 	full := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
-	mj, sj, menu, err := BuildConfig(p, p, full, "databricks-claude-sonnet-5-5")
+	mj, sj, menu, err := BuildConfig(p, p, full, "databricks-claude-sonnet-5-5", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +107,40 @@ func TestBuildConfig(t *testing.T) {
 			t.Errorf("%s: models=%s settings=%s", c.name, mj, sj)
 		}
 	}
+	checkLaunchedWindow(t, p, full, out)
+}
+
+// a launched window (typed [1m]) reaches only the run's model entry; untyped (0) and other entries keep the menu rule
+func checkLaunchedWindow(t *testing.T, p *providers.Provider, full Bases, out piOut) {
+	t.Helper()
+	const launched = 777_000
+	typed, _, _, err := BuildConfig(p, p, full, "databricks-claude-sonnet-5-5", launched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tout piOut
+	if err := json.Unmarshal(typed, &tout); err != nil {
+		t.Fatal(err)
+	}
+	win := func(o piOut, prov, id string) int {
+		for _, m := range o.Providers[prov].Models {
+			if m.ID == id {
+				return m.ContextWindow
+			}
+		}
+		return -1
+	}
+	if got := win(tout, "dbx-claude", "databricks-claude-sonnet-5-5"); got != launched || win(out, "dbx-claude", "databricks-claude-sonnet-5-5") == launched {
+		t.Errorf("launched entry window = %d, want %d (untyped %d)", got, launched, win(out, "dbx-claude", "databricks-claude-sonnet-5-5"))
+	}
+	if win(tout, "dbx-chat", "databricks-kimi-k3") != win(out, "dbx-chat", "databricks-kimi-k3") {
+		t.Error("a launched window changed another menu entry")
+	}
 }
 
 func TestBuildConfigRoutelessWire(t *testing.T) {
 	p := testProvider(t)
-	mj, _, menu, err := BuildConfig(p, p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "")
+	mj, _, menu, err := BuildConfig(p, p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "", 0)
 	if err != nil || strings.Contains(string(mj), "dbx-gpt") || menu["databricks-gpt-5-4-mini"] != "" {
 		t.Errorf("routeless responses wire kept models: err=%v menu=%v", err, menu)
 	}
@@ -149,7 +178,7 @@ func TestBuildConfigDefaultIsTheRunsModelElseFirstEntry(t *testing.T) {
 	p := testProvider(t)
 	bases := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
 	for want, def := range map[string]string{"databricks-kimi-k3": "databricks-kimi-k3", "not-on-the-menu": ""} {
-		_, sj, menu, err := BuildConfig(p, p, bases, want)
+		_, sj, menu, err := BuildConfig(p, p, bases, want, 0)
 		if err != nil {
 			t.Fatalf("%s: %v", want, err)
 		}
@@ -197,10 +226,10 @@ func TestBuildConfigMenuReadsTheConfiguredProfile(t *testing.T) {
 	routed := *src
 	routed.BaseURL = "http://127.0.0.1:1/p/dbx"
 	bases := Bases{Claude: "x", Responses: "x", Chat: "x"}
-	if _, _, menu, err := BuildConfig(&routed, src, bases, ""); err != nil || menu["databricks-gemini-4-argon"] != "dbx-chat" {
+	if _, _, menu, err := BuildConfig(&routed, src, bases, "", 0); err != nil || menu["databricks-gemini-4-argon"] != "dbx-chat" {
 		t.Fatalf("menu[gemini] = %q, err %v; want dbx-chat", menu["databricks-gemini-4-argon"], err)
 	}
-	if _, _, menu, _ := BuildConfig(&routed, &routed, bases, ""); menu["databricks-gemini-4-argon"] != "" {
+	if _, _, menu, _ := BuildConfig(&routed, &routed, bases, "", 0); menu["databricks-gemini-4-argon"] != "" {
 		t.Fatal("control: the routed copy should not see the picker addition")
 	}
 	if !(piEngine{}).Runnable(src, "databricks-gemini-4-argon") {

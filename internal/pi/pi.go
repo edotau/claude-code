@@ -95,7 +95,7 @@ func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 
 // runSetup writes the run's private agent dir and returns it with Pi's model, the synced package dirs and a remover.
 func runSetup(ctx context.Context, r agent.WireRoute) (dir, model string, pkgDirs []string, remove func(), err error) {
-	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model)
+	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model, r.Target.ContextTokens)
 	if err != nil {
 		return "", "", nil, nil, err
 	}

@@ -146,7 +146,8 @@ func (piEngine) Runnable(p *providers.Provider, model string) bool {
 // BuildConfig renders Pi's models.json and settings.json for src's menu (the profile as configured: a routed copy's
 // rewritten URLs and headers would miss its saved picker additions); menu maps each wire id to its Pi provider id.
 // The default model is want, else the first menu entry, so the run's own model never depends on the sonnet alias.
-func BuildConfig(p, src *providers.Provider, bases Bases, want string) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
+// window, when > 0, is want's launched context window (a typed [1m]); 0 keeps the menu rule.
+func BuildConfig(p, src *providers.Provider, bases Bases, want string, window int) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
 	if p == nil {
 		return nil, nil, nil, errors.New("pi: no provider")
 	}
@@ -163,6 +164,9 @@ func BuildConfig(p, src *providers.Provider, bases Bases, want string) (modelsJS
 	}
 	for _, it := range items {
 		e := modelEntry(p, it.wire, it.label, it.w)
+		if it.wire == want && window > 0 {
+			e["contextWindow"] = window
+		}
 		if c := compatFor(it.wire, it.w); c != nil {
 			e["compat"] = c
 		}
