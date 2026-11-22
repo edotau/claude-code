@@ -84,6 +84,7 @@ type values struct {
 	contextPct   int
 	adds         int
 	dels         int
+	baseKind     string  // "pin", "fork", "up" or "" for the default base
 	two          twoData // payload facts only the twoline style reads
 }
 
@@ -300,7 +301,7 @@ func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 	if id := in.SessionID; id != "" {
 		v.session = id[:min(8, len(id))]
 	}
-	v.adds, v.dels = codeVelocity(in, cwd, cfg)
+	v.adds, v.dels, v.baseKind = codeVelocity(in, cwd, cfg)
 }
 
 // registry is loaded at most once per render, and only when a segment needs it.
@@ -463,27 +464,27 @@ func clampPct(pct int) int { return max(0, min(100, pct)) }
 const velocityTTL = 5 * time.Second
 
 // codeVelocity is the branch diff vs its base (git, since the ledger misses Bash edits), else the ledger.
-func codeVelocity(in input, cwd string, cfg config) (adds, dels int) {
+func codeVelocity(in input, cwd string, cfg config) (adds, dels int, kind string) {
 	if !cfg.seg("velocity") {
-		return 0, 0
+		return 0, 0, ""
 	}
 	if cfg.VelocityMode == "raw" {
-		return in.Cost.LinesAdded, in.Cost.LinesRemoved
+		return in.Cost.LinesAdded, in.Cost.LinesRemoved, ""
 	}
 	stamp := stampFile("velocity", cwd+"\x00"+in.TranscriptPath)
-	if f := freshStamp(stamp, velocityTTL, 2); f != nil {
+	if f := freshStamp(stamp, velocityTTL, 3); f != nil {
 		a, aerr := strconv.Atoi(f[0])
 		d, derr := strconv.Atoi(f[1])
 		if aerr == nil && derr == nil {
-			return a, d
+			return a, d, f[2]
 		}
 	}
 	adds, dels = in.Cost.LinesAdded, in.Cost.LinesRemoved
-	if a, d, ok := treeDiffStat(cwd); ok {
-		adds, dels = a, d
+	if a, d, k, ok := treeDiffStat(cwd); ok {
+		adds, dels, kind = a, d, k
 	}
-	writeTimedStamp(stamp, strconv.Itoa(adds), strconv.Itoa(dels))
-	return adds, dels
+	writeTimedStamp(stamp, strconv.Itoa(adds), strconv.Itoa(dels), kind)
+	return adds, dels, kind
 }
 
 func formatDuration(ms int64) string {

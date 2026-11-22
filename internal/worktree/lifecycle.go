@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -91,6 +92,9 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 		return "", err
 	}
 	seedWorktree(repo.Main, dest, log)
+	if newBranch {
+		recordForkPoint(repo.Main, branch, base, baseErr, log)
+	}
 	if baseErr != nil {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", baseErr)
 	} else if err := openLedger(repo.Main, name, ledgerInfo{
@@ -99,6 +103,55 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
 	}
 	return dest, nil
+}
+
+// recordForkPoint stores a new branch's fork sha for the status line; a failure only warns.
+func recordForkPoint(main, branch string, base []byte, baseErr error, log io.Writer) {
+	if baseErr != nil {
+		return
+	}
+	if err := setBranchConfig(main, branch, "claudeForkPoint", strings.TrimSpace(string(base))); err != nil {
+		fmt.Fprintf(log, "worktree-create: warning: fork point: %v\n", err)
+	}
+}
+
+// setBranchConfig sets branch.<branch>.<key> in the repo's git config; an empty value unsets it.
+func setBranchConfig(dir, branch, key, value string) error {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	name := "branch." + branch + "." + key
+	args := []string{"-C", dir, "config", name, value}
+	if value == "" {
+		args = []string{"-C", dir, "config", "--unset", name}
+	}
+	out, err := gitCmd(ctx, args...).CombinedOutput()
+	var exit *exec.ExitError
+	unsetMissing := value == "" && errors.As(err, &exit) && exit.ExitCode() == 5 // 5: key was not set
+	if err != nil && !unsetMissing {
+		return fmt.Errorf("git config %s: %v: %s", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// PinBase sets (or with clear, removes) the current branch's status-line diff base; ref must name a commit.
+func PinBase(cwd, ref string, clear bool) (branch string, err error) {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil {
+		return "", errors.New("not on a branch")
+	}
+	branch = strings.TrimSpace(string(out))
+	if clear {
+		return branch, setBranchConfig(cwd, branch, "claudeBase", "")
+	}
+	if strings.HasPrefix(ref, "-") {
+		return branch, fmt.Errorf("invalid ref %q", ref)
+	}
+	if err := gitCmd(ctx, "-C", cwd, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run(); err != nil {
+		return branch, fmt.Errorf("%q is not a commit", ref)
+	}
+	return branch, setBranchConfig(cwd, branch, "claudeBase", ref)
 }
 
 // worktreeAddTimeout bounds a checkout, which scales with repo size.

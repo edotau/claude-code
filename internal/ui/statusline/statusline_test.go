@@ -327,12 +327,12 @@ func TestGitSegments(t *testing.T) {
 	}
 	var in input
 	in.Cost.LinesAdded, in.Cost.LinesRemoved = 999, 999
-	if a, d := codeVelocity(in, dir, embeddedConfig()); a != 4 || d != 2 {
+	if a, d, _ := codeVelocity(in, dir, embeddedConfig()); a != 4 || d != 2 {
 		t.Errorf("git velocity +%d -%d, want +4 -2 (1 edit + 3 untracked, 2 removed)", a, d)
 	}
 	raw := embeddedConfig()
 	raw.VelocityMode = "raw"
-	if a, d := codeVelocity(in, dir, raw); a != 999 || d != 999 {
+	if a, d, _ := codeVelocity(in, dir, raw); a != 999 || d != 999 {
 		t.Errorf("raw mode reads the ledger: +%d -%d", a, d)
 	}
 }
@@ -345,7 +345,7 @@ func TestGitSegmentsOutsideRepo(t *testing.T) {
 	if b := gitBranch(notRepo); b != "" {
 		t.Errorf("non-repo branch %q", b)
 	}
-	if a, d := codeVelocity(in, notRepo, embeddedConfig()); a != 999 || d != 999 {
+	if a, d, _ := codeVelocity(in, notRepo, embeddedConfig()); a != 999 || d != 999 {
 		t.Errorf("non-repo falls back to the ledger: +%d -%d", a, d)
 	}
 }

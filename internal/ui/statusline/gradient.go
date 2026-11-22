@@ -232,7 +232,7 @@ func gradientSkips(key string) bool {
 	return key == "path" || key == "provider" || key == "limits" || key == "total"
 }
 
-// velocityText paints "+A -D" in the add/del tones, omitting a zero side.
+// velocityText paints "+A -D" in the add/del tones, omitting a zero side, then a dim "·kind" for a non-default base.
 func velocityText(v values, mode string, pal theme.Palettes) string {
 	var parts []string
 	if v.adds != 0 {
@@ -241,7 +241,11 @@ func velocityText(v values, mode string, pal theme.Palettes) string {
 	if v.dels != 0 {
 		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("del")), "-"+strconv.Itoa(v.dels), false))
 	}
-	return strings.Join(parts, " ")
+	out := strings.Join(parts, " ")
+	if v.baseKind != "" {
+		out += ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), "·"+v.baseKind, false)
+	}
+	return out
 }
 
 // maxBarWidth caps a configured bar so a typo cannot allocate without bound on every render.

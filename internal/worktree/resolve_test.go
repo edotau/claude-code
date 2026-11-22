@@ -187,7 +187,7 @@ func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	if len(plan.Issues) != 0 {
 		t.Fatalf("Preflight: issues=%v err=%v", plan.Issues, err)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 	if _, err := promote(context.Background(), repo, plan); err != nil {
@@ -495,7 +495,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	requireIntegrate(t, result, headOf(wt))
 
 	// Production order: integrateTarget runs after resolution and pins plan.IntegratedOID.
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 

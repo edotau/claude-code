@@ -30,6 +30,7 @@ var worktreePage = helptext.Page{
 		{"merge", "verified fast-forward merge; --dry-run previews, --resume"},
 		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
+		{"base", "pin the status line's diff base to <ref>, or --clear"},
 		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
 		{"commit", "commit named files; main session may omit them (-m, --dry-run)"},
 		{"pr", "list (--state, --author, --limit) | view|diff <id> | create --title"},
@@ -83,6 +84,38 @@ var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 	"merge":     cmdWorktreeMerge,
 	"clean":     cmdWorktreeClean,
 	"clean-all": cmdWorktreeCleanAll,
+	"base":      cmdWorktreeBase,
+}
+
+func cmdWorktreeBase(_ *worktree.Repo, args []string) int {
+	fs := helptext.NewFlagSet("worktree base", helptext.Page{Usage: "claude-code worktree base <ref> | --clear",
+		About: "Pin the current branch's status-line diff base (git config branch.<b>.claudeBase)."})
+	clear := fs.Bool("clear", false, "remove the pin; the fork point, upstream or default branch applies")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	rest := fs.Args()
+	if len(rest) != 1 && !*clear || len(rest) != 0 && *clear {
+		return helptext.FailUsage("worktree base: give one <ref>, or --clear alone")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("worktree base: %v", err)
+	}
+	ref := ""
+	if !*clear {
+		ref = rest[0]
+	}
+	branch, err := worktree.PinBase(cwd, ref, *clear)
+	if err != nil {
+		return helptext.Fail("worktree base: %v", err)
+	}
+	if *clear {
+		fmt.Printf("%s: base pin cleared\n", branch)
+	} else {
+		fmt.Printf("%s: base pinned to %s\n", branch, ref)
+	}
+	return 0
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
@@ -466,6 +499,7 @@ func worktreeSpec() *helptext.Node {
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
+		"base":      {Flags: []helptext.Flag{helptext.BoolFlag("clear")}},
 		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},
 	}
 	maps.Copy(sub, scmSpec().Sub)

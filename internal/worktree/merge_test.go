@@ -34,7 +34,7 @@ func TestIntegrateTargetRebaseFailureStopsBeforePromote(t *testing.T) {
 		}
 		return original(ctx, dir, env, args...)
 	}
-	if _, err := integrateTarget(t.Context(), repo, plan); err == nil {
+	if _, err := integrateTarget(t.Context(), plan); err == nil {
 		t.Fatal("want rejected rebase")
 	}
 	if headOf(wt) != wtBefore || headOf(main) != mainBefore {
@@ -51,7 +51,7 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	integrated, err := integrateTarget(ctx, repo, plan)
+	integrated, err := integrateTarget(ctx, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	if len(plan.Issues) != 0 {
 		t.Fatalf("Issues = %v, want none", plan.Issues)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	integrated, err := integrateTarget(context.Background(), repo, plan)
+	integrated, err := integrateTarget(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
@@ -224,7 +224,7 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	if err != nil || len(plan.Issues) != 0 {
 		t.Fatalf("preflightAfterResolution: issues=%v err=%v", plan.Issues, err)
 	}
-	if _, err := integrateTarget(ctx, repo, plan); err != nil {
+	if _, err := integrateTarget(ctx, plan); err != nil {
 		t.Fatalf("integrateTarget refused residue: %v", err)
 	}
 	if _, err := promote(ctx, repo, plan); err != nil {
@@ -294,7 +294,7 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 	if err != nil || len(plan.Issues) != 0 {
 		t.Fatalf("Preflight = %+v, %v", plan, err)
 	}
-	if _, err := integrateTarget(ctx, repo, plan); err != nil {
+	if _, err := integrateTarget(ctx, plan); err != nil {
 		t.Fatal(err)
 	}
 	before := headOf(main)

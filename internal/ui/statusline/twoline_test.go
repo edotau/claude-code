@@ -71,7 +71,7 @@ func TestTwolineVelocity(t *testing.T) {
 		return s
 	}
 	for in, want := range map[[2]int]string{{4, 2}: " | +4 -2", {4, 0}: " | +4", {0, 2}: " | -2", {0, 0}: ""} {
-		if got := text(appendVelocity(nil, in[0], in[1])); got != want {
+		if got := text(appendVelocity(nil, in[0], in[1], "")); got != want {
 			t.Errorf("appendVelocity(%d, %d) = %q, want %q", in[0], in[1], got, want)
 		}
 	}

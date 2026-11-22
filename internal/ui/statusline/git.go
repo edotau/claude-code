@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -142,8 +143,9 @@ const (
 	untrackedByteCap = 2 << 20
 )
 
-// treeDiffStat counts the branch's lines (committed + uncommitted vs its base, + untracked); ok=false means "no repo".
-func treeDiffStat(cwd string) (adds, dels int, ok bool) {
+// treeDiffStat counts the branch's lines (committed + uncommitted vs its base, + untracked) and names the base's
+// kind ("pin", "fork", "up" or ""); ok=false means "no repo".
+func treeDiffStat(cwd string) (adds, dels int, kind string, ok bool) {
 	if cwd == "" {
 		cwd = "."
 	}
@@ -151,7 +153,8 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	defer cancel()
 	untrackedDone := make(chan int, 1)
 	go func() { untrackedDone <- untrackedLines(ctx, cwd) }()
-	out, err := numstat(ctx, cwd, cmp.Or(branchBase(ctx, cwd), "HEAD"))
+	base, kind := branchBase(ctx, cwd)
+	out, err := numstat(ctx, cwd, cmp.Or(base, "HEAD"))
 	if err != nil && ctx.Err() == nil && inWorkTree(ctx, cwd) { // a fresh repo has no HEAD: diff against the empty tree
 		out, err = numstat(ctx, cwd, emptyTree)
 	}
@@ -160,25 +163,64 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	}
 	untracked := <-untrackedDone
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, "", false
 	}
 	adds, dels = sumNumstat(out)
 	if ctx.Err() != nil { // deadline spent mid-sweep: no partial count, the caller falls back to the ledger
-		return 0, 0, false
+		return 0, 0, "", false
 	}
-	return adds + untracked, dels, true
+	return adds + untracked, dels, kind, true
 }
 
-// branchBase is where this branch forked from the default branch, or its upstream when on the default; "" if unknown.
-func branchBase(ctx context.Context, cwd string) string {
+// branchBase is the diff base and its kind: a claudeBase pin, the claudeForkPoint, a non-default upstream, else the
+// merge-base with the default branch (or the upstream on the default); "" if unknown.
+func branchBase(ctx context.Context, cwd string) (base, kind string) {
+	branch := gitBranch(cwd)
+	if branch != "" && branch != "HEAD" {
+		pin, fork := branchClaudeRefs(ctx, cwd, branch)
+		for _, c := range [...]struct{ ref, kind string }{{pin, "pin"}, {fork, "fork"}} {
+			if sha := resolveCommit(ctx, cwd, c.ref); sha != "" {
+				return sha, c.kind
+			}
+		}
+	}
 	def := defaultBranch(ctx, cwd)
 	if def == "" {
+		return "", ""
+	}
+	if strings.TrimPrefix(def, "origin/") == branch {
+		return gitLine(ctx, cwd, "rev-parse", "--verify", "--quiet", "@{upstream}"), ""
+	}
+	up := gitLine(ctx, cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if up != "" && strings.TrimPrefix(up, "origin/") != strings.TrimPrefix(def, "origin/") {
+		if sha := resolveCommit(ctx, cwd, up); sha != "" {
+			return sha, "up"
+		}
+	}
+	return gitLine(ctx, cwd, "merge-base", "HEAD", def), ""
+}
+
+// branchClaudeRefs reads the branch's claudeBase and claudeForkPoint config in one git call; "" when unset.
+func branchClaudeRefs(ctx context.Context, cwd, branch string) (pin, fork string) {
+	pattern := "^branch\\." + regexp.QuoteMeta(branch) + "\\.claude(base|forkpoint)$"
+	for line := range strings.SplitSeq(gitLine(ctx, cwd, "config", "--get-regexp", pattern), "\n") {
+		key, val, _ := strings.Cut(line, " ")
+		switch {
+		case strings.HasSuffix(key, ".claudebase"):
+			pin = val
+		case strings.HasSuffix(key, ".claudeforkpoint"):
+			fork = val
+		}
+	}
+	return pin, fork
+}
+
+// resolveCommit is ref's commit sha; "" when ref is empty or no longer resolves.
+func resolveCommit(ctx context.Context, cwd, ref string) string {
+	if ref == "" || strings.HasPrefix(ref, "-") {
 		return ""
 	}
-	if strings.TrimPrefix(def, "origin/") == gitBranch(cwd) {
-		return gitLine(ctx, cwd, "rev-parse", "--verify", "--quiet", "@{upstream}")
-	}
-	return gitLine(ctx, cwd, "merge-base", "HEAD", def)
+	return gitLine(ctx, cwd, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 }
 
 // defaultBranch is origin/HEAD's target (e.g. "origin/main"), else a local main or master; "" if none.

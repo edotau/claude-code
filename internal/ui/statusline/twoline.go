@@ -80,7 +80,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: ":" + d.effort, dim: true})
 	}
-	row1 = appendVelocity(row1, v.adds, v.dels)
+	row1 = appendVelocity(row1, v.adds, v.dels, v.baseKind)
 	if d.hasCtx {
 		ctx := "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", clampPct(int(math.Round(d.ctxPct))))
 		toks := tokenCount(d.tokens) + "/" + tokenCount(d.size)
@@ -94,7 +94,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 }
 
 // appendVelocity adds " | +A -D" after row 1's model and effort, omitting a zero side and the cell when both are 0.
-func appendVelocity(row []twoSeg, adds, dels int) []twoSeg {
+func appendVelocity(row []twoSeg, adds, dels int, kind string) []twoSeg {
 	if adds == 0 && dels == 0 {
 		return row
 	}
@@ -107,6 +107,9 @@ func appendVelocity(row []twoSeg, adds, dels int) []twoSeg {
 	}
 	if dels != 0 {
 		row = append(row, twoSeg{key: "del", text: "-" + strconv.Itoa(dels)})
+	}
+	if kind != "" {
+		row = append(row, twoSeg{text: "·" + kind, dim: true})
 	}
 	return row
 }

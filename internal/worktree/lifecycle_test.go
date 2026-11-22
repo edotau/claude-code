@@ -537,7 +537,7 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
@@ -563,7 +563,7 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 

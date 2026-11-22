@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,7 +115,7 @@ func TestTreeDiffDeadlineFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	adds, dels, ok := treeDiffStat(dir)
+	adds, dels, _, ok := treeDiffStat(dir)
 	if ok || adds != 0 || dels != 0 {
 		t.Fatalf("deadline expired: treeDiffStat = (%d, %d, %v), want (0, 0, false)", adds, dels, ok)
 	}
@@ -128,7 +129,7 @@ func TestTreeDiffStatCountsBranchSinceBase(t *testing.T) {
 	hosttest.In(t, repo, "add", "a.txt")
 	hosttest.In(t, repo, "commit", "-q", "-m", "committed")
 	hosttest.WriteRel(t, repo, "a.txt", "1\n2\n3\n4\n5\n")
-	if adds, dels, ok := treeDiffStat(repo); !ok || adds != 5 || dels != 0 {
+	if adds, dels, _, ok := treeDiffStat(repo); !ok || adds != 5 || dels != 0 {
 		t.Fatalf("treeDiffStat = (%d, %d, %v), want (5, 0, true)", adds, dels, ok)
 	}
 }
@@ -176,4 +177,30 @@ func TestOriginHeadFastMatchesGit(t *testing.T) {
 	hosttest.In(t, repo, "tag", amb)
 	hosttest.In(t, repo, "pack-refs", "--all")
 	check("ambiguous tag only in packed-refs", repo, false)
+}
+
+// The base is the pin, else the fork point, else a non-default upstream, else the default branch; stale refs fall through.
+func TestBranchBaseKinds(t *testing.T) {
+	repo := hosttest.Repo(t)
+	first := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
+	hosttest.In(t, repo, "checkout", "-q", "-b", "feature")
+	hosttest.WriteRel(t, repo, "a.txt", "1\n")
+	hosttest.In(t, repo, "add", "a.txt")
+	hosttest.In(t, repo, "commit", "-q", "-m", "one")
+	ctx := context.Background()
+	if _, kind := branchBase(ctx, repo); kind != "" {
+		t.Fatalf("default kind = %q, want empty", kind)
+	}
+	hosttest.In(t, repo, "config", "branch.feature.claudeForkPoint", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if _, kind := branchBase(ctx, repo); kind != "" {
+		t.Fatalf("stale fork kind = %q, want empty", kind)
+	}
+	hosttest.In(t, repo, "config", "branch.feature.claudeForkPoint", first)
+	if base, kind := branchBase(ctx, repo); kind != "fork" || base != first {
+		t.Fatalf("fork = %q %q, want %q fork", base, kind, first)
+	}
+	hosttest.In(t, repo, "config", "branch.feature.claudeBase", "HEAD")
+	if _, kind := branchBase(ctx, repo); kind != "pin" {
+		t.Fatalf("pin kind = %q, want pin", kind)
+	}
 }

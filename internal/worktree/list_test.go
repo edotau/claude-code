@@ -64,8 +64,7 @@ func TestListReportsDivergenceAndOverlaps(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var lanes [2]string
-	for i, name := range []string{"one", "two"} {
+	for _, name := range []string{"one", "two"} {
 		wt, err := Create(repo, name, CreateOptions{})
 		if err != nil {
 			t.Fatal(err)
@@ -73,7 +72,6 @@ func TestListReportsDivergenceAndOverlaps(t *testing.T) {
 		write(wt, "shared.txt")
 		commitIn(t, wt, "add", "shared.txt")
 		commitIn(t, wt, "commit", "-m", "feat: "+name)
-		lanes[i] = wt
 	}
 	write(repo.Main, "other.txt")
 	commitIn(t, repo.Main, "add", "other.txt")

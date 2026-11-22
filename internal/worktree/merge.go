@@ -27,7 +27,7 @@ type MergeResult struct {
 }
 
 // integrateTarget rebases the lane onto the pinned target inside the lane (never repo.Main); a lane on it is kept.
-func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+func integrateTarget(ctx context.Context, plan *MergePlan) (*MergeResult, error) {
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
@@ -347,7 +347,7 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 
 // integrateLane rebases the lane; a conflict notices its session, or with ResolveAgent is resolved in the lane.
 func integrateLane(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest) (*MergePlan, *MergeResult, error) {
-	result, err := integrateTarget(ctx, repo, plan)
+	result, err := integrateTarget(ctx, plan)
 	if !errors.Is(err, ErrRebaseConflict) {
 		return plan, result, err
 	}
@@ -360,7 +360,7 @@ func integrateLane(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRe
 	if err != nil {
 		return nil, nil, err
 	}
-	result, err = integrateTarget(ctx, repo, fresh)
+	result, err = integrateTarget(ctx, fresh)
 	return fresh, result, err
 }
 
