@@ -1,13 +1,22 @@
 package textutil
 
+import "unicode/utf8"
+
 // Nearest is the one name within edit distance 2 of want (1 for want of ≤3 runes); ok is false on none or a tie.
 func Nearest(want string, names []string) (string, bool) {
+	rw := []rune(want)
 	limit, best, bestD, tie := 2, "", 1<<30, false
-	if len([]rune(want)) <= 3 {
+	if len(rw) <= 3 {
 		limit = 1
 	}
+	prev, cur := make([]int, 0, 32), make([]int, 0, 32) // fits most names, so rows rarely regrow
 	for _, n := range names {
-		d := distance(want, n)
+		// the rune-length gap is a lower bound on the distance, so a wider gap can never be the match
+		if gap := utf8.RuneCountInString(n) - len(rw); gap > limit || -gap > limit {
+			continue
+		}
+		var d int
+		d, prev, cur = distance(rw, n, prev, cur)
 		switch {
 		case d < bestD:
 			best, bestD, tie = n, d, false
@@ -18,14 +27,14 @@ func Nearest(want string, names []string) (string, bool) {
 	return best, bestD <= limit && !tie && best != ""
 }
 
-func distance(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	prev := make([]int, len(rb)+1)
-	for j := range prev {
-		prev[j] = j
+// distance is the Levenshtein distance of ra and b, reusing prev and cur as its two row buffers.
+func distance(ra []rune, b string, prev, cur []int) (int, []int, []int) {
+	rb := []rune(b)
+	prev, cur = prev[:0], cur[:0]
+	for j := 0; j <= len(rb); j++ {
+		prev, cur = append(prev, j), append(cur, 0)
 	}
 	for i := 1; i <= len(ra); i++ {
-		cur := make([]int, len(rb)+1)
 		cur[0] = i
 		for j := 1; j <= len(rb); j++ {
 			cost := 1
@@ -34,7 +43,7 @@ func distance(a, b string) int {
 			}
 			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
 		}
-		prev = cur
+		prev, cur = cur, prev
 	}
-	return prev[len(rb)]
+	return prev[len(rb)], prev, cur
 }
