@@ -173,6 +173,7 @@ type chatChunk struct {
 		Delta struct {
 			Content string `json:"content"`
 		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -181,8 +182,14 @@ type chatChunk struct {
 	Error *json.RawMessage `json:"error"`
 }
 
-// applyChatLine folds one stream line into usage, served and w; done reports the [DONE] marker.
-func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string) (done bool, _ error) {
+func (c chatChunk) foldUsage(usage *wire.Usage) {
+	if c.Usage != nil {
+		*usage = wire.Usage{InputTokens: c.Usage.PromptTokens, OutputTokens: c.Usage.CompletionTokens}
+	}
+}
+
+// applyChatLine folds one stream line into usage, served and w; done reports [DONE], finished a finish_reason.
+func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string, finished *bool) (done bool, _ error) {
 	data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r\n"), []byte("data:"))
 	if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
 		return false, nil
@@ -200,10 +207,11 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string) 
 	if chunk.Model != "" {
 		*served = chunk.Model
 	}
-	if chunk.Usage != nil {
-		*usage = wire.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
-	}
+	chunk.foldUsage(usage)
 	for _, c := range chunk.Choices {
+		if c.FinishReason != "" {
+			*finished = true
+		}
 		if c.Delta.Content == "" {
 			continue
 		}
@@ -217,10 +225,11 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string) 
 func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
 	var usage wire.Usage
 	var served string
+	finished := false
 	br := bufio.NewReader(r)
 	for {
 		line, err := br.ReadBytes('\n')
-		if done, lerr := applyChatLine(line, w, &usage, &served); done || lerr != nil {
+		if done, lerr := applyChatLine(line, w, &usage, &served, &finished); done || lerr != nil {
 			return usage, served, lerr
 		}
 		if err == io.EOF {
@@ -230,7 +239,10 @@ func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
 			return usage, served, err
 		}
 	}
-	return usage, served, fmt.Errorf("chat stream ended without [DONE]: %w", io.ErrUnexpectedEOF) // a dropped stream retries
+	if finished {
+		return usage, served, nil // a finish_reason is terminal even when the server omits [DONE]
+	}
+	return usage, served, fmt.Errorf("chat stream ended without [DONE] or a finish_reason: %w", io.ErrUnexpectedEOF) // a dropped stream retries
 }
 
 // apiRequest is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.

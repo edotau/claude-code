@@ -212,6 +212,7 @@ func TestParseChatStream(t *testing.T) {
 	}{
 		{name: "done ignores trailing data", suffix: "data: [DONE]\ndata: invalid\n", output: "onetwo"},
 		{name: "EOF without DONE", output: "onetwo", err: "chat stream ended without [DONE]"},
+		{name: "finish_reason then EOF", suffix: "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n", output: "onetwo"},
 		{name: "undecodable chunk is skipped", suffix: "data: invalid\ndata: [DONE]\n", output: "onetwo"},
 		{name: "upstream error", suffix: "data: {\"error\":{\"message\":\"failed\"}}\n", output: "onetwo", err: `upstream error mid-stream: {"message":"failed"}`},
 		{name: "writer error", writer: failingStreamWriter{}, err: io.ErrClosedPipe.Error()},
