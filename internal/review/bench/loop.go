@@ -36,7 +36,7 @@ type loopOpts struct {
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.decide, "decide", false, "KEEP/REVERT from --before and --after (exit 0 keep, 1 revert)")
-	fs.BoolVar(&l.record, "record", false, "append a scorecard row; on kept, --after becomes rolling.txt")
+	fs.BoolVar(&l.record, "record", false, "append a scorecard row; on kept, --after (if given) becomes rolling.txt")
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
@@ -375,8 +375,8 @@ func advanceRolling(pkg, after string) error {
 
 func recordRow(l loopOpts) error {
 	kept := l.verdict == "kept"
-	if l.pkg == "" || l.what == "" || !kept && l.verdict != "reverted" || kept && l.after == "" {
-		return errors.New("--record needs --pkg, --what, --verdict kept|reverted and, when kept, --after")
+	if l.pkg == "" || l.what == "" || !kept && l.verdict != "reverted" {
+		return errors.New("--record needs --pkg, --what and --verdict kept|reverted")
 	}
 	if l.sha == "" {
 		l.sha, _ = source.GitInherit(".", "rev-parse", "--short", "HEAD")
@@ -384,7 +384,7 @@ func recordRow(l loopOpts) error {
 	data, _ := json.Marshal(Row{At: time.Now().UTC(), Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
 		Model: l.model, TokensIn: l.tokensIn, TokensOut: l.tokensOut, TokensCache: l.tokensCache,
 		DurationS: l.durationS, Attempts: l.attempts, SavingMSDay: l.savingMSDay, Sha: l.sha})
-	if kept {
+	if kept && l.after != "" { // a fix with no benchmark (process init) keeps its baseline as is
 		if err := advanceRolling(l.pkg, l.after); err != nil {
 			return err
 		}
