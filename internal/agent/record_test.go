@@ -1278,3 +1278,98 @@ func TestPruneDispatchesKeepsUnreadableRecordAndLog(t *testing.T) {
 		}
 	}
 }
+
+// benchAskRecord is a running foreground ask record the size a real brief makes (~6 KB prompt).
+func benchAskRecord(now time.Time, i int) Record {
+	depth := DefaultMaxDispatchDepth
+	return Record{Schema: dispatchSchema, ID: recordID(now, "codex"), Time: now.UTC(), Agent: "codex", Status: "running",
+		Request: RunOptions{Prompt: strings.Repeat(fmt.Sprintf("brief line %d: own internal/agent/record_test.go; verify go test.\n", i), 100),
+			Model: "gpt-5.4", Tools: true, WorkDir: "/tmp/work", EnvNames: []string{"PATH", "HOME", "CLAUDE_CONFIG_DIR"}},
+		Provider: "databricks", MaxDepth: &depth, Cwd: "/tmp/work", Tree: "/tmp/work", Repo: "/tmp/work",
+		Log: filepath.Join(paths.DispatchDir(), recordID(now, "codex")+".log"), Owner: 4242}
+}
+
+// countReplaces runs step and reports whether it replaced path (a rename gives a new file identity).
+func countReplaces(b *testing.B, path string, step func()) int {
+	b.Helper()
+	before, err := os.Stat(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	step()
+	after, err := os.Stat(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		return 0
+	}
+	return 1
+}
+
+// BenchmarkUpdateRecordAskPreExec: an ask's pre-exec writes, startPrepared's Save then NotePick and WithPermissionsEnv.
+func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
+	setConfigDir(b)
+	rec := benchAskRecord(time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC), 0)
+	rec.PID = os.Getpid()              // foreground: Save stamps this process's start time each call
+	if err := rec.Save(); err != nil { // the claimed file Prepare leaves behind
+		b.Fatal(err)
+	}
+	ctx := withDispatchID(context.Background(), rec.ID, 0)
+	perms := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash", Arg: "go test:*"}, {Tool: "Edit"}},
+		Deny: []permission.Rule{{Tool: "Bash", Arg: "git push:*"}}}
+	models := [2]string{"gpt-5.4", "gpt-5.4-mini"} // NotePick writes nothing for an unchanged pick
+	i := 0
+	steps := []struct {
+		name string
+		run  func()
+	}{
+		{"Save", func() { _ = rec.Save() }},
+		{"NotePick", func() { i++; NotePick(ctx, models[i%2]) }},
+		{"WithPermissionsEnv", func() { _ = WithPermissionsEnv(ctx, perms) }},
+	}
+	path := filepath.Join(paths.DispatchDir(), rec.ID+".json")
+	writes := 0
+	for _, s := range steps {
+		writes += countReplaces(b, path, s.run)
+	}
+	if writes != 3 {
+		b.Fatalf("pre-exec sequence made %d AtomicWrite replacements, want 3", writes)
+	}
+	for _, s := range steps {
+		b.Run(s.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				s.run()
+			}
+			b.ReportMetric(1, "atomicwrites/op")
+		})
+	}
+	b.Run("All", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			for _, s := range steps {
+				s.run()
+			}
+		}
+		b.ReportMetric(float64(writes), "atomicwrites/op")
+	})
+}
+
+// BenchmarkStampProcessGroupSelf times the `ps -o pgid=` spawn a foreground ask and every ClaimJob pay.
+func BenchmarkStampProcessGroupSelf(b *testing.B) {
+	if runtime.GOOS == "windows" {
+		b.Skip("stampProcessGroup returns before ps on Windows")
+	}
+	if _, err := exec.LookPath("ps"); err != nil {
+		b.Skip("no ps on PATH")
+	}
+	r := Record{PID: os.Getpid()}
+	if r.stampProcessGroup(); r.PGID <= 0 {
+		b.Fatalf("stampProcessGroup set PGID %d, want > 0", r.PGID)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		r.stampProcessGroup()
+	}
+}

@@ -2,8 +2,10 @@ package tree
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -332,6 +334,61 @@ func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 		{"20200101T000000.000-opencode", orphanMissingTimeout, true}} {
 		if got, ok := orphanDeadline(c.id); got != c.want || ok != c.ok {
 			t.Errorf("orphanDeadline(%s) = %v, %v; want %v, %v", c.id, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// writeBenchDispatchLog writes n records (the running newest, the rest ok) without Save's per-record prune.
+func writeBenchDispatchLog(b *testing.B, n, running int) []string {
+	b.Helper()
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	base := agent.NewRecord("claude", agent.RunOptions{
+		Prompt: "Summarize the retry logic", WorkDir: "/repo", Model: "claude-sonnet-4-5",
+	}, time.Now())
+	ids := make([]string, 0, n)
+	write := func(rec agent.Record) {
+		raw, err := json.MarshalIndent(rec, "", "  ") // the bytes Record.Save's encode would write
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rec.ID+".json"), raw, 0o600); err != nil {
+			b.Fatal(err)
+		}
+		ids = append(ids, rec.ID)
+	}
+	finished := time.Now().Add(-14 * 24 * time.Hour)
+	for i := range n - running {
+		rec := base
+		rec.Time = finished.Add(time.Duration(i) * 7 * time.Minute)
+		rec.ID = rec.Time.UTC().Format("20060102T150405.000") + "-claude"
+		rec.Status, rec.DurationMs = "ok", 9000+int64(i%700)
+		rec.Provider, rec.Usage = "subscription", &wire.Usage{InputTokens: 12000, OutputTokens: 800}
+		write(rec)
+	}
+	fresh := time.Now().Add(-time.Duration(running) * 100 * time.Millisecond)
+	for i := range running { // pid-less and under a minute old: DispatchAlive's clock path, live on every OS
+		rec := base
+		rec.Time = fresh.Add(time.Duration(i) * 100 * time.Millisecond)
+		rec.ID = rec.Time.UTC().Format("20060102T150405.000") + "-claude"
+		write(rec)
+	}
+	return ids
+}
+
+// BenchmarkReap2000DispatchRecords is Reap over a full dispatch log: the RunningRecent full scan the profile named.
+func BenchmarkReap2000DispatchRecords(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	orig := listProcs // the process table is not the dispatch-log scan this benchmark measures
+	listProcs = func(string) ([]proc.Info, error) { return nil, nil }
+	b.Cleanup(func() { listProcs = orig })
+	writeBenchDispatchLog(b, 2000, 100)
+	b.ReportAllocs()
+	for b.Loop() {
+		if code := Reap(true, io.Discard, io.Discard); code != 0 {
+			b.Fatalf("Reap = %d, want 0", code)
 		}
 	}
 }

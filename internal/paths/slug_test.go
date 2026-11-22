@@ -1,8 +1,10 @@
 package paths
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -302,5 +304,31 @@ func BenchmarkReal(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkGitTopRepeatedCwd(b *testing.B) {
+	if _, err := exec.LookPath("git"); err != nil {
+		b.Skip("git not installed")
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	repo := b.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		b.Fatalf("git init: %v: %s", err, out)
+	}
+	want, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		// two calls for the same cwd in one process: each currently spawns git
+		for range 2 {
+			got, err := filepath.EvalSymlinks(GitTop(ctx, repo))
+			if err != nil || got != want {
+				b.Fatalf("GitTop = %q (%v), want %q", got, err, want)
+			}
+		}
 	}
 }

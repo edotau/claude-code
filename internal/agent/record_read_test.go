@@ -111,3 +111,34 @@ func TestReadRecentSkipsFIFO(t *testing.T) {
 		}
 	}
 }
+
+// BenchmarkRunningRecentAllRecords2000 scans a full dispatch log (the 2000 kept records), 5 of them running.
+func BenchmarkRunningRecentAllRecords2000(b *testing.B) {
+	setConfigDir(b)
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	base := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	running := map[int]bool{10: true, 1000: true, 1500: true, 1990: true, 1999: true}
+	for i := range DispatchKeep() {
+		rec := benchAskRecord(base.Add(time.Duration(i)*time.Minute), i)
+		if !running[i] {
+			rec.Status, rec.DurationMs, rec.Usage = "ok", 93_000, &wire.Usage{InputTokens: 41_000, OutputTokens: 2_300}
+		}
+		body, err := rec.encode()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rec.ID+".json"), body, 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if got, err := RunningRecent(AllRecords); err != nil || len(got) != len(running) {
+		b.Fatalf("RunningRecent = %d records, %v; want %d", len(got), err, len(running))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = RunningRecent(AllRecords)
+	}
+}

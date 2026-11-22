@@ -633,3 +633,40 @@ func TestBusyReportsFinishedAuditOnce(t *testing.T) {
 		t.Fatalf("second prompt must be silent, got %q", got)
 	}
 }
+
+func BenchmarkDivergedAtUnchangedUpstream(b *testing.B) {
+	if _, err := exec.LookPath("git"); err != nil {
+		b.Skip("git executable unavailable")
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv("GIT_AUTHOR_DATE", "2026-01-01T00:00:00Z")
+	b.Setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
+	repo := b.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte(strings.Repeat("fixture\n", 512)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.name", "Benchmark"},
+		{"config", "user.email", "benchmark@example.invalid"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "README.md"},
+		{"commit", "-q", "-m", "initial"},
+		{"remote", "add", "origin", "."},
+		{"update-ref", "refs/remotes/origin/main", "HEAD"},
+		{"branch", "--set-upstream-to=origin/main", "main"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		if d, err := divergedAt(ctx, repo); err != nil || d != nil {
+			b.Fatalf("divergedAt = %+v, %v; want no divergence", d, err)
+		}
+	}
+}

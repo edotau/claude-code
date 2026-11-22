@@ -3,6 +3,9 @@ package statusline
 import (
 	"context"
 	"errors"
+	"os"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -79,5 +82,21 @@ func TestWalkAncestorsSharesOneBudget(t *testing.T) {
 	}
 	if took := time.Since(start); took > 120*time.Millisecond || hops >= 8 {
 		t.Errorf("walk took %v over %d hops; want it cut by the 50ms total budget", took, hops)
+	}
+}
+
+// BenchmarkTermColumnsCacheMiss times the cold path: no $COLUMNS, stamp removed, real ps walk up the ancestors.
+func BenchmarkTermColumnsCacheMiss(b *testing.B) {
+	if runtime.GOOS == "windows" {
+		b.Skip("ancestor ps walk is linux/darwin only")
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv("COLUMNS", "")
+	stamp := stampFile("termwidth", strconv.Itoa(os.Getppid()))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		os.Remove(stamp)
+		termColumns()
 	}
 }

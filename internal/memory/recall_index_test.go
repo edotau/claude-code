@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -297,4 +298,52 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	for b.Loop() {
 		searchBankTerms(terms, 0)
 	}
+}
+
+func BenchmarkReadRecallIndex30MB(b *testing.B) {
+	root := b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", root)
+	blocks := make([]string, 256)
+	for i := range blocks {
+		blocks[i] = fmt.Sprintf("## Router retry decision %d <!-- id:%08x -->\n%s", i, i+1,
+			strings.Repeat("Router retry policy keeps deployment latency bounded while agents review the build gate. ", 3))
+	}
+	seg := encodeSegment(blocks)
+	if !seg.Valid() {
+		b.Fatal("invalid fixture segment")
+	}
+	index := make(map[fileKey]indexed)
+	sourceSize := int64(len(strings.Join(blocks, "\n\n")))
+	size := indexHeaderLen + indexTrailerLen
+	for i := 0; size < 30_000_000; i++ {
+		fk := fileKey{filepath.Join(root, "archive", fmt.Sprintf("sessionHistory-%04d.md", i)), segEntries}
+		index[fk] = indexed{size: sourceSize, mtimeNs: 1, seg: seg}
+		size += 25 + len(fk.path) + len(seg)
+	}
+	path := filepath.Join(root, recallIndexFile)
+	key := encoderKey()
+	if err := writeRecallIndex(path, key, index); err != nil {
+		b.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if info.Size() != int64(size) || size > 31_000_000 {
+		b.Fatalf("unexpected fixture size: %d", info.Size())
+	}
+	want := len(index)
+	if got := readRecallIndex(path, key, nil); len(got) != want {
+		b.Fatalf("fixture read returned %d entries, want %d", len(got), want)
+	}
+	b.SetBytes(info.Size())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if got := readRecallIndex(path, key, nil); len(got) != want {
+			b.Fatalf("read returned %d entries, want %d", len(got), want)
+		}
+	}
+	b.ReportMetric(float64(info.Size()), "index-bytes")
+	b.ReportMetric(float64(want), "entries")
 }

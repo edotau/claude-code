@@ -1,10 +1,12 @@
 package inflight
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,3 +165,79 @@ func TestLiveRoutesObjectAndLegacyString(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func benchmarkDispatchRecords(b *testing.B) {
+	b.Helper()
+	if !probeTrusted() {
+		b.Skip("live dispatch records require the production Unix PID probe")
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	// Model multi-kilobyte dispatch briefs without importing agent, which would create an import cycle.
+	brief := strings.Repeat("Review the dispatch lifecycle for correctness, allocations, and error handling. ", 160)
+	for i := range 2000 {
+		id := fmt.Sprintf("20261122T120000-%08d", i)
+		status := "ok"
+		if i%400 == 0 {
+			status = "running"
+		}
+		route := []string{"databricks:qa", "databricks:dev"}[(i/400)%2]
+		request := map[string]any{"Prompt": "", "Model": "sonnet", "Provider": "databricks", "Tools": true}
+		record := map[string]any{
+			"schema": 1, "id": id, "time": "2026-11-22T12:00:00Z", "agent": "claude", "request": request,
+			"status": status, "pid": os.Getpid(), "owner": os.Getpid(), "route": route,
+			"provider": "databricks", "model": "sonnet", "background": true,
+			"cwd": dir, "log": filepath.Join(dir, id+".log"),
+		}
+		data, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			b.Fatal(err)
+		}
+		size := (1 + i%3) * 4096
+		request["Prompt"] = brief[:size-len(data)]
+		data, err = json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(data) != size {
+			b.Fatalf("record size = %d, want %d", len(data), size)
+		}
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), data, 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLiveRecords2000Records5Running(b *testing.B) {
+	benchmarkDispatchRecords(b)
+	count := 0
+	visit := func(owner int, route string) {
+		if owner != os.Getpid() || route != []string{"databricks:qa", "databricks:dev"}[count%2] {
+			b.Fatalf("unexpected live record %d: owner=%d route=%q", count, owner, route)
+		}
+		count++
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		count = 0
+		liveRecords(visit)
+	}
+	if count != 5 {
+		b.Fatalf("live records = %d, want 5", count)
+	}
+}
+
+func BenchmarkLiveRoutes2000Records5Running(b *testing.B) {
+	benchmarkDispatchRecords(b)
+	var routes map[string]int
+	b.ReportAllocs()
+	for b.Loop() {
+		routes = LiveRoutes()
+	}
+	if len(routes) != 2 || routes["databricks:qa"] != 3 || routes["databricks:dev"] != 2 {
+		b.Fatalf("live routes = %v, want databricks:qa=3 databricks:dev=2", routes)
+	}
+}

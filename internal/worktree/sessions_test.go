@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -16,6 +17,69 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 )
+
+func BenchmarkReadDirtyScoped2000TrackedFiles(b *testing.B) {
+	if _, err := exec.LookPath("git"); err != nil {
+		b.Skipf("requires git: %v", err)
+	}
+	home := b.TempDir()
+	for _, key := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR"} {
+		b.Setenv(key, home)
+	}
+	repo, scoped := readDirtyBenchmarkRepo(b)
+	ctx := b.Context()
+	top, dirty, err := ReadDirty(ctx, repo, "--", scoped)
+	if err != nil || top != repo || len(dirty) != 1 || !dirty[scoped] {
+		b.Fatalf("ReadDirty = %q, %v, %v; want only %s", top, dirty, err, scoped)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := ReadDirty(ctx, repo, "--", scoped); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func readDirtyBenchmarkRepo(b *testing.B) (string, string) {
+	b.Helper()
+	const fileCount, filesPerDir, fileSize = 2000, 50, 4096
+	repo := b.TempDir()
+	git := func(args ...string) string {
+		b.Helper()
+		out, err := proc.RunGit(b.Context(), repo, args...)
+		if err != nil {
+			b.Fatal(err)
+		}
+		return out
+	}
+	git("init", "--quiet", "--template=")
+	git("config", "core.fsmonitor", "false")
+	git("config", "core.untrackedCache", "false")
+	content := []byte(strings.Repeat("x", fileSize-1) + "\n")
+	var scoped string
+	for i := range fileCount {
+		dir := filepath.Join(repo, fmt.Sprintf("pkg%02d", i/filesPerDir))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			b.Fatal(err)
+		}
+		file := filepath.Join(dir, fmt.Sprintf("file%04d.go", i))
+		if err := os.WriteFile(file, content, 0o600); err != nil {
+			b.Fatal(err)
+		}
+		if i == fileCount/2 {
+			scoped = file
+		}
+	}
+	// An index makes these files tracked without creating a fixture commit.
+	git("add", "--", ".")
+	if got := strings.Count(git("ls-files", "-z"), "\x00"); got != fileCount {
+		b.Fatalf("tracked files = %d, want %d", got, fileCount)
+	}
+	if err := os.WriteFile(scoped, append(content, []byte("modified\n")...), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	return repo, scoped
+}
 
 func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")

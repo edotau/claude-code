@@ -757,6 +757,51 @@ func TestAttachHoldingsShowsHeldFilesNoteAndFreeOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// writeBenchRelayTranscript writes a relay subagent transcript + meta: one Bash ask and tool_result per dispatch id.
+func writeBenchRelayTranscript(b *testing.B, path string, ids []string) {
+	b.Helper()
+	var sb strings.Builder
+	at := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	for i, id := range ids {
+		ts := at.Add(time.Duration(i) * 30 * time.Second).Format(time.RFC3339)
+		fmt.Fprintf(&sb, `{"type":"assistant","timestamp":%q,"message":{"id":"msg_%04d","model":"claude-sonnet-4-5",`+
+			`"content":[{"type":"tool_use","name":"Bash","input":{"command":"claude-code ask --agent codex \"leaf %d\""}}],`+
+			`"usage":{"input_tokens":1400,"cache_read_input_tokens":320,"output_tokens":48}}}`+"\n", ts, i, i)
+		fmt.Fprintf(&sb, `{"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_%04d",`+
+			`"content":"ask: dispatch %s\nOK"}]}}`+"\n", ts, i, id)
+	}
+	// the tail activity must not be a pending ask, or every call also scans RecentRecords(50)
+	fmt.Fprintf(&sb, `{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","name":"Read",`+
+		`"input":{"file_path":"/repo/internal/agent/tree/reap.go"}}]}}`+"\n",
+		at.Add(time.Duration(len(ids))*30*time.Second).Format(time.RFC3339))
+	if err := os.WriteFile(path, []byte(sb.String()), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	meta := `{"agentType":"general-purpose","description":"relay leaf: fan out asks","finished":true,"spawnDepth":1}`
+	if err := os.WriteFile(metaPath(path), []byte(meta), 0o600); err != nil {
+		b.Fatal(err)
+	}
+}
+
+// BenchmarkBuildSubagent50FinishedDispatches re-reads 50 finished dispatch records for a scan-cached relay subagent.
+func BenchmarkBuildSubagent50FinishedDispatches(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	ids := writeBenchDispatchLog(b, 50, 0)
+	path := filepath.Join(b.TempDir(), "agent-benchrelay01.jsonl")
+	writeBenchRelayTranscript(b, path, ids)
+	scans := loadScanCache()
+	now, cwd := time.Now(), "/repo"
+	if sub := buildSubagent(path, now, cwd, scans); len(sub.Dispatches) != len(ids) { // warm the scan/meta/activity cache
+		b.Fatalf("warm-up: got %d dispatches, want %d", len(sub.Dispatches), len(ids))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if sub := buildSubagent(path, now, cwd, scans); len(sub.Dispatches) != len(ids) {
+			b.Fatalf("got %d dispatches, want %d", len(sub.Dispatches), len(ids))
+		}
+	}
+}
+
 // claimLiveLeaf gives agent ag1 of session sess1 a live in-flight marker owned by this process.
 func claimLiveLeaf(t *testing.T) {
 	t.Helper()
