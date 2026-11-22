@@ -66,7 +66,7 @@ func TestInterleaveAlternatesMergesAndNamesCommits(t *testing.T) {
 		ok  bool
 		msg string
 	}{
-		{strings.Join(order, ",") == "aaa111,bbb222,aaa111,bbb222,aaa111,bbb222", fmt.Sprintf("order = %v", order)},
+		{strings.Join(order, ",") == "aaa111,bbb222,bbb222,aaa111,aaa111,bbb222", fmt.Sprintf("order = %v, want ABBA", order)},
 		{peak.Load() == 1, fmt.Sprintf("peak concurrent benchmark runs = %d, want 1", peak.Load())},
 		{strings.Contains(log.String(), "A aaa111"), "log lacks A commit:\n" + log.String()},
 		{strings.Contains(log.String(), "B bbb222"), "log lacks B commit:\n" + log.String()},
@@ -114,5 +114,25 @@ func TestInterleaveRejectsWrongCommitRound(t *testing.T) {
 	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 1, Count: 1, Work: t.TempDir()}
 	if _, err := interleave(context.Background(), o, s, io.Discard); err == nil || !strings.Contains(err.Error(), "not a run of commit") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestInterleaveAbortsOnNoisyRound(t *testing.T) {
+	a, b := abDirs(t)
+	var order []string
+	var live, peak atomic.Int32
+	s := stubSeam(&order, &live, &peak, nil)
+	s.bench = func(_ context.Context, dir string, _ ABOptions, out string) error {
+		order = append(order, filepath.Base(dir))
+		const nsPerOp = 1000
+		run := abRun(filepath.Base(dir), false, nsPerOp)
+		if len(order) == 2 { // load rises above cpus/2 during the first B run
+			run = strings.Replace(run, "# load-after: 0.60", "# load-after: 7.00", 1)
+		}
+		return os.WriteFile(out, []byte(run), 0o644)
+	}
+	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 3, Count: 1, Work: t.TempDir()}
+	if _, err := interleave(context.Background(), o, s, io.Discard); err == nil || !strings.Contains(err.Error(), "load") || len(order) != 2 {
+		t.Errorf("err = %v, runs = %v; want a load abort after 2 runs", err, order)
 	}
 }

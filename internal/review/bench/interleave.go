@@ -152,17 +152,24 @@ func preflight(o ABOptions, s abSeam) (ABResult, error) {
 	return res, nil
 }
 
-// runRounds runs A then B per round, never two at once, and returns each side's round files.
+type abSide struct {
+	name, dir, sha string
+	files          *[]string
+}
+
+// runRounds runs ABBA order, one at a time, so linear drift hits both sides alike; returns each side's files.
 func runRounds(ctx context.Context, o ABOptions, s abSeam, res ABResult, log io.Writer) (as, bs []string, err error) {
 	rdir, err := os.MkdirTemp(o.Work, "rounds-") // private per run, so concurrent runs cannot share files
 	if err != nil {
 		return nil, nil, err
 	}
+	a, b := abSide{"a", o.A, res.CommitA, &as}, abSide{"b", o.B, res.CommitB, &bs}
 	for r := 1; r <= o.Rounds; r++ {
-		for _, side := range []struct {
-			name, dir, sha string
-			files          *[]string
-		}{{"a", o.A, res.CommitA, &as}, {"b", o.B, res.CommitB, &bs}} {
+		order := []abSide{a, b}
+		if r%2 == 0 {
+			order = []abSide{b, a}
+		}
+		for _, side := range order {
 			out := filepath.Join(rdir, fmt.Sprintf("%s-%d.txt", side.name, r))
 			fmt.Fprintf(log, "interleave: round %d/%d %s %s\n", r, o.Rounds, strings.ToUpper(side.name), side.sha)
 			if err := s.bench(ctx, side.dir, o, out); err != nil {
@@ -180,7 +187,7 @@ func runRounds(ctx context.Context, o ABOptions, s abSeam, res ABResult, log io.
 	return as, bs, nil
 }
 
-// checkRound confirms a round's run text came from the expected clean commit.
+// checkRound confirms a round came from the expected clean commit on a quiet machine; noise aborts at once.
 func checkRound(file, sha string) error {
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -192,6 +199,9 @@ func checkRound(file, sha string) error {
 	}
 	if strings.Contains(text, "\n# dirty: true\n") {
 		return fmt.Errorf("interleave: %s ran on a dirty tree", file)
+	}
+	if loadNoisy(text) {
+		return fmt.Errorf("interleave: load rose above half the CPUs during %s; re-run on a quiet machine", file)
 	}
 	return nil
 }
@@ -207,7 +217,8 @@ func mergeRuns(dst string, files []string) error {
 		}
 		if i == 0 {
 			first = string(b)
-			sb.WriteString(strings.TrimSuffix(first, "\n") + "\n")
+			sb.WriteString(strings.TrimSuffix(first, "\n"))
+			sb.WriteByte('\n')
 			continue
 		}
 		if !sameEpochs(first, string(b)) {
@@ -215,7 +226,8 @@ func mergeRuns(dst string, files []string) error {
 		}
 		for line := range strings.SplitSeq(string(b), "\n") {
 			if strings.HasPrefix(line, "Benchmark") || headerNum.MatchString(line) {
-				sb.WriteString(line + "\n")
+				sb.WriteString(line)
+				sb.WriteByte('\n')
 			}
 		}
 	}
