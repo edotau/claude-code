@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -73,7 +74,7 @@ type catalogIDs struct {
 
 var (
 	snapshotMu  sync.Mutex
-	snapshotMap = map[string]catalogIDs{} // per row login, read once per process on its first family name
+	snapshotMap = paths.NewMemo[string, catalogIDs]("copilot-catalog") // per row login, read once per process
 	stubIDs     func(login string) []string
 	stubAt      func(login string) time.Time
 )
@@ -108,21 +109,13 @@ func Time(p *providers.Provider) time.Time {
 }
 
 // Reset drops the process's memo of those snapshots, so a re-list in a child process is read again.
-func Reset() {
-	snapshotMu.Lock()
-	defer snapshotMu.Unlock()
-	clear(snapshotMap)
-}
+func Reset() { snapshotMap.Drop() }
 
 func snapshotFor(p *providers.Provider) catalogIDs {
 	l := rowLogin(p)
-	snapshotMu.Lock()
-	defer snapshotMu.Unlock()
-	ids, ok := snapshotMap[l]
-	if !ok {
-		ids = readSnapshotIDs(l)
-		snapshotMap[l] = ids
-	}
+	ids, _ := snapshotMap.Do(l, func(catalogIDs, error) time.Duration { return 0 }, func() (catalogIDs, error) {
+		return readSnapshotIDs(l), nil
+	})
 	return ids
 }
 

@@ -254,13 +254,8 @@ func TestLinkHomeSurfacesReadDirError(t *testing.T) {
 // resetCodexJSON clears the process memo now and again when the test ends.
 func resetCodexJSON(t *testing.T) {
 	t.Helper()
-	reset := func() {
-		codexJSONMu.Lock()
-		codexJSONKnown = false
-		codexJSONMu.Unlock()
-	}
-	reset()
-	t.Cleanup(reset)
+	codexJSON.Drop()
+	t.Cleanup(codexJSON.Drop)
 }
 
 func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {

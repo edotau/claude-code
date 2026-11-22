@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -233,22 +232,26 @@ var codexStatus = func(ctx context.Context, bin string) ([]byte, error) {
 	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, true, "login", "status")
 }
 
-var (
-	codexJSONMu    sync.Mutex
-	codexJSONKnown bool
-	codexJSONValue bool
-)
+// codexJSONProbe is the exec-json answer; known is false for an indefinite probe, which is never kept.
+type codexJSONProbe struct{ has, known bool }
+
+var codexJSON = paths.NewMemo[struct{}, codexJSONProbe]("codex-exec-json")
 
 // codexHasJSON is true when the installed codex has `exec --json`; only a definitive probe is cached per process.
 func codexHasJSON() bool {
-	codexJSONMu.Lock()
-	defer codexJSONMu.Unlock()
-	if codexJSONKnown {
-		return codexJSONValue
-	}
+	p, _ := codexJSON.Do(struct{}{}, func(p codexJSONProbe, _ error) time.Duration {
+		if p.known {
+			return 0
+		}
+		return -1
+	}, func() (codexJSONProbe, error) { return probeCodexJSON(), nil })
+	return p.has
+}
+
+func probeCodexJSON() codexJSONProbe {
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
-		return false
+		return codexJSONProbe{}
 	}
 	sawFalse, probed := false, false
 	line := tools.ProbedSaltedLine(bin, "exec-json", func(b string) string {
@@ -267,10 +270,7 @@ func codexHasJSON() bool {
 			tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return line })
 		}
 	}
-	if line != "" || sawFalse {
-		codexJSONKnown, codexJSONValue = true, line == "true"
-	}
-	return line == "true"
+	return codexJSONProbe{has: line == "true", known: line != "" || sawFalse}
 }
 
 // probeExecJSON is "true" or "false" when `exec --help` answered definitively, else "" (a timeout is never cached).

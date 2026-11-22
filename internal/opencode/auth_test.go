@@ -49,10 +49,8 @@ func fakeOpencode(t *testing.T, version, list string, listErr error) (dataHome s
 }
 
 func resetOpencodeCaches() {
-	opencodeMu.Lock()
-	opencodeMajorSet, opencodeAuthIsSet = false, false
-	opencodeAuthVal, opencodeAuthErr = nil, nil
-	opencodeMu.Unlock()
+	opencodeMajorMemo.Drop()
+	opencodeAuthMemo.Drop()
 }
 
 func writeAuthJSON(t *testing.T, dataHome, body string) {

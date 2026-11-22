@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -58,18 +57,8 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 var (
-	opencodeMu       sync.Mutex
-	opencodeMajorKey string
-	opencodeMajorVal int
-	opencodeMajorSet bool
-	opencodeAuthKey  string
-	opencodeAuthVal  []OpencodeIntegration
-	opencodeAuthErr  error
-	// when a failed probe was stored; it is retried after opencodeAuthRetry
-	opencodeAuthAt    time.Time
-	opencodeAuthIsSet bool
-	// bumped by InvalidateOpencodeAuth so an in-flight probe cannot store a stale answer
-	opencodeAuthGen int
+	opencodeMajorMemo = paths.NewMemo[string, int]("opencode-major")
+	opencodeAuthMemo  = paths.NewMemo[string, []OpencodeIntegration]("opencode-auth")
 )
 
 // opencodeAuthRetry is how long a failed `auth list` is reused, so callers in one menu pass spawn it once.
@@ -95,13 +84,16 @@ func OpencodeMajor() int {
 
 // opencodeMajor is OpencodeMajor plus the probe error (never cached); a major-0 answer stays in memory, not on disk.
 func opencodeMajor() (int, error) {
-	key := opencodeBinKey()
-	opencodeMu.Lock()
-	if opencodeMajorSet && opencodeMajorKey == key {
-		defer opencodeMu.Unlock()
-		return opencodeMajorVal, nil
+	keep := func(_ int, err error) time.Duration {
+		if err != nil {
+			return -1
+		}
+		return 0
 	}
-	opencodeMu.Unlock()
+	return opencodeMajorMemo.Do(opencodeBinKey(), keep, probeOpencodeMajor)
+}
+
+func probeOpencodeMajor() (int, error) {
 	// "" when absent: the probe reports why
 	path, _ := paths.AgentBin("opencode")
 	var perr error
@@ -122,46 +114,36 @@ func opencodeMajor() (int, error) {
 	if perr != nil {
 		return 0, perr
 	}
-	v := textutil.VersionMajor(line)
-	storeOpencodeMajor(key, v)
-	return v, nil
-}
-
-func storeOpencodeMajor(key string, v int) {
-	opencodeMu.Lock()
-	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
-	opencodeMu.Unlock()
+	return textutil.VersionMajor(line), nil
 }
 
 // OpencodeAuth caches sorted logins per binary/store; failed 2.x probes fall back to auth.json with an error.
 func OpencodeAuth() ([]OpencodeIntegration, error) {
 	bin, file, key := opencodeAuthKeys()
-	opencodeMu.Lock()
-	fresh := opencodeAuthErr == nil || time.Since(opencodeAuthAt) < opencodeAuthRetry
-	if opencodeAuthIsSet && opencodeAuthKey == key && fresh {
-		defer opencodeMu.Unlock()
-		return cloneOpencodeIntegrations(opencodeAuthVal), opencodeAuthErr
+	unkeyed := false
+	keep := func(_ []OpencodeIntegration, err error) time.Duration {
+		switch {
+		case unkeyed:
+			return -1
+		case err != nil:
+			return opencodeAuthRetry
+		}
+		return 0
 	}
-	gen := opencodeAuthGen
-	opencodeMu.Unlock()
-	major, merr := opencodeMajor()
-	var ints []OpencodeIntegration
-	var err error
-	if major >= 2 {
-		ints, err = opencodeAuthWithFallback(bin, file)
-	} else {
-		ints, err = opencodeAuthV1(file)
+	ints, err := opencodeAuthMemo.Do(key, keep, func() ([]OpencodeIntegration, error) {
+		major, merr := opencodeMajor()
+		if major >= 2 {
+			return opencodeAuthWithFallback(bin, file)
+		}
+		ints, err := opencodeAuthV1(file)
 		// version unknown, so these 1.x files may not be the login store
 		if merr != nil && bin != "" {
+			unkeyed = true
 			return ints, errors.Join(merr, err)
 		}
-	}
-	opencodeMu.Lock()
-	if gen == opencodeAuthGen {
-		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, cloneOpencodeIntegrations(ints), err, time.Now(), true
-	}
-	opencodeMu.Unlock()
-	return ints, err
+		return ints, err
+	})
+	return cloneOpencodeIntegrations(ints), err
 }
 
 func cloneOpencodeIntegrations(ints []OpencodeIntegration) []OpencodeIntegration {
@@ -200,11 +182,8 @@ func opencodeAuthKeys() (bin, file, key string) {
 
 // InvalidateOpencodeAuth drops the cached logins; call after a login, logout or switch.
 func InvalidateOpencodeAuth() {
-	opencodeMu.Lock()
-	opencodeAuthIsSet, opencodeAuthVal, opencodeAuthErr = false, nil, nil
-	opencodeAuthGen++
+	opencodeAuthMemo.Drop()
 	ownLogin.Drop()
-	opencodeMu.Unlock()
 	if _, err := os.Stat(opencodeCacheFile()); err != nil {
 		return
 	}
