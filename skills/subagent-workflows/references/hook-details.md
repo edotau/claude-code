@@ -140,7 +140,7 @@ result -f <id>`; a blocked stop retires nothing. A `claude` workflow leaf with a
 tool results carry no `ask: ran on <agent> ·` line or `ran_on` field is checked for a receipt.
 Its job is an id its own `agents ask|result` call printed, else a record of that agent started
 within 2 minutes after one of its ask calls (or after the hook's own launch). (1) Job running: a hand-back polls it
-every 250 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
+every 25 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
 counted, naming `claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); a
 hold keeps every finished job's answer and the later pass attaches them in dispatch order; once ended it passes with a
 top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's result appended to
@@ -157,9 +157,10 @@ not run. (4) Every hold saves the report it carried (`message`, else the last as
 names the path. A stop has no input to rewrite, so it gets the note as a system message only. Unreadable transcripts
 fail open. A stop it isn't blocking kills the leaf's leftover background shells (its own task ids only)
 
-On Bash, `dispatch-workflow` (the synchronous entry, so the line reaches the model) gives a relay whose own `agents
-result` poll returned on an ended job the context line `job <id> ended: hand back now with this result`, and marks
-that job collected for the stuck-leaf watchdog.
+On Bash, `dispatch-workflow` (the synchronous entry, so the line reaches the model) gives a subagent of an external
+type (`relayLeaf`; never a `claude` `Run:` leaf or the main session) whose own `agents result` poll returned on an
+ended job the context line `job <id> ended: hand back now with this result`, and marks jobs it read collected for the
+stuck-leaf watchdog.
 
 On a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), `dispatch-handback` runs the task's
 `verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines on
@@ -178,9 +179,10 @@ unattributed note naming the candidate ids, never held or refused. The hook's `R
 exclusive create, so overlapping hand-backs start it once. Every hold names `claude-code agents result -f <id>` to run
 once (never a sleep).
 
-On Bash it refuses a relay's poll of a finished job it already handed back (`already reported: stop`) and a second
-follow poll of one job while the first is in flight or backgrounded with a live writer (`one poller only`). A relay's
-Bash is limited to `claude-code` asks, commands the shared read-only judge allows, `gofmt -l`, and `go build|vet|test`
+On Bash, only in a subagent of an external type (`relayLeaf`; a `claude` `Run:` leaf and the main session pass), it
+refuses a poll of a finished job the leaf already handed back (`already reported: stop`) and a second follow poll of
+one job while the first is in flight or backgrounded with a live writer (`one poller only`). That leaf's Bash is
+limited to `claude-code` asks, commands the shared read-only judge allows, `gofmt -l`, and `go build|vet|test`
 (behind `rtk`, a bare `env`, `time [-p]`, `nice [-n N]` or `timeout [opts] N[smh]`) with `./` package patterns inside
 the repo and a short flag list: `-args`, writing or program-running flags, any `go build` but `./...` or `-o
 /dev/null`, and an inline or process `GOFLAGS`/`GOENV`/`GOWORK`/`GOBIN`/`GOCACHE`/`GOTOOLCHAIN` are refused (the relay

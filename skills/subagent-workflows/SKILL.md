@@ -44,10 +44,9 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 Build every `Run:` line with `claude-code agents label <type> --run [--model m] [--profile p | --spec FILE] --task
 FILE`: it prints the exact `Run:` line, then the label (`--session-model` supplies the parent's). Pass the Agent
-tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
-frontmatter controls the relay, not the vendor model. `dispatch-effort` sets model and effort only for an agent with no
-`model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The root machine's pins and per-call flags
-select external execution; never overwrite another machine's pins.
+tool's `model` to raise one call (`fable` only for two large designs at once). `dispatch-effort` sets model and
+effort only for an agent with no `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The
+root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
 
 ### Carried dispatch (main session, no relay)
 
@@ -85,10 +84,10 @@ For a `claude` leaf whose brief opens with `Run:` (a workflow stage), or that di
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
   1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), and a foreground ask the Bash tool backgrounds
-     prints no id, so the hand-back hook refuses with "No exact dispatch id" for up to 2 h, unless your own successful
-     `agents result|wait <id>` names a record of your session whose agent and prompt match your own ask. A long task's
-     `Run:` line therefore carries `--background`; read the id from its `job <id> started` line. Run an ask with
-     `"timeout": 600000`, once, never re-run it.
+     prints no id, so unless your own successful `agents result|wait <id>` names a record of your session whose agent
+     and prompt match your ask, the hand-back passes unattributed: a note naming the candidate ids, your `ask: ran on`
+     lines marked unverified. A long task's `Run:` line therefore carries `--background`; read the id from its
+     `job <id> started` line. Run an ask with `"timeout": 600000`, once, never re-run it.
   2. Wait with ONE call per turn: `claude-code agents result -f <id>` (`-f` follows to the end; or `agents wait <id>
      --timeout 590s`, exit 4 = still running), 600000 ms Bash timeout. Never poll with Read, `head`, `ls`, `--verdict`
      or `agents ls`, never sleep, start a second poller or use Monitor.
@@ -99,8 +98,8 @@ For a `claude` leaf whose brief opens with `Run:` (a workflow stage), or that di
      to the job)". Do not hold it.
   6. After handing back, stop. If a later notification mentions the same job, reply "already reported" and do not
      poll again.
-- The final answer always goes through `SubagentHandback`, never plain text. A refusal naming a missing dispatch id
-  is not fixed by retrying: after the second one, stop and end with the id and `agents result -f <id>` in your text.
+- The final answer always goes through `SubagentHandback`, never plain text. An unattributed note is not fixed by
+  retrying: hand back once, with the id and `agents result -f <id>` in your text.
 - Run only the stage's prescribed `agents diff --verify <id>` after the ask; the manager verifies at fan-in.
   Report a dispatch error; never repair it in-context or silently pick another agent.
 - Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual
@@ -298,7 +297,8 @@ files only.
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can
   outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends
   (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
-  `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt),
+  `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt; with
+  none it passes unattributed, never refused),
   whereas a shell-backgrounded ask dies when the leaf stops. A hand-back waits up to 13 s for a running job, then is
   held; a hold keeps every finished job's answer and the later pass attaches them in dispatch order. A never-run
   `Run:` line is run by the hook, which tells the leaf to wait. Cap: `rules/harness/hooks.md` → (dispatch cap); queue

@@ -377,17 +377,18 @@ func TestDispatchLabelLowercase(t *testing.T) {
 
 // A routed leaf's label names the agent and the model it is planned to run.
 func TestDispatchLabelNamesRoutedModel(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	useAgentsDir(t, "claude")
 	payload := func(prompt string) string {
-		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"pi","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
+		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"claude","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
 	}
 	stubLabelModels(t, "gpt-6.1-sol")
 	for prompt, want := range map[string]string{
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
-		"Agent: claude (in-context)\nreview": "gpt-6.1-sol: review diff", // an external type runs its agent, whatever the brief
+		"Agent: pi\nreview":                  "gpt-6.1-sol: review diff",
+		"Agent: claude (in-context)\nreview": "sonnet: review diff", // an in-context leaf keeps its own model
 	} {
 		r := effortResult(payload(prompt))
-		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
+		if got, _ := r.UpdatedInput["description"].(string); got != want {
 			t.Errorf("%q: label = %q, want %q", prompt, got, want)
 		}
 	}
@@ -623,23 +624,14 @@ func writeAgentFile(t *testing.T, cfg, spec string) {
 }
 
 // allowedTypes are the current file-backed roster plus the built-ins covered by the label inventory.
-var allowedTypes = []string{"claude", "pi", "Explore", "Plan", "general-purpose"}
-
-// inventoryLabel is the label oracle: an external type shows "<agent>-<task tier>", else its model.
-func inventoryLabel(st, model, task string) string {
-	if externalTypes[st] {
-		tier, _ := agentpkg.TaskTier(task) // a vendor CLI runs its pin, else the task tier, never the relay's model
-		return st + "-" + tier
-	}
-	return model
-}
+var allowedTypes = []string{"claude", "Explore", "Plan", "general-purpose"}
 
 // TestDispatchLabelInventory: every type × model source × description shape ends with exactly one `<model>: ` prefix.
 func TestDispatchLabelInventory(t *testing.T) {
 	const task = "review the diff"
 	for _, st := range allowedTypes {
 		for _, src := range []string{"explicit", "file", "none"} {
-			cfg := useAgentsDir(t, "claude", "pi", "Plan")
+			cfg := useAgentsDir(t, "claude", "Plan")
 			stubLabelModels(t, "")
 			stubResolve(t, tierOracle)
 			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
@@ -650,13 +642,12 @@ func TestDispatchLabelInventory(t *testing.T) {
 			if src == "none" {
 				_, model, _ = dispatchLabel(context.Background(), LabelInput{Type: st, Brief: task})
 			}
-			label := inventoryLabel(st, model, task)
-			if pinned != label {
-				t.Errorf("%s/%s: agents label = %q, want %q", st, src, pinned, label)
+			if pinned != model {
+				t.Errorf("%s/%s: agents label = %q, want %q", st, src, pinned, model)
 			}
-			want := label + ": " + task
+			want := model + ": " + task
 			for kind, desc := range map[string]string{"plain": task, "correct": want, "wrong": "gpt-4-1-mini: " + task,
-				"doubled": label + ": " + want, "d1": "sonnet: databricks-gpt-6-1-sol: " + task} {
+				"doubled": model + ": " + want, "d1": "sonnet: databricks-gpt-6-1-sol: " + task} {
 				assertInventoryRow(t, st, src, kind, desc, want)
 			}
 		}
@@ -690,11 +681,11 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 	}
 }
 
-// An external leaf's Agent: line mentioning claude-code must not stack the wrapper's alias on its model.
-func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
-	useAgentsDir(t, "pi")
+// A routed leaf's Agent: line mentioning claude-code must not stack the wrapper's alias on its model.
+func TestDispatchLabelRoutedLeafIgnoresAgentLineWords(t *testing.T) {
+	useAgentsDir(t, "claude")
 	stubLabelModels(t, "databricks-gpt-6-1-sol")
-	payload := `{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":"pi","model":"sonnet",` +
+	payload := `{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":"claude","model":"sonnet",` +
 		`"prompt":"Agent: pi (run via claude-code agents ask --agent pi)\nreview","description":"databricks-gpt-6-1-sol: review phase 2"}}`
 	if r := effortResult(payload); r.Decision == core.Block {
 		t.Fatalf("correctly labelled pi dispatch was blocked: %s", r.Reason)
