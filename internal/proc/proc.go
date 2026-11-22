@@ -47,6 +47,43 @@ func SpawnDetachedPID(bin string, args []string, dir string, out *os.File, extra
 	return cmd.Process.Pid
 }
 
+// receiptScript runs "$@" and records a non-zero shell status in $1/exit-<shell pid>; 128+n is signal n.
+const receiptScript = `d=$1; shift; "$@"; s=$?; [ "$s" -eq 0 ] || echo "$s" > "$d/exit-$$"`
+
+// ExitReceiptPath is where SpawnDetachedWithReceipt's wrapper (pid) leaves the child's exit status.
+func ExitReceiptPath(dir string, pid int) string {
+	return filepath.Join(dir, "exit-"+strconv.Itoa(pid))
+}
+
+// ExitReceipt reads and removes the status the wrapper pid left in dir, "" when none; 128+n means signal n.
+func ExitReceipt(dir string, pid int) string {
+	path := ExitReceiptPath(dir, pid)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(path) // read once: a recycled pid must not inherit it
+	code, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	switch {
+	case err != nil:
+		return ""
+	case code > 128:
+		return fmt.Sprintf("exit status %d (signal %d)", code, code-128)
+	}
+	return fmt.Sprintf("exit status %d", code)
+}
+
+// SpawnDetachedWithReceipt is SpawnDetached under an sh wrapper that writes the child's exit status to
+// ExitReceiptPath(receiptDir, wrapperPid); without sh it spawns the child directly.
+func SpawnDetachedWithReceipt(bin string, args []string, dir string, out *os.File, receiptDir string, extraEnv ...string) bool {
+	sh, err := exec.LookPath("sh")
+	if err != nil || os.MkdirAll(receiptDir, 0o700) != nil {
+		return SpawnDetached(bin, args, dir, out, extraEnv...)
+	}
+	argv := append([]string{"-c", receiptScript, "sh", receiptDir, bin}, args...)
+	return SpawnDetached(sh, argv, dir, out, extraEnv...)
+}
+
 // errExecUnderTest: under `go test`, Exec would replace the test binary and end the run with the child's status.
 var errExecUnderTest = errors.New("proc: refusing to replace the go test binary; stub the exec seam")
 

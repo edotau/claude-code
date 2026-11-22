@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,3 +135,21 @@ func TestSpawnDetachedNilOutKeepsStdioOpen(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestSpawnDetachedWithReceiptRecordsSignal(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
+	dir := t.TempDir()
+	if !SpawnDetachedWithReceipt("sh", []string{"-c", "kill -9 $$"}, dir, nil, dir) {
+		t.Fatal("spawn failed")
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if m, _ := filepath.Glob(filepath.Join(dir, "exit-*")); len(m) == 1 {
+			pid, _ := strconv.Atoi(strings.TrimPrefix(filepath.Base(m[0]), "exit-"))
+			if got := ExitReceipt(dir, pid); got != "exit status 137 (signal 9)" {
+				t.Fatalf("receipt = %q", got)
+			}
+			return
+		}
+	}
+	t.Fatal("no exit receipt written")
+}

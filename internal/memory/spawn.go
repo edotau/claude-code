@@ -15,7 +15,9 @@ import (
 const logStampLayout = "20060102-150405.000"
 
 // spawnDetached is the process-launch seam under spawnSelf; tests replace it.
-var spawnDetached = proc.SpawnDetached
+var spawnDetached = func(bin string, args []string, dir string, out *os.File, env ...string) bool {
+	return proc.SpawnDetachedWithReceipt(bin, args, dir, out, paths.MemoryStateDir(), env...)
+}
 
 // spawnSelf relaunches this binary detached in dir; a non-empty logName appends its output to paths.MemoryStateDir()/logName.
 func spawnSelf(args []string, dir, logName string, env ...string) bool {

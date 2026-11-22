@@ -1,6 +1,9 @@
 package agent
 
-import "github.com/edotau/claude-code/internal/proc"
+import (
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+)
 
 // LostError opens the error text of a dispatch whose process vanished.
 const LostError = "lost: process gone"
@@ -30,6 +33,11 @@ func reapLost(r Record) Record {
 			return c, false
 		}
 		c.Status, c.Error = "lost", LostError+c.LostProcessDetail()
+		if c.PPID > 0 {
+			if rc := proc.ExitReceipt(paths.MemoryStateDir(), c.PPID); rc != "" {
+				c.Error += "; worker " + rc
+			}
+		}
 		return c, true
 	})
 	if err != nil {
