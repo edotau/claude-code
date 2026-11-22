@@ -7,6 +7,6 @@ import (
 	"os"
 )
 
-func openServeFile(string) (*os.File, error) { return nil, ErrUnsupported }
+func openServeFile(string, int) (*os.File, error) { return nil, ErrUnsupported }
 
 func listenPrivate(string) (*net.UnixListener, error) { return nil, ErrUnsupported }

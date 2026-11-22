@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -28,9 +30,10 @@ var ErrUnsupported = errors.New("agents serve: not served on windows; submit run
 var ErrTestBinary = errors.New("agents serve: refusing to spawn the daemon from a test binary")
 
 const (
-	maxLogBytes = 10 << 20
-	stateSchema = 1
-	sockName    = "agents.sock"
+	maxLogBytes   = 10 << 20
+	maxStateBytes = 16 << 10
+	stateSchema   = 1
+	sockName      = "agents.sock"
 )
 
 // Dir is the daemon's 0700 directory under the harness state dir: socket, state, log and spawn lock.
@@ -42,8 +45,6 @@ func SockPath() string { return filepath.Join(Dir(), sockName) }
 func stateFile() string { return filepath.Join(Dir(), "serve.json") }
 
 func logFile() string { return filepath.Join(Dir(), "serve.log") }
-
-func spawnLock() string { return filepath.Join(Dir(), "spawn") }
 
 // State is serve.json: written by a serving daemon, removed when it exits.
 type State struct {
@@ -64,9 +65,16 @@ var stateFormat = schemas.Register(schemas.Format{
 // ReadState reads serve.json.
 func ReadState() (State, error) {
 	var st State
-	b, err := os.ReadFile(stateFile())
+	f, err := openServeFile("serve.json", os.O_RDONLY)
 	if err != nil {
 		return st, err
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxStateBytes+1))
+	if err = errors.Join(err, f.Close()); err != nil {
+		return st, err
+	}
+	if len(b) > maxStateBytes {
+		return st, errors.New("agents serve: state exceeds size limit")
 	}
 	_, err = schemas.Decode(stateFormat, b, &st)
 	return st, err
@@ -79,11 +87,11 @@ func writeState(st State) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := paths.WithFileLock(stateFile(), func() error { return paths.AtomicWrite(stateFile(), data, 0o600) }); err != nil {
+	if err := withServeLock("serve.json.lock", func() error { return paths.AtomicWrite(stateFile(), data, 0o600) }); err != nil {
 		return nil, err
 	}
 	return func() {
-		_ = paths.WithFileLock(stateFile(), func() error {
+		_ = withServeLock("serve.json.lock", func() error {
 			if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Started.Equal(st.Started) {
 				_ = os.Remove(stateFile())
 			}
@@ -92,12 +100,12 @@ func writeState(st State) (func(), error) {
 	}, nil
 }
 
-// Running is the state of a live daemon that answers on the socket.
+// Running verifies the socket peer, or the recorded daemon and its lifetime lock when the socket is unavailable.
 func Running() (State, bool) {
 	st, readErr := ReadState()
 	got, err := QueryStatus(time.Second)
 	if err != nil || got.PID <= 0 || !proc.Alive(got.PID) {
-		return st, false
+		return st, readErr == nil && daemonProcess(st.PID) && daemonLocked()
 	}
 	if readErr != nil || st.PID != got.PID || !st.Started.Equal(got.Started) {
 		st = State{Schema: stateSchema, PID: got.PID, Started: got.Started, Cap: got.Cap}
@@ -133,15 +141,7 @@ func Stop() (State, error) {
 		if st, ok = Running(); ok {
 			return stop(st)
 		}
-		return paths.WithFileLock(stateFile(), func() error {
-			cur, err := ReadState()
-			if err == nil && cur.PID == st.PID && cur.Started.Equal(st.Started) && !proc.Alive(cur.PID) {
-				if err := os.Remove(stateFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-			}
-			return ErrNotRunning
-		})
+		return removeStoppedState()
 	})
 	return st, err
 }
@@ -173,15 +173,65 @@ func withSpawnLock(fn func() error) error {
 	if err := ensureDir(Dir()); err != nil {
 		return err
 	}
-	return paths.WithFileLock(spawnLock(), fn)
+	return withServeLock("spawn.lock", fn)
+}
+
+func withServeLock(name string, fn func() error) error {
+	f, err := openServeFile(name, os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(50 * time.Millisecond) {
+		if paths.TryLock(f) {
+			return fn()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: %s", paths.ErrLockTimeout, name)
+		}
+	}
+}
+
+func daemonProcess(pid int) bool {
+	if pid <= 0 || proc.Comm(pid) != "claude-code" {
+		return false
+	}
+	argv, err := proc.Argv(pid)
+	return err == nil && len(argv) >= 4 && slices.Equal(argv[1:4], []string{"agents", "serve", "--serve"})
+}
+
+func daemonLocked() bool {
+	f, err := openServeFile("daemon.lock", os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return !paths.TryLock(f)
+}
+
+func removeStoppedState() error {
+	f, err := openServeFile("daemon.lock", os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if !paths.TryLock(f) {
+		return errors.New("agents serve: daemon lock held but identity unavailable; not removing state")
+	}
+	return withServeLock("serve.json.lock", func() error {
+		if err := os.Remove(stateFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return ErrNotRunning
+	})
 }
 
 // drainWait bounds a stop's wait for the daemon to exit; a var so a test can shorten it.
 var drainWait = 10 * time.Second
 
 func stop(st State) error {
-	if proc.Comm(st.PID) != "claude-code" { // never signal a pid serve.json names unless it is the harness binary
-		return fmt.Errorf("agents serve: pid %d is not claude-code; not signalling it", st.PID)
+	if !daemonProcess(st.PID) {
+		return fmt.Errorf("agents serve: pid %d is not the serve daemon; not signalling it", st.PID)
 	}
 	p, err := os.FindProcess(st.PID)
 	if err == nil {
@@ -235,7 +285,7 @@ func spawn(ceiling int) error {
 }
 
 func openLog() (*os.File, error) {
-	f, err := openServeFile("serve.log")
+	f, err := openServeFile("serve.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND)
 	if err != nil {
 		return nil, err
 	}

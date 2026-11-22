@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
@@ -29,6 +31,77 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
+
+func TestAdmissionMarksWaitAndConcludesCancellation(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Provider: "test"}, time.Now())
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	old := admitJob
+	t.Cleanup(func() { admitJob = old })
+	admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome {
+		disk, err := agent.LoadRecord(rec.ID)
+		if err != nil || disk.QueueLine(time.Now()) == "" {
+			t.Fatalf("admission wait not visible: %+v, %v", disk, err)
+		}
+		cancel()
+		return serve.Direct
+	}
+	prepared, err := prepareAdmitted(ctx, nil, rec.Request, &rec, nil)
+	if prepared != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled admission prepared a run: %v, %v", prepared, err)
+	}
+	disk, err := agent.LoadRecord(rec.ID)
+	if err != nil || disk.Status == "running" || disk.Progress != "" {
+		t.Fatalf("cancelled admission left running/queued: %+v, %v", disk, err)
+	}
+}
+
+func TestAdmissionClearsWaitOnReturn(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := admitJob
+	t.Cleanup(func() { admitJob = old })
+	for _, outcome := range []serve.Outcome{serve.Admitted, serve.Direct} {
+		rec := agent.NewRecord("claude", agent.RunOptions{Provider: "test"}, time.Now())
+		rec.Status, rec.PID = "running", os.Getpid()
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+		admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome { return outcome }
+		admitPending(context.Background(), &rec)
+		disk, err := agent.LoadRecord(rec.ID)
+		if err != nil || disk.Progress != "" || disk.Status != "running" {
+			t.Fatalf("%s did not clear wait: %+v, %v", outcome, disk, err)
+		}
+	}
+}
+
+func TestAdmissionConcludesPrepareFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Provider: "test"}, time.Now())
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	oldAdmit, oldPrepare := admitJob, armPrepare
+	t.Cleanup(func() { admitJob, armPrepare = oldAdmit, oldPrepare })
+	admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome { return serve.Admitted }
+	armPrepare = func(*agent.Client, context.Context, agent.RunOptions, *agent.Record) (*agent.Prepared, error) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	run := &armRetry{agentName: "claude", tried: []string{"qa"}}
+	if _, err := prepareAdmitted(context.Background(), nil, rec.Request, &rec, run); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("prepare error = %v", err)
+	}
+	disk, err := agent.LoadRecord(rec.ID)
+	if err != nil || disk.Status == "running" || disk.Progress != "" {
+		t.Fatalf("prepare failure left running/queued: %+v, %v", disk, err)
+	}
+}
 
 func TestCmdAskRefusesAmbiguousAncestryBeforeLaunch(t *testing.T) {
 	previous := checkAncestry

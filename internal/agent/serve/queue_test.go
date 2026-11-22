@@ -1,12 +1,53 @@
 package serve
 
 import (
+	"os"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/router"
 )
+
+func TestAdmitReadsLimitsOncePerPoolPerPass(t *testing.T) {
+	now := time.Now()
+	caps, cools := 0, 0
+	q := NewQueue(Sources{
+		Running: func() map[string][]string { return nil },
+		Cap:     func(string) int { caps++; return 1 },
+		CoolEnd: func(string, time.Time) time.Time { cools++; return now.Add(time.Second) },
+	}, 0)
+	for i := range MaxQueue {
+		if _, _, err := q.Enqueue(strconv.Itoa(i), strconv.Itoa(i%2), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := q.Admit(now); got != 0 || caps != 2 || cools != 2 {
+		t.Fatalf("grants/cap reads/cool reads = %d/%d/%d, want 0/2/2", got, caps, cools)
+	}
+	if got := q.Admit(now.Add(2 * time.Second)); got != 2 || caps != 4 || cools != 4 {
+		t.Fatalf("next pass = %d/%d/%d, want 2/4/4", got, caps, cools)
+	}
+}
+
+func TestRunningByPoolExcludesCoordinators(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var worker agent.Record
+	for i, name := range []string{"waves", "claude", "claude"} {
+		r := agent.NewRecord(name, agent.RunOptions{Provider: "test", Carry: i == 1}, time.Now().Add(time.Duration(i)*time.Millisecond))
+		r.Status, r.PID = "running", os.Getpid()
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+		worker = r
+	}
+	got := runningByPool()
+	if len(got) != 1 || !slices.Equal(got[PoolOf(worker)], []string{worker.ID}) {
+		t.Fatalf("model load includes orchestration records: %v", got)
+	}
+}
 
 // wantGranted fails unless exactly the waiters marked true have their grant closed.
 func wantGranted(t *testing.T, step string, ws []*waiter, want ...bool) {

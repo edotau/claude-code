@@ -103,12 +103,19 @@ func (q *Queue) Admit(now time.Time) int {
 		q.admitted = make(map[string]bool)
 	}
 	keep, granted := q.waiting[:0:0], 0
+	remaining := make(map[string]int)
 	for _, w := range q.waiting {
-		if q.src.CoolEnd(w.pool, now).After(now) || load[w.pool] >= q.capOf(w.pool) {
+		if _, ok := remaining[w.pool]; !ok {
+			remaining[w.pool] = q.capOf(w.pool) - load[w.pool]
+			if q.src.CoolEnd(w.pool, now).After(now) {
+				remaining[w.pool] = 0
+			}
+		}
+		if remaining[w.pool] <= 0 {
 			keep = append(keep, w)
 			continue
 		}
-		load[w.pool]++
+		remaining[w.pool]--
 		q.admitted[w.id] = true
 		granted++
 		close(w.grant)
@@ -210,8 +217,9 @@ func runningByPool() map[string][]string {
 	recs, _ := agent.RunningRecent(agent.AllRecords)
 	out := map[string][]string{}
 	for _, r := range recs {
-		if r.Status == "running" && r.Alive() && !r.Live {
-			out[PoolOf(r)] = append(out[PoolOf(r)], r.ID)
+		if r.Status == "running" && !r.Live && r.Agent != "waves" && !r.Request.Carry && r.Alive() {
+			pool := PoolOf(r)
+			out[pool] = append(out[pool], r.ID)
 		}
 	}
 	return out

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openServeFile(name string) (*os.File, error) {
+func openServeFile(name string, flags int) (*os.File, error) {
 	fd, err := unix.Open(Dir(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, err
@@ -21,7 +21,7 @@ func openServeFile(name string) (*os.File, error) {
 	if err := checkServeDir(fd); err != nil {
 		return nil, err
 	}
-	n, err := unix.Openat(fd, name, unix.O_CREAT|unix.O_WRONLY|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0o600)
+	n, err := unix.Openat(fd, name, flags|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -32,6 +32,9 @@ func openServeFile(name string) (*os.File, error) {
 	}
 	if st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != uint32(os.Getuid()) || st.Nlink != 1 || st.Mode&0o077 != 0 {
 		return nil, errors.Join(fmt.Errorf("agents serve: unsafe opened file %s", name), f.Close())
+	}
+	if err := unix.SetNonblock(n, false); err != nil {
+		return nil, errors.Join(err, f.Close())
 	}
 	return f, nil
 }
@@ -48,7 +51,12 @@ func checkServeDir(fd int) error {
 }
 
 func listenPrivate(path string) (*net.UnixListener, error) {
-	mask := unix.Umask(0o177)
-	defer unix.Umask(mask)
-	return net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, errors.Join(err, ln.Close())
+	}
+	return ln, nil
 }

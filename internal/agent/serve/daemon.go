@@ -86,7 +86,7 @@ func Serve(ctx context.Context, ceiling int) error {
 	if err := ensureDir(Dir()); err != nil {
 		return err
 	}
-	lock, err := openServeFile("daemon.lock")
+	lock, err := openServeFile("daemon.lock", os.O_CREATE|os.O_RDWR)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func serveLocked(ctx context.Context, ceiling int) error {
 	return nil
 }
 
-// accept serves connections until the listener closes; readRequest bounds handshakes independently of queued jobs.
+// accept holds a slot for each connection's entire lifetime, before starting its handler.
 func (d *daemon) accept(ctx context.Context, ln *net.UnixListener, wg *sync.WaitGroup) {
 	for {
 		c, err := ln.AcceptUnix()
@@ -137,7 +137,14 @@ func (d *daemon) accept(ctx context.Context, ln *net.UnixListener, wg *sync.Wait
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
+		select {
+		case d.conns <- struct{}{}:
+		default:
+			_ = c.Close()
+			continue
+		}
 		wg.Go(func() {
+			defer func() { <-d.conns }()
 			defer c.Close()
 			d.serveConn(ctx, c)
 		})
@@ -176,12 +183,6 @@ func (d *daemon) serveConn(ctx context.Context, c *net.UnixConn) {
 }
 
 func (d *daemon) readRequest(c *net.UnixConn) (request, error) {
-	select {
-	case d.conns <- struct{}{}:
-		defer func() { <-d.conns }()
-	default:
-		return request{}, ErrQueueFull
-	}
 	if uid, err := proc.PeerUID(c); err != nil || uid != uint32(os.Getuid()) {
 		return request{}, errors.New("peer uid does not match")
 	}

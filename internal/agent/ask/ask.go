@@ -704,9 +704,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	if err := claimRecover(ctx); err != nil {
 		return failAsk(format, name, err)
 	}
-	admitPending(ctx, jobRec)
-	go warmMask() // resolve the vault key while Prepare runs
-	prepared, err := run.prepare(ctx, cl, req, jobRec)
+	prepared, err := prepareAdmitted(ctx, cl, req, jobRec, run)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
@@ -833,8 +831,24 @@ var admitJob = serve.Admit
 // admitPending holds a detached job (jobRec set) until `agents serve` admits its pool; with no daemon it runs at once.
 func admitPending(ctx context.Context, jobRec *agent.Record) {
 	if jobRec != nil {
+		agent.NoteQueued(jobRec.ID, serve.PoolOf(*jobRec), os.Stderr)
+		defer agent.NoteQueued(jobRec.ID, "", os.Stderr)
 		admitJob(ctx, *jobRec, os.Stderr)
 	}
+}
+
+func prepareAdmitted(ctx context.Context, cl *agent.Client, req agent.RunOptions, jobRec *agent.Record, run *armRetry) (*agent.Prepared, error) {
+	admitPending(ctx, jobRec)
+	err := ctx.Err()
+	var prepared *agent.Prepared
+	if err == nil {
+		go warmMask() // resolve the vault key while Prepare runs
+		prepared, err = run.prepare(ctx, cl, req, jobRec)
+	}
+	if err != nil && jobRec != nil {
+		agent.RecordRefusal(jobRec.Agent, req, jobRec, err)
+	}
+	return prepared, err
 }
 
 // askSpawn detaches a prepared dispatch as a background job; its child starts from the run values it was prepared with.
