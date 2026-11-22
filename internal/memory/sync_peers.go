@@ -99,19 +99,21 @@ func RunSync(peers []string, dryRun bool, out io.Writer) (int, error) {
 	return code, nil
 }
 
-// syncPass is one pass's state; refused counts peers with a refusal, failed is a peer set that is not converged.
+// syncPass is one pass's state; failed counts refused peers, retried unconverged ones with only a transient failure.
 type syncPass struct {
-	st                   *SyncState
-	dryRun               bool
-	now                  time.Time
-	out                  io.Writer
-	layout               string
-	synced, down, failed int
+	st                            *SyncState
+	dryRun                        bool
+	now                           time.Time
+	out                           io.Writer
+	layout                        string
+	refused                       map[string]bool
+	synced, down, failed, retried int
 }
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
-	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout))}
+	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout)),
+		refused: map[string]bool{}}
 	tokens := map[string]string{}
 	for _, peer := range peers {
 		if tok, ok := s.probe(peer, s.peer(peer)); ok {
@@ -121,16 +123,24 @@ func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	bad := map[string]bool{}
 	s.each(peers, tokens, bad, s.pull) // every pull first, so each push carries what the other peers had
 	s.each(peers, tokens, bad, s.push)
-	s.failed += len(bad)
+	for peer := range bad {
+		if s.refused[peer] {
+			s.failed++
+		} else {
+			s.retried++ // busy, timed out or cut off: not a refusal
+		}
+	}
 	s.synced = len(tokens) - len(bad)
+	saveFailed := 0
 	if !dryRun {
 		if err := SaveSync(s.st); err != nil {
 			fmt.Fprintf(out, "memory sync: saving state: %v\n", err)
-			s.failed++
+			saveFailed = 1 // a local write error, not a peer's refusal
 		}
 	}
-	fmt.Fprintf(out, "memory sync: %d peer(s): %d synced, %d unreachable, %d refused\n", len(peers), s.synced, s.down, s.failed)
-	return min(s.failed, 1)
+	fmt.Fprintf(out, "memory sync: %d peer(s): %d synced, %d unreachable, %d refused, %d busy (retried next pass)\n",
+		len(peers), s.synced, s.down, s.failed, s.retried)
+	return min(s.failed+s.retried+saveFailed, 1)
 }
 
 // each runs one direction for every reachable peer, in list order, marking the ones that did not converge.
@@ -163,6 +173,7 @@ func (s *syncPass) held(d SyncDir, token string) bool {
 
 func (s *syncPass) refuse(d *SyncDir, dir, peer, why, token string) {
 	d.Refusal, d.Since, d.Token = why, s.now, token
+	s.refused[peer] = true
 	s.say(dir, peer, "refused: "+why)
 }
 
@@ -229,6 +240,7 @@ func (s *syncPass) pull(name string, p *PeerSync, tok string) bool {
 		return true
 	}
 	if s.held(p.Pull, tok) {
+		s.refused[name] = true
 		s.say("pull", name, "refused earlier: "+p.Pull.Refusal)
 		return false
 	}
@@ -352,6 +364,7 @@ func (s *syncPass) push(name string, p *PeerSync, peerTok string) bool {
 		return true
 	}
 	if s.held(p.Push, tok) {
+		s.refused[name] = true
 		s.say("push", name, "refused earlier: "+p.Push.Refusal)
 		return false
 	}
