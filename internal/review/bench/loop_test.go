@@ -72,6 +72,10 @@ func TestRecordAppendsAndAdvancesRolling(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(benchRoot(), "x-y", "rolling.txt")); err != nil || !strings.Contains(string(b), "BenchmarkA") {
 		t.Errorf("rolling.txt = %q, %v", b, err)
 	}
+}
+
+func TestRecordKeptWithoutAfterKeepsBaseline(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := recordRow(loopOpts{pkg: "internal/p", what: "w", verdict: "kept", sha: "abc"}); err != nil {
 		t.Errorf("kept without --after (no benchmark) refused: %v", err)
 	}
