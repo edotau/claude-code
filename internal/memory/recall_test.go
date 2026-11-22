@@ -647,9 +647,10 @@ func benchRecallCorpus(b *testing.B) int {
 		sb.WriteString("# " + filepath.Base(name) + "\n\n")
 		for sb.Len() < 7500 {
 			words := make([]string, 14)
-			for w := range words {
-				words[w] = vocab[(fi*7+id*3+w*5)%len(vocab)]
+			for w := range words { // coprime strides plus one rare token per block keep BM25 scores from tying
+				words[w] = vocab[(fi*131+id*17+w*29)%len(vocab)]
 			}
+			words[len(words)-1] = fmt.Sprintf("tok%d", id%97)
 			fmt.Fprintf(&sb, "- %s <!-- id:%08x -->\n", strings.Join(words, " "), id)
 			if id%25 == 0 {
 				ids = append(ids, fmt.Sprintf("%08x", id))
