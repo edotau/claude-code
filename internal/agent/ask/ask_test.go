@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -28,6 +29,23 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
+
+func TestCmdAskRefusesAmbiguousAncestryBeforeLaunch(t *testing.T) {
+	previous := checkAncestry
+	checkAncestry = func(context.Context) error { return io.EOF }
+	t.Cleanup(func() { checkAncestry = previous })
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return Cmd([]string{"--agent", "claude", "say ok"})
+	})
+	if code != 1 || !strings.Contains(stderr, "EOF") {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	if got := agent.RecentRecords(1); len(got) != 0 {
+		t.Fatalf("refused ask created dispatch records: %+v", got)
+	}
+}
 
 type askRetryCase struct {
 	name        string

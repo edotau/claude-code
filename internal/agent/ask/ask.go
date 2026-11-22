@@ -113,6 +113,9 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	if done {
 		return code
 	}
+	if err := checkAncestry(ctx); err != nil {
+		return failAsk(f.format, f.name, err)
+	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
 		if !slices.Contains(router.FallbackModes, f.fallback) {
@@ -142,6 +145,8 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	return r.execute()
 }
+
+var checkAncestry = agent.CheckAncestorDispatch
 
 // markTyped records a --model typed on this command line; auto asks for rotation and pins nothing.
 func markTyped(fs *flag.FlagSet, f *askFlags) {

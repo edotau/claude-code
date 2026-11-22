@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,44 +17,32 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestNearestDispatchCombinesBatchSiblings(t *testing.T) {
+func TestNearestDispatchRefusesBatchSiblings(t *testing.T) {
 	setConfigDir(t)
 	start, err := proc.StartTime(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	const tokenCap = DefaultMaxTreeTokens / 2
-	zero, two, three, tokens := 0, 2, 3, tokenCap
-	p := mustPerms(t, "plan", []string{"Read"}, []string{"Bash(curl *)"}, []string{"Write"})
-	q := mustPerms(t, "allow", []string{"Read", "Write"}, nil, []string{"Edit"})
-	a := Record{ID: "a", PID: os.Getpid(), PIDStart: start, Status: "running", Depth: 2,
-		MaxDepth: &three, MaxChildren: &two, MaxTreeTokens: &zero, ExportedPolicy: &p}
-	b := Record{ID: "b", PID: a.PID, PIDStart: start, Status: "running",
-		MaxDepth: &zero, MaxChildren: &zero, MaxTreeTokens: &tokens, ExportedPolicy: &q}
+	a := Record{ID: "a", PID: os.Getpid(), PIDStart: start, Status: "running"}
+	b := Record{ID: "b", PID: a.PID, PIDStart: start, Status: "running"}
 	old := b
-	old.ID, old.PIDStart, old.Depth = "reused", "wrong-start", 99
+	old.ID, old.PIDStart = "reused", "wrong-start"
 	for _, recs := range [][]Record{{b, old, a}, {a, old, b}} {
-		got, ok := nearestDispatch(recs, map[int]int{a.PID: 0})
-		fields := []any{ok, got.ID, got.Depth, got.MaxDepth, got.MaxChildren, got.MaxTreeTokens}
-		if !reflect.DeepEqual(fields, []any{true, "a", 2, &three, &two, &tokens}) {
-			t.Fatalf("recovered lineage/caps = %+v", got)
-		}
-		policy := chainPolicy(got)
-		decisions := []any{policy.Mode, policy.Decide("Write", "x"), policy.Decide("Edit", "x"), policy.Decide("Bash", "curl x")}
-		if !reflect.DeepEqual(decisions, []any{"plan", permission.Deny, permission.Deny, permission.Ask}) {
-			t.Fatalf("recovered policy = %+v", policy)
+		got, err := nearestDispatch(recs, map[int]int{a.PID: 0})
+		if err == nil || got.ID != "" || !strings.Contains(err.Error(), strconv.Itoa(a.PID)) {
+			t.Fatalf("ambiguous parent = %+v, %v", got, err)
 		}
 		previous := ancestorDispatch
-		ancestorDispatch = func() (Record, bool) { return got, true }
-		values := withAncestorDispatch(proc.Values{maxDispatchDepthEnv: "0", maxDispatchChildrenEnv: "0", maxTreeTokensEnv: "0"})
+		ancestorDispatch = func() (Record, error) { return got, err }
+		values := withAncestorDispatch(proc.Values{})
+		refusal := CheckAncestorDispatch(context.Background())
 		ancestorDispatch = previous
-		caps := []string{values[maxDispatchDepthEnv], values[maxDispatchChildrenEnv], values[maxTreeTokensEnv]}
-		if !reflect.DeepEqual(caps, []string{"3", "2", strconv.Itoa(tokens)}) {
-			t.Fatalf("recovered caps = %v", values)
+		if values[proc.DispatchIDEnv] != "" || refusal == nil {
+			t.Fatalf("ambiguous parent exported id %q, refusal %v", values[proc.DispatchIDEnv], refusal)
 		}
 	}
-	if got := minDispatchCap(nil, &zero, DefaultMaxDispatchDepth); got != DefaultMaxDispatchDepth {
-		t.Fatalf("legacy cap = %d", got)
+	if got, err := nearestDispatch([]Record{a, old}, map[int]int{a.PID: 0}); err != nil || got.ID != "a" {
+		t.Fatalf("unique parent = %+v, %v", got, err)
 	}
 }
 
