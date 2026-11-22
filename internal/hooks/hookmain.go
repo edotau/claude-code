@@ -12,17 +12,17 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Main is the harness-hook entry: hook verbs run here, anything else (or a stamp mismatch) goes to claude-code.
+// Main is the bin/.hooks entry: hook verbs run here, anything else (or a stamp mismatch) goes to claude-code.
 func Main(args []string) int {
 	isHook := len(args) >= 3 && args[1] == "hook"
 	if full, ok := mainSibling(); ok && (!isHook || !stampMatches(filepath.Dir(full))) {
 		// before AdoptEnvKey so claude-code keeps the vault key
 		err := proc.Exec(full, args[1:], os.Environ())
-		fmt.Fprintln(os.Stderr, "harness-hook: cannot run claude-code:", err)
+		fmt.Fprintln(os.Stderr, ".hooks: cannot run claude-code:", err)
 		return 2
 	}
 	if !isHook {
-		fmt.Fprintln(os.Stderr, "harness-hook: only hook verbs run here and claude-code is not beside it")
+		fmt.Fprintln(os.Stderr, ".hooks: only hook verbs run here and claude-code is not beside it")
 		return 2
 	}
 	vault.AdoptEnvKey()

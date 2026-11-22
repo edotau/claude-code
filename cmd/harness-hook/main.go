@@ -1,4 +1,4 @@
-// Command harness-hook is the hooks-only harness binary; other verbs hand over to claude-code beside it.
+// Command harness-hook builds bin/.hooks, the hooks-only harness binary; other verbs hand over to claude-code beside it.
 package main
 
 import (
