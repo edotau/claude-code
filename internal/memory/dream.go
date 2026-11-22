@@ -183,21 +183,21 @@ func dream(o dreamOptions) error {
 		o.Out = io.Discard
 	}
 	var runErr, archiveErr error
-	notDue := false
+	notDue, failures := false, dreamFailures() // read before the in-lock stamp resets the count
 	lockErr := paths.WithFileLock(lockPathOf(), func() error {
 		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
 			fmt.Fprintln(o.Out, "memory dream: not due")
 			return nil
 		}
 		runErr, archiveErr = dreamLocked(o)
-		return nil
+		return stampDream(time.Now(), 0) // stamp before unlocking so a dream queued behind the lock reads "not due"
 	})
 	if notDue && lockErr == nil {
 		return nil
 	}
 	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o)); err != nil { // settle after the lock is released
 		// backdated, so dreamDue retries after the backoff for this many consecutive failures
-		n := dreamFailures() + 1
+		n := failures + 1
 		return errors.Join(err, stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n))
 	}
 	return stampDream(time.Now(), 0)
