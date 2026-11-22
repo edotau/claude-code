@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func TestBackgroundArgsPreserveFlags(t *testing.T) {
@@ -75,6 +77,30 @@ func checkSettled(t *testing.T, id string, code, got int, log string) {
 	rows, err := agent.Wait(context.Background(), []string{id}, time.Second, time.Millisecond)
 	if err != nil || agent.WaitExit(rows) != min(code, 1) {
 		t.Fatalf("rows=%v err=%v", rows, err)
+	}
+}
+
+func TestBackgroundJobPostsWaveNotices(t *testing.T) {
+	f := newRunFixture(t)
+	t.Setenv(paths.SessionIDEnv, "waves-notice-test")
+	rec := agent.ClaimRecord("waves", agent.RunOptions{Prompt: f.o.Plan}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code := runJob(context.Background(), f.o, rec.ID, func(ctx context.Context, o Options) int { return runWith(ctx, o, f.h) })
+	notices, err := worktree.DrainErr("waves-notice-test")
+	if err != nil || code != 0 || len(notices) != 3 {
+		t.Fatalf("code=%d err=%v notices=%+v out=%s", code, err, notices, f.out.String())
+	}
+	want := []string{"wave 1 (gates only): 2/2 ok; report ", "wave 2 (gates only): 1/1 ok; report ",
+		"waves toy: done, 3/3 ok; result: claude-code agents result " + rec.ID}
+	for i, n := range notices {
+		if !strings.HasPrefix(n.Text, want[i]) {
+			t.Fatalf("notice %d = %q, want prefix %q", i, n.Text, want[i])
+		}
+	}
+	if _, err := os.Stat(strings.TrimPrefix(notices[0].Text, want[0])); err != nil {
+		t.Fatalf("wave report: %v", err)
 	}
 }
 

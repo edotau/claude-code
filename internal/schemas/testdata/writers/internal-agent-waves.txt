@@ -1,3 +1,4 @@
+internal/agent/waves/run.go:notify	unversioned: report: one wave's rendered markdown under memory reports, humans only
 internal/agent/waves/state.go:Save	unversioned: runtime: the waves verb's per-run state.json, private to one run
 internal/agent/waves/taskverify.go:acquireTree	unversioned: lock: an empty flock file, no content
 internal/agent/waves/verify.go:GateRun	unversioned: log: one gate's saved output, humans only

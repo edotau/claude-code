@@ -1,6 +1,7 @@
 package waves
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ type Options struct {
 	Dir                         string
 	Executable                  string
 	Out, Err                    io.Writer
+	notify                      func(w WaveState, report string) // a background job's per-wave notice hook
 }
 
 type runHooks struct {
@@ -130,12 +132,17 @@ func (r *runner) prepare() error {
 	if err != nil {
 		return err
 	}
-	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
+	r.slug = planSlug(r.o.Plan)
 	r.day = time.Now()
 	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug), paths.MemorySubDir("reports")
 	r.path = filepath.Join(r.dir, "state.json")
 	r.state.Plan = r.o.Plan
 	return nil
+}
+
+// planSlug names a plan's state dir, reports and notices.
+func planSlug(plan string) string {
+	return paths.Slug(strings.TrimSuffix(filepath.Base(plan), filepath.Ext(plan)), "._-", 50, "plan")
 }
 
 func (r *runner) selected(n int) bool {
@@ -217,6 +224,7 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 	if skip {
 		return 0, nil
 	}
+	defer r.notify(w.Number)
 	envelopes, launchErr := r.launch(ctx, launch, specs)
 	ws, err = r.record(ws, envelopes)
 	if err != nil {
@@ -236,6 +244,25 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return code, errors.Join(err, r.finish(ws))
 	}
 	return code, nil
+}
+
+// notify writes wave n's report and hands it to the notice hook; foreground runs have no hook.
+func (r *runner) notify(n int) {
+	ws, ok := r.state.Wave(n)
+	if r.o.notify == nil || !ok {
+		return
+	}
+	var buf bytes.Buffer
+	_ = renderWave(&buf, ws, r.state.Base)
+	report := filepath.Join(r.reports, dateFirst(r.slug+"-wave-"+strconv.Itoa(n), r.day)+".md")
+	err := os.MkdirAll(r.reports, 0o700)
+	if err == nil {
+		err = os.WriteFile(report, buf.Bytes(), 0o600)
+	}
+	if err != nil { // the state file still holds the whole wave
+		report = r.path
+	}
+	r.o.notify(ws, report)
 }
 
 func (r *runner) save(w WaveState) error {
