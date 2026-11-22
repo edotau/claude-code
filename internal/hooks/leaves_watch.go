@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 const (
@@ -307,7 +308,7 @@ func writeWatch(path string, data []byte, flag int) error {
 // markCollected marks every ended job a Bash call read (`agents result <id>`, a foreground ask), for the watchdog.
 func markCollected(in *core.Input) error {
 	cmd := in.Nested("tool_input", "command")
-	if !strings.Contains(cmd, "claude-code") {
+	if !strings.Contains(cmd, "claude-code") && !strings.Contains(cmd, paths.HookBinaryName) {
 		return nil
 	}
 	ids := ownIDs(cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText()))

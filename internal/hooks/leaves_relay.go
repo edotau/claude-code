@@ -310,7 +310,7 @@ func relayCommands(cmd string) [][]string {
 }
 
 func agentCommand(words []string) []string {
-	if len(words) < 3 || filepath.Base(words[0]) != "claude-code" {
+	if len(words) < 3 || !shell.IsHarnessName(filepath.Base(words[0])) {
 		return nil
 	}
 	words = words[1:]
