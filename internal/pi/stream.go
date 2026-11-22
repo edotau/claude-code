@@ -73,7 +73,7 @@ type piTurn struct {
 	stop         string // the last assistant message's stop reason; only the last one decides the run
 	errMsg       string // and its error message
 	assistant    bool
-	open         map[string]string // running tool calls, id to name
+	open         map[string]string // running tool calls, id to write path
 	progressed   bool
 	finished     bool
 	aborted      bool
@@ -125,15 +125,10 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.delta(ev)
 	case "tool_execution_start":
 		t.progressed = true
-		t.open[ev.ToolCallID] = ev.ToolName
+		t.open[ev.ToolCallID] = ev.writePath()
 		return t.sink.Emit(wire.ToolEvent(ev.ToolName, ev.ToolCallID))
 	case "tool_execution_end":
-		delete(t.open, ev.ToolCallID)
-		status := "completed"
-		if ev.IsError {
-			status = "error"
-		}
-		return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID}, Status: status})
+		return t.toolEnd(ev)
 	case "auto_retry_start":
 		ts.Retry(nil)
 		text := fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxAttempts, ev.DelayMs)
@@ -147,6 +142,29 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.finish(true)
 	}
 	return nil
+}
+
+func (t *piTurn) toolEnd(ev piEvent) error {
+	path := cmp.Or(t.open[ev.ToolCallID], ev.writePath())
+	delete(t.open, ev.ToolCallID)
+	status := "completed"
+	if ev.IsError {
+		status = "error"
+	} else if path != "" {
+		t.res.Written = append(t.res.Written, path)
+	}
+	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID}, Status: status})
+}
+
+func (ev piEvent) writePath() string {
+	if ev.ToolName != "write" && ev.ToolName != "edit" || len(ev.Args) == 0 {
+		return ""
+	}
+	var a struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal(ev.Args, &a)
+	return strings.TrimPrefix(a.Path, "@")
 }
 
 // delta streams assistant text; a later message's first chunk starts a new turn.

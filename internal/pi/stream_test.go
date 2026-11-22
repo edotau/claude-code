@@ -82,6 +82,19 @@ func TestParseEventsToolPair(t *testing.T) {
 	}
 }
 
+func TestParseEventsWrittenOnlyOnSuccess(t *testing.T) {
+	call := func(id, tool, path, isErr string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"` + tool + `","args":{"path":"` + path + `"}}` + "\n" +
+			`{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"` + tool + `","result":{"content":[{"type":"text","text":"ok"}]},"isError":` + isErr + `,"durationMs":3}` + "\n"
+	}
+	res, _, _, err := parseFixture(t, call("w1", "write", "/work/repo/a.txt", "false")+
+		call("w2", "edit", "b.txt", "false")+call("w3", "edit", "err.txt", "true")+
+		call("w4", "read", "r.txt", "false")+msgEnd("stop", "")+settled)
+	if err != nil || !slices.Equal(res.Written, []string{"/work/repo/a.txt", "b.txt"}) {
+		t.Fatalf("Written = %v, err = %v", res.Written, err)
+	}
+}
+
 func TestParseEventsStopReasonErrorWithExitZero(t *testing.T) {
 	res, sink, _, err := parseFixture(t, readFixture(t, "error.jsonl"))
 	re, ok := err.(*retry.Error)
