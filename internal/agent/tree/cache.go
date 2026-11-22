@@ -106,19 +106,20 @@ func (c *scanCache) lookup(path string) *scanEntry {
 	return e
 }
 
-// saveScanCache writes the file when anything changed, first dropping entries whose transcript is gone; best effort.
+// saveScanCache drops entries whose transcript is gone, then writes the file when anything changed; best effort.
 func saveScanCache(c *scanCache) {
-	if !c.dirty {
-		return
-	}
 	for p := range c.Files {
 		if c.used[p] {
 			continue
 		}
-		if _, err := os.Stat(p); os.IsNotExist(err) {
+		if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
 			delete(c.Files, p)
 			delete(c.entries, p)
+			c.dirty = true
 		}
+	}
+	if !c.dirty {
+		return
 	}
 	for p, e := range c.entries {
 		if e == nil {
