@@ -40,9 +40,14 @@ func TestHistoryRecordsEpochChangesAndCLIReports(t *testing.T) {
 	if err != nil || len(history) != 3 || history[0].Schema != historySchema {
 		t.Fatalf("history=%+v err=%v", history, err)
 	}
+	checkRecordedEpochChange(t, s.Epoch, res.Benchmarks[0])
+}
+
+func checkRecordedEpochChange(t *testing.T, oldEpoch string, score Score) {
+	t.Helper()
 	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
-	if err != nil || len(rows) != 2 || rows[1].Verdict != "bench-change" || rows[1].OldEpoch != s.Epoch ||
-		rows[1].Epoch != res.Benchmarks[0].Epoch || rows[1].Benchmark != res.Benchmarks[0].Name {
+	if err != nil || len(rows) != 2 || rows[1].Verdict != "bench-change" || rows[1].OldEpoch != oldEpoch ||
+		rows[1].Epoch != score.Epoch || rows[1].Benchmark != score.Name {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
 }

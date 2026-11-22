@@ -32,6 +32,11 @@ func TestBenchmarkEpochsFollowFileContents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkBenchmarkEpochComparisons(t, before, after)
+}
+
+func checkBenchmarkEpochComparisons(t *testing.T, before, after map[string]benchmarkEpoch) {
+	t.Helper()
 	if sameEpochs(epochHeader(before), epochHeader(after)) || !sameEpochs(epochHeader(before), epochHeader(before)) {
 		t.Fatal("file rewrite did not isolate epochs")
 	}
@@ -64,10 +69,15 @@ func TestEpochChangeStartsBaselineWithoutComparing(t *testing.T) {
 	if err := compareRolling(&res, dir, after, false, false); err != nil {
 		t.Fatal(err)
 	}
+	checkEpochBaseline(t, res, b, after)
+}
+
+func checkEpochBaseline(t *testing.T, res PkgResult, file, after string) {
+	t.Helper()
 	if res.Compared || !res.Baseline || len(res.Missing) != 1 {
 		t.Fatalf("result=%+v", res)
 	}
-	got, err := os.ReadFile(b)
+	got, err := os.ReadFile(file)
 	if err != nil || string(got) != after {
 		t.Fatalf("baseline=%q err=%v", got, err)
 	}
