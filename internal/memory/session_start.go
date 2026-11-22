@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -53,14 +54,20 @@ func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time, not
 	return strings.TrimSpace(prefix)
 }
 
-// startWorkers launches the detached dream and catch-up sweep a start may owe; banked is cwd's bank probe.
+// catchupEvery spaces the sweep wake-ups, so a burst of starts spawns one sweep instead of one each.
+const catchupEvery = 10 * time.Minute
+
+// startWorkers queues the daily dream and wakes the catch-up sweep that drains the queue; banked is cwd's bank probe.
 func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
-	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
+	queued := false
 	if banked && dreamDue(now) {
-		spawn.dream(cwd)
+		job := Job{Kind: "dream", Key: now.Format(time.DateOnly), CWD: cwd, Args: []string{"memory", "dream", "--cwd", cwd}}
+		var err error
+		if queued, err = Enqueue(job); err != nil {
+			fmt.Fprintf(os.Stderr, "memory-start: queue dream: %v\n", err)
+		}
 	}
-	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
-	if looksLikeSessionID(sessionID) {
+	if queued || looksLikeSessionID(sessionID) && catalog.ClaimEvery("memory-catchup", catchupEvery, now) {
 		spawn.catchup(cwd, sessionID)
 	}
 }

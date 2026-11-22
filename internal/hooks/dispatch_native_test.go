@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/memtest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -90,7 +91,7 @@ func TestNativeMemoryEntriesAreMemhookRunners(t *testing.T) {
 	}
 }
 
-// SessionStart for a UUID session with a due dream reaches the stubbed spawns, never relaunching the test binary.
+// SessionStart for a UUID session with a due dream queues it and wakes the stubbed sweep, never relaunching the test binary.
 func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()
@@ -103,7 +104,8 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	if code := runEvent("SessionStart", "", strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("SessionStart exit %d, stderr %q", code, errb.String())
 	}
-	if spawns.Dream.Load() != 1 || spawns.Catchup.Load() != 1 {
-		t.Errorf("dream=%d catchup=%d spawn-stub hits, want 1 each", spawns.Dream.Load(), spawns.Catchup.Load())
+	queued, _ := filepath.Glob(filepath.Join(paths.MemoryStateDir(), "queue", "dream-*.json"))
+	if spawns.Catchup.Load() != 1 || len(queued) != 1 {
+		t.Errorf("catchup=%d queued dreams=%d, want 1 each", spawns.Catchup.Load(), len(queued))
 	}
 }

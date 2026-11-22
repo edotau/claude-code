@@ -43,13 +43,12 @@ func spawnSelf(args []string, dir, logName string, env ...string) bool {
 type spawner struct {
 	update  func(transcriptPath, cwd, sessionID string) bool
 	watcher func(args []string, cwd string) bool
-	dream   func(cwd string) bool
 	catchup func(cwd, sessionID string) bool
 	refresh func(root, profile string) bool
 	sync    func(cwd string) bool
 }
 
-var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, dream: spawnDream, catchup: spawnCatchup, refresh: spawnEmbedRefresh, sync: spawnSync}
+var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, catchup: spawnCatchup, refresh: spawnEmbedRefresh, sync: spawnSync}
 
 // spawnUpdate records the session's result as pending, then launches `memory update`; a failed launch undoes it.
 func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
@@ -74,10 +73,6 @@ func spawnWatcher(args []string, cwd string) bool {
 	return spawnSelf(append([]string{"memory", "watch"}, args...), paths.MemoryStateDir(), "watch-"+filepath.Base(args[1])+".log")
 }
 
-func spawnDream(cwd string) bool {
-	return spawnSelf([]string{"memory", "dream", "--cwd", cwd}, cwd, "dream-"+time.Now().Format(logStampLayout)+".log")
-}
-
 func spawnCatchup(cwd, sessionID string) bool {
 	args := []string{"memory", "update", "--catchup", "--skip", sessionID}
 	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
@@ -97,7 +92,7 @@ func spawnEmbedRefresh(root, profile string) bool {
 }
 
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
-type Spawns struct{ Update, Dream, Catchup, Refresh, Sync atomic.Int64 }
+type Spawns struct{ Update, Catchup, Refresh, Sync atomic.Int64 }
 
 // StubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
 func StubSpawns(ok bool) (s *Spawns, restore func()) {
@@ -106,7 +101,6 @@ func StubSpawns(ok bool) (s *Spawns, restore func()) {
 	spawn = spawner{
 		update:  func(string, string, string) bool { s.Update.Add(1); return ok },
 		watcher: func([]string, string) bool { return true },
-		dream:   func(string) bool { s.Dream.Add(1); return true },
 		catchup: func(string, string) bool { s.Catchup.Add(1); return true },
 		refresh: func(string, string) bool { s.Refresh.Add(1); return true },
 		sync:    func(string) bool { s.Sync.Add(1); return true },

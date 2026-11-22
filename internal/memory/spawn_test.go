@@ -56,7 +56,6 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 	got := captureLaunches(t)
 	spawnUpdate("/t.jsonl", "/c", "s1")
 	spawnWatcher([]string{"--session", "s1", "--transcript", "/t.jsonl"}, "/c")
-	spawnDream("/c")
 	spawnCatchup("/c", "s1")
 	spawnEmbedRefresh("/r", "p1")
 	stamp := `\d{8}-\d{6}\.\d{3}`
@@ -67,7 +66,6 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 	}{
 		{[]string{"memory", "update", "--transcript", "/t.jsonl", "--cwd", "/c", "--session", "s1"}, "/c", "update-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
 		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, paths.MemoryStateDir(), `watch-s1\.log`, nil},
-		{[]string{"memory", "dream", "--cwd", "/c"}, "/c", "dream-" + stamp + `\.log`, nil},
 		{[]string{"memory", "update", "--catchup", "--skip", "s1"}, "/c", "catchup-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
 		{[]string{"memory", "index", "--mint-only"}, "/r", "",
 			[]string{providers.EnvSessionProfile + "=p1", UpdateChildEnv + "=1"}},
@@ -90,7 +88,7 @@ func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	base := StubSpawn(t, true)
 	outer, restoreOuter := StubSpawns(true)
 	inner, restoreInner := StubSpawns(false)
-	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") || !spawn.refresh("", "") {
+	if spawn.update("", "", "") || !spawn.catchup("", "") || !spawn.watcher(nil, "") || !spawn.refresh("", "") {
 		t.Fatal("inner stub: want update=false (ok flag), the rest true")
 	}
 	restoreInner()
@@ -99,12 +97,12 @@ func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	}
 	restoreOuter()
 	spawn.update("", "", "")
-	counts := [3][4]int64{
-		{inner.Update.Load(), inner.Dream.Load(), inner.Catchup.Load(), inner.Refresh.Load()},
-		{outer.Update.Load(), outer.Dream.Load(), outer.Catchup.Load(), outer.Refresh.Load()},
-		{base.Update.Load(), base.Dream.Load(), base.Catchup.Load(), base.Refresh.Load()},
+	counts := [3][3]int64{
+		{inner.Update.Load(), inner.Catchup.Load(), inner.Refresh.Load()},
+		{outer.Update.Load(), outer.Catchup.Load(), outer.Refresh.Load()},
+		{base.Update.Load(), base.Catchup.Load(), base.Refresh.Load()},
 	}
-	if counts != [3][4]int64{{1, 1, 1, 1}, {1, 0, 0, 0}, {1, 0, 0, 0}} {
+	if counts != [3][3]int64{{1, 1, 1}, {1, 0, 0}, {1, 0, 0}} {
 		t.Fatalf("inner/outer/base counts = %v; want each restore to reinstate the previous stub", counts)
 	}
 }
