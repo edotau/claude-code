@@ -45,7 +45,20 @@ type driver struct {
 	top, exe string
 	out, log io.Writer
 	skip     map[string]bool // items held for the owner this run; unrecorded, so the queue still ranks them
+	steps    loopSteps
 }
+
+// loopSteps are the loop's three stages, fields so a test can replace them.
+type loopSteps struct {
+	quiet func(context.Context) (bool, string)
+	pick  func() (Item, bool, error)
+	item  func(context.Context, Item) (outcome, error)
+}
+
+var (
+	newDriverFn = newDriver
+	driverRun   = execRun // the subprocess runner; a test swaps it
+)
 
 // candidate is one queue item's lane and the evidence gathered for it.
 type candidate struct {
@@ -64,7 +77,7 @@ type askEnvelope struct {
 }
 
 func runDriver(l loopOpts, stdout, stderr io.Writer) int {
-	d, err := newDriver(stdout, stderr)
+	d, err := newDriverFn(stdout, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "review bench --loop:", err)
 		return 1
@@ -98,7 +111,9 @@ func newDriver(stdout, stderr io.Writer) (*driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &driver{top: top, exe: exe, out: stdout, log: stderr, skip: map[string]bool{}}, nil
+	d := &driver{top: top, exe: exe, out: stdout, log: stderr, skip: map[string]bool{}}
+	d.steps = loopSteps{quiet: d.quiet, pick: d.pick, item: d.item}
+	return d, nil
 }
 
 func (d *driver) loop(ctx context.Context, maxItems int) error {
@@ -108,11 +123,11 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 			fmt.Fprintf(d.out, "bench loop: %d reverts in a row; stopping\n", reverts)
 			return nil
 		}
-		if quiet, why := d.quiet(ctx); !quiet {
+		if quiet, why := d.steps.quiet(ctx); !quiet {
 			fmt.Fprintf(d.out, "bench loop: machine busy (%s); deferred\n", why)
 			return nil
 		}
-		it, ok, err := d.pick()
+		it, ok, err := d.steps.pick()
 		if err != nil {
 			return err
 		}
@@ -120,7 +135,7 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 			fmt.Fprintln(d.out, "bench loop: no fix candidate at 1 s/day or more; stopping")
 			return nil
 		}
-		o, err := d.item(ctx, it)
+		o, err := d.steps.item(ctx, it)
 		if err != nil {
 			return err
 		}
@@ -439,6 +454,10 @@ func (d *driver) ask(ctx context.Context, dir, brief string, flags ...string) (a
 
 // run is one subprocess with list args; a failure carries the exit code and stderr.
 func (d *driver) run(ctx context.Context, dir, stdin, name string, args ...string) (string, int, error) {
+	return driverRun(ctx, dir, stdin, name, args...)
+}
+
+func execRun(ctx context.Context, dir, stdin, name string, args ...string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	if stdin != "" {
