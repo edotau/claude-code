@@ -54,7 +54,8 @@ type Record struct {
 	Time           time.Time   `json:"time"`
 	Agent          string      `json:"agent"`
 	Request        RunOptions  `json:"request"`
-	Status         string      `json:"status"` // running | ok | error | partial | stalled | quota
+	Status         string      `json:"status"`               // running | ok | error | partial | stalled | quota
+	Experiment     string      `json:"experiment,omitempty"` // the one trial the run carries (pi: rtk-wrap|codemode|none)
 	Error          string      `json:"error,omitempty"`
 	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
@@ -203,7 +204,21 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Route{Provider: provider, Profile: profile}}
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Route{Provider: provider, Profile: profile},
+		Experiment: experimentOf(name, req)}
+}
+
+// Experimenter is an optional Driver method: the trial a run of req carries, for the record.
+type Experimenter interface {
+	Experiment(req RunOptions) string
+}
+
+func experimentOf(name string, req RunOptions) string {
+	d, _ := driverFor(name)
+	if x, ok := d.(Experimenter); ok {
+		return x.Experiment(req)
+	}
+	return ""
 }
 
 // lineage is the depth and cap from the parent's record; the env may tighten both, never loosen (cap 0 = none).

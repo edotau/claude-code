@@ -596,6 +596,7 @@ type RunOptions struct {
 	KeepEnv                                             []string               // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool                   // Direct: agent keeps the provider route, skips the router
 	Fleet                                               bool                   // copilot only: run in fleet mode (parallel subagents)
+	Codemode                                            string                 `json:"codemode,omitempty"` // pi only: on|only, Pi's codemode tool
 	NoTools                                             bool                   // claude only: answer from the provider directly, no claude process
 	ReadOnly                                            bool                   // tools may read but never write, run shell or commit
 	NoPersist                                           bool                   // claude, codex: no session persistence

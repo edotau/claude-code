@@ -68,9 +68,18 @@ export default function (pi: any) {
     try { const p = pi.getAllTools().find((t: any) => t.name === name)?.sourceInfo?.path; return typeof p === "string" && real(p) === SELF }
     catch { return false } // fail closed
   }
+  // codemode runs no tool itself: its nested calls come back through tool_call and the guarded tools' execute
+  const codemode = process.env.HARNESS_PI_GUARD_CODEMODE === "1"
+  const builtinCodemode = (): boolean => {
+    try { return pi.getAllTools().find((t: any) => t.name === "codemode")?.sourceInfo?.path === "builtin:codemode" }
+    catch { return false } // fail closed: a package that registers codemode replaces the builtin and is blocked
+  }
+  const allowed = (name: string): boolean => names.includes(name) ? ours(name) : codemode && name === "codemode" && builtinCodemode()
   // second layer: a call is judged only when the tool Pi runs under that name is the guard's own registration
-  pi.on("tool_call", (ev: any) => names.includes(String(ev.toolName)) && ours(String(ev.toolName)) ? undefined
+  pi.on("tool_call", (ev: any) => allowed(String(ev.toolName)) ? undefined
     : { block: true, reason: "pi guard: tool " + ev.toolName + " is not a guarded tool" })
   // fail closed: the nonce is written only after every guarded name resolves to this file, so a shadowed tool means no guard
-  pi.on("session_start", () => { if (names.every(ours)) writeFileSync(file, nonce, { mode: 0o600 }) })
+  pi.on("session_start", () => {
+    if (names.every(ours) && (!codemode || builtinCodemode())) writeFileSync(file, nonce, { mode: 0o600 })
+  })
 }

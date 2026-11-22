@@ -61,8 +61,7 @@ func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless
 		return nil, nil, err
 	}
 	env = append(env, tools.PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
-	mode := cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])
-	return rtkwrap.LaunchEnv(env, mode, agent.NoticeOut), argv, nil
+	return rtkwrap.LaunchEnv(env, rtkMode(), agent.NoticeOut), argv, nil
 }
 
 func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
@@ -255,7 +254,7 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	if !ok {
 		return nil, errors.New("pi: no guard extension for this run; tools refused")
 	}
-	return append(g.Argv(), "--no-builtin-tools"), nil
+	return append(append(g.Argv(), "--no-builtin-tools"), codemodeArgv(req.Codemode)...), nil
 }
 
 // guardTools is the tools the guard registers for req: read-only and plan runs drop the writers; a file-writer deny
@@ -291,6 +290,9 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
 			p.Env = append(p.Env, guardToolsEnv+"="+strings.Join(guardTools(req), ","))
+			if req.Codemode != "" {
+				p.Env = append(p.Env, guardCodemodeEnv+"=1")
+			}
 		}
 		// the guard's -e stays first: Pi keeps the first registration of a tool name, so a package never shadows a guarded tool
 		p.Argv = append(p.Argv, PackageArgv(loadedAt(dirs))...)
@@ -336,6 +338,12 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 		return p.Result, retry.Fatal(e.Name(), err)
 	}
 	if _, err := toolsArgv(req, p.Env); err != nil {
+		return p.Result, retry.Fatal(e.Name(), err)
+	}
+	if err := checkCodemode(req, p.Env); err != nil {
+		return p.Result, retry.Fatal(e.Name(), err)
+	}
+	if err := writeCodemodeSettings(p.Env, req.Codemode); err != nil {
 		return p.Result, retry.Fatal(e.Name(), err)
 	}
 	bin, err := e.Bin()

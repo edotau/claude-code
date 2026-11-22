@@ -88,6 +88,52 @@ func TestInteractiveWireRefusesDirect(t *testing.T) {
 	}
 }
 
+func TestExperimentIsOneTrial(t *testing.T) {
+	for _, c := range []struct{ codemode, rtk, want string }{
+		{"", "", "none"}, {"", "debug", "none"}, {"", " ON ", "rtk-wrap"}, {"on", "", "codemode"}, {"only", "debug", "codemode"},
+	} {
+		if got, err := experiment(c.codemode, c.rtk); err != nil || got != c.want {
+			t.Errorf("experiment(%q, %q) = %q, %v; want %q", c.codemode, c.rtk, got, err, c.want)
+		}
+	}
+	_, err := experiment("on", "on")
+	if err == nil || !strings.Contains(err.Error(), "--codemode") || !strings.Contains(err.Error(), "RTK_WRAP=on") {
+		t.Errorf("codemode with RTK_WRAP=on: err = %v, want a refusal naming both", err)
+	}
+}
+
+func TestCheckCodemode(t *testing.T) {
+	for name, c := range map[string]struct {
+		req agent.RunOptions
+		env []string
+		ok  bool
+	}{
+		"off":          {agent.RunOptions{}, []string{"RTK_WRAP=on"}, true},
+		"on":           {agent.RunOptions{Tools: true, Codemode: "on"}, []string{"RTK_WRAP=debug"}, true},
+		"bad mode":     {agent.RunOptions{Tools: true, Codemode: "yes"}, nil, false},
+		"no tools":     {agent.RunOptions{Codemode: "only"}, nil, false},
+		"with rtkwrap": {agent.RunOptions{Tools: true, Codemode: "on"}, []string{"RTK_WRAP=off", "RTK_WRAP=on"}, false},
+	} {
+		if err := checkCodemode(c.req, c.env); (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok=%v", name, err, c.ok)
+		}
+	}
+}
+
+func TestWriteCodemodeSettingsKeepsTheRunSettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteConfig(dir, []byte(`{}`), []byte(`{"defaultModel":"m"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCodemodeSettings([]string{agentDirEnv + "=" + dir}, "only"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(dir + "/settings.json")
+	if err != nil || !strings.Contains(string(raw), `"mode": "only"`) || !strings.Contains(string(raw), `"defaultModel": "m"`) {
+		t.Errorf("settings.json = %s, %v", raw, err)
+	}
+}
+
 func TestLaunchArgsDropsReadOnly(t *testing.T) {
 	got, err := piEngine{}.LaunchArgs("", []string{"--read-only", "-c"})
 	if err != nil || !slices.Equal(got, []string{"-c"}) {

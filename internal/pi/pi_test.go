@@ -111,6 +111,8 @@ func TestToolsArgv(t *testing.T) {
 	}{
 		"no tools": {agent.RunOptions{}, []string{"--no-tools"}},
 		"tools":    {agent.RunOptions{Tools: true}, []string{"-e", g.Path, "--no-builtin-tools"}},
+		"codemode": {agent.RunOptions{Tools: true, Codemode: "only"},
+			[]string{"-e", g.Path, "--no-builtin-tools", "-e", "builtin:codemode", "--tools", "+codemode"}},
 	} {
 		got, err := toolsArgv(c.req, env)
 		if err != nil || !slices.Equal(got, c.want) {

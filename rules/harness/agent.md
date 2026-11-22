@@ -110,6 +110,11 @@ paths:
   Substitutions, env changes, `git commit` and the hook's vetoes stay raw, and any failure runs the real binary.
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`. Rollback: `RTK_WRAP=off`, or
   delete `bin/.rtkwrap`. Plan: `/Users/edotau/.claude/plans/2026-11-22-rtk-wrap-and-parallel-rewrite.md`.
+- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode on|only` loads `builtin:codemode`. The model
+  writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts. The
+  guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan` and
+  `permission-gate`. Pi records carry `experiment: rtk-wrap|codemode|none`; `--codemode` with `RTK_WRAP=on` is
+  refused (one experiment per dispatch). Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local

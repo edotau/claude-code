@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -43,6 +44,7 @@ type askFlags struct {
 	keepEnv                                                                                                                                                                      []string
 	permAllow, permAsk, permDeny                                                                                                                                                 []string
 	permMode                                                                                                                                                                     string
+	codemode                                                                                                                                                                     string
 	provider                                                                                                                                                                     string
 	env                                                                                                                                                                          []string
 	spec                                                                                                                                                                         string
@@ -125,6 +127,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
+	fs.StringVar(&f.codemode, "codemode", "", "pi only, with --tools: "+strings.Join(pi.CodemodeModes, "|")+", tools via scripts")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (15m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -175,6 +178,20 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 		return err
 	}
 	return askExclusive(background, job, tools, noTools)
+}
+
+// validateCodemode checks --codemode against the resolved agent: only pi has a codemode tool.
+func validateCodemode(mode, ag string) error {
+	if mode == "" {
+		return nil
+	}
+	if !slices.Contains(pi.CodemodeModes, mode) {
+		return fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
+	}
+	if ag != agentid.Pi {
+		return fmt.Errorf("--codemode applies to pi only; %s has no codemode tool", ag)
+	}
+	return nil
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
@@ -395,7 +412,7 @@ type askTarget struct {
 	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
 	NoPersist, SafeMode, Native                                       *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
-	Host, Fallback, Coworker                                          *string
+	Host, Fallback, Coworker, Codemode                                *string
 	Timeout                                                           *time.Duration
 	Persona                                                           **agent.Schema
 	Pack                                                              **pack.Spec
@@ -412,7 +429,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.KeepEnv, *t.Direct, *t.NoTools, *t.ReadOnly = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
 	*t.NoPersist, *t.SafeMode, *t.DebugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
-	*t.Host = rec.Host
+	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
 	p := rec.Request.Permissions
 	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Ask), permission.RuleStrings(p.Deny)
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona

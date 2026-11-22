@@ -185,7 +185,7 @@ func (a AskWords) Prompt() string {
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
 	"attach keep-env env allow ask deny permissions overlay system-prompt append-system-prompt output-schema timeout host " +
 	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
-	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles")
+	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode")
 
 // packsToFile is a --dirs/--files/--diff pack the agent reads from a staged file, which turns tools on (packPrompt).
 func packsToFile(agent string, a AskWords) bool {
