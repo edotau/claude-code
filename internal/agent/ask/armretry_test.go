@@ -25,8 +25,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// armRateFixture is armChildEnvFixture with a codex fake answering 429 (limited) or 402 (broke); returns the dump dir.
-func armRateFixture(t *testing.T, limited, broke []string) string {
+// armRateFixture is armChildEnvFixture with a codex fake answering 429 (limited), 402 (broke) or 401 (denied); returns the dump dir.
+func armRateFixture(t *testing.T, limited, broke []string, denied ...string) string {
 	t.Helper()
 	dump := armChildEnvFixture(t)
 	var cond strings.Builder
@@ -35,6 +35,9 @@ func armRateFixture(t *testing.T, limited, broke []string) string {
 	}
 	for _, w := range broke {
 		fmt.Fprintf(&cond, `*"/p/%s/"*) echo '402 Payment Required: monthly quota exceeded' >&2; exit 1;; `, w)
+	}
+	for _, w := range denied {
+		fmt.Fprintf(&cond, `*"/p/%s/"*) echo '401 Unauthorized: invalid token' >&2; exit 1;; `, w)
 	}
 	pathstest.FakeVendor(t, "codex", `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; `+
 		`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac`+"\n"+`n=$(ls `+dump+` | wc -l | tr -d ' ')`+"\n"+
@@ -94,20 +97,36 @@ func hopProfiles(env map[string]any) []string {
 	return out
 }
 
-// A 429 on the auto-picked workspace cools it and re-runs the same agent on the next one; both are listed, in order.
+// A 429 or 401 on the auto-picked workspace re-runs the same agent on the next one; both are listed, in order.
 func TestAutoRateLimitMovesToNextWorkspace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pre-ship tier: fake vendor spawns")
 	}
-	dump := armRateFixture(t, []string{"dev"}, nil)
-	code, env, stderr := askAuto(t, "auto", "none")
-	if code != 0 || env["status"] != "ok" || env["agent"] != "codex" {
-		t.Fatalf("exit %d status %v agent %v, want an ok codex answer\n%s", code, env["status"], env["agent"], stderr)
+	for _, tc := range []struct {
+		name, note      string
+		limited, denied []string
+	}{{"429", "rate limited, trying qa", []string{"dev"}, nil}, {"401", "auth rejected, trying qa", nil, []string{"dev"}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dump := armRateFixture(t, tc.limited, nil, tc.denied...)
+			code, env, stderr := askAuto(t, "auto", "none")
+			if code != 0 || env["status"] != "ok" || env["agent"] != "codex" || !strings.Contains(stderr, tc.note) {
+				t.Fatalf("exit %d status %v agent %v, want an ok codex answer noting %q\n%s", code, env["status"], env["agent"], tc.note, stderr)
+			}
+			if got := launchedOn(t, dump); got[0] != "dev" || got[len(got)-1] != "qa" {
+				t.Errorf("launches on %v, want dev first and qa last", got)
+			}
+			checkMovedReport(t, env)
+		})
 	}
-	if got := launchedOn(t, dump); got[0] != "dev" || got[len(got)-1] != "qa" {
-		t.Errorf("launches on %v, want dev first and qa last", got)
+}
+
+// A 429 cools its workspace out of the pick; the 401 move leaves cooling to the dead-login mark.
+func TestAutoRateLimitCoolsWorkspace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
 	}
-	checkMovedReport(t, env)
+	armRateFixture(t, []string{"dev"}, nil)
+	askAuto(t, "auto", "none")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +170,23 @@ func TestExplicitProfileRateLimitStays(t *testing.T) {
 	code, env, _ := askAuto(t, "dev", "none")
 	if code == 0 || env["error"] == nil {
 		t.Fatalf("exit %d, want the rate limit to fail the ask", code)
+	}
+	for _, w := range launchedOn(t, dump) {
+		if w != "dev" {
+			t.Errorf("launches %v, want only dev", launchedOn(t, dump))
+		}
+	}
+}
+
+// A typed --profile that answers 401 never moves: the auth failure is the result.
+func TestExplicitProfileAuthRejectionStays(t *testing.T) {
+	dump := armRateFixture(t, nil, nil, "dev")
+	code, env, _ := askAuto(t, "dev", "none")
+	if code == 0 || env["error"] == nil {
+		t.Fatalf("exit %d, want the auth rejection to fail the ask", code)
+	}
+	if e, _ := env["error"].(map[string]any); e["kind"] != "auth" {
+		t.Errorf("error %v, want kind auth", env["error"])
 	}
 	for _, w := range launchedOn(t, dump) {
 		if w != "dev" {
