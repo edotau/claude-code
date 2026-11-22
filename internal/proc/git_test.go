@@ -3,6 +3,7 @@ package proc
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -194,5 +195,47 @@ func TestRunGitHonorsContextTimeout(t *testing.T) {
 	_, err := RunGit(ctx, "", "--version")
 	if err == nil {
 		t.Fatal("expected an error from an already-expired context")
+	}
+}
+
+func BenchmarkRunGit(b *testing.B) {
+	dir := b.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	for _, name := range []string{"objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(gitDir, name), 0o700); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for name, data := range map[string]string{
+		"HEAD":   "ref: refs/heads/bench\n",
+		"config": "[core]\nrepositoryformatversion = 0\nbare = false\n",
+	} {
+		if err := os.WriteFile(filepath.Join(gitDir, name), []byte(data), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.Setenv("HOME", b.TempDir())
+	b.Setenv("XDG_CONFIG_HOME", b.TempDir())
+	b.Setenv("GIT_DIR", filepath.Join(dir, "must-be-stripped"))
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := RunGit(ctx, dir, "rev-parse", "--is-inside-work-tree")
+		if err != nil || got != "true" {
+			b.Fatalf("RunGit = %q, %v; want true", got, err)
+		}
+	}
+}
+
+func BenchmarkStatusEntries(b *testing.B) {
+	const record = " M src/edited.go\x00R  src/new.go\x00src/old.go\x00?? untracked file.txt\x00"
+	out := strings.Repeat(record, 100)
+	b.SetBytes(int64(len(out)))
+	b.ReportAllocs()
+	for b.Loop() {
+		got := StatusEntries(out)
+		if len(got) != 300 || got[1].From != "src/old.go" || got[299].Path != "untracked file.txt" {
+			b.Fatal("status parser lost an entry, rename source, or space in a path")
+		}
 	}
 }

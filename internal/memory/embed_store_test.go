@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -707,4 +708,47 @@ func truncatedEmbedDB(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return raw[:len(raw)/2]
+}
+
+func BenchmarkDecodeEmbedRecord(b *testing.B) {
+	const rows, dims = 2000, 1024
+	want := vectorRecord{Schema: embedCacheSchema, Model: "bench-gte", MintedAt: 1, Rows: make(map[string]vectorRow, rows)}
+	for i := range rows {
+		vec := make([]float32, dims)
+		for j := range vec {
+			vec[j] = float32((i+j)%257-128) / 128
+		}
+		want.Rows[fmt.Sprintf("entry-%04d", i)] = vectorRow{Hash: fmt.Sprintf("hash-%04d", i), Vec: encodeVec(vec)}
+	}
+	db, err := bbolt.Open(filepath.Join(b.TempDir(), "vectors.db"), 0o600, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			b.Error(err)
+		}
+	})
+	if err := db.Update(func(tx *bbolt.Tx) error {
+		if _, err := tx.CreateBucket(embedVectorBucket); err != nil {
+			return err
+		}
+		return putEmbedRecord(tx, want)
+	}); err != nil {
+		b.Fatal(err)
+	}
+	var got vectorRecord
+	b.SetBytes(rows * dims * 4)
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := db.View(func(tx *bbolt.Tx) error {
+			got = decodeEmbedRecord(tx)
+			return nil
+		}); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		b.Fatal("decoded metadata or vector bytes differ from the 2000 x 1024 fixture")
+	}
 }

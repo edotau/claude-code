@@ -1,8 +1,10 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -226,5 +228,79 @@ func TestPathIdentity(t *testing.T) {
 		if got := InsideDir(tc.p, tc.other); got != tc.inside {
 			t.Errorf("%s: InsideDir = %v, want %v", tc.name, got, tc.inside)
 		}
+	}
+}
+
+func BenchmarkCheckoutOf(b *testing.B) {
+	main, linked := checkoutBenchFixture(b)
+	for _, root := range []string{main, linked} {
+		for _, depth := range []int{0, 8} {
+			b.Run(fmt.Sprintf("%s/depth=%d", filepath.Base(root), depth), func(b *testing.B) {
+				dir := root
+				for range depth {
+					dir = filepath.Join(dir, "nested")
+				}
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					if top, gotMain := CheckoutOf(dir); top != root || gotMain != main {
+						b.Fatalf("CheckoutOf = %q, %q; want %q, %q", top, gotMain, root, main)
+					}
+				}
+			})
+		}
+	}
+}
+
+func checkoutBenchFixture(b *testing.B) (main, linked string) {
+	b.Helper()
+	base := b.TempDir()
+	main, linked = filepath.Join(base, "main"), filepath.Join(base, "linked")
+	for _, dir := range []string{filepath.Join(main, ".git"), linked} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for path, data := range map[string]string{
+		filepath.Join(main, ".git", "HEAD"): "ref: refs/heads/main\n",
+		filepath.Join(linked, ".git"):       "gitdir: " + filepath.Join(main, ".git", "worktrees", "linked") + "\n",
+	} {
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return main, linked
+}
+
+func BenchmarkReal(b *testing.B) {
+	dir := b.TempDir()
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, kind := range []string{"existing", "symlink", "missing-tail"} {
+		b.Run(kind, func(b *testing.B) {
+			path, expected := dir, want
+			if kind != "existing" {
+				if runtime.GOOS == "windows" {
+					b.Skip("symlinks require Windows privileges")
+				}
+				path = filepath.Join(b.TempDir(), "link")
+				if err := os.Symlink(dir, path); err != nil {
+					b.Fatal(err)
+				}
+			}
+			if kind == "missing-tail" {
+				path, expected = filepath.Join(path, "a", "b", "c"), filepath.Join(expected, "a", "b", "c")
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := Real(path); got != expected {
+					b.Fatalf("Real = %q, want %q", got, expected)
+				}
+			}
+		})
 	}
 }

@@ -14,6 +14,25 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
+func BenchmarkTryFileLock(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.lock")
+	calls := 0
+	fn := func() error { calls++; return nil }
+	if ran, err := TryFileLock(path, 0, fn); err != nil || !ran {
+		b.Fatalf("initial lock: ran=%v err=%v", ran, err)
+	}
+	calls = 0
+	b.ReportAllocs()
+	for b.Loop() {
+		if ran, err := TryFileLock(path, 0, fn); err != nil || !ran {
+			b.Fatalf("uncontended lock: ran=%v err=%v", ran, err)
+		}
+	}
+	if calls != b.N {
+		b.Fatalf("lock callbacks = %d, want %d", calls, b.N)
+	}
+}
+
 func TestStateDirIsHarnessUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

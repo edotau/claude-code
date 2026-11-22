@@ -688,3 +688,66 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 		t.Errorf("subagentEdits after adding agent files = %d, want 3", edits2)
 	}
 }
+
+func BenchmarkCountWork(b *testing.B) {
+	for _, mib := range []int{5, 20} {
+		for _, state := range []string{"initial", "unchanged", "appended"} {
+			b.Run(fmt.Sprintf("%dMiB/%s", mib, state), func(b *testing.B) {
+				benchCountWorkState(b, mib, state)
+			})
+		}
+	}
+}
+
+func benchCountWorkState(b *testing.B, mib int, state string) {
+	b.Helper()
+	tr, cache, seed, want := countWorkBenchFixture(b, mib, state)
+	b.ReportAllocs()
+	for b.Loop() {
+		if state != "unchanged" {
+			b.StopTimer()
+			if err := os.WriteFile(cache, seed, 0o600); err != nil {
+				b.Fatal(err)
+			}
+			b.StartTimer()
+		}
+		if got := countWork(tr, cache, true); got != want {
+			b.Fatalf("countWork = %d, want %d", got, want)
+		}
+	}
+	cs, ok := readCountState(cache)
+	info, err := os.Stat(tr)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if !ok || cs.offset != info.Size() || cs.edits != want/2 || cs.turns != want {
+		b.Fatalf("persisted state = %+v, valid=%v, want offset=%d work=%d", cs, ok, info.Size(), want)
+	}
+}
+
+func countWorkBenchFixture(b *testing.B, mib int, state string) (tr, cache string, seed []byte, want int) {
+	b.Helper()
+	const blockSize = 4096
+	edit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{}}]}}` + "\n"
+	user := `{"type":"user","message":{"content":"continue"}}` + "\n"
+	text := `{"type":"assistant","message":{"content":"%s"}}` + "\n"
+	block := edit + user + user + fmt.Sprintf(text, strings.Repeat("x", blockSize-len(edit)-2*len(user)-len(text)+2))
+	blocks := (mib << 20) / blockSize
+	cached := blocks
+	if state == "initial" {
+		cached = 0
+	}
+	if state == "appended" {
+		blocks++
+	}
+	dir := b.TempDir()
+	tr, cache = filepath.Join(dir, "session.jsonl"), filepath.Join(dir, "count")
+	if err := os.WriteFile(tr, []byte(strings.Repeat(block, blocks)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	seed = fmt.Appendf(nil, "%d|%d|0:0|%d", cached, cached*blockSize, cached*2)
+	if err := os.WriteFile(cache, seed, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	return tr, cache, seed, blocks * 2
+}
