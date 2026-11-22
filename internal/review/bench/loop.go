@@ -23,18 +23,27 @@ import (
 
 // loopOpts are the improvement-loop modes of `review bench`: --queue, --decide and --record.
 type loopOpts struct {
-	queue, decide, record  bool
-	top                    int
-	before, after          string
-	pkg, what, verdict     string
-	agent, model, sha      string
-	dispatch               string
-	tokensIn, tokensOut    int
-	tokensCache, attempts  int
-	durationS, savingMSDay float64
+	queue, decide, record             bool
+	verdicts                          bool
+	benchmark, epoch                  string
+	oldEpoch, productionPath, subject string
+	top                               int
+	before, after                     string
+	pkg, what, verdict                string
+	agent, model, sha                 string
+	dispatch                          string
+	tokensIn, tokensOut               int
+	tokensCache, attempts             int
+	durationS, savingMSDay            float64
 }
 
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
+	fs.BoolVar(&l.verdicts, "verdicts", false, "report benchmark verdicts from history; never delete")
+	fs.StringVar(&l.benchmark, "benchmark", "", "exact benchmark name for a scorecard row")
+	fs.StringVar(&l.epoch, "epoch", "", "benchmark file SHA-256 for --benchmark")
+	fs.StringVar(&l.oldEpoch, "old-epoch", "", "previous file SHA-256 for bench-change")
+	fs.StringVar(&l.productionPath, "production-path", "", "record observed production path: on|off")
+	fs.StringVar(&l.subject, "subject", "", "record observed subject state: present|gone")
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
 	fs.BoolVar(&l.record, "record", false, "add a scorecard row; a kept --after becomes rolling.txt")
@@ -43,7 +52,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
 	fs.StringVar(&l.pkg, "pkg", "", "package dir, e.g. internal/hooks/safety")
 	fs.StringVar(&l.what, "what", "", "the candidate the fix addressed")
-	fs.StringVar(&l.verdict, "verdict", "", "kept|reverted")
+	fs.StringVar(&l.verdict, "verdict", "", "kept|reverted|bench-change")
 	fs.StringVar(&l.agent, "agent", "", "fix leaf agent")
 	fs.StringVar(&l.model, "model", "", "fix leaf model")
 	fs.StringVar(&l.sha, "sha", "", "commit of the fix; default HEAD")
@@ -60,6 +69,8 @@ func runLoop(o options, stdout, stderr io.Writer) int {
 	l := o.loop
 	var err error
 	switch {
+	case l.verdicts:
+		err = runVerdicts(l, o.json, stdout)
 	case l.queue:
 		err = runQueue(l, o.json, stdout)
 	case l.decide:
@@ -109,11 +120,17 @@ type Row struct {
 	Attempts    int       `json:"attempts"`
 	SavingMSDay float64   `json:"saving_ms_day"`
 	Sha         string    `json:"sha,omitempty"`
+	Benchmark   string    `json:"benchmark,omitempty"`
+	Epoch       string    `json:"epoch,omitempty"`
+	OldEpoch    string    `json:"old_epoch,omitempty"`
 }
 
 func benchRoot() string { return filepath.Join(paths.StateDir(), "bench") }
 
 func pkgDirName(pkg string) string {
+	if filepath.Clean(pkg) == "." {
+		return "root"
+	}
 	return strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-")
 }
 
@@ -449,6 +466,9 @@ func decideFiles(before, after string) (Decision, error) {
 	if err != nil {
 		return Decision{}, err
 	}
+	if !sameEpochs(string(bt), string(at)) {
+		return Decision{NoComparison: true, Rule: "benchmark epochs differ; rebaseline before comparing"}, nil
+	}
 	miss := missingBench(string(bt), string(at))
 	bn, an := benchNames(string(bt)), benchNames(string(at))
 	common := false
@@ -481,7 +501,7 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 	verdict, code := "REVERT", 1
 	switch {
 	case d.NoComparison:
-		verdict, code = "NO COMPARISON: no benchmark is in both runs", exitNoComparison
+		verdict, code = "NO COMPARISON: no comparable benchmark", exitNoComparison
 	case d.Keep:
 		verdict, code = "KEEP", 0
 	}
@@ -555,8 +575,8 @@ func fromDispatch(l loopOpts) (loopOpts, error) {
 
 func recordRow(l loopOpts) error {
 	kept := l.verdict == "kept"
-	if l.pkg == "" || l.what == "" || !kept && l.verdict != "reverted" {
-		return errors.New("--record needs --pkg, --what and --verdict kept|reverted")
+	if err := validateEvidence(l); err != nil {
+		return err
 	}
 	if l.sha == "" {
 		l.sha, _ = source.GitInherit(".", "rev-parse", "--short", "HEAD")
@@ -565,13 +585,21 @@ func recordRow(l loopOpts) error {
 	if err != nil {
 		return err
 	}
-	data, _ := json.Marshal(Row{At: time.Now().UTC(), Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
+	at := time.Now().UTC()
+	data, err := json.Marshal(Row{At: at, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
 		Model: l.model, TokensIn: l.tokensIn, TokensOut: l.tokensOut, TokensCache: l.tokensCache,
-		DurationS: l.durationS, Attempts: l.attempts, SavingMSDay: l.savingMSDay, Sha: l.sha})
+		DurationS: l.durationS, Attempts: l.attempts, SavingMSDay: l.savingMSDay, Sha: l.sha,
+		Benchmark: l.benchmark, Epoch: l.epoch, OldEpoch: l.oldEpoch})
+	if err != nil {
+		return err
+	}
 	if kept && l.after != "" { // a fix with no benchmark (process init) keeps its baseline as is
 		if err := advanceRolling(l.pkg, l.after); err != nil {
 			return err
 		}
 	}
-	return paths.AppendLine(filepath.Join(benchRoot(), "scorecard.jsonl"), data)
+	if err := paths.AppendLine(filepath.Join(benchRoot(), "scorecard.jsonl"), data); err != nil {
+		return err
+	}
+	return recordEvidence(l, at)
 }

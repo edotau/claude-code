@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -70,17 +69,20 @@ type Score struct {
 	CostSec  float64           `json:"cost_sec"`
 	Flags    []string          `json:"flags,omitempty"`
 	Deltas   map[string]Delta  `json:"deltas,omitempty"`
+	Epoch    string            `json:"epoch,omitempty"`
+	Source   string            `json:"source,omitempty"`
 }
 
 // PkgResult is one package's run: where it was stored, what the process cost and how each benchmark scored.
 type PkgResult struct {
-	Pkg        string   `json:"pkg"`
-	File       string   `json:"file"`
-	Compared   bool     `json:"compared"`
-	Baseline   bool     `json:"baseline,omitempty"` // this run was written as rolling.txt
-	Stats      RunStats `json:"stats"`
-	Benchmarks []Score  `json:"benchmarks"`
-	Missing    []string `json:"missing,omitempty"`
+	Pkg        string    `json:"pkg"`
+	File       string    `json:"file"`
+	Compared   bool      `json:"compared"`
+	Baseline   bool      `json:"baseline,omitempty"` // this run was written as rolling.txt
+	Stats      RunStats  `json:"stats"`
+	Benchmarks []Score   `json:"benchmarks"`
+	Missing    []string  `json:"missing,omitempty"`
+	Verdicts   []Verdict `json:"verdicts,omitempty"`
 }
 
 // Report is the whole run, the input of the improvement loop.
@@ -104,7 +106,7 @@ func RunBench(args []string, stdout, stderr io.Writer) int {
 	if done {
 		return code
 	}
-	if o.loop.queue || o.loop.record {
+	if o.loop.queue || o.loop.record || o.loop.verdicts {
 		return runLoop(o, stdout, stderr)
 	}
 	if _, err := exec.LookPath("benchstat"); err != nil {
@@ -278,23 +280,44 @@ func goTest(top, pkg string, o options) (out string, stats RunStats, err error) 
 }
 
 func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
-	dir := filepath.Join(paths.StateDir(), "bench", strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-"))
+	dir := filepath.Join(benchRoot(), pkgDirName(pkg))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return PkgResult{}, err
+	}
+	epochs, err := benchmarkEpochs(top, pkg)
+	if err != nil {
 		return PkgResult{}, err
 	}
 	out, stats, err := goTest(top, pkg, o)
 	if err != nil {
 		return PkgResult{}, err
 	}
+	current, err := benchmarkEpochs(top, pkg)
+	if err != nil {
+		return PkgResult{}, err
+	}
+	if epochHeader(current) != epochHeader(epochs) {
+		return PkgResult{}, errors.New("benchmark source changed during measurement; rerun")
+	}
 	head := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s", rep.lines(), pkg, o.re, o.count, stats.lines())
 	// "# " keeps run metadata out of benchstat's config keys: a differing key (commit, load) splits files into tables
 	body := "# " + strings.ReplaceAll(strings.TrimSuffix(head, "\n"), "\n", "\n# ") + "\n" + out
+	body = epochHeader(epochs) + body
 	file, err := writeRunFile(dir, time.Now(), rep, body)
 	if err != nil {
 		return PkgResult{}, err
 	}
-	res := PkgResult{Pkg: pkg, File: file, Stats: stats, Benchmarks: scoreAll(out, rep.NoisyRun)}
-	return res, compareRolling(&res, dir, body, o.base, !rep.Dirty)
+	noisy := rep.NoisyRun || max(stats.LoadBefore, stats.LoadAfter) > float64(rep.CPUs)/2
+	res := PkgResult{Pkg: pkg, File: file, Stats: stats, Benchmarks: scoreAll(out, noisy)}
+	for i := range res.Benchmarks {
+		e := epochs[benchmarkFunc(res.Benchmarks[i].Name)]
+		res.Benchmarks[i].Epoch, res.Benchmarks[i].Source = e.Hash, e.File
+	}
+	if err := compareRolling(&res, dir, body, o.base, !rep.Dirty); err != nil {
+		return res, err
+	}
+	res.Verdicts, err = recordRun(dir, rep, res, time.Now().UTC())
+	return res, err
 }
 
 // compareRolling compares res with dir's rolling.txt; with none and seed (a clean tree), the run becomes it.
@@ -303,6 +326,11 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	old, err := os.ReadFile(rolling)
 	switch {
 	case err == nil:
+		if !sameEpochs(string(old), body) {
+			res.Missing = append(res.Missing, "benchmark epoch changed; this run starts a new package baseline")
+			base = true
+			break
+		}
 		deltas, err := compare(rolling, res.File)
 		if err != nil {
 			return err
@@ -528,6 +556,9 @@ func printText(w io.Writer, r Report, verbose bool) {
 		}
 		for _, s := range p.Benchmarks {
 			printScore(w, s, verbose)
+		}
+		for _, v := range p.Verdicts {
+			fmt.Fprintf(w, "  %s: %s (%s; gates only)\n", v.Benchmark, v.Verdict, v.Reason)
 		}
 	}
 }
