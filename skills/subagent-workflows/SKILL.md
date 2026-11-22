@@ -29,13 +29,12 @@ Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-en
 
 ## Leaf types
 
-Shell `agents ask` belongs in a carried dispatch, external relay or requested script. Owner shortcuts:
+Shell `agents ask` belongs in a carried dispatch, workflow stage or requested script. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
 | Leaf | Role | Output |
 | --- | --- | --- |
 | `claude` | In-context work on Sonnet unless the call names a model | Status and verification |
-| `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
 | `pi` | Review, exploration, audits and self-tested edits on any Databricks model | Cited findings |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
@@ -54,9 +53,9 @@ select external execution; never overwrite another machine's pins.
 ### Carried dispatch (main session, no relay)
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
-task, then follow it with one wait call. Codex, gemini and opencode have no relay subagent; codex handles cross-family
+task, then follow it with one wait call. None has a relay subagent; codex handles cross-family
 review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini read-only research and
-codebase sweeps, opencode code and docs work. Copilot still has a relay:
+codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
 claude-code agents ask --carry --background --agent <agent> [ask flags] - < BRIEF
@@ -65,23 +64,22 @@ claude-code agents result -f <id>
 
 The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
 ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
+Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
+`rules/standards/worktree-git.md` → LAST-MILE. Both need `--tools`.
 
 ### External relay contract
 
-For `copilot` and `pi` wrappers:
+For a `claude` leaf running a workflow stage whose brief opens with `Run:`:
 
-- A thin pipe; a brief that starts with `Run:` is a relay job, in this order:
+- A thin pipe, in this order:
   1. You do none of the work yourself.
-  2. Write everything after the `Run:` line, unchanged, to the path `claude-code agents brief --path <agent>` prints
-     (Read it first: Write fails on an unread file). Never choose or reuse a path; no `$`, `~` or glob.
-  3. Run the `Run:` line once, flags and model unchanged, with the brief attached as `- < PATH` (`agents ask -h`: no
-     task or `-` reads stdin; a bare run prints usage, exit 2). Never add, drop or swap a flag (an "edit nothing"
-     brief keeps `--tools`) or start another ask.
-  4. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
+  2. Run the `Run:` line once, flags, model and quoted task unchanged. If it has no task argument, write everything
+     after that line unchanged to the path `claude-code agents brief --path <agent>` prints (Read it first), and
+     attach it as `- < PATH`. Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a flag
+     (an "edit nothing" brief keeps `--tools`) or start another ask.
+  3. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
      output and exit code.
-  5. Always end with `SubagentHandback`, even on failure.
-- Without a `Run:`, pick one supported verb (a bare task means `ask`), default a named-agent task to `--fallback
-  none`, keep explicit policy and pins, and attach the task the same way.
+  4. Always end with `SubagentHandback`, even on failure.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
@@ -102,12 +100,12 @@ For `copilot` and `pi` wrappers:
      poll again.
 - The final answer always goes through `SubagentHandback`, never plain text. A refusal naming a missing dispatch id
   is not fixed by retrying: after the second one, stop and end with the id and `agents result -f <id>` in your text.
-- Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
-  in-context or silently pick another agent.
+- Run only the stage's prescribed `agents diff --verify <id>` after the ask; the manager verifies at fan-in.
+  Report a dispatch error; never repair it in-context or silently pick another agent.
 - Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual
   `ask: ran on` line and job/session ids, plus a `Relay note:` for a dispatch error. Stop gate:
   `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt.
-- Inside the vendor CLI, do the task directly; never invoke the wrapper or ask yourself.
+- Inside the vendor CLI or Pi, do the task directly; never invoke the wrapper or ask yourself.
 
 ## Workflow
 
@@ -127,7 +125,7 @@ unticked line of its `~/.claude/plans/` checklist).
 | A plan's waves, observed | `claude-code agents ask --waves <plan>` (a flag, not a verb; never commits) ; exit codes, rerun and the `--background` + `agents wait` loop: [agent-verbs.md](references/agent-verbs.md) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md) |
-| Fleet scan | A `copilot` leaf with an explicitly requested fleet task; verify the returned diff |
+| Fleet scan | A carried `copilot` ask with an explicitly requested fleet task; verify the returned diff |
 
 ### Phase 1: prepare
 
@@ -219,7 +217,7 @@ Write it before the first dispatch of a multi-part request, re-check it on every
 |---|---|---|---|
 | A: fix flag parse | `/r/internal/cli/args.go` | none | claude |
 | B: fix flag help | `/r/internal/cli/args.go` | A (lane 2 of 2) | claude (lane of A) |
-| C: add retry | `/r/internal/net/retry.go` | none | copilot |
+| C: add retry | `/r/internal/net/retry.go` | none | copilot (carried) |
 | D: review A | read-only | A | codex (carried) |
 
 - **Hot file:** when 2+ queued tasks own one file, first dispatch a split (extract by function into a new file in the
@@ -240,14 +238,14 @@ Write it before the first dispatch of a multi-part request, re-check it on every
 #### Tests
 
 The implementer writes the basic tests for its own feature (R15); other cases are proposals in its hand-back. Broken
-existing tests are repaired by the implementer or one repair leaf (`copilot` or `claude`). The main thread owns the
+existing tests are repaired by the implementer, a `claude` leaf or a carried `copilot` ask. The main thread owns the
 live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
 (`rules/standards/testing-guidelines.md` → When a test fails).
 
 | Situation | Shape |
 | --- | --- |
-| One failing test or package | the loop yourself, or one `copilot` leaf |
-| Failures across packages | one `copilot` leaf per package in ONE message, each owning only its `_test.go` files |
+| One failing test or package | the loop yourself, or one carried `copilot` ask naming the TEST section |
+| Failures across packages | one carried `copilot` ask per package in ONE message, each owning only its `_test.go` files |
 | A change being implemented | the implementer writes its basic tests; a repair leaf only for tests the change broke |
 | A fixed bug | after your live before/after, the regression test is a proposal the owner approves |
 | Suite must go green, bounded | `Workflow code-looper` — only when the user asks |
@@ -293,7 +291,7 @@ files only.
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, `copilot`, `pi`; codex, gemini and opencode run carried). A job
+  the Agent tool with a harness type (`claude`, `pi`; external work agents run carried). A job
   expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can

@@ -9,7 +9,8 @@ What you get on top of a stock install:
 - **Providers and a model proxy**: Anthropic, Databricks, OpenAI, GitHub Copilot, Google or a custom endpoint, with
   model aliases per profile and a loopback proxy that translates dialects and fails over on 429/5xx.
 - **Agents**: run one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`claude-code agents ask`), or start
-  their interactive CLIs through the same registry (`claude-code codex`).
+  their interactive CLIs through the same registry (`claude-code codex`). External work agents run carried;
+  workflow stages use a Claude leaf with a `Run:` line.
 - **Guards**: hooks that stop or ask about destructive commands, leaked secrets and staging files another agent
   holds (see [Safety](#safety)).
 - **Memory and status line**: one memory bank shared by every workspace, and a status line showing provider, model,

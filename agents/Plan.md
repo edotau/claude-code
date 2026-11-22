@@ -41,12 +41,13 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 All dispatched by the manager, never by Plan itself:
 
 - **`claude` leaves** — implementation of the approved plan's phases on your pin.
-- **`copilot` leaves or a carried `opencode` ask (experimental)** — a phase for another agent or account, e.g.
+- **a carried `copilot` or `opencode` ask (experimental)** — a phase for another agent or account, e.g.
   to spread quota or get another model family; name a fallback if the external agent is unavailable.
-- **a carried `codex` ask** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
+- **a carried `codex` ask** — review of the drafted plan:
+  checklist `skills/evaluate-code/references/task-review.md#plan-review`,
   brief `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / a carried `gemini` ask** — wide research before drafting (structure, conventions, a 1M-context sweep).
-- **`copilot`** — ordinary implementer or reviewer leaf; repairs tests an intentional change broke.
+- **a carried `copilot` ask** — implementation, review or test repair (`rules/standards/testing-guidelines.md` → TEST).
 
 ## Procedure
 

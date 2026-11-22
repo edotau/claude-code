@@ -20,7 +20,7 @@ site in a script (`internal/hooks/leaves.go` `Effort`).
 | Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
 | Expert pool | `code-engineer.js` sizing router | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort` |
 | Producer-reviewer | fix, test repair, gate · rederive | implementer vs blind re-deriver | repaired tests and gate exit codes |
-| Supervisor | main session + leaves | `claude`, `copilot`, `Explore`; carried `codex`/`opencode` ask | dispatch cap, `dispatch-stop` ran-on |
+| Supervisor | main session + leaves | `claude`, `Explore`; carried external asks | dispatch cap, `dispatch-stop` ran-on |
 | Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline
@@ -76,7 +76,7 @@ main session -> Explore x3 -> Plan -> claude || claude -> fan-in -> verify -> co
 ```
 
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
-  `ask: ran on` line (`externalTypes`, `internal/hooks/leaves.go`).
+  `ask: ran on` line (`Run:`-brief gate, `internal/hooks/leaves.go`).
 
 ### Hierarchical
 
@@ -105,8 +105,8 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 ## Split vs merge; skill vs agent vs brief
 
 Agent file vs skill vs brief, and when to split or merge a role: `rules/workflows/agents.md` → Authoring: file, skill
-or brief; the file skeleton and frontmatter are in its Agent and command files section. Hook tables a new
-external-agent type must join: same file → Prose instructs, hooks guarantee.
+or brief; the file skeleton and frontmatter are in its Agent and command files section. CLI registry and workflow
+receipt gates: same file → Prose instructs, hooks guarantee.
 
 ## Lessons from the trial
 

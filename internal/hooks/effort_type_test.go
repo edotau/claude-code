@@ -16,7 +16,7 @@ import (
 
 // The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set.
 func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
-	cfg := useAgentsDir(t, "claude", "codex", "Plan")
+	cfg := useAgentsDir(t, "claude", "worker", "Plan")
 	blocked := func(st, brief string) string {
 		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{"subagent_type": st, "prompt": brief, "description": "x"}})
 		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
@@ -25,12 +25,12 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		}
 		return r.Reason
 	}
-	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", "web-fetch", "claude-code-guide", "statusline-setup", ""} {
+	for _, st := range []string{"claude", "worker", "Plan", "Explore", "general-purpose", "web-fetch", "claude-code-guide", "statusline-setup", ""} {
 		if r := blocked(st, "do it"); r != "" {
 			t.Errorf("%q blocked: %s", st, r)
 		}
 	}
-	const roster = "(Explore, Plan, claude, claude-code-guide, codex, general-purpose, statusline-setup, web-fetch)"
+	const roster = "(Explore, Plan, claude, claude-code-guide, general-purpose, statusline-setup, web-fetch, worker)"
 	for st, c := range map[string]struct{ brief, use string }{
 		"copilot": {"do it", `use "general-purpose"`}, "not-a-type": {"read a page", `use "general-purpose"`},
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
@@ -43,15 +43,15 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 			t.Errorf("%s: reason %q, want %q", st, r, want)
 		}
 	}
-	writeAgentFile(t, cfg, "copilot")
-	if r := blocked("copilot", "do it"); r != "" {
-		t.Errorf("copilot with its file added still blocked: %s", r)
+	writeAgentFile(t, cfg, "helper")
+	if r := blocked("helper", "do it"); r != "" {
+		t.Errorf("helper with its file added still blocked: %s", r)
 	}
-	if err := os.Remove(filepath.Join(cfg, "agents", "codex.md")); err != nil {
+	if err := os.Remove(filepath.Join(cfg, "agents", "worker.md")); err != nil {
 		t.Fatal(err)
 	}
-	if r := blocked("codex", "do it"); !strings.Contains(r, "is not on the roster") {
-		t.Errorf("codex with its file removed = %q, want blocked", r)
+	if r := blocked("worker", "do it"); !strings.Contains(r, "is not on the roster") {
+		t.Errorf("worker with its file removed = %q, want blocked", r)
 	}
 	if err := os.Remove(filepath.Join(cfg, "agents", "Plan.md")); err != nil {
 		t.Fatal(err)
@@ -93,19 +93,19 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 // A coworker type naming exactly one roster agent is rewritten; an ambiguous one stays denied.
 func TestDispatchCoworkerTypeRewrite(t *testing.T) {
 	dispatchEnv(t)
-	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "copilot")
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
 	payload := func(mode, st string) core.Result {
 		return pre(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"subagent_type":%q,"prompt":"do it","description":"do it"}}`, mode, st))
 	}
-	r := payload("default", "coworker:copilot")
-	if r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "copilot" || !strings.Contains(r.SystemMessage, `"copilot"`) {
-		t.Errorf("coworker:copilot = %+v, want subagent_type rewritten to copilot with a message", r)
+	r := payload("default", "coworker:claude")
+	if r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "claude" || !strings.Contains(r.SystemMessage, `"claude"`) {
+		t.Errorf("coworker:claude = %+v, want subagent_type rewritten to claude with a message", r)
 	}
 	if r := payload("default", "coworker"); r.Decision != core.Block {
 		t.Errorf("ambiguous coworker = %+v, want a block", r)
 	}
-	if r := payload("auto", "coworker:copilot"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "copilot" {
-		t.Errorf("auto coworker:copilot = %+v, want the same rewrite as default mode", r)
+	if r := payload("auto", "coworker:claude"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "claude" {
+		t.Errorf("auto coworker:claude = %+v, want the same rewrite as default mode", r)
 	}
 }
 
@@ -116,14 +116,14 @@ func TestDispatchCoworkerRetypeMatchesDirect(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body := "---\nname: copilot\nmodel: sonnet\neffort: medium\n---\n"
-	if err := os.WriteFile(filepath.Join(cfg, "agents", "copilot.md"), []byte(body), 0o600); err != nil {
+	body := "---\nname: claude\nmodel: sonnet\neffort: medium\n---\n"
+	if err := os.WriteFile(filepath.Join(cfg, "agents", "claude.md"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run := func(st string) core.Result {
 		return pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"fix a typo","description":"fix a typo"}}`, st))
 	}
-	direct, retyped := run("copilot"), run("coworker:copilot")
+	direct, retyped := run("claude"), run("coworker:claude")
 	for _, k := range []string{"model", "effort"} {
 		if direct.UpdatedInput[k] != retyped.UpdatedInput[k] {
 			t.Errorf("%s: retyped %v, direct %v, want equal (the agent file pins both)", k, retyped.UpdatedInput[k], direct.UpdatedInput[k])

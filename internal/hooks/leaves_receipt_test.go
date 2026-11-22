@@ -93,7 +93,7 @@ func TestHeldMarkerStaleIgnored(t *testing.T) {
 // The hook's own Run: launch holds naming its job's `agents result -f <id>` once the record appears, never a sleep.
 func TestRunBriefLineHoldNamesJob(t *testing.T) {
 	stubSpawn(t)
-	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
+	in := handbackOf(leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
 	const id = "20261116T130000.000-codex"
 	spawnBriefLine = func(_ []string, _, _ string, out *os.File) error {
 		if err := agent.ClaimDispatchID(out.Name()+".claim", id); err != nil {
@@ -116,15 +116,15 @@ func TestRanOnHookRunsTheLine(t *testing.T) {
 		st, line, body string
 		want           []string
 	}{
-		{"codex", "claude-code agents ask --agent codex --tools - < /tmp/x.md", "Objective: review\n",
+		{"claude", "claude-code agents ask --agent codex --tools - < /tmp/x.md", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "-"}},
-		{"codex", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
+		{"claude", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}},
-		{"codex", "claude-code agents ask --agent codex --model x", "Objective: review\n",
+		{"claude", "claude-code agents ask --agent codex --model x", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "x", "Objective: review"}},
-		{"codex", "claude-code agents ask --agent codex --profile p", "Objective: review\n",
+		{"claude", "claude-code agents ask --agent codex --profile p", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--profile", "p", "Objective: review"}},
-		{"codex", "claude-code agents ask --agent codex --tools", "Objective: review\n",
+		{"claude", "claude-code agents ask --agent codex --tools", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "Objective: review"}},
 		{"claude", "claude-code agents ask --agent claude --profile dev --model m --tools", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "claude", "--profile", "dev", "--model", "m", "--tools", "Objective: review"}},

@@ -35,14 +35,12 @@ agent: `skills/subagent-workflows/SKILL.md`.
 
 All are owner-only (`disable-model-invocation: true`); each launcher specifies its dispatch tool.
 
-- `/copilot` `[--host <h>] [--profile <p>] [--model <m>] <task>` — one Agent call
-  (`subagent_type` = the name) whose brief opens `Run: claude-code agents ask --agent <type> [flags] --tools`. There
-  is no `/claude`: the name could collide.
-- `/codex` · `/gemini` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — no subagent: the session
+- `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — the session
   runs `agents ask --carry --background --agent <type> [flags] --tools - < brief` (`gemini` adds `--read-only`),
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
+  There is no `/claude`: the name could collide.
 - `/coworker --agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>` — the same
-  dispatch (codex/gemini/opencode on a `claude` leaf), run here on the Databricks arm with its requests sent through
+  dispatch through a `claude` leaf, run here on the Databricks arm with its requests sent through
   the other machine (default overlay `{"provider":"databricks","profile":"auto","remote":"auto"}`;
   `--overlay` replaces it). Not a new agent type. The route travels whole (provider, profile, host, remote);
   workflow steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;
@@ -77,15 +75,15 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   **brief** = this task. A one-off role is a brief to `claude`, never a new file.
 - **Split** a role only when its expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
-  is that agent's leaf type (`copilot`, `pi`…).
+  belongs in a carried ask; workflow stages use a `claude` leaf with a `Run:` line.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
   (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` inherits; raise
   one call with the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
   `model: inherit` on a call reads as unset. **Tools:** list them; a read-only role gets none that write.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
-- **Prose instructs, hooks guarantee.** A new external agent type is added once, in `agentid.All()`
-  (`internal/agentid/agentid.go`); the ran-on stop gate (`externalTypes`) and labels (`labelAgent`) in
-  `internal/hooks/leaves.go` derive from it. Shapes and enforcers: `skills/subagent-workflows/references/patterns.md`.
+- **Prose instructs, hooks guarantee.** CLI agents live in `agentid.All()` (`internal/agentid/agentid.go`),
+  subagent types in `agents/`; a workflow leaf's `Run:` line activates the ran-on stop gate in
+  `internal/hooks/leaves.go`. Shapes and enforcers: `skills/subagent-workflows/references/patterns.md`.
 - Thinking is adaptive: never hand-roll a thinking budget. Mark stable large prefixes with `cache_control`; keep
   per-call content outside the cached block.

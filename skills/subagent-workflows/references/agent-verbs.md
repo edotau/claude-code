@@ -1,6 +1,6 @@
 # Agent CLI verbs — shared skeleton
 
-`copilot` and `pi` point here for the verb table and the shared procedure; Codex and OpenCode use the same
+Carried Copilot asks and `pi` point here for the verb table and the shared procedure; Codex and OpenCode use the same
 CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the relay/script CLI reference.
 
 ## Verbs

@@ -53,9 +53,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    into checks and loop until they pass: `rules/standards/principles.md`.
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
-3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`, `copilot`, `pi`,
+3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`, `pi`,
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
-   offers it; else `general-purpose`); Codex, Gemini and OpenCode run carried (see
+   offers it; else `general-purpose`); external work agents run carried (see
    `skills/subagent-workflows/SKILL.md` →
    Carried dispatch); description starts `<model>:` followed by a space (`web-fetch` takes none),
    printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned

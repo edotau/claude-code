@@ -136,9 +136,9 @@ hand-back, which ends it before SubagentStop; the verbs below say hand-back or s
 
 Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 hours from the dispatch's start, then a
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
-result -f <id>`; a blocked stop retires nothing. A `copilot` leaf (or a legacy `codex` one) whose tool results carry
-no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves are exempt; the type is the request) is never
-refused. Its job is an id its own `agents ask|result` call printed, else a record of that agent started
+result -f <id>`; a blocked stop retires nothing. A `claude` workflow leaf with an opening `Run:` ask line whose
+tool results carry no `ask: ran on <agent> ·` line or `ran_on` field is checked for a receipt.
+Its job is an id its own `agents ask|result` call printed, else a record of that agent started
 within 2 minutes after one of its ask calls (or after the hook's own launch). (1) Job running: a hand-back polls it
 every 250 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
 counted, naming `claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); a

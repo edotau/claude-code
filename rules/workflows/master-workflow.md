@@ -38,7 +38,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
 | 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean, no leaf still running |
 | 8. Verify | `rules/standards/quality.md` → Verification Order | Simplified, verified diff | Order green |
-| 9. Commit | Authorized LAST-MILE `copilot` leaf or main session | Commit pushed | Clean tree, pushed |
+| 9. Commit | Authorized carried `copilot` ask, brief naming `rules/standards/worktree-git.md` → LAST-MILE, or main session | Commit pushed | Clean tree, pushed |
 
 - **1 Review** vets the request before code: checklist and verdicts `skills/evaluate-code/references/task-review.md`,
   agent choice `skills/subagent-workflows/references/cost-routing.md`. The same pass on a finished diff is
@@ -50,7 +50,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
   (prefer battle-tested libraries). Start the research (a carried `gemini` ask, fallback a `claude` leaf) and `Plan` in
   one message, in the background; relay findings to the running `Plan` with `SendMessage`, or merge at review.
 - **4 Plan** (rules `agents/Plan.md`, shape `docs/templates/plan.md`): review the draft before asking approval —
-  in-context for MEDIUM, a carried `codex` ask for HIGH+, per `skills/evaluate-code/references/task-review.md` → Plan review.
+  in-context for MEDIUM, a carried `codex` ask for HIGH+:
+  `skills/evaluate-code/references/task-review.md` → Plan review.
 - **5 Refine**: one brief per sub-task with the fields in `skills/subagent-workflows/SKILL.md` → Handoff contract.
 - **6 Dispatch**: shapes `skills/subagent-workflows/references/patterns.md`; a plan's `Phase W.k` waves run with
   `claude-code agents ask --waves <plan>` (never commits; `references/agent-verbs.md`).
