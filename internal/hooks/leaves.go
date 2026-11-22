@@ -419,10 +419,10 @@ func heldCommand(line string) string {
 }
 
 func heldSecretArg(w string) bool {
-	return w == "--env" || w == "--set" || strings.HasPrefix(w, "--env=") || strings.HasPrefix(w, "--set=") || heldEnvRe.MatchString(w)
+	return w == "--env" || w == "--set" || strings.HasPrefix(w, "--env=") || strings.HasPrefix(w, "--set=") || heldEnvRe().MatchString(w)
 }
 
-var heldEnvRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+var heldEnvRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`) })
 
 // heldInfo is a held reason's lead (the running plan task, else the job id, with agent and age) and the id prefix
 // its body still needs: "" when the lead names the id.
@@ -986,7 +986,7 @@ func askTied(cmd string, rec agent.Record) bool {
 
 // askTask is the ask segment's agent and normalized task by ask's own grammar; "" task: stdin or none, nothing to tie.
 func askTask(seg string) (name, task string) {
-	seg = relayOutputMerge.ReplaceAllString(seg, "") // the relay's trailing 2>&1 is no part of the ask
+	seg = relayOutputMerge().ReplaceAllString(seg, "") // the relay's trailing 2>&1 is no part of the ask
 	full := relayWords(seg)
 	words := agentCommand(full)
 	_, file, err := relayInput(seg)

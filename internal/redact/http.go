@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // HeaderMask replaces a sensitive header value.
@@ -15,8 +16,10 @@ var (
 	sensitiveSuffix = []string{"-token", "-key", "-secret", "-signature", "-password"}
 	sensitiveSubstr = []string{"token", "secret", "password", "credential"}
 
-	queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key|passw(?:or)?d|secret|sig|auth)=)[^&\s]+`)
-	urlUserinfo      = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s]+@`)
+	queryParamSecret = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key|passw(?:or)?d|secret|sig|auth)=)[^&\s]+`)
+	})
+	urlUserinfo = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s]+@`) })
 )
 
 // SensitiveHeader reports a header name that carries a credential (exact, suffix or substring match).
@@ -44,7 +47,7 @@ func Headers(h http.Header) http.Header {
 
 // URL masks the password in URL userinfo and secret-named query values, keeping scheme, host and path.
 func URL(s string) string {
-	return queryParamSecret.ReplaceAllString(urlUserinfo.ReplaceAllString(s, "${1}"+HeaderMask+"@"), "${1}"+HeaderMask)
+	return queryParamSecret().ReplaceAllString(urlUserinfo().ReplaceAllString(s, "${1}"+HeaderMask+"@"), "${1}"+HeaderMask)
 }
 
 func hasAny(s string, list []string, match func(string, string) bool) bool {

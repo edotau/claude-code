@@ -42,8 +42,10 @@ func relayBash(in *core.Input) (core.Result, bool) {
 	return core.Result{}, false
 }
 
-var relayOutputPipe = regexp.MustCompile(`[ \t]+(?:2>&1[ \t]+)?\|[ \t]+(?:tail|head)[ \t]+-[0-9]+[ \t]*$`)
-var relayOutputMerge = regexp.MustCompile(`[ \t]+2>&1[ \t]*$`)
+var relayOutputPipe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`[ \t]+(?:2>&1[ \t]+)?\|[ \t]+(?:tail|head)[ \t]+-[0-9]+[ \t]*$`)
+})
+var relayOutputMerge = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[ \t]+2>&1[ \t]*$`) })
 
 // relayCleanCommand drops only wrappers around an otherwise valid claude-code command.
 func relayCleanCommand(in *core.Input, cmd string) (core.Result, bool) {
@@ -51,8 +53,8 @@ func relayCleanCommand(in *core.Input, cmd string) (core.Result, bool) {
 	if !prefixed {
 		clean = cmd
 	}
-	clean = relayOutputPipe.ReplaceAllString(clean, "")
-	clean = relayOutputMerge.ReplaceAllString(clean, "")
+	clean = relayOutputPipe().ReplaceAllString(clean, "")
+	clean = relayOutputMerge().ReplaceAllString(clean, "")
 	words := relayWords(clean)
 	if clean == cmd || len(words) == 0 || len(shell.Segments(clean)) != 1 || filepath.Base(words[0]) != "claude-code" || relayRefusal(clean) != "" {
 		return core.Result{}, false
@@ -94,7 +96,7 @@ func relayStatusEcho(seg string) bool {
 
 // relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.
 func relayRefusal(seg string) string {
-	seg = relayMergeErr.ReplaceAllString(seg, " ")
+	seg = relayMergeErr().ReplaceAllString(seg, " ")
 	if slices.ContainsFunc(shell.Tokens(seg), relayGoEnvRe().MatchString) {
 		return "sets a Go environment variable (GOFLAGS, GOENV, GOWORK, GOBIN, GOCACHE or GOTOOLCHAIN)"
 	}
@@ -123,7 +125,7 @@ func relayShellRefusal(seg string) string {
 }
 
 // relayMergeErr is a `2>&1` word: it merges stderr into stdout and writes no file.
-var relayMergeErr = regexp.MustCompile(`(?:^|\s)2>&1(?:\s|$)`)
+var relayMergeErr = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|\s)2>&1(?:\s|$)`) })
 
 // relayNavigate is exactly `cd <dir>` or `test -f|-e|-d <path>`: no redirect, assignment, expansion or substitution.
 func relayNavigate(seg string) bool {
@@ -159,14 +161,16 @@ const relayGoShapes = "go vet|test <./packages> [-tags -p -race -v], go test als
 	"go build ./... or go build <./packages> -o /dev/null, gofmt -l <./paths>"
 
 // relayWrapRe is one leading wrapper in a safe shape; env takes no flag, and an assignment after it fails the go check.
-var relayWrapRe = regexp.MustCompile(`^(?:rtk|env|(?:command )?time(?: -p)?|nice(?: -n -?[0-9]+)?|` +
-	`g?timeout(?: -k [0-9]+[smh]?| --kill-after=[0-9]+[smh]?| -s [A-Za-z0-9]+| --signal=[A-Za-z0-9]+)*` +
-	` [0-9]+[smh]?) `)
+var relayWrapRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:rtk|env|(?:command )?time(?: -p)?|nice(?: -n -?[0-9]+)?|` +
+		`g?timeout(?: -k [0-9]+[smh]?| --kill-after=[0-9]+[smh]?| -s [A-Za-z0-9]+| --signal=[A-Za-z0-9]+)*` +
+		` [0-9]+[smh]?) `)
+})
 
 // relayUnwrap drops the leading wrappers relayWrapRe accepts, so the rest meets the checks of a bare command.
 func relayUnwrap(toks []string) []string {
 	for len(toks) > 1 {
-		m := relayWrapRe.FindString(strings.Join(toks, " "))
+		m := relayWrapRe().FindString(strings.Join(toks, " "))
 		if m == "" {
 			break
 		}

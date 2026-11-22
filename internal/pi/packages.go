@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Record extras keys: the wanted pinned packages and the specs the owner approved to ship code.
@@ -34,9 +35,13 @@ type Package struct {
 }
 
 var (
-	npmSpec   = regexp.MustCompile(`^npm:((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z.-]+)?)$`)
-	gitSpec   = regexp.MustCompile(`^git:([A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)@([0-9a-fA-F]{40})$`)
-	localChar = regexp.MustCompile(`^[A-Za-z0-9._/\\:-]+$`)
+	npmSpec = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^npm:((?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z.-]+)?)$`)
+	})
+	gitSpec = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^git:([A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)@([0-9a-fA-F]{40})$`)
+	})
+	localChar = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._/\\:-]+$`) })
 )
 
 // ParsePackages parses a comma-separated pin list; "" is an empty list. Parsing is pure: no file or network access.
@@ -78,7 +83,7 @@ func parsePackage(item string) (Package, error) {
 }
 
 func parseNPM(item string) (Package, error) {
-	m := npmSpec.FindStringSubmatch(item)
+	m := npmSpec().FindStringSubmatch(item)
 	if m == nil {
 		return Package{}, fmt.Errorf("package %q: npm needs npm:<name>@<exact x.y.z>; a missing version, range, wildcard or "+
 			"tag (^ ~ > < * x latest next) floats and is refused", item)
@@ -87,7 +92,7 @@ func parseNPM(item string) (Package, error) {
 }
 
 func parseGit(item string) (Package, error) {
-	m := gitSpec.FindStringSubmatch(item)
+	m := gitSpec().FindStringSubmatch(item)
 	if m == nil {
 		return Package{}, fmt.Errorf("package %q: git needs git:<host>/<owner>/<repo>@<full 40-hex commit>; branches and tags "+
 			"are movable, a commit hash is the only immutable git ref", item)
@@ -96,7 +101,7 @@ func parseGit(item string) (Package, error) {
 }
 
 func parseLocal(item string) (Package, error) {
-	if !localChar.MatchString(item) {
+	if !localChar().MatchString(item) {
 		return Package{}, fmt.Errorf("package %q: a local path allows only letters, digits and the characters : . _ - / and backslash", item)
 	}
 	if slicesHasDotDot(item) {

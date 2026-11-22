@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/httpx"
@@ -34,8 +35,8 @@ const (
 )
 
 var (
-	statementIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-	urlRE         = regexp.MustCompile(`(?i)https?://[^\s"'<>]*[^\s"'<>.,:;)]`)
+	statementIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`) })
+	urlRE         = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)https?://[^\s"'<>]*[^\s"'<>.,:;)]`) })
 )
 
 // httpClient outlives the 30s server-side wait_timeout so the POST is not cut first; a var so tests trust a TLS fake.
@@ -104,7 +105,7 @@ func (e *scrubbedError) Unwrap() error { return e.err }
 
 // scrub drops URLs and the profile's host from s, then credential-shaped runs.
 func scrub(s, host string) string {
-	s = urlRE.ReplaceAllString(s, "<url>")
+	s = urlRE().ReplaceAllString(s, "<url>")
 	if u, err := url.Parse(host); err == nil && u.Hostname() != "" {
 		for _, h := range []string{u.Host, u.Hostname()} {
 			s = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(h)).ReplaceAllString(s, "<host>")
@@ -133,7 +134,7 @@ func execute(ctx context.Context, p *providers.Provider, warehouseID, sql string
 	if err := c.call(ctx, http.MethodPost, "", body, &st); err != nil {
 		return Result{}, err
 	}
-	if !statementIDRE.MatchString(st.ID) {
+	if !statementIDRE().MatchString(st.ID) {
 		return Result{}, errors.New("sql statement: the server returned an invalid statement id")
 	}
 	if st, err = c.wait(ctx, st); err != nil {

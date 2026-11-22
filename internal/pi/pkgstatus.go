@@ -51,7 +51,7 @@ func statusIn(store, configDir string, wanted, approved []Package) ([]PkgStatus,
 		return out, fmt.Errorf("pi package store: %w", err)
 	}
 	for _, e := range ents {
-		if !slotRe.MatchString(e.Name()) || keep[e.Name()] {
+		if !slotRe().MatchString(e.Name()) || keep[e.Name()] {
 			continue
 		}
 		spec, _ := os.ReadFile(filepath.Join(store, e.Name(), specMarker))

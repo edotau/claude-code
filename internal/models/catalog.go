@@ -267,18 +267,22 @@ func parseClaude(s string) string {
 const limitNum = `(?:^|[^\w.])(\d+)\s*(K|M|million)\s+`
 
 var (
-	contextWindowRE = regexp.MustCompile(limitNum + `(?:total\s+)?token\s+context\s+window`)
-	contextLengthRE = regexp.MustCompile(`context length of (\d+)\s*(K|M|million)\s+tokens`)
-	maxOutputRE     = regexp.MustCompile(limitNum + `maximum\s+output\s+tokens`)
+	contextWindowRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(limitNum + `(?:total\s+)?token\s+context\s+window`)
+	})
+	contextLengthRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`context length of (\d+)\s*(K|M|million)\s+tokens`)
+	})
+	maxOutputRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(limitNum + `maximum\s+output\s+tokens`) })
 )
 
 // ParseLimits reads the context window and max output tokens a foundation-model description states; 0 is unknown.
 func ParseLimits(desc string) (context, output int) {
-	context = firstTokens(contextWindowRE, desc)
+	context = firstTokens(contextWindowRE(), desc)
 	if context == 0 {
-		context = firstTokens(contextLengthRE, desc)
+		context = firstTokens(contextLengthRE(), desc)
 	}
-	return context, firstTokens(maxOutputRE, desc)
+	return context, firstTokens(maxOutputRE(), desc)
 }
 
 // firstTokens is re's first match as a token count (K = 1000, M and million = 1,000,000), or 0.

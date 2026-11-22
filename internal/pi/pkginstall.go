@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -36,8 +37,8 @@ const (
 var (
 	resourceKeys = []string{"extensions", "skills", "prompts", "themes"}
 	lifecycleKey = []string{"preinstall", "install", "postinstall", "prepare"}
-	slotRe       = regexp.MustCompile(`^(npm|git)-[0-9a-f]{16}$`)
-	hex40        = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	slotRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(npm|git)-[0-9a-f]{16}$`) })
+	hex40        = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{40}$`) })
 )
 
 var _ = schemas.Register(schemas.Format{
@@ -261,7 +262,7 @@ func removeSlot(store, slot string) error {
 	if !filepath.IsAbs(store) || store == filepath.Dir(store) || store == filepath.Clean(home) {
 		return fmt.Errorf("package store: refusing to remove under %q", store)
 	}
-	if filepath.Dir(slot) != store || !slotRe.MatchString(filepath.Base(slot)) {
+	if filepath.Dir(slot) != store || !slotRe().MatchString(filepath.Base(slot)) {
 		return fmt.Errorf("package store: refusing to remove %q: not a slot of %q", slot, store)
 	}
 	if fi, err := os.Lstat(slot); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
@@ -283,7 +284,7 @@ func KeepSlot(path string) bool {
 // keepSlotIn keeps anything that is not a real slot directly in a store whose real path sits inside root's.
 func keepSlotIn(root, path string, wanted []Package) bool {
 	store := storeUnder(root)
-	if filepath.Dir(filepath.Clean(path)) != store || !slotRe.MatchString(filepath.Base(path)) || checkStore(root, store) != nil {
+	if filepath.Dir(filepath.Clean(path)) != store || !slotRe().MatchString(filepath.Base(path)) || checkStore(root, store) != nil {
 		return true
 	}
 	if fi, err := os.Lstat(path); err != nil || fi.Mode()&fs.ModeSymlink != 0 {
@@ -401,7 +402,7 @@ func checkPin(p Package, dir string, rv Review) error {
 		}
 	case KindGit: // a detached HEAD file holds the checked-out commit: the rev-parse HEAD check without a spawn
 		head, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
-		if got := strings.TrimSpace(string(head)); err != nil || !hex40.MatchString(got) || got != p.Version {
+		if got := strings.TrimSpace(string(head)); err != nil || !hex40().MatchString(got) || got != p.Version {
 			return fmt.Errorf("%s: checked-out commit %q does not match the pin", p.Spec, got)
 		}
 	}

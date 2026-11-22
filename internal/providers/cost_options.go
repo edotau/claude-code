@@ -8,6 +8,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -28,10 +29,10 @@ type Price struct {
 	CacheWrite1h float64 `json:"cache_write_1h,omitempty"`
 }
 
-var warehouseIDRE = regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`)
+var warehouseIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`) })
 
 // ValidWarehouseID reports whether id is a well-formed SQL warehouse id.
-func ValidWarehouseID(id string) bool { return warehouseIDRE.MatchString(id) }
+func ValidWarehouseID(id string) bool { return warehouseIDRE().MatchString(id) }
 
 // UnmarshalJSON rejects null rates, which encoding/json otherwise silently turns into zero.
 func (p *Price) UnmarshalJSON(data []byte) error {
@@ -76,7 +77,7 @@ func (o Options) Validate() error {
 	if o.Wire != "" && o.Wire != WireServing {
 		return fmt.Errorf("options.wire %q is not supported; only %s (/serving-endpoints) is routed", o.Wire, WireServing)
 	}
-	if o.WarehouseID != "" && !warehouseIDRE.MatchString(o.WarehouseID) {
+	if o.WarehouseID != "" && !warehouseIDRE().MatchString(o.WarehouseID) {
 		return errors.New("options.warehouse_id must be 1-64 alphanumeric characters")
 	}
 	return o.validatePrices()

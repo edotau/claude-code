@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -219,10 +220,10 @@ func goArgsOK(args []string) bool {
 	return pkgs > 0
 }
 
-var shaPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+var shaPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{7,40}$`) })
 
 // ValidSHA is a 7-40 digit lower-case hex commit id, safe to use in a state path.
-func ValidSHA(sha string) bool { return shaPattern.MatchString(sha) }
+func ValidSHA(sha string) bool { return shaPattern().MatchString(sha) }
 
 // DeferTick reports what sha would tick and starts one detached verifier per plan; it ticks the green ones later.
 func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []string, error) {
