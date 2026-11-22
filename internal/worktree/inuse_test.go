@@ -229,6 +229,68 @@ func pollInUse(t *testing.T, dest, label string, done func(string) bool) string 
 	return reason
 }
 
+func TestScanMemoSharesEmptyScanAndResets(t *testing.T) {
+	stubProcesses(t, nil)
+	original := scanProcs
+	t.Cleanup(func() { scanProcs = original })
+	calls := 0
+	scanProcs = func() ([]procCwd, error) {
+		calls++
+		return nil, nil
+	}
+	end := BeginScanMemo()
+	t.Cleanup(end)
+	for range 2 {
+		if got, err := liveLister()(t.TempDir()); err != nil || len(got) != 0 {
+			t.Fatalf("empty scan = %v, %v", got, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("shared empty scan ran %d times, want 1", calls)
+	}
+	end()
+	if _, err := liveLister()(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	end = BeginScanMemo()
+	defer end()
+	if _, err := liveLister()(t.TempDir()); err != nil || calls != 3 {
+		t.Fatalf("after end and restart: calls=%d err=%v, want 3 scans", calls, err)
+	}
+}
+
+func TestScanMemoRetriesErrorsAndRechecksBusyDir(t *testing.T) {
+	stubProcesses(t, nil)
+	original := scanProcs
+	t.Cleanup(func() { scanProcs = original })
+	dir := t.TempDir()
+	wantErr := errors.New("scan failed")
+	calls := 0
+	scanProcs = func() ([]procCwd, error) {
+		calls++
+		switch calls {
+		case 1:
+			return nil, wantErr
+		case 2:
+			return []procCwd{{PID: 1, Cwd: dir, Comm: "git"}}, nil
+		default:
+			return nil, nil
+		}
+	}
+	defer BeginScanMemo()()
+	if _, err := liveLister()(dir); !errors.Is(err, wantErr) {
+		t.Fatalf("scan error = %v, want %v", err, wantErr)
+	}
+	for range 2 {
+		if got, err := liveLister()(dir); err != nil || len(got) != 0 {
+			t.Fatalf("exited process = %v, %v", got, err)
+		}
+	}
+	if calls != 4 {
+		t.Fatalf("ran %d scans, want error, shared scan and 2 live rechecks", calls)
+	}
+}
+
 // PeerAgents ignores agents in a linked worktree, the caller's own agent ancestor and that agent's descendants.
 func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 	co, linked := "/co", "/co/wt"

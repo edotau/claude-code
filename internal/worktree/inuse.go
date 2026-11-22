@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -117,7 +118,7 @@ func liveLister() func(string) ([]Proc, error) {
 		return processesIn
 	}
 	if scanProcs != nil {
-		if scanMemo.on {
+		if scanMemoOn.Load() {
 			return memoLooker
 		}
 		return scanIn
@@ -126,44 +127,33 @@ func liveLister() func(string) ([]Proc, error) {
 }
 
 // scanMemo shares one process scan across a verb's checks; a dir found busy is always re-asked live.
-var scanMemo struct {
-	sync.Mutex
-	on  bool
-	at  time.Time
-	all []procCwd
-}
+var scanMemo = paths.NewMemo[struct{}, []procCwd]("worktree.process-scan")
+var scanMemoOn atomic.Bool
 
 // scanMemoTTL bounds how stale a shared scan may be, so a long gate between two checks forces a fresh one.
 const scanMemoTTL = 5 * time.Second
 
 // BeginScanMemo starts sharing process scans until the returned func is called; one verb at a time.
 func BeginScanMemo() (end func()) {
-	scanMemo.Lock()
-	scanMemo.on, scanMemo.all = true, nil
-	scanMemo.Unlock()
+	scanMemo.Drop()
+	scanMemoOn.Store(true)
 	return func() {
-		scanMemo.Lock()
-		scanMemo.on, scanMemo.all = false, nil
-		scanMemo.Unlock()
+		scanMemoOn.Store(false)
+		scanMemo.Drop()
 	}
 }
 
 // memoLooker answers "nothing inside dir" from the shared scan and re-asks live when something is there.
 func memoLooker(dir string) ([]Proc, error) {
-	scanMemo.Lock()
-	if scanMemo.all == nil || time.Since(scanMemo.at) > scanMemoTTL {
-		all, err := scanProcs()
+	all, err := scanMemo.Do(struct{}{}, func(_ []procCwd, err error) time.Duration {
 		if err != nil {
-			scanMemo.Unlock()
-			return nil, err
+			return -1
 		}
-		scanMemo.all, scanMemo.at = all, time.Now()
-		if scanMemo.all == nil {
-			scanMemo.all = []procCwd{}
-		}
+		return scanMemoTTL
+	}, scanProcs)
+	if err != nil {
+		return nil, err
 	}
-	all := scanMemo.all
-	scanMemo.Unlock()
 	if len(filterProcs(all, dir)) == 0 {
 		return nil, nil
 	}
