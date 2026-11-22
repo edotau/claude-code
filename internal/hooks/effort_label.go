@@ -332,7 +332,7 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}
 	hint := router.RuleClassifier{}.Alias(cmp.Or(run.opening(ctx, task).prompt, task)) // ask classifies its prompt
-	hop, note, err := runQuery(ctx, reg, q, hint)
+	hop, note, err := run.runHop(ctx, reg, q, hint)
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)
 	}

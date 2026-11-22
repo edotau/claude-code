@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
@@ -33,6 +34,32 @@ type dispatchRun struct {
 	lineTask string
 	profile  string // `agents label --profile`: the ask --profile when the brief's Run: line names none
 	model    string // `agents label --model`: the ask --model, so an alias is not read as the leaf's own model
+	hops     map[hopKey]hopResult
+}
+
+// hopKey and hopResult memoize runQuery within one run: preflight, freeze and label ask the same query.
+type hopKey struct {
+	q    agentpkg.ModelQuery
+	hint string
+}
+
+type hopResult struct {
+	hop  agentpkg.ModelQuery
+	note string
+	err  error
+}
+
+func (r *dispatchRun) runHop(ctx context.Context, reg *providers.Registry, q agentpkg.ModelQuery, hint string) (agentpkg.ModelQuery, string, error) {
+	k := hopKey{q, hint}
+	if h, ok := r.hops[k]; ok {
+		return h.hop, h.note, h.err
+	}
+	hop, note, err := runQuery(ctx, reg, q, hint)
+	if r.hops == nil {
+		r.hops = map[hopKey]hopResult{}
+	}
+	r.hops[k] = hopResult{hop, note, err}
+	return hop, note, err
 }
 
 // Per-run read seams: tests count them; production reads the roster file and the provider registry.

@@ -29,6 +29,7 @@ func (e *effortPlan) freezeAuto(ctx context.Context, task string) (out, note str
 	profile, id := r.Profile, r.Model
 	if p, m, _ := agentpkg.RotationFreeze(typedProfile(ctx, line.profile), cmp.Or(line.workAgent(st, task), agentid.Claude), task, line.model); m != "" {
 		profile, id = p, m // stamps the rotation, as the run's own pick would
+		clear(e.run.hops)  // a later peek may differ
 	}
 	out = withOverlay(task, words, OverlayArgs(profile, id, "", ""))
 	if out == task {

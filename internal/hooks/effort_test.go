@@ -715,3 +715,28 @@ func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 		t.Errorf("second dispatch repeated the pointers: %q", second)
 	}
 }
+
+func BenchmarkDispatchEffort(b *testing.B) {
+	payloads := map[string]string{
+		"codexRun":    `{"session_id":"bench1","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"codex","description":"sonnet: fix parser","prompt":"Run: claude-code agents ask --agent codex --tools -- \"fix the parser\"\nOwned: internal/x/a.go\n\nTask: fix the parser bug in a.go"}}`,
+		"claudePlain": `{"session_id":"bench1","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"claude","description":"fix typo","prompt":"Fix the typo in the help text of internal/x/a.go and report."}}`,
+	}
+	cfg := b.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	for n, fm := range map[string]string{"codex": "model: sonnet\neffort: low\n", "claude": ""} {
+		if err := os.WriteFile(filepath.Join(cfg, "agents", n+".md"), []byte("---\nname: "+n+"\n"+fm+"---\n"), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for name, p := range payloads {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				effortResult(p)
+			}
+		})
+	}
+}
