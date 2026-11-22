@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestRecordAppendsOneLinePerRow(t *testing.T) {
@@ -133,5 +135,14 @@ func TestFastPassesFoldIntoOneCounterRowPerMinute(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "telemetry-20261120.jsonl"))
 	if got := strings.Count(string(raw), "\n"); got != 1 || !strings.Contains(string(raw), `"n":5`) {
 		t.Errorf("rows = %q, want one counter row n=5", raw)
+	}
+}
+
+func TestFoldSumsCacheCountersPerName(t *testing.T) {
+	st := foldState{Minute: "m"}.add(Row{Event: "Stop", Module: "a", Outcome: OutcomeOK})
+	st = st.addCache([]paths.CacheStat{{Name: "x", Hits: 1, Misses: 2}}).addCache([]paths.CacheStat{{Name: "x", Hits: 3, Evictions: 4}, {Name: "w", Refreshes: 1}})
+	lines := st.flushLines()
+	if len(lines) != 1 || !strings.Contains(string(lines[0]), `"cache":"w=0/0/1/0 x=4/2/0/4"`) {
+		t.Errorf("lines = %q, want summed cache", lines)
 	}
 }

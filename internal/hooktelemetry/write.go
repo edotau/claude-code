@@ -148,7 +148,7 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 		}
 	}
 	if folded {
-		saveFold(file, fold)
+		saveFold(file, fold.addCache(paths.CacheStats()))
 	}
 	pruneTelemetry(dir, now)
 }
