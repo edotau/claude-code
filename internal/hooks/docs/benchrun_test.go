@@ -96,8 +96,8 @@ func TestBenchOnCommitQueuesBusyAndDeduplicates(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir, sha := benchRepo(t)
-	spawn, load := benchSpawn, benchLoad
-	t.Cleanup(func() { benchSpawn, benchLoad = spawn, load })
+	spawn := benchSpawn
+	t.Cleanup(func() { benchSpawn = spawn })
 	var spawned int
 	benchSpawn = func(args []string, _ string) int {
 		spawned++
@@ -106,7 +106,6 @@ func TestBenchOnCommitQueuesBusyAndDeduplicates(t *testing.T) {
 		}
 		return 1
 	}
-	benchLoad = func(context.Context) float64 { t.Error("load probe in tool call"); return 1e6 }
 	in := core.ParseInput(strings.NewReader(`{"session_id":"s1","tool_name":"Bash"}`))
 	leaf := core.ParseInput(strings.NewReader(`{"agent_id":"a1","tool_name":"Bash"}`))
 	benchOnCommit(context.Background(), leaf, dir, sha)
@@ -166,6 +165,54 @@ func TestBenchWorkerSerializesAndFinishesBeforeNotice(t *testing.T) {
 	}
 	for _, base := range bases {
 		assertBenchComplete(t, base)
+	}
+}
+
+func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix locks")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	entered, release, _ := stubBenchWorkers(t)
+	limit := benchMaxBusyPolls
+	t.Cleanup(func() { benchMaxBusyPolls = limit })
+	benchMaxBusyPolls = 2
+	checks := 0
+	benchBusy = func() bool { checks++; return true }
+	sha := strings.Repeat("c", 40)
+	base := filepath.Join(paths.StateDir(), "bench", "post-commit", sha)
+	in := core.ParseInput(strings.NewReader(`{"session_id":"bench-busy-bound"}`))
+	benchStart(context.Background(), in, t.TempDir(), sha, nil)
+	done := make(chan struct{})
+	go func() { benchWorker(base); close(done) }()
+	if got := waitBench(t, entered); got != base+".json" {
+		t.Errorf("run result = %q", got)
+	}
+	release <- struct{}{}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("busy worker did not finish")
+	}
+	assertBusyBenchRun(t, base, checks)
+}
+
+func assertBusyBenchRun(t *testing.T, base string, checks int) {
+	t.Helper()
+	if checks != 3 {
+		t.Fatalf("busy checks = %d, want initial plus two retries", checks)
+	}
+	m := readBenchMarker(t, base)
+	if m.Status != "done" || !m.UnderLoad {
+		t.Fatalf("busy run marker = %+v", m)
+	}
+	raw, err := os.ReadFile(base + ".json")
+	var rep benchReport
+	if err != nil || json.Unmarshal(raw, &rep) != nil || !rep.NoisyRun {
+		t.Fatalf("busy run lacks noisy_load: %s (%v)", raw, err)
+	}
+	if line := noticeFor(t, string(raw), "PromptRecall/bank"); !strings.Contains(line, "inconclusive (load)") {
+		t.Fatalf("loaded run was judged: %s", line)
 	}
 }
 
@@ -327,7 +374,7 @@ func TestBenchAnnotatePreservesRunnerEvidence(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "run")
 	raw := strings.Replace(cannedBench, `"pkg":"internal/memory"`, `"pkg":"internal/memory","future_evidence":{"epoch":"keep"}`, 1)
 	writeBenchFixture(t, base+".json", raw)
-	if code := benchAnnotate(base, before); code != 0 {
+	if code := benchAnnotate(base, before, false); code != 0 {
 		t.Fatalf("annotate exit %d", code)
 	}
 	got, err := os.ReadFile(base + ".json")

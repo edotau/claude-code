@@ -3,6 +3,7 @@ package docs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -47,30 +49,8 @@ func init() {
 // benchSpawn starts the detached bench run; a seam so tests spawn nothing.
 var benchSpawn = func(args []string, dir string) int { return proc.SpawnDetachedPID("sh", args, dir, nil) }
 
-// benchLoadWait caps the sysctl probe, far under the docs-plan-tick budget.
-const benchLoadWait = time.Second
-
 var benchPollWait = time.Second
-
-// benchLoad is the 1-minute load average; a seam for tests.
-var benchLoad = func(ctx context.Context) float64 {
-	raw, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		var out []byte
-		ctx, cancel := context.WithTimeout(ctx, benchLoadWait)
-		defer cancel()
-		if out, err = exec.CommandContext(ctx, "sysctl", "-n", "vm.loadavg").Output(); err != nil {
-			return 0
-		}
-		raw = out
-	}
-	f := strings.Fields(strings.Trim(strings.TrimSpace(string(raw)), "{}"))
-	if len(f) == 0 {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(f[0], 64)
-	return v
-}
+var benchMaxBusyPolls = 30
 
 // The worker owns lifecycle writes; fd 3 keeps its measurement lock alive if the worker dies mid-command.
 const benchScript = `b=$1; r=$2; top=$3; sha=$4; shift 4
@@ -87,12 +67,13 @@ type benchJob struct {
 }
 
 type benchMarker struct {
-	Status string    `json:"status"`
-	PID    int       `json:"pid"`
-	Start  time.Time `json:"start"`
-	End    time.Time `json:"end"`
-	Exit   *int      `json:"exit"`
-	Notice string    `json:"notice,omitempty"`
+	Status    string    `json:"status"`
+	UnderLoad bool      `json:"under_load,omitempty"`
+	PID       int       `json:"pid"`
+	Start     time.Time `json:"start"`
+	End       time.Time `json:"end"`
+	Exit      *int      `json:"exit"`
+	Notice    string    `json:"notice,omitempty"`
 }
 
 var benchRun = func(args []string, top string, lock *os.File) int {
@@ -216,14 +197,13 @@ func benchWorker(base string) {
 		time.Sleep(benchPollWait)
 	}
 	benchReconcile(filepath.Dir(base))
-	for benchBusy() {
-		time.Sleep(benchPollWait)
-	}
+	busy := benchWaitQuiet()
+	m.UnderLoad = busy
 	m.Status, m.Start = "running", time.Now().UTC()
 	if paths.WriteJSON(base+".marker", m) != nil {
 		return
 	}
-	code := benchMeasure(base, job, lock)
+	code := benchMeasure(base, job, lock, busy)
 	if benchComplete(base, m, code) != nil {
 		return
 	}
@@ -232,8 +212,28 @@ func benchWorker(base string) {
 	benchFinish(in)
 }
 
+func benchWaitQuiet() bool {
+	busy := benchBusy()
+	for polls := 0; busy && polls < benchMaxBusyPolls; polls++ {
+		time.Sleep(benchPollWait)
+		busy = benchBusy()
+	}
+	return busy
+}
+
 var benchBusy = func() bool {
-	if benchLoad(context.Background()) > float64(runtime.NumCPU())/2 {
+	running := 0
+	status, err := serve.QueryStatus(time.Second)
+	if err != nil && !errors.Is(err, serve.ErrNotRunning) {
+		return true
+	}
+	if err == nil {
+		for _, pool := range status.Pools {
+			running += pool.Running
+		}
+	}
+	quiet, _, err := proc.QuietMachine(context.Background(), running)
+	if err != nil || !quiet {
 		return true
 	}
 	entries, _ := os.ReadDir(inflight.Dir())
@@ -245,7 +245,7 @@ var benchBusy = func() bool {
 	return false
 }
 
-func benchMeasure(base string, job benchJob, lock *os.File) int {
+func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int {
 	bin, err := paths.SelfBinary()
 	if err != nil {
 		return -1
@@ -264,7 +264,7 @@ func benchMeasure(base string, job benchJob, lock *os.File) int {
 	if code != 0 {
 		return code
 	}
-	return benchAnnotate(base, before)
+	return benchAnnotate(base, before, underLoad)
 }
 
 // HEAD may have advanced past sha when the asynchronous commit hook runs.
@@ -451,7 +451,7 @@ func benchSampleReason(samples []float64) string {
 	return ""
 }
 
-func benchAnnotate(base string, before map[string]benchBaseline) int {
+func benchAnnotate(base string, before map[string]benchBaseline, underLoad bool) int {
 	raw, err := os.ReadFile(base + ".json")
 	if err != nil {
 		return -1
@@ -460,6 +460,9 @@ func benchAnnotate(base string, before map[string]benchBaseline) int {
 	var document map[string]json.RawMessage
 	if json.Unmarshal(raw, &document) != nil {
 		return -1
+	}
+	if underLoad {
+		document["noisy_load"] = json.RawMessage("true")
 	}
 	var packages []map[string]json.RawMessage
 	if json.Unmarshal(document["packages"], &packages) != nil {
