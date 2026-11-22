@@ -453,7 +453,7 @@ func seedPreflightToken(t *testing.T, p *providers.Provider, exp time.Time) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	raw = []byte(fmt.Sprintf(`{"schema":2,"exp":%d,"method":"u2m"}`, exp.Unix()))
+	raw = fmt.Appendf(nil, `{"schema":2,"exp":%d,"method":"u2m"}`, exp.Unix())
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}

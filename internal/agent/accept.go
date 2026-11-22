@@ -51,10 +51,10 @@ func (e *UnacceptedError) Reason() string {
 		fmt.Fprintf(&b, "%s: %s does not accept it for %s", e.Model, e.Profile, e.Agent)
 	}
 	if e.Detail != "" && e.Kind != UnacceptedPrefixed {
-		b.WriteString(" (" + e.Detail + ")")
+		fmt.Fprintf(&b, " (%s)", e.Detail)
 	}
 	if len(e.Nearest) > 0 {
-		b.WriteString("; nearest: " + strings.Join(e.Nearest, ", "))
+		fmt.Fprintf(&b, "; nearest: %s", strings.Join(e.Nearest, ", "))
 	}
 	return b.String()
 }
