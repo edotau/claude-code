@@ -22,7 +22,7 @@ func resultText(rec agent.Record, log string) string {
 		b.WriteByte('\n')
 	}
 	env := rec.ResultEnvelope(os.Stderr)
-	if answerMissing(log, env.Answer) { // the log's event lines cap each answer at 300 runes
+	if log != "" && env.Answer != "" && !strings.Contains(log, env.Answer) { // the log's event lines cap each answer at 300 runes
 		fmt.Fprintln(&b, env.Answer)
 	}
 	if line := env.RanOn; line != "" {
@@ -39,28 +39,6 @@ func resultText(rec agent.Record, log string) string {
 		fprintResumeHint(&b, rec.Agent, rec.SessionID)
 	}
 	return b.String()
-}
-
-// answerMissing: a non-empty log lacks answer; a one-line gap (a trailer spliced into it) still counts as present.
-func answerMissing(log, answer string) bool {
-	return log != "" && answer != "" && answerGap(log, answer) > 1
-}
-
-// answerGap is the widest run of answer, in lines, that log does not hold in order; 0 when answer sits in log whole.
-func answerGap(log, answer string) int {
-	lines := strings.Split(answer, "\n")
-	gap, at := 0, 0
-	for _, line := range lines {
-		if i := strings.Index(log[at:], line); i >= 0 {
-			at += i + len(line)
-			gap = 0
-			continue
-		}
-		if gap++; gap > 1 {
-			return gap
-		}
-	}
-	return gap
 }
 
 // loadResult re-reads rec's job and its log text from the working directory.
