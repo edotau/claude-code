@@ -1114,6 +1114,7 @@ func benchSettings(b *testing.B) string {
 	if err := os.Chtimes(file, old, old); err != nil {
 		b.Fatal(err)
 	}
+	time.Sleep(paths.RacyWindow) // Chtimes sets ctime to now, which the stamp cache also gates on
 	return cfg
 }
 
