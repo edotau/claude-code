@@ -24,11 +24,13 @@ type dreamPreview struct {
 	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
 	SessionRotate int      // sessionHistory entries that would rotate to archive/
 	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
+	HookP95       []dreamBenchEntry
+	HookP95Err    error
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
 func (p dreamPreview) Any() bool {
-	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0
+	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0 || len(p.HookP95) > 0
 }
 
 // Report renders the preview as `memory dream --dry-run`'s stdout.
@@ -47,6 +49,7 @@ func (p dreamPreview) Report() string {
 	for _, u := range p.Unreadable {
 		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
 	}
+	writeDreamP95(&b, p.HookP95, p.HookP95Err)
 	if !p.Any() && len(p.Unreadable) == 0 {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
 	}
@@ -63,6 +66,7 @@ func previewDream() dreamPreview {
 	}
 	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
 	p.SessionRotate = len(rotate)
+	p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
 	return p
 }
 
@@ -195,7 +199,8 @@ func dream(o dreamOptions) error {
 	if notDue && lockErr == nil {
 		return nil
 	}
-	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o)); err != nil { // settle after the lock is released
+	flags := dreamPerformance(o.Out)
+	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o, flags)); err != nil { // settle after unlocking
 		// backdated, so dreamDue retries after the backoff for this many consecutive failures
 		n := failures + 1
 		return errors.Join(err, stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n))
@@ -204,13 +209,19 @@ func dream(o dreamOptions) error {
 }
 
 // dreamSettle settles the bank and reports a failure on o.Out as well as returning it.
-func dreamSettle(o dreamOptions) error {
+func dreamSettle(o dreamOptions, flags []string) error {
 	if _, err := settleBank(time.Now()); err != nil {
 		settleErr := fmt.Errorf("settle: %w", err)
 		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 		return settleErr
 	}
-	refreshNotice(o.Out, "memory dream", o.CWD)
+	problems := doctor(o.CWD, DefaultStaleDays, time.Now())
+	if len(flags) > 0 {
+		problems = append([]string{strings.Join(flags, "; ")}, problems...)
+	}
+	if err := cacheDoctorNotice(problems); err != nil {
+		fmt.Fprintln(o.Out, "memory dream: doctor notice:", err)
+	}
 	return nil
 }
 

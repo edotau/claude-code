@@ -24,6 +24,8 @@ internal/memory/doctor.go:cacheDoctorNotice	unversioned: text: per-store doctor 
 internal/memory/doctor.go:markDoctorNoticeShown	unversioned: text: once-a-day doctor notice stamp (date, findings digest)
 internal/memory/doctor.go:recordIndexProblem	unversioned: text: last failed settle's cause, read by memory review
 internal/memory/dream.go:stampDream	unversioned: text: per-store dream timestamp stamp
+internal/memory/dream_bench.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
+internal/memory/dream_p95.go:queueDreamBench	unversioned: log: dream benchmark improvement queue JSONL
 internal/memory/embed.go:embedQuery	unversioned: marker: semantic-recall backoff stamp
 internal/memory/embed_store.go:refreshEmbeddings	unversioned: marker: embedding refresh spawn stamp
 internal/memory/migrate.go:apply	unversioned: foreign: merged bank files, MEMORY.md and .layout written by memory migrate
