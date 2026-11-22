@@ -56,18 +56,38 @@ func runAgyUsage(ctx context.Context) ([]byte, error) {
 // diskCached shares one /usage read across short-lived processes (each hook run is one) for quotaTTL.
 func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) ([]byte, error) {
 	file := filepath.Join(paths.StateDir(), "agy-usage.json")
-	if st, err := os.Stat(file); err == nil && quotaNow().Sub(st.ModTime()) < quotaTTL {
-		if b, err := os.ReadFile(file); err == nil && len(ParseQuotas(usageText(b))) > 0 {
-			return b, nil
-		}
+	if b, ok := freshUsageFile(file); ok {
+		return b, nil
 	}
-	out, err := run(ctx)
-	if len(ParseQuotas(usageText(out))) > 0 && os.MkdirAll(filepath.Dir(file), 0o700) == nil {
-		if tmp := fmt.Sprintf("%s.%d", file, os.Getpid()); os.WriteFile(tmp, out, 0o600) == nil {
-			_ = os.Rename(tmp, file)
+	var out []byte
+	var err error
+	// The lock spans re-check, fetch and write, so a concurrent run reads the fresh file instead of spawning agy.
+	if lerr := paths.WithFileLock(file, func() error {
+		if b, ok := freshUsageFile(file); ok {
+			out = b
+			return nil
 		}
+		out, err = run(ctx)
+		if len(ParseQuotas(usageText(out))) > 0 {
+			if tmp := fmt.Sprintf("%s.%d", file, os.Getpid()); os.WriteFile(tmp, out, 0o600) == nil {
+				_ = os.Rename(tmp, file)
+			}
+		}
+		return nil
+	}); lerr != nil && out == nil && err == nil {
+		return run(ctx) // no lock (unwritable state dir): fetch uncached rather than fail
 	}
 	return out, err
+}
+
+// freshUsageFile is the cached /usage read when it is under quotaTTL old and has rows.
+func freshUsageFile(file string) ([]byte, bool) {
+	st, err := os.Stat(file)
+	if err != nil || quotaNow().Sub(st.ModTime()) >= quotaTTL {
+		return nil, false
+	}
+	b, err := os.ReadFile(file)
+	return b, err == nil && len(ParseQuotas(usageText(b))) > 0
 }
 
 // CheckCached is Check from the disk cache up to quotaStaleMax old, never spawning agy; an error means no usable read.

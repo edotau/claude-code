@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,6 +82,25 @@ func TestQuotasCachesForAMinute(t *testing.T) {
 	quotaNow = func() time.Time { return quotaNow0.Add(quotaTTL + time.Second) }
 	if _, err := Quotas(context.Background()); err != nil || calls != 2 {
 		t.Errorf("after the TTL: calls = %d, err = %v, want 2 calls", calls, err)
+	}
+}
+
+func TestDiskCachedConcurrentCallersFetchOnce(t *testing.T) {
+	var calls atomic.Int32
+	stubUsage(t, nil)
+	quotaNow = time.Now
+	run := func(context.Context) ([]byte, error) { calls.Add(1); return []byte(usageSample), nil }
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			if b, err := diskCached(context.Background(), run); err != nil || len(b) == 0 {
+				t.Errorf("diskCached = %d bytes, %v", len(b), err)
+			}
+		})
+	}
+	wg.Wait()
+	if n := calls.Load(); n != 1 {
+		t.Errorf("fetch ran %d times for two concurrent callers, want 1", n)
 	}
 }
 
