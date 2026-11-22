@@ -716,6 +716,7 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) RunOptions {
 	_, values := RunValues(ctx, req.Values)
 	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && values[route.OverlayVar] == "" {
+		req.Unset = append(slices.Clone(req.Unset), route.OverlayVar) // never the process env's copy
 		return req
 	}
 	req.Env = append(proc.Values(r.Set).Env(), req.Env...)

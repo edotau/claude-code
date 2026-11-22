@@ -404,8 +404,8 @@ func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 // ApplyOverlay reads the run's overlay from req.Values, never from the parent's own environment.
 func TestApplyOverlayIgnoresAmbientOverlay(t *testing.T) {
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
-	if got := (RunOptions{Values: proc.Values{"PST_RUN": "x"}}).ApplyOverlay(t.Context(), agentconfig.Resolved{}); len(got.Unset) != 0 {
-		t.Errorf("ambient $%s reached a run whose Values do not name it: Unset = %v", route.OverlayVar, got.Unset)
+	if got := (RunOptions{Values: proc.Values{"PST_RUN": "x"}}).ApplyOverlay(t.Context(), agentconfig.Resolved{}); !slices.Equal(got.Unset, []string{route.OverlayVar}) {
+		t.Errorf("ambient $%s must be unset for a run whose Values do not name it: Unset = %v", route.OverlayVar, got.Unset)
 	}
 	named := RunOptions{Values: proc.Values{route.OverlayVar: `{"provider":"databricks"}`}}
 	if got := named.ApplyOverlay(t.Context(), agentconfig.Resolved{}); !slices.Contains(got.Unset, route.OverlayVar) {

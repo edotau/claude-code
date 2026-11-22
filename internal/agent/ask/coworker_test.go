@@ -103,6 +103,72 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	}
 }
 
+// Only a live top-level Pi ancestor's record clears the inherited route; its caps stay, and every other parent fences.
+func TestCarrierDropsFenceOnlyUnderRunningPi(t *testing.T) {
+	if proc.Parent(os.Getpid()) == 0 {
+		t.Skip("no parent-process table here (windows): every parent fences")
+	}
+	one := 1
+	fence := agentconfig.InlineOverlay("databricks", "prod", agentconfig.Overlay{MaxChildren: &one})
+	caps := agentconfig.InlineOverlay("", "", agentconfig.Overlay{MaxChildren: &one})
+	saveCarrierRecords(t)
+	cases := []struct {
+		parent, job string
+		free        bool
+	}{
+		{"20261122T000000.001-pi", "", true},
+		{"20261122T000000.001-pi", "20261122T000000.007-gemini", false}, // a --job child keeps what its spawner carried
+		{"20261122T000000.002-codex", "", false},
+		{"20261122T000000.003-pi", "", false},    // a finished Pi id reused
+		{"20261122T000000.004-pi", "", false},    // live but not an ancestor
+		{"20261122T000000.005-pi", "", false},    // dead: its pid now names another process
+		{"20261122T000000.006-pi", "", false},    // a nested Pi
+		{"20261122T000000.008-codex", "", false}, // agent pi on a non-Pi id
+		{"20261122T000000.009-pi", "", false},    // forged: no record
+		{"20261122T000000.00", "", false},        // a prefix of the Pi record
+		{"../dispatch/20261122T000000.001-pi", "", false},
+	}
+	for _, c := range cases {
+		in := proc.Values{route.OverlayVar: fence, proc.DispatchIDEnv: c.parent, providers.EnvSessionProfile: "prod"}
+		values, _ := proc.ValuesFromContext(carrierContext(proc.WithValues(t.Context(), in), c.job))
+		doc, profile := fence, "prod"
+		if c.free {
+			doc, profile = caps, ""
+		}
+		if values[route.OverlayVar] != doc || values[providers.EnvSessionProfile] != profile {
+			t.Errorf("parent %s job %q: overlay %s profile %q, want %s %q", c.parent, c.job,
+				values[route.OverlayVar], values[providers.EnvSessionProfile], doc, profile)
+		}
+	}
+}
+
+// saveCarrierRecords saves the parents TestCarrierDropsFenceOnlyUnderRunningPi judges, on live pids.
+func saveCarrierRecords(t *testing.T) {
+	up, self := os.Getppid(), os.Getpid() // the parent is an ancestor; this process is alive but not its own ancestor
+	upStart, err := proc.StartTime(up)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfStart, err := proc.StartTime(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod := route.Route{Provider: "databricks", Profile: "prod"}
+	for _, r := range []agent.Record{
+		{ID: "20261122T000000.001-pi", Agent: "pi", Status: "running", PID: up, PIDStart: upStart, Route: prod},
+		{ID: "20261122T000000.002-codex", Agent: "codex", Status: "running", PID: up, PIDStart: upStart},
+		{ID: "20261122T000000.003-pi", Agent: "pi", Status: "ok", PID: up, PIDStart: upStart},
+		{ID: "20261122T000000.004-pi", Agent: "pi", Status: "running", PID: self, PIDStart: selfStart},
+		{ID: "20261122T000000.005-pi", Agent: "pi", Status: "running", PID: up, PIDStart: "Mon Jan  1 00:00:00 2001"},
+		{ID: "20261122T000000.006-pi", Agent: "pi", Status: "running", PID: up, PIDStart: upStart, Depth: 1, Parent: "20261122T000000.001-pi"},
+		{ID: "20261122T000000.008-codex", Agent: "pi", Status: "running", PID: up, PIDStart: upStart}, // an edited record
+	} {
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // A run's confinement, egress host and carried overlay live on its ctx: the process env is never written.
 func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	vaulttest.Use(t)

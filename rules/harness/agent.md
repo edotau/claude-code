@@ -110,13 +110,12 @@ paths:
   Substitutions, env changes, `git commit` and the hook's vetoes stay raw, and any failure runs the real binary.
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`. Rollback: `RTK_WRAP=off`, or
   delete `bin/.rtkwrap`. Plan: `/Users/edotau/.claude/plans/2026-11-22-rtk-wrap-and-parallel-rewrite.md`.
-- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode on|only` loads `builtin:codemode`;
-  vault env `PI_CODEMODE=off|on|only` (default off, other values off) does the same for every `--tools` dispatch with
-  no typed `--codemode` (ignored without `--tools`). The model writes a script that calls the guard's tools in a
-  QuickJS sandbox; `only` routes every tool through scripts. The guard allows that one tool only from
-  `builtin:codemode`, and nested calls still pass `safety-scan` and `permission-gate`. Pi records carry
-  `experiment: rtk-wrap|codemode|none`; code mode (flag or setting) with `RTK_WRAP=on` is refused naming which
-  (one experiment per dispatch). Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
+- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode on|only`, or `PI_CODEMODE=off|on|only`
+  per machine (a typed flag wins; ignored without `--tools`), loads `builtin:codemode`. The model writes a script
+  that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts. The guard allows that
+  one tool only from `builtin:codemode`, and nested calls still pass `safety-scan` and `permission-gate`. Code mode
+  never wraps (see Pi carrier and experiments, rule 4).
+  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
@@ -264,6 +263,35 @@ vendor CLI untouched.
 - `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through each agent's real
   launch policy per tier (no flag, `--tools`, `--read-only`) with no model call; exit 1 on a missed expectation. Cells
   only a vendor runtime judges are listed apart, uncounted.
+
+## Pi carrier and experiments
+
+1. **Carrier.** To run an external agent cheaply, dispatch Pi with a fixed brief: run the exact
+   `claude-code agents ask --agent <a> --model <m> -- "<task>"` line once, then return its `ask:` receipt and answer
+   verbatim. The brief goes in as a file and is never retyped.
+   Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
+2. **`--agent` is the agent doing the work.**
+   - The inner ask records itself as a child of Pi's dispatch (`agents tree`).
+   - Its receipt comes first; Pi's own receipt follows.
+   - A Pi-carried child routes exactly as a direct call would, so it keeps its own login pins. It inherits Pi's
+     permissions, depth and token caps, never Pi's route.
+   - Every other nested dispatch stays fenced to its parent's route.
+3. **Each shell layer wraps only its own commands.** `RTK_WRAP` stand-ins act in Pi's own tool shell. A carried
+   agent's PATH has no shim dir, and the `claude-code agents ask` line between layers is never wrapped.
+4. **Code mode and wrapping.** One gate decides from the environment, with no judgment:
+   - `RTK_WRAP=on` and code mode off → wrap.
+   - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
+     parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
+   - A record names one `experiment`: `rtk-wrap`, `codemode` or `none`; code mode wins when both are set.
+5. **When to use code mode (`--codemode on|only`, or `PI_CODEMODE` per machine):** read-heavy work that fans out
+   (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not single reads or
+   edits: the first runs cost more tokens there.
+6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
+   - `RTK_WRAP`: `debug` for a day, then review `state/harness/rtkwrap/decisions.jsonl` for any would-wrap on
+     program-parsed output, then `on`.
+   - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
+7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command), and don't use
+   `claude-code pi` (being deleted).
 
 ## Skills and instructions parity
 
