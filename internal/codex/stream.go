@@ -137,13 +137,15 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.res.Usage.CacheReadTokens += u.CachedInputTokens
 		s.res.Usage.OutputTokens += u.OutputTokens
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
-	case "error", "turn.failed":
+	case "turn.failed":
+		s.failure = cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
+		return wire.EmitError(s.log, s.sink, s.failure)
+	case "error":
 		message := cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
-		if ev.Type != "error" || !ev.WillRetry {
-			s.failure = message
+		s.retryError = message
+		if !ev.WillRetry {
 			return wire.EmitError(s.log, s.sink, message)
 		}
-		s.retryError = message
 		s.log.Emit("warning", message)
 		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}

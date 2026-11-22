@@ -44,7 +44,8 @@ func TestParseCodexStreamTopLevelErrors(t *testing.T) {
 	const done = "\n" + `{"type":"item.completed","item":{"type":"agent_message","text":"42"}}` + "\n" + `{"type":"turn.completed"}`
 	cases := []struct{ name, events, answer, failure string }{
 		{"recovered", retry + done, "42", ""},
-		{"fatal", `{"type":"error","message":"permanent failure"}` + done, "42", "permanent failure"},
+		{"reconnected", `{"type":"error","message":"Reconnecting..."}` + done, "42", ""},
+		{"fatal", `{"type":"error","message":"permanent failure"}`, "", "permanent failure"},
 		{"truncated", retry, "", "temporary outage"},
 		{"turn failed", `{"type":"turn.failed","will_retry":true,"error":{"message":"turn failure"}}` + done, "42", "turn failure"},
 	}
