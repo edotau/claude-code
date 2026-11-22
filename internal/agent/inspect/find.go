@@ -52,7 +52,7 @@ type FindReport struct {
 	More    int         `json:"more"`
 }
 
-// Find returns 0 for matches, 1 for none, 2 for usage errors; unparseable .go files are skipped and listed on Err.
+// Find returns 0 for matches, 1 for none, 2 for errors; unparseable Go candidates are listed on Err.
 func Find(o FindOptions) int {
 	rep, err := findReport(o)
 	if err == nil {
@@ -108,11 +108,10 @@ func findReport(o FindOptions) (FindReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	files, err := findTracked(root, o)
+	files, err := findSearchFiles(root, o)
 	if err != nil {
 		return rep, err
 	}
-	files = findPrefilter(root, files, o)
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return rep, err
@@ -190,30 +189,54 @@ func findTracked(root string, o FindOptions) ([]string, error) {
 	return files, nil
 }
 
-// findPrefilter narrows content searches for a pure literal to git grep's candidates; any doubt keeps every file.
-// Go modes keep the full scan: a file without the literal could still print a "skipped" parse notice.
+func findSearchFiles(root string, o FindOptions) ([]string, error) {
+	if !findLiteral(o) {
+		return findTracked(root, o)
+	}
+	var hits findHits
+	var wg sync.WaitGroup
+	wg.Go(func() { hits = findGitHits(root, o) })
+	files, err := findTracked(root, o)
+	wg.Wait()
+	return hits.filter(files), err
+}
+
 func findPrefilter(root string, files []string, o FindOptions) []string {
 	if !findLiteral(o) {
 		return files
 	}
+	return findGitHits(root, o).filter(files)
+}
+
+type findHits map[string]bool
+
+func (hits findHits) filter(files []string) []string {
+	if hits == nil {
+		return files
+	}
+	return slices.DeleteFunc(files, func(p string) bool { return !hits[p] })
+}
+
+// A nil result keeps the full scan on git errors; exit 1 means no candidates.
+func findGitHits(root string, o FindOptions) findHits {
 	args := []string{"grep", "-l", "-z", "-F", "--untracked"}
 	if o.IgnoreCase {
 		args = append(args, "--ignore-case")
 	}
 	raw, err := proc.RunGitRaw(context.Background(), root, append(args, "-e", o.Pattern)...)
 	if exit, ok := errors.AsType[*exec.ExitError](err); err != nil && (!ok || exit.ExitCode() != 1) {
-		return files
+		return nil
 	}
 	hits := map[string]bool{}
 	for p := range strings.SplitSeq(raw, "\x00") {
 		hits[p] = true
 	}
-	return slices.DeleteFunc(files, func(p string) bool { return !hits[p] })
+	return hits
 }
 
 // findLiteral reports a content search whose pattern git -F can match as Go would; -i skips K, S and non-ASCII (Go folds them).
 func findLiteral(o FindOptions) bool {
-	if o.Name || o.Func || o.Def || o.Callers || o.Pattern == "" ||
+	if o.Name || o.Pattern == "" ||
 		regexp.QuoteMeta(o.Pattern) != o.Pattern || strings.ContainsAny(o.Pattern, "\r\n\x00") {
 		return false
 	}
