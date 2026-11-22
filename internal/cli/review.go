@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/review/bench"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -22,6 +23,7 @@ var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr
 	"report":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
 	"gate":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
 	"scope":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
+	"bench":      func(a []string, _ io.Reader, o, e io.Writer) int { return bench.RunBench(a, o, e) },
 }
 
 var reviewPage = helptext.Page{
@@ -36,6 +38,7 @@ var reviewPage = helptext.Page{
 		{"report", "pr + quality findings as one review report"},
 		{"gate", "advisory pre-commit summary of the staged change"},
 		{"scope", "files a change or path set touches, sized in bytes"},
+		{"bench", "run changed packages' benchmarks, compare with the baseline"},
 	},
 	Hint: "claude-code review <tool> -h lists that tool's flags.",
 }
