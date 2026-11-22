@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// Only an external agent whose row sets Carry is carried: pi, claude, a persona and codex (no Carry) are refused.
+// Only an external agent whose row sets Carry is carried: pi, claude and a persona are refused.
 func TestCarryAgentRefusals(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -19,7 +19,7 @@ func TestCarryAgentRefusals(t *testing.T) {
 		want    string
 	}{
 		{"pi", false, "not carried"}, {"claude", false, "not carried"}, {"gemini", true, "not carried"},
-		{"codex", false, "Carry: true"}, {"gemini", false, ""},
+		{"codex", false, ""}, {"gemini", false, ""},
 	} {
 		err := carryAgent(c.name, c.persona)
 		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {

@@ -261,8 +261,8 @@ vendor CLI untouched.
 1. **Carrier (D1).** `agents ask --carry --agent <a> [ask flags] -- "<task>"` (spec key `carry`) builds the inner
    ask line itself (its typed flags minus `--carry`/`--background`) and runs it as a plain child process: the task
    goes in on stdin byte-identical, output streams through, and no model runs on the happy path. Only an agent whose
-   roster row sets `CLI.Carry` is carried (gemini today); pi, claude, a persona, `--live`, `--batch`, `--loop`,
-   `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
+   roster row sets `CLI.Carry` is carried (codex, copilot, gemini, opencode); pi, claude, a persona, `--live`,
+   `--batch`, `--loop`, `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
    Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
    - **Takeover.** A child cut off (deadline, stall, idle, auth-retry, or a partial/stalled record) is finished by
      `agents ask --agent pi --tools` under the inner line's `--read-only`, `--permissions`, `--allow`, `--deny`,
