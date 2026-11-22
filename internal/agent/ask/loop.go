@@ -484,13 +484,8 @@ func (s *loopSink) Write(p []byte) (int, error) {
 	}
 }
 
-// loopAsk is the seam the planner's in-process ask goes through; tests replace the whole plan func instead.
+// loopAsk is the seam the planner's in-process ask goes through; nil runs runCtx (no init: bin/.hooks links ask).
 var loopAsk func(ctx context.Context, args []string, out io.Writer) int
-
-// init breaks the initialization cycle runCtx -> loopMode -> loopAsk -> runCtx.
-func init() {
-	loopAsk = func(ctx context.Context, args []string, out io.Writer) int { return runCtx(ctx, args, "", out) }
-}
 
 // loopMode handles --loop and --loop-resume, which end the run before a single task is built.
 func (r *askRun) loopMode() (int, bool) {
@@ -602,7 +597,11 @@ func (r *askRun) loopPlanFn() func(context.Context, string, string) (loopPlan, w
 			args = append(args, "--timeout", d.String())
 		}
 		var buf bytes.Buffer
-		rc := loopAsk(ctx, append(args, "--", prompt), &buf)
+		run := loopAsk
+		if run == nil {
+			run = func(ctx context.Context, args []string, out io.Writer) int { return runCtx(ctx, args, "", out) }
+		}
+		rc := run(ctx, append(args, "--", prompt), &buf)
 		return parseLoopPlan(buf.Bytes(), rc)
 	}
 }
