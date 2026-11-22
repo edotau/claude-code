@@ -107,6 +107,10 @@ func ensureWorkDir(work string) (string, error) {
 		}
 		work = w
 	}
+	work, err := filepath.Abs(work) // children run in other dirs, so a relative Work would split
+	if err != nil {
+		return "", err
+	}
 	return work, os.MkdirAll(work, 0o755)
 }
 
@@ -150,18 +154,25 @@ func preflight(o ABOptions, s abSeam) (ABResult, error) {
 
 // runRounds runs A then B per round, never two at once, and returns each side's round files.
 func runRounds(ctx context.Context, o ABOptions, s abSeam, res ABResult, log io.Writer) (as, bs []string, err error) {
+	rdir, err := os.MkdirTemp(o.Work, "rounds-") // private per run, so concurrent runs cannot share files
+	if err != nil {
+		return nil, nil, err
+	}
 	for r := 1; r <= o.Rounds; r++ {
 		for _, side := range []struct {
 			name, dir, sha string
 			files          *[]string
 		}{{"a", o.A, res.CommitA, &as}, {"b", o.B, res.CommitB, &bs}} {
-			out := filepath.Join(o.Work, fmt.Sprintf("%s-%d.txt", side.name, r))
+			out := filepath.Join(rdir, fmt.Sprintf("%s-%d.txt", side.name, r))
 			fmt.Fprintf(log, "interleave: round %d/%d %s %s\n", r, o.Rounds, strings.ToUpper(side.name), side.sha)
 			if err := s.bench(ctx, side.dir, o, out); err != nil {
 				return nil, nil, err
 			}
 			if err := checkRound(out, side.sha); err != nil {
 				return nil, nil, err
+			}
+			if dirty, err := s.dirty(side.dir); err != nil || dirty {
+				return nil, nil, fmt.Errorf("interleave: worktree %s changed during its round (err %v)", side.dir, err)
 			}
 			*side.files = append(*side.files, out)
 		}
