@@ -45,6 +45,8 @@ var dispatchFormat = schemas.Register(schemas.Format{
 const (
 	FailAvailability = "availability"
 	FailQuality      = "quality"
+	FailPolicy       = "policy"    // refused before start by a permission or brief rule: not the model's fault
+	FailCancelled    = "cancelled" // stopped on request: not a failure of the model or the harness
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
@@ -57,7 +59,7 @@ type Record struct {
 	Status         string      `json:"status"`               // running | ok | error | partial | stalled | quota
 	Experiment     string      `json:"experiment,omitempty"` // the one trial the run carries (pi: rtk-wrap|codemode|none)
 	Error          string      `json:"error,omitempty"`
-	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
+	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
 	Provider       string      `json:"provider,omitempty"`
 	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
@@ -826,8 +828,14 @@ func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	pruneDispatches(paths.DispatchDir(), rec.ID)
 }
 
-// failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
+// failKind: cancelled on request, policy for pre-start refusals, availability when no model answered, else quality.
 func failKind(err error) string {
+	if CutoffOf(err) == CutoffCancelled {
+		return FailCancelled
+	}
+	if isPolicyRefusal(err) {
+		return FailPolicy
+	}
 	if _, ok := errors.AsType[*PreflightError](err); ok || errors.Is(err, ErrModelRoute) {
 		return FailAvailability
 	}
@@ -836,6 +844,17 @@ func failKind(err error) string {
 		return FailAvailability
 	}
 	return FailQuality
+}
+
+// isPolicyRefusal matches the pre-start refusals by text: they carry no sentinel.
+func isPolicyRefusal(err error) bool {
+	msg := err.Error()
+	for _, s := range []string{"cannot enforce", "are two experiments", "edit brief needs tools"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {

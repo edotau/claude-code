@@ -1008,7 +1008,8 @@ func TestFailKindClassification(t *testing.T) {
 		{fmt.Errorf("%w: bad effort", ErrModelRoute), FailAvailability},
 		{&PreflightError{}, FailAvailability},
 		{context.DeadlineExceeded, FailAvailability},
-		{context.Canceled, FailAvailability},
+		{context.Canceled, FailCancelled},
+		{errors.New("codex: cannot enforce ask Bash(x)"), FailPolicy},
 		{&retry.Error{Kind: retry.KindFatal}, FailQuality},
 		{errors.New("empty answer"), FailQuality},
 	}
