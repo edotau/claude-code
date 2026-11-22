@@ -587,11 +587,7 @@ func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provide
 // chatTask is the serving task of a chat-completions endpoint.
 const chatTask = "llm/v1/chat"
 
-// agentRuns is the tier rule: claude runs Claude, gemini Gemini (any chat model on Databricks), codex Responses.
-func agentRuns(agentName string, p *providers.Provider, wire string) bool {
-	return agentRunsIn(nil, agentName, p, wire)
-}
-
+// agentRunsIn is the tier rule: claude runs Claude, gemini Gemini (any chat model on Databricks), codex Responses.
 func agentRunsIn(menu []providers.OpencodeModel, agentName string, p *providers.Provider, wire string) bool {
 	switch facts := agentid.Routing(agentName); {
 	case facts.ModelFamily == string(models.FamilyClaude):

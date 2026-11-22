@@ -337,3 +337,7 @@ func TestResolveModelKeepsRouteWhole(t *testing.T) {
 		t.Fatalf("overlay route = %+v, %v; want %+v", r, err, want)
 	}
 }
+
+func agentRuns(agentName string, p *providers.Provider, wire string) bool {
+	return agentRunsIn(nil, agentName, p, wire)
+}
