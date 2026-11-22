@@ -104,9 +104,9 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 // finish runs the recall, model pin and label steps and renders the result.
 func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string, direct bool) core.Result {
 	st := in.Nested("tool_input", "subagent_type")
-	recallNote := e.recallStep(ctx, in, promptField, task, true)
+	extraNote := core.JoinContext(e.recallStep(ctx, in, promptField, task, true), e.benchNote(in.CWD, task))
 	if e.mode == modeDeferred {
-		return core.Result{Context: recallNote}
+		return core.Result{Context: extraNote}
 	}
 	if !direct && !fixedModelTypes[st] {
 		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
@@ -117,7 +117,7 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 	if !fixedModelTypes[st] {
 		e.label(ctx, promptField, task)
 	}
-	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
+	e.note = strings.TrimSpace(e.note + "\n" + extraNote)
 	if in.Nested("permission_mode") == "auto" && e.changed && e.mode != modeQuery && !e.retyped(st) {
 		// auto mode gives no verdict on a hook-changed input: send the fixes as context, leave the call as sent
 		fields, _ := json.Marshal(changedFields(in.ToolInput(), e.updated))
