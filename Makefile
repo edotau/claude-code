@@ -35,12 +35,13 @@ PKGS            := ./...
 # Dirs that `make fmt` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
-# Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs all three (DEV_TOOLS=0 skips).
+# Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs them all (DEV_TOOLS=0 skips).
 DEV_TOOLS       ?= 1
 DEV_TOOLS_ON    := $(findstring $(DEV_TOOLS),1)
 GOVULN_VERSION  ?= v1.8.0
 GOLANGCI_VERSION ?= v2.15.0
 YAMLFMT_VERSION ?= v0.21.0
+BENCHSTAT_VERSION ?= v0.0.0-20261117185222-4febdb082b2c
 # Markdown linter/fixer, installed to bin/ by `make install`; its pkg/markdown is the Go code's parser too.
 MDSMITH_VERSION ?= v0.57.0
 MDSMITH         := bin/mdsmith
@@ -90,7 +91,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
-		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) || \
+		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
+		$(GO) install golang.org/x/perf/cmd/benchstat@$(BENCHSTAT_VERSION) || \
 		echo -e "$(C_NOTE)a dev tool failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(MAKE) --no-print-directory tools-sync)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
@@ -104,7 +106,7 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
 	@gobin="$$($(GO) env GOBIN)"; [ -n "$$gobin" ] || gobin="$$($(GO) env GOPATH)/bin"; \
 	login="$$PATH"; while [ "$${login%:$(HOME)/go/bin}" != "$$login" ]; do login="$${login%:$(HOME)/go/bin}"; done; \
-	for t in govulncheck golangci-lint yamlfmt; do \
+	for t in govulncheck golangci-lint yamlfmt benchstat; do \
 		found="$$(PATH="$$login" command -v "$$t" 2>/dev/null)" || { \
 			[ -x "$$gobin/$$t" ] && [ -d "$(HOME)/.local/bin" ] && cp -f "$$gobin/$$t" "$(HOME)/.local/bin/$$t" && \
 			echo -e "$(C_OK)tools-sync: $$t was off the login PATH; copied to ~/.local/bin"; continue; }; \
