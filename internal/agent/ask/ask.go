@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
@@ -698,6 +699,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	if err := claimRecover(ctx); err != nil {
 		return failAsk(format, name, err)
 	}
+	admitPending(ctx, jobRec)
 	go warmMask() // resolve the vault key while Prepare runs
 	prepared, err := run.prepare(ctx, cl, req, jobRec)
 	if err != nil {
@@ -818,6 +820,16 @@ func prepareExitCode(err error) int {
 		return usage.ExitCode()
 	}
 	return 1
+}
+
+// admitJob is serve.Admit; a test seam.
+var admitJob = serve.Admit
+
+// admitPending holds a detached job (jobRec set) until `agents serve` admits its pool; with no daemon it runs at once.
+func admitPending(ctx context.Context, jobRec *agent.Record) {
+	if jobRec != nil {
+		admitJob(ctx, *jobRec, os.Stderr)
+	}
 }
 
 // askSpawn detaches a prepared dispatch as a background job; its child starts from the run values it was prepared with.

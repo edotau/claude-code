@@ -52,6 +52,8 @@ func agentsSpec() *helptext.Node {
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("run"), flag("verify"), boolFlag("path")}},
+		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
+			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
 }
 
@@ -101,6 +103,7 @@ var agentsPage = helptext.Page{
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
+		{"serve", "daemon that queues background jobs per pool; --start|--stop"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
 		{"send", "message a live session, queue on a job, or notify parent"},
 	},
@@ -213,6 +216,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"wait":   cmdAgentsWait,
 	"brief":  cmdAgentsBrief,
 	"watch":  cmdAgentsWatch,
+	"serve":  cmdAgentsServe,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
