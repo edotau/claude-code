@@ -3,10 +3,12 @@ package hooks
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/permission"
 )
 
@@ -24,6 +26,17 @@ func agentBashAllow(in *core.Input, r core.Result) core.Result {
 	r.Context = core.JoinContext(r.Context, "allowed for an agent (owner order): "+allowedRule(r))
 	r.Decision, r.Reason, r.Verdict = core.Allow, "", core.VerdictPassed
 	return r
+}
+
+// passedRows marks lifted block, deny and ask rows passed, keeping the rule that fired.
+func passedRows(rows []hooktelemetry.Row) []hooktelemetry.Row {
+	out := slices.Clone(rows)
+	for i, r := range out {
+		if r.Outcome != hooktelemetry.OutcomeOK || r.Verdict != "" {
+			out[i].Outcome, out[i].Verdict = hooktelemetry.OutcomeOK, core.VerdictPassed
+		}
+	}
+	return out
 }
 
 // agentAllowTool is Bash, or an edit tool when the dispatch runs under --permissions allow.
