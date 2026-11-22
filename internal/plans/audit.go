@@ -132,28 +132,34 @@ func Audit(ctx context.Context, root string, opts AuditOpts) (AuditReport, error
 			return a.rep, err
 		}
 	}
-	trunk, _, _, err := trunkBranch(ctx, root)
+	return a.rep, a.home(opts.All)
+}
+
+// home audits the dated plans of a.root's plans home against a.root's git history.
+func (a *auditRun) home(all bool) error {
+	ctx := a.ctx
+	trunk, _, _, err := trunkBranch(ctx, a.root)
 	if err != nil {
-		return a.rep, err
+		return err
 	}
-	dated, since, err := auditPlans(Home(root), opts.All)
+	dated, since, err := auditPlans(Home(a.root), all)
 	if err != nil {
-		return a.rep, err
+		return err
 	}
 	a.rep.Plans += len(dated)
 	if len(dated) == 0 {
-		return a.rep, nil
+		return nil
 	}
 	if err := a.openRefs(trunk, since); err != nil {
-		return a.rep, err
+		return err
 	}
 	commits, err := a.trailerCommits(since, "refs/heads/"+trunk)
 	if err != nil {
-		return a.rep, err
+		return err
 	}
 	history, err := a.subjectCommits(since)
 	if err != nil {
-		return a.rep, err
+		return err
 	}
 	a.subjects = map[string][][]string{}
 	for _, c := range history {
@@ -163,10 +169,10 @@ func Audit(ctx context.Context, root string, opts AuditOpts) (AuditReport, error
 	a.offTrunk(dated)
 	for _, d := range dated {
 		if err := a.auditPlan(d, commits, history); err != nil {
-			return a.rep, err
+			return err
 		}
 	}
-	return a.rep, nil
+	return nil
 }
 
 func (a *auditRun) auditPlan(d datedPlan, commits []Commit, history []auditCommit) error {
@@ -184,11 +190,20 @@ func (a *auditRun) auditPlan(d datedPlan, commits []Commit, history []auditCommi
 	return a.process(d.path, tasks)
 }
 
-// otherHomes reports every dated plan of the other repo homes by name; nothing there is parsed or judged.
+// otherHomes audits each other repo home whose checkout sits beside a.root's, else reports its plans by name.
 func (a *auditRun) otherHomes() error {
-	skip := MirrorDests()
+	skip, base := MirrorDests(), filepath.Dir(paths.MainCheckout(a.root))
 	for _, home := range Dirs(true)[1:] {
 		if paths.SamePath(home, Home(a.root)) {
+			continue
+		}
+		if checkout := siblingCheckout(base, filepath.Base(home)); checkout != "" {
+			sub := &auditRun{ctx: a.ctx, root: checkout, dry: a.dry, rep: a.rep, writes: a.writes}
+			err := sub.home(true)
+			a.rep, a.writes = sub.rep, sub.writes
+			if err != nil {
+				return fmt.Errorf("plans: audit %s: %w", checkout, err)
+			}
 			continue
 		}
 		entries, err := os.ReadDir(home)
@@ -204,6 +219,19 @@ func (a *auditRun) otherHomes() error {
 		}
 	}
 	return nil
+}
+
+// siblingCheckout is the main checkout of repo slug one or two levels under base (dotted name too); "" when none.
+func siblingCheckout(base, slug string) string {
+	for _, pat := range []string{slug, "." + slug, filepath.Join("*", slug), filepath.Join("*", "."+slug)} {
+		matches, _ := filepath.Glob(filepath.Join(base, pat)) // a slug holds only [a-z0-9._-], never a glob meta
+		for _, m := range matches {
+			if top, main := paths.CheckoutOf(m); paths.SamePath(top, m) && paths.RepoSlug(main) == slug {
+				return main
+			}
+		}
+	}
+	return ""
 }
 
 // recentPlans lists the dated plans within recentDays, oldest first, and the day before the oldest one.
@@ -359,7 +387,7 @@ func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) err
 		if candidate == "" {
 			candidate = c.sha[:7] + " " + c.subject
 		}
-		if a.ownedEvidence(owns, c.files) && a.landed.has(c.sha) {
+		if ownedEvidence(a.root, owns, c.files) && a.landed.has(c.sha) {
 			return a.tick(plan, t, c.sha[:7], "owned files + subject")
 		}
 	}
@@ -384,15 +412,15 @@ func auditOwns(t Task) []string {
 }
 
 // ownedEvidence holds when the commit's files cover every owns: entry and each entry stays inside the checkout.
-func (a *auditRun) ownedEvidence(owns, files []string) bool {
-	if all, _ := covers(a.root, owns, files); !all {
+func ownedEvidence(root string, owns, files []string) bool {
+	if all, _ := covers(root, owns, files); !all {
 		return false // also false with no owns:
 	}
 	for _, entry := range ownEntries(owns, files) {
 		if !filepath.IsAbs(entry) {
-			entry = filepath.Join(a.root, entry)
+			entry = filepath.Join(root, entry)
 		}
-		if !paths.Within(entry, a.root) {
+		if !paths.Within(entry, root) {
 			return false
 		}
 	}
@@ -568,7 +596,7 @@ func (a *auditRun) process(plan string, tasks []Task) error {
 	}
 	sha := ""
 	if !allStruck {
-		sha = a.newest(shas)
+		sha = a.landed.newest(shas)
 	}
 	for _, i := range steps {
 		if err := a.closeStep(plan, tasks, i, allStruck, sha); err != nil {
@@ -625,11 +653,11 @@ func (a *auditRun) closeStep(plan string, tasks []Task, i int, allStruck bool, s
 	return err
 }
 
-// newest is the sha of shas that sits nearest trunk's tip.
-func (a *auditRun) newest(shas []string) string {
-	best, at := shas[0], len(a.landed.recent)
+// newest is the sha of shas that sits nearest the ref's tip.
+func (r *reach) newest(shas []string) string {
+	best, at := shas[0], len(r.recent)
 	for _, s := range shas {
-		if i := a.landed.index(s); i >= 0 && i < at {
+		if i := r.index(s); i >= 0 && i < at {
 			best, at = s, i
 		}
 	}

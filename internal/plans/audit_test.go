@@ -101,6 +101,19 @@ func TestAuditStrikesProcessStepsOfAStruckPlan(t *testing.T) {
 	}
 }
 
+// --all audits a home whose checkout sits beside the repo and names each plan of a home with none.
+func TestAuditAllResolvesSiblingCheckouts(t *testing.T) {
+	hermetic(t)
+	repo, sibling := gitRepo(t, "main"), gitRepo(t, "main")
+	writeFile(t, filepath.Join(Home(sibling), "2026-10-05-s.md"), "- [ ] 1.1 Open (abc1234)\n")
+	writeFile(t, filepath.Join(Home(repo), "..", "gone-repo", "2026-10-05-g.md"), "- [ ] 1.1 One\n")
+	got, err := Audit(context.Background(), repo, AuditOpts{DryRun: true, All: true})
+	rows := auditProblems(got)
+	if err != nil || got.Plans != 2 || !strings.Contains(rows, "2026-10-05-s|1.1|open task carries a sha") || strings.Count(rows, "no checkout") != 1 {
+		t.Fatalf("plans=%d err=%v:\n%s", got.Plans, err, rows)
+	}
+}
+
 // A judged run's strike with no found cite or of a claimed task is reopened; a prose edit reverts every change.
 func TestRecheckJobRevertsUnprovenStrikes(t *testing.T) {
 	hermetic(t)
