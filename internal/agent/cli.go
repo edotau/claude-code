@@ -390,7 +390,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	}
 	opts.Idle.bind(cmd.Cancel) // a silent child must not hold the run to --timeout
 	lg := wire.EventLogFor(ctx)
-	idle := &idleReader{src: eofReader{R: stdout}, last: time.Now().UnixNano()}
+	idle := &idleReader{src: eofReader{R: stdout}, last: time.Now().UnixNano(), start: time.Now()}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
 	stop := heartbeat(lg, idle, name, id)
 	defer stop() // a panicking parser must not leave the ticker goroutine running
@@ -400,6 +400,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
+	res.Transport = idle.stampFirst(res.Transport)
 	return streamResult(ctx, name, res, perr, werr, opts, tail)
 }
 
@@ -454,13 +455,33 @@ func reapChild(cmd *exec.Cmd, out *eofReader, perr error) error {
 
 // idleReader stamps the time of every read so heartbeat can tell a quiet stream from a busy one.
 type idleReader struct {
-	src  eofReader
-	last int64 // unix nanos of the last read, atomic
+	src   eofReader
+	last  int64 // unix nanos of the last read, atomic
+	start time.Time
+	first atomic.Int64 // ms from start to the first byte read, plus 1 so 0 means none
+}
+
+// stampFirst sets t.FirstEventMs from the first byte read when the parser left it unset.
+func (i *idleReader) stampFirst(t *wire.Transport) *wire.Transport {
+	ms := i.first.Load() - 1
+	if ms < 0 || (t != nil && t.FirstEventMs > 0) {
+		return t
+	}
+	out := wire.Transport{}
+	if t != nil {
+		out = *t
+	}
+	out.FirstEventMs = ms
+	return &out
 }
 
 func (i *idleReader) Read(p []byte) (int, error) {
 	n, err := i.src.Read(p)
-	atomic.StoreInt64(&i.last, time.Now().UnixNano())
+	now := time.Now()
+	if n > 0 {
+		i.first.CompareAndSwap(0, now.Sub(i.start).Milliseconds()+1)
+	}
+	atomic.StoreInt64(&i.last, now.UnixNano())
 	return n, err
 }
 

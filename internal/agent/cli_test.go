@@ -342,3 +342,24 @@ func TestEmptyOrWorked(t *testing.T) {
 		})
 	}
 }
+
+func TestIdleReaderStampsFirstEventOnce(t *testing.T) {
+	r := &idleReader{src: eofReader{R: strings.NewReader("ab")}, start: time.Now().Add(-time.Second)}
+	if got := r.stampFirst(nil); got != nil {
+		t.Fatalf("no read yet: transport = %+v, want nil", got)
+	}
+	buf := make([]byte, 1)
+	_, _ = r.Read(buf)
+	first := r.stampFirst(nil)
+	if first == nil || first.FirstEventMs < 1000 {
+		t.Fatalf("first event ms = %+v, want >= 1000", first)
+	}
+	time.Sleep(2 * time.Millisecond)
+	_, _ = r.Read(buf)
+	if again := r.stampFirst(&wire.Transport{Attempts: 2}); again.FirstEventMs != first.FirstEventMs || again.Attempts != 2 {
+		t.Fatalf("later read changed it: %+v vs %+v", again, first)
+	}
+	if kept := r.stampFirst(&wire.Transport{FirstEventMs: 7}); kept.FirstEventMs != 7 {
+		t.Fatalf("parser value overwritten: %+v", kept)
+	}
+}

@@ -65,7 +65,8 @@ type Record struct {
 	Reported       string      `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
 	SessionID      string      `json:"session_id,omitempty"`
 	DurationMs     int64       `json:"duration_ms,omitempty"`
-	Fallback       string      `json:"fallback,omitempty"` // the original agent's name, when it ran instead
+	FirstEventMs   int64       `json:"first_event_ms,omitempty"` // spawn to the first stream event, ms
+	Fallback       string      `json:"fallback,omitempty"`       // the original agent's name, when it ran instead
 	FallbackReason string      `json:"fallback_reason,omitempty"`
 	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string      `json:"repo,omitempty"`            // main checkout root the job belongs to
@@ -636,6 +637,10 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		}
 	}
 	r.DurationMs = took.Milliseconds()
+	r.FirstEventMs = 0
+	if res.Transport != nil {
+		r.FirstEventMs = res.Transport.FirstEventMs
+	}
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
 		r.Cutoff = CutoffOf(err)
