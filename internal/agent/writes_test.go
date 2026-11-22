@@ -272,3 +272,20 @@ func TestMergeWrittenAddsProvenPaths(t *testing.T) {
 		t.Fatal("no receipts must leave an unobserved list nil")
 	}
 }
+
+// Given the same file spelled through a symlinked directory, When merged, Then Wrote lists it once.
+func TestMergeWrittenDedupsSymlinkSpellings(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	f := filepath.Join(real, "a.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := mergeWritten(nil, []string{f, filepath.Join(link, "a.txt")}, real)
+	if got == nil || len(*got) != 1 {
+		t.Fatalf("mergeWritten = %v, want one path", got)
+	}
+}

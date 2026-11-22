@@ -228,14 +228,18 @@ func askTrailer(format string, res wire.Result, refused bool) []string {
 	return lines
 }
 
+// droppedNote words one dropped flag; codex's read-only turns tools off rather than losing the request.
+func droppedNote(d, agentName string) string {
+	if d == "--read-only (tools off)" {
+		return fmt.Sprintf("the %s agent runs with tools off (read-only sandbox where it has one)", agentName)
+	}
+	return fmt.Sprintf("%s has no channel on the %s agent — dropped", d, agentName)
+}
+
 // reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
 func reportAskResult(out io.Writer, format string, res wire.Result, err error) error {
 	for _, d := range res.Dropped {
-		if d == "--read-only (tools off)" {
-			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
+		fmt.Fprintf(os.Stderr, "ask: %s\n", droppedNote(d, res.Agent))
 	}
 	if format == helptext.JSON {
 		env := wire.NewEnvelope(res, err, res.DispatchID)

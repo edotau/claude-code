@@ -872,6 +872,14 @@ func runBudgets(ctx context.Context, o RunOptions) (RunOptions, error) {
 	return o, nil
 }
 
+// canonPath resolves symlinks so /tmp and /private/tmp dedup; a gone path stays Clean.
+func canonPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
 // mergeWritten adds the paths the agent's own events proved it wrote to wrote, even on a shared tree.
 func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
 	if len(proven) == 0 {
@@ -885,7 +893,7 @@ func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(workDir, p)
 		}
-		all = append(all, filepath.Clean(p))
+		all = append(all, canonPath(p))
 	}
 	slices.Sort(all)
 	return capPaths(slices.Compact(all))

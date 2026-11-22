@@ -284,7 +284,7 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 	p, res, err := b.runTask(ctx, t, p)
 	rec = &p.Record
 	for _, d := range res.Dropped {
-		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
+		b.logf(t.ID, "%s", droppedNote(d, res.Agent))
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
 	env = wire.NewEnvelope(res, err, res.DispatchID)
