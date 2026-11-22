@@ -28,6 +28,7 @@ type loopOpts struct {
 	before, after          string
 	pkg, what, verdict     string
 	agent, model, sha      string
+	dispatch               string
 	tokensIn, tokensOut    int
 	tokensCache, attempts  int
 	durationS, savingMSDay float64
@@ -35,8 +36,8 @@ type loopOpts struct {
 
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
-	fs.BoolVar(&l.decide, "decide", false, "KEEP/REVERT from --before and --after (exit 0 keep, 1 revert)")
-	fs.BoolVar(&l.record, "record", false, "append a scorecard row; on kept, --after (if given) becomes rolling.txt")
+	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
+	fs.BoolVar(&l.record, "record", false, "add a scorecard row; a kept --after becomes rolling.txt")
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
@@ -46,6 +47,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.agent, "agent", "", "fix leaf agent")
 	fs.StringVar(&l.model, "model", "", "fix leaf model")
 	fs.StringVar(&l.sha, "sha", "", "commit of the fix; default HEAD")
+	fs.StringVar(&l.dispatch, "dispatch", "", "fill tokens, duration, model from a dispatch id")
 	fs.IntVar(&l.tokensIn, "tokens-in", 0, "fix leaf input tokens")
 	fs.IntVar(&l.tokensOut, "tokens-out", 0, "fix leaf output tokens")
 	fs.IntVar(&l.tokensCache, "tokens-cache", 0, "fix leaf cache tokens")
@@ -129,10 +131,14 @@ func seedFile(file string) error {
 	return paths.AppendLine(file, []byte(seedCandidates))
 }
 
-func readJSONL[T any](file string) []T {
+// readJSONL skips undecodable lines; a missing file is empty.
+func readJSONL[T any](file string) ([]T, error) {
 	f, err := os.Open(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
 	var out []T
@@ -144,7 +150,10 @@ func readJSONL[T any](file string) []T {
 			out = append(out, v)
 		}
 	}
-	return out
+	if err := sc.Err(); err != nil {
+		return out, fmt.Errorf("read %s: %w", file, err)
+	}
+	return out, nil
 }
 
 var procSuffix = regexp.MustCompile(`-\d+$`)
@@ -155,11 +164,18 @@ func collect(root string) ([]Item, error) {
 	if err := seedFile(cand); err != nil {
 		return nil, err
 	}
-	items := readJSONL[Item](cand)
+	items, err := readJSONL[Item](cand)
+	if err != nil {
+		return nil, err
+	}
 	for i := range items {
 		items[i].Kind = "fix"
 	}
-	for _, q := range readJSONL[queueLine](filepath.Join(root, "queue.jsonl")) {
+	queue, err := readJSONL[queueLine](filepath.Join(root, "queue.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	for _, q := range queue {
 		items = append(items, Item{Kind: "fix", Pkg: q.Pkg, What: q.Module + " p95 rose",
 			CallsPerDay: 1, EstSavingMS: q.AfterMS - q.BeforeMS, Source: "queue:" + q.Source})
 	}
@@ -259,7 +275,11 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ranked := rank(items, readJSONL[Row](filepath.Join(root, "scorecard.jsonl")), time.Now())
+	rows, err := readJSONL[Row](filepath.Join(root, "scorecard.jsonl"))
+	if err != nil {
+		return err
+	}
+	ranked := rank(items, rows, time.Now())
 	if l.top > 0 && len(ranked) > l.top {
 		ranked = ranked[:l.top]
 	}
@@ -280,9 +300,12 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 
 // Decision is the keep/revert verdict and the benchstat rows that decided it.
 type Decision struct {
-	Keep bool
-	Rows []string
+	Keep         bool
+	NoComparison bool // no benchmark is in both runs, so neither KEEP nor REVERT
+	Rows         []string
 }
+
+const exitNoComparison = 3
 
 func isQuiet(s Score) bool {
 	return !slices.Contains(s.Flags, "noisy") && !slices.Contains(s.Flags, "load")
@@ -300,7 +323,7 @@ func quietBoth(before, after []Score) map[string]bool {
 	return quiet
 }
 
-// decide keeps on a significant ns/op win (quiet before and after runs) or a significant allocs/op or B/op drop, with no regression.
+// decide keeps on a significant ns/op win (both runs quiet) or allocs/op or B/op drop, with no regression.
 func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
 	quiet := quietBoth(before, after)
 	var win, loss []string
@@ -338,7 +361,17 @@ func loadNoisy(text string) bool {
 	return cpus > 0 && load > cpus/2
 }
 
-// decideFiles reverts on a benchmark or unit that only one run holds, else decides on the benchstat deltas.
+// benchNames are a run text's benchmark names as benchstat keys them (no "Benchmark" prefix).
+func benchNames(text string) map[string]bool {
+	names, _ := parseSamples(text)
+	out := map[string]bool{}
+	for _, n := range names {
+		out[strings.TrimPrefix(n, "Benchmark")] = true
+	}
+	return out
+}
+
+// decideFiles decides on benchmarks both runs hold; one-sided ones are listed, and none in common is NoComparison.
 func decideFiles(before, after string) (Decision, error) {
 	bt, err := os.ReadFile(before)
 	if err != nil {
@@ -348,14 +381,23 @@ func decideFiles(before, after string) (Decision, error) {
 	if err != nil {
 		return Decision{}, err
 	}
-	if miss := missingBench(string(bt), string(at)); len(miss) > 0 {
-		return Decision{Rows: miss}, nil
+	miss := missingBench(string(bt), string(at))
+	bn, an := benchNames(string(bt)), benchNames(string(at))
+	common := false
+	for n := range bn {
+		common = common || an[n]
+	}
+	if !common {
+		return Decision{NoComparison: true, Rows: miss}, nil
 	}
 	deltas, err := compare(before, after)
 	if err != nil {
 		return Decision{}, err
 	}
-	return decide(deltas, scoreAll(string(bt), loadNoisy(string(bt))), scoreAll(string(at), loadNoisy(string(at)))), nil
+	maps.DeleteFunc(deltas, func(n string, _ map[string]Delta) bool { return !bn[n] || !an[n] })
+	d := decide(deltas, scoreAll(string(bt), loadNoisy(string(bt))), scoreAll(string(at), loadNoisy(string(at))))
+	d.Rows = append(d.Rows, miss...)
+	return d, nil
 }
 
 func runDecide(l loopOpts, stdout, stderr io.Writer) int {
@@ -368,18 +410,18 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "review bench:", err)
 		return 1
 	}
-	verdict := "REVERT"
-	if d.Keep {
-		verdict = "KEEP"
+	verdict, code := "REVERT", 1
+	switch {
+	case d.NoComparison:
+		verdict, code = "NO COMPARISON: no benchmark is in both runs", exitNoComparison
+	case d.Keep:
+		verdict, code = "KEEP", 0
 	}
 	fmt.Fprintln(stdout, verdict)
 	for _, r := range d.Rows {
 		fmt.Fprintln(stdout, "  "+r)
 	}
-	if d.Keep {
-		return 0
-	}
-	return 1
+	return code
 }
 
 func advanceRolling(pkg, after string) error {
@@ -402,6 +444,44 @@ func writeRolling(dir string, body []byte) error {
 	})
 }
 
+// dispatchRecord is the slice of an `agents ask` record a scorecard row needs; internal/agent imports this package.
+type dispatchRecord struct {
+	Agent      string `json:"agent"`
+	Model      string `json:"model"`
+	DurationMs int64  `json:"duration_ms"`
+	Usage      *struct {
+		In         int `json:"input_tokens"`
+		CacheWrite int `json:"cache_creation_tokens"`
+		CacheRead  int `json:"cache_read_tokens"`
+		Out        int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+// fromDispatch fills the row fields left unset from the dispatch record with that exact id.
+func fromDispatch(l loopOpts) (loopOpts, error) {
+	if l.dispatch == "" {
+		return l, nil
+	}
+	if l.dispatch != filepath.Base(l.dispatch) || strings.Contains(l.dispatch, "..") {
+		return l, fmt.Errorf("--dispatch %q: not a dispatch id", l.dispatch)
+	}
+	b, err := os.ReadFile(filepath.Join(paths.DispatchDir(), l.dispatch+".json"))
+	if err != nil {
+		return l, fmt.Errorf("--dispatch: %w", err)
+	}
+	var r dispatchRecord
+	if err := json.Unmarshal(b, &r); err != nil {
+		return l, fmt.Errorf("--dispatch %s: %w", l.dispatch, err)
+	}
+	l.agent, l.model = cmp.Or(l.agent, r.Agent), cmp.Or(l.model, r.Model)
+	l.durationS = cmp.Or(l.durationS, float64(r.DurationMs)/1e3)
+	if u := r.Usage; u != nil {
+		l.tokensIn, l.tokensOut = cmp.Or(l.tokensIn, u.In), cmp.Or(l.tokensOut, u.Out)
+		l.tokensCache = cmp.Or(l.tokensCache, u.CacheWrite+u.CacheRead)
+	}
+	return l, nil
+}
+
 func recordRow(l loopOpts) error {
 	kept := l.verdict == "kept"
 	if l.pkg == "" || l.what == "" || !kept && l.verdict != "reverted" {
@@ -409,6 +489,10 @@ func recordRow(l loopOpts) error {
 	}
 	if l.sha == "" {
 		l.sha, _ = source.GitInherit(".", "rev-parse", "--short", "HEAD")
+	}
+	l, err := fromDispatch(l)
+	if err != nil {
+		return err
 	}
 	data, _ := json.Marshal(Row{At: time.Now().UTC(), Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
 		Model: l.model, TokensIn: l.tokensIn, TokensOut: l.tokensOut, TokensCache: l.tokensCache,

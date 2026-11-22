@@ -26,12 +26,12 @@ import (
 )
 
 const (
-	noiseFlagPct = 10.0
-	slowFlagSec  = 5.0
-	hundred      = 100
-	runTimeout   = 30 * time.Minute
-	waitDelay    = 10 * time.Second
-	rollingLock  = 5 * time.Second
+	noiseFlagCV   = 5.0 // ns/op coefficient of variation, percent; unlike the range it does not grow with --count
+	slowSampleSec = 2.0 // measured seconds per sample; go aims each at -benchtime (1 s), so 2x means one op runs long
+	hundred       = 100
+	runTimeout    = 30 * time.Minute
+	waitDelay     = 10 * time.Second
+	rollingLock   = 5 * time.Second
 )
 
 type options struct {
@@ -77,6 +77,7 @@ type PkgResult struct {
 	Pkg        string   `json:"pkg"`
 	File       string   `json:"file"`
 	Compared   bool     `json:"compared"`
+	Baseline   bool     `json:"baseline,omitempty"` // this run was written as rolling.txt
 	Stats      RunStats `json:"stats"`
 	Benchmarks []Score  `json:"benchmarks"`
 	Missing    []string `json:"missing,omitempty"`
@@ -293,24 +294,30 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		return PkgResult{}, err
 	}
 	res := PkgResult{Pkg: pkg, File: file, Stats: stats, Benchmarks: scoreAll(out, rep.NoisyRun)}
+	return res, compareRolling(&res, dir, body, o.base, !rep.Dirty)
+}
+
+// compareRolling compares res with dir's rolling.txt; with none and seed (a clean tree), the run becomes it.
+func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	rolling := filepath.Join(dir, "rolling.txt")
-	if _, err := os.Stat(rolling); err == nil {
-		deltas, err := compare(rolling, file)
+	old, err := os.ReadFile(rolling)
+	switch {
+	case err == nil:
+		deltas, err := compare(rolling, res.File)
 		if err != nil {
-			return res, err
+			return err
 		}
 		res.Compared = true
 		attach(res.Benchmarks, deltas)
-		if old, err := os.ReadFile(rolling); err == nil {
-			res.Missing = missingBench(string(old), body)
-		}
+		res.Missing = missingBench(string(old), body)
+	case !errors.Is(err, os.ErrNotExist):
+		return err
 	}
-	if o.base {
-		if err := writeRolling(dir, []byte(body)); err != nil {
-			return res, err
-		}
+	if base || seed && err != nil {
+		res.Baseline = true
+		return writeRolling(dir, []byte(body))
 	}
-	return res, nil
+	return nil
 }
 
 // writeRunFile creates the run file exclusively; the time and pid keep two runs from overwriting each other.
@@ -444,10 +451,10 @@ func score(name string, ss []sample, noisyLoad bool) Score {
 		sc.NoisePct = round((ns.Max - ns.Min) / ns.Min * hundred)
 	}
 	sc.CostSec = round(sc.CostSec)
-	if sc.NoisePct > noiseFlagPct {
+	if sc.Metrics["ns/op"].CV > noiseFlagCV {
 		sc.Flags = append(sc.Flags, "noisy")
 	}
-	if sc.CostSec > slowFlagSec {
+	if sc.CostSec/float64(len(ss)) > slowSampleSec {
 		sc.Flags = append(sc.Flags, "slow")
 	}
 	if noisyLoad {
@@ -510,8 +517,11 @@ func printText(w io.Writer, r Report, verbose bool) {
 		st := p.Stats
 		fmt.Fprintf(w, "\n%s  -> %s\n  wall %.1fs user %.1fs sys %.1fs rss %dMB load %.2f->%.2f\n",
 			p.Pkg, p.File, st.WallSec, st.UserSec, st.SysSec, st.MaxRSSKB/kbPerMB, st.LoadBefore, st.LoadAfter)
-		if !p.Compared {
-			fmt.Fprintln(w, "  no rolling.txt baseline; run with --base to create one")
+		switch {
+		case !p.Compared && p.Baseline:
+			fmt.Fprintln(w, "  no rolling.txt baseline; this run is now the baseline")
+		case !p.Compared:
+			fmt.Fprintln(w, "  no rolling.txt baseline; run with --base (or on a clean tree) to create one")
 		}
 		for _, m := range p.Missing {
 			fmt.Fprintln(w, "  "+m)

@@ -54,6 +54,32 @@ func benchRepo(t *testing.T) (dir, sha string) {
 	return dir, strings.TrimSpace(string(out))
 }
 
+func TestBenchScriptRewritesMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bench post-commit runs are unix only")
+	}
+	dir, sha := benchRepo(t)
+	tmp := t.TempDir()
+	for code, want := range map[string]string{"0": "done: exit 0\n", "3": "failed: exit 3\n"} {
+		bin := filepath.Join(tmp, "b"+code)
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n[ \"$1\" = review ] && exit "+code+"\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r := filepath.Join(tmp, "run"+code+".json")
+		if err := os.WriteFile(filepath.Join(tmp, "run"+code+".marker"), []byte("running\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(context.Background(), "sh", "-c", benchScript, "sh", bin, r, os.DevNull, dir, sha, "--path", "pkg/x.go")
+		cmd.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/usr/bin:/bin") // hosttest trims PATH; the script needs nice
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("script with exit %s: %v %s", code, err, out)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(tmp, "run"+code+".marker")); string(raw) != want {
+			t.Errorf("marker after exit %s = %q, want %q", code, raw, want)
+		}
+	}
+}
+
 func TestBenchOnCommitSkipRules(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bench post-commit runs are unix only")

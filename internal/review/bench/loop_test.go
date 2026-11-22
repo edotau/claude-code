@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestRankWeakFirstThenScoreAndSkipSettled(t *testing.T) {
@@ -68,8 +70,8 @@ func TestRecordAppendsAndAdvancesRolling(t *testing.T) {
 	if err := recordRow(l); err != nil {
 		t.Fatal(err)
 	}
-	rows := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
-	if len(rows) != 1 || rows[0].Pkg != "internal/x/y" || rows[0].Verdict != "kept" || rows[0].Sha != "abc" {
+	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	if err != nil || len(rows) != 1 || rows[0].Pkg != "internal/x/y" || rows[0].Verdict != "kept" || rows[0].Sha != "abc" {
 		t.Fatalf("rows = %+v", rows)
 	}
 	if b, err := os.ReadFile(filepath.Join(benchRoot(), "x-y", "rolling.txt")); err != nil || !strings.Contains(string(b), "BenchmarkA") {
@@ -94,6 +96,43 @@ func TestRecordKeptWithoutAfterKeepsBaseline(t *testing.T) {
 	}
 }
 
+func TestDecideFilesNoCommonBenchmark(t *testing.T) {
+	dir := t.TempDir()
+	before, after := filepath.Join(dir, "b.txt"), filepath.Join(dir, "a.txt")
+	_ = os.WriteFile(before, []byte("BenchmarkOld-8 1 5 ns/op\n"), 0o644)
+	_ = os.WriteFile(after, []byte("BenchmarkNew-8 1 5 ns/op\n"), 0o644)
+	d, err := decideFiles(before, after)
+	if err != nil || !d.NoComparison || d.Keep || len(d.Rows) != 2 {
+		t.Errorf("renamed benchmark: %+v %v, want NoComparison naming both sides", d, err)
+	}
+}
+
+func TestRecordFillsFromDispatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := `{"agent":"claude","model":"m1","duration_ms":4000,"usage":{"input_tokens":7,"output_tokens":3,"cache_read_tokens":5}}`
+	if os.MkdirAll(paths.DispatchDir(), 0o755) != nil || os.WriteFile(filepath.Join(paths.DispatchDir(), "id1.json"), []byte(rec), 0o644) != nil {
+		t.Fatal("seed dispatch record")
+	}
+	if err := recordRow(loopOpts{pkg: "internal/p", what: "w", verdict: "reverted", sha: "abc", dispatch: "id1"}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Row{Pkg: "internal/p", What: "w", Verdict: "reverted", Agent: "claude", Model: "m1", TokensIn: 7, TokensOut: 3,
+		TokensCache: 5, DurationS: 4, Sha: "abc"}
+	if len(r) != 1 || r[0].At.IsZero() {
+		t.Fatalf("rows = %+v", r)
+	}
+	if r[0].At = (time.Time{}); r[0] != want {
+		t.Errorf("row = %+v, want %+v", r[0], want)
+	}
+	if recordRow(loopOpts{pkg: "p", what: "w", verdict: "kept", sha: "a", dispatch: "../x"}) == nil {
+		t.Error("a path as --dispatch was read")
+	}
+}
+
 func TestSeedFileWritesFiveOnce(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "candidates.jsonl")
 	for range 2 {
@@ -101,7 +140,7 @@ func TestSeedFileWritesFiveOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := readJSONL[Item](f); len(got) != 5 || got[0].Source != "baseline" {
+	if got, err := readJSONL[Item](f); err != nil || len(got) != 5 || got[0].Source != "baseline" {
 		t.Errorf("seed = %+v", got)
 	}
 }

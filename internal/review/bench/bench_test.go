@@ -1,7 +1,9 @@
 package bench
 
 import (
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +85,34 @@ func TestMissingBenchNamesRemovedBenchmark(t *testing.T) {
 	}
 	if got := missingBench(canned, canned); len(got) != 0 {
 		t.Errorf("identical runs missing %v", got)
+	}
+}
+
+func TestScoreNoisyOnCVNotRange(t *testing.T) {
+	var b strings.Builder
+	for i := range 20 { // many samples widen the range, not the CV: one 15% outlier in 20
+		ns := "1000"
+		if i == 0 {
+			ns = "1150"
+		}
+		fmt.Fprintf(&b, "BenchmarkC-8 3000000 %s ns/op\n", ns) // 3 s a sample
+	}
+	if c := scoreAll(b.String(), false)[0]; c.NoisePct != 15 || slices.Contains(c.Flags, "noisy") || !slices.Contains(c.Flags, "slow") {
+		t.Errorf("C = %+v, want quiet (CV %.1f) and slow", c, c.Metrics["ns/op"].CV)
+	}
+}
+
+func TestCompareRollingSeedsFirstCleanRun(t *testing.T) {
+	dir := t.TempDir()
+	res := PkgResult{File: dir + "/run.txt"}
+	if err := compareRolling(&res, dir, "dirty", false, false); err != nil || res.Baseline {
+		t.Fatalf("dirty run seeded: %+v %v", res, err)
+	}
+	if err := compareRolling(&res, dir, "clean", false, true); err != nil || !res.Baseline || res.Compared {
+		t.Fatalf("clean first run: %+v %v", res, err)
+	}
+	if b, err := os.ReadFile(dir + "/rolling.txt"); err != nil || string(b) != "clean" {
+		t.Errorf("rolling.txt = %q, %v", b, err)
 	}
 }
 

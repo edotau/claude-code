@@ -53,13 +53,17 @@ var benchLoad = func(ctx context.Context) float64 {
 	return v
 }
 
-// benchScript benches a detached worktree of sha at low priority, then hands the result back to this module for the notice.
+// benchScript benches sha's detached worktree at low priority, posts the notice, then marks done|failed with the exit.
 const benchScript = `b=$1; r=$2; p=$3; top=$4; sha=$5; shift 5
-w=$(mktemp -d "$r.wt.XXXXXX") || exit 1
+m=${r%.json}.marker
+w=$(mktemp -d "$r.wt.XXXXXX") || { echo "failed: exit 1 (mktemp)" >"$m"; exit 1; }
 trap 'git -C "$top" worktree remove --force "$w" >/dev/null 2>&1; rm -rf "$w"' EXIT
-git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" || exit 1
+git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" ||
+  { echo "failed: exit 1 (worktree add)" >"$m"; exit 1; }
 nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
-"$b" hook PostToolUse --docs-plan-tick <"$p" >/dev/null 2>&1`
+rc=$?
+"$b" hook PostToolUse --docs-plan-tick <"$p" >/dev/null 2>&1
+if [ "$rc" -eq 0 ]; then echo "done: exit 0" >"$m"; else echo "failed: exit $rc" >"$m"; fi`
 
 var benchFuncRe = regexp.MustCompile(`(?m)^func Benchmark`)
 
@@ -115,11 +119,11 @@ func benchStart(ctx context.Context, in *core.Input, top, sha string, files []st
 		}
 		args = append(args, "--path", rel)
 	}
+	fmt.Fprintln(f, "running") // before the spawn: the run rewrites the marker when it ends
 	if benchSpawn(args, top) == 0 {
-		fmt.Fprintln(f, "skipped: spawn failed")
-		return
+		_ = f.Truncate(0)
+		_, _ = f.WriteAt([]byte("skipped: spawn failed\n"), 0)
 	}
-	fmt.Fprintln(f, "running")
 }
 
 // primaryTrunkHead is sha's full id when top is the primary checkout on main or master and HEAD holds sha; else "".
