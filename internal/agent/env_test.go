@@ -25,6 +25,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 // Given a launching workspace in the env, Then every child env carries it exactly once, explicit Base included.
@@ -326,4 +327,19 @@ func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
 		t.Errorf("env keeps the inherited foreign value or lost the launch's: %d", len(cmd.Env))
 	}
+}
+
+// Given an inherited PATH holding the rtk shim dir, Then the child env drops it and keeps the other entries.
+func TestEnvironDropsShimPath(t *testing.T) {
+	shim := rtkwrap.Dir()
+	base := []string{"PATH=" + strings.Join([]string{shim, "/usr/bin", shim + "/", "/bin"}, string(os.PathListSeparator))}
+	for _, e := range (EnvSpec{Mode: EnvAgent, Base: base}).Environ(context.Background()) {
+		if v, ok := strings.CutPrefix(e, "PATH="); ok {
+			if want := "/usr/bin" + string(os.PathListSeparator) + "/bin"; v != want {
+				t.Errorf("PATH = %q, want %q", v, want)
+			}
+			return
+		}
+	}
+	t.Error("PATH missing from the child env")
 }

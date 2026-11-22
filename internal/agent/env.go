@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -48,6 +50,7 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		base = runEnviron(ctx)
 	}
 	base, _ = s.Mode.scrub(ctx, base, s.Keep)
+	base = withoutShimPath(base) // only Pi's own launch (Set) puts the rtk shim dir on PATH
 	drop := s.dropper(ctx)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
 	if doc := confinementDocContext(ctx); doc != "" && drop(route.OverlayVar+"=") { // one hop: only the confinement goes down
@@ -68,6 +71,31 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		env = append(env, "PWD="+s.PWD)
 	}
 	return withMemoryOrigin(env)
+}
+
+// withoutShimPath drops the rtkwrap shim dir from an inherited PATH, so a nested agent's commands stay unshimmed.
+func withoutShimPath(env []string) []string {
+	shim := rtkwrap.Dir()
+	shimInfo, _ := os.Stat(shim)
+	return slices.Collect(func(yield func(string) bool) {
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+				kv = "PATH=" + strings.Join(slices.DeleteFunc(filepath.SplitList(v), func(d string) bool {
+					if d == "" {
+						return false
+					}
+					if filepath.Clean(d) == shim {
+						return true
+					}
+					fi, err := os.Stat(d)
+					return err == nil && shimInfo != nil && os.SameFile(fi, shimInfo)
+				}), string(os.PathListSeparator))
+			}
+			if !yield(kv) {
+				return
+			}
+		}
+	})
 }
 
 // withMemoryOrigin hands the child the launching workspace's store origin, so a scratch-folder session uses its memory.
