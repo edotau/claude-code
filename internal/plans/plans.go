@@ -2,6 +2,7 @@
 package plans
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -260,7 +261,7 @@ func Active(home, worktree string, skip []string) (string, Plan, bool) {
 	if err != nil {
 		return "", Plan{}, false
 	}
-	all := loadDatedPlans(entries, home, skip)
+	all := loadPlans(entries, home, skip, mayHaveOpenOwned)
 	best, bestPlan, bestMod, bestClaimed := "", Plan{}, time.Time{}, false
 	for _, d := range all {
 		info, err := os.Stat(d.path)
@@ -550,19 +551,46 @@ type datedPlan struct {
 }
 
 // loadDatedPlans parses the dated, non-skipped plans in home.
-func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []datedPlan) {
+func loadDatedPlans(entries []os.DirEntry, home string, skip []string) []datedPlan {
+	return loadPlans(entries, home, skip, nil)
+}
+
+// loadPlans is loadDatedPlans that parses only files keep accepts (nil keeps all).
+func loadPlans(entries []os.DirEntry, home string, skip []string, keep func([]byte) bool) (all []datedPlan) {
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
 		if !e.Type().IsRegular() || !datedName().MatchString(e.Name()) || slices.Contains(skip, p) {
 			continue
 		}
-		parsed, err := Parse(p)
-		if err != nil {
+		b, err := os.ReadFile(p)
+		if err != nil || keep != nil && !keep(b) {
 			continue
 		}
-		all = append(all, datedPlan{p, parsed})
+		all = append(all, datedPlan{p, parseBytes(p, b)})
 	}
 	return all
+}
+
+// mayHaveOpenOwned is a cheap superset of hasOpenOwnedTask: an unstruck open item whose text has an owns: key.
+func mayHaveOpenOwned(b []byte) bool {
+	if !bytes.Contains(b, []byte("[ ] ")) {
+		return false
+	}
+	lines := strings.Split(string(b), "\n")
+	for i, l := range lines {
+		k := strings.Index(l, "[ ] ")
+		if k < 2 {
+			continue
+		}
+		if lead := strings.TrimLeft(l[:k], "\t\f\r "); lead != "- " && lead != "* " || struck(l[k+4:]) {
+			continue
+		}
+		cont, _ := continuation(lines, i, k-2)
+		if ownsKey().MatchString(l[k+4:] + cont) {
+			return true
+		}
+	}
+	return false
 }
 
 // Status summarizes every *.md directly in each dir that carries at least one task, sorted by path.

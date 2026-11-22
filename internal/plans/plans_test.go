@@ -327,6 +327,24 @@ func TestActiveSkipsDraft(t *testing.T) {
 	}
 }
 
+// Active's pre-filter keeps every plan the parser finds an open owned task in and drops closed ones.
+func TestMayHaveOpenOwned(t *testing.T) {
+	cases := map[string]string{
+		"wrapped owns":   "- [x] 1.0 Done owns: z\n  * [ ] 1.1 T\n    OWNS: a.go\n",
+		"open owned":     "- [ ] 1.1 T owns: a\n",
+		"done":           "- [x] 1.1 T owns: a\n",
+		"struck":         "- [ ] ~~1.1 T owns: a~~ — dropped\n",
+		"open no owns":   "- [ ] 1.1 T\n\nowns: a\n",
+		"owns elsewhere": "- [ ] 1.1 T\n- [x] 1.2 U owns: a\n",
+	}
+	for name, md := range cases {
+		want := hasOpenOwnedTask(parseBytes("", []byte(md)))
+		if got := mayHaveOpenOwned([]byte(md)); got != want {
+			t.Errorf("%s: mayHaveOpenOwned = %v, parser says %v", name, got, want)
+		}
+	}
+}
+
 // The plan whose open-task claim names the worktree beats a newer unclaimed plan.
 func TestActivePrefersWorktreeClaim(t *testing.T) {
 	dir := t.TempDir()
