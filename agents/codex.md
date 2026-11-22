@@ -87,6 +87,9 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 Per `agent-verbs.md` → Procedure skeleton. Delta:
 
+- Brief files (`Write`, `- < file`) and waits (`claude-code agents result -f <id>`):
+  `skills/subagent-workflows/SKILL.md` → External relay contract. Never inline briefs containing backticks or `$`,
+  use `pgrep`/`seq`/`sleep` loops, or use `$()` in probes; run probe commands plainly.
 - **Pick the verb** per `## Owns`: `review` (diff verdict), `ask` + `task-review.md` / `codex-skill-plugin-review.md`,
   `ask --tools` (+ `verify.md` for gates, or to take over), `ask --session <id>`, `transfer`.
 - **Run it** as the brief's `Run:` line gives it, flags and model unchanged; without one, no `--model` or `--effort`

@@ -108,6 +108,9 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 Per `agent-verbs.md` → Procedure skeleton. Delta:
 
+- Brief files (`Write`, `- < file`) and waits (`claude-code agents result -f <id>`):
+  `skills/subagent-workflows/SKILL.md` → External relay contract. Never inline briefs containing backticks or `$`,
+  use `pgrep`/`seq`/`sleep` loops, or use `$()` in probes; run probe commands plainly.
 - **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`); a contract verb named outright in the
   brief runs directly.
 - **Run it.** TEST sends the Workflow below as the CLI task, batched on `copilot ask --tools`.

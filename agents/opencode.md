@@ -82,11 +82,14 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 ## Procedure
 
+- Brief files (`Write`, `- < file`) and waits (`claude-code agents result -f <id>`):
+  `skills/subagent-workflows/SKILL.md` → External relay contract. Never inline briefs containing backticks or `$`,
+  use `pgrep`/`seq`/`sleep` loops, or use `$()` in probes; run probe commands plainly.
+
 Per `skills/subagent-workflows/references/agent-verbs.md` → Procedure skeleton, once per brief. The DOC
 instructions below go into that one task only when there is no `Run:` line (a `Run:` brief is appended unchanged).
 Do not read, test or verify; report a failed result to the manager, never a second draft.
-Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`), Read a file before you Write or Edit it, and wait
-on a background ask with `claude-code agents result -f <id>`, never a `sleep` loop.
+Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`); Read a file before you Write or Edit it.
 
 ### DOC-UPDATE
 

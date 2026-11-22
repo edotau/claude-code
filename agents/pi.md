@@ -100,6 +100,12 @@ no route on the profile is dropped from the menu. Its key is an environment vari
 the proxy session
 token; no token is on disk. Pass a requested id as `--model <id>`; route rules: `rules/harness/providers.md`.
 
+## Procedure
+
+- Brief files (`Write`, `- < file`) and waits (`claude-code agents result -f <id>`):
+  `skills/subagent-workflows/SKILL.md` → External relay contract. Never inline briefs containing backticks or `$`,
+  use `pgrep`/`seq`/`sleep` loops, or use `$()` in probes; run probe commands plainly.
+
 ## Report contract
 
 `Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`. Envelope: `skills/subagent-workflows/SKILL.md` →
