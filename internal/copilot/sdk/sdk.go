@@ -95,6 +95,8 @@ type Result struct {
 	// FinishReason is the last model call's; ContentFiltered is set if any call was blocked or truncated by a filter.
 	FinishReason    string
 	ContentFiltered bool
+	// Written is every path a successful built-in edit tool committed, from the tool-completion receipts
+	Written []string
 }
 
 // Provider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions|responses.
@@ -558,6 +560,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	text, model, usage := col.snapshot()
 	res := Result{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
 	res.FinishReason, res.ContentFiltered = col.finish()
+	res.Written = col.writtenPaths()
 	// the partial text and session id still ride back, so a caller can hand the task off
 	if sendErr != nil {
 		return res, fmt.Errorf("send prompt: %w", sendErr)
@@ -582,6 +585,7 @@ type assistantCollector struct {
 	// kills a run silent past the limit; paused while a tool call is open
 	idle      *agent.IdleTimeout
 	openTools int
+	written   []string
 }
 
 // limitError names the budgetCredits cap when the SDK reported it reached; nil otherwise.
@@ -622,13 +626,14 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 
 // watch feeds the idle timeout: any event is a sign of life, a tool call holds the window off until the last one ends.
 func (c *assistantCollector) watch(ev copilot.SessionEvent) {
-	switch ev.Data.(type) {
+	switch d := ev.Data.(type) {
 	case *copilot.ToolExecutionStartData:
 		c.openTools++
 		c.idle.Pause()
 		return
 	case *copilot.ToolExecutionCompleteData:
 		c.openTools = max(c.openTools-1, 0)
+		c.addEdits(d)
 	case *copilot.AssistantMessageData:
 		c.idle.Spoke()
 	}
@@ -662,6 +667,22 @@ func (c *assistantCollector) addUsage(d *copilot.AssistantUsageData) {
 		c.finishR = *d.FinishReason
 	}
 	c.filter = c.filter || (d.ContentFilterTriggered != nil && *d.ContentFilterTriggered)
+}
+
+func (c *assistantCollector) addEdits(d *copilot.ToolExecutionCompleteData) {
+	if !d.Success {
+		return
+	}
+	for _, e := range d.FileEdits {
+		c.written = append(c.written, e.Path)
+	}
+}
+
+// writtenPaths is a copy of the receipts collected so far.
+func (c *assistantCollector) writtenPaths() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.written)
 }
 
 // finish returns the last call's finish reason and whether any call tripped the content filter.

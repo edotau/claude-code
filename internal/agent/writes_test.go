@@ -261,3 +261,14 @@ func TestWatchWritesIgnoresATreeOutsideTheWorkdir(t *testing.T) {
 		t.Fatalf("changed = %v, want only mine.txt from the workdir's repo", got)
 	}
 }
+
+// Given proven receipts, they join Wrote on top of a truncated or absent git list; relative paths resolve to the workdir.
+func TestMergeWrittenAddsProvenPaths(t *testing.T) {
+	got := mergeWritten(nil, []string{"/w/b.txt", "a.txt", "/w/b.txt"}, "/w")
+	if got == nil || !slices.Equal(*got, []string{"/w/a.txt", "/w/b.txt"}) {
+		t.Fatalf("mergeWritten = %v", got)
+	}
+	if mergeWritten(nil, nil, "/w") != nil {
+		t.Fatal("no receipts must leave an unobserved list nil")
+	}
+}

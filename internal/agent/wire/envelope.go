@@ -290,6 +290,7 @@ type Result struct {
 	Provider        string          `json:"provider,omitempty"`
 	Model           string          `json:"model,omitempty"`
 	Invoked         string          `json:"invoked_model,omitempty"` // the plain model id the run was asked for (its profile is Provider); not upstream-confirmed
+	Written         []string        `json:"-"`                       // paths the agent's own events proved it wrote
 	Reported        string          `json:"-"`                       // the model id the vendor's own stream named; "" when it named none
 	SessionID       string          `json:"session_id,omitempty"`
 	Denials         *Denials        `json:"denials,omitempty"`

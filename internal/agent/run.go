@@ -282,6 +282,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if w := p.Record.Wrote; w != nil && len(*w) > 0 && sharesTree(p.Record, time.Now()) {
 			p.Record.Wrote, p.Record.TreeChanged = nil, w // a peer's writes are in the diff: claim none
 		}
+		p.Record.Wrote = mergeWritten(p.Record.Wrote, res.Written, p.Opts.WorkDir)
 		return res, err
 	})
 	res.DispatchID = p.Record.ID
@@ -869,4 +870,23 @@ func runBudgets(ctx context.Context, o RunOptions) (RunOptions, error) {
 	}
 	o.BudgetUSD, o.BudgetCredits = overlay.BudgetUSD, overlay.BudgetCredits
 	return o, nil
+}
+
+// mergeWritten adds the paths the agent's own events proved it wrote to wrote, even on a shared tree.
+func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
+	if len(proven) == 0 {
+		return wrote
+	}
+	var all []string
+	if wrote != nil {
+		all = slices.DeleteFunc(slices.Clone(*wrote), func(p string) bool { return p == WroteTruncated })
+	}
+	for _, p := range proven {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(workDir, p)
+		}
+		all = append(all, filepath.Clean(p))
+	}
+	slices.Sort(all)
+	return capPaths(slices.Compact(all))
 }

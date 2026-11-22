@@ -826,3 +826,14 @@ func TestSDKAskIdleStall(t *testing.T) {
 		t.Fatalf("err = %v, want ErrStalled", err)
 	}
 }
+
+// Only a successful tool completion's fileEdits count as written paths.
+func TestAssistantCollectorKeepsSuccessfulFileEdits(t *testing.T) {
+	var col assistantCollector
+	edits := []rpc.ToolExecutionCompleteFileEdit{{Kind: rpc.ToolExecutionCompleteFileEditKindCreate, Path: "/m/r.md"}}
+	col.onEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionCompleteData{Success: true, FileEdits: edits}})
+	col.onEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionCompleteData{Success: false, FileEdits: edits}})
+	if got := col.writtenPaths(); len(got) != 1 || got[0] != "/m/r.md" {
+		t.Fatalf("writtenPaths = %v, want [/m/r.md]", got)
+	}
+}

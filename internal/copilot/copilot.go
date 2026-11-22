@@ -76,7 +76,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
 			// tokens the exhausted run spent still count
-			res.Usage = out.Usage
+			res.Usage, res.Written = out.Usage, out.Written
 			res.Model = cmp.Or(out.Model, res.Model)
 			res.Reported = strings.TrimSpace(out.Model)
 			return copilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
@@ -87,7 +87,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	lg.Emit("assistant", out.Text)
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = strings.TrimSpace(out.Model)
-	res.SessionID, res.Answer, res.Usage = out.SessionID, out.Text, out.Usage
+	res.SessionID, res.Answer, res.Usage, res.Written = out.SessionID, out.Text, out.Usage, out.Written
 	if strings.TrimSpace(out.Text) == "" {
 		return res, agent.EmptyAnswer("copilot")
 	}
@@ -297,6 +297,7 @@ func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
 func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
+	res.Written = out.Written
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = strings.TrimSpace(out.Model)
 	if strings.TrimSpace(out.Text) != "" {

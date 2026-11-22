@@ -12,20 +12,25 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
+type fileChange struct {
+	Path string `json:"path"`
+}
+
 type codexEvent struct {
 	Type      string `json:"type"`
 	ThreadID  string `json:"thread_id"`
 	Message   string `json:"message"`
 	WillRetry bool   `json:"will_retry"`
 	Item      struct {
-		ID               string `json:"id"`
-		Type             string `json:"type"` // agent_message | command_execution | error | reasoning | ...
-		Text             string `json:"text"`
-		Command          string `json:"command"`
-		Status           string `json:"status"`
-		AggregatedOutput string `json:"aggregated_output"`
-		ExitCode         *int   `json:"exit_code"`
-		Message          string `json:"message"`
+		ID               string       `json:"id"`
+		Type             string       `json:"type"` // agent_message | command_execution | error | reasoning | ...
+		Text             string       `json:"text"`
+		Command          string       `json:"command"`
+		Status           string       `json:"status"`
+		AggregatedOutput string       `json:"aggregated_output"`
+		ExitCode         *int         `json:"exit_code"`
+		Message          string       `json:"message"`
+		Changes          []fileChange `json:"changes"` // file_change: the files the item touched
 	} `json:"item"`
 	Usage struct {
 		InputTokens       int `json:"input_tokens"`
@@ -191,10 +196,21 @@ func (s *codexStreamState) completedItem(ev codexEvent) error {
 		}
 		return s.sink.Emit(wire.Event{Type: wire.EventToolResult,
 			Tool: &wire.ToolRef{Name: "shell", ID: it.ID}, Text: it.AggregatedOutput, Status: status})
+	case "file_change":
+		s.collectChanges(it.Status, it.Changes)
 	case "error":
 		message := cmp.Or(it.Message, it.Text, "codex item error")
 		s.log.Emit("warning", message)
 		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
 	return nil
+}
+
+func (s *codexStreamState) collectChanges(status string, changes []fileChange) {
+	if status != "completed" {
+		return
+	}
+	for _, c := range changes {
+		s.res.Written = append(s.res.Written, c.Path)
+	}
 }

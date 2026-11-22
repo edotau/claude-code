@@ -124,3 +124,13 @@ func TestCodexIdleWatch(t *testing.T) {
 		t.Fatalf("retry loop: err = %v, want ErrSilent", err)
 	}
 }
+
+// A completed file_change item's paths land in Result.Written; a failed one's do not.
+func TestParseCodexStreamCollectsFileChanges(t *testing.T) {
+	stream := `{"type":"item.completed","item":{"type":"file_change","status":"completed","changes":[{"path":"/m/r.md","kind":"add"}]}}
+{"type":"item.completed","item":{"type":"file_change","status":"failed","changes":[{"path":"/m/x.md","kind":"add"}]}}`
+	res, _ := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	if len(res.Written) != 1 || res.Written[0] != "/m/r.md" {
+		t.Fatalf("Written = %v, want [/m/r.md]", res.Written)
+	}
+}
