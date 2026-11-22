@@ -84,7 +84,7 @@ func admitOnce(ctx context.Context, rec agent.Record, note io.Writer) (Outcome, 
 	if err := writeRequest(c, request{Schema: wireSchema, Op: "admit", ID: rec.ID, Parent: rec.Parent}); err != nil {
 		return Direct, false
 	}
-	sc := bufio.NewScanner(c)
+	sc, queued := bufio.NewScanner(c), false
 	for sc.Scan() {
 		var r reply
 		if json.Unmarshal(sc.Bytes(), &r) != nil {
@@ -92,6 +92,7 @@ func admitOnce(ctx context.Context, rec agent.Record, note io.Writer) (Outcome, 
 		}
 		switch r.State {
 		case StateQueued:
+			queued = true
 			fmt.Fprintf(note, "agents serve: queued on %s, %d ahead\n", r.Pool, r.Ahead)
 		case StateAdmitted:
 			return Admitted, false
@@ -102,7 +103,7 @@ func admitOnce(ctx context.Context, rec agent.Record, note io.Writer) (Outcome, 
 			return Direct, false
 		}
 	}
-	return Direct, ctx.Err() == nil // a dropped connection is a daemon that died or restarted
+	return Direct, queued && ctx.Err() == nil // a drop mid-wait is a restart; before any reply, a full daemon
 }
 
 // QueryStatus asks the running daemon for its queue view.

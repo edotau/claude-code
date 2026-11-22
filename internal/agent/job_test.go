@@ -75,9 +75,9 @@ func TestAdmissionQueueLifecycle(t *testing.T) {
 	if err != nil || cleared.Progress != "" || toRow(cleared).Status != "running" || note.Len() != 0 {
 		t.Fatalf("clear queue: %+v, %v, note %q", cleared, err, note.String())
 	}
-	queued.Status = "ok"
-	if queued.QueueLine(time.Now()) != "" || toRow(queued).Status != "ok" {
-		t.Fatal("finished record still appears queued")
+	queued.Status = "error" // a cancel or a crash: the waiter's own clear never ran
+	if row := toRow(queued); queued.QueueLine(time.Now()) != "" || row.Status != "error" || row.Detail() != "waiting task" {
+		t.Fatalf("finished record still appears queued: %+v", row)
 	}
 }
 

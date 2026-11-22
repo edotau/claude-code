@@ -213,20 +213,27 @@ func RecordSources() Sources {
 }
 
 // runningByPool groups live running dispatch records by pool; an unreadable dispatch dir counts none.
+// A background carrier and its live child are one job listed under the carrier's id, which admission keys on.
 func runningByPool() map[string][]string {
 	recs, _ := agent.RunningRecent(agent.AllRecords)
-	children := map[string]bool{}
+	carriers, carried := map[string]bool{}, map[string]bool{}
 	for _, r := range recs {
-		if r.Alive() {
-			children[r.Parent] = true
-		}
+		carriers[r.ID] = r.Request.Carry && r.Background && r.Alive()
+	}
+	for _, r := range recs {
+		carried[r.Parent] = carried[r.Parent] || carriers[r.Parent] && r.Alive()
 	}
 	out := map[string][]string{}
 	for _, r := range recs {
-		if !r.Live && r.Agent != "waves" && (!r.Request.Carry || r.Background && !children[r.ID]) && r.Alive() {
-			pool := PoolOf(r)
-			out[pool] = append(out[pool], r.ID)
+		if r.Live || r.Agent == "waves" || !r.Alive() || r.Request.Carry && (!r.Background || carried[r.ID]) {
+			continue
 		}
+		id := r.ID
+		if carriers[r.Parent] {
+			id = r.Parent // the child's pool is where the work runs, Pi takeover included
+		}
+		pool := PoolOf(r)
+		out[pool] = append(out[pool], id)
 	}
 	return out
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,7 +50,8 @@ func TestAdmitBoundsWaitAndRetries(t *testing.T) {
 				t.Fatal(err)
 			}
 			var wg sync.WaitGroup
-			wg.Go(func() { serveAdmissionFixture(ln, state, &wg) })
+			var admits atomic.Int32
+			wg.Go(func() { serveAdmissionFixture(ln, state, &wg, &admits) })
 			defer func() { _ = ln.Close(); wg.Wait() }()
 			start := time.Now()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*requeueWindow)
@@ -58,11 +60,14 @@ func TestAdmitBoundsWaitAndRetries(t *testing.T) {
 			if elapsed := time.Since(start); got != Direct || elapsed >= 4*requeueWindow {
 				t.Fatalf("Admit = %s after %s, want Direct within total budget %s", got, elapsed, requeueWindow)
 			}
+			if n := admits.Load(); state == "drop" && n != 1 { // a close before any reply is a full daemon
+				t.Fatalf("drop before any reply re-asked: %d admits, want 1", n)
+			}
 		})
 	}
 }
 
-func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGroup) {
+func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGroup, admits *atomic.Int32) {
 	for {
 		c, err := ln.AcceptUnix()
 		if err != nil {
@@ -79,6 +84,7 @@ func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGrou
 				send(c, reply{State: "status", Status: &Status{PID: os.Getpid()}})
 				return
 			}
+			admits.Add(1)
 			switch state {
 			case StateRequeue:
 				send(c, reply{State: state})

@@ -709,6 +709,9 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
 	if err := takeClaim(jobRec, prepared.Record.ID); err != nil {
+		if jobRec != nil {
+			agent.RecordRefusal(jobRec.Agent, req, jobRec, err)
+		}
 		return failAsk(format, name, err)
 	}
 	finishRecover(ctx, prepared.Record.ID)

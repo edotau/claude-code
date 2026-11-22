@@ -75,11 +75,7 @@ func TestRunningByPoolCountsCarryOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		ids := runningByPool()[PoolOf(outer)]
-		want := outer.ID
-		if phase == "with child" || phase == "takeover" {
-			want = child.ID
-		}
+		ids, want := runningByPool()[PoolOf(outer)], outer.ID // the carrier's id, so its admission mark survives
 		if phase == "finished" {
 			if len(ids) != 0 {
 				t.Fatalf("finished carry still counted: %v", ids)

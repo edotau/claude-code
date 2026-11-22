@@ -574,6 +574,8 @@ func toRow(r Record) Row {
 		} else {
 			live = ProgressOf(r, time.Now()).Line(progressWidth)
 		}
+	} else if strings.HasPrefix(r.Progress, "queued ") {
+		pool, r.Progress = "", "" // a mark left by a crash or a cancel that beat the waiter's own clear
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
