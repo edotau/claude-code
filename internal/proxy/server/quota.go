@@ -179,6 +179,14 @@ func (r *Router) modelCooling(t providers.Target) bool {
 	return r.now().Before(r.cool[deadKey(t)])
 }
 
+// hopBlocked reports a hop target that is cooling, quota-dead for its model, auth-marked or without a credential.
+func (r *Router) hopBlocked(state router.State, t providers.Target) bool {
+	if _, marked := state.AuthMarked(router.AccountOf(t.Provider), r.now()); marked {
+		return true
+	}
+	return r.modelCooling(t) || r.isDead(t) || !r.credentialPresent(t.Provider)
+}
+
 // tpmHop is the next usable workspace after cur in vault order that ok accepts; it may leave a session's profile scope.
 func (r *Router) tpmHop(cur providers.Target, ok func(providers.Target) bool) (providers.Target, bool) {
 	reg, err := r.registry()
@@ -194,8 +202,7 @@ func (r *Router) tpmHop(cur providers.Target, ok func(providers.Target) bool) (p
 			continue
 		}
 		t := providers.Target{Provider: p, Model: cur.Model, ContextTokens: cur.ContextTokens}
-		if _, marked := state.AuthMarked(router.AccountOf(p), r.now()); marked || r.modelCooling(t) ||
-			!r.credentialPresent(p) || !ok(t) {
+		if r.hopBlocked(state, t) || !ok(t) {
 			continue
 		}
 		return t, true
