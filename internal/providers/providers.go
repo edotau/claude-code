@@ -15,15 +15,16 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Wire protocols a provider route can speak.
+// Wire protocols a provider route can speak; the strings live in internal/serving.
 const (
-	ProtocolAnthropic = "anthropic"
-	ProtocolOpenAI    = "openai"
-	ProtocolResponses = "responses"
-	ProtocolGemini    = "gemini"
+	ProtocolAnthropic = serving.ProtocolAnthropic
+	ProtocolOpenAI    = serving.ProtocolOpenAI
+	ProtocolResponses = serving.ProtocolResponses
+	ProtocolGemini    = serving.ProtocolGemini
 )
 
 const GroupDatabricks = "databricks"
