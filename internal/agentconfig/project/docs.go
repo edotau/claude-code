@@ -206,7 +206,7 @@ func renderDocs(root string) (content string, ok bool, err error) {
 	}
 	conventions = []byte(dropForExternal(src, string(conventions)))
 	var b strings.Builder
-	b.WriteString(docsBanner + "\n\n" + docsPathsNote + "\n\n")
+	textutil.WriteStrings(&b, docsBanner, "\n\n", docsPathsNote, "\n\n")
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
 	b.WriteByte('\n')
 	b.WriteString(standards)

@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -140,7 +141,7 @@ func clearPinsFix(ignored []string) string {
 	fix.WriteString("claude-code models")
 	for _, e := range ignored {
 		slot, _, _ := strings.Cut(e, "=")
-		fix.WriteString(" --pin " + slot + "=")
+		textutil.WriteStrings(&fix, " --pin ", slot, "=")
 	}
 	return fix.String()
 }

@@ -512,7 +512,7 @@ func configStamp(gitDir string) string {
 		if fi, err := os.Stat(f); err == nil {
 			fmt.Fprintf(&b, "%s:%d:%d;", f, fi.Size(), fi.ModTime().UnixNano())
 		} else {
-			b.WriteString(f + ":-;")
+			textutil.WriteStrings(&b, f, ":-;")
 		}
 	}
 	return b.String()

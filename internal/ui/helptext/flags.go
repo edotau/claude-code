@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // WantsHelp reports a -h/-help/--help token before any "--", so callers can send help to stdout themselves.
@@ -117,7 +118,7 @@ func PrintSecrets(verb string, secret bool, lines ...Secret) int {
 		if !secret {
 			v = fmt.Sprintf("<redacted: %d bytes>", len(v))
 		}
-		b.WriteString(l.Prefix + v + "\n")
+		textutil.WriteStrings(&b, l.Prefix, v, "\n")
 	}
 	if _, err := io.WriteString(os.Stdout, b.String()); err != nil {
 		return Fail("%s: %v", verb, err)

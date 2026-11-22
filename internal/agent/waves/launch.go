@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Spec supplies one package's brief and batch routing, with ID expressed as W.k.
@@ -297,7 +298,7 @@ func DefaultVerify(owns []string) string {
 	var cmd strings.Builder
 	cmd.WriteString("claude-code agents diff --check")
 	for _, path := range owns {
-		cmd.WriteString(" --path '" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'")
+		textutil.WriteStrings(&cmd, " --path '", strings.ReplaceAll(path, "'", "'\"'\"'"), "'")
 	}
 	return cmd.String()
 }

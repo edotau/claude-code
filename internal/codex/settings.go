@@ -79,13 +79,13 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 		return base, nil
 	}
 	var section strings.Builder
-	section.WriteString(codexSettingsBegin + "\n")
+	textutil.WriteStrings(&section, codexSettingsBegin, "\n")
 	for _, field := range nativeFields() {
 		if value, ok := overlay[field.Key]; ok {
 			fmt.Fprintf(&section, "%s = %q\n", field.Key, value)
 		}
 	}
-	section.WriteString(codexSettingsEnd + "\n")
+	textutil.WriteStrings(&section, codexSettingsEnd, "\n")
 	return agentconfig.InsertTopLevelTOML(base, section.String()), nil
 }
 
