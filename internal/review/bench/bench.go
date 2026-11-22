@@ -280,7 +280,8 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 	if err != nil {
 		return PkgResult{}, err
 	}
-	file := filepath.Join(dir, time.Now().Format("2006-01-02")+"-"+rep.Commit+"-"+rep.Mode+".txt")
+	// the time keeps a before and an after run on one commit (a dirty-tree A/B) from overwriting each other
+	file := filepath.Join(dir, time.Now().Format("2006-01-02-150405")+"-"+rep.Commit+"-"+rep.Mode+".txt")
 	head := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s", rep.lines(), pkg, o.re, o.count, stats.lines())
 	// "# " keeps run metadata out of benchstat's config keys: a differing key (commit, load) splits files into tables
 	body := "# " + strings.ReplaceAll(strings.TrimSuffix(head, "\n"), "\n", "\n# ") + "\n" + out
@@ -480,7 +481,16 @@ func printScore(w io.Writer, s Score, verbose bool) {
 	fmt.Fprintln(w)
 	for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
 		if d, ok := s.Deltas[u]; ok && (verbose || d.Significant) {
-			fmt.Fprintf(w, "      %-10s %s -> %s  %s  (%s)\n", u, d.Old, d.New, d.Change, d.P)
+			fmt.Fprintf(w, "      %-10s %s -> %s  %s  (%s)\n", u, short(d.Old), short(d.New), d.Change, d.P)
 		}
 	}
+}
+
+// short prints a benchstat CSV number in 4 significant digits; anything that is not a number stays as written.
+func short(v string) string {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return v
+	}
+	return strconv.FormatFloat(f, 'g', 4, 64)
 }
