@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -70,15 +72,68 @@ func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, e
 	return rec, err
 }
 
+// childIndexFile caches each record's admission fields; not *.json, so record listings never see it.
+const childIndexFile = ".children.idx"
+
+// childEntry is one record's admission fields, valid while its mtime and size are unchanged.
+type childEntry struct {
+	Mod    int64     `json:"m"`
+	Size   int64     `json:"s"`
+	Parent string    `json:"p,omitempty"`
+	Status string    `json:"st,omitempty"`
+	PID    int       `json:"pid,omitempty"`
+	Time   time.Time `json:"t,omitzero"`
+}
+
+// liveDispatchChildren counts parent's live children, reopening only records whose mtime or size changed.
 func liveDispatchChildren(dir, parent string) int {
+	idx := filepath.Join(dir, childIndexFile)
+	old := map[string]childEntry{}
+	if b, err := os.ReadFile(idx); err == nil {
+		_ = json.Unmarshal(b, &old) // a bad index is rebuilt from the records
+	}
+	names, _ := recordNames(dir) // Unreadable records fail open, like dispatch history.
+	next := make(map[string]childEntry, len(names))
+	changed := len(old) != len(names)
 	count := 0
-	_ = eachRecent(dir, jsonToken(parent), func(rec Record) bool { // Unreadable records fail open, like dispatch history.
-		if rec.Parent == parent && rec.Alive() {
+	for _, n := range names {
+		e, ok := childEntryFor(filepath.Join(dir, n), old[n])
+		if !ok {
+			changed = true
+			continue
+		}
+		changed = changed || e != old[n]
+		next[n] = e
+		if e.Parent == parent && inflight.DispatchAlive(e.Status, e.PID, e.Time) {
 			count++
 		}
-		return true
-	})
+	}
+	if changed {
+		if b, err := json.Marshal(next); err == nil {
+			_ = paths.AtomicWriteNoSync(idx, b, 0o600) // a cache: a failed write only costs the next scan a reread
+		}
+	}
 	return count
+}
+
+// childEntryFor is cached when path's stat matches it, else read afresh; false for an unreadable record.
+func childEntryFor(path string, cached childEntry) (childEntry, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return childEntry{}, false
+	}
+	e := childEntry{Mod: fi.ModTime().UnixNano(), Size: fi.Size()}
+	if cached.Mod == e.Mod && cached.Size == e.Size {
+		return cached, true
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return childEntry{}, false
+	}
+	if rec, derr := decodeRecord(b); derr == nil && rec.Parent != "" && rec.Status == "running" {
+		e.Parent, e.Status, e.PID, e.Time = rec.Parent, rec.Status, rec.PID, rec.Time
+	}
+	return e, true
 }
 
 func dispatchTreeUsage(parent string) (string, int, int) {
