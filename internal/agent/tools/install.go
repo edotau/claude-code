@@ -138,7 +138,7 @@ const (
 	piMinNode    = "22.19"
 )
 
-var errNoPiNode = errors.New("no Node " + piMinNode + "+ on PATH or under nvm")
+var errNoPiNode = errors.New("no Node " + piMinNode + "+ on PATH, under nvm or under mise")
 
 // installPi installs the pinned Pi into <state>/pi/npm without lifecycle scripts and links dir/pi to its bin.
 func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
@@ -174,9 +174,10 @@ func piPrefix() string { return filepath.Join(paths.StateDir(), "pi", "npm") }
 // requirePiNode returns the bin dir to prepend to the npm child's PATH ("" for PATH's node) and the npm beside it.
 func requirePiNode(ctx context.Context) (string, string, error) {
 	fix := depFix(deps[slices.IndexFunc(deps, func(d dep) bool { return d.Name == "node" })])
-	node, _ := depLookPath("node") // absent is "too old": nvm candidates still get tried
+	node, _ := depLookPath("node") // absent is "too old": nvm and mise candidates still get tried
 	nvm := nvmDir()
-	dir, err := pickPiNode(ctx, node, nvm, true)
+	mise := miseDir()
+	dir, err := pickPiNode(ctx, node, nvm, mise, true)
 	if err != nil && nodeOK(ctx, node) {
 		return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
 	}
@@ -185,7 +186,11 @@ func requirePiNode(ctx context.Context) (string, string, error) {
 		if node != "" {
 			seen = fmt.Sprintf("PATH node %q", parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version")))
 		}
-		return "", "", fmt.Errorf("pi: no Node %s+ found (%s; nvm dir %q); run: %s, or install Node %s+ with nvm", piMinNode, seen, nvm, fix, piMinNode)
+		hint := fmt.Sprintf("%s, or install Node %s+ with nvm", fix, piMinNode)
+		if st, e := os.Stat(mise); e == nil && st.IsDir() {
+			hint = "mise install node@22"
+		}
+		return "", "", fmt.Errorf("pi: no Node %s+ found (%s; looked in nvm dir %q, mise dir %q); run: %s", piMinNode, seen, nvm, mise, hint)
 	}
 	return dir, npmIn(dir), nil
 }
