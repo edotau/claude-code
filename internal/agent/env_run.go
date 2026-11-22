@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,18 +71,31 @@ func stderrTail(s string) string {
 	return t
 }
 
-// RunValues is the run's values (values, else ctx's snapshot, else one of the process env) set on ctx, plus a copy.
+// RunValues snapshots the run values, projecting trusted dispatch identity and policy before ancestry fallback.
 func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.Values) {
+	fromEnv := false
 	if values == nil {
 		var ok bool
 		values, ok = proc.ValuesFromContext(ctx)
 		if !ok {
+			fromEnv = true
 			values = proc.ValuesFromEnv(os.Environ())
 			if values[route.OverlayVar] == "" { // an ambient empty overlay must not suppress the stored one
 				delete(values, route.OverlayVar)
 			}
-			values = withAncestorDispatch(values) // an env wipe inside a leaf must not make a top-level dispatch
 		}
+	} else {
+		values = values.Merge(nil)
+	}
+	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok {
+		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
+		values[proc.DispatchIDEnv], values[proc.DispatchDepthEnv] = id, strconv.Itoa(depth)
+	}
+	if kv, ok := ctx.Value(permissionsKey{}).(string); ok {
+		values[DispatchPermissionsEnv] = strings.TrimPrefix(kv, DispatchPermissionsEnv+"=")
+	}
+	if fromEnv {
+		values = withAncestorDispatch(values) // an env wipe inside a leaf must not make a top-level dispatch
 	}
 	return proc.WithValues(ctx, values), values.Merge(nil)
 }

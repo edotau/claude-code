@@ -78,6 +78,7 @@ func SpawnContext(ctx context.Context, rec *Record, extra []string) error {
 // SpawnArgvContext preserves run values while detaching the child lifetime.
 func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) error {
 	ctx, _ = RunValues(ctx, nil)
+	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
 	exe, err := executable()
 	if err != nil {
 		return err

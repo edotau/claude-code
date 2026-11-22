@@ -203,6 +203,44 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	assertSavedCancellation(t, rec.ID)
 }
 
+func TestSpawnArgvUsesJobIdentity(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
+	setConfigDir(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "identity.sh")
+	body := "#!/bin/sh\nprintf '%s|%s' \"$HARNESS_DISPATCH_ID\" \"$HARNESS_DISPATCH_DEPTH\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := executable
+	executable = func() (string, error) { return script, nil }
+	t.Cleanup(func() { executable = old })
+	ctx := proc.WithValues(t.Context(), proc.Values{proc.DispatchIDEnv: "caller", proc.DispatchDepthEnv: "1"})
+	ctx = withDispatchID(ctx, "caller", 1)
+	rec := Record{ID: "job", Depth: 2, Log: filepath.Join(dir, "job.log")}
+	if err := SpawnArgvContext(ctx, &rec, nil, []string{proc.DispatchIDEnv + "=stale-extra"}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(readyWait); ; time.Sleep(time.Millisecond) {
+		got, err := os.ReadFile(rec.Log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) > 0 {
+			if string(got) != "job|2" {
+				t.Fatalf("spawn identity = %q, want job|2", got)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("job child did not report its identity")
+		}
+	}
+	if proc.Value(ctx, proc.DispatchIDEnv) != "caller" || DispatchIDOf(ctx) != "caller" {
+		t.Fatal("spawn changed the caller identity")
+	}
+}
+
 // assertSavedCancellation checks the saved record reflects the cancellation too.
 func assertSavedCancellation(t *testing.T, id string) {
 	t.Helper()

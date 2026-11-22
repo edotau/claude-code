@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,47 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
+
+func TestRunValuesProjectsTrustedDispatch(t *testing.T) {
+	setConfigDir(t)
+	stale := proc.Values{proc.DispatchIDEnv: "stale", proc.DispatchDepthEnv: "0", DispatchPermissionsEnv: "{}"}
+	original := stale.Merge(nil)
+	for i, id := range []string{"first", "second"} {
+		cap := i + 3
+		parent := Record{ID: id, Agent: "codex", Status: "running", Depth: i + 1, MaxDepth: &cap}
+		fixtureRecord(t, parent)
+		policy := permission.Permissions{Deny: []permission.Rule{{Tool: "Read", Arg: "/" + id + "/**"}}}
+		ctx := WithPermissionsEnv(withDispatchID(t.Context(), id, parent.Depth), policy)
+		for _, input := range []struct {
+			ctx    context.Context
+			values proc.Values
+		}{{ctx, nil}, {proc.WithValues(ctx, stale), nil}, {ctx, stale}} {
+			childCtx, values := RunValues(input.ctx, input.values)
+			want := []string{id, strconv.Itoa(parent.Depth)}
+			if got := []string{proc.Value(childCtx, proc.DispatchIDEnv), values[proc.DispatchDepthEnv]}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s: trusted identity lost (explicit=%v)", id, input.values != nil)
+			}
+			childCtx, _ = RunValues(childCtx, stale)
+			gotPolicy, err := inheritPermissionsContext(childCtx, permission.Permissions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(gotPolicy, policy) {
+				t.Fatalf("%s: nested policy = %+v, %v", id, gotPolicy, err)
+			}
+			child, err := (&Client{}).Record(childCtx, RunOptions{Agent: "codex", Values: stale}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := []any{child.Parent, child.Depth, *child.MaxDepth}, []any{id, parent.Depth + 1, cap}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s: child parent=%s depth=%d cap=%d", id, child.Parent, child.Depth, *child.MaxDepth)
+			}
+		}
+	}
+	if !reflect.DeepEqual(stale, original) {
+		t.Fatal("trusted projection mutated supplied values")
+	}
+}
 
 // Given a launching workspace in the env, Then every child env carries it exactly once, explicit Base included.
 func TestEnvironPassesMemoryOrigin(t *testing.T) {
