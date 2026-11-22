@@ -3,6 +3,7 @@ package remote
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -53,23 +54,32 @@ func ResolveAuto(host string) (string, error) {
 	if h := autoEnvHost(); h != "" && h != Auto {
 		return h, nil
 	}
-	if h := cachedAutoHost(time.Now()); h != "" {
-		return h, nil
+	cache := paths.DiskTTL[string]{
+		Name: "remote-auto-host", Path: autoHostFile(), TTL: autoHostTTL,
+		Decode: func(raw []byte) (string, error) {
+			var c autoHost
+			if !schemas.DecodeOK(autoHostFormat, raw, &c) || paths.Stale(c.At, autoHostTTL, 0, time.Now()) || c.Host == "" {
+				return "", os.ErrInvalid
+			}
+			return c.Host, nil
+		},
+		Encode: func(host string) ([]byte, error) { return json.Marshal(autoHost{autoHostSchema, time.Now(), host}) },
 	}
-	peers, err := autoPeers()
-	if err != nil {
-		return "", fmt.Errorf("auto: %w; %s", err, autoHint)
-	}
-	switch up := answering(peers); len(up) {
-	case 1:
-		_ = paths.WriteJSONNoSync(autoHostFile(), autoHost{Schema: autoHostSchema, At: time.Now(), Host: up[0]})
-		return up[0], nil
-	case 0:
-		return "", fmt.Errorf("auto: no other online machine answers `claude-code version` over ssh (tried: %s); %s",
-			cmp.Or(strings.Join(peers, ", "), "none online"), autoHint)
-	default:
-		return "", fmt.Errorf("auto: %d machines answer (%s); %s", len(up), strings.Join(up, ", "), autoHint)
-	}
+	return cache.Get(context.Background(), func(context.Context) (string, error) {
+		peers, err := autoPeers()
+		if err != nil {
+			return "", fmt.Errorf("auto: %w; %s", err, autoHint)
+		}
+		switch up := answering(peers); len(up) {
+		case 1:
+			return up[0], nil
+		case 0:
+			return "", fmt.Errorf("auto: no other online machine answers `claude-code version` over ssh (tried: %s); %s",
+				cmp.Or(strings.Join(peers, ", "), "none online"), autoHint)
+		default:
+			return "", fmt.Errorf("auto: %d machines answer (%s); %s", len(up), strings.Join(up, ", "), autoHint)
+		}
+	})
 }
 
 // IsSelf reports whether host names this machine (tailscale.IsLocalHost); `auto` and a blank host never do.
@@ -154,13 +164,3 @@ var autoHostFormat = schemas.Register(schemas.Format{
 })
 
 func autoHostFile() string { return filepath.Join(paths.StateDir(), "remote", "auto-host.json") }
-
-// cachedAutoHost is the probed host when the cache is fresh, else "".
-func cachedAutoHost(now time.Time) string {
-	raw, err := os.ReadFile(autoHostFile())
-	var c autoHost
-	if err != nil || !schemas.DecodeOK(autoHostFormat, raw, &c) || paths.Stale(c.At, autoHostTTL, 0, now) {
-		return ""
-	}
-	return c.Host
-}

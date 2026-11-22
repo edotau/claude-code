@@ -16,12 +16,9 @@ import (
 )
 
 var (
-	selfMu             sync.Mutex
-	selfReady          bool
-	selfNames          []string
-	selfRetryAt        time.Time
+	selfNames          = paths.NewMemo[struct{}, []string]("tailscale-self")
+	selfLookup         sync.Mutex
 	selfFailureBackoff = 30 * time.Second
-	now                = time.Now
 )
 
 // IsLocalHost reports whether host names this machine: localhost, its hostname, or its tailnet name/IPs.
@@ -33,20 +30,30 @@ func IsLocalHost(ctx context.Context, host string) bool {
 	if h == "localhost" || h == "127.0.0.1" || h == "::1" || isOwnHostname(h) {
 		return true
 	}
-	selfMu.Lock()
-	if selfReady || now().Before(selfRetryAt) {
-		local := slices.Contains(selfNames, h)
-		selfMu.Unlock()
-		return local
+	if ctx.Err() != nil {
+		// A canceled caller can read settled names, but must not wait behind a live lookup.
+		if !selfLookup.TryLock() {
+			return false
+		}
+	} else {
+		selfLookup.Lock()
 	}
-	selfMu.Unlock()
-	st, err := Status(ctx)
-	selfMu.Lock()
-	defer selfMu.Unlock()
-	if !selfReady {
-		recordSelf(st, err)
-	}
-	return slices.Contains(selfNames, h)
+	defer selfLookup.Unlock()
+	names, _ := selfNames.Do(struct{}{}, func(_ []string, err error) time.Duration {
+		if err != nil {
+			return selfFailureBackoff
+		}
+		return 0
+	}, func() ([]string, error) {
+		st, err := Status(ctx)
+		names := slices.Clone(st.IPs)
+		if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
+			short, _, _ := strings.Cut(dns, ".")
+			names = append(names, dns, short)
+		}
+		return names, err
+	})
+	return slices.Contains(names, h)
 }
 
 // isOwnHostname reports whether h is this machine's OS hostname or its short form.
@@ -58,20 +65,6 @@ func isOwnHostname(h string) bool {
 	n = strings.ToLower(strings.TrimSuffix(n, "."))
 	short, _, _ := strings.Cut(n, ".")
 	return h != "" && (h == n || h == short)
-}
-
-// recordSelf caches this node's tailnet names after a status call, or starts the failure backoff; selfMu is held.
-func recordSelf(st Local, err error) {
-	if err != nil {
-		selfRetryAt = now().Add(selfFailureBackoff)
-		return
-	}
-	selfReady = true
-	selfNames = append(selfNames, st.IPs...)
-	if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
-		short, _, _ := strings.Cut(dns, ".")
-		selfNames = append(selfNames, dns, short)
-	}
 }
 
 // ResolveHost maps a short tailnet name to its MagicDNS name (cache first, then live); others pass through to ssh.
@@ -141,16 +134,16 @@ func WriteMachinesCache(names []string) {
 
 // CachedMachineNames reads the --machines cache when fresh, else nil: Tab completion has no budget for calls.
 func CachedMachineNames() []string {
-	data, err := os.ReadFile(machinesCachePath())
-	if err != nil {
-		return nil
+	cache := paths.DiskTTL[[]string]{
+		Name: "tailscale-machines", Path: machinesCachePath(), TTL: machinesCacheTTL,
+		Decode: func(data []byte) ([]string, error) {
+			var c machinesCache
+			if !schemas.DecodeOK(machinesCacheFormat, data, &c) || paths.Stale(c.At, machinesCacheTTL, 0, time.Now()) {
+				return nil, os.ErrInvalid
+			}
+			return c.Names, nil
+		},
 	}
-	var c machinesCache
-	if !schemas.DecodeOK(machinesCacheFormat, data, &c) {
-		return nil
-	}
-	if paths.Stale(c.At, machinesCacheTTL, 0, time.Now()) { // a future At (clock skew) is stale
-		return nil
-	}
-	return c.Names
+	names, _ := cache.Get(context.Background(), func(context.Context) ([]string, error) { return nil, os.ErrNotExist })
+	return names
 }

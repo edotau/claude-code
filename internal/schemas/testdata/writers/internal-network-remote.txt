@@ -1,1 +1,0 @@
-internal/network/remote/auto.go:ResolveAuto	remote-auto-host

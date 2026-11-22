@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -37,8 +38,8 @@ func stubUsage(t *testing.T, run func(context.Context) ([]byte, error)) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	oldRun, oldNow := quotaRun, quotaNow
 	quotaRun, quotaNow = run, func() time.Time { return quotaNow0 }
-	quotaAt, quotaCache, quotaErr = time.Time{}, nil, nil
-	t.Cleanup(func() { quotaRun, quotaNow = oldRun, oldNow; quotaAt, quotaCache, quotaErr = time.Time{}, nil, nil })
+	quotaMemo.Drop()
+	t.Cleanup(func() { quotaRun, quotaNow = oldRun, oldNow; quotaMemo.Drop() })
 }
 
 func fixedUsage(out string) func(context.Context) ([]byte, error) {
@@ -69,6 +70,10 @@ func TestParseQuotasSample(t *testing.T) {
 }
 
 func TestQuotasCachesForAMinute(t *testing.T) {
+	synctest.Test(t, testQuotasTTL)
+}
+
+func testQuotasTTL(t *testing.T) {
 	calls := 0
 	stubUsage(t, func(context.Context) ([]byte, error) { calls++; return []byte(usageSample), nil })
 	for range 3 {
@@ -79,7 +84,7 @@ func TestQuotasCachesForAMinute(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("agy ran %d times inside the TTL, want 1", calls)
 	}
-	quotaNow = func() time.Time { return quotaNow0.Add(quotaTTL + time.Second) }
+	time.Sleep(quotaTTL + time.Second)
 	if _, err := Quotas(context.Background()); err != nil || calls != 2 {
 		t.Errorf("after the TTL: calls = %d, err = %v, want 2 calls", calls, err)
 	}
@@ -243,9 +248,9 @@ func TestDiskCachedSharesOneReadAcrossProcesses(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("agy runs = %d within a minute, want 1", calls)
 	}
-	quotaNow = func() time.Time { return quotaNow0.Add(quotaTTL + time.Second) }
 	file := filepath.Join(paths.StateDir(), "agy-usage.json")
-	if err := os.Chtimes(file, quotaNow0, quotaNow0); err != nil {
+	old := time.Now().Add(-quotaTTL - time.Second)
+	if err := os.Chtimes(file, old, old); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = diskCached(context.Background(), run)

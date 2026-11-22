@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -42,20 +43,14 @@ EOF
 	return counter
 }
 
-// resetSelfCache isolates cache state and clock seams for each test.
+// resetSelfCache isolates the memo and failure backoff for each test.
 func resetSelfCache(t *testing.T) {
 	t.Helper()
-	selfMu.Lock()
-	oldReady, oldNames := selfReady, selfNames
-	oldRetryAt, oldBackoff, oldNow := selfRetryAt, selfFailureBackoff, now
-	selfRetryAt = time.Time{}
-	selfReady, selfNames = false, nil
-	selfMu.Unlock()
+	selfNames.Drop()
+	oldBackoff := selfFailureBackoff
 	t.Cleanup(func() {
-		selfMu.Lock()
-		selfReady, selfNames = oldReady, oldNames
-		selfRetryAt, selfFailureBackoff, now = oldRetryAt, oldBackoff, oldNow
-		selfMu.Unlock()
+		selfNames.Drop()
+		selfFailureBackoff = oldBackoff
 	})
 }
 
@@ -69,11 +64,12 @@ func readCalls(t *testing.T, path string) string {
 }
 
 func TestIsLocalHost_FailedLookupNotCachedSuccessIs(t *testing.T) {
+	synctest.Test(t, testSelfCacheBackoff)
+}
+
+func testSelfCacheBackoff(t *testing.T) {
 	resetSelfCache(t)
 	counter := fakeTailscaleScript(t)
-	clock := time.Now()
-	now = func() time.Time { return clock }
-	selfFailureBackoff = time.Second
 	ctx := context.Background()
 	if IsLocalHost(ctx, "test-host") {
 		t.Fatal("call 1: failed lookup returned true")
@@ -87,7 +83,7 @@ func TestIsLocalHost_FailedLookupNotCachedSuccessIs(t *testing.T) {
 	if calls := readCalls(t, counter); calls != "1\n" {
 		t.Fatalf("call 2: invocations = %q, want 1", calls)
 	}
-	clock = clock.Add(selfFailureBackoff + time.Nanosecond)
+	time.Sleep(selfFailureBackoff + time.Nanosecond)
 	if !IsLocalHost(ctx, "test-host") {
 		t.Fatal("call 3: retry returned false")
 	}
@@ -99,6 +95,11 @@ func TestIsLocalHost_FailedLookupNotCachedSuccessIs(t *testing.T) {
 	}
 	if calls := readCalls(t, counter); calls != "2\n" {
 		t.Fatalf("call 4: invocations = %q, want 2", calls)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if !IsLocalHost(canceled, "test-host") {
+		t.Fatal("canceled call lost cached self names")
 	}
 }
 

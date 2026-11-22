@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -55,39 +54,17 @@ func runAgyUsage(ctx context.Context) ([]byte, error) {
 
 // diskCached shares one /usage read across short-lived processes (each hook run is one) for quotaTTL.
 func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) ([]byte, error) {
-	file := filepath.Join(paths.StateDir(), "agy-usage.json")
-	if b, ok := freshUsageFile(file); ok {
+	valid := func(b []byte) ([]byte, error) {
+		if len(ParseQuotas(usageText(b))) == 0 {
+			return nil, os.ErrInvalid
+		}
 		return b, nil
 	}
-	var out []byte
-	var err error
-	// The lock spans re-check, fetch and write, so a concurrent run reads the fresh file instead of spawning agy.
-	if lerr := paths.WithFileLock(file, func() error {
-		if b, ok := freshUsageFile(file); ok {
-			out = b
-			return nil
-		}
-		out, err = run(ctx)
-		if len(ParseQuotas(usageText(out))) > 0 {
-			if tmp := fmt.Sprintf("%s.%d", file, os.Getpid()); os.WriteFile(tmp, out, 0o600) == nil {
-				_ = os.Rename(tmp, file)
-			}
-		}
-		return nil
-	}); lerr != nil && out == nil && err == nil {
-		return run(ctx) // no lock (unwritable state dir): fetch uncached rather than fail
+	cache := paths.DiskTTL[[]byte]{
+		Name: "gemini-usage", Path: filepath.Join(paths.StateDir(), "agy-usage.json"), TTL: quotaTTL,
+		Decode: valid, Encode: valid,
 	}
-	return out, err
-}
-
-// freshUsageFile is the cached /usage read when it is under quotaTTL old and has rows.
-func freshUsageFile(file string) ([]byte, bool) {
-	st, err := os.Stat(file)
-	if err != nil || quotaNow().Sub(st.ModTime()) >= quotaTTL {
-		return nil, false
-	}
-	b, err := os.ReadFile(file)
-	return b, err == nil && len(ParseQuotas(usageText(b))) > 0
+	return cache.Get(ctx, run)
 }
 
 // CheckCached is Check from the disk cache up to quotaStaleMax old, never spawning agy; an error means no usable read.
@@ -113,36 +90,34 @@ func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, er
 }
 
 var (
-	quotaNow   = time.Now
-	quotaMu    sync.Mutex
-	quotaAt    time.Time
-	quotaCache []QuotaRow
-	quotaErr   error
-	quotaOut   []byte // the cached run's raw output and its exit error, for UsageOutput
-	quotaRunE  error
+	quotaNow  = time.Now
+	quotaMemo = paths.NewMemo[struct{}, quotaRead]("gemini-quota")
 )
 
-// Quotas reads agy's /usage once per quotaTTL (failures included, so a dead binary costs one timeout, not one per call).
+type quotaRead struct {
+	rows   []QuotaRow
+	out    []byte
+	runErr error
+}
+
+// Quotas caches agy's /usage for quotaTTL, including failures so a dead binary costs one timeout per TTL.
 func Quotas(ctx context.Context) ([]QuotaRow, error) {
-	quotaMu.Lock()
-	defer quotaMu.Unlock()
-	readUsage(ctx)
-	return quotaCache, quotaErr
+	u, err := readUsage(ctx)
+	return u.rows, err
 }
 
 // UsageOutput is agy's raw /usage JSON from the same cached read Quotas uses, so one run serves both.
 func UsageOutput(ctx context.Context) ([]byte, error) {
-	quotaMu.Lock()
-	defer quotaMu.Unlock()
-	readUsage(ctx)
-	return quotaOut, quotaRunE
+	u, _ := readUsage(ctx)
+	return u.out, u.runErr
 }
 
-// readUsage refills the cache when it is older than quotaTTL; the caller holds quotaMu.
-func readUsage(ctx context.Context) {
-	if now := quotaNow(); !quotaAt.IsZero() && now.Sub(quotaAt) < quotaTTL {
-		return
-	}
+func readUsage(ctx context.Context) (quotaRead, error) {
+	return quotaMemo.Do(struct{}{}, func(quotaRead, error) time.Duration { return quotaTTL },
+		func() (quotaRead, error) { return fetchUsage(ctx) })
+}
+
+func fetchUsage(ctx context.Context) (quotaRead, error) {
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
 	out, runErr := quotaRun(ctx)
@@ -156,7 +131,7 @@ func readUsage(ctx context.Context) {
 	default:
 		err = errors.New("agy usage unavailable: " + textutil.TruncateRunes(textutil.FirstLine(strings.TrimSpace(string(usageText(out)))), 60))
 	}
-	quotaAt, quotaCache, quotaErr, quotaOut, quotaRunE = quotaNow(), rows, err, out, runErr
+	return quotaRead{rows: rows, out: out, runErr: runErr}, err
 }
 
 // usageText is the tab-separated text of agy's JSON reply (its "response" field); other output passes through.
@@ -324,9 +299,7 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 
 // freshQuotas drops the process and disk caches and reads agy's /usage again.
 func freshQuotas(ctx context.Context) ([]QuotaRow, error) {
-	quotaMu.Lock()
-	quotaAt = time.Time{}
-	quotaMu.Unlock()
+	quotaMemo.Drop()
 	_ = os.Remove(filepath.Join(paths.StateDir(), "agy-usage.json"))
 	return Quotas(ctx)
 }
