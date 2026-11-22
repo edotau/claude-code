@@ -128,10 +128,34 @@ func TestTaskTier(t *testing.T) {
 		{"Implement transaction rollback in store.go and reword the error message.", "sonnet"},
 		{"Investigate why the cache returns stale entries after we rename keys in cache.go.", "sonnet"},
 		{"Rewrite the session cookie check in session.go so a replayed token fails; move it first.", "sonnet"},
+		{"Run go test ./internal/x and report the failures.", "haiku"},
+		{"Run go test ./internal/x and fix the failing test.", "sonnet"},
+		{"Count the exported funcs in x.go.", "haiku"},
 		{"", ""},
 	} {
 		if got, sig := TaskTier(tc.brief); got != tc.want {
 			t.Errorf("TaskTier(%q) = %q (%s), want %q", tc.brief, got, sig, tc.want)
+		}
+	}
+}
+
+// LookupTier takes haiku for a plain sweep or lookup and leaves thorough, edit and tiered briefs to TaskTier.
+func TestLookupTier(t *testing.T) {
+	for _, tc := range []struct {
+		brief      string
+		lookupOnly bool
+		want       string
+	}{
+		{"Find where Foo is defined.", false, "haiku"},
+		{"Very thorough sweep of the hooks.", false, ""},
+		{"Audit the auth paths.", false, ""},
+		{"Look up the docs for the flag.", true, "haiku"},
+		{"Look up the docs and fix the typo.", true, ""},
+		{"Summarise the module.", true, ""},
+		{"Tier: standard\nFind where Foo is defined.", false, ""},
+	} {
+		if got, sig := LookupTier(tc.brief, tc.lookupOnly); got != tc.want {
+			t.Errorf("LookupTier(%q) = %q (%s), want %q", tc.brief, got, sig, tc.want)
 		}
 	}
 }

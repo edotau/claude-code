@@ -132,7 +132,8 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   on the command. `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
   identifies a plan task for the hook's slot claim. `Tier: fast|standard|deep` (own line) sets the task tier that
   picks an unpinned run's model (`agent.TaskTier`); without it the wording decides. Never hand-type the line: take it
-  from `agents label --run`; `dispatch-effort` fixes a typo it can decide and notes the rest. Name the plan task
+  from `agents label --run`; `dispatch-effort` fixes a typo it can decide and notes the rest. A gate-run leaf that
+  only reports carries `Tier: fast`. Name the plan task
   (`Task: Phase W.k`): the hand-back then carries its `verify:` result.
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;

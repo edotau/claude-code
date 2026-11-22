@@ -173,7 +173,10 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	if explicitModel(in) || task == "" || agentPinsModel(run, effectiveType(updated)) {
 		return "", ""
 	}
-	model, signal := agentpkg.TaskTier(task)
+	model, signal := lookupPin(effectiveType(updated), task)
+	if model == "" {
+		model, signal = agentpkg.TaskTier(task)
+	}
 	if model == "" {
 		return "", ""
 	}
@@ -182,6 +185,17 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	effort := pinEffort(run, in, updated, tier)
 	return fmt.Sprintf("dispatch-effort: model unset, task classifies %s: pinned model=%s%s (set model explicitly to override).", tier, model, effort),
 		fmt.Sprintf("dispatch-effort: %s → %s%s (%s)", tier, model, effort, signal)
+}
+
+// lookupPin is haiku for an Explore sweep or a read-only general-purpose/claude-code-guide lookup; "" keeps TaskTier.
+func lookupPin(st, task string) (model, signal string) {
+	switch st {
+	case "Explore":
+		return agentpkg.LookupTier(task, false)
+	case "", "general-purpose", "claude-code-guide":
+		return agentpkg.LookupTier(task, true)
+	}
+	return "", ""
 }
 
 // pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns " effort=<tier>", else "".

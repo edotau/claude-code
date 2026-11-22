@@ -249,7 +249,21 @@ var (
 			`irreversible|credentials?|secrets?)\b`)
 	})
 	fastTaskRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)\b(typos?|renames?|one[- ]line(?:r)?|reword|wording|commit message|message[- ]only|moves?)\b`)
+		return regexp.MustCompile(`(?i)\b(typos?|renames?|one[- ]line(?:r)?|reword|wording|commit message|message[- ]only|moves?|format(?:ting)?|counts?|summari[sz]e|lists?|labels?)\b`)
+	})
+	// gateRunRe/gateObjRe: a run-and-report of build, vet, test, lint or a gate; editRe keeps fix work on its tier.
+	gateRunRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\b(run|runs|verify|check)\b`) })
+	gateObjRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(build|vet|tests?|lint|gates?|gofmt)\b`)
+	})
+	editRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(fix\w*|edit\w*|implement\w*|debug\w*|add|write|rewrite|change|update|refactor\w*|create|patch|repair\w*)\b`)
+	})
+	lookupRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(look ?up|research|docs?|documentation|find out|what is|which|where)\b`)
+	})
+	thoroughRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(thorough\w*|deep|exhaustive|comprehensive)\b`)
 	})
 	scopeTaskRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(across|every|all|repo-wide|codebase|call ?sites|callers|everywhere|throughout)\b`)
@@ -282,6 +296,22 @@ func TaskTier(brief string) (alias, signal string) {
 	return models.Sonnet, "standard"
 }
 
+// LookupTier is haiku for a read-only lookup brief; "" (keep TaskTier) for a thorough, deep, tiered or edit brief.
+func LookupTier(brief string, lookupOnly bool) (alias, signal string) {
+	if tierLineRe().MatchString(brief) {
+		return "", ""
+	}
+	text, _, _ := strings.Cut(brief, "\n## Leaf rules")
+	text = strings.TrimSpace(boilerRe().ReplaceAllString(text, ""))
+	switch {
+	case text == "", deepTaskRe().MatchString(text), thoroughRe().MatchString(text):
+		return "", ""
+	case lookupOnly && (!lookupRe().MatchString(text) || editRe().MatchString(text)):
+		return "", ""
+	}
+	return models.Haiku, "lookup"
+}
+
 // deepSignal is the deep word that names the cost of a mistake (safety, auth), else the first one.
 func deepSignal(words []string) string {
 	for _, w := range words {
@@ -292,6 +322,14 @@ func deepSignal(words []string) string {
 	return strings.ToLower(words[0])
 }
 
+// shortBrief is the brief length under which a run-and-report or rename-style task may take the fast tier.
+const shortBrief = 1000
+
+// gateRun is a short run-and-report of a build, vet, test, lint or gate with no edit verb.
+func gateRun(text string) bool {
+	return len(text) < shortBrief && gateRunRe().MatchString(text) && gateObjRe().MatchString(text) && !editRe().MatchString(text)
+}
+
 // fastTask names why text is a short question or one mechanical edit on at most two files; "" when it is not.
 func fastTask(text string) string {
 	switch tier, rule := router.EffortTierSignal(text); {
@@ -300,7 +338,10 @@ func fastTask(text string) string {
 	case tier == models.EffortHigh && rule != "paths>=2": // high-effort work stays off fast; the file cap is below
 		return ""
 	}
-	if len(text) >= 1000 || !fastTaskRe().MatchString(text) || scopeTaskRe().MatchString(text) {
+	if gateRun(text) {
+		return "gate-run"
+	}
+	if len(text) >= shortBrief || !fastTaskRe().MatchString(text) || scopeTaskRe().MatchString(text) {
 		return ""
 	}
 	files := map[string]bool{}
