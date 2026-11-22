@@ -1,0 +1,65 @@
+Owned: {{.OwnedLine}}
+Mode: implementation; edit only owned files
+Verify: {{.Verify}}
+
+Task:
+Make {{.Benchmark}} in {{.Package}} perform the same work faster; hand back uncommitted with before/after numbers.
+Work in the lane {{.Workdir}}. Candidate cause (a hypothesis to verify): {{.Cause}}
+
+## Measurement evidence
+
+{{.Numbers}}
+
+Before run file: {{.BeforeFile}}
+Read that evidence before editing. Measure the unchanged code and the fix with the same command and inputs:
+
+```bash
+cd {{sh .Workdir}}
+{{.BenchCommand}}
+```
+
+Record ns/op, B/op, allocs/op and any spawn counts available, sample count, noise, and the numeric before/after delta.
+Defer when the machine is busy; a noisy run cannot establish a win. The driver performs the final interleaved A/B run.
+
+## Preserve behaviour
+
+Reduce allocations, use independent concurrency, consider caching, or make fewer spawns; never skip or drop a validation.
+Never remove any check, error path, cancellation, ordering guarantee, or required work to improve a benchmark.
+Caching requires owner approval before KEEP, even if outputs appear identical; report freshness and invalidation.
+Keep all benchmark files and *_test.go unchanged: editing them changes the epoch and invalidates the comparison.
+Do not edit, rewrite, replace, or delete benchmarks; D6 requires owner approval for every deletion batch.
+If a safe fix needs files outside Owned, stop and report the blocker.
+
+## Verification
+
+Format only owned Go files, then lint; live-check output identity before scoped tests:
+
+```bash
+cd {{sh .Workdir}}
+go vet {{sh .Package}}
+{{.IdentityCommand}}
+{{.Verify}}
+rtk git diff --no-ext-diff --no-textconv HEAD
+```
+
+Check successful and failing inputs, errors, side effects, and cancellation against the parent, not just timing.
+Inspect the entire lane diff for ownership and unchanged benchmarks. Run Skill(simplify) over your changes.
+
+## Leaf rules
+
+- Never revert a change you did not make; no git commit, stash, checkout, reset, restore, switch, merge, or push.
+- Edit only the named production files with Edit or Write, never a splice script, sed -i, perl -pi, or shell heredoc.
+- Report compile errors in unowned files; do not fix them. Do not add tests or modify existing tests in this fix lane.
+- Never wipe or rewrite the dispatch environment, print credentials, use sudo, or delete outside scratch directories.
+- Never use foreground sleep; use background work and its completion notification.
+- Shell output uses rtk; use rtk read for files and rtk bypass when exact bytes matter. go vet stays bare.
+- Run scoped checks only, never the full suite. Fix leaves use Databricks with the harness's R6 model mix.
+- Hand back uncommitted. D1 reserves commits for the driver in lanes only; never commit on main or merge a lane.
+- Do not record a KEEP or advance rolling.txt; the driver owns decisions and baseline promotion after merge.
+
+## Reporting contract
+
+Return the full report in your final answer, opening with DONE, DONE_WITH_CONCERNS, or BLOCKED.
+Include absolute files with numstat, commands and exit codes, before/after numbers, output-identity evidence,
+checks preserved, cache/concurrency risks, gross production lines added/deleted, and anything blocked.
+Name the unchanged benchmark epoch evidence and what the driver needs for its interleaved run and Opus review.
