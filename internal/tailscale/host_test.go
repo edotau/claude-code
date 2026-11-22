@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -249,5 +250,36 @@ func TestCachedMachineNamesFreshnessWindow(t *testing.T) {
 	writeCacheAt(t, time.Now().Add(24*time.Hour))
 	if got := CachedMachineNames(); got != nil {
 		t.Errorf("future-dated cache = %v, want nil", got)
+	}
+}
+
+// A stopped backend's names are never used: Status returns them with errNotRunning.
+func TestIsLocalHost_StoppedBackendNamesDiscarded(t *testing.T) {
+	resetSelfCache(t)
+	hermeticSecrets(t)
+	stubCLI(t, catScript(t, "status_stopped.json"))
+	if IsLocalHost(context.Background(), "test-mac.tailxxxxx.ts.net") {
+		t.Fatal("names returned with errNotRunning were used")
+	}
+}
+
+// Completion on a stale file returns at once even while another process holds the cache lock.
+func TestCachedMachineNamesNeverWaitsOnLock(t *testing.T) {
+	writeCacheAt(t, time.Now().Add(-time.Hour))
+	done := make(chan []string, 1)
+	err := paths.WithFileLock(machinesCachePath(), func() error {
+		go func() { done <- CachedMachineNames() }()
+		select {
+		case got := <-done:
+			if got != nil {
+				t.Errorf("stale cache = %v, want nil", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("CachedMachineNames blocked on the cache lock")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

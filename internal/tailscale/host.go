@@ -44,16 +44,22 @@ func IsLocalHost(ctx context.Context, host string) bool {
 			return selfFailureBackoff
 		}
 		return 0
-	}, func() ([]string, error) {
-		st, err := Status(ctx)
-		names := slices.Clone(st.IPs)
-		if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
-			short, _, _ := strings.Cut(dns, ".")
-			names = append(names, dns, short)
-		}
-		return names, err
-	})
+	}, func() ([]string, error) { return selfTailnetNames(ctx) })
 	return slices.Contains(names, h)
+}
+
+// selfTailnetNames lists this node's tailnet IPs and names; an error discards any names.
+func selfTailnetNames(ctx context.Context) ([]string, error) {
+	st, err := Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := slices.Clone(st.IPs)
+	if dns := strings.ToLower(strings.TrimSuffix(st.DNSName, ".")); dns != "" {
+		short, _, _ := strings.Cut(dns, ".")
+		names = append(names, dns, short)
+	}
+	return names, nil
 }
 
 // isOwnHostname reports whether h is this machine's OS hostname or its short form.
@@ -134,16 +140,16 @@ func WriteMachinesCache(names []string) {
 
 // CachedMachineNames reads the --machines cache when fresh, else nil: Tab completion has no budget for calls.
 func CachedMachineNames() []string {
-	cache := paths.DiskTTL[[]string]{
-		Name: "tailscale-machines", Path: machinesCachePath(), TTL: machinesCacheTTL,
-		Decode: func(data []byte) ([]string, error) {
-			var c machinesCache
-			if !schemas.DecodeOK(machinesCacheFormat, data, &c) || paths.Stale(c.At, machinesCacheTTL, 0, time.Now()) {
-				return nil, os.ErrInvalid
-			}
-			return c.Names, nil
-		},
+	data, err := os.ReadFile(machinesCachePath())
+	if err != nil {
+		return nil
 	}
-	names, _ := cache.Get(context.Background(), func(context.Context) ([]string, error) { return nil, os.ErrNotExist })
-	return names
+	var c machinesCache
+	if !schemas.DecodeOK(machinesCacheFormat, data, &c) {
+		return nil
+	}
+	if paths.Stale(c.At, machinesCacheTTL, 0, time.Now()) { // a future At (clock skew) is stale
+		return nil
+	}
+	return c.Names
 }
