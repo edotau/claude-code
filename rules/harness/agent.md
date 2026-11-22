@@ -89,6 +89,11 @@ paths:
   it builds, vets and runs scoped tests on its own edits; `make`, the live check and any write stay with the main
   session or a paired gate leaf. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
+- **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
+  `claude-code gateway resolve <agent> --overlay '{"provider":"databricks","profile":"dev"}'` names the model, then
+  `claude-code agents ask --agent pi --overlay '<same>' --model <id> "<task>"` runs it (about a tenth of the input
+  tokens). The label, record and `ran on` read `pi`; the brief must stand alone (no CLAUDE.md, skills or MCP), and
+  another agent's `--session` or `--retry` id does not carry over. There is no swap inside another agent's dispatch.
 - **pi interactive** — `claude-code pi [--profile dev|qa|prod] [--read-only] [--print-env]` opens Pi's TUI behind the
   same guard (first `-e`, `--no-builtin-tools`): all seven tools, or read, grep, find and ls with `--read-only`. With
   no pin and no `--profile` it picks a profile from the Databricks pool and says which. Pi has no login of its own, so
