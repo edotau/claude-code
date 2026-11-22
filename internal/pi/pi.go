@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 const (
@@ -59,7 +60,9 @@ func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(env, tools.PiNodePathEnv(ctx)...), argv, nil // the pi bin's `env node` must not pick an older PATH node
+	env = append(env, tools.PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
+	mode := cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])
+	return rtkwrap.LaunchEnv(env, mode, agent.NoticeOut), argv, nil
 }
 
 func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {

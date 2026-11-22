@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -79,7 +80,7 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 			t.Errorf("%q: got %q (emitted=%v), want rewrite", cmd, got, ok)
 		}
 	}
-	for _, flag := range rtkMachineReadable() {
+	for _, flag := range shell.GuardWords("rtk_machine_readable_flags") {
 		variants := []string{flag, strings.ToUpper(flag), flag + "=value"}
 		for _, suffix := range variants {
 			if got, ok := rtkOut(t, hosttest.RTKBashIn("git log "+suffix)); ok {

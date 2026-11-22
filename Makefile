@@ -31,6 +31,8 @@ BIN             := bin/$(BINARY)
 HOOK_BIN         = $(dir $(BIN)).hooks
 HOOK_BIN_MAX     = 23068672# 22 MiB; bin/.hooks is about 19 MiB on macOS, 20 on Linux
 STAMP_FILE       = $(dir $(BIN)).build-stamp
+# RTK_WRAP shim (internal/rtkwrap): Pi's shim dir links each wrapped command here.
+RTKWRAP_BIN      = $(dir $(BIN)).rtkwrap
 PKGS            := ./...
 # Dirs that `make fmt` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
@@ -55,7 +57,7 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 ##@ Go
 .PHONY: compile
-compile:  ## Compile bin/claude-code and bin/.hooks, no install
+compile:  ## Compile bin/claude-code, bin/.hooks and bin/.rtkwrap, no install
 	@mkdir -p $(dir $(BIN))
 	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)-$$$$"; tmp=".new.$$$$"; \
 	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
@@ -68,7 +70,9 @@ compile:  ## Compile bin/claude-code and bin/.hooks, no install
 	mv -f "$(HOOK_BIN)$$tmp" "$(HOOK_BIN)" && \
 	mv -f "$(BIN)$$tmp" "$(BIN)" && \
 	printf '%s\n' "$$stamp" > "$(STAMP_FILE)$$tmp" && \
-	mv -f "$(STAMP_FILE)$$tmp" "$(STAMP_FILE)"
+	mv -f "$(STAMP_FILE)$$tmp" "$(STAMP_FILE)" && \
+	$(GO) build -trimpath -ldflags="-s -w" -o "$(RTKWRAP_BIN)$$tmp" ./cmd/rtkwrap && \
+	mv -f "$(RTKWRAP_BIN)$$tmp" "$(RTKWRAP_BIN)"
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
