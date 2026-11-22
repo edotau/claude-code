@@ -28,6 +28,8 @@ GO_VERSION      := $(shell awk '/^go /{print $$2; exit}' go.mod)
 export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
+HOOK_BIN         = $(dir $(BIN))harness-hook
+STAMP_FILE       = $(dir $(BIN)).build-stamp
 PKGS            := ./...
 # Dirs that `make fmt` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
@@ -51,10 +53,17 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 ##@ Go
 .PHONY: compile
-compile:  ## Compile bin/claude-code, no install
+compile:  ## Compile bin/claude-code and bin/harness-hook, no install
 	@mkdir -p $(dir $(BIN))
-	@$(GO) build -trimpath -ldflags='-s -w' -o $(BIN).new ./cmd/claude-code
-	@mv -f $(BIN).new $(BIN)
+	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)"; \
+	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
+	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(BIN).new" ./cmd/claude-code && \
+	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(HOOK_BIN).new" ./cmd/harness-hook && \
+	rm -f "$(STAMP_FILE)" && \
+	mv -f "$(HOOK_BIN).new" "$(HOOK_BIN)" && \
+	mv -f "$(BIN).new" "$(BIN)" && \
+	printf '%s\n' "$$stamp" > "$(STAMP_FILE).new" && \
+	mv -f "$(STAMP_FILE).new" "$(STAMP_FILE)"
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
@@ -102,9 +111,9 @@ tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
 	done
 
 .PHONY: clean
-clean:  ## Remove bin/claude-code
-	@rm -f $(BIN)
-	@echo -e "$(C_OK)cleaned: $(BIN)"
+clean:  ## Remove bin/claude-code and bin/harness-hook
+	@rm -f "$(BIN)" "$(HOOK_BIN)" "$(STAMP_FILE)"
+	@echo -e "$(C_OK)cleaned: $(BIN) $(HOOK_BIN) $(STAMP_FILE)"
 
 .PHONY: sweep
 sweep:  ## Preview stale state; APPLY=1 removes (AGE=7d, ONLY=x)
