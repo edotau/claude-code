@@ -18,9 +18,9 @@ func TestRankWeakFirstThenScoreAndSkipSettled(t *testing.T) {
 	}
 	rows := []Row{
 		{Pkg: "p", What: "done", Verdict: "kept", At: time.Now()},
-		{Pkg: "q", What: "redo", Verdict: "reverted", At: time.Now()},
+		{Pkg: "q", What: "redo", Verdict: "reverted", At: time.Now().Add(-8 * 24 * time.Hour)},
 	}
-	got := rank(items, rows, func(pkg string, _ time.Time) bool { return pkg == "q" })
+	got := rank(items, rows, time.Now())
 	var names []string
 	for _, g := range got {
 		names = append(names, g.What)
@@ -93,5 +93,26 @@ func TestSeedFileWritesFiveOnce(t *testing.T) {
 	}
 	if got := readJSONL[Item](f); len(got) != 5 || got[0].Source != "baseline" {
 		t.Errorf("seed = %+v", got)
+	}
+}
+
+func TestRankClosedRules(t *testing.T) {
+	now := time.Now()
+	items := []Item{
+		{Kind: "fix", Pkg: "p", What: "Kept thing: seed text"},
+		{Kind: "fix", Pkg: "p", What: "rev thing: seed"},
+		{Kind: "fix", Pkg: "p", What: "other"},
+	}
+	rows := []Row{
+		{Pkg: "p", What: "kept thing: recorded text", Verdict: "kept", At: now.Add(-30 * 24 * time.Hour)},
+		{Pkg: "p", What: "rev thing: x", Verdict: "reverted", At: now.Add(-24 * time.Hour)},
+	}
+	got := rank(items, rows, now)
+	if len(got) != 1 || got[0].What != "other" {
+		t.Fatalf("got %+v, want only other", got)
+	}
+	got = rank(items, rows, now.Add(8*24*time.Hour))
+	if len(got) != 2 {
+		t.Errorf("after 7 days the reverted item must return: %+v", got)
 	}
 }

@@ -194,15 +194,28 @@ func fromReport(rep Report, src string) []Item {
 	return out
 }
 
-func settledAt(rows []Row) map[string]time.Time {
-	settled := map[string]time.Time{}
+const revertedHold = 7 * 24 * time.Hour
+
+func closeKey(pkg, what string) string {
+	head, _, _ := strings.Cut(what, ":")
+	return pkg + "\x00" + strings.ToLower(strings.TrimSpace(head))
+}
+
+// closedUntil maps pkg+what head to when its row stops closing it (zero time = for good).
+func closedUntil(rows []Row) map[string]time.Time {
+	closed := map[string]time.Time{}
 	for _, r := range rows {
-		k := r.Pkg + "\x00" + r.What
-		if (r.Verdict == "kept" || r.Verdict == "reverted") && r.At.After(settled[k]) {
-			settled[k] = r.At
+		k := closeKey(r.Pkg, r.What)
+		switch r.Verdict {
+		case "kept":
+			closed[k] = time.Time{}
+		case "reverted":
+			if until, ok := closed[k]; !ok || (!until.IsZero() && r.At.Add(revertedHold).After(until)) {
+				closed[k] = r.At.Add(revertedHold)
+			}
 		}
 	}
-	return settled
+	return closed
 }
 
 func cmpItems(a, b Item) int {
@@ -222,13 +235,13 @@ func btoi(b bool) int {
 	return 0
 }
 
-// rank drops items already settled in the scorecard, merges duplicates, and orders weak first then by score.
-func rank(items []Item, rows []Row, changedSince func(pkg string, at time.Time) bool) []Item {
-	settled := settledAt(rows)
+// rank drops items the scorecard closed, merges duplicates, and orders weak first then by score.
+func rank(items []Item, rows []Row, now time.Time) []Item {
+	closed := closedUntil(rows)
 	best := map[string]Item{}
 	for _, it := range items {
 		k := it.Pkg + "\x00" + it.What
-		if at, ok := settled[k]; ok && !changedSince(it.Pkg, at) {
+		if until, ok := closed[closeKey(it.Pkg, it.What)]; ok && (until.IsZero() || now.Before(until)) {
 			continue
 		}
 		if cur, ok := best[k]; !ok || it.score() > cur.score() {
@@ -240,28 +253,13 @@ func rank(items []Item, rows []Row, changedSince func(pkg string, at time.Time) 
 	return out
 }
 
-func gitChangedSince(top string) func(string, time.Time) bool {
-	return func(pkg string, at time.Time) bool {
-		out, err := source.GitInherit(top, "log", "-1", "--format=%cI", "--", pkg)
-		if err != nil || out == "" {
-			return false
-		}
-		t, err := time.Parse(time.RFC3339, strings.TrimSpace(out))
-		return err == nil && t.After(at)
-	}
-}
-
 func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
-	top, err := repoTop()
-	if err != nil {
-		return err
-	}
 	root := benchRoot()
 	items, err := collect(root)
 	if err != nil {
 		return err
 	}
-	ranked := rank(items, readJSONL[Row](filepath.Join(root, "scorecard.jsonl")), gitChangedSince(top))
+	ranked := rank(items, readJSONL[Row](filepath.Join(root, "scorecard.jsonl")), time.Now())
 	if l.top > 0 && len(ranked) > l.top {
 		ranked = ranked[:l.top]
 	}
