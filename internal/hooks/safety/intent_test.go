@@ -14,3 +14,24 @@ func TestSudoRunsPastXargsOptions(t *testing.T) {
 		}
 	}
 }
+
+// Given a `--host h` before the verb, Then a claude-code commit message or brief is data as in the plain form.
+func TestIntentHarnessDataPastHostFlag(t *testing.T) {
+	for seg, want := range map[string]bool{
+		"claude-code worktree commit -m x": true, "claude-code --host devhost worktree commit -m x": true,
+		"claude-code --host=devhost worktree pr": true, "claude-code --host devhost vault get x": false,
+		"claude-code --host devhost": false,
+	} {
+		if got := hardDataSegment(seg, false); got != want {
+			t.Errorf("%q: got %v, want %v", seg, got, want)
+		}
+	}
+}
+
+// Given assigned paths, Then $NAME and ${NAME} expand while a longer name sharing the prefix stays.
+func TestIntentExpandVarsWholeNames(t *testing.T) {
+	got := expandVars("D=/tmp/a; rm $D/x ${D}y $DX $$D")
+	if want := "D=/tmp/a; rm /tmp/a/x /tmp/ay $DX $/tmp/a"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

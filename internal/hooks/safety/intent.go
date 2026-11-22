@@ -408,10 +408,12 @@ var hardDataCommands = map[string]func(toks []string) bool{
 	"jq": inertWords, "test": inertWords, "[": inertWords,
 	"git": func(toks []string) bool { return inertGit(toks) || len(toks) > 1 && toks[1] == "log" },
 	"claude-code": func(toks []string) bool {
-		if len(toks) > 2 && toks[1] == "worktree" { // a commit message or PR text is data
-			return slices.Contains([]string{"commit", "pr", "checks"}, toks[2])
+		// HarnessArgs drops `--host h`, so that form reads as the plain one; a commit message or PR text is data.
+		h := shell.HarnessArgs(toks)
+		if len(h) > 1 && h[0] == "worktree" {
+			return slices.Contains([]string{"commit", "pr", "checks"}, h[1])
 		}
-		return len(toks) > 2 && toks[1] == "agents" && slices.Contains(briefVerbs(), toks[2])
+		return len(h) > 1 && h[0] == "agents" && slices.Contains(briefVerbs(), h[1])
 	},
 }
 
@@ -553,12 +555,19 @@ func expandVars(text string) string {
 	return expandWith(text, varPaths(text))
 }
 
+// varRef matches $NAME or ${NAME}; the greedy \w+ equals the old per-name `\$NAME\b`.
+var varRef = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\$(?:\{\w+\}|\w+)`) })
+
 func expandWith(text string, vals map[string]string) string {
-	for name, val := range vals {
-		re := regexp.MustCompile(`\$(\{` + name + `\}|` + name + `\b)`)
-		text = re.ReplaceAllLiteralString(text, val)
+	if len(vals) == 0 {
+		return text
 	}
-	return text
+	return varRef().ReplaceAllStringFunc(text, func(m string) string {
+		if val, ok := vals[strings.Trim(m, "${}")]; ok {
+			return val
+		}
+		return m
+	})
 }
 
 // guardedWord matches a hard rule 4 git verb as a whole word anywhere in text.
