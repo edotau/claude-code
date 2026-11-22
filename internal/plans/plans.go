@@ -463,7 +463,7 @@ func selectCands(home, root, worktree string, skip, files []string) (cands []sel
 	if err != nil {
 		return nil, nil
 	}
-	for _, d := range loadDatedPlans(entries, home, skip) {
+	for _, d := range loadPlans(entries, home, skip, mayHaveOpenOwned) { // touchedFiles keeps only open owned tasks
 		c, mine := selectCand{path: d.path, elig: eligible(d.path, worktree)}, map[string]bool{}
 		for _, t := range d.plan.Tasks {
 			tf := touchedFiles(root, Plan{Tasks: []Task{t}}, files)

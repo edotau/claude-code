@@ -738,7 +738,10 @@ func namedTestTick(t *testing.T, root, plan, sha string, files []string) (ticked
 	var message strings.Builder
 	message.WriteString("test\n")
 	for _, task := range parseBytes(plan, []byte(data)).Tasks {
-		message.WriteString("\nTask: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + task.ID)
+		message.WriteString("\nTask: ")
+		message.WriteString(strings.TrimSuffix(filepath.Base(plan), ".md"))
+		message.WriteString(" ")
+		message.WriteString(task.ID)
 	}
 	results, err := tickCommits(root, plan, []Commit{{Sha: sha, Files: files, Message: message.String()}}, false, nil)
 	for _, r := range results {
