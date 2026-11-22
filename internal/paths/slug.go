@@ -192,11 +192,23 @@ func canonDeep(p string, depth int) string {
 		if t, ok := danglingTarget(cur, depth); ok {
 			return filepath.Join(canonDeep(t, depth+1), tail)
 		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
+		if cur, tail = existingAncestor(cur, tail); cur == "" {
 			return p
 		}
+	}
+}
+
+// existingAncestor climbs past missing ancestors with Lstat, sparing EvalSymlinks' full walk per level; "" at root.
+func existingAncestor(cur, tail string) (string, string) {
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", tail
+		}
 		tail = filepath.Join(filepath.Base(cur), tail)
+		if _, err := os.Lstat(parent); err == nil {
+			return parent, tail
+		}
 		cur = parent
 	}
 }
