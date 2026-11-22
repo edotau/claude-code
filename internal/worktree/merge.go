@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/review/bench"
 )
 
 // ErrRebaseConflict marks a rebase that conflicted and was aborted, leaving the lane as it was.
@@ -282,6 +283,9 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 		if err := req.AfterPromote(ctx, promoted.BeforeOID+".."+promoted.AfterOID); err != nil {
 			fmt.Fprintf(req.Err, "worktree merge: warning: plan tick: %v\n", err)
 		}
+	}
+	if err := bench.ApplyPending(repo.Main, req.Name); err != nil {
+		fmt.Fprintf(req.Err, "worktree merge: warning: bench pending: %v\n", err)
 	}
 	notifyLanes(ctx, repo, req, plan, promoted)
 	if line := StartAudit(repo.Main, promoted.AfterOID); line != "" {
