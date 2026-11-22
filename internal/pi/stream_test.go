@@ -295,3 +295,16 @@ func TestDeltaTextShapes(t *testing.T) {
 		t.Error("undecodable delta is meaningful")
 	}
 }
+
+func TestParseEventsDeltaArrayFixtureAndTruncation(t *testing.T) {
+	data := readFixture(t, "delta_array.jsonl")
+	if res, _, _, err := parseFixture(t, data); err != nil || res.Answer != "ok" {
+		t.Fatalf("array delta: answer %q err %v", res.Answer, err)
+	}
+	cut := strings.TrimSuffix(data, "\n")
+	cut = cut[:strings.LastIndex(cut, "\n")+len(`{"type":"agent_set`)+1]
+	res, _, _, err := parseFixture(t, cut)
+	if err == nil || !strings.Contains(err.Error(), "ended before finishing") {
+		t.Fatalf("truncated last line: answer %q err %v, want a run failure, never success", res.Answer, err)
+	}
+}
