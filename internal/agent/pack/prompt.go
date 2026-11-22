@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // Spec is what to inline around a task: tracked files under Dirs and Files globs, plus the HEAD diff when Diff is set.
@@ -83,7 +84,7 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 		return nil, errors.New("--diff: nothing changed vs HEAD to inline (deleted files are skipped); pass --dirs or --files")
 	}
 	for _, p := range changed {
-		files = append(files, globEscape(p)) // literal paths: a `page[1].go` must match only itself
+		files = append(files, transcript.GlobLiteral(p)) // literal paths: a `page[1].go` must match only itself
 	}
 	return files, nil
 }

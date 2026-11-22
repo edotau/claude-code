@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // Collection defaults: the limit is the total byte budget; DefaultMaxFiles is a safety cap --max-files overrides.
@@ -307,7 +308,7 @@ func walkSkipReason(d fs.DirEntry, rel, inRoot string, tracked map[string]bool, 
 func globPattern(cwd, pattern string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
 	glob := pattern
 	if !filepath.IsAbs(glob) {
-		glob = filepath.Join(globEscape(cwd), pattern) // a cwd holding [, * or ? must match literally
+		glob = filepath.Join(transcript.GlobLiteral(cwd), pattern) // a cwd holding [, * or ? must match literally
 	}
 	hits, err := filepath.Glob(glob)
 	if err != nil {
@@ -578,9 +579,4 @@ func mediaType(path string) string {
 		return mt
 	}
 	return "text/plain"
-}
-
-// globEscape backslash-escapes filepath.Match metacharacters so s matches itself.
-func globEscape(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(s)
 }
