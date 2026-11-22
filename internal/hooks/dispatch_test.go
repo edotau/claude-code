@@ -263,7 +263,7 @@ var pointerBound = map[string]core.Runner{
 	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": reminderWatched,
 	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
-	"secrets-out": SecretsOut, "secrets-end": SecretsEnd,
+	"secrets-out": SecretsOut, "secrets-end": SecretsEnd, "web-tavily": WebTavily,
 }
 
 // Bind routes every hook name to its own handler: a probe only it reacts to, else its runner's identity.

@@ -438,6 +438,7 @@ var native = map[string]core.Runner{
 	"permission-gate":      safety.PermissionGate,
 	"secrets-out":          SecretsOut,
 	"secrets-end":          SecretsEnd,
+	"web-tavily":           WebTavily,
 }
 
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
