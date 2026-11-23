@@ -34,7 +34,7 @@ type askFlags struct {
 	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
 	modelTyped, timeoutTyped                                                                                                                                                     bool
 	recover                                                                                                                                                                      bool
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                               bool
+	native, tools, readOnly, noTools, noPersist, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                                         bool
 	timeout                                                                                                                                                                      time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
 	dirs, files, save                                                                                                                                                            string
@@ -95,7 +95,6 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	registerPermFlags(fs, f)
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
-	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
 	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
 	fs.Var(&f.attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	helptext.ListVar(fs, &f.keepEnv, "keep-env", "NAME,NAME", "keep NAME[,NAME] from the credential scrub (repeatable)", true)
@@ -451,7 +450,7 @@ func resolveOutputSchema(arg string) (string, error) {
 type askTarget struct {
 	Name, Provider, Model, Effort, Workdir, Session                   *string
 	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
-	NoPersist, SafeMode, Native                                       *bool
+	NoPersist, Native                                                 *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
 	Host, Fallback, Coworker, Codemode                                *string
 	Timeout                                                           *time.Duration
@@ -469,7 +468,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
 	*t.KeepEnv, *t.Direct, *t.NoTools, *t.ReadOnly = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
-	*t.NoPersist, *t.SafeMode, *t.DebugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
+	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
 	p := rec.Request.Permissions

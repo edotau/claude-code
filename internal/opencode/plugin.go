@@ -240,10 +240,9 @@ func prunePlugins(keep string, cutoff time.Time) {
 	}
 }
 
-// opencodeApplyPlugin adds the harness plugin to a tools-on, non --pure run's config; plugged reports the injection.
+// opencodeApplyPlugin adds the harness plugin to a tools-on run's config; plugged reports the injection.
 func opencodeApplyPlugin(env []string, req agent.RunOptions) (out []string, plugged bool, err error) {
-	// --pure loads no external plugin
-	if !req.Tools || req.SafeMode {
+	if !req.Tools {
 		return env, false, nil
 	}
 	url, err := writePlugin()

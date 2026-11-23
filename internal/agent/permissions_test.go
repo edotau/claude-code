@@ -34,21 +34,6 @@ func TestPermissionRunOptionsJSON(t *testing.T) {
 	}
 }
 
-// TestSafeModeDenyFindsFirstUnenforceable: only under --safe-mode, and only a Deny rule the predicate flags.
-func TestSafeModeDenyFindsFirstUnenforceable(t *testing.T) {
-	bash := func(r permission.Rule) bool { return r.Tool == "Bash" }
-	perms := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash"}}, Deny: []permission.Rule{{Tool: "Read"}, {Tool: "Bash", Arg: "rm:*"}}}
-	if r, ok := SafeModeDeny(RunOptions{SafeMode: true, Permissions: perms}, bash); !ok || r.String() != "Bash(rm:*)" {
-		t.Errorf("safe mode = %v %v, want Bash(rm:*)", r, ok)
-	}
-	if _, ok := SafeModeDeny(RunOptions{Permissions: perms}, bash); ok {
-		t.Error("outside safe mode a Deny must not be refused")
-	}
-	if _, ok := SafeModeDeny(RunOptions{SafeMode: true, Permissions: permission.Permissions{Allow: perms.Allow}}, bash); ok {
-		t.Error("an Allow rule must not count as an unenforceable Deny")
-	}
-}
-
 func permsJSON(t *testing.T, p permission.Permissions) string {
 	t.Helper()
 	b, err := json.Marshal(p)

@@ -51,9 +51,6 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 	if err := refuseUnmappedDeny(req.Permissions); err != nil {
 		return wire.Result{}, err
 	}
-	if req.ReadOnly && req.SafeMode { // --safe-mode loads no hooks, so nothing would limit Bash to the read-only list
-		return wire.Result{}, retry.Fatal("claude", errors.New("--read-only cannot run under --safe-mode: the shell gate is a hook"))
-	}
 	if err := agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
 		return wire.Result{}, retry.Fatal("claude", err)
 	}
@@ -111,7 +108,6 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		flag []string
 	}{
 		{req.NoPersist, []string{"--no-session-persistence"}},
-		{req.SafeMode, []string{"--safe-mode"}},
 		{req.DebugFile != "", []string{"--debug-file", req.DebugFile}},
 		{req.SystemPrompt != "", []string{"--system-prompt", req.SystemPrompt}},
 		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
@@ -282,7 +278,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if req.Gate {
 		args = append(args, gateArgs(req)...)
 	}
-	if err := refuseUngatedBypass(ctx, args, req); err != nil {
+	if err := refuseUngatedBypass(args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
 	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
@@ -818,12 +814,12 @@ func init() {
 var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 	PromptVia: agent.PromptStdin,
 	Flags: []string{"--print", "--output-format", "--verbose", "--include-partial-messages", "--input-format",
-		"--max-budget-usd", "--no-session-persistence", "--safe-mode", "--debug-file", "--system-prompt",
+		"--max-budget-usd", "--no-session-persistence", "--debug-file", "--system-prompt",
 		"--append-system-prompt", "--json-schema", "--resume", "--permission-mode", "--tools", "--setting-sources",
 		"--strict-mcp-config", "--mcp-config", "--exclude-dynamic-system-prompt-sections", "--effort",
 		"--permission-prompts", "--allowedTools", "--disallowedTools", "--agents", "--agent", "--settings"},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
+		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
 		Permissions: agent.Native, ReadOnly: agent.Emulated},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},

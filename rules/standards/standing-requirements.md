@@ -17,7 +17,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family; count the resolved model's family, not the CLI: a rotated leaf counts as the other-family third only when its model is not Claude; R5 review still applies | prose |
 | R7 Databricks | Prefer `--provider databricks` over a fixed `--profile`; if named, rotate | `agents ask --provider` |
 | R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
-| R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask`; `--safe-mode` off |
+| R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask` |
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
 | R11 make | `quality.md`; leaves: `rtk make lint`, `agents diff --check`; no fmt, audit, install | `safety-scan` for main and undispatched agents; leaves pass `agentBashAllow` except the floor and deny rows |
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |

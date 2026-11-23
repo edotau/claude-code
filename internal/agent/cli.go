@@ -290,7 +290,7 @@ func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOption
 
 func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
 	h := Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
+		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist}
 	if s.CLI.DirFlag {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does.
 	}

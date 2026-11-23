@@ -954,7 +954,7 @@ func TestClaudeArgvFlagsAreDeclared(t *testing.T) {
 	hermetic(t, gwProviders)
 	t.Setenv("TEST_GW_KEY", fakeToken)
 	budget := 1.0
-	req := agent.RunOptions{BudgetUSD: &budget, NoPersist: true, SafeMode: true, DebugFile: "log",
+	req := agent.RunOptions{BudgetUSD: &budget, NoPersist: true, DebugFile: "log",
 		SystemPrompt: "system", AppendSystemPrompt: "append", OutputSchema: "{}", SessionID: "s1",
 		Persona: &agent.Schema{Name: "fixture", Prompt: "prompt"}}
 	for _, live := range []bool{false, true} {

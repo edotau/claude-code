@@ -149,9 +149,6 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 	if again := run("--retry", bareID); again != task {
 		t.Errorf("retry of a bare send = %q, want %q", again, task)
 	}
-	if off := run("--safe-mode", task); off != task {
-		t.Errorf("--safe-mode prompt = %q, want the bare task", off)
-	}
 }
 
 // A catchable kill cancels the memory run's context, and the receipt names the signal.

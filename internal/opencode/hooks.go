@@ -94,23 +94,6 @@ func hostedBound() []hooks.Bound {
 	return bound
 }
 
-// pureGates names the bound PreToolUse hooks opencode runs (hosted or in the plugin): the ones that can stop a call.
-func pureGates() []string {
-	gate := map[string]bool{}
-	for _, surface := range []string{"hosted", "plugin"} {
-		for _, sp := range settings.SpecsFor("opencode", surface) {
-			gate[sp.Name] = sp.Event == settings.EventPreToolUse
-		}
-	}
-	var names []string
-	for _, b := range bindHooks() {
-		if gate[b.Spec.Name] && !slices.Contains(names, b.Spec.Name) {
-			names = append(names, b.Spec.Name)
-		}
-	}
-	return names
-}
-
 // dropPlugin removes the specs the injected plugin already runs in-process, so no guard runs twice (no-op on nil).
 func (h *hookHost) dropPlugin() {
 	if h == nil {

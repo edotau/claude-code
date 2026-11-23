@@ -38,7 +38,7 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 | Answer only | `--no-tools` (profile answers directly; not with `--tools`) |
 | Live session | `--live` (`--timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions |
 | Paired Databricks identity | `--as user\|sp` |
-| Isolation | `--no-persist` keeps no session · `--safe-mode` (no hooks/plugins) · `--debug-file <path>` |
+| Isolation | `--no-persist` keeps no session · `--debug-file <path>` |
 | Inline agents | `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
 
 ## Owns

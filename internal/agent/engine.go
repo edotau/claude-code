@@ -535,10 +535,10 @@ func watchFirstOutput(r Engine) Engine {
 
 // Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
 type Caps struct {
-	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, SafeMode, DebugFile, Direct Level
-	ReadOnly                                                                                                                       Level
-	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                                   Level
-	Permissions                                                                                                                    Level // reads RunOptions.Permissions
+	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, DebugFile, Direct Level
+	ReadOnly                                                                                                             Level
+	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                         Level
+	Permissions                                                                                                          Level // reads RunOptions.Permissions
 }
 
 // Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).

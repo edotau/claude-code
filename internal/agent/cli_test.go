@@ -100,10 +100,10 @@ func TestRunEventStreamPanicStopsHeartbeat(t *testing.T) {
 }
 
 func TestVendorIsolationCaps(t *testing.T) {
-	for name, want := range map[string][3]Level{
-		"codex": {Native, Native, None}, "opencode": {None, Native, None}, "gemini": {None, None, Native}} {
+	for name, want := range map[string][2]Level{
+		"codex": {Native, None}, "opencode": {None, None}, "gemini": {None, Native}} {
 		c := newCLIEngine(name).Caps()
-		if got := [3]Level{c.NoPersist, c.SafeMode, c.DebugFile}; got != want {
+		if got := [2]Level{c.NoPersist, c.DebugFile}; got != want {
 			t.Errorf("%s caps = %v, want %v", name, got, want)
 		}
 	}

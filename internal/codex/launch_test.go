@@ -207,7 +207,7 @@ func TestCodexHeadlessDropsLeafTools(t *testing.T) {
 func TestCodexHeadlessFlagsAreDeclared(t *testing.T) {
 	vaulttest.Use(t)
 	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
-	h := &agent.Headless{Tools: true, NoPersist: true, SafeMode: true, SessionID: "s1"}
+	h := &agent.Headless{Tools: true, NoPersist: true, SessionID: "s1"}
 	argv := codexHeadless(context.Background(), nil, h)
 	argv = append(argv, codexSwapSandbox(slices.Clone(argv))...)
 	argv = codexExecArgs(argv, codexOutputArgs(nil, "schema.json", true)...)

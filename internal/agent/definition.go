@@ -267,7 +267,6 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.Fleet, req.Fleet, "--fleet", func() { req.Fleet = false })
 	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
 	drop(c.NoPersist, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
-	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })

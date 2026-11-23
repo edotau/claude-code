@@ -78,7 +78,7 @@ func TestGateOffAnthropicSkipsAnthropic(t *testing.T) {
 	}
 }
 
-// A bare --autonomous off Anthropic runs bare under bypassPermissions; --safe-mode is refused.
+// A bare --autonomous off Anthropic runs bare under bypassPermissions.
 func TestGateOffAnthropicBareAutonomous(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	req, args, _ := launchOf(t, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", WorkDir: t.TempDir()})
@@ -87,10 +87,7 @@ func TestGateOffAnthropicBareAutonomous(t *testing.T) {
 		t.Errorf("bare autonomous off Anthropic: gate=%v args %q, want bare bypassPermissions", req.Gate, args)
 	}
 	bare := []string{"--permission-mode", "bypassPermissions"}
-	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", SafeMode: true}); err == nil {
-		t.Error("ungated bypassPermissions off Anthropic with --safe-mode must be refused")
-	}
-	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
+	if err := refuseUngatedBypass(bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
 		t.Errorf("bare autonomous on Anthropic keeps its launch, got %v", err)
 	}
 }
@@ -118,19 +115,18 @@ func TestGateOffAnthropicImplicitPolicy(t *testing.T) {
 	}
 }
 
-// Plan mode, --safe-mode and no tools keep their launches; bypassPermissions never goes ungated.
+// Plan mode and no tools keep their launches; bypassPermissions never goes ungated.
 func TestGateOffAnthropicKeepsOtherLaunches(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	for name, req := range map[string]agent.RunOptions{
 		"plan mode": {Tools: true, Provider: "qa", Permissions: permission.Permissions{Mode: "plan"}},
-		"safe mode": {Tools: true, Provider: "qa", SafeMode: true},
 		"no tools":  {Provider: "qa"},
 	} {
 		if got, _, _ := launchOf(t, req); got.Gate {
 			t.Errorf("%s: must not take the gated launch", name)
 		}
 	}
-	if err := refuseUngatedBypass(context.Background(), []string{"--permission-mode", "bypassPermissions"}, agent.RunOptions{Tools: true}); err == nil {
+	if err := refuseUngatedBypass([]string{"--permission-mode", "bypassPermissions"}, agent.RunOptions{Tools: true}); err == nil {
 		t.Error("bypassPermissions without a gate (or the bare --autonomous) must be refused")
 	}
 }
@@ -221,7 +217,7 @@ func TestGatePolicyAllowsRtkSpellings(t *testing.T) {
 	}
 }
 
-// A gated launch with no policy, no gate binary, no policy env or --safe-mode is refused, never run ungated.
+// A gated launch with no policy, no gate binary or no policy env is refused, never run ungated.
 func TestGatedLaunchRefusedWithoutItsParts(t *testing.T) {
 	hermetic(t, "")
 	policy := permission.Permissions{Mode: "plan", Allow: []permission.Rule{{Tool: "Read"}}}
@@ -239,10 +235,7 @@ func TestGatedLaunchRefusedWithoutItsParts(t *testing.T) {
 			func() (string, error) { return "", errors.New("gone") }, "permission-gate binary"},
 		{"binary path missing", agent.RunOptions{Permissions: policy}, agent.WithPermissionsEnv(context.Background(), policy),
 			func() (string, error) { return filepath.Join(t.TempDir(), "absent"), nil }, "permission-gate binary"},
-		{"no policy env", agent.RunOptions{Permissions: policy}, context.Background(), oldExe, "carries no " + agent.DispatchPermissionsEnv},
-		{"safe mode", agent.RunOptions{Permissions: policy, SafeMode: true}, agent.WithPermissionsEnv(context.Background(), policy),
-			oldExe, "--safe-mode"},
-	}
+		{"no policy env", agent.RunOptions{Permissions: policy}, context.Background(), oldExe, "carries no " + agent.DispatchPermissionsEnv}}
 	for _, c := range cases {
 		gateExe = c.exe
 		req := c.req

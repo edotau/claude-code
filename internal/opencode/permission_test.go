@@ -91,22 +91,16 @@ func withoutRoots(t *testing.T, perm json.RawMessage, want bool) string {
 	return string(b)
 }
 
-// A Bash Deny renders natively again (the plugin's permission-gate covers `bash -c`); only --safe-mode refuses it.
+// A Bash Deny renders natively (the plugin's permission-gate covers `bash -c`) and the launch accepts it.
 func TestOpencodePermissionBashDeny(t *testing.T) {
 	got, err := opencodePermission(permission.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false, "")
 	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || withoutRoots(t, got, true) != want {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{Deny: rules(t, "Bash(rm *)")}}
-	// gate hooks are bound: the refusal names them and the way out
-	_, err = opencodeApplyPermissions(nil, req, false)
-	requireFatal(t, err, "safety-scan", "without --safe-mode")
-	orig := bindHooks
-	t.Cleanup(func() { bindHooks = orig })
-	bindHooks = func() []hooks.Bound { return nil }
-	// no gate bound: the Bash deny alone is refused
-	_, err = opencodeApplyPermissions(nil, req, false)
-	requireFatal(t, err, "Bash(rm *)")
+	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Deny: rules(t, "Bash(rm *)")}}
+	if _, err = opencodeApplyPermissions(nil, req, true); err != nil {
+		t.Errorf("Bash deny launch err = %v, want accepted", err)
+	}
 }
 
 // requireFatal fails unless err is a fatal agent error containing every want.
@@ -189,36 +183,21 @@ func TestApplyPermissionsKeepsNativeWebOff(t *testing.T) {
 
 func TestOpencodeReadOnlyLaunch(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		hub, safe bool
-	}{{"cli", false, false}, {"hub", true, false}, {"cli safe mode", false, true}, {"hub safe mode", true, true}} {
+		name string
+		hub  bool
+	}{{"cli", false}, {"hub", true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine, seen := readOnlyLaunchEngine(t, tc.hub)
 			if engine.Caps().ReadOnly != agent.Emulated {
 				t.Fatal("read-only capability must be emulated")
 			}
-			req := agent.RunOptions{Prompt: "--auto", Tools: true, ReadOnly: true, Autonomous: true, SafeMode: tc.safe}
+			req := agent.RunOptions{Prompt: "--auto", Tools: true, ReadOnly: true, Autonomous: true}
 			res, err := agent.Run(t.Context(), engine, req, wire.Discard, nil)
-			if tc.safe {
-				assertReadOnlyRefused(t, seen, err)
-				return
-			}
 			if err != nil || res.Answer != "ok" || len(res.Dropped) != 0 {
 				t.Fatalf("Run = %+v, %v; want tools-on read-only success without dropped flags", res, err)
 			}
 			assertReadOnlyLaunch(t, seen)
 		})
-	}
-}
-
-func assertReadOnlyRefused(t *testing.T, seen string, err error) {
-	t.Helper()
-	var ae *retry.Error
-	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "cannot enforce deny Bash") {
-		t.Fatalf("safe-mode error = %v, want fatal Bash refusal", err)
-	}
-	if _, err := os.Stat(seen); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("safe mode launched a child: %v", err)
 	}
 }
 
@@ -349,7 +328,6 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 	}{
 		{"deny rule", agent.RunOptions{Tools: true, Permissions: deny, Env: []string{opencodePermissionEnv + `="allow"`}}, opencodePermissionEnv},
 		{"tools off", agent.RunOptions{Env: []string{opencodeConfigEnv + `={"permission":"allow"}`}}, opencodeConfigEnv},
-		{"safe mode", agent.RunOptions{Tools: true, SafeMode: true, Env: []string{opencodePermissionEnv + "=x"}}, opencodePermissionEnv},
 		{"read only", agent.RunOptions{Tools: true, ReadOnly: true, Env: []string{opencodePermissionEnv + `="allow"`}}, opencodePermissionEnv},
 		{"no policy", agent.RunOptions{Tools: true, Env: []string{opencodePermissionEnv + `="allow"`}}, ""},
 	} {

@@ -28,10 +28,10 @@ type Settings struct {
 	Permissions permission.Permissions // permission.Resolve(record policy, request)
 	Target      providers.Target       // the resolved profile row and model; Provider nil on the agent's own login
 
-	Tools, Autonomous, SafeMode bool
-	Gate                        bool // claude: the permission-gate hook enforces permission.Permissions, so no permission flags render
-	Headless                    bool // false for an interactive launch
-	WorkDir                     string
+	Tools, Autonomous bool
+	Gate              bool // claude: the permission-gate hook enforces permission.Permissions, so no permission flags render
+	Headless          bool // false for an interactive launch
+	WorkDir           string
 }
 
 // ResolveSettings merges agentName's checked record with req; a bad one errs with built-in Settings (none: Agent "").
@@ -74,7 +74,7 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	if row, ok := lookupRow(agentName); ok && req.ReadOnly { // fail closed for a caller that skipped checkRun
 		st.Permissions, _ = permission.Resolve(st.Permissions, withReadOnlyRules(row.CLI.Caps, permission.Permissions{}))
 	}
-	st.Tools, st.Autonomous, st.SafeMode, st.Gate = req.Tools, req.Autonomous, req.SafeMode, req.Gate
+	st.Tools, st.Autonomous, st.Gate = req.Tools, req.Autonomous, req.Gate
 	st.Headless, st.WorkDir = headless, req.WorkDir
 	if req.Values != nil {
 		st.Values = req.Values.Merge(nil)

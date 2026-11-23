@@ -120,7 +120,7 @@ line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pin
 (effort only when neither the call nor the agent file sets one); claims
 slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall rides `additionalContext`
 as a context note so the brief prompt stays unchanged. A dispatched `agents ask` carries the same block for every agent
-(`withRecall`, `internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`. The label is
+(`withRecall`, `internal/agent/ask/memory.go`), except on `--retry`, `--job` or `--host`. The label is
 the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
 pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the brief has no text;
 `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch takes the route

@@ -115,7 +115,7 @@ func remoteScriptTail(req RunOptions) []string {
 		on   bool
 		flag string
 	}{{req.Tools, "--tools"}, {req.ReadOnly, "--read-only"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
-		{req.NoPersist, "--no-persist"}, {req.SafeMode, "--safe-mode"}, {req.Direct, "--direct"}, {req.Native, "--native"}} {
+		{req.NoPersist, "--no-persist"}, {req.Direct, "--direct"}, {req.Native, "--native"}} {
 		if b.on {
 			w = append(w, b.flag)
 		}

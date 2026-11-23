@@ -94,7 +94,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	req := agent.RunOptions{Permissions: s.Permissions, Tools: s.Tools, SafeMode: s.SafeMode}
+	req := agent.RunOptions{Permissions: s.Permissions, Tools: s.Tools}
 	argv, env, remove, err := codexApplyPermissions(req, argv, env)
 	if err != nil {
 		return env, argv, emulated, func() { remove(); cleanup() }, err
@@ -409,9 +409,6 @@ func codexHeadless(ctx context.Context, argv []string, h *agent.Headless) []stri
 	}
 	if h.NoPersist {
 		argv = append(argv, "--ephemeral")
-	}
-	if h.SafeMode {
-		argv = append(argv, "--ignore-user-config", "--ignore-rules")
 	}
 	if h.SessionID != "" {
 		argv = append(argv, "resume", h.SessionID)

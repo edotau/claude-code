@@ -32,7 +32,7 @@ paths:
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
   `invoked_model` is the plain model asked (`auto` or the selector; the profile is the route's) and `model` the model
-  that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude, codex, opencode), `--debug-file <path>`
+  that ran. Isolation: `--no-persist` (claude, codex), `--debug-file <path>`
   (claude, gemini).
 - `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
   `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
@@ -338,10 +338,10 @@ vendor CLI untouched.
   claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
   it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
   `--workdir` is no write boundary for any agent; scope writes with `--permissions` deny rules. opencode `--read-only`
-  runs without `--auto`; opencode `--safe-mode` refuses any bound tool gate.
+  runs without `--auto`.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
-  runs it from the plugin's `tool.execute.before` (refused under `--safe-mode`, which loads no plugin), codex and agy
+  runs it from the plugin's `tool.execute.before`, codex and agy
   as a native hook (agy also runs `safety-scan` on `run_command`). Modes: `hooks.md` → Applicability. A live codex or
   agy home gets the hooks from `agents sync` or `configure --restore --agents --agent codex|gemini`; until then those
   agents refuse a Bash deny.

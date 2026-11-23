@@ -44,8 +44,7 @@ func TestCapabilityDroppedFlagsStillRun(t *testing.T) {
 		{"opencode", RunOptions{NoPersist: true}},
 		{"copilot", RunOptions{DebugFile: "/tmp/x.log"}},
 		{"gemini", RunOptions{Fleet: true}},
-		{"copilot", RunOptions{SafeMode: true}},
-		{"codex", RunOptions{Fleet: true, Model: "m", Effort: "high", SafeMode: true}},
+		{"codex", RunOptions{Fleet: true, Model: "m", Effort: "high"}},
 	} {
 		if err := CheckCapabilities(tc.name, tc.req); err != nil {
 			t.Errorf("%s refused; want run with the flag dropped: %v", tc.name, err)

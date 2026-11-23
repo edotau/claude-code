@@ -53,7 +53,7 @@ func onAnthropic(t providers.Target) bool {
 	return t.Provider != nil && t.Provider.Provider == "anthropic"
 }
 
-// gateOffAnthropic gates a --tools run off Anthropic by its explicit rules only; plan and --safe-mode keep theirs.
+// gateOffAnthropic gates a --tools run off Anthropic by its explicit rules only; plan keeps its own.
 func gateOffAnthropic(ctx context.Context, req agent.RunOptions) (context.Context, agent.RunOptions) {
 	req = offAnthropicLaunch(req, onAnthropic(launchTarget(ctx, req)))
 	if !req.Gate {
@@ -64,7 +64,7 @@ func gateOffAnthropic(ctx context.Context, req agent.RunOptions) (context.Contex
 
 // offAnthropicLaunch is req after the gate decision: read-only gates fully, explicit rules gate alone, none runs bare.
 func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
-	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || anthropic && !req.ReadOnly {
+	if !req.Tools || req.Gate || req.Permissions.Mode == "plan" || anthropic && !req.ReadOnly {
 		return req
 	}
 	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, permission.ReadOnlyAllow) { // a caller that skipped checkRun
@@ -99,21 +99,18 @@ func LaunchGate(p permission.Permissions, ro bool) (permission.Permissions, bool
 }
 
 // refuseUngatedBypass keeps bypassPermissions to --permissions allow, a gated or a bare --autonomous launch.
-func refuseUngatedBypass(ctx context.Context, args []string, req agent.RunOptions) error {
+func refuseUngatedBypass(args []string, req agent.RunOptions) error {
 	if req.Gate || !slices.Contains(args, "bypassPermissions") || req.Permissions.Mode == permission.PermAllow ||
-		req.Autonomous && req.Permissions.IsZero() && (onAnthropic(launchTarget(ctx, req)) || !req.SafeMode) {
+		req.Autonomous && req.Permissions.IsZero() {
 		return nil
 	}
 	return retry.Fatal("claude", errors.New("bypassPermissions without the permission-gate refused"))
 }
 
-// refuseGate refuses a gated launch that has no policy to enforce or loads no hooks (--safe-mode).
+// refuseGate refuses a gated launch that has no policy to enforce.
 func refuseGate(req agent.RunOptions) error {
-	switch {
-	case req.Permissions.IsZero():
+	if req.Permissions.IsZero() {
 		return errors.New("no permission policy to enforce")
-	case req.SafeMode:
-		return errors.New("--safe-mode loads no hooks, so the gate cannot run")
 	}
 	return nil
 }

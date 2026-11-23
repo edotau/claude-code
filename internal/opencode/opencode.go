@@ -243,9 +243,6 @@ func opencodeArgv(model string, h agent.Headless) []string {
 	if h.Autonomous {
 		argv = append(argv, "--auto")
 	}
-	if h.SafeMode {
-		argv = append(argv, "--pure")
-	}
 	for _, p := range h.Attach {
 		argv = append(argv, "-f", p)
 	}
@@ -432,7 +429,7 @@ func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, en
 	if s.Effort != "" && len(argv) > 0 && argv[0] == "run" && !slices.Contains(flagsOnly(argv), "--variant") {
 		argv = slices.Insert(slices.Clone(argv), 1, "--variant", s.Effort)
 	}
-	req := agent.RunOptions{Tools: s.Tools, SafeMode: s.SafeMode, Permissions: s.Permissions, WorkDir: s.WorkDir}
+	req := agent.RunOptions{Tools: s.Tools, Permissions: s.Permissions, WorkDir: s.WorkDir}
 	if env, err = opencodeApplyPermissions(env, req, false); err != nil {
 		return nil, nil, emulated, cleanup, err
 	}
@@ -445,7 +442,7 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 		return nil, nil, nil, err
 	}
 	var err error
-	if env, err = opencodeApplyPermissions(env, req, req.Tools && !req.SafeMode); err != nil { // the plugin follows
+	if env, err = opencodeApplyPermissions(env, req, req.Tools); err != nil { // the plugin follows
 		return nil, nil, nil, retry.Fatal(name, err)
 	}
 	env, plugged, err := opencodeApplyPlugin(env, req)

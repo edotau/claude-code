@@ -604,7 +604,6 @@ type RunOptions struct {
 	NoTools                                             bool                   // claude only: answer from the provider directly, no claude process
 	ReadOnly                                            bool                   // tools may read but never write, run shell or commit
 	NoPersist                                           bool                   // claude, codex: no session persistence
-	SafeMode                                            bool                   // claude, codex, opencode: no hooks/plugins/customizations
 	DebugFile                                           string                 // claude, gemini: debug log at <path>
 	SystemPrompt, AppendSystemPrompt                    string                 // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere
 	Env                                                 []string               `json:"-"`                   // KEY=VALUE for the child, layered last; never logged

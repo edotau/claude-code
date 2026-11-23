@@ -319,21 +319,6 @@ func requireFileAuth(argv, env []string) error {
 	return nil
 }
 
-// codexCheckSafeMode rejects Deny and Ask rules under --safe-mode and logs the rules codex cannot enforce.
-func codexCheckSafeMode(req agent.RunOptions, pol codexPolicy) error {
-	if _, ok := agent.SafeModeDeny(req, func(permission.Rule) bool { return pol.rules != "" }); ok {
-		return errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce the deny rules")
-	}
-	if req.SafeMode && req.Tools && len(req.Permissions.Ask) > 0 {
-		return fmt.Errorf("codex: --safe-mode disables permission rules and hooks, so %s would run unprompted; remove --safe-mode to enforce the ask rules",
-			req.Permissions.Ask[0])
-	}
-	for _, r := range pol.unmapped {
-		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
-	}
-	return nil
-}
-
 // codexApplyPermissions renders req.Permissions onto the exec argv/env. The zero Permissions returns both untouched.
 func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, outEnv []string, remove func(), err error) {
 	remove = func() {}
@@ -341,13 +326,12 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if p.IsZero() {
 		return argv, env, remove, nil
 	}
-	pol, err := codexRender(p, req.Tools, !req.SafeMode && codexGateInstalled("Bash"),
-		!req.SafeMode && codexGateInstalled("apply_patch"))
+	pol, err := codexRender(p, req.Tools, codexGateInstalled("Bash"), codexGateInstalled("apply_patch"))
 	if err != nil {
 		return nil, nil, remove, err
 	}
-	if err := codexCheckSafeMode(req, pol); err != nil {
-		return nil, nil, remove, err
+	for _, r := range pol.unmapped {
+		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
 	}
 	if pol.approve {
 		argv = codexSwapSandbox(argv)

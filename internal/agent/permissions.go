@@ -8,19 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 )
 
-// SafeModeDeny is the first Deny rule unenforceable flags under --safe-mode; ok is false outside safe mode.
-func SafeModeDeny(req RunOptions, unenforceable func(permission.Rule) bool) (permission.Rule, bool) {
-	if !req.SafeMode {
-		return permission.Rule{}, false
-	}
-	for _, r := range req.Permissions.Deny {
-		if unenforceable(r) {
-			return r, true
-		}
-	}
-	return permission.Rule{}, false
-}
-
 // DefaultPermissions is name's default dispatch policy, the first layer permission.Resolve applies.
 func DefaultPermissions(name string) (permission.Permissions, error) {
 	r, err := agentconfig.Settings(name)

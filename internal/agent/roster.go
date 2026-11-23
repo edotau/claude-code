@@ -388,7 +388,6 @@ type Headless struct {
 	Attach     []string // opencode: one -f per path
 	WorkDir    string   // opencode: --dir; cmd.Dir alone doesn't move opencode's own cwd resolution
 	NoPersist  bool     // codex: --ephemeral
-	SafeMode   bool     // codex: --ignore-user-config --ignore-rules; opencode: --pure
 }
 
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
@@ -679,7 +678,7 @@ type capField struct {
 func capFields(c Caps) []capField {
 	return []capField{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
 		{"tools", c.Tools}, {"read-only", c.ReadOnly}, {"permissions", c.Permissions}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
-		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
+		{"no-persist", c.NoPersist}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
 		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
 		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
 }

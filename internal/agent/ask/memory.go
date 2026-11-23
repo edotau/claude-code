@@ -36,7 +36,7 @@ func recallQuery(prompt string) string {
 
 // startRecall looks up memory unless skipped and returns a join that appends the block at most once.
 func (r *askRun) startRecall(prompt string) func() string {
-	if r.jobRec != nil || r.f.retry != "" || r.f.safeMode || !r.f.tools || len(prompt) < recallMinPrompt ||
+	if r.jobRec != nil || r.f.retry != "" || !r.f.tools || len(prompt) < recallMinPrompt ||
 		strings.Contains(prompt, "<memory-recall>") {
 		return func() string { return prompt }
 	}

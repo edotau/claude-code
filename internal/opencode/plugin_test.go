@@ -31,6 +31,12 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 		t.Fatalf("plugin file %s: %v, mode %v; want 0600", file, err, info)
 	}
 	body, _ := os.ReadFile(file)
+	assertPluginGuards(t, pluginModulesIn(t, string(body)))
+}
+
+// pluginModulesIn checks body carries every plugin module and returns them by name.
+func pluginModulesIn(t *testing.T, body string) map[string]pluginModule {
+	t.Helper()
 	mods := map[string]pluginModule{}
 	wants := []string{`execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name]`, `"tool.execute.before"`}
 	for _, m := range pluginModules() {
@@ -39,18 +45,24 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 		wants = append(wants, string(raw))
 	}
 	for _, want := range wants {
-		if !strings.Contains(string(body), want) {
+		if !strings.Contains(body, want) {
 			t.Errorf("plugin lacks %s", want)
 		}
 	}
+	return mods
+}
+
+// assertPluginGuards pins the guard modules' fail-closed and tagging flags.
+func assertPluginGuards(t *testing.T, mods map[string]pluginModule) {
+	t.Helper()
 	if g := mods["permission-gate"]; !g.FailClosed || !g.AsOpencode || !strings.Contains(g.Matcher, "Bash") {
 		t.Errorf("permission-gate = %+v; want a fail-closed, opencode-tagged Bash gate", g)
 	}
 	if d, ok := mods["docs-placement"]; !ok || d.FailClosed || d.AsOpencode {
 		t.Errorf("docs-placement = %+v (present %v); want fail-open and untagged", d, ok)
 	}
-	if _, plugged, _ := opencodeApplyPlugin(nil, agent.RunOptions{Tools: true, SafeMode: true}); plugged {
-		t.Error("--safe-mode (opencode --pure) loads no plugin, so none may be injected")
+	if s := mods["safety-scan"]; !s.FailClosed || !strings.Contains(s.Matcher, "Bash") {
+		t.Errorf("safety-scan = %+v; want the fail-closed Bash floor in every tools-on plugin", s)
 	}
 }
 

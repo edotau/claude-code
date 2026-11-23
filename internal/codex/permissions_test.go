@@ -99,42 +99,6 @@ func TestCodexApplyPermissionsArgv(t *testing.T) {
 	}
 }
 
-func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
-	argv := []string{"exec", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "-"}
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
-		Deny: []permission.Rule{{Tool: "Bash", Arg: "rm:*"}},
-	}}
-	_, _, remove, err := codexApplyPermissions(req, argv, []string{codexKeyEnv + "=test-key"})
-	defer remove()
-	if err == nil || !strings.Contains(err.Error(), "--safe-mode") {
-		t.Fatalf("safe-mode deny err = %v, want an explicit refusal", err)
-	}
-}
-
-func TestCodexApplyPermissionsSafeModeRejectsAsk(t *testing.T) {
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
-		Ask: []permission.Rule{{Tool: "Bash", Arg: "git push:*"}},
-	}}
-	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
-	defer remove()
-	if err == nil || !strings.Contains(err.Error(), "Bash(git push:*)") {
-		t.Fatalf("safe-mode ask err = %v, want the dropped ask named", err)
-	}
-}
-
-func TestCodexApplyPermissionsSafeModeDoesNotUseGate(t *testing.T) {
-	t.Setenv("CODEX_HOME", t.TempDir())
-	writeCodexTestHooks(t, codexGateHooks)
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
-		Deny: []permission.Rule{{Tool: "Bash", Arg: "git * --force"}},
-	}}
-	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
-	defer remove()
-	if err == nil || !strings.Contains(err.Error(), "Bash(git * --force)") {
-		t.Fatalf("safe-mode non-prefix deny err = %v, want the unenforceable rule named", err)
-	}
-}
-
 const codexGateHooks = `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hookd hook PreToolUse --permission-gate"}]}]}}`
 
 func writeCodexTestHooks(t *testing.T, body string) {

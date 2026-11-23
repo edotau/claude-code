@@ -44,8 +44,8 @@ behavior stay in the rule):
   `-h` only on those listed commands (`bash -h` is hashing and runs stdin); no `-c`, redirect, substitution or `agents
   diff --check`); every other Bash call and all Write/Edit stay denied, and a `Read(...)` deny also blocks a listed
   command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook), opencode (plugin) and
-  claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`; opencode and claude
-  refuse `--safe-mode`, gemini refuses a missing hook; codex drops its tools and keeps its read-only sandbox shell.
+  claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`; gemini refuses a
+  missing hook; codex drops its tools and keeps its read-only sandbox shell.
   codex and gemini refuse `--tools` with `--permissions plan`. An allow rule adds but can never reopen a matching deny.
   copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
   approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
@@ -54,5 +54,5 @@ behavior stay in the rule):
   `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
   `--permissions` rules gate with only those rules and no judge, so an ask rule becomes a deny;
   that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` and `--safe-mode` keep their
-  own launch, and `--safe-mode` with bare `--autonomous` is refused.
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` keeps its
+  own launch.

@@ -483,7 +483,6 @@ func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 func TestOpencodeChildPermissionRefusals(t *testing.T) {
 	for name, req := range map[string]agent.RunOptions{
 		"--no-tools":   {NoTools: true},
-		"--safe-mode":  {Tools: true, SafeMode: true},
 		"NotebookEdit": {Tools: true, Permissions: permission.Permissions{Allow: []permission.Rule{{Tool: "NotebookEdit"}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -520,7 +519,7 @@ func TestOpencodeChildPermissionReadOnly(t *testing.T) {
 func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
 	for _, session := range []string{"", "s1"} {
 		h := agent.Headless{Prompt: "prompt", WorkDir: t.TempDir(), SessionID: session,
-			Effort: "high", Autonomous: true, SafeMode: true, Attach: []string{"file"}}
+			Effort: "high", Autonomous: true, Attach: []string{"file"}}
 		argv := opencodeArgv("model", h)
 		_, argv = opencodeSystemPrompt(nil, argv, "system")
 		if got := row.CLI.Undeclared(argv); len(got) > 0 {
