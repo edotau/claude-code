@@ -18,7 +18,8 @@ func TestBenchmarkVerdicts(t *testing.T) {
 		{"stable compared", "working", func(*observation) {}},
 		{"gone", "dead", func(r *observation) { r.Subject = "gone" }},
 		{"off path", "off-path", func(r *observation) { r.ProductionPath = "off" }},
-		{"unverified", "idle", func(r *observation) { r.ProductionPath = "" }},
+		{"unverified", "unverified", func(r *observation) { r.ProductionPath = "" }},
+		{"never compared", "idle", func(r *observation) { r.ProductionPath, r.Compared = "", false }},
 		{"no samples", "idle", func(r *observation) { r.Score = nil }},
 		{"within run noise", "noisy", func(r *observation) { r.Score.Metrics = map[string]Spread{"ns/op": {CV: 6}} }},
 		{"loaded", "noisy", func(r *observation) { r.Score.Flags = []string{"load"} }},
@@ -54,7 +55,7 @@ func TestVerdictsResetHistoryAtEpochAndIgnoreOtherHosts(t *testing.T) {
 		t.Fatalf("host isolation: %+v", got)
 	}
 	newer.Epoch = strings.Repeat("b", 64)
-	if got := evaluateHistory([]observation{old, newer}, now); got[0].Verdict != "idle" {
+	if got := evaluateHistory([]observation{old, newer}, now); got[0].Verdict != "unverified" {
 		t.Fatalf("epoch leaked path evidence: %+v", got)
 	}
 	newer.ProductionPath, newer.Decisive = "on", true

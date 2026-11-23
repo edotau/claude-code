@@ -48,7 +48,7 @@ func checkBenchmarkEpochComparisons(t *testing.T, before, after map[string]bench
 	}
 }
 
-func TestEpochChangeStartsBaselineWithoutComparing(t *testing.T) {
+func TestEpochChangeRebaselinesOnlyCleanWithoutComparing(t *testing.T) {
 	dir := t.TempDir()
 	before := epochHeader(map[string]benchmarkEpoch{"BenchmarkA": {File: "bench_test.go", Hash: strings.Repeat("a", 64)}})
 	after := epochHeader(map[string]benchmarkEpoch{"BenchmarkA": {File: "bench_test.go", Hash: strings.Repeat("b", 64)}})
@@ -65,11 +65,23 @@ func TestEpochChangeStartsBaselineWithoutComparing(t *testing.T) {
 	if err != nil || !d.NoComparison || d.Keep {
 		t.Fatalf("decision=%+v err=%v", d, err)
 	}
+	checkDirtyKeepsBaseline(t, dir, a, before, after)
 	res := PkgResult{File: a}
-	if err := compareRolling(&res, dir, after, false, false); err != nil {
+	if err := compareRolling(&res, dir, after, false, true); err != nil {
 		t.Fatal(err)
 	}
 	checkEpochBaseline(t, res, b, after)
+}
+
+func checkDirtyKeepsBaseline(t *testing.T, dir, file, before, after string) {
+	t.Helper()
+	res := PkgResult{File: file}
+	if err := compareRolling(&res, dir, after, false, false); err != nil || res.Baseline || !res.Stale {
+		t.Fatalf("dirty tree replaced the baseline: %+v %v", res, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "rolling.txt")); string(got) != before {
+		t.Fatalf("dirty tree rewrote rolling.txt: %q", got)
+	}
 }
 
 func checkEpochBaseline(t *testing.T, res PkgResult, file, after string) {

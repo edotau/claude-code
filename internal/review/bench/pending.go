@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/review/source"
 )
 
 type pendingRow struct {
@@ -22,6 +23,7 @@ type pendingRow struct {
 	Sha    string    `json:"sha"`
 	Status string    `json:"status"`
 	Body   string    `json:"body"`
+	Orphan bool      `json:"orphaned,omitempty"` // listing only: the lane branch is gone and no branch holds sha
 }
 
 type pendingState struct {
@@ -159,11 +161,28 @@ func runPending(l loopOpts, asJSON bool, w io.Writer) error {
 		return json.NewEncoder(w).Encode(rows)
 	}
 	for _, row := range rows {
-		if _, err := fmt.Fprintf(w, "PENDING %s %s %s\n", row.Lane, row.Pkg, row.Sha); err != nil {
+		label, why := "PENDING", ""
+		if row.Orphan {
+			label, why = "ORPHANED", " (lane branch gone, sha on no branch: can never apply)"
+		}
+		if _, err := fmt.Fprintf(w, "%s %s %s %s%s\n", label, row.Lane, row.Pkg, row.Sha, why); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// orphaned is a row whose lane branch is gone and whose sha no branch contains; outside a repo nothing is flagged.
+func orphaned(top string, row pendingRow) bool {
+	if top == "" {
+		return false
+	}
+	if _, err := source.GitInherit(top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+row.Lane); err == nil {
+		return false
+	}
+	out, err := source.GitInherit(top, "for-each-ref", "--count=1", "--format=%(refname)", "--contains="+row.Sha,
+		"refs/heads")
+	return err != nil || out == ""
 }
 
 func pendingRows(l loopOpts) ([]pendingRow, error) {
@@ -174,9 +193,11 @@ func pendingRows(l loopOpts) ([]pendingRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	top, _ := repoTop()
 	rows := []pendingRow{}
 	for _, row := range state.Rows {
 		if row.matches(l) {
+			row.Orphan = orphaned(top, row)
 			rows = append(rows, row)
 		}
 	}

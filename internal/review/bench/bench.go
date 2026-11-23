@@ -80,7 +80,8 @@ type PkgResult struct {
 	Pkg        string    `json:"pkg"`
 	File       string    `json:"file"`
 	Compared   bool      `json:"compared"`
-	Baseline   bool      `json:"baseline,omitempty"` // this run was written as rolling.txt
+	Baseline   bool      `json:"baseline,omitempty"`       // this run was written as rolling.txt
+	Stale      bool      `json:"stale_baseline,omitempty"` // rolling.txt exists but holds another epoch
 	Stats      RunStats  `json:"stats"`
 	Benchmarks []Score   `json:"benchmarks"`
 	Missing    []string  `json:"missing,omitempty"`
@@ -374,12 +375,8 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	switch {
 	case err == nil:
 		if !sameEpochs(string(old), body) {
-			next := "this run starts a new package baseline"
-			if hookLoaded() {
-				next = "baseline held under load"
-			}
-			res.Missing = append(res.Missing, "benchmark epoch changed; "+next)
-			base = true
+			res.Stale, base = true, base || seed
+			res.Missing = append(res.Missing, staleWhy(string(old))+"; "+rebaseNote(base))
 			break
 		}
 		deltas, err := compareSnapshot(dir, old, res.File)
@@ -400,6 +397,25 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 		return writeRolling(dir, []byte(body))
 	}
 	return nil
+}
+
+// staleWhy tells a pre-epoch rolling.txt from one in another epoch.
+func staleWhy(old string) string {
+	if e, _ := parseEpochs(old); e == nil {
+		return "rolling.txt predates benchmark epochs"
+	}
+	return "benchmark epoch changed"
+}
+
+// rebaseNote says what an epoch change does to rolling.txt; only --base or a clean tree replaces it.
+func rebaseNote(base bool) string {
+	switch {
+	case hookLoaded():
+		return "baseline held under load"
+	case base:
+		return "this run starts a new package baseline"
+	}
+	return "baseline kept; run with --base (or on a clean tree) to start a new one"
 }
 
 // compareSnapshot compares the validated baseline bytes, not a rolling.txt a peer may replace meanwhile.
@@ -613,11 +629,8 @@ func printText(w io.Writer, r Report, verbose bool) {
 		st := p.Stats
 		fmt.Fprintf(w, "\n%s  -> %s\n  wall %.1fs user %.1fs sys %.1fs rss %dMB load %.2f->%.2f\n",
 			p.Pkg, p.File, st.WallSec, st.UserSec, st.SysSec, st.MaxRSSKB/kbPerMB, st.LoadBefore, st.LoadAfter)
-		switch {
-		case !p.Compared && p.Baseline:
-			fmt.Fprintln(w, "  no rolling.txt baseline; this run is now the baseline")
-		case !p.Compared:
-			fmt.Fprintln(w, "  no rolling.txt baseline; run with --base (or on a clean tree) to create one")
+		if note := baselineNote(p); note != "" {
+			fmt.Fprintln(w, "  "+note)
 		}
 		for _, m := range p.Missing {
 			fmt.Fprintln(w, "  "+m)
@@ -629,6 +642,17 @@ func printText(w io.Writer, r Report, verbose bool) {
 			fmt.Fprintf(w, "  %s: %s (%s; gates only)\n", v.Benchmark, v.Verdict, v.Reason)
 		}
 	}
+}
+
+// baselineNote is "" when the run was compared or the epoch line in Missing already says what happened.
+func baselineNote(p PkgResult) string {
+	switch {
+	case p.Compared || p.Stale:
+		return ""
+	case p.Baseline:
+		return "no rolling.txt baseline; this run is now the baseline"
+	}
+	return "no rolling.txt baseline; run with --base (or on a clean tree) to create one"
 }
 
 func printScore(w io.Writer, s Score, verbose bool) {

@@ -9,7 +9,8 @@ starts a new epoch; evidence from an earlier epoch cannot establish stability or
 in the new one. A source change during measurement fails the run and asks for a rerun.
 
 Comparisons conservatively require identical package epoch maps. If the rolling baseline differs,
-the current run becomes a new package baseline without a comparison. This also applies when moving
+the run is not compared; a clean tree's run or a `--base` run becomes the new package baseline, a
+dirty tree's run leaves the old one in place. This also applies when moving
 from an old baseline without hash metadata to a new hashed run. Other saved run files remain intact.
 `--decide` returns 3 for incompatible epochs; it never treats them as an improvement or regression.
 Two legacy files without metadata remain comparable for existing callers.
@@ -32,8 +33,9 @@ Normal benchmark reports also include verdicts. Verdict precedence is:
 | off-path | Explicitly recorded production path is `off` |
 | noisy | Latest run has load/noise flags, within-run CV >5%, or last five quiet medians have CV >5% |
 | costly | Latest measured cost exceeds two seconds per sample |
-| idle | No measurement, fewer than two samples, unverified production path, or no comparison/decision |
+| idle | No measurement, fewer than two samples, or no comparison/decision |
 | idle | Epoch is at least 30 days old and has never been compared or has no decisive evidence in 30 days |
+| unverified | Compared or decisive, but no recorded production path (`--production-path on\|off`) |
 | working | Stable samples, recorded production relevance, and comparison or decisive evidence |
 
 Cross-run CV uses matching machine, OS, architecture, Go version, CPU count, and GOMAXPROCS.

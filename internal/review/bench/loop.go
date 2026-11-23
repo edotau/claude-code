@@ -112,7 +112,7 @@ func runLoop(o options, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// Item is one queue entry; Weak items (a noisy or slow benchmark) outrank fix candidates.
+// Item is one queue entry; a weak item (a noisy or slow benchmark) ranks just above its package's fix candidates.
 type Item struct {
 	Kind        string  `json:"kind"`
 	Pkg         string  `json:"pkg"`
@@ -241,10 +241,14 @@ func fromReport(rep Report, src string) []Item {
 	for _, p := range rep.Packages {
 		for _, s := range p.Benchmarks {
 			name := procSuffix.ReplaceAllString(s.Name, "")
+			var weak []string
 			for _, fl := range s.Flags {
 				if fl == "noisy" || fl == "slow" {
-					out = append(out, Item{Kind: "weak", Pkg: p.Pkg, What: name + " is " + fl, Source: src})
+					weak = append(weak, fl)
 				}
+			}
+			if len(weak) > 0 {
+				out = append(out, Item{Kind: "weak", Pkg: p.Pkg, What: weakWhat(name, weak), Source: src})
 			}
 			if d, ok := s.Deltas["sec/op"]; ok && d.Significant && strings.HasPrefix(d.Change, "+") {
 				out = append(out, Item{Kind: "fix", Pkg: p.Pkg, What: name + " regressed " + d.Change, Source: src})
@@ -278,12 +282,42 @@ func closedUntil(rows []Row) map[string]time.Time {
 	return closed
 }
 
-func cmpItems(a, b Item) int {
+// weakWhat names a weak benchmark once with all its flags, so noisy and slow are one item.
+func weakWhat(name string, flags []string) string {
+	return name + " is " + strings.Join(slices.Compact(slices.Sorted(slices.Values(flags))), ", ")
+}
+
+// mergeWeak unions two weak items' flags for one benchmark, keeping the later item's source.
+func mergeWeak(a, b Item) Item {
+	name, fa, _ := strings.Cut(a.What, " is ")
+	_, fb, _ := strings.Cut(b.What, " is ")
+	b.What = weakWhat(name, slices.Concat(strings.Split(fa, ", "), strings.Split(fb, ", ")))
+	return b
+}
+
+// itemKey dedupes a weak item by package and benchmark, a fix item by package and text.
+func itemKey(it Item) string {
+	if it.Kind == "weak" {
+		name, _, _ := strings.Cut(it.What, " is ")
+		return "weak\x00" + it.Pkg + "\x00" + name
+	}
+	return it.Pkg + "\x00" + it.What
+}
+
+// rankScore is a fix item's own score; a weak item takes its package's best fix score, 0 with none.
+func rankScore(it Item, pkgFix map[string]float64) float64 {
+	if it.Kind == "weak" {
+		return pkgFix[it.Pkg]
+	}
+	return it.score()
+}
+
+func cmpItems(a, b Item, pkgFix map[string]float64) int {
+	if c := cmp.Compare(rankScore(b, pkgFix), rankScore(a, pkgFix)); c != 0 {
+		return c
+	}
 	if wa, wb := a.Kind == "weak", b.Kind == "weak"; wa != wb {
 		return cmp.Compare(btoi(wb), btoi(wa))
-	}
-	if c := cmp.Compare(b.score(), a.score()); c != 0 {
-		return c
 	}
 	return strings.Compare(a.Pkg+a.What, b.Pkg+b.What)
 }
@@ -295,21 +329,33 @@ func btoi(b bool) int {
 	return 0
 }
 
-// rank drops items the scorecard closed, merges duplicates, and orders weak first then by score.
+// rank drops closed items, merges duplicates, and orders by score; a weak item ranks just above its package's fix.
 func rank(items []Item, rows []Row, now time.Time) []Item {
 	closed := closedUntil(rows)
 	best := map[string]Item{}
 	for _, it := range items {
-		k := it.Pkg + "\x00" + it.What
 		if until, ok := closed[closeKey(it.Pkg, it.What)]; ok && (until.IsZero() || now.Before(until)) {
 			continue
 		}
-		if cur, ok := best[k]; !ok || it.score() > cur.score() {
+		k := itemKey(it)
+		cur, ok := best[k]
+		switch {
+		case !ok:
+			best[k] = it
+		case it.Kind == "weak":
+			best[k] = mergeWeak(cur, it)
+		case it.score() > cur.score():
 			best[k] = it
 		}
 	}
 	out := slices.Collect(maps.Values(best))
-	slices.SortFunc(out, cmpItems)
+	pkgFix := map[string]float64{}
+	for _, it := range out {
+		if it.Kind == "fix" {
+			pkgFix[it.Pkg] = max(pkgFix[it.Pkg], it.score())
+		}
+	}
+	slices.SortFunc(out, func(a, b Item) int { return cmpItems(a, b, pkgFix) })
 	return out
 }
 

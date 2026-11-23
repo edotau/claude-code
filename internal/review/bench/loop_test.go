@@ -11,13 +11,15 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestRankWeakFirstThenScoreAndSkipSettled(t *testing.T) {
+func TestRankWeakAbovePackageFixThenScoreAndSkipSettled(t *testing.T) {
 	items := []Item{
 		{Kind: "fix", Pkg: "p", What: "small", CallsPerDay: 10, EstSavingMS: 1},
 		{Kind: "fix", Pkg: "p", What: "big", CallsPerDay: 100, EstSavingMS: 1},
 		{Kind: "fix", Pkg: "p", What: "done", CallsPerDay: 99, EstSavingMS: 1},
 		{Kind: "fix", Pkg: "q", What: "redo", CallsPerDay: 5, EstSavingMS: 1},
 		{Kind: "weak", Pkg: "p", What: "BenchmarkX is noisy"},
+		{Kind: "weak", Pkg: "p", What: "BenchmarkX is slow"},
+		{Kind: "weak", Pkg: "z", What: "BenchmarkZ is noisy"},
 	}
 	rows := []Row{
 		{Pkg: "p", What: "done", Verdict: "kept", At: time.Now()},
@@ -28,7 +30,7 @@ func TestRankWeakFirstThenScoreAndSkipSettled(t *testing.T) {
 	for _, g := range got {
 		names = append(names, g.What)
 	}
-	if want := "BenchmarkX is noisy,big,small,redo"; strings.Join(names, ",") != want {
+	if want := "BenchmarkX is noisy, slow;big;small;redo;BenchmarkZ is noisy"; strings.Join(names, ";") != want {
 		t.Errorf("order = %v, want %s", names, want)
 	}
 }

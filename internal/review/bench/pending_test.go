@@ -3,6 +3,7 @@ package bench
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -119,6 +120,29 @@ func TestPendingCLI(t *testing.T) {
 	var rows []pendingRow
 	if err := json.Unmarshal([]byte(out.String()), &rows); err != nil || len(rows) != 1 || rows[0].Lane != "bench-p" {
 		t.Fatalf("pending list = %s, %v", out.String(), err)
+	}
+}
+
+func TestPendingOrphaned(t *testing.T) {
+	top := gitRepo(t)
+	git := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", top}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	head := git("rev-parse", "HEAD")
+	dangling := git("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", "HEAD^{tree}", "-m", "lost")
+	if orphaned(top, pendingRow{Lane: "gone", Sha: head}) {
+		t.Error("a sha on a branch was flagged")
+	}
+	if !orphaned(top, pendingRow{Lane: "gone", Sha: dangling}) {
+		t.Error("a sha on no branch with its lane gone was not flagged")
+	}
+	git("branch", "worktree-kept", head)
+	if orphaned(top, pendingRow{Lane: "kept", Sha: dangling}) {
+		t.Error("a row whose lane branch exists was flagged")
 	}
 }
 

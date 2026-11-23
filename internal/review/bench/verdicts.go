@@ -73,10 +73,10 @@ func benchmarkVerdict(history []observation, now time.Time) (string, string) {
 	switch {
 	case now.Sub(history[0].At) >= idleAge && (e.compared.IsZero() || now.Sub(e.decisive) >= idleAge):
 		return "idle", "never compared or no decisive evidence in 30 days"
-	case e.path != "on":
-		return "idle", "production path is unverified"
 	case e.compared.IsZero() && e.decisive.IsZero():
 		return "idle", "no comparison or decision evidence"
+	case e.path != "on": // design §10: idle means never compared or decisive, not an unrecorded production path
+		return "unverified", "compared, but no production-path record (--production-path on|off)"
 	}
 	return "working", "stable, on production path, and compared or decisive"
 }
