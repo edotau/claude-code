@@ -284,6 +284,23 @@ a sibling's half-finished edit); run `claude-code agents diff --check --path <fi
 `python3 -` script (`safety-scan` asks on interpreter writes); check writes with `rtk git diff --stat`; stage named
 files only.
 
+## Unit files (worktrees only)
+
+Inside a linked worktree, split work into units, not files, so leaves that touch one file still run in parallel.
+Everything converges in the worktree before it merges onto the source branch; the live checkout never sees a unit file.
+
+- **New code goes in a unit file.** A leaf adding functions or tests writes them to its own file beside the target:
+  `<file>_<task>.go`, `<file>_<task>_test.go` (Go compiles a package's files together, so it builds and tests at once;
+  elsewhere, new test files plus the fold step). The dispatch table lists units, each owning its unit file.
+- **Edits to existing code** still own the real file, one leaf per file, as today.
+- **Fold before merge.** One fold leaf moves each unit into its home file (functions beside their callers, tests into
+  the `_test.go` matching their source), deletes the unit files, and resolves two units changing the same code as a
+  branch conflict, keeping both intents; give it every brief, not only the diffs. Then one gate over the folded tree
+  (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree merge`.
+- **Never commit a unit file.** It breaks the one-test-file-per-source rule (`rules/harness/go.md`); the gate catches
+  one left behind.
+- A test leaf proves teeth on a scratch copy (`go test -overlay`), never by editing source an editor leaf owns.
+
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
