@@ -457,17 +457,18 @@ func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	claim := inflight.Claim{Owner: os.Getpid(), ID: "launch-overlay", Account: router.AccountOf(reg.Providers["dev"])}
-	if ok, _ := inflight.TryClaim(claim, inflight.Limits{Total: 1}); !ok {
-		t.Fatal("could not mark dev busy")
-	}
-	t.Cleanup(func() { inflight.Release(claim.Owner, claim.ID) })
 	o, _, err := ParseArgs([]string{"--model", "opus", "--overlay",
 		`{"provider":"databricks","profile":"auto","model":"sonnet"}`}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"qa", "dev"} {
+	for _, c := range []struct{ busy, want string }{{"dev", "qa"}, {"qa", "dev"}} {
+		want := c.want
+		claim := inflight.Claim{Owner: os.Getpid(), ID: "launch-overlay", Account: router.AccountOf(reg.Providers[c.busy])}
+		if ok, _ := inflight.TryClaim(claim, inflight.Limits{Total: 1}); !ok {
+			t.Fatalf("could not mark %s busy", c.busy)
+		}
+		t.Cleanup(func() { inflight.Release(claim.Owner, claim.ID) })
 		r, err := launchRoute(t.Context(), reg, "claude", o)
 		if err != nil || r.Profile != want || r.Model != wire || o.Model != "opus" {
 			t.Fatalf("typed %q: route = %+v, err = %v; want %s %s", o.Model, r, err, want, wire)

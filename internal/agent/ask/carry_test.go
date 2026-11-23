@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/serve"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -148,6 +149,7 @@ func TestTakeoverDecision(t *testing.T) {
 
 // A cut-off carried child is finished by Pi under the inner line's deny, given the task and partial output.
 func TestRunCarryTakesOverCutOffChild(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	oldAdmit := admitJob
 	t.Cleanup(func() { admitJob = oldAdmit })
 	admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome {
