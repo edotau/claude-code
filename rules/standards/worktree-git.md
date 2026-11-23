@@ -58,9 +58,8 @@ current branch with no asks; any other value, including unset, means ask the use
 whether to use a linked worktree, and again when another session joins the checkout. Never create one without the
 user's yes; no answer means keep working in place.
 
-`HARNESS_WORKTREE=lanes` asks nothing: the claim check refuses (a leaf) or asks (main) an edit or stage of a tracked
-file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused; another repo's
-primary checkout only asks, once per session.
+`HARNESS_WORKTREE=lanes` asks nothing and blocks nothing: an edit or stage of a tracked file in the live checkout, or in
+another repo's primary checkout, gets a note naming `claude-code worktree create <slug>`; work in a lane gets none.
 
 - **Owner review:** the lane is named when work starts; when it is ready, a summary plus `git diff --stat main...<lane>`
   (the owner can open the lane folder in VS Code's Source Control); `worktree merge` only after the owner's yes.
