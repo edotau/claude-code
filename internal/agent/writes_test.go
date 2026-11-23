@@ -68,7 +68,7 @@ func TestExecRecordsTheFilesTheRunChanged(t *testing.T) {
 	}
 }
 
-// Given a directory that is no git repository, its files are observed and a run that wrote nothing records an empty list.
+// Outside a git repo the workdir is still observed: a run that wrote nothing records an empty list.
 func TestExecRecordsNoWritesOutsideARepo(t *testing.T) {
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(t.TempDir()))
 	if rec := execRecorded(t, t.TempDir(), func() {}); rec.Wrote == nil || len(*rec.Wrote) != 0 {
