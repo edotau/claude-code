@@ -512,6 +512,44 @@ func TestDropDataHeredocsKeepsLinesAfterHereStringAndProcessSubstitution(t *test
 	}
 }
 
+func TestSafetyDirectHeredocAndPythonClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, line string
+		want       bool
+	}{
+		{"quoted operator", `echo "<<'PY'"`, true},
+		{"operator in substitution", `echo "$(cat <<'PY'`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := quotedOp("", tc.line, strings.Index(tc.line, "<<")); got != tc.want {
+				t.Errorf("quotedOp(%q) = %v, want %v", tc.line, got, tc.want)
+			}
+		})
+	}
+
+	lines := strings.Split("python3 <<'PY'\nprint('ok')\nPY", "\n")
+	if got := pyScripts(lines); len(got) != 1 || got[0] != (pyScript{1, 2}) {
+		t.Errorf("pyScripts(plain stdin) = %v, want [{1 2}]", got)
+	}
+	if got := pyScripts(strings.Split("echo \"python3 <<'PY'\"\nprint('ok')\nPY", "\n")); len(got) != 0 {
+		t.Errorf("pyScripts(quoted operator) = %v, want none", got)
+	}
+
+	for _, tc := range []struct {
+		call string
+		want bool
+	}{
+		{"value.replace('a', 'b')", true},
+		{"os.replace('a', 'b')", false},
+	} {
+		start := strings.Index(tc.call, "replace")
+		args := strings.Index(tc.call, "(") + 1
+		if got := pyDataCall(tc.call, start, start+len("replace"), args); got != tc.want {
+			t.Errorf("pyDataCall(%q) = %v, want %v", tc.call, got, tc.want)
+		}
+	}
+}
+
 func TestHardBlockRmNeedsWordBoundary(t *testing.T) {
 	hosttest.TierHarness(t)
 	if got, reason := safetyScanDecision(t, hosttest.BashPayload("terraform -r /")); got != core.Allow {
