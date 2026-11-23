@@ -413,11 +413,11 @@ func TestDispatchLabelAutoModeRewrites(t *testing.T) {
 	}
 }
 
-// A Run: brief's wrong label and coworker type are fixed in one updatedInput, any mode; its prompt is byte-identical.
-func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
+// A brief's wrong label and coworker type are fixed in one updatedInput, any mode; its prompt is byte-identical.
+func TestDispatchBriefFixedNotDenied(t *testing.T) {
 	useAgentsDir(t, "claude")
 	stubLabelModels(t, "claude-sonnet-5.5")
-	const brief = "Run: claude-code agents ask --agent copilot --profile copilot 'fix it'\n\nObjective: fix it"
+	const brief = "Objective: fix it"
 	for _, tc := range []struct {
 		mode, st, desc string
 		notes          int // one note line per fix
@@ -432,7 +432,7 @@ func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
 		{"auto", "claude", "claude-sonnet-5.5: fix it", 0},
 	} {
 		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": tc.mode,
-			"tool_input": map[string]any{"subagent_type": tc.st, "prompt": brief, "description": tc.desc}})
+			"tool_input": map[string]any{"subagent_type": tc.st, "model": "claude-sonnet-5.5", "effort": "medium", "prompt": brief, "description": tc.desc}})
 		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 		if tc.mode == "auto" && tc.notes > 0 && !strings.HasPrefix(tc.st, "coworker:") {
 			assertAutoResend(t, r, tc.st, tc.desc, tc.notes)

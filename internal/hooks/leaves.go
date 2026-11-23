@@ -387,16 +387,6 @@ func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil 
 // heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.
 const heldAgain = "(held again)"
 
-// heldRunInfo opens a held reason for the hook's own `Run:` launch.
-func heldRunInfo(line string) string {
-	return "Info: Job running" + heldCommand(line) + "; hand-back waits."
-}
-
-// heldStartedInfo opens a held reason for a `Run:` line the hook itself started.
-func heldStartedInfo(line string) string {
-	return "Info: Job started by the hook" + heldCommand(line) + "; hand-back waits."
-}
-
 // heldCommand is ": <line>" cut at the prompt, without env or overlay values, to ~100 chars; "" for an empty line.
 func heldCommand(line string) string {
 	line, _, _ = strings.Cut(line, " -- ")
@@ -570,10 +560,7 @@ type leafScan struct {
 	cwd               string
 	brief             string // the leaf's first user message
 	pendingAsks       map[string]time.Time
-	pendingEdits      map[string]bool
 	seenBrief         bool
-	runLine           string    // the brief's opening `Run:` command, the one the hook runs
-	task              string    // the brief after its Run: line: the prompt a promptless Run: line is missing
 	asks              []askCall // the non-denied launching calls: time and command, to tie a polled record to its ask
 	askCmds           map[string]string
 	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
@@ -583,7 +570,6 @@ type leafScan struct {
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	resumed           bool
-	edited            bool   // the leaf edited files (an edit tool or a file-changing Bash call): it did the work itself
 	lastText          string // the leaf's last assistant text, its report at a stop
 	bgAsks            []string
 	polls             map[string]pollCall // tool_use id → each `agents result <id>` call
@@ -605,8 +591,7 @@ type leafToolUse struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Input struct {
-		Command  string `json:"command"`
-		FilePath string `json:"file_path"`
+		Command string `json:"command"`
 	} `json:"input"`
 }
 
@@ -632,9 +617,6 @@ func (s *leafScan) addLine(b []byte) {
 	case !s.seenBrief && !bytes.Contains(b, toolResultKey): // the first user message is the brief
 		s.seenBrief = true
 		s.brief = transcript.ContentText(m.Message.Content)
-		if first, rest, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
-			s.runLine, s.task = strings.TrimSpace(strings.TrimPrefix(first, "Run:")), strings.TrimSpace(rest)
-		}
 	default:
 		s.addResults(m.Message.Content)
 	}
@@ -675,14 +657,7 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 		return
 	}
 	for _, it := range items {
-		if it.Type != "tool_use" {
-			continue
-		}
-		if editTools[it.Name] {
-			s.trackEdit(it.ID, !scratchPath(it.Input.FilePath, s.cwd))
-			continue
-		}
-		if it.Name != "Bash" {
+		if it.Type != "tool_use" || it.Name != "Bash" {
 			continue
 		}
 		calls := relayCommands(it.Input.Command)
@@ -694,7 +669,6 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 		}
 		calls = slices.DeleteFunc(calls, func(words []string) bool { return askVerb(words) == "" })
 		if len(calls) == 0 {
-			s.trackEdit(it.ID, bashWrites(it.Input.Command, s.cwd))
 			if job, _, ok := verbJob(it.Input.Command, "wait"); ok && it.ID != "" {
 				s.addPoll(it.ID, job, false)
 			}
@@ -735,9 +709,6 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		s.addHolds(raw)
 	}
 	success := !it.IsError
-	if success && s.pendingEdits[it.ToolUseID] {
-		s.edited = true
-	}
 	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
 		if !denied {
 			s.askTimes = append(s.askTimes, at)
@@ -839,26 +810,23 @@ var externalTypes = func() map[string]bool {
 	return m
 }()
 
-// isRelay is a leaf of an external type, or any leaf whose brief opens with a `Run: claude-code agents ask` line.
-func isRelay(in *core.Input, lr *leafRead) bool {
-	return externalTypes[leafAgentType(in)] || len(openingAskWords("Run: "+lr.scan.runLine)) > 0
-}
+// isRelay is a leaf of an external type (reachable through the type gate's fallback).
+func isRelay(in *core.Input) bool { return externalTypes[leafAgentType(in)] }
 
-// relayAgent uses the external leaf type, else the Run: line's --agent (default claude).
-func relayAgent(in *core.Input, lr *leafRead) string {
+// relayAgent is the external leaf type, else claude.
+func relayAgent(in *core.Input) string {
 	if st := leafAgentType(in); externalTypes[st] {
 		return st
 	}
-	return cmp.Or(parseAskLine(context.Background(), "Run: "+lr.scan.runLine).agent, agentid.Claude)
+	return agentid.Claude
 }
 
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
-// ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, runs, attaches or notes, and never drops the report.
+// ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, attaches or notes, and never drops the report.
 func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
-	// only relay leaves (an external type, or a brief opening with a Run: ask line) that show no ran-on receipt
-	if !isRelay(in, lr) || lr.scanErr != nil || lr.scan.ranOn {
+	if !isRelay(in) || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
 	}
 	ran, failed := askOutputRan(lr.scan.bgAsks)
@@ -905,13 +873,6 @@ func Handback(in *core.Input) core.Result {
 var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`Command (?:running in background with ID: [A-Za-z0-9]+\.|was moved to the background \(ID: [A-Za-z0-9]+\)[^"]*?\.) Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
 })
-
-func (s *leafScan) trackEdit(id string, edited bool) {
-	if s.pendingEdits == nil {
-		s.pendingEdits = map[string]bool{}
-	}
-	s.pendingEdits[id] = edited
-}
 
 func boundReceipt(text string) bool {
 	for _, id := range ownIDs(text) {

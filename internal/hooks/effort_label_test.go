@@ -1,9 +1,7 @@
 package hooks
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -22,70 +20,19 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// A Run: line's --profile row spells the model as it serves it; a typed `<row>:<model>` gets no label.
+// A --profile row spells the model as it serves it; a typed `<row>:<model>` gets no label.
 func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(route.OverlayVar, "")
-	task := "Run: claude-code agents ask --agent claude --profile dev --model claude-opus-5 'do x'"
-	if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
+	run := newDispatchRun(nil)
+	run.profile = "dev"
+	if got, _ := labelModel(context.Background(), run, map[string]any{"model": "claude-opus-5"}, "general-purpose", "do x"); got != "databricks-claude-opus-5" {
 		t.Errorf("label = %q, want databricks-claude-opus-5", got)
 	}
-	task = "Run: claude-code agents ask --agent claude --model dev:claude-opus-5 'do x'" // refused: no label, the overlay named
-	if got, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "" ||
+	if got, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{"model": "dev:claude-opus-5"}, "general-purpose", "do x"); got != "" ||
 		!strings.Contains(note, `--overlay '{"provider":"databricks","profile":"dev"}' --model claude-opus-5`) {
 		t.Errorf("prefixed label = %q, note %q; want none, naming the overlay", got, note)
-	}
-}
-
-// A Run: line's flags reach the resolver whole; an untyped ask gets the prompt's task tier below its pin.
-func TestLabelModelQueryCarriesAskLine(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(route.OverlayVar, "")
-	for _, tc := range []struct {
-		flags                     string
-		agent, model, profile, df string
-		hint                      string // the alias the ladder classifies ("" = no ladder asked)
-	}{
-		{"--agent codex --profile dev --model sonnet --fallback none", "codex", "sonnet", "dev", "", "haiku"},
-		{"--agent opencode --profile dev", "opencode", "", "dev", "haiku", "haiku"},
-		{"--agent opencode --profile dev --model databricks-claude-opus-5-5", "opencode", "databricks-claude-opus-5-5", "dev", "", "haiku"},
-		{"--agent codex", "codex", "", "", "haiku", "haiku"},
-		{"--agent codex --model gpt-6-1-sol", "codex", "gpt-6-1-sol", "", "", "haiku"},
-		{"--agent copilot --profile aueric_boehcp", "copilot", "", "aueric_boehcp", "haiku", "haiku"},
-		{"--agent gemini", "gemini", "", "", "haiku", "haiku"},
-		{"--agent claude --profile dev", "claude", "", "dev", "haiku", "haiku"},
-	} {
-		var seen agentpkg.ModelQuery
-		stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
-		hint := ""
-		runQuery = func(_ context.Context, _ *providers.Registry, q agentpkg.ModelQuery, alias string) (agentpkg.ModelQuery, string, error) {
-			hint = alias
-			return q, "", nil
-		}
-		task := "Run: claude-code agents ask " + tc.flags + " 'rename x'"
-		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "wire-id" {
-			t.Errorf("%s: label = %q, want the resolver's wire id", tc.flags, got)
-		}
-		if seen.Agent != tc.agent || seen.Model != tc.model || seen.Profile != tc.profile || seen.Default != tc.df || hint != tc.hint {
-			t.Errorf("%s: query = %+v hint %q, want %s/%q/%q default %q hint %q", tc.flags, seen, hint, tc.agent, tc.model, tc.profile, tc.df, tc.hint)
-		}
-	}
-}
-
-// Bug 1 (2026-11-19): a Run: line's --provider reaches the query, so the label resolves on the job's route.
-func TestLabelQueryCarriesProvider(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, tc := range []struct{ flags, provider, profile string }{
-		{"--agent opencode --provider databricks --model auto --tools", "databricks", ""},
-		{"--agent opencode --provider=databricks --profile qa", "databricks", "qa"},
-		{"--agent opencode 'x' -- --provider databricks", "", ""}, // after --: prompt, never a flag
-	} {
-		q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", "Run: claude-code agents ask "+tc.flags+" 'do x'")
-		if q.Provider != tc.provider || q.Profile != tc.profile {
-			t.Errorf("%s: query provider %q profile %q, want %q/%q", tc.flags, q.Provider, q.Profile, tc.provider, tc.profile)
-		}
 	}
 }
 
@@ -112,8 +59,9 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, model := range []string{"glm-5-2", "custom-model"} {
-		task := "Run: claude-code agents ask --agent claude --profile dev --model " + model + " 'do x'"
-		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-"+model {
+		run := newDispatchRun(nil)
+		run.profile = "dev"
+		if got, _ := labelModel(context.Background(), run, map[string]any{"model": model}, "general-purpose", "do x"); got != "databricks-"+model {
 			t.Errorf("label for %s = %q, want databricks-%s", model, got, model)
 		}
 	}
@@ -158,40 +106,13 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 }
 
-// A Run: line's --model auto is labelled with the peeked bare `<id>` without rewriting the prompt.
-func TestLabelModelAutoRunLine(t *testing.T) {
-	useAgentsDir(t, "claude")
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(route.OverlayVar, "")
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
-		{ID: "databricks-claude-opus-5-5", Task: "llm/v1/chat", Ready: "READY"},
-		{ID: "databricks-claude-haiku-5-5", Task: "llm/v1/chat", Ready: "READY"}}}); err != nil {
-		t.Fatal(err)
-	}
-	brief := "Run: claude-code agents ask --agent claude --profile dev --model auto --tools 'audit the safety rules'\n\nAudit."
-	q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", brief)
-	if q.Model != "auto" || !q.Tools || q.Task != "audit the safety rules" {
-		t.Errorf("query = %+v, want auto, tools and the ask's prompt as the task", q)
-	}
-	raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": "default",
-		"tool_input": map[string]any{"subagent_type": "general-purpose", "prompt": brief, "description": "audit"}})
-	r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
-	d, _ := r.UpdatedInput["description"].(string)
-	p, _ := r.UpdatedInput["prompt"].(string)
-	id, _, _ := strings.Cut(d, ":")
-	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || p != brief {
-		t.Errorf("auto dispatch = %+v (%s), want a bare <id> label and unchanged prompt", r.UpdatedInput, r.Reason)
-	}
-}
-
-// Every Run: line is labelled with the bare id, a retired (<id>) head included; a prefixed model gets none.
+// Every dispatch is labelled with the bare id, a retired (<id>) head included; a prefixed model gets none.
 func TestAutoRunLineLabelsNext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "m-1")
 	run := func(model, desc string) string {
-		u := map[string]any{"subagent_type": "claude", "description": desc}
-		applyLabel(context.Background(), newDispatchRun(nil), u, "Run: claude-code agents ask --agent opencode --model "+model+" 'x'")
+		u := map[string]any{"subagent_type": "opencode", "description": desc, "model": model}
+		applyLabel(context.Background(), newDispatchRun(nil), u, "x")
 		d, _ := u["description"].(string)
 		return d
 	}
@@ -211,11 +132,10 @@ func TestAutoRunLineLabelsNext(t *testing.T) {
 // Bug 2 (2026-11-19): the rewrite note quotes the full old head and new label, never a shared-suffix rune slice.
 func TestApplyLabelNoteQuotesHeadsExactly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	task := "Run: claude-code agents ask --agent opencode --model fixed-1 'do x'"
 	for _, label := range []string{"databricks-claude-opus-5-5", "databricks-claude-opus-5", "gpt-6.1-sol", "gemini-4-hydrogen"} {
 		stubLabelModels(t, label)
-		updated := map[string]any{"subagent_type": "general-purpose", "description": "databricks-claude-opus-5-5: audit"}
-		changed, note := applyLabel(context.Background(), newDispatchRun(nil), updated, task)
+		updated := map[string]any{"subagent_type": "opencode", "model": "fixed-1", "description": "databricks-claude-opus-5-5: audit"}
+		changed, note := applyLabel(context.Background(), newDispatchRun(nil), updated, "do x")
 		if label == "databricks-claude-opus-5-5" { // the equivalent label is kept: no rewrite, no head note
 			if changed || strings.Contains(note, "rewritten to") {
 				t.Errorf("equivalent label: changed=%v note %q, want no rewrite", changed, note)
@@ -225,22 +145,6 @@ func TestApplyLabelNoteQuotesHeadsExactly(t *testing.T) {
 		want := fmt.Sprintf("description head %q rewritten to %q.", "databricks-claude-opus-5-5: ", label+": ")
 		if !changed || updated["description"] != label+": audit" || !strings.Contains(note, want) {
 			t.Errorf("label %q: changed=%v desc=%q note %q, want %q", label, changed, updated["description"], note, want)
-		}
-	}
-}
-
-// A pack the agent reads from a file runs with tools on (packPrompt), so the label ranks for tools too.
-func TestAskLinePackFileTools(t *testing.T) {
-	if _, ok := agentpkg.LookupSchema("gemini"); !ok {
-		agentpkg.RegisterRowForTest(agentpkg.Schema{Name: "gemini", CLI: agentpkg.CLI{PackVia: agentpkg.PackFile}})
-	}
-	for brief, want := range map[string]bool{
-		"Run: claude-code agents ask --agent gemini --dirs internal 'audit x'\n\nAudit.":   true,
-		"Run: claude-code agents ask --agent opencode --dirs internal 'audit x'\n\nAudit.": false,
-		"Run: claude-code agents ask --agent gemini 'audit x'\n\nAudit.":                   false,
-	} {
-		if got := parseAskLine(context.Background(), brief).tools; got != want {
-			t.Errorf("tools(%q) = %v, want %v", brief, got, want)
 		}
 	}
 }
@@ -271,8 +175,7 @@ func TestLabelModelGoogleQuotaNote(t *testing.T) {
 		resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
 			return agentpkg.ModelRoute{Agent: q.Agent, Account: tc.account, Model: "gemini-4-argon-low"}, nil
 		}
-		task := "Run: claude-code agents ask --agent " + tc.agent + " 'do x'"
-		_, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
+		_, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, tc.agent, "do x")
 		googleQuotaCheck = orig
 		if reads != tc.reads {
 			t.Errorf("%s: quota reads = %d, want %d", tc.name, reads, tc.reads)
@@ -352,33 +255,9 @@ func TestLabelQueryTypedAliasIsTheAsksModel(t *testing.T) {
 	} {
 		run := newDispatchRun(nil)
 		run.model = tc.model
-		q, _ := labelQuery(context.Background(), run, map[string]any{"model": tc.model}, tc.typ, "do x")
+		q, _ := labelQuery(run, map[string]any{"model": tc.model}, tc.typ, "do x")
 		if q.Model != tc.want {
 			t.Errorf("%s --model %q: query model %q, want %q", tc.typ, tc.model, q.Model, tc.want)
 		}
-	}
-}
-
-// Regression (2026-11-17): a `Run: claude-code <agent> review` line's --model and --profile make the label, as an ask's do.
-func TestLabelQueryReadsReviewLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const pin = "claude-sonnet-5.5"
-	for _, tc := range []struct{ name, line, model, profile string }{
-		{"review --model", "claude-code copilot review --commit 994c08b1 --model gpt --format json", "gpt", ""},
-		{"review --profile", "claude-code gemini review --commit 994c08b1 --profile dev", "", "dev"},
-		{"ask --model", "claude-code agents ask --agent copilot --model gpt --fallback none --tools", "gpt", ""},
-		{"guard: review with no flag keeps the pin", "claude-code copilot review --commit 994c08b1", pin, ""},
-	} {
-		typ := strings.Fields(tc.line)[1]
-		if typ == "agents" {
-			typ = "copilot"
-		}
-		q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{"model": pin}, typ, "Run: "+tc.line+"\n\nreview")
-		if q.Model != tc.model || q.Profile != tc.profile || q.Agent != typ {
-			t.Errorf("%s: query %s/%q/%q, want %s/%q/%q", tc.name, q.Agent, q.Model, q.Profile, typ, tc.model, tc.profile)
-		}
-	}
-	if _, ok := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "Explore", "Run: claude-code copilot review --model gpt\n\nx"); ok {
-		t.Error("an in-context leaf's label followed a review line it never runs")
 	}
 }

@@ -32,9 +32,7 @@ type dispatchRun struct {
 	roster   map[string]string
 	efforts  map[string]string // frontmatter effort by agent name, filled by the same read as roster
 	registry func() (*providers.Registry, error)
-	line     *askLine // the brief's opening ask command, parsed (and its overlay loaded) once
-	lineTask string
-	profile  string // `agents label --profile`: the ask --profile when the brief's Run: line names none
+	profile  string // `agents label --profile`: the ask --profile
 	model    string // `agents label --model`: the ask --model, so an alias is not read as the leaf's own model
 	hops     map[hopKey]hopResult
 }
@@ -106,7 +104,7 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
-	fixType, deny := effortDenial(ctx, in)
+	fixType, deny := effortDenial(in)
 	if deny != nil {
 		return *deny
 	}
@@ -124,28 +122,24 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 
 	promptField, task := spawnTask(in)
 
-	// a direct ask run's prompt is never rewritten; its recall rides additionalContext
-	direct := opensWithAsk(task)
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session), mode: mode}
 	e.retype(in, fixType)
-	return e.finish(ctx, in, promptField, task, direct)
+	return e.finish(ctx, in, promptField, task)
 }
 
 // finish runs the recall, model pin and label steps and renders the result.
-func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string, direct bool) core.Result {
+func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string) core.Result {
 	st := in.Nested("tool_input", "subagent_type")
 	extraNote := core.JoinContext(e.recallStep(ctx, in, promptField, task, true), e.benchNote(in.CWD, task))
 	if e.mode == modeDeferred {
 		return core.Result{Context: extraNote}
 	}
-	if !direct && !fixedModelTypes[st] {
+	if !fixedModelTypes[st] {
 		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
 		e.fix(pinNote)
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || pinNote != ""
-	}
-	if !fixedModelTypes[st] {
 		e.label(ctx, task)
 	}
 	e.note = strings.TrimSpace(e.note + "\n" + extraNote)
@@ -162,12 +156,9 @@ func (e *effortPlan) retyped(st string) bool {
 	return strings.HasPrefix(st, "coworker:") && e.updated["subagent_type"] != st
 }
 
-// effortDenial is the call's type or Run: denial, else the coworker type to retype to ("" for none).
-func effortDenial(ctx context.Context, in *core.Input) (fixType string, deny *core.Result) {
+// effortDenial is the call's type denial, else the coworker type to retype to ("" for none).
+func effortDenial(in *core.Input) (fixType string, deny *core.Result) {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
-	if deny = runLineBlock(ctx, st, prompt); deny != nil {
-		return "", deny
-	}
 	if deny = typeBlock(st, prompt); deny != nil {
 		if fixType = coworkerTarget(st, prompt); fixType == "" {
 			return "", deny

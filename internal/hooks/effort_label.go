@@ -294,23 +294,20 @@ func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
 	return strings.Join(lines, "\n")
 }
 
-// labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, as `agents ask` reads them.
-func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
-	line := run.labelLine(ctx, st, task)
-	agent := line.workAgent(st, task)
-	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
-		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: cmp.Or(line.provider, line.cfg.Provider), Account: line.cfg.Account,
-		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback), Held: line.held}
-	if m, _ := updated["model"].(string); q.Model == "" && !line.review && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
+// labelQuery is the resolver query for the dispatch: leaf type, model pin and --profile.
+func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
+	agent := workAgent(st, task)
+	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Profile: run.profile}
+	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
 	if q.Model == "" && agent != "" && run.model != "inherit" {
 		q.Model = run.model // the verb's --model is the ask's, an alias included
 	}
-	if q.Model == "" && agent == "" && q.Profile == "" && q.Provider == "" {
+	if q.Model == "" && agent == "" && q.Profile == "" {
 		return q, false // an in-context leaf: its own model
 	}
-	q.Task, q.Tools = cmp.Or(line.prompt, task), line.tools // auto and the task tier size the ask's prompt
+	q.Task = task
 	if q.Model == "" {
 		q.Default, _ = agentpkg.TaskTier(q.Task) // the ask runs its pin, else the task tier
 	}
@@ -320,18 +317,18 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
 // auto is true when the run picks its own model.
 func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (r agentpkg.ModelRoute, ok, auto bool, err error) {
-	q, ok := labelQuery(ctx, run, updated, st, task)
+	q, ok := labelQuery(run, updated, st, task)
 	if !ok {
 		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, false, nil
 	}
 	reg, err := run.registry()
 	if err == nil {
-		err = providers.CheckModel(reg, q.Model) // a Run: line's <profile>:<model> gets no label, as ask refuses it
+		err = providers.CheckModel(reg, q.Model)
 	}
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}
-	hint := router.RuleClassifier{}.Alias(cmp.Or(run.opening(ctx, task).prompt, task)) // ask classifies its prompt
+	hint := router.RuleClassifier{}.Alias(task)
 	hop, note, err := run.runHop(ctx, reg, q, hint)
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)

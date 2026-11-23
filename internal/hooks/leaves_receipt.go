@@ -1,191 +1,36 @@
-// The receipt fix: an external-agent leaf with no `ask: ran on` line is held, run, attached or noted; never dropped.
+// The receipt fix: an external-agent leaf with no `ask: ran on` line is held, attached or noted; never dropped.
 package hooks
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
-	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
-
-// editTools are the tool calls that change files: a leaf that made one did the work itself.
-var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
-
-// bashWrites reports a Bash command that changes a file outside the temp dirs: a write, removal, patch or formatter.
-func bashWrites(cmd string, cwd ...string) bool {
-	dir := "/"
-	if len(cwd) > 0 && cwd[0] != "" {
-		dir = cwd[0]
-	}
-	targets := append(core.WrittenPathsPrecise(cmd, dir), core.RemovedPaths(cmd, dir)...)
-	if slices.ContainsFunc(targets, func(p string) bool { return !scratchPath(p, cwd...) }) {
-		return true
-	}
-	gitWrites := shell.EachGit(cmd, "/", func(_, verb string, args []string) bool {
-		return verb == "rm" || verb == "mv" || verb == "am" ||
-			verb == "apply" && !slices.ContainsFunc(args, func(a string) bool { return a == "--check" || a == "--stat" || a == "--numstat" })
-	})
-	return gitWrites || slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
-		rest, _ := shell.Unwrap(shell.Tokens(seg), "/")
-		return patchOrFormat(rest)
-	})
-}
-
-// patchOrFormat is a command word that rewrites files in place: a patch tool, or a formatter told to write.
-func patchOrFormat(toks []string) bool {
-	if len(toks) == 0 {
-		return false
-	}
-	args := toks[1:]
-	tool := filepath.Base(toks[0])
-	if tool == "apply_patch" {
-		return true
-	}
-	printOnly := printOnlyFlags()
-	flags := slices.Concat(printOnly["*"], printOnly[tool])
-	if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(flags, a) }) {
-		return false
-	}
-	if patchWriteTools()[tool] {
-		return true
-	}
-	if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(formatterWriteFlags()[tool], a) }) {
-		return true
-	}
-	return len(args) > 0 && slices.Contains(formatterWriteSubcommands()[tool], args[0])
-}
-
-var patchWriteTools = sync.OnceValue(func() map[string]bool { return shell.GuardSet("patch_write_tools") })
-var formatterWriteFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("formatter_write_flags") })
-var formatterWriteSubcommands = sync.OnceValue(func() map[string][]string {
-	return shell.GuardTools("formatter_write_subcommands")
-})
-
-// printOnlyFlags are the flags that make a patch tool or formatter print instead of write; "*" holds every tool's.
-var printOnlyFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("print_only_flags") })
-
-// scratchPath is a path under /tmp, the OS temp dir or the memory reports, handoffs and notes homes: not the work.
-func scratchPath(p string, cwd ...string) bool {
-	if len(cwd) > 0 && cwd[0] != "" && !filepath.IsAbs(p) {
-		p = filepath.Join(cwd[0], p)
-	}
-	p = canonicalPath(p)
-	if p == "" {
-		return false
-	}
-	dirs := []string{"/tmp", "/private/tmp", os.TempDir(), paths.MemorySubDir("reports"), paths.MemorySubDir("handoffs"), paths.MemorySubDir("notes")}
-	return slices.ContainsFunc(dirs, func(dir string) bool {
-		if dir == "" {
-			return false
-		}
-		rel, err := filepath.Rel(canonicalPath(dir), p)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
-	})
-}
-
-func canonicalPath(p string) string {
-	if p == "" {
-		return ""
-	}
-	p, err := filepath.Abs(p)
-	if err != nil {
-		return ""
-	}
-	p = filepath.Clean(p)
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real
-	}
-	if _, err := os.Lstat(p); err == nil {
-		return ""
-	}
-	parent := filepath.Dir(p)
-	if parent == p {
-		return p
-	}
-	real := canonicalPath(parent)
-	if real == "" {
-		return ""
-	}
-	return filepath.Join(real, filepath.Base(p))
-}
-
-// Seam for testing the detached launch of a brief's Run: line.
-var spawnBriefLine = spawnDetached
-
-// spawnDetached starts words (a PATH name or path, then its args) in dir, detached, output on out.
-func spawnDetached(words []string, dir, inputPath string, out *os.File) error {
-	if len(words) == 0 {
-		return errors.New("empty Run line")
-	}
-	var input *os.File
-	if inputPath != "" {
-		if !filepath.IsAbs(inputPath) {
-			inputPath = filepath.Join(dir, inputPath)
-		}
-		f, err := os.Open(inputPath)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		input = f
-	}
-	bin, err := exec.LookPath(words[0])
-	if err != nil {
-		return err
-	}
-	if proc.IsSelfUnderTest(bin) {
-		return errors.New("refusing test binary launch")
-	}
-	cmd := exec.CommandContext(context.Background(), bin, words[1:]...)
-	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, out, out
-	if input != nil {
-		cmd.Stdin = input
-	}
-	cmd.Env = append(os.Environ(), agent.DispatchClaimEnv+"="+out.Name()+".claim")
-	proc.Detach(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
-}
 
 // resultCap bounds each end (head and tail) of a job result attached to a hand-back.
 const resultCap = 16 << 10
 
-// relayRun is the hook's own launch of a brief's never-run Run: line, keyed by the leaf's agent id.
-type relayRun struct {
-	Started time.Time `json:"started"`
-	Line    string    `json:"line"`
-	Output  string    `json:"output"`
-}
-
-func relayRunPath(agentID string) string {
-	return filepath.Join(paths.StateDir(), "dispatch-relay", paths.Slug(agentID, "", 80, "leaf")+".json")
-}
-
 // heldPath marks a leaf held on a running job while others had finished: its later pass attaches them all.
 func heldPath(agentID string) string {
-	return strings.TrimSuffix(relayRunPath(agentID), ".json") + ".held"
+	return filepath.Join(paths.StateDir(), "dispatch-relay", paths.Slug(agentID, "", 80, "leaf")+".held")
 }
 
 func markHeld(agentID string) {
@@ -204,60 +49,17 @@ func wasHeld(agentID string) bool {
 	return err == nil
 }
 
-// claimRelayRun writes agentID's launch marker with an exclusive create; false means another hand-back holds it.
-func claimRelayRun(agentID string, m relayRun) (bool, error) {
-	f, err := os.OpenFile(relayRunPath(agentID), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if os.IsExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	b, _ := json.Marshal(m)
-	_, err = f.Write(b)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		_ = os.Remove(relayRunPath(agentID))
-	}
-	return err == nil, err
-}
-
-func loadRelayRun(agentID string) (relayRun, bool) {
-	var m relayRun
-	b, err := os.ReadFile(relayRunPath(agentID))
-	return m, err == nil && json.Unmarshal(b, &m) == nil && !m.Started.IsZero()
-}
-
-// receiptFix: a job it started is held or attached; a never-run Run: line runs here; relay work passes with a note.
-func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
-	st := relayAgent(in, lr)
-	m, hookRan := loadRelayRun(agentID)
-	if hookRan {
-		lr.capHold(m.Started)
-		if rec, ok := hookJob(*lr, m.Output); ok {
-			return hookJobReceipt(in, rec, m.Output, *lr)
-		}
-	}
+// receiptFix: a job the leaf started is held or attached; relay work without a job passes with a note.
+func receiptFix(in *core.Input, _ string, lr *leafRead) (core.Result, bool) {
+	st := relayAgent(in)
 	if recs, how, ok := leafDispatch(*lr, st); ok {
 		return dispatchReceipts(in, lr, recs, how)
-	}
-	if hookRan {
-		return relayRunPending(in, *lr, m)
 	}
 	if len(lr.scan.askTimes) > 0 || len(lr.ids) > 0 {
 		return missingIDReceipt(in, lr, st)
 	}
-	if _, _, err := relayInput(lr.scan.runLine); lr.scan.runLine != "" && (err != nil || len(shell.Segments(lr.scan.runLine)) != 1) {
-		return attach(in, "NOTE: the hook refused unsupported shell syntax in the brief's `Run:` line; this is the relay report.", jobOut{}), false
-	}
-	words := briefWords(lr.scan)
-	if lr.scan.edited || len(words) == 0 {
-		model, _ := transcript.LastUsage(in.AgentTranscriptPath)
-		return attach(in, fmt.Sprintf("NOTE: ran on the relay model (%s), not %s; re-run `Run:` if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
-	}
-	return runBriefLine(in, *lr, agentID, words)
+	model, _ := transcript.LastUsage(in.AgentTranscriptPath)
+	return attach(in, fmt.Sprintf("NOTE: ran on the relay model (%s), not %s.", cmp.Or(model.Model, "the leaf's own model"), st), jobOut{}), false
 }
 
 func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how string) (core.Result, bool) {
@@ -276,21 +78,6 @@ func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how str
 		return *held, true
 	}
 	return attachAll(in, got), false
-}
-
-// briefWords is the Run: line's words, with the brief body as the task when the line carries no prompt.
-func briefWords(s leafScan) []string {
-	words, input, err := relayInput(s.runLine)
-	if err != nil || len(shell.Segments(s.runLine)) != 1 || askVerb(relayWords(s.runLine)) != "ask" {
-		return nil
-	}
-	if input != "" {
-		return words
-	}
-	if len(words) > 0 && s.task != "" && parseAskLine(context.Background(), "Run: "+s.runLine).prompt == "" {
-		words = append(words, s.task)
-	}
-	return words
 }
 
 // unattributedNote tops a report whose ask no dispatch record could be tied to.
@@ -353,10 +140,6 @@ func askRecords(times []time.Time, agentName string) []agent.Record {
 	})
 }
 
-func missingIDLimit(in *core.Input) (core.Result, bool) {
-	return attach(in, fmt.Sprintf("NOTE: no exact dispatch id at the %s limit; failing open with the relay report.", leafStopMaxWait), jobOut{}), false
-}
-
 // leafDispatch uses only records named by this leaf's tool results.
 func leafDispatch(lr leafRead, _ string) ([]agent.Record, string, bool) {
 	return lr.recs, "printed in its tool results", len(lr.recs) > 0
@@ -407,115 +190,6 @@ func attachAll(in *core.Input, rs []receipt) core.Result {
 		bodies[i] = jobOut{summary: strings.TrimSpace(r.note + "\n" + r.body.summary), answer: r.body.answer}
 	}
 	return attach(in, rs[len(rs)-1].note, bodies...)
-}
-
-// relayRunPending is the hook's launch with no record yet: its output decides, else its record, else a hold.
-func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool) {
-	lr.capHold(m.Started)
-	if holdExpired(lr.holdUntil) {
-		return missingIDLimit(in)
-	}
-	out := readEnds(m.Output, resultCap)
-	body := jobResult(nil, m.Output)
-	switch {
-	case ranOnPattern().MatchString(out):
-		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself: "+strings.TrimSpace(ranOnLine(out)), body), false
-	case didNotRunRe().MatchString(out):
-		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself; it ran no agent.", body), false
-	case time.Since(m.Started) < askLaunchWindow:
-		if rec, ok := hookJob(lr, m.Output); ok {
-			return hookJobReceipt(in, rec, m.Output, lr)
-		}
-		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Output %s. %s", heldRunInfo(m.Line), m.Output, handBackForID)}, true
-	}
-	return missingIDLimit(in) // a sibling's record could be attached by mistake, so fail open with no receipt
-}
-
-// handBackForID is the hold's instruction while the hook's launch has no dispatch record to name yet.
-const handBackForID = "Hand back again now, without sleeping: the hook then names its job; run `claude-code agents result " +
-	"-f <id>` once, in the foreground, and hand back when it returns."
-
-func hookDispatchID(output string) string {
-	b, err := os.ReadFile(output + ".claim")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(b))
-}
-
-// hookJob waits for the exact ID published by this hook launch; it never searches sibling records.
-func hookJob(lr leafRead, output string) (agent.Record, bool) {
-	for {
-		if id := hookDispatchID(output); id != "" {
-			if rec, err := loadDispatch(id); err == nil {
-				return rec, true
-			}
-		}
-		if !time.Now().Add(handbackPoll).Before(lr.until) {
-			return agent.Record{}, false
-		}
-		time.Sleep(handbackPoll)
-	}
-}
-
-// hookJobReceipt is the hook launch's job receipt once it ended, else the hold naming its id.
-func hookJobReceipt(in *core.Input, rec agent.Record, output string, lr leafRead) (core.Result, bool) {
-	r, hold := dispatchReceipt(in.CWD, rec, "the hook ran the brief's `Run:` line itself", output, lr)
-	if hold != nil {
-		return *hold, true
-	}
-	return attachAll(in, []receipt{r}), false
-}
-
-// ranOnLine is the first `ask: ran on` line of out.
-func ranOnLine(out string) string {
-	for l := range strings.SplitSeq(out, "\n") {
-		if strings.Contains(l, "ask: ran on ") {
-			return l
-		}
-	}
-	return ""
-}
-
-// runBriefLine starts the Run: command detached with any missing task, then holds for its result.
-func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (core.Result, bool) {
-	fail := func(err error) (core.Result, bool) {
-		return attach(in, fmt.Sprintf("NOTE: the brief's `Run:` line was never run and the hook could not start it (%v); "+
-			"this report was made on the relay model.", err), jobOut{}), false
-	}
-	line := lr.scan.runLine
-	_, input, err := relayInput(line)
-	if err != nil || len(shell.Segments(line)) != 1 {
-		return fail(errors.New("unsupported shell syntax"))
-	}
-	m := relayRun{Started: time.Now(), Line: line, Output: strings.TrimSuffix(relayRunPath(agentID), ".json") + ".output"}
-	if err := os.MkdirAll(filepath.Dir(m.Output), 0o700); err != nil {
-		return fail(err)
-	}
-	if claimed, err := claimRelayRun(agentID, m); err != nil {
-		return fail(err)
-	} else if !claimed { // an overlapping hand-back launched it: hold on that launch, never start a second
-		if cur, ok := loadRelayRun(agentID); ok {
-			m = cur
-		} else if fi, err := os.Stat(relayRunPath(agentID)); err == nil {
-			m.Started = fi.ModTime() // a marker still being written, or unreadable: its age bounds the hold
-		}
-		return relayRunPending(in, lr, m)
-	}
-	f, err := os.OpenFile(m.Output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err == nil {
-		err = spawnBriefLine(words, in.CWD, input, f)
-		_ = f.Close()
-	}
-	if err != nil {
-		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
-		return fail(err)
-	}
-	lr.capHold(m.Started)
-	if rec, ok := hookJob(lr, m.Output); ok {
-		return hookJobReceipt(in, rec, m.Output, lr)
-	}
-	return core.Result{Decision: core.Block, Rule: "run-line-started", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Output %s. %s", heldStartedInfo(line), m.Output, handBackForID)}, true
 }
 
 // jobOut is the job result a hand-back carries: one summary line and the job's final answer.
@@ -672,4 +346,96 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 		res.Reason += " The report you tried to hand back is saved at " + path + "."
 	}
 	return res
+}
+
+// AskWords is an ask command line parsed by helptext.ParseArgs, the parser `agents ask` itself runs.
+type AskWords struct {
+	fs  *flag.FlagSet
+	Pos []string // the task words
+}
+
+// askBoolFlags are ask's boolean flags; every other registered flag takes a value (a test pins both lists to ask's).
+var askBoolFlags = strings.Fields("native tools read-only no-tools no-persist safe-mode direct autonomous fleet " +
+	"enable-memory stdin-framed live background fail-fast diff index dry-run loop status fresh recover carry")
+
+// ParseAskWords parses words as ask does (flags anywhere, none after "--"); ok is false where ask would exit 2.
+func ParseAskWords(words []string) (AskWords, bool) {
+	fs := helptext.NewFlagSet("ask", helptext.Page{})
+	fs.SetOutput(io.Discard)
+	for _, n := range askBoolFlags {
+		fs.Bool(n, false, "")
+	}
+	for _, n := range askValueFlags {
+		fs.String(n, "", "")
+	}
+	pos, err := helptext.ParseArgs(fs, words)
+	return AskWords{fs, pos}, err == nil
+}
+
+// Value is the last typed value of flag name, "" when untyped.
+func (a AskWords) Value(name string) string {
+	v := ""
+	a.fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			v = f.Value.String()
+		}
+	})
+	return v
+}
+
+// Has reports whether any of names was typed.
+func (a AskWords) Has(names ...string) bool {
+	found := false
+	a.fs.Visit(func(f *flag.Flag) { found = found || slices.Contains(names, f.Name) })
+	return found
+}
+
+// Prompt is the task words; a lone dash asks for stdin rather than supplying task text.
+func (a AskWords) Prompt() string {
+	if len(a.Pos) == 0 || len(a.Pos) == 1 && a.Pos[0] == "-" {
+		return ""
+	}
+	return strings.Join(a.Pos, " ")
+}
+
+var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
+	"attach keep-env env allow ask deny permissions overlay system-prompt append-system-prompt output-schema timeout host " +
+	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
+	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode")
+
+// OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
+func OverlayArgs(profile, model, identity, account string) []string {
+	t := overlayTarget(profile, model)
+	switch t.Provider {
+	case "databricks":
+		t.Identity = identity
+	case "github":
+		t.Account = account
+	case "":
+		if t.Profile != "" { // no registry row: ask resolves the name and refuses it if unknown
+			return append([]string{"--profile", t.Profile}, overlayFlag(route.Target{Model: t.Model})...)
+		}
+	}
+	return overlayFlag(t)
+}
+
+// overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
+func overlayTarget(profile, model string) route.Target {
+	reg, _ := providers.Load()
+	t := route.Target{Route: route.ParseLegacy(profile), Model: model}
+	if t.Provider != "" {
+		t.Profile = cmp.Or(t.Profile, agent.AutoModel)
+	} else if reg != nil && t.Profile != "" {
+		if p, err := reg.Get(t.Profile); err == nil {
+			t.Provider = p.Provider
+		}
+	}
+	return t
+}
+
+func overlayFlag(t route.Target) []string {
+	if t.IsZero() && t.Model == "" {
+		return nil
+	}
+	return []string{"--overlay", t.JSON()}
 }

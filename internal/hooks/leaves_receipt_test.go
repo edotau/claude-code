@@ -9,11 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/redact"
 )
 
@@ -90,110 +87,13 @@ func TestHeldMarkerStaleIgnored(t *testing.T) {
 	}
 }
 
-// The hook's own Run: launch holds naming its job's `agents result -f <id>` once the record appears, never a sleep.
-func TestRunBriefLineHoldNamesJob(t *testing.T) {
-	stubSpawn(t)
-	in := handbackOf(leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
-	const id = "20261116T130000.000-codex"
-	spawnBriefLine = func(_ []string, _, _ string, out *os.File) error {
-		if err := agent.ClaimDispatchID(out.Name()+".claim", id); err != nil {
-			return err
-		}
-		writeDispatch(t, id, record(id, "running", os.Getpid()))
-		return nil
-	}
-	var lr leafRead
-	lr.scan.runLine = "claude-code agents ask --agent codex 'x'"
-	r, held := runBriefLine(in, lr, "a1", []string{"claude-code", "agents", "ask", "--agent", "codex", "x"})
-	if !held || !strings.Contains(r.Reason, "`claude-code agents result -f "+id+"` once") || strings.Contains(r.Reason, "sleep") {
-		t.Fatalf("hold = %+v held=%v, want one naming `agents result -f %s` once and no sleep", r, held, id)
-	}
-}
-
-// A never-run Run: line is run by the hook with the brief as its task; the hand-back is held, then passes with result.
-func TestRanOnHookRunsTheLine(t *testing.T) {
-	for _, c := range []struct {
-		st, line, body string
-		want           []string
-	}{
-		{"claude", "claude-code agents ask --agent codex --tools - < /tmp/x.md", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "-"}},
-		{"claude", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}},
-		{"claude", "claude-code agents ask --agent codex --model x", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "x", "Objective: review"}},
-		{"claude", "claude-code agents ask --agent codex --profile p", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--profile", "p", "Objective: review"}},
-		{"claude", "claude-code agents ask --agent codex --tools", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "Objective: review"}},
-		{"claude", "claude-code agents ask --agent claude --profile dev --model m --tools", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "claude", "--profile", "dev", "--model", "m", "--tools", "Objective: review"}},
-	} {
-		spawned := stubSpawn(t)
-		in := leafTx(t, c.st, "Run: "+c.line+"\n\n"+c.body, "ls output")
-		in = handbackOf(in, "my report")
-		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		if !blocked || !strings.Contains(r.Reason, "hand-back waits") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
-			t.Fatalf("%s first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", c.st, r, blocked, *spawned, c.want)
-		}
-		m, _ := loadRelayRun("a1")
-		if err := os.WriteFile(m.Output, []byte("the answer\nask: ran on codex · databricks·prod · databricks-gpt-6-1-sol · fallback none\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		msg, _ := r.UpdatedInput["message"].(string)
-		if blocked || len(*spawned) != 1 || !strings.HasPrefix(msg, "NOTE: the hook ran the brief's `Run:` line itself: ask: ran on codex") ||
-			!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
-			t.Fatalf("%s second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", c.st, r, blocked)
-		}
-	}
-}
-
 func TestRelayMissingIDCap(t *testing.T) {
-	for _, hook := range []bool{false, true} {
-		in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
-		old := time.Now().Add(-leafStopMaxWait - time.Minute)
-		lr := leafRead{scan: leafScan{askTimes: []time.Time{old}}}
-		if hook {
-			if err := os.MkdirAll(filepath.Dir(relayRunPath("a1")), 0700); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := claimRelayRun("a1", relayRun{Started: old, Output: "/nonexistent"}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		r, held := receiptFix(in, "a1", &lr)
-		want := unattributedNote
-		if hook {
-			want = "limit"
-		}
-		if held || !strings.Contains(r.SystemMessage, want) {
-			t.Fatalf("HIGH3 cap hook=%v: %+v held=%v", hook, r, held)
-		}
-	}
-}
-
-func TestSpawnBriefStdin(t *testing.T) {
-	for _, input := range []string{"- < input.md"} {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "input.md"), []byte("brief body"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		out, err := os.CreateTemp(dir, "output")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer out.Close()
-		if err := spawnDetached([]string{"/bin/cat", "-"}, dir, "input.md", out); err != nil {
-			t.Fatal(err)
-		}
-		until := time.Now().Add(time.Second)
-		for time.Now().Before(until) && readEnds(out.Name(), 100) != "brief body" {
-			time.Sleep(time.Millisecond)
-		}
-		if got := readEnds(out.Name(), 100); got != "brief body" {
-			t.Fatalf("HIGH5 %s: %q", input, got)
-		}
+	in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
+	old := time.Now().Add(-leafStopMaxWait - time.Minute)
+	lr := leafRead{scan: leafScan{askTimes: []time.Time{old}}}
+	r, held := receiptFix(in, "a1", &lr)
+	if held || !strings.Contains(r.SystemMessage, unattributedNote) {
+		t.Fatalf("HIGH3 cap: %+v held=%v", r, held)
 	}
 }
 
@@ -221,61 +121,6 @@ func TestLeafSuccessfulEvidence(t *testing.T) {
 				t.Fatalf("times=%v ran=%v", s.askTimes, s.ranOn)
 			}
 		})
-	}
-}
-
-func TestScratchContainment(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	root := filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
-	dir := t.TempDir()
-	link := filepath.Join(dir, "outside")
-	if err := os.Symlink(root, link); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		path string
-		want bool
-	}{
-		{"/private/tmp/../../Users/edotau/.claude/internal/hooks/leaves.go", false},
-		{filepath.Join(link, "etc", "leaves.go"), false},
-		{filepath.Join(link, "nonexistent.go"), false},
-		{filepath.Join(dir, "new.md"), true},
-	} {
-		if got := scratchPath(tc.path); got != tc.want {
-			t.Errorf("%s scratch=%v", tc.path, got)
-		}
-	}
-}
-
-func TestEditEvidence(t *testing.T) {
-	for _, tc := range []struct {
-		path         string
-		failed, want bool
-	}{
-		{"internal/hooks/leaves.go", true, false},
-		{"internal/hooks/leaves.go", false, true},
-		{"memory/reports/x.md", false, false},
-	} {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		cwd := filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
-		path := tc.path
-		if strings.HasPrefix(path, "memory/") {
-			var err error
-			path, err = filepath.Rel(cwd, paths.MemorySub("reports", "x.md"))
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		s := leafScan{cwd: cwd}
-		content, _ := json.Marshal([]map[string]any{{"type": "tool_use", "id": "edit", "name": "Edit", "input": map[string]string{"file_path": path}}})
-		s.addCalls(content, time.Now())
-		if s.edited {
-			t.Fatal("edit counted before result")
-		}
-		s.scanResult(leafToolResult{ToolUseID: "edit", IsError: tc.failed, Content: json.RawMessage(`"edited"`)})
-		if s.edited != tc.want {
-			t.Errorf("%s failed=%v edited=%v", tc.path, tc.failed, s.edited)
-		}
 	}
 }
 
@@ -557,7 +402,6 @@ func TestLeafDeniedAskHolds(t *testing.T) {
 }
 
 func TestLeafErroredAskNoRelaunch(t *testing.T) {
-	spawned := stubSpawn(t)
 	in := timedLeafTx(t, time.Now().Add(-time.Minute), "unused")
 	raw, err := os.ReadFile(in.AgentTranscriptPath)
 	if err != nil {
@@ -568,10 +412,9 @@ func TestLeafErroredAskNoRelaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
-	lr.scan.runLine = `claude-code agents ask --agent codex "x"`
 	r, blocked := leafGate(in, "a1", lr)
-	if blocked || len(*spawned) != 0 || !strings.Contains(r.SystemMessage, unattributedNote) {
-		t.Fatalf("error relaunched: %+v, spawns %v", r, *spawned)
+	if blocked || !strings.Contains(r.SystemMessage, unattributedNote) {
+		t.Fatalf("error ask: %+v blocked=%v", r, blocked)
 	}
 }
 

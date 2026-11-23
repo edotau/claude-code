@@ -860,7 +860,7 @@ func TestDirectPanicStderrBackpressureReturns(t *testing.T) {
 	}
 }
 
-// A held-job hint and a Run: line name the route as one --overlay object, the profile's provider from the registry.
+// A held-job hint names the route as one --overlay object, the profile's provider from the registry.
 func TestOverlayArgsCarriesTheWholeRoute(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
@@ -874,8 +874,5 @@ func TestOverlayArgsCarriesTheWholeRoute(t *testing.T) {
 	}
 	if got := OverlayArgs("nope", "m", "", ""); !slices.Equal(got, []string{"--profile", "nope", "--overlay", `{"model":"m"}`}) {
 		t.Errorf("OverlayArgs(unknown row) = %q", got)
-	}
-	if got := RunLine([]string{"--overlay", want}); got != "Run: claude-code agents ask --overlay '"+want+"'" {
-		t.Errorf("RunLine = %s", got)
 	}
 }

@@ -38,13 +38,9 @@ func briefAgents(task string) []string {
 	return names
 }
 
-// briefHeader is the brief's header block: the lines before its first blank line, past an opening Run: line.
+// briefHeader is the brief's header block: the lines before its first blank line.
 func briefHeader(task string) string {
-	paras := blankLineRe().Split(strings.TrimSpace(task), 3)
-	if len(paras) > 1 && strings.HasPrefix(paras[0], "Run:") && !strings.Contains(paras[0], "\n") {
-		return paras[0] + "\n" + paras[1]
-	}
-	return paras[0]
+	return blankLineRe().Split(strings.TrimSpace(task), 2)[0]
 }
 
 // LabelInput is one dispatch to label: leaf type, model pin ("" = unset), ask --profile, brief and session model id.
@@ -77,10 +73,10 @@ func dispatchLabelNote(ctx context.Context, in LabelInput) (label, model, blocke
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
-	if line := run.labelLine(ctx, in.Type, task); cmp.Or(line.profile, in.Profile) != "" {
+	if in.Profile != "" {
 		if reg, err := run.registry(); err == nil {
-			agent := cmp.Or(line.workAgent(in.Type, task), agentid.Claude)
-			if err := agentconfig.CheckTypedProfile(reg, agent, cmp.Or(line.profile, in.Profile)); err != nil {
+			agent := cmp.Or(workAgent(in.Type, task), agentid.Claude)
+			if err := agentconfig.CheckTypedProfile(reg, agent, in.Profile); err != nil {
 				return "", "", err.Error(), ""
 			}
 		}

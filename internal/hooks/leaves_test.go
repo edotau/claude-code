@@ -604,37 +604,6 @@ func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
 	}
 }
 
-func TestRanOnBriefContentRepresentations(t *testing.T) {
-	brief := "Run: claude-code agents ask --agent codex 'inspect only'\nAgent: codex\n"
-	for _, tc := range []struct {
-		name    string
-		content any
-		spaced  bool
-	}{
-		{"string", brief, false},
-		{"text parts", []map[string]any{{"type": "text", "text": brief}}, false},
-		{"spaced string", brief, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			in := gatedLeafTx(t, brief)
-			line, err := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": tc.content}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.spaced {
-				line = bytes.ReplaceAll(line, []byte(`":"`), []byte(`": "`))
-			}
-			if err := os.WriteFile(in.AgentTranscriptPath, append(line, '\n'), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			spawned := stubSpawn(t)
-			if _, blocked := leafStopBlock(in, "a1"); !blocked || len(*spawned) != 1 {
-				t.Fatalf("blocked=%v spawns %v, want the brief's Run: line read in every content shape", blocked, *spawned)
-			}
-		})
-	}
-}
-
 // A gated leaf hand-back with no ran-on line passes with the relay note; a delivered hand-back lets the stop pass.
 func TestHandbackGatesRanOn(t *testing.T) {
 	src := gatedLeafTx(t, "Objective: x\nProfile: dev\n", "ls output")
@@ -676,53 +645,24 @@ func appendLines(t *testing.T, path string, lines ...string) {
 	}
 }
 
-// stubSpawn records each detached launch of a brief's Run: line instead of starting it.
-func stubSpawn(t *testing.T) *[][]string {
-	t.Helper()
-	var got [][]string
-	orig := spawnBriefLine
-	t.Cleanup(func() { spawnBriefLine = orig })
-	spawnBriefLine = func(words []string, _, _ string, _ *os.File) error {
-		got = append(got, words)
-		return nil
-	}
-	return &got
-}
-
-// A relay whose only edit is a memory report did not do the work: its never-run Run: line is run or held.
-func TestRanOnMemoryReportEditIsNotTheWork(t *testing.T) {
-	spawned := stubSpawn(t)
-	in := leafTx(t, "claude", "Run: claude-code agents ask --agent gemini 'research'\n", "ls output")
-	report := paths.MemorySub("reports", "2026-11-16-x.md")
-	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
-		{"type": "tool_use", "id": "e1", "name": "Write", "input": map[string]any{"file_path": report}}}}})
-	appendLines(t, in.AgentTranscriptPath, string(edit))
-	in = handbackOf(in, "report written")
-	_, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	if !blocked && len(*spawned) == 0 {
-		t.Fatalf("blocked=%v spawns %v, want the Run: line run or held despite the memory report edit", blocked, *spawned)
-	}
-}
-
-// A relay that edited files passes with the note on top and the Run: line is never run by the hook.
+// A relay that edited files passes with the note on top.
 func TestRanOnRelayDidTheWork(t *testing.T) {
-	spawned := stubSpawn(t)
-	in := leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'fix it'\n", "ls output")
+	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls output")
 	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_use", "id": "e1", "name": "Edit", "input": map[string]any{}}}}})
 	appendLines(t, in.AgentTranscriptPath, string(edit), txResult("e1", "edited"))
 	in = handbackOf(in, "fixed it")
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || len(*spawned) != 0 || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not codex") || !strings.HasSuffix(msg, "fixed it") {
-		t.Fatalf("got %+v blocked=%v spawns %v, want the hand-back through with the relay note, no launch", r, blocked, *spawned)
+	if blocked || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not codex") || !strings.HasSuffix(msg, "fixed it") {
+		t.Fatalf("got %+v blocked=%v, want the hand-back through with the relay note", r, blocked)
 	}
 }
 
 // Every held hand-back saves the report it carried to the reports home and names the file.
 func TestRanOnHeldReportPreserved(t *testing.T) {
-	stubSpawn(t)
-	in := leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'x'\n", "ls output")
+	in := leafTx(t, "codex", "Objective: x\n", startedLine())
+	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
 	in = handbackOf(in, "the full report")
 	in.CWD = t.TempDir()
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
@@ -1154,28 +1094,6 @@ func TestHandbackJobResultIsTheAnswer(t *testing.T) {
 	}
 }
 
-// A relay that changed files through Bash did the work: the Run: line is not run again; a read-only relay's is.
-func TestRanOnRelayBashWrites(t *testing.T) {
-	for cmd, wrote := range map[string]bool{
-		"echo x > /private/tmp/../../Users/edotau/.claude/internal/hooks/leaves.go": true,
-		"echo x > /repo/a.go": true, "sed -i 's/a/b/' a.go": true, "printf x | tee a.go": true, "cp a.go b.go": true,
-		"mv a.go b.go": true, "rm -f a.go": true, "git apply fix.patch": true, "cd /repo && git -C /repo rm a.go": true,
-		"apply_patch <<'EOF'\n*** Begin Patch\nEOF": true, "gofmt -l -w a.go": true, "timeout 60 go fmt ./...": true,
-		"ls -la": false, "cat a.go | grep x": false, "git status && git diff && git log -3": false,
-		"go build ./... 2>&1": false, "go test ./... >/dev/null 2>&1": false, "git apply --check fix.patch": false,
-		"go test ./... > /tmp/t.out 2>&1": false, "gofmt -l a.go": false, "black a.py": true, "ruff check --fix a.py": true,
-		"black --version": false, "isort --help": false, "ruff format --diff a.py": false, "go fmt -n ./...": false,
-	} {
-		spawned := stubSpawn(t)
-		in := handbackOf(leafTxCmd(t, "claude", cmd, "Run: claude-code agents ask --agent codex 'fix it'\n", "out"), "fixed it")
-		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		msg, _ := r.UpdatedInput["message"].(string)
-		if relay := !blocked && len(*spawned) == 0 && strings.HasPrefix(msg, relayNote); relay != wrote {
-			t.Errorf("%q: relay note %v (blocked=%v spawns %v), want %v", cmd, relay, blocked, *spawned, wrote)
-		}
-	}
-}
-
 // shrinkHandbackWait sets Handback's poll and budget to test sizes; the record flips to final on the flip-th re-read.
 func shrinkHandbackWait(t *testing.T, id string, flip int, final string, readErr bool) {
 	t.Helper()
@@ -1384,38 +1302,12 @@ func TestLeafJobIDsIgnoreAnswerBody(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-16): two hand-backs both past the marker check launch the Run: line once; the later one holds.
-func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
-	spawned := stubSpawn(t)
-	in := handbackOf(leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
-	words := []string{"claude-code", "agents", "ask", "--agent", "codex", "x"}
-	var lr leafRead
-	lr.scan.runLine = "x"
-	_, firstHeld := runBriefLine(in, lr, "a1", words)
-	second, held := runBriefLine(in, lr, "a1", words)
-	if !firstHeld || !held || len(*spawned) != 1 || !strings.Contains(second.Reason, "Info: Job running") {
-		t.Fatalf("spawns %v, second = %+v: want one launch and the later claimant held on it", *spawned, second)
-	}
-}
-
 // Regression (2026-11-16): an exit line the terminal wrapped, or coloured, still names the ask's job.
 func TestLeafJobIDsWrappedExitLine(t *testing.T) {
 	for _, out := range []string{"job " + leafJob + " started", leafJob, "ask: dispatch " + leafJob, "a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m", "a\nask: dispatch " + leafJob + "\n\n[exited with code 0]"} {
 		if got := readLeaf(leafEnv(t, out), leafWant{ids: true}).ids; fmt.Sprint(got) != fmt.Sprint([]string{leafJob}) {
 			t.Errorf("%q: ids = %v, want [%s]", out, got, leafJob)
 		}
-	}
-}
-
-// A hand-back while the hook's own launch is inside askLaunchWindow with no receipt yet is held, not released.
-func TestRanOnHookLaunchPendingHolds(t *testing.T) {
-	spawned := stubSpawn(t)
-	in := handbackOf(leafTx(t, "claude", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
-	leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in))) // the hook launches; its output stays empty
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	if !blocked || len(*spawned) != 1 || r.UpdatedInput != nil ||
-		!strings.Contains(r.Reason, "Info: Job running") || !strings.Contains(r.Reason, "hand-back waits") {
-		t.Fatalf("got %+v blocked=%v spawns %v, want a hold on the pending launch and no new launch", r, blocked, *spawned)
 	}
 }
 
@@ -1434,32 +1326,23 @@ func TestHandbackReleasesPastWaitLimit(t *testing.T) {
 	}
 }
 
-// An ask whose answer merely quotes "PreToolUse … denied" still ran: its record binds and the hook launches nothing.
+// An ask whose answer merely quotes "PreToolUse … denied" still ran: its record binds.
 func TestQuotedHookDenialIsNoDeniedAsk(t *testing.T) {
 	const id = "20261116T120000.000-codex"
 	oldOwner := watchOwner
 	t.Cleanup(func() { watchOwner = oldOwner })
 	watchOwner = func() int { return 4242 }
-	spawned := stubSpawn(t)
 	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	result := "The ask check ran through the PreToolUse preflight hook and was denied with the hint.\nask: ran on codex · own login · m · fallback none"
 	tx := timedLeafTx(t, at, result)
-	b, err := os.ReadFile(tx.AgentTranscriptPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b = bytes.Replace(b, []byte(`Objective: x\nAgent: codex\n`), []byte(`Run: claude-code agents ask --agent codex \"x\"\n\nObjective: x\n`), 1)
-	if err := os.WriteFile(tx.AgentTranscriptPath, b, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	in := handbackOf(tx, "relay report")
 	in.CWD = t.TempDir()
 	writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"owner":4242,"model":"m","request":{"prompt":"x"}}`,
 		id, at.Add(time.Second).Format(time.RFC3339), os.Getpid()))
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || len(*spawned) != 0 || !strings.Contains(msg, "NOTE: dispatch "+id) {
-		t.Fatalf("got %+v blocked=%v spawns %v, want the record's receipt and no launch", r, blocked, *spawned)
+	if blocked || !strings.Contains(msg, "NOTE: dispatch "+id) {
+		t.Fatalf("got %+v blocked=%v, want the record's receipt", r, blocked)
 	}
 }
 
@@ -1472,16 +1355,14 @@ func TestLeafDenialProvenance(t *testing.T) {
 		`{"permissionDecision":"deny"}`,
 	} {
 		t.Run(text, func(t *testing.T) {
-			spawned := stubSpawn(t)
 			in := timedLeafTx(t, time.Now().Add(-time.Minute), text)
 			appendLines(t, in.AgentTranscriptPath, txCall("other", "Bash", "ls"), `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"other","is_error":true,"content":"PreToolUse:Bash hook error: denied"}]}}`)
 			lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
 			if len(lr.scan.askTimes) != 1 {
 				t.Fatalf("successful ask lost: %+v", lr.scan)
 			}
-			lr.scan.runLine = `claude-code agents ask --agent codex "x"`
 			r, blocked := leafGate(in, "a1", lr)
-			if blocked || len(*spawned) != 0 || !strings.Contains(r.SystemMessage, unattributedNote) {
+			if blocked || !strings.Contains(r.SystemMessage, unattributedNote) {
 				t.Fatalf("ambiguous result: %+v blocked=%v", r, blocked)
 			}
 		})
