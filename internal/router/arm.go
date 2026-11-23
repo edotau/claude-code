@@ -3,6 +3,7 @@ package router
 import (
 	"cmp"
 	"errors"
+	"hash/fnv"
 	"maps"
 	"os"
 	"path/filepath"
@@ -19,11 +20,15 @@ import (
 
 // armPicks is state/harness/router/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
 type armPicks struct {
-	Schema int                  `json:"schema"`
-	Picked map[string]time.Time `json:"picked"`
+	Schema int                    `json:"schema"`
+	Picked map[string]time.Time   `json:"picked"`
+	Recent map[string][]time.Time `json:"recent,omitempty"` // picks inside armPendingWindow: load before a child registers
 }
 
 const armPicksSchema = 1
+
+// armPendingWindow is how long a pick counts as load; a launched child registers its record well inside it.
+var armPendingWindow = 20 * time.Second
 
 var armPicksFormat = schemas.Register(schemas.Format{
 	Name: "route-auto", Owner: "internal/router", Kind: schemas.Cache, Version: armPicksSchema,
@@ -39,7 +44,7 @@ type WorkspaceQuery[F any] struct {
 	Provider         string // provider group to rank; empty defaults to databricks
 	AgentName, Model string
 	Strict           bool
-	PreferFresh      bool // rank profiles with a fresh served listing ahead of stale ones (after cooling)
+	PreferFresh      bool // a fresh served listing beats a stale one before load (after cooling)
 	Tried            []string
 	Pending          map[string]int
 	Findings         func(*providers.Provider, string, string, time.Time) []F
@@ -67,13 +72,15 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 	load := workspaceLoad(usable, q) // the marker and record scans stay out of the stamp lock
 	rankFrom := func() armPicks {
 		picks := readArmPicks()
-		live = rankWorkspaces(usable, cooling, stale, load, picks)[usable[0].Name]
-		order = names(usable)
+		rankWorkspaces(usable, cooling, stale, pendingLoad(load, &picks, now), picks)
+		order, live = names(usable), load[usable[0].Name]
 		return picks
 	}
 	pick := func() error {
 		picks := rankFrom()
-		picks.Picked[order[0]] = newestStamp(picks, now)
+		stamp := newestStamp(picks, now)
+		picks.Picked[order[0]] = stamp
+		picks.Recent[order[0]] = append(picks.Recent[order[0]], stamp)
 		return writeArmPicks(picks)
 	}
 	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // no lock: rank read-only, unstamped
@@ -96,6 +103,25 @@ func newestStamp(picks armPicks, now time.Time) time.Time {
 	return stamp
 }
 
+// pendingLoad is load plus each workspace's picks inside armPendingWindow; it prunes picks.Recent to that window.
+func pendingLoad(load map[string]int, picks *armPicks, now time.Time) map[string]int {
+	counts := maps.Clone(load)
+	if counts == nil {
+		counts = map[string]int{}
+	}
+	recent := map[string][]time.Time{}
+	for n, ats := range picks.Recent {
+		for _, at := range ats {
+			if d := now.Sub(at); d < armPendingWindow && d > -armPendingWindow {
+				recent[n] = append(recent[n], at)
+				counts[n]++
+			}
+		}
+	}
+	picks.Recent = recent
+	return counts
+}
+
 func names(ps []*providers.Provider) []string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
@@ -110,7 +136,8 @@ func RankWorkspaces[F any](reg *providers.Registry, q WorkspaceQuery[F], now tim
 	if err != nil {
 		return nil, skipped, err
 	}
-	rankWorkspaces(usable, workspaceCooling(usable, q, now), workspaceStale(usable, q, now), workspaceLoad(usable, q), readArmPicks())
+	picks := readArmPicks()
+	rankWorkspaces(usable, workspaceCooling(usable, q, now), workspaceStale(usable, q, now), pendingLoad(workspaceLoad(usable, q), &picks, now), picks)
 	return names(usable), skipped, nil
 }
 
@@ -154,17 +181,28 @@ func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, co
 	for _, p := range ps {
 		dead[p.Name] = LoginDead(p)
 	}
+	host := armHost()
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
 		return cmp.Or(
 			cmp.Compare(rank(dead[a.Name]), rank(dead[b.Name])),
 			cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])),
-			cmp.Compare(rank(stale[a.Name]), rank(stale[b.Name])),
+			cmp.Compare(rank(stale[a.Name]), rank(stale[b.Name])), // set only under PreferFresh: auto needs a listing
 			cmp.Compare(counts[a.Name], counts[b.Name]),
 			picks.Picked[a.Name].Compare(picks.Picked[b.Name]),
+			cmp.Compare(hostTie(host, a.Name), hostTie(host, b.Name)),
 			cmp.Compare(a.Name, b.Name),
 		)
 	})
 	return counts
+}
+
+// armHost seeds the cold-start tie-break, so two machines with no stamps prefer different workspaces.
+var armHost = func() string { h, _ := os.Hostname(); return h }
+
+func hostTie(host, name string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(host + "\x00" + name))
+	return h.Sum64()
 }
 
 // LoginDead reports a recorded dead user login with no service principal to cover it: a pick of p would use that login.
@@ -209,7 +247,8 @@ func readArmPicks() armPicks {
 	return picks
 }
 
-func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
+// writeArmPicks skips fsync: the stamp is advisory, and a lost one after a power cut only re-picks.
+func writeArmPicks(picks armPicks) error { return paths.WriteJSONNoSync(armPicksFile(), picks) }
 
 // armCandidates splits reg's profiles in q.Provider (default databricks, none in tried) by Findings: usable, skipped.
 func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model string, now time.Time) (usable []*providers.Provider, skipped []F) {

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"path/filepath"
@@ -43,8 +44,16 @@ func noCredential(unusable []string) func(*providers.Provider, string, string, t
 	}
 }
 
+func setArmHost(t testing.TB, host string) {
+	t.Helper()
+	orig := armHost
+	t.Cleanup(func() { armHost = orig })
+	armHost = func() string { return host }
+}
+
 func poolFixture(t *testing.T, live map[string]int) *providers.Registry {
 	t.Helper()
+	setArmHost(t, "devhost")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	origFindings, origCooling, origLive := armFindings, armCooling, armLive
 	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
@@ -58,8 +67,9 @@ func poolFixture(t *testing.T, live map[string]int) *providers.Registry {
 	return reg
 }
 
-// TestPickArm: fewest live wins; a tie goes to the least recent pick, then the name; an unusable workspace is skipped.
+// Equal load favors the least recent pick, then the host salt; unusable workspaces are skipped.
 func TestPickArm(t *testing.T) {
+	setArmHost(t, "devhost")
 	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	cases := []struct {
@@ -74,7 +84,7 @@ func TestPickArm(t *testing.T) {
 		{"tie: least recent pick", map[string]int{"dev": 1, "prod": 1, "qa": 1},
 			map[string]time.Time{"dev": ago(time.Minute), "prod": ago(time.Hour), "qa": ago(2 * time.Minute)}, nil, "prod", 1},
 		{"tie: never picked beats picked", nil, map[string]time.Time{"dev": ago(time.Hour), "prod": ago(time.Hour)}, nil, "qa", 0},
-		{"tie: name order", nil, nil, nil, "dev", 0},
+		{"tie: host order", nil, nil, nil, "prod", 0},
 		{"no usable credential is skipped", map[string]int{"prod": 9, "qa": 5}, nil, []string{"dev"}, "qa", 5},
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{"openai": {Name: "openai"}}}
@@ -111,6 +121,7 @@ func TestPickArm(t *testing.T) {
 
 // pickArm outside tried never returns a tried workspace, and none left is an error.
 func TestPickArmExcludesTried(t *testing.T) {
+	setArmHost(t, "devhost")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	for _, n := range []string{"dev", "prod", "qa"} {
 		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
@@ -122,20 +133,22 @@ func TestPickArmExcludesTried(t *testing.T) {
 	armCooling = func(*providers.Provider, time.Time) bool { return false }
 	armLive = func([]*providers.Provider) map[string]int { return nil }
 	var tried []string
-	for _, want := range []string{"dev", "prod", "qa"} {
-		got, _, _, err := pickArm(reg, "", "", time.Now(), tried...)
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	for _, want := range []string{"prod", "qa", "dev"} {
+		got, _, _, err := pickArm(reg, "", "", now, tried...)
 		if err != nil || got != want {
 			t.Fatalf("pickArm outside %v = %q, %v; want %q", tried, got, err, want)
 		}
 		tried = append(tried, got)
 	}
-	if got, _, _, err := pickArm(reg, "", "", time.Now(), tried...); err == nil {
+	if got, _, _, err := pickArm(reg, "", "", now, tried...); err == nil {
 		t.Fatalf("pickArm with every workspace tried = %q, want an error", got)
 	}
 }
 
 // BenchmarkPickArmExcluding is the hot path a 429 adds: one pick outside the workspaces already tried.
 func BenchmarkPickArmExcluding(b *testing.B) {
+	setArmHost(b, "devhost")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	for _, n := range []string{"dev", "prod", "qa"} {
 		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
@@ -203,6 +216,23 @@ func TestPickWithPendingAndConcurrent(t *testing.T) {
 	}
 }
 
+// Separate launches' fresh picks count as load before their children register, so a burst spreads.
+func TestPickArmBurstSpreads(t *testing.T) {
+	reg := poolFixture(t, map[string]int{"prod": 1})
+	now := time.Now()
+	seen := map[string]bool{}
+	for range 3 {
+		got, _, _, err := pickArm(reg, "", "", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[got] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("three burst picks chose %v, want three distinct workspaces", seen)
+	}
+}
+
 func checkReadOnlyRank(t *testing.T, reg *providers.Registry, now time.Time, want string) {
 	t.Helper()
 	before := readArmPicks()
@@ -225,6 +255,14 @@ func rankIs(ranked []string, err error, at map[int]string, n int) bool {
 	return true
 }
 
+// tieOrder is names in this host's cold-start tie-break order.
+func tieOrder(names ...string) []string {
+	host := armHost()
+	return slices.SortedFunc(slices.Values(names), func(a, b string) int {
+		return cmp.Compare(hostTie(host, a), hostTie(host, b))
+	})
+}
+
 // markLoginDead writes the recorded dead-login state of profile name.
 func markLoginDead(t *testing.T, name string) {
 	t.Helper()
@@ -239,6 +277,7 @@ func markLoginDead(t *testing.T, name string) {
 }
 
 func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
+	setArmHost(t, "devhost")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
@@ -267,10 +306,10 @@ func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
 	if !rankIs(ranked, err, map[int]string{0: "ws-c"}, 5) {
 		t.Fatalf("preferFresh rank = %v, %v; want 5 workspaces with ws-c first", ranked, err)
 	}
-	// Cooling still beats freshness: if ws-c is cooling, stale ws-a takes over.
+	// Cooling still beats freshness: if ws-c is cooling, a stale workspace takes over.
 	ranked, _, err = RankWorkspaces(reg, baseQ("databricks", map[string]bool{"ws-c": true}, true), now)
-	if !rankIs(ranked, err, map[int]string{0: "ws-a", 4: "ws-c"}, 5) {
-		t.Fatalf("cooling vs fresh rank = %v, %v; want ws-a first, ws-c last", ranked, err)
+	if !rankIs(ranked, err, map[int]string{4: "ws-c"}, 5) {
+		t.Fatalf("cooling vs fresh rank = %v, %v; want ws-c last", ranked, err)
 	}
 	// A recorded dead user login with no service principal ranks last; one the user identity covers is not demoted.
 	markLoginDead(t, "ws-a")
@@ -279,12 +318,51 @@ func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
 		t.Fatalf("dead-login rank = %v, %v; want ws-a last", ranked, err)
 	}
 	reg.Providers["ws-a"].Auth.Type = providers.AuthNone // no oauth login to be dead: back in place
-	if ranked, _, err = RankWorkspaces(reg, baseQ("databricks", nil, false), now); !rankIs(ranked, err, map[int]string{0: "ws-a"}, 5) {
-		t.Fatalf("no-login rank = %v, %v; want ws-a first", ranked, err)
+	if ranked, _, err = RankWorkspaces(reg, baseQ("databricks", nil, false), now); err != nil || !slices.Equal(ranked, tieOrder(ranked...)) {
+		t.Fatalf("no-login rank = %v, %v; want the host tie order", ranked, err)
 	}
-	// Non-Databricks multi-profile ranking stays strictly within its provider group.
 	ghRanked, _, err := RankWorkspaces(reg, baseQ("github", map[string]bool{"gh-a": true}, false), now)
 	if !rankIs(ghRanked, err, map[int]string{0: "gh-b", 1: "gh-a"}, 2) {
 		t.Fatalf("github rank = %v, %v; want [gh-b gh-a]", ghRanked, err)
+	}
+}
+
+func TestRankWorkspacesFreshBeforeLoadAndHostTie(t *testing.T) {
+	setArmHost(t, "devhost")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	for _, n := range []string{"dev", "qa", "prod"} {
+		reg.Providers[n] = &providers.Provider{Name: n, Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://" + n + ".example.com"}
+	}
+	if err := dbxserving.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	q := armQuery{Findings: armFindings, Unserved: func(string, []armFinding) error { return nil }, Cooling: armCooling, PreferFresh: true,
+		Live: func([]*providers.Provider) map[string]int { return map[string]int{"dev": 1} }}
+	// PreferFresh: a busy fresh dev beats the idle stale qa and prod, so auto gets a listing to preflight.
+	if ranked, _, err := RankWorkspaces(reg, q, now); !rankIs(ranked, err, map[int]string{0: "dev"}, 3) {
+		t.Fatalf("PreferFresh rank = %v, %v; want busy fresh dev first", ranked, err)
+	}
+	// Without PreferFresh load decides: the busy dev ranks last.
+	q.PreferFresh = false
+	if ranked, _, err := RankWorkspaces(reg, q, now); !rankIs(ranked, err, map[int]string{2: "dev"}, 3) {
+		t.Fatalf("load rank = %v, %v; want busy dev last", ranked, err)
+	}
+	// Equal load, no stamps: two hosts prefer different first workspaces.
+	q.Live = armLive
+	for _, row := range []struct {
+		host string
+		want []string
+	}{
+		{"devhost", []string{"prod", "qa", "dev"}},
+		{"otherhost", []string{"dev", "qa", "prod"}},
+	} {
+		t.Run(row.host, func(t *testing.T) {
+			setArmHost(t, row.host)
+			if ranked, _, err := RankWorkspaces(reg, q, now); err != nil || !slices.Equal(ranked, row.want) {
+				t.Fatalf("rank = %v, %v; want %v", ranked, err, row.want)
+			}
+		})
 	}
 }
