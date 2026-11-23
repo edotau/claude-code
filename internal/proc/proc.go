@@ -47,8 +47,8 @@ func SpawnDetachedPID(bin string, args []string, dir string, out *os.File, extra
 	return cmd.Process.Pid
 }
 
-// receiptScript runs "$@" and records a non-zero shell status in $1/exit-<shell pid>; 128+n is signal n.
-const receiptScript = `d=$1; shift; "$@"; s=$?; [ "$s" -eq 0 ] || echo "$s" > "$d/exit-$$"`
+// receiptScript runs "$@" and renames a non-zero status into $1/exit-<shell pid>, never seen empty; 128+n is signal n.
+const receiptScript = `d=$1; shift; "$@"; s=$?; [ "$s" -eq 0 ] || { echo "$s" > "$d/.exit-$$" && mv "$d/.exit-$$" "$d/exit-$$"; }`
 
 // ExitReceiptPath is where SpawnDetachedWithReceipt's wrapper (pid) leaves the child's exit status.
 func ExitReceiptPath(dir string, pid int) string {
