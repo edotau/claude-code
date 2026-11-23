@@ -33,6 +33,18 @@ func TestBenchmarkEpochsFollowFileContents(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkBenchmarkEpochComparisons(t, before, after)
+	checkCRLFKeepsEpoch(t, dir, file, source+"\n", after)
+}
+
+func checkCRLFKeepsEpoch(t *testing.T, dir, file, source string, want map[string]benchmarkEpoch) {
+	t.Helper()
+	if err := os.WriteFile(file, []byte(strings.ReplaceAll(source, "\n", "\r\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	crlf, err := benchmarkEpochs(dir, ".")
+	if err != nil || !sameEpochs(epochHeader(crlf), epochHeader(want)) {
+		t.Fatalf("CRLF checkout changed the epoch: %+v err=%v", crlf, err)
+	}
 }
 
 func checkBenchmarkEpochComparisons(t *testing.T, before, after map[string]benchmarkEpoch) {

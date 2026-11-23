@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -64,7 +65,8 @@ func fileEpochs(top, file string) (map[string]benchmarkEpoch, error) {
 	if err != nil {
 		return nil, err
 	}
-	hash := sha256.Sum256(body)
+	// CRLF folds to LF so an autocrlf checkout keeps the epoch.
+	hash := sha256.Sum256(bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")))
 	out := map[string]benchmarkEpoch{}
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
