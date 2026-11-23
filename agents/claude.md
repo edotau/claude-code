@@ -103,7 +103,7 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
   to 14 thousand prompt tokens wasted).
 - Brief: Write it to the path `claude-code agents brief --path <a>` prints (Read it first); task, owned paths,
   constraints and verify, plus "never stash/checkout/reset/restore".
-- codex, copilot, gemini, opencode run carried, then one `claude-code agents result -f <id>`:
+- codex, copilot, gemini, opencode run carried (Databricks arm, R20), then one `claude-code agents result -f <id>`:
   `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
 - Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; no
   tools by default, `--read-only` to inspect (no shell), `--tools` to edit. Its brief stands alone (no CLAUDE.md,
@@ -116,8 +116,8 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 ### Design — self-contained planning
 
 Run `problem-solving` Steps 0-3, write the plan in the `docs/templates/plan.md` shape (rules in `agents/Plan.md`)
-and return it to the manager. Trivial/single-file changes skip the plan (say so); plan-only requests stop once it
-is filed.
+and return it to the manager. Multi-part work gets a dated plan first (R18); trivial/single-file changes skip it
+(say so); plan-only requests stop once it is filed.
 
 ### Implement — write the code
 

@@ -17,7 +17,7 @@ allowed-tools: Bash(claude-code agents label *), Bash(claude-code agents brief -
   --model <m>            the model; omitted: the pick
 ```
 
-Overlay keys: `rules/harness/agent.md` → Dispatch behavior.
+Overlay keys: `rules/harness/agent.md` → Dispatch behavior. Databricks default: R20.
 
 Launcher only (a shortcut for `agents ask --overlay`), run by this session with no relay subagent. Empty
 `$ARGUMENTS`, `help`, or no `--agent` naming one of the six: print the block above and stop. Otherwise:

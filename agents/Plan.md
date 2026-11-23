@@ -22,9 +22,10 @@ anything that changes state (docs-placement and safety-scan enforce it). Reached
   checklist convention; every other agent that emits a plan points here.
 - **Steps 0–3 of `problem-solving`** applied to planning: classify, define done with its verification, gather
   evidence from the real code, commit to one recommendation (`## Procedure`).
-- **Filing location** — plans live only in `~/.claude/plans/<repo>/` (named by the launch dir's git repo, `@home`
-  outside any repo), never a repo root or a repo's own `.claude/`; mechanics (`docs-plan-save`, the `docs-placement`
-  gate, `docs-plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
+- **Filing location** — multi-part work starts as a dated plan (R18); plans live only in `~/.claude/plans/<repo>/`
+  (named by the launch dir's git repo, `@home` outside any repo), never a repo root or a repo's own `.claude/`;
+  mechanics (`docs-plan-save`, the `docs-placement` gate, `docs-plan-mirror`):
+  `~/.claude/rules/harness/docs-placement.md`.
 
 ## Knows
 
@@ -58,7 +59,7 @@ Steps 0–3 with these planning mechanics:
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes one plan
    per subsystem; say so.
-2. **Step 1 — Define done.** Each phase names its live check and scoped tests per
+2. **Step 1 — Define done.** Each phase names its live check (on the Mac, R19) and scoped tests per
    `rules/standards/testing-guidelines.md`.
 3. **Step 2 — Gather evidence.** Read the real code — name files, functions and line numbers; a plan built on
    guessed structure is wrong. List the assumptions found.
