@@ -171,12 +171,12 @@ var pyLaunchCases = []pyCase{
 // pyStdin is body run as a Python stdin heredoc.
 func pyStdin(body string) string { return "python3 - <<'PY'\n" + body + "\nPY" }
 
-// Data-sink heredoc bodies keep the hard-block checks; for the intent rules they are data.
+// Data-sink heredoc bodies are data for the hard-block and intent rules.
 var heredocDataSinkMentions = []struct {
 	cmd  string
 	want core.Decision
 }{
-	{"cat <<EOF > notes.md\nremember to sudo rm -rf / on the old box\nEOF", core.Block},
+	{"cat <<EOF > notes.md\nremember to sudo rm -rf / on the old box\nEOF", core.Allow},
 	{"cat <<'EOF' > x.md\ngit push --force origin main\nEOF", core.Allow},
 }
 

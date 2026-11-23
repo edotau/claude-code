@@ -29,9 +29,41 @@ var heredocMustBlock = []string{
 	"ssh host bash <<EOF\ngit push --force origin main\nEOF",
 }
 
+// heredocFileOnly writes a destructive body to a file and never runs it: the body is data, not a command.
+var heredocFileOnly = []string{
+	"cat > /tmp/brief.md <<'EOF'\nrm -rf /\nEOF",
+	"tee notes.md <<EOF\nmkfs.ext4 /dev/sda\nEOF",
+}
+
+// heredocFileMustBlock writes or continues a heredoc whose body still reaches a command the scan must judge.
+var heredocFileMustBlock = []string{
+	"cat > /tmp/b.md <<EOF\n$(rm -rf /)\nEOF",
+	"cat > /tmp/s.sh <<'EOF'\nrm -rf /\nEOF\nbash /tmp/s.sh",
+	"bash <<'EOF'\nrm -rf /\nEOF",
+	"cat <<'EOF' | sh\nrm -rf /\nEOF",
+	"cat <<'EOF' \\\n| bash\nrm -rf /\nEOF",
+	"cat > /tmp/a <<'A' <<'B'\nrm -rf /\nA\nB",
+	"bash <<'EOF'\necho \"x\nEOF\nrm -rf /",
+	"cat > /tmp/s.sh <<'EOF'\nrm -rf /\nEOF\n/tmp/s.sh",
+}
+
 var heredocMustAsk = []string{
 	"psql <<SQL\nDROP TABLE users;\nSQL",
 	"mysql -u root <<EOF\ntruncate table t;\nEOF",
+}
+
+func TestHardBlockFileOnlyHeredocBody(t *testing.T) {
+	narrowTemp(t)
+	for _, cmd := range heredocFileOnly {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Allow {
+			t.Errorf("file-only heredoc %q: got %d want Allow (%s)", cmd, got, stderr)
+		}
+	}
+	for _, cmd := range heredocFileMustBlock {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Block {
+			t.Errorf("kept heredoc body %q: got %d want Block (%s)", cmd, got, stderr)
+		}
+	}
 }
 
 func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {

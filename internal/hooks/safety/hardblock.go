@@ -27,8 +27,11 @@ var hardBlocks = []*core.Gated{
 
 // hardBlockVerdict blocks a hard shape outside inert text; one only in inert text is data.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
-	if strings.Contains(cmd, "<<") { // heredoc bodies stay in the scan
+	if strings.Contains(cmd, "<<") { // only a command that is nothing but file-writing heredocs drops their bodies
 		scan = cmd
+		if dropped := dropInertHeredocs(cmd); fileWritesOnly(dropped) {
+			scan = dropped
+		}
 	}
 	if pattern, ok := firstHardBlock(blankHardData(scan)); ok {
 		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
@@ -42,6 +45,18 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 		}
 	}
 	return core.Allow, "", ""
+}
+
+// fileWritesOnly reports dropped as only inert heredoc headers, each followed directly by its closer.
+func fileWritesOnly(dropped string) bool {
+	lines := strings.Split(dropped, "\n")
+	for i := 0; i < len(lines); i += 2 {
+		delim, _, dash, ok := core.InertHeredocStart(lines[i])
+		if !ok || core.HeredocEnd(lines, i+1, delim, dash) != i+1 {
+			return false
+		}
+	}
+	return true
 }
 
 // firstHardBlock is the first hard-block pattern any shell segment of text matches, as written or as the shell reads it
