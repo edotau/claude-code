@@ -233,7 +233,8 @@ func redGateOutput(checks map[string][]waves.TaskCheck) string {
 				continue
 			}
 			if b, err := os.ReadFile(c.Saved); err == nil {
-				out.WriteString(strings.TrimSuffix(string(b), "\n") + "\n")
+				out.WriteString(strings.TrimSuffix(string(b), "\n"))
+				out.WriteByte('\n')
 			}
 		}
 	}
