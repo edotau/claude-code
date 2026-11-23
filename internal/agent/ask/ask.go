@@ -624,6 +624,12 @@ func recordTools(f *askFlags) error {
 	return nil
 }
 
+// resumes reports whether a retry by agent name may reuse rec's session: its own, and one the agent saved.
+func resumes(rec agent.Record, name string) bool {
+	own := (rec.RanAs == "" || rec.RanAs == rec.Agent) && name == rec.Agent // never another agent's session
+	return own && (rec.Agent != "pi" || rec.Request.SessionID != "")        // pi runs --no-session unless one was named
+}
+
 // applyRecord applies a --job record, else a --retry record under the overlay's fold.
 func (r *askRun) applyRecord() (int, bool) {
 	f := r.f
@@ -649,8 +655,7 @@ func (r *askRun) applyRecord() (int, bool) {
 			return r.fail(err, 1)
 		}
 		r.ctx = retryLineage(r.ctx, rec)
-		own := (rec.RanAs == "" || rec.RanAs == rec.Agent) && f.name == rec.Agent // never another agent's session
-		if own && !f.recover && !helptext.Explicit(r.fs, "session") {
+		if resumes(rec, f.name) && !f.recover && !helptext.Explicit(r.fs, "session") {
 			f.session = cmp.Or(rec.SessionID, f.session)
 		}
 	}
