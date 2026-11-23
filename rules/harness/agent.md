@@ -101,7 +101,9 @@ paths:
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
 - **pi RTK_WRAP (trial)** — `RTK_WRAP=on|debug` (process or vault env; default off; `debug` only logs and runs
-  every command raw) puts `state/harness/rtkwrap/bin` first on a Pi launch's PATH. Its stand-ins (`bin/.rtkwrap`, one
+  every command raw) puts `state/harness/rtkwrap/bin` first on a Pi launch's PATH and, with code mode off, sets
+  `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing a line's last command, sourcing the user's own
+  `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one
   symlink per rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
   Substitutions, env changes, `git commit`, a command piped into another program, `ls -a`/`-A` and the hook's vetoes
   stay raw, and any failure runs the real binary.

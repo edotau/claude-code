@@ -29,12 +29,25 @@ func Dir() string { return filepath.Join(paths.StateDir(), "rtkwrap", "bin") }
 // Binary is the shim executable every Dir entry links to; `make compile` builds it.
 func Binary() string { return filepath.Join(paths.BinDir(), ".rtkwrap") }
 
-// Ensure makes dir hold one symlink per name to bin, replacing a wrong entry; bin must be an executable file.
+// UserBashEnvVar carries the user's own BASH_ENV, which the harness BASH_ENV file sources first.
+const UserBashEnvVar = "HARNESS_USER_BASH_ENV"
+
+// bashEnvName is the BASH_ENV file in the shim dir; not executable, so PATH lookup never finds it.
+const bashEnvName = ".bash_env"
+
+// bashEnv's EXIT trap stops bash exec'ing a -c line's last command, so the shim sees its tool-shell parent.
+const bashEnv = `if [ -n "$` + UserBashEnvVar + `" ]; then . "$` + UserBashEnvVar + `"; [ -n "$(trap -p EXIT)" ] || trap : EXIT; else trap : EXIT; fi
+`
+
+// Ensure makes dir hold one symlink per name to bin, replacing a wrong entry, plus the BASH_ENV file.
 func Ensure(dir, bin string) error {
 	if fi, err := os.Stat(bin); err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("shim binary %s is missing or not executable", bin)
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if _, err := paths.WriteIfChanged(filepath.Join(dir, bashEnvName), []byte(bashEnv), 0o644); err != nil {
 		return err
 	}
 	for _, name := range append(slices.Clone(Names), rtkName) {
@@ -77,10 +90,38 @@ func Launch(env []string, mode, codemode string, notice io.Writer) []string {
 	})
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
 	out = append(out, "PATH="+dir+string(os.PathListSeparator)+path, CodemodeEnv+"="+codemode)
-	if wrap {
-		out = append(out, ModeEnv+"="+mode)
+	if !wrap {
+		return out
 	}
-	return out
+	return withMode(out, mode, codemode, dir)
+}
+
+// withMode is env with RTK_WRAP=mode and, outside code mode, the BASH_ENV file from dir.
+func withMode(env []string, mode, codemode, dir string) []string {
+	env = append(env, ModeEnv+"="+mode)
+	if codemode != "" {
+		return env
+	}
+	return withBashEnv(env, filepath.Join(dir, bashEnvName))
+}
+
+// withBashEnv is env with BASH_ENV=file, the user's own BASH_ENV kept in UserBashEnvVar for file to source.
+func withBashEnv(env []string, file string) []string {
+	user := os.Getenv("BASH_ENV")
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		v, ok := strings.CutPrefix(kv, "BASH_ENV=")
+		if ok {
+			user = v
+		}
+		return ok
+	})
+	if user != file { // a nested launch inherits ours and keeps the user's value already carried
+		out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, UserBashEnvVar+"=") })
+		if user != "" {
+			out = append(out, UserBashEnvVar+"="+user)
+		}
+	}
+	return append(out, "BASH_ENV="+file)
 }
 
 // withoutDir is list minus every entry naming dir.

@@ -1,9 +1,12 @@
 package rtkwrap
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -40,5 +43,29 @@ func TestEnsureConcurrentLeavesValidDir(t *testing.T) {
 		if got, err := os.Readlink(filepath.Join(dir, n)); err != nil || got != bin {
 			t.Fatalf("%s -> %q, %v; want %q", n, got, err, bin)
 		}
+	}
+}
+
+func TestLaunchSetsBashEnvOnlyWhenWrapping(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shims are unix-only")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	must(t, os.MkdirAll(filepath.Dir(Binary()), 0o755))
+	must(t, os.WriteFile(Binary(), []byte("#!/bin/sh\n"), 0o755))
+	file := filepath.Join(Dir(), bashEnvName)
+	env := Launch([]string{"BASH_ENV=/u/rc"}, "on", "", io.Discard)
+	if !slices.Contains(env, "BASH_ENV="+file) || !slices.Contains(env, UserBashEnvVar+"=/u/rc") || slices.Contains(env, "BASH_ENV=/u/rc") {
+		t.Errorf("wrapping: env = %v", env)
+	}
+	if raw, err := os.ReadFile(file); err != nil || !strings.Contains(string(raw), "trap : EXIT") {
+		t.Errorf("%s = %q, %v", file, raw, err)
+	}
+	setsBashEnv := func(kv string) bool { return strings.HasPrefix(kv, "BASH_ENV=") }
+	if env := Launch(nil, "on", "only", io.Discard); slices.ContainsFunc(env, setsBashEnv) {
+		t.Errorf("code mode with RTK_WRAP=on: env sets BASH_ENV: %v", env)
+	}
+	if env := Launch(nil, "off", "on", io.Discard); slices.ContainsFunc(env, setsBashEnv) {
+		t.Errorf("code mode alone: env sets BASH_ENV: %v", env)
 	}
 }
