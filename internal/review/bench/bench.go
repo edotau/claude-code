@@ -187,8 +187,8 @@ func (o options) flagConflict() string {
 	switch {
 	case l.kind != "" && !l.queue:
 		return "--kind needs --queue"
-	case l.kind != "" && l.kind != "fix" && l.kind != "weak":
-		return "--kind must be fix|weak"
+	case l.kind != "" && l.kind != "fix" && l.kind != "weak" && l.kind != "benchmark":
+		return "--kind must be fix|weak|benchmark"
 	case o.out != "" && (l.queue || l.decide || l.record || l.verdicts):
 		return "--out only applies to a benchmark run"
 	}
