@@ -430,7 +430,7 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	}
 	req.Permissions, _ = permission.Resolve(def, req.Permissions)
 	vctx := valuesContext(context.Background(), req.Values)
-	if req.Permissions, err = inheritPermissionsContext(vctx, req.Permissions); err != nil {
+	if req.Permissions, err = InheritPermissions(vctx, req.Permissions); err != nil {
 		return req, err
 	}
 	// the records, unlike the policy env, survive a leaf clearing HARNESS_DISPATCH_PERMISSIONS

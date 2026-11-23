@@ -49,7 +49,7 @@ func TestRunValuesProjectsTrustedDispatch(t *testing.T) {
 				t.Fatalf("%s: trusted identity lost (explicit=%v)", id, input.values != nil)
 			}
 			childCtx, _ = RunValues(childCtx, stale)
-			gotPolicy, err := inheritPermissionsContext(childCtx, permission.Permissions{})
+			gotPolicy, err := InheritPermissions(childCtx, permission.Permissions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,18 +181,18 @@ func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := inheritPermissionsContext(context.Background(), inner)
+	got, err := InheritPermissions(context.Background(), inner)
 	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != permission.Deny || got.Decide("Bash", "ls") != permission.Allow {
 		t.Fatalf("inherit = %+v, %v; want plan mode, rm denied, ls allowed", got, err)
 	}
 	if got.Decide("Bash", "curl x") != permission.Ask { // the inner Bash allow must not reopen the outer ask
 		t.Fatalf("inherit = %+v; want the outer curl ask kept", got)
 	}
-	if got, _ := inheritPermissionsContext(context.Background(), permission.Permissions{}); len(got.Deny) != 1 {
+	if got, _ := InheritPermissions(context.Background(), permission.Permissions{}); len(got.Deny) != 1 {
 		t.Fatalf("no inner policy: got %+v, want the outer policy whole", got)
 	}
 	t.Setenv(DispatchPermissionsEnv, "{bad")
-	if _, err := inheritPermissionsContext(context.Background(), inner); err == nil {
+	if _, err := InheritPermissions(context.Background(), inner); err == nil {
 		t.Fatal("malformed outer policy: want an error (fail closed)")
 	}
 }

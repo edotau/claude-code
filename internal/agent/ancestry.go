@@ -58,7 +58,7 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 	if doc := agentconfig.InlineOverlay(rec.Route.Provider, rec.Route.Profile); doc != "" { // the parent's fence beats any ambient one
 		set[route.OverlayVar] = doc
 	}
-	p, err := inheritPermissionsContext(proc.WithValues(context.Background(), values), chainPolicy(rec))
+	p, err := InheritPermissions(proc.WithValues(context.Background(), values), chainPolicy(rec))
 	if err == nil && !p.IsZero() { // leave a malformed inherited policy intact so checkRun refuses it
 		raw, _ := json.Marshal(p) // strings and string slices always marshal
 		set[DispatchPermissionsEnv] = string(raw)

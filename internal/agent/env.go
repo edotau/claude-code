@@ -153,7 +153,8 @@ const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
 
 type permissionsKey struct{}
 
-func inheritPermissionsContext(ctx context.Context, p permission.Permissions) (permission.Permissions, error) {
+// InheritPermissions is p under the outer dispatch's policy in ctx's values: a nested run can only narrow it.
+func InheritPermissions(ctx context.Context, p permission.Permissions) (permission.Permissions, error) {
 	raw := proc.Value(ctx, DispatchPermissionsEnv)
 	if raw == "" {
 		return p, nil

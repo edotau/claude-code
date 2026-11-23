@@ -278,7 +278,11 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))
 	}
 	doc := base
-	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(o.Permissions)
+	perms, err := agent.InheritPermissions(ctx, o.Permissions) // the run layers the outer dispatch's rules in checkRun
+	if err != nil {
+		return failAskCode(format, req.Agent, err, 2)
+	}
+	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(perms)
 	doc.Skipped = ch.Skipped
 	r, ok, err := dryRoute(ctx, o, req)
 	if err != nil {
