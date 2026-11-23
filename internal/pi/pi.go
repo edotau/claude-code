@@ -61,7 +61,7 @@ func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless
 		return nil, nil, err
 	}
 	env = append(env, tools.PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
-	return rtkwrap.LaunchEnv(env, rtkMode(), agent.NoticeOut), argv, nil
+	return rtkwrap.LaunchEnv(env, RTKMode(), agent.NoticeOut), argv, nil
 }
 
 func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {

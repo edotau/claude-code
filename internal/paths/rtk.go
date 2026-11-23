@@ -14,6 +14,9 @@ import (
 // RTKBinaryEnv overrides the rtk binary: tests cannot rely on rtk being installed, and a wrapper path also works.
 const RTKBinaryEnv = "HARNESS_RTK_BIN"
 
+// RTKQuietEnv set to 1 silences rtk's missing-hook banner on every rtk the harness or an agent runs.
+const RTKQuietEnv = "RTK_SUPPRESS_HOOK_WARNING"
+
 // RTKBinary returns the absolute rtk binary to invoke, or "" when it is not available.
 func RTKBinary() string {
 	candidates := []string{RTKPinned(), "rtk"} // the pinned install first, then PATH
@@ -63,6 +66,7 @@ func RTKRewrite(ctx context.Context, cmd string) string {
 		defer cancel()
 		c := exec.CommandContext(ctx, bin, "rewrite", cmd)
 		c.WaitDelay = 200 * time.Millisecond
+		c.Env = append(os.Environ(), RTKQuietEnv+"=1")
 		b, err := c.Output()
 		var ee *exec.ExitError
 		if got := strings.TrimSpace(string(b)); got != "" && (err == nil || errors.As(err, &ee) && ee.ExitCode() == 3) {

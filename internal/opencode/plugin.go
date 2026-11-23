@@ -65,6 +65,18 @@ function verdict(m, payload) {
   }
 }
 
+// rewritten is the command a rewrite module substitutes, or "" to run it as typed; it never throws or denies.
+function rewritten(m, payload) {
+  try {
+    const out = JSON.parse(execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name],
+      { input: payload, timeout: m.budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }))
+    const cmd = out.hookSpecificOutput?.updatedInput?.command
+    return typeof cmd === "string" ? cmd : ""
+  } catch {
+    return ""
+  }
+}
+
 let last = ""
 const updating = new Set()
 const HOSTED = process.env.__HOSTEDENV__ === "1"
@@ -90,9 +102,14 @@ export const ClaudeCodeHarness = async ({ directory }) => ({
     const doc = toolDoc("PreToolUse", tool, output.args, input.sessionID, directory)
     const plain = JSON.stringify(doc), tagged = JSON.stringify({ ...doc, harness_agent: "opencode" })
     for (const m of MODULES) {
-      if (!applies(m, "PreToolUse", tool)) continue
+      if (m.rewrite || !applies(m, "PreToolUse", tool)) continue
       const reason = verdict(m, m.asOpencode ? tagged : plain)
       if (reason) throw new Error(reason)
+    }
+    for (const m of MODULES) {
+      if (!m.rewrite || !applies(m, "PreToolUse", tool)) continue
+      const cmd = rewritten(m, tagged)
+      if (cmd) output.args.command = cmd
     }
   },
   // PostToolUse modules run detached, one spawn each; they never block or throw.
@@ -155,6 +172,7 @@ type pluginModule struct {
 	BudgetMs   int64  `json:"budgetMs"`
 	FailClosed bool   `json:"failClosed"`
 	AsOpencode bool   `json:"asOpencode"` // payload carries harness_agent, so the gate words an ask as the block it is
+	Rewrite    bool   `json:"rewrite"`    // the module rewrites the Bash command after the guards; it never blocks
 }
 
 // pluginModules are SpecsFor("opencode", "plugin"): the tool-event hooks the plugin runs in place of the host.
@@ -165,7 +183,8 @@ func pluginModules() []pluginModule {
 			continue
 		}
 		out = append(out, pluginModule{Name: s.Name, Event: s.Event, Matcher: s.Matcher, BudgetMs: s.Budget.Milliseconds(),
-			FailClosed: slices.Contains(pluginFailClosed, s.Name), AsOpencode: !slices.Contains(pluginAsClaude, s.Name)})
+			FailClosed: slices.Contains(pluginFailClosed, s.Name), AsOpencode: !slices.Contains(pluginAsClaude, s.Name),
+			Rewrite: s.Name == "rtk-rewrite"})
 	}
 	return out
 }

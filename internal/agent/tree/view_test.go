@@ -20,7 +20,7 @@ func dashNodes() []Node {
 
 func press(s dashState, nodes []Node, keys ...key) dashState {
 	for _, k := range keys {
-		s = onKey(s, k, nodes)
+		s, _ = onKey(s, k, nodes)
 	}
 	return s
 }
@@ -41,6 +41,22 @@ func TestDashboardMoveExpandCollapse(t *testing.T) {
 		if n := len(visible(nodes, s.open)); s.selID != c.sel || n != c.visCount {
 			t.Fatalf("after key %d: sel %q with %d rows, want %q with %d", c.k, s.selID, n, c.sel, c.visCount)
 		}
+	}
+}
+
+func TestPickClampsAndRecovers(t *testing.T) {
+	ids := []string{"a", "b", "c"}
+	for _, c := range []struct {
+		sel  string
+		step int
+		want string
+	}{{"", 0, "a"}, {"a", -1, "a"}, {"b", 1, "c"}, {"c", 1, "c"}, {"gone", 1, "a"}} {
+		if got := pick(ids, c.sel, c.step); got != c.want {
+			t.Errorf("pick(%q, %d) = %q, want %q", c.sel, c.step, got, c.want)
+		}
+	}
+	if got := pick(nil, "a", 1); got != "" {
+		t.Errorf("pick(no rows) = %q", got)
 	}
 }
 

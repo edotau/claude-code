@@ -158,8 +158,7 @@ type Tree struct {
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 	Free       []string   `json:"free,omitempty"`       // --files: dirty files in this repo that no live leaf holds
 
-	detail   bool   // --detail: each dispatch row is followed by its id and task
-	selected string // the interactive --watch selection: the dispatch row with this id prints reversed
+	detail bool // --detail: each dispatch row is followed by its id and task
 }
 
 // Options scopes a build by Days (ignored with Session) or one Session id; Now defaults to time.Now.

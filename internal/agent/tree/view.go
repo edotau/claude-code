@@ -3,7 +3,6 @@
 package tree
 
 import (
-	"cmp"
 	"maps"
 	"os"
 	"slices"
@@ -15,9 +14,9 @@ import (
 )
 
 // dashFooter is the key hint under the dashboard's rows.
-const dashFooter = "↑/↓ move · →/← expand/collapse · enter open job · q/esc quit"
+const dashFooter = "↑/↓ move · →/← open/close · enter job · c cancel · y copy id · r result · q quit"
 
-// footerRows are the lines under the rows: a blank line and dashFooter.
+// footerRows are the lines under the rows: the status line (blank when unset) and dashFooter.
 const footerRows = 2
 
 // maxLineWidth caps a dashboard line on a wide terminal: CLI and TUI rows stay within 80 columns.
@@ -31,6 +30,8 @@ type dashState struct {
 	top           int             // first visible row in the viewport
 	count         int             // visible rows at the last clamp
 	width, height int
+	pending       string // job id an unconfirmed cancel names
+	status        string // the last action's line, shown above the footer
 }
 
 // nodeKey names a node across reloads; kinds keep a session and a dispatch with one id apart.
@@ -90,14 +91,26 @@ func onResize(s dashState, w, h int) dashState {
 	return clampTop(s)
 }
 
-// onKey moves the selection or opens or closes the selected node.
-func onKey(s dashState, k key, nodes []Node) dashState {
+// keyActions are the keys that act on the selected job.
+var keyActions = map[key]action{keyCancel: actCancel, keyCopy: actCopy, keyResult: actResult}
+
+// onKey answers an armed cancel with any key, else runs an action key, else moves or opens or closes the selection.
+func onKey(s dashState, k key, nodes []Node) (dashState, effect) {
 	vis := visible(nodes, s.open)
 	if s = clamp(s, vis); len(vis) == 0 {
-		return s
+		return s, effect{}
+	}
+	var e effect
+	if s.pending != "" {
+		s.pending, e = onConfirm(s.pending, k == keyConfirm, vis[s.sel])
+		return s, e
+	}
+	if a, ok := keyActions[k]; ok {
+		s.pending, e = onAction(s.pending, a, vis[s.sel])
+		return s, e
 	}
 	s = move(s, k, vis)
-	return clamp(s, visible(nodes, s.open))
+	return clamp(s, visible(nodes, s.open)), e
 }
 
 // move applies k to the selection s.sel of the non-empty vis; right on an open node steps into it, left to the parent.
@@ -166,13 +179,14 @@ type rowCtx struct {
 	home, cwd string
 	open      map[string]bool
 	inSession bool
+	sub       Node // the nearest subagent row above, whose dispatches nest under it
 }
 
 // dashLines is the frame: the viewport's rows, laid out by the tree's one row formatter, then the footer.
 func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string {
 	vis := visible(nodes, s.open)
 	if len(vis) == 0 {
-		return []string{"agents dashboard: no sessions in scope", "", dashFooter}
+		return []string{"agents dashboard: no sessions in scope", s.status, dashFooter}
 	}
 	home, _ := os.UserHomeDir()
 	c := rowCtx{now: now, home: home, open: s.open}
@@ -188,7 +202,7 @@ func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string 
 	top := min(s.top, len(lines))
 	lines = lines[top:min(top+viewRows(s.height), len(lines))]
 	foot := ansi.Style(paint != "", ansi.Dim, textutil.TruncateCells(dashFooter, width, "…"))
-	return append(lines, "", foot)
+	return append(lines, textutil.TruncateCells(s.status, width, "…"), foot)
 }
 
 // addNode adds n's own row: a ▸/▾ twist, the depth's indent, then the cells `agents tree` prints for its kind.
@@ -200,42 +214,20 @@ func addNode(l *layout, n Node, c *rowCtx, sel bool) {
 	switch n.Kind {
 	case KindSession:
 		c.cwd = n.Session.Cwd
-		cells := sessionCells(*n.Session, c.now)
-		cells[0] = twist + cells[0]
-		l.add(levelSession, cells...)
-		l.mark(n.Session.Status == statusActive, 1<<1)
+		addSessionRow(l, *n.Session, c.now, twist)
+	case KindWorkflow:
+		addRunRow(l, *n.Workflow, c.now, twist)
 	case KindSubagent:
-		cells := subagentCells(*n.Subagent, c.now, c.home, c.cwd)
-		cells[0] = twist + cells[0]
-		l.add(levelSubagent, cells...)
-		l.mark(n.Subagent.running(), 1<<0)
+		c.sub = n
+		addSubagentRow(l, *n.Subagent, c, twist, n.Subagent.running())
 	default:
-		d := *n.Dispatch
-		level, depth := levelJob, n.Depth
-		if c.inSession {
-			level, depth = levelDispatch, n.Depth-2
+		level, marker := levelJob, twist+strings.Repeat("  ", n.Depth)+jobMarker(*n.Dispatch)
+		if c.inSession { // the printed tree's ↳ row; a guide column per level below the subagent
+			guide := strings.Repeat("   ", max(n.Depth-c.sub.Depth-1, 0))
+			level, marker = levelDispatch, twist+subNest(*c.sub.Subagent)+guide+"↳"
 		}
-		marker := twist + strings.Repeat("  ", max(depth, 0)) + jobMarker(d)
-		l.add(level, append(append([]string{marker}, jobCells(d, c.now, nil)...), "")...)
-		l.mark(d.Status == statusRunning, 1<<0)
-		l.spanLast(d.queued != "", sel)
+		addJobRow(l, level, append([]string{marker}, jobCells(*n.Dispatch, c.now, nil)...), *n.Dispatch, sel)
 		return
 	}
 	l.spanLast(false, sel)
-}
-
-// sessionCells are a session row's cells: label, state, age, branch, Σ total, title.
-func sessionCells(s Session, now time.Time) []string {
-	title := cmp.Or(textutil.OneLine(s.Title), "(no prompt yet)")
-	return []string{cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch,
-		sessionTotal(s), title}
-}
-
-// subagentCells are a subagent row's cells: nested marker, type, model, ↑in, ↓out, Σ, age, idle, task.
-func subagentCells(sub Subagent, now time.Time, home, cwd string) []string {
-	nest := strings.Repeat("  ", max(sub.Depth, 1)-1)
-	return []string{nest + statusGlyph(sub.Status), sub.Type, subModel(sub),
-		"↑" + textutil.CompactCount(sub.Tokens.In), "↓" + textutil.CompactCount(sub.Tokens.Out),
-		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
-		textutil.OneLine(stripPaths(subTask(sub), home, cwd))}
 }

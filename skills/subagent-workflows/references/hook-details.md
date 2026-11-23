@@ -87,13 +87,17 @@ strings; a one-word or f-string literal still does.
 ## rtk-rewrite
 
 Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed output; never sets a permission decision)
-and runs the pinned `bin/rtk` (else PATH); Claude sessions only. Vetoes: already wrapped, any `git` in a linked
-worktree, any `git commit`, machine-readable flags (`--porcelain`, `--json`), value subcommands (`rev-parse`), `go
-vet` and `go test` with `-v`/`-list` (rtk 1.1.0 reports a failed vet as "No issues found" and drops `-v`/`-list` test
-output). Exact bytes: `rtk bypass <cmd>` (or the pinned path when
-PATH resolves another rtk); `HARNESS_RTK_BIN` overrides. A bare `rtk hook claude` entry in settings is stale and
-removed by hand or explicit `configure --restore`. Auto permission mode skips the rewrite: its classifier gives no
-verdict on a hook-changed input, so the call would bounce for a verbatim resend
+and runs the pinned `bin/rtk` (else PATH). codex, agy and opencode (plugin, after the guards allow) run `rtk hook
+<agent>` instead, only under `RTK_WRAP=on` (`debug` is off here) and never with `HARNESS_PI_CODEMODE` set; the rewrite
+is offered only when `safety-scan` and `permission-gate` allow both the raw and the rewritten command, any error runs
+the command as typed, and copilot is not hooked. On codex a matching dispatch ask or allow rule means no rewrite (codex
+enforces those as `.rules` prefixes, which `rtk <cmd>` would no longer match). Vetoes: already wrapped, any `git` in a
+linked worktree, any `git commit`, machine-readable flags (`--porcelain`, `--json`), value subcommands (`rev-parse`),
+`go vet` and `go test` with `-v`/`-list` (rtk 1.1.0 reports a failed vet as "No issues found" and drops `-v`/`-list`
+test output). Exact bytes: `rtk bypass <cmd>` (or the pinned path when PATH resolves another rtk); `HARNESS_RTK_BIN`
+overrides. A bare `rtk hook claude` entry in settings is stale and removed by hand or explicit `configure --restore`.
+Auto permission mode skips the rewrite: its classifier gives no verdict on a hook-changed input, so the call would
+bounce for a verbatim resend
 
 ## docs-placement
 

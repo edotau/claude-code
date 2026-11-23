@@ -451,7 +451,7 @@ func TestParentTotalsCountUsageOnce(t *testing.T) {
 	}
 	var l layout
 	run := cacheWorkflowTotal(WorkflowRun{Name: "run", Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}})
-	addWorkflowRun(&l, run, time.Time{}, "", "")
+	addWorkflowRun(&l, sessionNode(Session{Workflows: []WorkflowRun{run}}).Children[0], &rowCtx{})
 	if got := strings.Join(l.lines(0, ""), "\n"); strings.Count(got, "Σ160") != 3 {
 		t.Errorf("workflow, phase and subagent totals missing: %s", got)
 	}

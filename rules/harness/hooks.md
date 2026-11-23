@@ -24,7 +24,7 @@ one, edit both and run `make install` for projections; an existing Claude `setti
 | --- | --- |
 | `safety` | Bash safety gate (block / ask / warn tiers) |
 | `permission` | Agent-only (codex, gemini, opencode): judges each call against the dispatch's permissions |
-| `rtk` | Routes noisy command output through rtk |
+| `rtk` | Routes noisy command output through rtk (Claude; codex, agy and opencode under `RTK_WRAP=on`) |
 | `docs` | Markdown placement; plan template, dated plan copies, plan-task ticks |
 | `dispatch` | Concurrency cap, subagent model fill, memory recall on spawn and every `agents ask` |
 | `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
@@ -61,11 +61,11 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 | Agent · surface | Modules | Mode |
 | --- | --- | --- |
 | claude · native | every group that isn't agent-only | **block** (`safety` asks only on destructive SQL and script writes); post/prompt hooks inject context |
-| codex · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
+| codex · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
 | copilot · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`; PostToolUse `worktree-claim`; sessionStart `memory-start`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** |
-| gemini (agy) · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
+| gemini (agy) · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`, `rtk-rewrite`; PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
 | opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory**; `--pure` loads no plugin, so it is refused while a PreToolUse gate is bound; Stop and SessionEnd run only after a watched tool call |
-| opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the claim is a detached, non-blocking spawn per edit |
+| opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; then `rtk-rewrite` once the guards allow; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the rewrite sets `args.command`; the claim is a detached, non-blocking spawn per edit |
 
 **Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension, which registers the only
 tools Pi has and sends each raw call to `claude-code hook PreToolUse --pi-guard`. That entry ignores every
@@ -117,7 +117,7 @@ logs no command text.
 | --- | --- | --- |
 | `safety-scan` ¶ | PreToolUse (Bash) | Block or ask in the order above |
 | `permission-gate` | PreToolUse (Bash\|Write\|Edit\|Read\|WebFetch\|Glob\|Grep) | **Block** a call outside the dispatch's `Permissions` (5s); `apply_patch` is judged as an Edit per file; agent-only |
-| `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command, never setting a permission decision; Claude only, not in auto mode; exact bytes: `rtk bypass <cmd>` |
+| `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command, never setting a permission decision; Claude, not in auto mode; codex, agy and opencode via `rtk hook <agent>` under `RTK_WRAP=on`, only when `safety-scan` and `permission-gate` allow both forms (fails open); exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
 | `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Gates the type (`coworker:<agent>` → `<agent>`), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput`; **fixes** a `Run:` line's unknown flag, bad value, positional agent name or `--task-file -` in the same `updatedInput` when one fix is certain, else notes it; notes a `Run:` line without `--tools` whose brief runs commands or edits files; **denies** a `Run:` line naming a missing workspace or (`--fallback none`) an unserved model |
 | dispatch cap | within `dispatch-effort` | **24 in flight per available account** (a profile's `concurrency` overrides), machine-wide `24 × accounts` clamped to **4 × CPUs**; a blocked dispatch claims nothing; infra errors fail open; `doctor` shows `in-flight`. Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type> --run`); a wrong label is rewritten, never denied; an auto ask (`--model auto`, an auto pin) is frozen: the hook writes the pick into the `Run:` line's `--overlay` (stamping the rotation) and labels it with the bare `<id>`, as for a typed or pinned model |

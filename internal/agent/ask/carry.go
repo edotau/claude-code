@@ -1,8 +1,10 @@
 package ask
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -208,6 +210,7 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 		}
 	}
 	out, errOut, log, closeLog := carryLog(rec, out)
+	out, log, endStream := streamCarry(rec, out, log)
 	start, tail := time.Now(), &tailWriter{max: carryTail}
 	stopForward := agent.StartForward(ctx, rec.ID, "", log)
 	code := carryExec(ctx, rec.Request.CarryArgv, strings.NewReader(rec.Request.Prompt), carryEnv(ctx, rec), io.MultiWriter(out, tail), errOut)
@@ -227,8 +230,62 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 		}
 	}
 	closeLog()
-	finishCarry(rec, final, found, code, time.Since(start))
+	env := finishCarry(rec, final, found, code, time.Since(start))
+	endStream(env)
 	return code
+}
+
+// streamCarry gives a foreground stream-json carrier via-stamped child lines, a takeover event and its one result.
+func streamCarry(rec agent.Record, raw io.Writer, log wire.StreamLog) (io.Writer, wire.StreamLog, func(wire.Envelope)) {
+	fs, f := askFlagSet()
+	fs.SetOutput(io.Discard)
+	argv := rec.Request.CarryArgv
+	if rec.Background || len(argv) < 3 {
+		return raw, log, func(wire.Envelope) {}
+	}
+	if _, err := helptext.ParseArgs(fs, argv[3:]); err != nil || f.format != agent.FormatStreamJSON {
+		return raw, log, func(wire.Envelope) {}
+	}
+	put := func(ev wire.Event) {
+		ev.Schema = wire.EventSchema
+		_ = json.NewEncoder(raw).Encode(ev)
+	}
+	out := &viaLines{w: raw, carrier: rec.ID}
+	return out, func(kind, text string) {
+		log.Emit(kind, text)
+		if kind == wire.EventTakeover {
+			put(wire.Event{DispatchID: rec.ID, Type: kind, Text: text})
+		}
+	}, func(env wire.Envelope) { put(wire.ResultEvent(env)) } // the child's own result lines were dropped
+}
+
+// viaLines feeds viaWriter whole lines, each stamped with its own dispatch id; the carrier's own lines get no via.
+type viaLines struct {
+	w       io.Writer
+	carrier string
+	buf     []byte
+}
+
+func (v *viaLines) Write(p []byte) (int, error) {
+	v.buf = append(v.buf, p...)
+	for {
+		i := bytes.IndexByte(v.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		var id struct {
+			DispatchID string `json:"dispatch_id"`
+		}
+		_ = json.Unmarshal(v.buf[:i], &id)
+		if id.DispatchID == v.carrier {
+			id.DispatchID = ""
+		}
+		_, err := viaWriter{w: v.w, child: id.DispatchID}.Write(v.buf[:i+1])
+		v.buf = v.buf[i+1:]
+		if err != nil {
+			return 0, err
+		}
+	}
 }
 
 // admitCarry publishes the dry-run route before the daemon reads the carrier's pool.
@@ -459,7 +516,7 @@ func carryEnv(ctx context.Context, rec agent.Record) []string {
 }
 
 // finishCarry gives rec the final child's result event, answer and outcome; children carry the usage, so it holds none.
-func finishCarry(rec, final agent.Record, found bool, code int, took time.Duration) {
+func finishCarry(rec, final agent.Record, found bool, code int, took time.Duration) wire.Envelope {
 	env := carryEnvelope(rec, final, found, code, took)
 	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
 	err := events.Emit(wire.ResultEvent(env)) // before the record leaves running, so a follower never misses it
@@ -484,6 +541,7 @@ func finishCarry(rec, final agent.Record, found bool, code int, took time.Durati
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: carry: finish %s: %v\n", rec.ID, err)
 	}
+	return env
 }
 
 // carryEnvelope is the final child's result envelope under rec's id, or an error one when no child finished.

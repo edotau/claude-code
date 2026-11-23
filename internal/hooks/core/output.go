@@ -79,6 +79,10 @@ func outputGemini(event string, r Result) string {
 	switch event {
 	case "PreToolUse":
 		if decisionName(r.Decision, true) == "" {
+			if cmd, _ := r.UpdatedInput["CommandLine"].(string); cmd != "" {
+				// the whole args map: agy may replace rather than merge them
+				return marshalDoc(map[string]any{"decision": "allow", "reason": "rtk rewrite", "overwrite": r.UpdatedInput})
+			}
 			return "" // silent, so agy's own gate decides
 		}
 		return marshalDoc(map[string]any{"decision": "deny", "reason": r.Reason})

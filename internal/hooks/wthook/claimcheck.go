@@ -504,6 +504,12 @@ func claimWarn(err error) core.Result {
 	return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
 }
 
+// MayRefuse reports whether ClaimCheck could ask or deny a Bash call; it reads no claims and marks nothing seen.
+func MayRefuse(in *core.Input) bool {
+	cmd := in.ToolCommand()
+	return isBash(in) && (stageText(cmd) || laneText(cmd) || len(core.WrittenPaths(cmd, in.CWD)) > 0)
+}
+
 // isBash reports a shell call under any agent's tool name (Claude's Bash, Copilot's bash).
 func isBash(in *core.Input) bool { return strings.EqualFold(in.CanonicalTool(), "Bash") }
 

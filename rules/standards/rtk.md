@@ -21,5 +21,5 @@ the prefix is written by the caller, never left to the hook (CLAUDE.md guideline
   run the bare tool; rtk changes the output format.
 - **Docs, skills, agents, commands and brief templates:** a command block an agent will run is written in its rtk form;
   `README.md` steps for a human stay bare.
-- **`rtk gain` prints `No hook installed`:** expected, the harness `rtk-rewrite` hook replaces rtk's own; never run
-  `rtk init -g`.
+- **No `No hook installed` banner:** every agent launch and harness rtk call sets `RTK_SUPPRESS_HOOK_WARNING=1`; the
+  harness `rtk-rewrite` hook replaces rtk's own, so never run `rtk init -g`.

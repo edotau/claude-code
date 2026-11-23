@@ -1,55 +1,66 @@
 package tree
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestDecodeKeys(t *testing.T) {
-	got := decodeKeys([]byte("\x1b[A\x1bOBj\rq\x1bx\x1b[3~"))
-	want := []key{keyUp, keyDown, keyDown, keyEnter, keyQuit, keyEsc}
+	got := decodeKeys([]byte("\x1b[A\x1bOBj\rq\x1bx\x1b[3~cY"))
+	want := []key{keyUp, keyDown, keyDown, keyEnter, keyQuit, keyEsc, keyOther, keyOther, keyOther, keyCancel, keyConfirm}
 	if !slices.Equal(got, want) {
 		t.Errorf("decodeKeys = %v, want %v", got, want)
 	}
 }
 
-func TestPickClampsAndRecovers(t *testing.T) {
-	ids := []string{"a", "b", "c"}
-	for _, c := range []struct {
-		sel  string
-		step int
-		want string
-	}{{"", 0, "a"}, {"a", -1, "a"}, {"b", 1, "c"}, {"c", 1, "c"}, {"gone", 1, "a"}} {
-		if got := pick(ids, c.sel, c.step); got != c.want {
-			t.Errorf("pick(%q, %d) = %q, want %q", c.sel, c.step, got, c.want)
+// c arms the cancel through the real key handler; a key other than Y disarms it and nothing is cancelled.
+func TestDashboardCancelNeedsCapitalY(t *testing.T) {
+	stubActionCancel(t, func(id string) (string, error) {
+		t.Fatalf("cancelled %s without Y", id)
+		return "", nil
+	})
+	n := actionNode(KindDispatch)
+	d := &dashboard{out: io.Discard, nodes: []Node{n, {Kind: KindDispatch, ID: "other"}}, st: dashState{height: 24}}
+	for _, k := range decodeKeys([]byte("n\x1b[B")) { // an unbound key, then a move
+		if d.onKey(keyCancel); d.st.pending != n.ID {
+			t.Fatalf("after c: pending %q, want %q", d.st.pending, n.ID)
+		}
+		if d.onKey(k); d.st.pending != "" || d.st.status != "cancel kept" {
+			t.Fatalf("after c, key %d: %+v, want disarmed", k, d.st)
 		}
 	}
-	if got := pick(nil, "a", 1); got != "" {
-		t.Errorf("pick(no rows) = %q", got)
+	if d.st.selID != "dispatch:"+n.ID {
+		t.Fatalf("the disarming key moved the selection to %q", d.st.selID)
 	}
 }
 
-// The detail view fits the terminal: the task wraps to three lines, output keeps the newest lines, nothing wraps.
-func TestDetailLinesFit(t *testing.T) {
-	out := &followBuf{}
-	for i := range 50 {
-		_, _ = out.Write([]byte("\x1b[31mline\t" + strings.Repeat("x", i*3) + "\x1b[0m\n"))
+// Enter on a dispatch row loads its record and draws the pane: header, scrubbed task and the live footer.
+func TestDashboardEnterOpensPane(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("codex", agent.RunOptions{WorkDir: "/repo"}, time.Now())
+	rec.Request.Prompt = "\x1b[31mread the files\x1b[0m"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
 	}
-	_, _ = out.Write([]byte("partial"))
-	head := []string{"agent  codex", "task   " + strings.Repeat("word ", 60)}
-	lines := detailLines(head, out.tail(), 80, 24)
-	if len(lines) != 24 || lines[len(lines)-1] != jobFooter || lines[len(lines)-3] != "partial" {
-		t.Fatalf("%d lines:\n%s", len(lines), strings.Join(lines, "\n"))
-	}
-	if !strings.HasPrefix(lines[3], "word") || !strings.HasSuffix(lines[3], "…") {
-		t.Errorf("task line 3 = %q, want the wrapped, clipped task", lines[3])
-	}
-	for _, line := range lines {
-		if n := textutil.DisplayWidth(line); n > 80 || strings.ContainsAny(line, "\x1b\t") {
-			t.Errorf("line is %d columns or keeps an escape: %q", n, line)
-		}
+	orig, streamed := paneStream, ""
+	t.Cleanup(func() { paneStream = orig })
+	paneStream = func(_ context.Context, r agent.Record, _ io.Writer) error { streamed = r.ID; return nil }
+	keys := make(chan key)
+	close(keys)
+	var out bytes.Buffer
+	d := &dashboard{ctx: t.Context(), out: &out, keys: keys, tree: &Tree{},
+		nodes: []Node{{Kind: KindDispatch, ID: rec.ID, Dispatch: &Dispatch{Agent: "codex"}}}}
+	d.onKey(keyEnter)
+	frame := out.String()
+	if streamed != rec.ID || !strings.Contains(frame, "id     "+rec.ID) || !strings.Contains(frame, "live ·") ||
+		!strings.Contains(frame, "read the files") || strings.Contains(frame, "[31m") {
+		t.Fatalf("streamed %q, frame:\n%q", streamed, frame)
 	}
 }

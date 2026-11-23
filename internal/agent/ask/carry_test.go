@@ -293,3 +293,33 @@ func saveChild(t *testing.T, r agent.Record, code int) int {
 	}
 	return code
 }
+
+// A foreground stream-json carrier stamps the child's events with via and ends on its own single result.
+func TestRunCarryStreamJSONStampsVia(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const outer, child = "20261122T020000.000-gemini", "20261122T020000.001-gemini"
+	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--format", "stream-json", "-"}
+	rec := agent.Record{ID: outer, Agent: "gemini", Status: "running",
+		Request: agent.RunOptions{Prompt: "the task", Carry: true, CarryArgv: inner}}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	old := carryExec
+	t.Cleanup(func() { carryExec = old })
+	carryExec = func(_ context.Context, _ []string, _ io.Reader, _ []string, stdout, _ io.Writer) int {
+		lines := `{"dispatch_id":"` + child + `","type":"text","text":"hi"}` + "\n" +
+			`{"dispatch_id":"` + child + `","type":"result","status":"ok"}` + "\n"
+		_, _ = io.WriteString(stdout, lines[:20]) // a write may end mid-line
+		_, _ = io.WriteString(stdout, lines[20:])
+		return saveChild(t, agent.Record{ID: child, Agent: "gemini", Parent: outer, Status: "ok"}, 0)
+	}
+	var out bytes.Buffer
+	if code := runCarry(t.Context(), rec, &out); code != 0 {
+		t.Fatalf("runCarry = %d, want 0", code)
+	}
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(got) != 2 || !strings.Contains(got[0], `"via":"`+child+`"`) || !strings.Contains(got[1], `"type":"result"`) ||
+		!strings.Contains(got[1], `"dispatch_id":"`+outer+`"`) || strings.Contains(got[1], `"via"`) {
+		t.Fatalf("stream = %q, want a via-stamped text line then the carrier's one result", got)
+	}
+}
