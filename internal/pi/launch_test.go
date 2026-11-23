@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestExperimentIsOneTrial(t *testing.T) {
@@ -23,6 +24,7 @@ func TestExperimentIsOneTrial(t *testing.T) {
 }
 
 func TestResolveCodemode(t *testing.T) {
+	vaulttest.Use(t) // an unset env falls through to the vault: never this machine's PI_CODEMODE
 	for name, c := range map[string]struct {
 		typed, setting, rtk, want string
 		tools                     bool
