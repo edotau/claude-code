@@ -2,6 +2,8 @@
 package safety
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,8 +16,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -23,14 +29,196 @@ import (
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func RTKRewrite(in *core.Input) core.Result {
-	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
+	if in.ToolName != "" && in.ToolName != "Bash" {
 		return core.Result{}
+	}
+	if in.Agent() != core.AgentClaude {
+		return rtkAgentRewrite(in)
 	}
 	res := rtkRewrite(in)
 	if claudePrintRun(in.ToolCommand()) {
 		res.Context = strings.TrimSpace(res.Context + "\n" + claudePrintHint)
 	}
 	return res
+}
+
+// rtkAgentRewrite offers an external agent rtk's rewrite under RTK_WRAP=on, only when both forms pass the gates.
+func rtkAgentRewrite(in *core.Input) core.Result {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(rtkwrap.ModeEnv)))
+	agent, bin, cmd := in.Agent(), paths.RTKBinary(), in.ToolCommand()
+	if !rtkAgentEligible(in, mode, bin, cmd) {
+		return core.Result{}
+	}
+	rewritten := rtkHookCommand(bin, agent, in, cmd)
+	if rewritten == "" || rewritten == cmd {
+		return core.Result{}
+	}
+	_, onPath := paths.RTKOnPath(bin)
+	word := rtkWord(bin, os.Getenv("HOME"), onPath)
+	pinned := rtkAbsolute(rewritten, word)
+	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) {
+		return core.Result{}
+	}
+	if judged := rtkWithCommand(in, pinned); judged == nil || !rtkGatesAllow(judged) {
+		return core.Result{}
+	}
+	updated := rtkAgentInput(in, agent, pinned)
+	if updated == nil {
+		return core.Result{}
+	}
+	return core.Result{UpdatedInput: updated, Verdict: core.VerdictRewrite}
+}
+
+// rtkAgentEligible gates before the rtk exec; debug is off here, as rtkwrap's decision log is not exported.
+func rtkAgentEligible(in *core.Input, mode, bin, cmd string) bool {
+	return mode == "on" && os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
+		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
+		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkCodexRuleHit(in, cmd)
+}
+
+// rtkHookCommand is `rtk hook <agent>`'s rewritten command; "" on any error, timeout or unknown agent (fail open).
+func rtkHookCommand(bin, agent string, in *core.Input, cmd string) string {
+	var args, path []string
+	switch agent {
+	case core.AgentOpencode:
+		args, path = []string{"hook", "opencode", cmd}, []string{"command"}
+	case core.AgentCodex:
+		args, path = []string{"hook", "codex"}, []string{"hookSpecificOutput", "updatedInput", "command"}
+	case core.AgentGemini:
+		args, path = []string{"hook", "antigravity"}, []string{"overwrite", "CommandLine"}
+	default:
+		return ""
+	}
+	ctx, cancel := core.HookContext("rtk-rewrite")
+	defer cancel()
+	c := exec.CommandContext(ctx, bin, args...)
+	c.WaitDelay = 200 * time.Millisecond
+	c.Env = append(os.Environ(), "RTK_SUPPRESS_HOOK_WARNING=1")
+	if agent != core.AgentOpencode {
+		c.Stdin = bytes.NewReader(in.Raw)
+	}
+	out, err := c.Output()
+	if err != nil {
+		return ""
+	}
+	var reply map[string]any
+	if json.Unmarshal(out, &reply) != nil {
+		return ""
+	}
+	var value any = reply
+	for _, key := range path {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return ""
+		}
+		value = object[key]
+	}
+	rewritten, _ := value.(string)
+	return rewritten
+}
+
+// rtkGatesAllow: every Bash PreToolUse module the agent runs allows in; agentBashAllow's lift is not applied here.
+func rtkGatesAllow(in *core.Input) bool {
+	surface := "native"
+	if in.Agent() == core.AgentOpencode {
+		surface = "plugin"
+	}
+	for _, s := range settings.SpecsFor(in.Agent(), surface) {
+		if s.Event != settings.EventPreToolUse || s.Name == "rtk-rewrite" || !rtkMatchesBash(s.Matcher) {
+			continue
+		}
+		if judge, ok := rtkJudges[s.Name]; !ok || !judge(in) {
+			return false
+		}
+	}
+	return true
+}
+
+func rtkMatchesBash(matcher string) bool {
+	re, err := regexp.Compile("^(?:" + matcher + ")$")
+	return err == nil && re.MatchString("Bash")
+}
+
+// rtkJudges are side-effect-free stand-ins for the Bash PreToolUse modules; a module missing here stops the rewrite.
+var rtkJudges = map[string]func(*core.Input) bool{
+	"safety-scan":     func(in *core.Input) bool { return Verdict(in) == core.Allow },
+	"permission-gate": func(in *core.Input) bool { return PermissionGate(in).Decision == core.Allow },
+	"docs-placement": func(in *core.Input) bool {
+		r := docs.Placement(in) // its Bash path only reads git state
+		return r.Decision == core.Allow && r.UpdatedInput == nil
+	},
+	// ClaimCheck writes seen-store marks, so it is screened: it can refuse only a git add/commit/apply/am/mv
+	"worktree-claim-check": func(in *core.Input) bool { return !wthook.MayRefuse(in) },
+}
+
+// rtkWithCommand is in's real payload with only the command replaced, parsed as the gate entries do; nil on error.
+func rtkWithCommand(in *core.Input, cmd string) *core.Input {
+	var doc map[string]any
+	if json.Unmarshal(in.Raw, &doc) != nil || doc == nil {
+		return nil
+	}
+	holder, key := rtkCommandHolder(doc, in.Agent())
+	if holder == nil {
+		return nil
+	}
+	holder[key] = cmd
+	payload, err := json.Marshal(doc)
+	if err != nil {
+		return nil
+	}
+	judged := core.ParseInputFor(bytes.NewReader(payload), in.Agent())
+	if judged.Invalid != "" || judged.ToolCommand() != cmd {
+		return nil
+	}
+	return judged
+}
+
+// rtkCommandHolder is the object and key holding the command: agy's toolCall.args.CommandLine, else tool_input.command.
+func rtkCommandHolder(doc map[string]any, agent string) (map[string]any, string) {
+	if call, ok := doc["toolCall"].(map[string]any); ok && agent == core.AgentGemini {
+		args, _ := call["args"].(map[string]any)
+		return args, "CommandLine"
+	}
+	input, _ := doc["tool_input"].(map[string]any)
+	return input, "command"
+}
+
+// rtkCodexRuleHit: codex enforces dispatch Ask and Allow rules as .rules prefixes, which `rtk <cmd>` no longer matches.
+func rtkCodexRuleHit(in *core.Input, cmd string) bool {
+	if in.Agent() != core.AgentCodex {
+		return false
+	}
+	p, set, err := dispatchPolicy()
+	if err != nil || !set {
+		return err != nil
+	}
+	if (permission.Permissions{Mode: permission.PermAllow, Ask: p.Ask}).DecideAt(in.CWD, "Bash", cmd) != permission.Allow {
+		return true
+	}
+	allow := permission.Permissions{Mode: permission.PermDefault, Allow: p.Allow}
+	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
+		return allow.DecideAt(in.CWD, "Bash", seg) == permission.Allow
+	})
+}
+
+func rtkAgentInput(in *core.Input, agent, pinned string) map[string]any {
+	if agent == core.AgentGemini { // every run_command arg is sent back: agy's overwrite may replace, not merge
+		var doc map[string]any
+		if json.Unmarshal(in.Raw, &doc) != nil {
+			return nil
+		}
+		args, key := rtkCommandHolder(doc, agent)
+		if args != nil && key == "CommandLine" {
+			args[key] = pinned
+			return args
+		}
+		return nil
+	}
+	updated := in.CloneToolInput()
+	if updated != nil {
+		updated["command"] = pinned
+	}
+	return updated
 }
 
 // rtkRewrite is RTKRewrite for a Claude Bash call.
