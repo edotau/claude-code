@@ -22,7 +22,7 @@ var (
 	benchLaneName   = regexp.MustCompile(`^bench-[a-z0-9._-]+-[0-9]{8}-[0-9]+$`)
 	autofixLaneName = regexp.MustCompile(`^autofix-[0-9a-f]{7}$`)
 	laneList        = func(ctx context.Context, top string) (string, error) {
-		bin, err := paths.SelfBinary()
+		bin, err := laneBin()
 		if err != nil {
 			return "", err
 		}
@@ -30,7 +30,7 @@ var (
 		return out, err
 	}
 	laneClean = func(ctx context.Context, top, name string) (string, error) {
-		bin, err := paths.SelfBinary()
+		bin, err := laneBin()
 		if err != nil {
 			return "", err
 		}
@@ -38,6 +38,15 @@ var (
 		return out, err
 	}
 )
+
+// laneBin is this binary, refused under go test: a test binary would re-run itself as the lane verb without end.
+func laneBin() (string, error) {
+	bin, err := paths.SelfBinary()
+	if err == nil && strings.HasSuffix(bin, ".test") {
+		return "", errors.New("lane verbs need the claude-code binary, not a test binary")
+	}
+	return bin, err
+}
 
 // Lane is one `worktree list --format json` row this tool created (bench loop or autofix).
 type Lane struct {

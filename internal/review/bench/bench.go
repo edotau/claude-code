@@ -114,7 +114,7 @@ func RunBench(args []string, stdout, stderr io.Writer) int {
 	if done {
 		return code
 	}
-	if o.loop.queue || o.loop.record || o.loop.verdicts {
+	if o.loop.queue || o.loop.record || o.loop.verdicts || o.loop.status {
 		return runLoop(o, stdout, stderr)
 	}
 	if _, err := exec.LookPath("benchstat"); err != nil {
@@ -185,6 +185,8 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 func (o options) flagConflict() string {
 	l := o.loop
 	switch {
+	case l.status && (l.queue || l.decide || l.record || l.verdicts || o.out != ""):
+		return "--status takes only --format"
 	case l.kind != "" && !l.queue:
 		return "--kind needs --queue"
 	case l.kind != "" && !slices.Contains([]string{"fix", "weak", "benchmark"}, l.kind):

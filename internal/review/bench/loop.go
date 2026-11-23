@@ -24,7 +24,7 @@ import (
 
 // loopOpts are the improvement-loop modes of `review bench`: --queue, --decide and --record.
 type loopOpts struct {
-	queue, decide, record             bool
+	queue, decide, record, status     bool
 	verdicts, loop                    bool
 	maxItems                          int
 	pending                           bool
@@ -63,6 +63,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.productionPath, "production-path", "", "record observed production path: on|off")
 	fs.StringVar(&l.subject, "subject", "", "record observed subject state: present|gone")
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
+	fs.BoolVar(&l.status, "status", false, "show today's budget, automatic lanes, queue and loop")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
 	fs.BoolFunc("record", "add a scorecard row; a kept --after waits for its lane to merge", func(value string) error {
 		record, err := strconv.ParseBool(value)
@@ -92,6 +93,8 @@ func runLoop(o options, stdout, stderr io.Writer) int {
 	l := o.loop
 	var err error
 	switch {
+	case l.status:
+		err = runStatus(o.json, stdout)
 	case l.loop:
 		return runDriver(l, stdout, stderr)
 	case l.pending:
