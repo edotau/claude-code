@@ -344,12 +344,7 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--json-schema", r.OutputSchema)
 	}
 	if r.Tools {
-		// agy fails every command when an --add-dir is missing
-		_ = os.MkdirAll(paths.PackDir(), 0o700)
-		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
-		for _, d := range agent.WritableRoots(r.Cwd) {
-			argv = append(argv, "--add-dir", d)
-		}
+		argv = append(argv, agyToolArgv(r.Permissions.Mode, r.Cwd)...)
 	}
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
@@ -358,6 +353,20 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--print-timeout", fmt.Sprintf("%ds", int(r.PrintTimeout.Seconds())))
 	}
 	return append(append(argv, r.SettingsArgv...), "-p=")
+}
+
+// agyToolArgv is a tools run's approval and workspace flags; default keeps agy's prompts and the cwd-only workspace.
+func agyToolArgv(mode, cwd string) []string {
+	// agy fails every command when an --add-dir is missing
+	_ = os.MkdirAll(paths.PackDir(), 0o700)
+	if mode == permission.PermDefault {
+		return []string{"--add-dir", paths.PackDir()}
+	}
+	argv := []string{"--dangerously-skip-permissions", "--add-dir", paths.PackDir()} // packs live outside the workspace
+	for _, d := range agent.WritableRoots(cwd) {
+		argv = append(argv, "--add-dir", d)
+	}
+	return argv
 }
 
 const (
