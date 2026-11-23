@@ -344,7 +344,10 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--json-schema", r.OutputSchema)
 	}
 	if r.Tools {
-		argv = append(argv, agyToolArgv(r.Permissions.Mode, r.Cwd)...)
+		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
+		for _, d := range agent.WritableRoots(r.Cwd) {
+			argv = append(argv, "--add-dir", d)
+		}
 	}
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
@@ -364,18 +367,6 @@ func ensureAgyPackDir(r agyRequest) error {
 		return fmt.Errorf("agy: create pack dir: %w", err)
 	}
 	return nil
-}
-
-// agyToolArgv is a tools run's approval and workspace flags; default omits auto-approval (headless -p soft-denies prompts).
-func agyToolArgv(mode, cwd string) []string {
-	if mode == permission.PermDefault {
-		return []string{"--add-dir", paths.PackDir()}
-	}
-	argv := []string{"--dangerously-skip-permissions", "--add-dir", paths.PackDir()} // packs live outside the workspace
-	for _, d := range agent.WritableRoots(cwd) {
-		argv = append(argv, "--add-dir", d)
-	}
-	return argv
 }
 
 const (
