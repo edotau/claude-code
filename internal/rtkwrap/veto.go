@@ -14,6 +14,17 @@ import (
 // rtkMachineReadable are flags asking for exact, parseable output (gates read `git status --porcelain`): bypass rtk.
 var rtkMachineReadable = sync.OnceValue(func() []string { return shell.GuardWords("rtk_machine_readable_flags") })
 
+// rtkMachineLetters are the single-letter machine flags (-z), matched inside a short cluster too (-sz).
+var rtkMachineLetters = sync.OnceValue(func() string {
+	var letters strings.Builder
+	for _, f := range rtkMachineReadable() {
+		if len(f) == 2 && f[0] == '-' && f[1] != '-' {
+			letters.WriteByte(f[1])
+		}
+	}
+	return letters.String()
+})
+
 // rtkValueSubcommands are git subcommands whose stdout is a value parsed verbatim (`git rev-parse HEAD` has no flag).
 var rtkValueSubcommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_value_subcommands") })
 
@@ -133,7 +144,8 @@ func rtkMachineReadableFlag(cmd string) bool {
 	tokens := shell.Tokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
-		if slices.Contains(rtkMachineReadable(), name) || name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
+		if slices.Contains(rtkMachineReadable(), name) || shortFlag(name, rtkMachineLetters()) ||
+			name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
 			return true
 		}
 	}

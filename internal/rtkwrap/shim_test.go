@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // stubTree swaps the process-table seams for a fixed tree: pid 10 is Pi, pid 20 its bash tool shell running cmd.
@@ -45,7 +47,7 @@ func TestWrapDecision(t *testing.T) {
 		want  bool
 	}{
 		{"forked chain", forked("git", "status"), "git status; ls", true},
-		{"exec'd single", execd("git", "status", "--short"), "", true},
+		{"exec'd tail: line unseen", execd("git", "status", "--short"), "", false},
 		{"off", off, "git status", false},
 		{"code mode", script, "git status", false},
 		{"stdout not a pipe", tty, "git status", false},
@@ -61,6 +63,7 @@ func TestWrapDecision(t *testing.T) {
 		{"commit", execd("git", "commit", "-m", "x"), "", false},
 		{"PATH altered", forked("git", "status"), "PATH=/x:$PATH; git status", false},
 		{"go vet", execd("go", "vet", "./..."), "", false},
+		{"stdout to stderr", forked("git", "status"), "exec >&2; git status", false},
 	} {
 		stubTree(t, tree, parents, tc.cmd)
 		if _, reason := tc.c.gate(); (reason == "") != tc.want {
@@ -182,21 +185,38 @@ func TestRtkBypassLogsBasename(t *testing.T) {
 func TestDebugModeLogsNoArgv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(ModeEnv, "debug")
-	if got := wrapWith("git", []string{"log", "--grep=hunter2"}, nil, nil, nil); got != "" {
+	if got := wrapWith("git", []string{"log", "--grep=hunter2", "-1", "secretarg"}, nil, nil, nil); got != "" {
 		t.Errorf("debug wrapWith = %q, want raw exec", got)
 	}
-	logDecision("debug", "ls", "")
-	logDecision("on", "ls", "rtk-declined")
+	logDecision("debug", "ls", "", nil)
+	logDecision("on", "ls", "rtk-declined", nil)
 	b, err := os.ReadFile(LogFile())
 	must(t, err)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) != 3 || strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "--grep") {
-		t.Fatalf("log = %q, want 3 lines without argv", b)
+	if len(lines) != 3 || strings.Contains(string(b), "hunter2") || strings.Contains(string(b), "secretarg") {
+		t.Fatalf("log = %q, want 3 lines without argv values", b)
+	}
+	if !strings.Contains(lines[0], `"flags":["--grep","-1"],"argc":4`) {
+		t.Errorf("line 0 = %s, want flag names and argc only", lines[0])
 	}
 	for i, want := range []string{`"name":"git","verdict":"raw"`, `"verdict":"would-wrap"`, `"verdict":"raw","reason":"rtk-declined"`} {
 		if !strings.Contains(lines[i], want) {
 			t.Errorf("line %d = %s, want %s", i, lines[i], want)
 		}
+	}
+}
+
+func TestLogRotatesAtCap(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	must(t, os.MkdirAll(filepath.Dir(LogFile()), 0o700))
+	must(t, os.WriteFile(LogFile(), nil, 0o600))
+	must(t, os.Truncate(LogFile(), logCap)) // sparse: no 16 MiB write
+	logVerdict("git", "raw", "off", nil)
+	if fi, err := os.Stat(LogFile() + ".1"); err != nil || fi.Size() != logCap {
+		t.Fatalf("rotated log = %v %v, want the full old log at .1", fi, err)
+	}
+	if b, err := os.ReadFile(LogFile()); err != nil || strings.Count(string(b), "\n") != 1 {
+		t.Errorf("live log = %q %v, want the new line only", b, err)
 	}
 }
 
@@ -216,15 +236,33 @@ func TestResolveSkipsShimDir(t *testing.T) {
 	must(t, os.Symlink(self, filepath.Join(alias, "git"))) // the shim under another dir spelling
 	fi, err := os.Stat(self)
 	must(t, err)
-	got, kept := resolve([]string{Dir(), alias, "relative", real, "/nonexistent"}, "git", fi)
+	got, kept := resolve([]string{Dir(), alias, "relative", real, alias, "/nonexistent"}, "git", fi)
 	if want := filepath.Join(real, "git"); got != want {
 		t.Errorf("resolve = %q, want %q", got, want)
 	}
-	if want := []string{"relative", real, "/nonexistent"}; len(kept) != len(want) || kept[0] != want[0] || kept[1] != want[1] {
+	if want := []string{"relative", real, "/nonexistent"}; !slices.Equal(kept, want) {
 		t.Errorf("kept PATH = %q, want %q (shim dirs dropped)", kept, want)
 	}
 	if got, _ := resolve([]string{Dir(), alias}, "git", fi); got != "" {
 		t.Errorf("shim-only PATH resolved %q, want none", got)
+	}
+}
+
+func TestRtkBinaryPrefersPinnedOverPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shims are unix-only")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(paths.RTKBinaryEnv, "")
+	onPath := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(onPath, "rtk"), []byte("#!/bin/sh\n"), 0o755))
+	if got, want := rtkBinary([]string{onPath}, nil), filepath.Join(onPath, "rtk"); got != want {
+		t.Errorf("no pinned rtk: rtkBinary = %q, want PATH's %q", got, want)
+	}
+	must(t, os.MkdirAll(filepath.Dir(paths.RTKPinned()), 0o755))
+	must(t, os.WriteFile(paths.RTKPinned(), []byte("#!/bin/sh\n"), 0o755))
+	if got := rtkBinary(nil, nil); got != paths.RTKPinned() {
+		t.Errorf("rtkBinary = %q, want pinned %q (PATH without ~/.claude/bin)", got, paths.RTKPinned())
 	}
 }
 

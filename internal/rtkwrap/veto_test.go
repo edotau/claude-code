@@ -11,6 +11,8 @@ func TestVetoRuleLsAll(t *testing.T) {
 		"cd x && ls -a":   "ls-all",
 		"ls -l d":         "",
 		"ls":              "",
+		"git status -sz":  "machine-flag", // a cluster holding -z
+		"git status -bz":  "machine-flag",
 	} {
 		if got := VetoRule(cmd, ""); got != want {
 			t.Errorf("VetoRule(%q) = %q, want %q", cmd, got, want)

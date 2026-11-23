@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -61,20 +62,34 @@ func (c call) gate() (cmd, reason string) {
 	if !c.pipe {
 		return "", "not-pipe"
 	}
+	if c.sid == c.pid && procComm(c.ppid) == piComm { // the shell exec'd its tail: the rest of the line is gone
+		return "", "line-unseen"
+	}
 	cmd, ok := c.toolCommand()
-	switch {
-	case !ok:
+	if !ok {
 		return "", "not-tool-shell"
-	case feedsProgram(cmd, c.name):
-		return "", "pipeline-output"
-	case substitutes(cmd):
-		return "", "substitution"
-	case sourced(cmd):
-		return "", "source-in-line"
-	case EnvAltered(cmd):
-		return "", "env-altered"
+	}
+	if reason := lineRaw(cmd, c.name); reason != "" {
+		return "", reason
 	}
 	return cmd, c.veto(cmd)
+}
+
+// lineRaw is the reason the tool line keeps name raw, else "".
+func lineRaw(cmd, name string) string {
+	switch {
+	case strings.Contains(cmd, ">&") || strings.Contains(cmd, "<&"): // `exec >&2`: a pipe stdout may not reach the model
+		return "fd-redirect"
+	case feedsProgram(cmd, name):
+		return "pipeline-output"
+	case substitutes(cmd):
+		return "substitution"
+	case sourced(cmd):
+		return "source-in-line"
+	case EnvAltered(cmd):
+		return "env-altered"
+	}
+	return ""
 }
 
 // veto is the "veto:<rule>" code when the tool line or this call's own argv trips one, else "".
@@ -89,11 +104,8 @@ func (c call) veto(cmd string) string {
 	return "veto:" + rule
 }
 
-// toolCommand is the command line when c is the tool shell itself or its direct child; $(...) and make never are.
+// toolCommand is the command line when c is the tool shell's direct child; $(...) and make never are.
 func (c call) toolCommand() (string, bool) {
-	if c.sid == c.pid && procComm(c.ppid) == piComm { // `bash -c` exec'd its last command: c is the tool shell
-		return quoteArgv(c.name, c.args), true
-	}
 	if c.sid != c.ppid || !toolShells[procComm(c.ppid)] || procComm(procParent(c.ppid)) != piComm {
 		return "", false
 	}
@@ -216,9 +228,9 @@ func Main(args []string) int {
 func wrapWith(name string, args, dirs []string, self os.FileInfo, env []string) string {
 	cwd, _ := os.Getwd()
 	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), codemode: os.Getenv(CodemodeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
-	rtk, _ := resolve(dirs, "rtk", self)
+	rtk := rtkBinary(dirs, self)
 	reason := c.wraps(rtk, env)
-	logDecision(c.mode, name, reason)
+	logDecision(c.mode, name, reason, args)
 	if reason != "" || c.mode == "debug" {
 		return ""
 	}
@@ -244,34 +256,48 @@ func stdoutPipe() bool {
 	return err == nil && fi.Mode()&(os.ModeNamedPipe|os.ModeSocket) != 0
 }
 
-// selfInfo is this executable's file (symlinks followed); nil when unknown.
+// selfInfo is this executable's file (symlinks followed), else the installed shim's, so resolve never picks a shim.
 func selfInfo() os.FileInfo {
 	exe, err := os.Executable()
 	if err != nil {
-		return nil
+		exe = Binary()
 	}
 	fi, err := os.Stat(exe)
 	if err != nil {
-		return nil
+		fi, _ = os.Stat(Binary())
 	}
 	return fi
 }
 
-// resolve is the first executable named name on dirs that is not the shim, and dirs minus Dir and each shim dir met.
+// resolve is the first executable named name on dirs that is not the shim, and dirs minus Dir and every shim dir.
 func resolve(dirs []string, name string, self os.FileInfo) (real string, kept []string) {
 	for _, d := range withoutDir(dirs, Dir()) {
-		if real == "" { // a relative entry resolves against the cwd, as the shell does
-			fi, err := os.Stat(filepath.Join(d, name))
-			if err == nil && self != nil && os.SameFile(fi, self) {
-				continue // another spelling of a shim dir: drop it so nothing recurses
-			}
-			if err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
-				real = filepath.Join(d, name)
-			}
+		fi, err := os.Stat(filepath.Join(d, name)) // a relative entry resolves against the cwd, as the shell does
+		if err == nil && self != nil && os.SameFile(fi, self) {
+			continue // another spelling of a shim dir: drop it so nothing recurses
+		}
+		if real == "" && err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+			real = filepath.Join(d, name)
 		}
 		kept = append(kept, d)
 	}
 	return real, kept
+}
+
+// rtkBinary is the real rtk the hook would run (HARNESS_RTK_BIN, else the pinned install, else dirs), never the shim.
+func rtkBinary(dirs []string, self os.FileInfo) string {
+	candidates := []string{paths.RTKPinned()}
+	if env := os.Getenv(paths.RTKBinaryEnv); env != "" {
+		candidates = []string{env}
+	}
+	for _, name := range candidates {
+		p, err := exec.LookPath(name)
+		if fi, serr := os.Stat(p); err == nil && serr == nil && (self == nil || !os.SameFile(fi, self)) {
+			return p
+		}
+	}
+	rtk, _ := resolve(dirs, rtkName, self)
+	return rtk
 }
 
 // withPath is env with PATH set to dirs, so the command's own children never meet a shim.
@@ -298,7 +324,8 @@ func stripRtk(args []string) (name string, rest []string, ok bool) {
 // rtkMain is the rtk stand-in: under code mode it drops the rtk prefix from a shim command, else it runs the real rtk.
 func rtkMain(args []string) int {
 	self := selfInfo()
-	real, dirs := resolve(filepath.SplitList(os.Getenv("PATH")), rtkName, self)
+	_, dirs := resolve(filepath.SplitList(os.Getenv("PATH")), rtkName, self)
+	real := rtkBinary(dirs, self)
 	env := withPath(os.Environ(), dirs)
 	name, rest, strip := stripRtk(args[1:])
 	if os.Getenv(CodemodeEnv) == "" {
@@ -307,7 +334,7 @@ func rtkMain(args []string) int {
 	if strip {
 		cmd, _ := resolve(dirs, name, self)
 		if os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on" {
-			logVerdict(filepath.Base(name), "stripped", "")
+			logVerdict(filepath.Base(name), "stripped", "", rest)
 		}
 		if cmd == "" {
 			fmt.Fprintf(os.Stderr, "rtkwrap: %s: not found on PATH outside the shim dir\n", name)
@@ -318,7 +345,7 @@ func rtkMain(args []string) int {
 		return exitNoExec
 	}
 	if os.Getenv(CodemodeEnv) != "" && (os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on") {
-		logVerdict(rtkName, "raw", "rtk-verb")
+		logVerdict(rtkName, "raw", "rtk-verb", args[1:])
 	}
 	if real == "" {
 		fmt.Fprintf(os.Stderr, "rtkwrap: rtk: not found on PATH outside the shim dir\n")
