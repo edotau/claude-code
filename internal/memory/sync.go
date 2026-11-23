@@ -31,7 +31,11 @@ const (
 var remoteHosts = providers.RemoteHosts
 
 // SyncOn reports this machine's opt-in to memory sync: NETWORK_MEMORY=on, process env then the vault's.
+// A sandbox config dir never opts in: it must not reach a peer whatever env it inherited.
 func SyncOn() bool {
+	if InSandbox() {
+		return false
+	}
 	v := strings.TrimSpace(os.Getenv(syncEnv))
 	if v == "" {
 		v = strings.TrimSpace(providers.CustomEnv()[syncEnv])

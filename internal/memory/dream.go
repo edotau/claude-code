@@ -254,7 +254,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	var blocks int
 	ctx = context.WithValue(ctx, gateBlocksKey{}, &blocks)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
-	fmt.Fprintln(o.Out, "memory dream: ran on", who)
+	fmt.Fprintln(o.Out, dreamRunLine(who, err))
 	if err == nil && len(changed) > 0 && len(dreamChanged(start)) == 0 {
 		if blocks > 0 { // refused, not idle: fail so the stamp backdates and the dream retries
 			err = fmt.Errorf("the gate refused %d call(s) and no bank file was edited; the dream will retry", blocks)
@@ -264,6 +264,15 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
 	}
 	return err, archiveErr
+}
+
+// dreamRunLine is the receipt: "ran on" only for a run that succeeded, else the failure's first line.
+func dreamRunLine(who string, err error) string {
+	if err == nil {
+		return "memory dream: ran on " + who
+	}
+	first, _, _ := strings.Cut(err.Error(), "\n")
+	return "memory dream: failed on " + who + ": " + first
 }
 
 // dreamPlans is the plan phase: the session checkout and its plans and citable evidence from before the run.

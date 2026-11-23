@@ -229,3 +229,13 @@ func TestDreamRetryBackoff(t *testing.T) {
 		t.Fatalf("success must reset the count: %v", err)
 	}
 }
+
+func TestDreamRunLineIsTruthfulForAFailedRun(t *testing.T) {
+	if got := dreamRunLine("claude", nil); got != "memory dream: ran on claude" {
+		t.Errorf("ok line = %q", got)
+	}
+	got := dreamRunLine("claude", errors.New("Not logged in\nexit 3"))
+	if strings.Contains(got, "ran on") || got != "memory dream: failed on claude: Not logged in" {
+		t.Errorf("failed line = %q", got)
+	}
+}

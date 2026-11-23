@@ -597,6 +597,10 @@ func cmdMemoryImport(args []string) int {
 
 // memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
 func memorySync(host string, dryRun bool) int {
+	if memory.InSandbox() {
+		fmt.Fprintln(os.Stderr, "memory sync: refused: this config dir is a sandbox")
+		return 0
+	}
 	if !memory.SyncOn() {
 		return helptext.FailUsage(memory.SyncOffMsg)
 	}
@@ -704,7 +708,7 @@ func printMemorySandbox(res memory.SandboxResult, format string) int {
 	for _, s := range res.Stores {
 		stores = append(stores, fmt.Sprintf("%s (%d files)", s.Key, s.Files))
 	}
-	_, err := fmt.Fprintf(os.Stdout, "sandbox  %s\nexport   CLAUDE_CONFIG_DIR=%s\nstores   %s\nremove with: rm -rf %s\n",
+	_, err := fmt.Fprintf(os.Stdout, "sandbox  %s\nexport   CLAUDE_CONFIG_DIR=%s\nunset    NETWORK_MEMORY CLAUDE_REMOTE_HOST\nstores   %s\nremove with: rm -rf %s\n",
 		res.Dir, res.Dir, strings.Join(stores, ", "), res.Dir)
 	if err != nil {
 		return helptext.Fail("memory sandbox: %v", err)

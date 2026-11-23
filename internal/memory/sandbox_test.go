@@ -117,3 +117,28 @@ func TestSandboxCopySkipsVanishedFile(t *testing.T) {
 		t.Error("gone.md exists in the sandbox or the source; it was deleted before its copy")
 	}
 }
+
+func TestSandboxClearsSyncEnvAndIsRecognised(t *testing.T) {
+	tempConfig(t)
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	if InSandbox() {
+		t.Fatal("the real config dir reads as a sandbox")
+	}
+	res, err := Sandbox(SandboxOptions{Empty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
+	if v, ok := res.Env["NETWORK_MEMORY"]; !ok || v != "" {
+		t.Errorf("Env NETWORK_MEMORY = %q (set %v), want cleared", v, ok)
+	}
+	if v, ok := res.Env["CLAUDE_REMOTE_HOST"]; !ok || v != "" {
+		t.Errorf("Env CLAUDE_REMOTE_HOST = %q (set %v), want cleared", v, ok)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", res.Dir)
+	if !InSandbox() {
+		t.Error("the sandbox dir is not recognised")
+	}
+}

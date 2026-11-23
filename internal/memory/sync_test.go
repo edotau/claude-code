@@ -128,3 +128,20 @@ func TestSyncLocalTokenTracksContent(t *testing.T) {
 		t.Fatalf("LocalToken did not move with the content: %q -> %q", before, after)
 	}
 }
+
+func TestSyncRefusesInSandboxButNotInNormalDir(t *testing.T) {
+	spawns := syncFixture(t, "on", "peer.example")
+	t.Setenv("CLAUDE_REMOTE_HOST", "peer.example")
+	now := time.Now()
+	if !SyncOn() || !SyncIfDue(now, now, t.TempDir()) || spawns.Sync.Load() != 1 {
+		t.Fatalf("a normal config dir did not reach the transport: spawns=%d", spawns.Sync.Load())
+	}
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := recordSandbox(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if SyncOn() || SyncIfDue(now.Add(syncEvery*2), now.Add(syncEvery*2), t.TempDir()) || spawns.Sync.Load() != 1 {
+		t.Fatalf("a sandbox config dir synced: spawns=%d", spawns.Sync.Load())
+	}
+}
