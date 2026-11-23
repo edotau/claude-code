@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +26,18 @@ type streamFunc func(ctx context.Context, rec agent.Record, w io.Writer) error
 
 // paneStream is what `agents result -f --events` streams: a carrier's children's events, tagged via, then its own.
 var paneStream streamFunc = ask.StreamEvents
+
+// paneLog follows the job's own log as `agents result -f <id>` does: one read from byte 0, then only new bytes.
+var paneLog streamFunc = func(ctx context.Context, rec agent.Record, w io.Writer) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if _, err = agent.Tail(ctx, rec.Agent, cwd, rec.ID, true, w); err != nil && ctx.Err() == nil {
+		_, _ = io.WriteString(w, "error: "+err.Error()+"\n")
+	}
+	return nil
+}
 
 // tailKeep caps the pane's kept lines and its feed's ring of unread ones.
 const tailKeep = 500
@@ -86,6 +99,43 @@ type paneState struct {
 	top          int
 	follow, live bool
 	rows         int
+	raw          bool
+}
+
+// paneSet is both views of one job: the events and the raw log each keep their own scroll and follow state.
+type paneSet struct {
+	ev, raw paneState
+	onRaw   bool
+}
+
+func newPaneSet() paneSet {
+	return paneSet{ev: newPane(), raw: paneState{follow: true, live: true, raw: true}}
+}
+
+func (ps paneSet) cur() paneState {
+	if ps.onRaw {
+		return ps.raw
+	}
+	return ps.ev
+}
+
+// paneSetKey switches view on right (the `l` key, which the pane does not otherwise use), else scrolls the shown one.
+func paneSetKey(ps paneSet, k key) paneSet {
+	switch {
+	case k == keyRight:
+		ps.onRaw = !ps.onRaw
+	case ps.onRaw:
+		ps.raw = paneOnKey(ps.raw, k)
+	default:
+		ps.ev = paneOnKey(ps.ev, k)
+	}
+	return ps
+}
+
+// rawOnLine adds one log line, cleaned of escapes and controls and clipped; it never wraps.
+func rawOnLine(s paneState, line []byte) paneState {
+	text := textutil.TruncateCells(paneText(printable(string(line))), maxLineWidth, "…")
+	return paneAppend(s, text)
 }
 
 // newPane is a pane that follows a job until its result arrives.
@@ -100,14 +150,18 @@ func paneOnLine(s paneState, line []byte) paneState {
 	if !ok {
 		return paneClamp(s)
 	}
-	drop := max(len(s.lines)+1-tailKeep, 0)
-	s.lines = append(slices.Clone(s.lines[drop:]), text)
-	s.top -= drop
-	s = paneClamp(s)
+	s = paneAppend(s, text)
 	if ev.Type == wire.EventResult {
 		s.live = false
 	}
 	return s
+}
+
+func paneAppend(s paneState, text string) paneState {
+	drop := max(len(s.lines)+1-tailKeep, 0)
+	s.lines = append(slices.Clone(s.lines[drop:]), text)
+	s.top -= drop
+	return paneClamp(s)
 }
 
 // paneOnKey scrolls; up leaves follow, down onto the last page resumes it.
@@ -173,10 +227,14 @@ func paneLines(s paneState, head []string, width, height int) []string {
 	if len(lines)+1 < height {
 		lines = append(lines, "")
 	}
-	foot := "settled · ↑/↓ scroll · " + jobFooter
+	state, hint := "settled", "l log"
 	if s.live {
-		foot = "live · ↑/↓ scroll · " + jobFooter
+		state = "live"
 	}
+	if s.raw {
+		state, hint = state+" · log", "l events"
+	}
+	foot := state + " · ↑/↓ scroll · " + hint + " · " + jobFooter
 	return append(lines, textutil.TruncateCells(foot, width, "…"))
 }
 
@@ -197,10 +255,11 @@ type paneFeed struct {
 }
 
 // openPane starts reading rec's stream; it ends when the stream does, on close, or when ctx ends.
-func openPane(ctx context.Context, rec agent.Record) *paneFeed {
+func openPane(ctx context.Context, rec agent.Record) *paneFeed { return openFeed(ctx, rec, paneStream) }
+
+func openFeed(ctx context.Context, rec agent.Record, stream streamFunc) *paneFeed {
 	ctx, cancel := context.WithCancel(ctx)
 	p := &paneFeed{ctx: ctx, cancel: cancel, done: make(chan struct{})}
-	stream := paneStream
 	go func() {
 		defer close(p.done)
 		defer cancel()
@@ -262,7 +321,50 @@ func (p *paneFeed) drain() [][]byte {
 	return out
 }
 
+func (p *paneFeed) finished() bool {
+	select {
+	case <-p.done:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *paneFeed) close() {
 	p.cancel()
 	<-p.done
+}
+
+// paneFeeds are the pane's readers; the raw log's starts the first time that view opens and never restarts.
+type paneFeeds struct{ ev, raw *paneFeed }
+
+// onKey applies a key to the views and starts the raw reader when the log view is first shown.
+func (f *paneFeeds) onKey(ctx context.Context, rec agent.Record, ps paneSet, k key) paneSet {
+	ps = paneSetKey(ps, k)
+	if ps.onRaw && f.raw == nil {
+		f.raw = openFeed(ctx, rec, paneLog)
+	}
+	return ps
+}
+
+func (f *paneFeeds) close() {
+	f.ev.close()
+	if f.raw != nil {
+		f.raw.close()
+	}
+}
+
+// paneDrain feeds each view the lines read since the last frame; the raw view settles once its log ended.
+func paneDrain(ps paneSet, f *paneFeeds) paneSet {
+	for _, l := range f.ev.drain() {
+		ps.ev = paneOnLine(ps.ev, l)
+	}
+	if f.raw != nil {
+		ended := f.raw.finished() // checked before the drain, so the last lines are never missed
+		for _, l := range f.raw.drain() {
+			ps.raw = rawOnLine(ps.raw, l)
+		}
+		ps.raw.live = ps.raw.live && !ended
+	}
+	return ps
 }

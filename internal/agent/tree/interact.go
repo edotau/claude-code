@@ -244,13 +244,13 @@ func (d *dashboard) showJob(id string) {
 		d.st.status = actionLine(fmt.Sprintf("open %s: %v", id, err))
 		return
 	}
-	p := openPane(d.ctx, rec)
-	defer p.close()
-	s, head := newPane(), jobHeader(d.tree, id, rec)
+	feeds := &paneFeeds{ev: openPane(d.ctx, rec)}
+	defer feeds.close()
+	s, head := newPaneSet(), jobHeader(d.tree, id, rec)
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if s, err = d.drawPane(s, head, p); err != nil {
+		if s, err = d.drawPane(s, head, feeds); err != nil {
 			return
 		}
 		select {
@@ -261,19 +261,18 @@ func (d *dashboard) showJob(id string) {
 			if !ok || k == keyEsc || k == keyQuit {
 				return
 			}
-			s = paneOnKey(s, k)
+			s = feeds.onKey(d.ctx, rec, s, k)
 		}
 	}
 }
 
-// drawPane takes the lines read since the last frame and draws the pane at the terminal's size.
-func (d *dashboard) drawPane(s paneState, head []string, p *paneFeed) (paneState, error) {
+// drawPane takes the lines read since the last frame and draws the shown view at the terminal's size.
+func (d *dashboard) drawPane(s paneSet, head []string, f *paneFeeds) (paneSet, error) {
 	w, h := termSize()
-	s = paneResize(s, paneRows(head, w, h))
-	for _, l := range p.drain() {
-		s = paneOnLine(s, l)
-	}
-	return s, d.flush(paneLines(s, head, w, h))
+	rows := paneRows(head, w, h)
+	s.ev, s.raw = paneResize(s.ev, rows), paneResize(s.raw, rows)
+	s = paneDrain(s, f)
+	return s, d.flush(paneLines(s.cur(), head, w, h))
 }
 
 // termSize is stdout's columns and rows, 80x24 when it cannot be read.

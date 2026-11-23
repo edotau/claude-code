@@ -105,3 +105,34 @@ func TestPaneSettlesOnResult(t *testing.T) {
 		t.Fatalf("pane after result = %+v, want settled with 2 lines", s)
 	}
 }
+
+func TestPaneToggleKeepsEachViewsScroll(t *testing.T) {
+	ps := newPaneSet()
+	ps.ev, ps.raw = paneResize(ps.ev, 2), paneResize(ps.raw, 2)
+	for i := range 6 {
+		ps.ev = paneOnLine(ps.ev, fmt.Appendf(nil, `{"schema":1,"type":"text","text":"e%d"}`, i))
+		ps.raw = rawOnLine(ps.raw, fmt.Appendf(nil, "raw %d", i))
+	}
+	ps = paneSetKey(paneSetKey(ps, keyUp), keyUp) // events scrolled up and off follow
+	ps = paneSetKey(ps, keyRight)
+	if !ps.onRaw || !ps.raw.follow || ps.raw.top != 4 || ps.ev.follow || ps.ev.top != 2 {
+		t.Fatalf("after l: %+v, want raw view following at 4 and events parked at 2", ps)
+	}
+	if ps = paneSetKey(ps, keyRight); ps.onRaw || ps.ev.top != 2 || ps.ev.follow {
+		t.Fatalf("back on events: %+v, want the old scroll kept", ps)
+	}
+}
+
+func TestRawLineIsCleanAndClipped(t *testing.T) {
+	line := "\x1b[31mred\x1b[0m\x07\tgo \r\x1b]0;t\x07" + strings.Repeat("x", 300)
+	s := rawOnLine(paneResize(paneState{follow: true, raw: true}, 3), []byte(line))
+	lines := paneLines(s, nil, 40, 6)
+	for _, l := range lines {
+		if strings.ContainsFunc(l, unicode.IsControl) || strings.Contains(l, "[31m") || len([]rune(l)) > 40 {
+			t.Errorf("raw frame line not clean or over 40 cells: %q", l)
+		}
+	}
+	if len(lines) > 6 || !strings.Contains(lines[len(lines)-1], "l events") {
+		t.Errorf("frame = %q, want at most 6 lines ending in the events hint", lines)
+	}
+}

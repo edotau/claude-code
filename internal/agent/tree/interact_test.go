@@ -86,3 +86,13 @@ func TestDashboardHeaderRefreshStops(t *testing.T) {
 		t.Fatalf("refresh calls = %d, want 1", got)
 	}
 }
+
+func TestTreeLStillMovesRight(t *testing.T) {
+	nodes := dashNodes()
+	s := clamp(dashState{height: 24}, visible(nodes, nil))
+	s = press(s, nodes, keyDown, decodeKeys([]byte("l"))[0])
+	if want := press(clamp(dashState{height: 24}, visible(nodes, nil)), nodes, keyDown, keyRight); s.selID != want.selID ||
+		len(visible(nodes, s.open)) != len(visible(nodes, want.open)) || len(visible(nodes, s.open)) < 5 {
+		t.Errorf("l left %q with %d rows, want the same as the right arrow", s.selID, len(visible(nodes, s.open)))
+	}
+}
