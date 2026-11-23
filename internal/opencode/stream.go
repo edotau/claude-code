@@ -179,6 +179,7 @@ func writtenPaths(ev openCodeEvent) []string {
 }
 
 func (t *ocTurn) stepFinish(ev openCodeEvent) {
+	t.res.Turns++
 	tk := ev.Part.Tokens
 	u := &t.res.Usage
 	u.InputTokens += tk.Input

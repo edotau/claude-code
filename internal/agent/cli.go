@@ -344,7 +344,7 @@ func RunStreamWith(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.
 func withParsed(res, out wire.Result) wire.Result {
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
-	res.Written = out.Written
+	res.Written, res.Turns = out.Written, out.Turns
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = cmp.Or(strings.TrimSpace(out.Model), strings.TrimSpace(out.Reported)) // never res.Model: launch default
 	return res

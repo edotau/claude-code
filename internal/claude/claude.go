@@ -388,6 +388,7 @@ type claudeEvent struct {
 	Result          string          `json:"result"`
 	Errors          []string        `json:"errors"`
 	TotalCostUSD    float64         `json:"total_cost_usd"`
+	NumTurns        int             `json:"num_turns"`
 	Structured      json.RawMessage `json:"structured_output"`
 
 	Event streamEventLean `json:"event"`
@@ -745,6 +746,7 @@ func emitClaudeAssistant(sink wire.Sink, msg anthropic.Message, seen *wire.Answe
 }
 
 func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
+	res.Turns = ev.NumTurns
 	if ev.Result != "" && !ev.IsError { // an error result's text rides in the error, not over the partial answer
 		res.Answer = ev.Result // a resumed session's closing empty result must not erase the last real one
 	}

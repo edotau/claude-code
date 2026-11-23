@@ -59,6 +59,38 @@ func TestParseClaudeStream(t *testing.T) {
 	}
 }
 
+func TestParseClaudeStreamTurnsEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stream string
+		turns  int
+		failed bool
+	}{
+		{"success", claudeFixture, 2, false},
+		{"error", `{"type":"result","is_error":true,"num_turns":3,"result":"stopped"}`, 3, true},
+		{"unreported", `{"type":"result","result":"ok"}`, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := parseClaudeStream(newBR(tc.stream), wire.Discard)
+			if (err != nil) != tc.failed || res.Turns != tc.turns {
+				t.Fatalf("turns=%d err=%v; want turns=%d failed=%v", res.Turns, err, tc.turns, tc.failed)
+			}
+			b, err := json.Marshal(wire.NewEnvelope(res, err, "turns-check"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var envelope map[string]any
+			if err := json.Unmarshal(b, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			turns, present := envelope["turns"]
+			if present != (tc.turns > 0) || present && turns != float64(tc.turns) {
+				t.Fatalf("turns missing, wrong or unexpectedly present in envelope: %s", b)
+			}
+		})
+	}
+}
+
 func TestParseClaudeStreamEmptyResultKeepsText(t *testing.T) {
 	stream := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}
 {"type":"result","is_error":false,"result":""}`

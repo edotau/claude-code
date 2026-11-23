@@ -238,6 +238,7 @@ func (t *piTurn) messageEnd(ev piEvent) error {
 	if m == nil || m.Role != "assistant" {
 		return nil
 	}
+	t.res.Turns++
 	t.flushLog()
 	if text := strings.TrimSpace(t.cur.String()); text != "" {
 		t.answer = append(t.answer, text)
