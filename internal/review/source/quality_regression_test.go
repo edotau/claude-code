@@ -198,3 +198,19 @@ func TestQualityPythonGodClassAcrossHeaderShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitParamsIgnoresNestedCommas(t *testing.T) {
+	got := splitParams(`a: tuple[str, int], b: dict[str, int], c=(1, 2), d="x,y"`)
+	if len(got) != 4 {
+		t.Fatalf("splitParams = %q, want 4 params", got)
+	}
+}
+
+func TestLineSmellsSkipsNamedConstants(t *testing.T) {
+	if got := lineSmells("ERROR_CHARS = 120\nTIMEOUT: int = 3000\nconst max = 500\n"); len(got) != 0 {
+		t.Fatalf("named constants flagged: %v", got)
+	}
+	if got := lineSmells("x = 120\nTimeout = 3000\n"); len(got) != 2 {
+		t.Fatalf("bare or mixed-case literal not flagged: %v", got)
+	}
+}

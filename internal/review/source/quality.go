@@ -74,6 +74,9 @@ var solidImports = sync.OnceValue(func() *regexp.Regexp {
 var commentedCodePattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)^\s*[#/]+\s*(if|for|while|def|function|class|const|let|var)\s.*[{:;(]\s*$`)
 })
+var constDefinition = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\s*(?:const\s+\w+(?:\s+\w+)?|[A-Z][A-Z0-9_]*(?:\s*:[^=]+)?)\s*=[^=]`)
+})
 var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\d{3,}`)
 })
@@ -215,13 +218,46 @@ func submatchStrings(content string, loc []int, pattern *regexp.Regexp) []string
 	return out
 }
 
-// splitParams mirrors `[p.strip() for p in params_str.split(",") if p.strip()]`.
+// splitParams splits on commas outside brackets and quotes, dropping blank parts.
 func splitParams(s string) []string {
 	var out []string
-	for p := range strings.SplitSeq(s, ",") {
-		if strings.TrimSpace(p) != "" {
-			out = append(out, strings.TrimSpace(p))
+	depth, start := 0, 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		if quote != 0 {
+			i, quote = skipQuoted(s, i, quote)
+			continue
 		}
+		switch c := s[i]; c {
+		case '"', '\'':
+			quote = c
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth = max(depth-1, 0)
+		case ',':
+			if depth == 0 {
+				out, start = appendParam(out, s[start:i]), i+1
+			}
+		}
+	}
+	return appendParam(out, s[start:])
+}
+
+// skipQuoted advances past an escape or closes the quote at s[i].
+func skipQuoted(s string, i int, quote byte) (int, byte) {
+	switch s[i] {
+	case '\\':
+		return i + 1, quote
+	case quote:
+		return i, 0
+	}
+	return i, quote
+}
+
+func appendParam(out []string, p string) []string {
+	if p = strings.TrimSpace(p); p != "" {
+		return append(out, p)
 	}
 	return out
 }
@@ -431,7 +467,7 @@ func lineSmells(content string) []Smell {
 		lineNo := i + 1
 		trimmed := strings.TrimSpace(line)
 		skip := strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
-			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from")
+			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from") || constDefinition().MatchString(line)
 		if !skip {
 			if m, ok := magicNumberOnLine(line); ok {
 				smells = append(smells, Smell{Type: "magic_number", Severity: "low",
