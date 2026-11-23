@@ -2,7 +2,10 @@ package wthook
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -283,13 +286,9 @@ func divergedCheckDue(session string) bool {
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
 func divergedAt(ctx context.Context, dir string) (*divergence, error) {
-	counts, ok, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
-	if err != nil || !ok {
-		return nil, err // !ok: not a repo, detached, or no upstream
-	}
-	a, b := bothSides(counts[0])
-	if a == 0 || b == 0 {
-		return nil, nil
+	a, b, err := aheadBehind(ctx, dir)
+	if err != nil || a == 0 || b == 0 {
+		return nil, err
 	}
 	ids, _, err := proc.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
 		"@{upstream}")
@@ -312,15 +311,253 @@ func hasPatch(ctx context.Context, dir, commit string) bool {
 	return err != nil || len(files) > 0 && files[0] != ""
 }
 
-// bothSides parses rev-list --left-right --count output; zeros for anything else.
-func bothSides(line string) (ahead, behind int) {
+// bothSides parses rev-list --left-right --count output; ok=false for anything else.
+func bothSides(line string) (ahead, behind int, ok bool) {
 	f := strings.Fields(line)
 	if len(f) != 2 {
-		return 0, 0
+		return 0, 0, false
 	}
-	ahead, _ = strconv.Atoi(f[0])
-	behind, _ = strconv.Atoi(f[1])
-	return ahead, behind
+	ahead, aerr := strconv.Atoi(f[0])
+	behind, berr := strconv.Atoi(f[1])
+	return ahead, behind, aerr == nil && berr == nil
+}
+
+// aheadBehind is rev-list's HEAD...@{upstream} counts, reused while the HEAD and upstream ref shas stay unchanged.
+func aheadBehind(ctx context.Context, dir string) (ahead, behind int, err error) {
+	key, keyed := refPair(dir)
+	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+shortHash(key))
+	if keyed {
+		if ahead, behind, ok := cachedCounts(cache, key); ok {
+			return ahead, behind, nil
+		}
+	}
+	counts, ok, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+	if err != nil || !ok {
+		return 0, 0, err // !ok: not a repo, detached, or no upstream
+	}
+	ahead, behind, _ = bothSides(counts[0])
+	// Refs that moved while rev-list ran may not match its counts, so only an unchanged key is stored.
+	if again, _ := refPair(dir); keyed && again == key && os.MkdirAll(filepath.Dir(cache), 0o700) == nil {
+		_ = paths.AtomicWriteNoSync(cache, []byte(key+"\n"+counts[0]), 0o600) // a lost cache only costs the next spawn
+	}
+	return ahead, behind, nil
+}
+
+// cachedCounts reads the counts stored under key; ok=false for a missing, stale or malformed file.
+func cachedCounts(cache, key string) (ahead, behind int, ok bool) {
+	raw, err := os.ReadFile(cache)
+	k, counts, cut := strings.Cut(string(raw), "\n")
+	if err != nil || !cut || k != key {
+		return 0, 0, false
+	}
+	return bothSides(counts)
+}
+
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
+}
+
+// refPair is "<checkout>\t<HEAD sha>\t<upstream sha>" read from the ref files; ok=false leaves it to git.
+func refPair(dir string) (string, bool) {
+	top, gitDir, common, ok := keyableCheckout(dir)
+	if !ok {
+		return "", false
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	ref, symbolic := strings.CutPrefix(strings.TrimSpace(string(raw)), "ref: ")
+	branch, isBranch := strings.CutPrefix(ref, "refs/heads/")
+	if err != nil || !symbolic || !isBranch {
+		return "", false
+	}
+	upRef, ok := upstreamRef(common, branch)
+	head, headOK := refSha(common, ref)
+	up, upOK := refSha(common, upRef)
+	if !ok || !headOK || !upOK {
+		return "", false
+	}
+	return top + "\t" + head + "\t" + up, true
+}
+
+// keyableCheckout finds dir's checkout as git would; ok=false when env or repo state makes file-read counts unsafe.
+func keyableCheckout(dir string) (top, gitDir, common string, ok bool) {
+	if os.Getenv("GIT_DIR") != "" || os.Getenv("GIT_COMMON_DIR") != "" {
+		return "", "", "", false
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real // git resolves cwd before its walk, so a lexical walk could find another repo
+	}
+	top, _ = paths.CheckoutOf(dir)
+	if gitDir, ok = gitDirOf(top); !ok {
+		return "", "", "", false
+	}
+	common = commonDirOf(gitDir)
+	return top, gitDir, common, stableAncestry(gitDir, common)
+}
+
+// gitDirOf is top's .git directory, following a linked worktree's "gitdir:" file.
+func gitDirOf(top string) (string, bool) {
+	if top == "" {
+		return "", false
+	}
+	dotGit := filepath.Join(top, ".git")
+	st, err := os.Stat(dotGit)
+	if err != nil || st.IsDir() {
+		return dotGit, err == nil
+	}
+	raw, err := os.ReadFile(dotGit)
+	ptr, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir: ")
+	if err != nil || !ok || ptr == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(ptr) {
+		ptr = filepath.Join(top, ptr)
+	}
+	return ptr, true
+}
+
+// stableAncestry is false when shallow, grafts, replace refs or per-worktree/global branch config can change counts.
+func stableAncestry(gitDir, common string) bool {
+	for _, p := range []string{filepath.Join(common, "shallow"), filepath.Join(common, "info", "grafts"),
+		filepath.Join(gitDir, "config.worktree")} {
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			return false
+		}
+	}
+	if names, err := os.ReadDir(filepath.Join(common, "refs", "replace")); len(names) > 0 || err != nil && !os.IsNotExist(err) {
+		return false
+	}
+	packed, err := os.ReadFile(filepath.Join(common, "packed-refs"))
+	if err != nil && !os.IsNotExist(err) || strings.Contains(string(packed), " refs/replace/") {
+		return false
+	}
+	return !globalBranchConfig()
+}
+
+// globalBranchConfig reports branch config from git's env or global file; system config and includes go unread.
+func globalBranchConfig() bool {
+	if strings.Contains(strings.ToLower(os.Getenv("GIT_CONFIG_PARAMETERS")), "branch.") {
+		return true
+	}
+	if n := os.Getenv("GIT_CONFIG_COUNT"); n != "" {
+		count, err := strconv.Atoi(n)
+		if err != nil {
+			return true
+		}
+		for i := range count {
+			if strings.HasPrefix(strings.ToLower(os.Getenv("GIT_CONFIG_KEY_"+strconv.Itoa(i))), "branch.") {
+				return true
+			}
+		}
+	}
+	home, _ := os.UserHomeDir()
+	files := []string{os.Getenv("GIT_CONFIG_GLOBAL")}
+	if files[0] == "" {
+		xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
+		files = []string{filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config")}
+	}
+	for _, f := range files {
+		raw, _ := os.ReadFile(f)
+		for line := range strings.Lines(string(raw)) {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "[branch") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// commonDirOf is where a linked worktree's gitdir keeps shared refs and config (its commondir file), else gitDir.
+func commonDirOf(gitDir string) string {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return gitDir
+	}
+	common := strings.TrimSpace(string(raw))
+	if filepath.IsAbs(common) {
+		return common
+	}
+	return filepath.Join(gitDir, common)
+}
+
+// upstreamRef is branch's upstream ref from the repo config; ok=false unless the remote has the one default refspec.
+func upstreamRef(common, branch string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(common, "config"))
+	if err != nil {
+		return "", false
+	}
+	cfg, ok := sectionConfig(string(raw), `[branch "`+branch+`"]`)
+	ext, _ := sectionConfig(string(raw), "[extensions]")
+	merge, remote := only(cfg["merge"]), only(cfg["remote"])
+	name, isBranch := strings.CutPrefix(merge, "refs/heads/")
+	if !ok || !isBranch || remote == "" || len(ext["worktreeconfig"]) > 0 { // config.worktree may override merge
+		return "", false
+	}
+	if remote == "." {
+		return merge, true
+	}
+	rc, _ := sectionConfig(string(raw), `[remote "`+remote+`"]`)
+	if strings.TrimPrefix(only(rc["fetch"]), "+") != "refs/heads/*:refs/remotes/"+remote+"/*" {
+		return "", false // a custom refspec may track another ref, so a cached count could hide divergence
+	}
+	return "refs/remotes/" + remote + "/" + name, true
+}
+
+// only is vals' single value, else "" (missing or set more than once).
+func only(vals []string) string {
+	if len(vals) != 1 {
+		return ""
+	}
+	return vals[0]
+}
+
+// sectionConfig is the lower-cased keys of config's header sections; ok=false when an include may add more.
+func sectionConfig(config, header string) (map[string][]string, bool) {
+	keys := map[string][]string{}
+	in := false
+	for line := range strings.Lines(config) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(line), "[include") {
+			return nil, false
+		}
+		if strings.HasPrefix(line, "[") {
+			in = line == header
+		} else if key, val, _ := strings.Cut(line, "="); in {
+			k := strings.ToLower(strings.TrimSpace(key))
+			keys[k] = append(keys[k], strings.TrimSpace(val))
+		}
+	}
+	return keys, true
+}
+
+// refSha is ref's sha from its loose file, else packed-refs; ok=false when neither holds a plain sha.
+func refSha(common, ref string) (string, bool) {
+	if ref == "" || !filepath.IsLocal(filepath.FromSlash(ref)) {
+		return "", false
+	}
+	raw, err := os.ReadFile(filepath.Join(common, filepath.FromSlash(ref)))
+	if err == nil {
+		sha := strings.TrimSpace(string(raw))
+		return sha, isOID(sha)
+	}
+	if !os.IsNotExist(err) {
+		return "", false
+	}
+	packed, err := os.ReadFile(filepath.Join(common, "packed-refs"))
+	if err != nil {
+		return "", false
+	}
+	for line := range strings.Lines(string(packed)) {
+		if sha, name, ok := strings.Cut(strings.TrimRight(line, "\r\n"), " "); ok && name == ref {
+			return sha, isOID(sha)
+		}
+	}
+	return "", false
+}
+
+func isOID(s string) bool {
+	_, err := hex.DecodeString(s)
+	return err == nil && (len(s) == 40 || len(s) == 64)
 }
 
 // checkoutShared is true for the live config tree or a checkout a peer session works in.

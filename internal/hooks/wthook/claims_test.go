@@ -3,12 +3,14 @@ package wthook
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -215,6 +217,23 @@ func TestClaimStampsDispatchFromRunningRecord(t *testing.T) {
 		if got := readClaims(t, claimsFile(owner, session)); got[0].Agent != tc.want {
 			t.Errorf("%s: stamp = %q, want %q", tc.name, got[0].Agent, tc.want)
 		}
+	}
+}
+
+// TestRecordDispatchScansPastNewest64: the ancestor's running record is found behind 64 newer running ones.
+func TestRecordDispatchScansPastNewest64(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for i := range 65 {
+		r := agent.Record{ID: fmt.Sprintf("d-%03d", i), Status: "running", PID: 1 << 30, Time: time.Now()}
+		if i == 0 { // oldest id: the newest-64 scan never reached it
+			r.PID = os.Getpid()
+		}
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := recordDispatch(os.Getpid()); got != "d-000" {
+		t.Fatalf("recordDispatch = %q, want d-000", got)
 	}
 }
 

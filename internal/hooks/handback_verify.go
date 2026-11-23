@@ -20,7 +20,7 @@ import (
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
 func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
-	top := memory.GitToplevel(in.CWD)
+	top := checkoutTop(in.CWD)
 	if top == "" {
 		return nil
 	}
@@ -56,6 +56,17 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 		lines = append(lines, c.Line())
 	}
 	return append(lines, commit)
+}
+
+// checkoutTop is dir's git toplevel by stat walk; git runs only for a layout the walk cannot see (bare gitdir).
+func checkoutTop(dir string) string {
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real // git resolves cwd before its walk, so a lexical walk could find another repo
+	}
+	if top, _ := paths.CheckoutOf(dir); top != "" {
+		return paths.Real(top) // git prints the symlink-resolved toplevel
+	}
+	return memory.GitToplevel(dir)
 }
 
 // untiedTask is the one open task of the plan whose owns: covers a dirty path; several or none is no guess.

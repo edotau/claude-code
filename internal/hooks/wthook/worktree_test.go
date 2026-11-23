@@ -390,6 +390,105 @@ func TestDivergedAtEmptyCommitsAreNotARewrite(t *testing.T) {
 	}
 }
 
+// TestAheadBehindReusesCountsWhileRefsHold: unchanged HEAD and upstream shas skip rev-list; a new commit re-counts.
+func TestAheadBehindReusesCountsWhileRefsHold(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := hosttest.Repo(t)
+	commit := func(file string) {
+		hosttest.WriteRel(t, repo, file, file+"\n")
+		hosttest.In(t, repo, "add", file)
+		hosttest.In(t, repo, "commit", "-q", "-m", file)
+	}
+	hosttest.In(t, repo, "branch", "-q", "up")
+	hosttest.In(t, repo, "switch", "-q", "up")
+	commit("remote")
+	hosttest.In(t, repo, "switch", "-q", "main")
+	commit("local")
+	hosttest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
+	ctx := context.Background()
+	key := countThenForge(t, repo)
+	if a, b, _ := aheadBehind(ctx, repo); a != 7 || b != 9 {
+		t.Errorf("unchanged refs = %d, %d; want the cached 7, 9", a, b)
+	}
+	hosttest.In(t, repo, "pack-refs", "--all")
+	if k, ok := refPair(repo); !ok || k != key {
+		t.Errorf("packed refs key = %q, %v; want %q", k, ok, key)
+	}
+	commit("local2")
+	if a, b, _ := aheadBehind(ctx, repo); a != 2 || b != 1 {
+		t.Errorf("after a new commit = %d, %d; want a fresh 2, 1", a, b)
+	}
+}
+
+// TestRefPairKeysLinkedWorktree: a linked worktree's gitdir file and commondir still yield a key.
+func TestRefPairKeysLinkedWorktree(t *testing.T) {
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "branch", "-q", "up")
+	wt := filepath.Join(t.TempDir(), "side")
+	hosttest.In(t, repo, "worktree", "add", "-q", "--track", "-b", "side", wt, "up")
+	if k, ok := refPair(wt); !ok || strings.Count(k, "\t") != 2 {
+		t.Errorf("linked worktree key = %q, %v; want a checkout, HEAD and upstream sha", k, ok)
+	}
+}
+
+// TestUpstreamRefNeedsTheDefaultRefspec: a custom remote fetch refspec leaves the count uncached.
+func TestUpstreamRefNeedsTheDefaultRefspec(t *testing.T) {
+	dir := t.TempDir()
+	branch := "[branch \"main\"]\n\tremote = origin\n\tmerge = refs/heads/main\n[remote \"origin\"]\n\tfetch = "
+	for fetch, want := range map[string]bool{"+refs/heads/*:refs/remotes/origin/*": true,
+		"+refs/heads/main:refs/remotes/origin/other": false} {
+		if err := os.WriteFile(filepath.Join(dir, "config"), []byte(branch+fetch+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if ref, ok := upstreamRef(dir, "main"); ok != want {
+			t.Errorf("fetch %q: upstreamRef = %q, %v; want ok %v", fetch, ref, ok, want)
+		}
+	}
+}
+
+// TestUpstreamRefSkipsWorktreeConfig: extensions.worktreeConfig lets config.worktree override merge, so no key.
+func TestUpstreamRefSkipsWorktreeConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := "[extensions]\n\tworktreeConfig = true\n[branch \"main\"]\n\tremote = .\n\tmerge = refs/heads/up\n"
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ref, ok := upstreamRef(dir, "main"); ok {
+		t.Errorf("worktreeConfig: upstreamRef = %q, true; want uncached", ref)
+	}
+}
+
+// TestStableAncestry: shallow, grafts, replace refs (loose or packed) and config.worktree each disable the cache.
+func TestStableAncestry(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	for _, rel := range []string{"", "shallow", "info/grafts", "refs/replace/abc", "packed-refs", "config.worktree"} {
+		common := t.TempDir()
+		if rel != "" {
+			hosttest.WriteRel(t, common, rel, "x refs/replace/x\n")
+		}
+		if got := stableAncestry(common, common); got != (rel == "") {
+			t.Errorf("%q: stableAncestry = %v, want %v", rel, got, rel == "")
+		}
+	}
+}
+
+// countThenForge counts repo (ahead 1, behind 1), then forges 7, 9 under its live key; a cache read returns those.
+func countThenForge(t *testing.T, repo string) string {
+	t.Helper()
+	if a, b, err := aheadBehind(context.Background(), repo); a != 1 || b != 1 || err != nil {
+		t.Fatalf("first count = %d, %d, %v; want 1, 1", a, b, err)
+	}
+	key, keyed := refPair(repo)
+	if !keyed {
+		t.Fatal("refPair found no key for a branch with a local upstream")
+	}
+	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+shortHash(key))
+	if err := os.WriteFile(cache, []byte(key+"\n7\t9"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
 // divergedClone is a clone whose main has one local commit and one new upstream commit.
 func divergedClone(t *testing.T) string {
 	t.Helper()

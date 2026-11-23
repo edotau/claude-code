@@ -59,11 +59,8 @@ func hookDispatch(in *core.Input) string {
 	return os.Getenv(proc.DispatchIDEnv)
 }
 
-// runningDispatches lists running dispatch records; a var seam so tests supply them.
-var runningDispatches = func() ([]agent.Record, error) { return agent.RunningRecent(runningScan) }
-
-// runningScan is how many of the newest dispatch records the stamp lookup reads.
-const runningScan = 64
+// runningDispatches lists running dispatch records, read concurrently; a var seam so tests supply them.
+var runningDispatches = func() ([]agent.Record, error) { return agent.RunningRecent(agent.AllRecords) }
 
 // ownerHops bounds the ancestor walk from a claim's owner pid to a dispatch's job process.
 const ownerHops = 8

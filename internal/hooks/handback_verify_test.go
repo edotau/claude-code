@@ -1,12 +1,16 @@
 package hooks
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -28,6 +32,44 @@ func TestUntiedTask(t *testing.T) {
 		if got.ID != c.want || ok != (c.want != "") {
 			t.Errorf("%s: got %q %v, want %q", c.name, got.ID, ok, c.want)
 		}
+	}
+}
+
+// TestCheckoutTopMatchesGit: the stat walk prints git's symlink-resolved toplevel for a subdir and a linked worktree.
+func TestCheckoutTopMatchesGit(t *testing.T) {
+	repo := hosttest.Repo(t)
+	sub := filepath.Join(repo, "a", "b")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(t.TempDir(), "wt")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "side", wt)
+	for _, dir := range []string{repo, sub, wt, t.TempDir()} {
+		if got, want := checkoutTop(dir), memory.GitToplevel(dir); got != want {
+			t.Errorf("checkoutTop(%s) = %q, want git's %q", dir, got, want)
+		}
+	}
+}
+
+// TestCheckoutTopResolvesSymlinks: outer/link -> other/subdir belongs to other's repo, as git sees it.
+func TestCheckoutTopResolvesSymlinks(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"outer/.git", "other/.git", "other/subdir"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"outer/.git/HEAD", "other/.git/HEAD"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(root, "outer", "link")
+	if err := os.Symlink(filepath.Join(root, "other", "subdir"), link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	if got, want := checkoutTop(link), paths.Real(filepath.Join(root, "other")); got != want {
+		t.Errorf("checkoutTop(link) = %q, want %q", got, want)
 	}
 }
 
