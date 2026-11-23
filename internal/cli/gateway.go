@@ -289,7 +289,7 @@ func gatewayRoute(args []string) int {
 	if err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	ctx, code := checkCoworkerFlags(ctx, name, ov.Confinement(), q.Profile, *format, q.Fallback, q.Agent, q.Model)
+	ctx, code := checkCoworkerFlags(ctx, name, cmp.Or(ov.Confinement(), typedGatewayArm(q.Profile)), q.Profile, *format, q.Fallback, q.Agent, q.Model)
 	if code != 0 {
 		return code
 	}
@@ -339,6 +339,25 @@ func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentc
 		cfg.Fold(fs)
 	}
 	return cfg, err
+}
+
+// typedGatewayArm is databricks:<workspace> for a typed --profile naming one, so nested dispatches inherit its fence.
+func typedGatewayArm(profile string) string {
+	if profile == "" {
+		return ""
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		reg = &providers.Registry{}
+	}
+	r := route.ParseLegacy(profile)
+	if row := reg.Row(profile); row != nil {
+		r = route.Route{Provider: row.Provider, Profile: profile}
+	}
+	if r.Provider != router.RouteDatabricks || r.Profile == "" || r.Profile == route.AutoArm {
+		return ""
+	}
+	return route.Join(r.Provider, r.Profile)
 }
 
 // checkCoworkerFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.

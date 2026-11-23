@@ -750,3 +750,11 @@ func TestGatewayRouteNamesBadFallbackEnv(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q; want an error naming %s and no --fallback", code, errOut, router.EnvFallback)
 	}
 }
+
+func TestTypedGatewayArm(t *testing.T) {
+	for profile, want := range map[string]string{"": "", "databricks:qa": "databricks:qa", "databricks:auto": "", "session": ""} {
+		if got := typedGatewayArm(profile); got != want {
+			t.Errorf("typedGatewayArm(%q) = %q, want %q", profile, got, want)
+		}
+	}
+}
