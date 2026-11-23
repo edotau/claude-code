@@ -18,7 +18,10 @@ import (
 )
 
 // jobRows flattens ds's node tree into printed rows, so the text and the node tree fold carriers alike.
-func jobRows(ds []Dispatch) []nested {
+func jobRows(ds []Dispatch) []nested { return nodeRows(dispatchNodes(ds, 0)) }
+
+// nodeRows flattens the dispatch nodes among nodes into printed rows, each with its ├─/└─ guide.
+func nodeRows(nodes []Node) []nested {
 	var rows []nested
 	var walk func(Node, string, string)
 	walk = func(n Node, prefix, guide string) {
@@ -31,8 +34,10 @@ func jobRows(ds []Dispatch) []nested {
 			walk(child, prefix+next, prefix+branch)
 		}
 	}
-	for _, n := range dispatchNodes(ds, 0) {
-		walk(n, "", "")
+	for _, n := range nodes {
+		if n.Kind == KindDispatch {
+			walk(n, "", "")
+		}
 	}
 	return rows
 }
@@ -192,21 +197,16 @@ func poolsFor(rows []nested) map[string]serve.PoolRow {
 	return nil
 }
 
-// addJobs adds the machine-wide dispatch jobs under a "dispatches" header, one row each; detail adds id and task.
-func addJobs(l *layout, dispatches []Dispatch, now time.Time, detail bool, selected string) {
-	if len(dispatches) == 0 {
-		return
-	}
+// addJobs adds the machine-wide dispatch job nodes under a "dispatches" header, one row each; detail adds id and task.
+func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 	l.sep()
 	l.free(0, "dispatches")
-	rows := jobRows(dispatches)
+	rows := nodeRows(nodes)
 	pools := poolsFor(rows)
 	for _, n := range rows {
 		cells := jobCells(n.Dispatch, now, pools)
 		cells[0] = n.guide + cells[0]
-		l.add(levelJob, append(append([]string{jobMarker(n.Dispatch)}, cells...), "")...)
-		l.mark(n.Status == statusRunning, 1<<0)
-		l.spanLast(n.queued != "", selected != "" && n.ID == selected)
+		addJobRow(l, levelJob, append([]string{jobMarker(n.Dispatch)}, cells...), n.Dispatch, false)
 		if detail {
 			l.free(5, joinText(n.ID, "  ", textutil.OneLine(n.Task)))
 		}

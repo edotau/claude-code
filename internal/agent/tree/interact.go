@@ -129,9 +129,6 @@ type dashboard struct {
 	loaded    time.Time
 }
 
-// watchKeys is retired: `agents tree --watch` is the plain reprint and the walkable tree is `agents dashboard`.
-func watchKeys(string, Options, View) (int, bool) { return 0, false }
-
 // Dashboard runs the walkable tree until q, Esc, a signal or a failed load; stdin and stdout must be terminals.
 func Dashboard(claudeDir string, opts Options, v View) int {
 	if err := runDashboard(claudeDir, opts, v); err != nil {

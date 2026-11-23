@@ -46,27 +46,29 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
-	home, _ := os.UserHomeDir()
+	c := rowCtx{now: now}
+	c.home, _ = os.UserHomeDir()
 	var l layout
-	l.active = true
-	addRepos(&l, tree.Sessions, true, now, home)
-	addJobs(&l, tree.Dispatches, now, tree.detail, tree.selected)
-	l.active = false
-	addRepos(&l, tree.Sessions, false, now, home)
+	repo := ""
+	nodes := Build(tree.Sessions, tree.Dispatches)
+	for i, n := range nodes {
+		switch {
+		case n.Kind == KindDispatch && (i == 0 || nodes[i-1].Kind != KindDispatch):
+			l.active = true
+			addJobs(&l, nodes[i:], now, tree.detail)
+		case n.Kind == KindSession:
+			l.active = n.Session.isActive()
+			if key := fmt.Sprint(l.active, n.Session.Cwd); key != repo { // Build lists each repo's sessions together
+				repo = key
+				l.sep()
+				l.free(0, cmp.Or(n.Session.Cwd, "(unknown)"))
+			}
+			addSession(&l, n, &c)
+		}
+	}
 	addFree(&l, tree.Free)
 	for _, line := range l.lines(width, paint) {
 		fmt.Fprintln(w, line)
-	}
-}
-
-// addRepos adds a block per repo of the active or the inactive sessions, each after a blank line unless first.
-func addRepos(l *layout, sessions []Session, active bool, now time.Time, home string) {
-	for _, repo := range groupByRepo(sessions, active) {
-		l.sep()
-		l.free(0, repo.cwd)
-		for _, s := range repo.sessions {
-			addSession(l, s, now, home)
-		}
 	}
 }
 
@@ -119,23 +121,28 @@ func groupByRepo(sessions []Session, active bool) []repoGroup {
 	return groups
 }
 
-// addSession adds one session row, then its subagents and workflow runs.
-func addSession(l *layout, s Session, now time.Time, home string) {
-	title := textutil.OneLine(s.Title)
-	if title == "" {
-		title = "(no prompt yet)"
-	}
-	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, sessionTotal(s), title)
-	l.mark(s.Status == statusActive, 1<<1)
+// addSession adds session node n's row, then its subagents and workflow runs.
+func addSession(l *layout, n Node, c *rowCtx) {
+	s := n.Session
+	c.cwd = s.Cwd
+	addSessionRow(l, *s, c.now, "")
 	for _, note := range s.Notes {
 		addHeld(l, 4, nil, note)
 	}
-	for _, sub := range s.Subagents {
-		addSubagent(l, sub, now, home, s.Cwd)
+	for _, child := range n.Children {
+		if child.Kind == KindWorkflow {
+			addWorkflowRun(l, child, c)
+		} else {
+			addSubagent(l, child, c)
+		}
 	}
-	for _, run := range s.Workflows {
-		addWorkflowRun(l, run, now, home, s.Cwd)
-	}
+}
+
+// addSessionRow adds a session's row: twist and label, state, age, branch, Σ total, title.
+func addSessionRow(l *layout, s Session, now time.Time, twist string) {
+	l.add(levelSession, twist+cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch,
+		sessionTotal(s), cmp.Or(textutil.OneLine(s.Title), "(no prompt yet)"))
+	l.mark(s.Status == statusActive, 1<<1)
 }
 
 // sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
@@ -200,22 +207,33 @@ func durationText(s string) string {
 	return shortDuration(d)
 }
 
-// addSubagent adds one subagent row, then a row per dispatch; deeper spawns indent inside the marker cell.
-func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
-	nest := strings.Repeat("  ", max(sub.Depth, 1)-1)
-	l.add(levelSubagent, nest+statusGlyph(sub.Status), sub.Type, subModel(sub),
-		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
-		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
-		textutil.OneLine(stripPaths(subTask(sub), home, cwd)))
-	l.mark(sub.Status == statusRunning, 1<<0)
+// addSubagent adds subagent node n's row, then a row per dispatch; deeper spawns indent inside the marker cell.
+func addSubagent(l *layout, n Node, c *rowCtx) {
+	sub := n.Subagent
+	addSubagentRow(l, *sub, c, "", sub.Status == statusRunning)
 	addHeld(l, 8, sub.Files, "")
-	for _, n := range jobRows(sub.Dispatches) {
-		cells := append(append([]string{nest + n.guide + "↳"}, jobCells(n.Dispatch, now, nil)...), "")
-		l.add(levelDispatch, cells...)
-		l.mark(n.Status == statusRunning, 1<<0)
-		l.spanLast(n.queued != "", false)
-		addHeld(l, 10, n.Files, n.Note)
+	for _, r := range nodeRows(n.Children) {
+		addJobRow(l, levelDispatch, append([]string{subNest(*sub) + r.guide + "↳"}, jobCells(r.Dispatch, c.now, nil)...),
+			r.Dispatch, false)
+		addHeld(l, 10, r.Files, r.Note)
 	}
+}
+
+func subNest(sub Subagent) string { return strings.Repeat("  ", max(sub.Depth, 1)-1) }
+
+// addSubagentRow adds a subagent's row: twist and nested marker, type, model, ↑in, ↓out, Σ, age, idle, task.
+func addSubagentRow(l *layout, sub Subagent, c *rowCtx, twist string, hot bool) {
+	l.add(levelSubagent, twist+subNest(sub)+statusGlyph(sub.Status), sub.Type, subModel(sub),
+		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out), subTotal(sub),
+		age(sub.Updated, c.now), idleSince(sub, c.now), textutil.OneLine(stripPaths(subTask(sub), c.home, c.cwd)))
+	l.mark(hot, 1<<0)
+}
+
+// addJobRow adds a dispatch row of cells at level, marker first; it ends in an empty text cell.
+func addJobRow(l *layout, level int, cells []string, d Dispatch, sel bool) {
+	l.add(level, append(cells, "")...)
+	l.mark(d.Status == statusRunning, 1<<0)
+	l.spanLast(d.queued != "", sel)
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
@@ -229,20 +247,28 @@ func phaseDone(agents []Subagent) (done, total int) {
 	return done, total
 }
 
-// addWorkflowRun adds a run header then its phases -> agents, each phase showing done/total.
-func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string) {
-	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), "Σ"+textutil.CompactCount(run.total.sum)+"  "+run.ID)
-	l.mark(run.Status == statusRunning, 1<<1)
+// addWorkflowRun adds workflow node n's header then its phases -> agents, each phase showing done/total.
+func addWorkflowRun(l *layout, n Node, c *rowCtx) {
+	run := n.Workflow
+	addRunRow(l, *run, c.now, "")
+	agents := n.Children // every phase's agents in phase order, as forEachRunAgent walks them
 	for _, phase := range run.Phases {
 		done, total := phase.done, phase.count
 		if !phase.total.ready {
 			done, total = phaseDone(phase.Agents)
 		}
 		l.free(6, fmt.Sprintf("phase %s (%d/%d done) Σ%s", phase.Name, done, total, textutil.CompactCount(phase.total.sum)))
-		for _, sub := range phase.Agents {
-			addSubagent(l, sub, now, home, cwd)
+		for _, sub := range agents[:len(phase.Agents)] {
+			addSubagent(l, sub, c)
 		}
+		agents = agents[len(phase.Agents):]
 	}
+}
+
+func addRunRow(l *layout, run WorkflowRun, now time.Time, twist string) {
+	l.add(levelRun, twist+"workflow "+run.Name, run.Status, age(run.Updated, now),
+		"Σ"+textutil.CompactCount(run.total.sum)+"  "+run.ID)
+	l.mark(run.Status == statusRunning, 1<<1)
 }
 
 // age renders how long ago t was, "-" when t is zero.
@@ -283,9 +309,6 @@ func Show(claudeDir string, opts Options, v View) int {
 	var f *frame
 	if v.Watch {
 		opts.scans = loadScanCache()
-		if code, ok := watchKeys(claudeDir, opts, v); ok {
-			return code
-		}
 		if rowWidth(os.Stdout) > 0 {
 			f = &frame{paint: activePaint(os.Stdout)}
 		}

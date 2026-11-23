@@ -16,22 +16,6 @@ func TestDecodeKeys(t *testing.T) {
 	}
 }
 
-func TestPickClampsAndRecovers(t *testing.T) {
-	ids := []string{"a", "b", "c"}
-	for _, c := range []struct {
-		sel  string
-		step int
-		want string
-	}{{"", 0, "a"}, {"a", -1, "a"}, {"b", 1, "c"}, {"c", 1, "c"}, {"gone", 1, "a"}} {
-		if got := pick(ids, c.sel, c.step); got != c.want {
-			t.Errorf("pick(%q, %d) = %q, want %q", c.sel, c.step, got, c.want)
-		}
-	}
-	if got := pick(nil, "a", 1); got != "" {
-		t.Errorf("pick(no rows) = %q", got)
-	}
-}
-
 // The detail view fits the terminal: the task wraps to three lines, output keeps the newest lines, nothing wraps.
 func TestDetailLinesFit(t *testing.T) {
 	out := &followBuf{}

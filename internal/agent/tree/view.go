@@ -3,7 +3,6 @@
 package tree
 
 import (
-	"cmp"
 	"maps"
 	"os"
 	"slices"
@@ -166,6 +165,7 @@ type rowCtx struct {
 	home, cwd string
 	open      map[string]bool
 	inSession bool
+	sub       Node // the nearest subagent row above, whose dispatches nest under it
 }
 
 // dashLines is the frame: the viewport's rows, laid out by the tree's one row formatter, then the footer.
@@ -200,42 +200,20 @@ func addNode(l *layout, n Node, c *rowCtx, sel bool) {
 	switch n.Kind {
 	case KindSession:
 		c.cwd = n.Session.Cwd
-		cells := sessionCells(*n.Session, c.now)
-		cells[0] = twist + cells[0]
-		l.add(levelSession, cells...)
-		l.mark(n.Session.Status == statusActive, 1<<1)
+		addSessionRow(l, *n.Session, c.now, twist)
+	case KindWorkflow:
+		addRunRow(l, *n.Workflow, c.now, twist)
 	case KindSubagent:
-		cells := subagentCells(*n.Subagent, c.now, c.home, c.cwd)
-		cells[0] = twist + cells[0]
-		l.add(levelSubagent, cells...)
-		l.mark(n.Subagent.running(), 1<<0)
+		c.sub = n
+		addSubagentRow(l, *n.Subagent, c, twist, n.Subagent.running())
 	default:
-		d := *n.Dispatch
-		level, depth := levelJob, n.Depth
-		if c.inSession {
-			level, depth = levelDispatch, n.Depth-2
+		level, marker := levelJob, twist+strings.Repeat("  ", n.Depth)+jobMarker(*n.Dispatch)
+		if c.inSession { // the printed tree's ↳ row; a guide column per level below the subagent
+			guide := strings.Repeat("   ", max(n.Depth-c.sub.Depth-1, 0))
+			level, marker = levelDispatch, twist+subNest(*c.sub.Subagent)+guide+"↳"
 		}
-		marker := twist + strings.Repeat("  ", max(depth, 0)) + jobMarker(d)
-		l.add(level, append(append([]string{marker}, jobCells(d, c.now, nil)...), "")...)
-		l.mark(d.Status == statusRunning, 1<<0)
-		l.spanLast(d.queued != "", sel)
+		addJobRow(l, level, append([]string{marker}, jobCells(*n.Dispatch, c.now, nil)...), *n.Dispatch, sel)
 		return
 	}
 	l.spanLast(false, sel)
-}
-
-// sessionCells are a session row's cells: label, state, age, branch, Σ total, title.
-func sessionCells(s Session, now time.Time) []string {
-	title := cmp.Or(textutil.OneLine(s.Title), "(no prompt yet)")
-	return []string{cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch,
-		sessionTotal(s), title}
-}
-
-// subagentCells are a subagent row's cells: nested marker, type, model, ↑in, ↓out, Σ, age, idle, task.
-func subagentCells(sub Subagent, now time.Time, home, cwd string) []string {
-	nest := strings.Repeat("  ", max(sub.Depth, 1)-1)
-	return []string{nest + statusGlyph(sub.Status), sub.Type, subModel(sub),
-		"↑" + textutil.CompactCount(sub.Tokens.In), "↓" + textutil.CompactCount(sub.Tokens.Out),
-		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
-		textutil.OneLine(stripPaths(subTask(sub), home, cwd))}
 }
