@@ -34,8 +34,23 @@ func VetoRule(cmd, cwd string) string {
 		return "go-raw"
 	case rtkFileOutput(cmd):
 		return "file-output"
+	case rtkLsAll(cmd):
+		return "ls-all"
 	}
 	return ""
+}
+
+// rtkLsAll: rtk's compacted `ls` drops the `.` and `..` rows that `ls -a` prints, so a count over it is wrong.
+func rtkLsAll(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(t) > 0 && t[0] == "ls" && slices.ContainsFunc(t[1:], func(a string) bool {
+			return shortFlag(a, "aA") || a == "--all" || a == "--almost-all"
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 // rtkFileOutput: rtk drops file-output flags (`git diff --output=f`, `curl -o f`), so the file is never written.

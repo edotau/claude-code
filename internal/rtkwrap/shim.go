@@ -65,6 +65,8 @@ func (c call) gate() (cmd, reason string) {
 	switch {
 	case !ok:
 		return "", "not-tool-shell"
+	case feedsProgram(cmd, c.name):
+		return "", "pipeline-output"
 	case substitutes(cmd):
 		return "", "substitution"
 	case sourced(cmd):
@@ -127,13 +129,39 @@ func sourced(cmd string) bool {
 	return false
 }
 
+// feedsProgram reports name piping into a program, or any pipe fed by a compound group (its members are unattributed).
+func feedsProgram(cmd, name string) bool {
+	segs, seps := shell.SegmentsSep(cmd)
+	for i, seg := range segs {
+		if seps[i] != "|" && seps[i] != "|&" {
+			continue
+		}
+		if f := strings.Fields(seg); len(f) > 0 && endsCompound(f[len(f)-1]) {
+			return true
+		}
+		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(rest) > 0 && filepath.Base(rest[0]) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func endsCompound(word string) bool {
+	return strings.HasSuffix(word, ")") || slices.Contains([]string{"}", "done", "fi", "esac"}, word)
+}
+
 // rewriteWraps reports whether rtk's rewrite puts this very invocation behind rtk and leaves no name segment bare.
 func rewriteWraps(rewritten, name string, args []string) bool {
 	wrapped := false
 	own := shell.Tokens(quoteArgv(name, args))
-	for _, seg := range shell.Segments(rewritten) {
+	segs, seps := shell.SegmentsSep(rewritten)
+	for i, seg := range segs {
 		t := shell.Tokens(seg)
 		if len(t) > 1 && t[0] == "rtk" && t[1] == name {
+			if seps[i] == "|" || seps[i] == "|&" {
+				return false
+			}
 			wrapped = wrapped || slices.Equal(t[1:], own)
 			continue
 		}
@@ -279,7 +307,7 @@ func rtkMain(args []string) int {
 	if strip {
 		cmd, _ := resolve(dirs, name, self)
 		if os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on" {
-			logVerdict(name, "stripped", "")
+			logVerdict(filepath.Base(name), "stripped", "")
 		}
 		if cmd == "" {
 			fmt.Fprintf(os.Stderr, "rtkwrap: %s: not found on PATH outside the shim dir\n", name)

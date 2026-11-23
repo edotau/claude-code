@@ -211,7 +211,7 @@
   },
   "rtk_machine_readable_flags": {
     "purpose": "flags asking for exact, parseable output: such a command bypasses rtk",
-    "words": ["--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status", "--numstat", "--shortstat",
+    "words": ["--porcelain", "--json", "-json", "--format", "--pretty", "--name-only", "--name-status", "--numstat", "--shortstat",
       "--raw", "-z", "--null", "--format-version", "--parseable", "--parse", "--show-current"]
   },
   "rtk_value_subcommands": {

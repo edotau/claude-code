@@ -56,6 +56,8 @@ func TestWrapDecision(t *testing.T) {
 		{"command substitution", forked("git", "rev-parse", "HEAD"), "x=$(git rev-parse HEAD); echo $x", false},
 		{"value subcommand", execd("git", "rev-parse", "HEAD"), "", false},
 		{"machine flag", forked("git", "status"), "git status --porcelain", false},
+		{"JSON flag", execd("go", "test", "-json", "./..."), "", false},
+		{"JSON flag value", execd("go", "list", "-json=Name", "./..."), "", false},
 		{"commit", execd("git", "commit", "-m", "x"), "", false},
 		{"PATH altered", forked("git", "status"), "PATH=/x:$PATH; git status", false},
 		{"go vet", execd("go", "vet", "./..."), "", false},
@@ -97,7 +99,10 @@ func TestRewriteWraps(t *testing.T) {
 		{"rtk git status; git push", "git", []string{"status"}, false},
 		{"git status", "git", []string{"status"}, false},
 		{"", "git", nil, false},
-		{"rtk ls -la | head", "ls", []string{"-la"}, true},
+		{"rtk ls -la | head", "ls", []string{"-la"}, false},
+		{"rtk git diff | wc -l", "git", []string{"diff"}, false},
+		{"rtk git diff |& wc -l", "git", []string{"diff"}, false},
+		{"git diff | rtk wc -l", "wc", []string{"-l"}, true},
 		{"rtk git log && git status", "git", []string{"status"}, false},
 		{"rtk git log", "git", []string{"status"}, false}, // wraps another git, not this one
 	} {
@@ -130,11 +135,25 @@ func TestWrapsVerified(t *testing.T) {
 		{"vetoed own argv", "F=--porcelain; git status $F", "F=--porcelain; rtk git status --porcelain", "git", []string{"status", "--porcelain"}, false},
 		{"single-quoted literal", "echo '$(x)'; git status", "echo '$(x)'; rtk git status", "git", []string{"status"}, true},
 		{"plain chain", "git status; ls", "rtk git status; rtk ls", "git", []string{"status"}, true},
-		{"pipe to git apply", "git diff | git apply", "", "git", []string{"diff"}, false},
-		{"pipe to jq", "git log | jq .", "", "git", []string{"log"}, false},
-		{"pipe to while read", "git log | while read l; do echo $l; done", "", "git", []string{"log"}, false},
-		{"pipe to xargs", "git ls-files | xargs wc -l", "", "git", []string{"ls-files"}, false},
-		{"pipe to patch", "git diff | patch -p1", "", "git", []string{"diff"}, false},
+		{"pipe to git apply", "git diff | git apply", "rtk git diff | git apply", "git", []string{"diff"}, false},
+		{"pipe to jq", "git log | jq .", "rtk git log | jq .", "git", []string{"log"}, false},
+		{"pipe to while read", "git log | while read l; do echo $l; done", "rtk git log | while read l; do echo $l; done", "git", []string{"log"}, false},
+		{"pipe to xargs", "git ls-files | xargs wc -l", "rtk git ls-files | xargs wc -l", "git", []string{"ls-files"}, false},
+		{"pipe to patch", "git diff | patch -p1", "rtk git diff | patch -p1", "git", []string{"diff"}, false},
+		{"pipe to wc", "git diff | wc -l", "rtk git diff | rtk wc -l", "git", []string{"diff"}, false},
+		{"stderr pipeline", "git diff |& wc -l", "rtk git diff |& wc -l", "git", []string{"diff"}, false},
+		{"wrapped pipeline producer", "env LC_ALL=C git diff | wc -l", "env LC_ALL=C rtk git diff | wc -l", "git", []string{"diff"}, false},
+		{"pipeline consumer", "git diff | wc -l", "rtk git diff | rtk wc -l", "wc", []string{"-l"}, true},
+		{"brace group pipe", "{ git log; } | wc -l", "{ rtk git log; } | rtk wc -l", "git", []string{"log"}, false},
+		{"subshell pipe", "(git status; git diff) | grep x", "(rtk git status; rtk git diff) | rtk grep x", "git", []string{"status"}, false},
+		{"for loop pipe", "for f in a; do git log; done | wc -l", "for f in a; do rtk git log; done | rtk wc -l", "git", []string{"log"}, false},
+		{"chain then plain pipe", "git status; ls | wc -l", "rtk git status; rtk ls | rtk wc -l", "git", []string{"status"}, true},
+		{"chain then plain pipe ls", "git status; ls | wc -l", "rtk git status; rtk ls | rtk wc -l", "ls", nil, false},
+		{"cat pipe grep", "cat f | grep x", "rtk read f | rtk grep x", "grep", []string{"x"}, true},
+		{"cd then git", "cd x && git status", "cd x && rtk git status", "git", []string{"status"}, true},
+		{"quoted pipe", "git log '--grep=a|b'", "rtk git log '--grep=a|b'", "git", []string{"log", "--grep=a|b"}, true},
+		{"logical or", "git status || echo failed", "rtk git status || echo failed", "git", []string{"status"}, true},
+		{"JSON output", "go test -json ./...", "rtk go test -json ./...", "go", []string{"test", "-json", "./..."}, false},
 	} {
 		rtkRewrite = func(string, string, []string) string { return tc.rewritten }
 		stubTree(t, map[int]string{10: "pi", 20: "bash"}, map[int]int{20: 10}, tc.line)
@@ -142,6 +161,21 @@ func TestWrapsVerified(t *testing.T) {
 		if reason := c.wraps("rtk", nil); (reason == "") != tc.want {
 			t.Errorf("%s: wraps reason = %q, want wrap %v", tc.label, reason, tc.want)
 		}
+	}
+}
+
+func TestRtkBypassLogsBasename(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(ModeEnv, "on")
+	t.Setenv(CodemodeEnv, "only")
+	name := filepath.Join(t.TempDir(), "private", "missing-tool")
+	if code := rtkMain([]string{"rtk", "bypass", name}); code != exitNoExec {
+		t.Fatalf("rtkMain() = %d, want %d", code, exitNoExec)
+	}
+	b, err := os.ReadFile(LogFile())
+	must(t, err)
+	if !strings.Contains(string(b), `"name":"missing-tool"`) || strings.Contains(string(b), filepath.Dir(name)) {
+		t.Fatalf("log = %s, want command basename without directory", b)
 	}
 }
 
