@@ -97,9 +97,10 @@ func archiveFile(name string, capLines int, now time.Time) (moved int, err error
 		// a retry after a failed rewrite must not archive the same blocks twice
 		fresh := slices.DeleteFunc(slices.Clone(overflow), func(o string) bool { return heldSet[strings.TrimSpace(o)] })
 		if len(fresh) > 0 {
-			if err := appendBlocks(archive, fresh); err != nil {
-				return err
-			}
+			err = appendBlocks(archive, fresh)
+		}
+		if err != nil {
+			return err
 		}
 		if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
 			return err
@@ -135,7 +136,7 @@ func promoteJudgment(id, to, target string) (string, error) {
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
-	_, block, _, err := findBlock(id)
+	block, err := findBlock(id)
 	if err != nil {
 		return "", err
 	}
@@ -178,26 +179,21 @@ func extractBlock(id string) (string, string, error) {
 	return "", "", errNoBlock
 }
 
-// findBlock is extractBlock, then the archive/<stem>-*.md (dream overflow); src is the file holding the block.
-func findBlock(id string) (file, block, src string, err error) {
-	if file, block, err = extractBlock(id); err == nil {
-		return file, block, Path(file), nil
-	} else if !errors.Is(err, errNoBlock) {
-		return "", "", "", err
+// findBlock searches typed files before their archive/<stem>-*.md overflow.
+func findBlock(id string) (string, error) {
+	if _, block, err := extractBlock(id); !errors.Is(err, errNoBlock) {
+		return block, err
 	}
 	for name := range idFiles {
 		ap := paths.MemorySub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
 		for _, p := range transcript.GlobIn(filepath.Dir(ap), filepath.Base(ap)) {
 			blk, rerr := blockIn(p, name, id)
-			if rerr != nil {
-				return "", "", "", rerr
-			}
-			if blk != "" {
-				return name, blk, p, nil
+			if rerr != nil || blk != "" {
+				return blk, rerr
 			}
 		}
 	}
-	return "", "", "", errNoBlock
+	return "", errNoBlock
 }
 
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
