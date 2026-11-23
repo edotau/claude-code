@@ -66,6 +66,22 @@ func TestSetEnvRefusesSecretsAndBadInput(t *testing.T) {
 	}
 }
 
+// A stray sealed CLAUDE_REMOTE_HOST does not block the plain host list; other sealed names stay refused.
+func TestSetEnvRemoteHostBesideSealedCopy(t *testing.T) {
+	vaulttest.Use(t)
+	for _, n := range []string{providers.RemoteHostEnv, "OTHER_SEALED"} {
+		if err := vault.Store(n, "qwzxplorv"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := checkEnvSet(providers.RemoteHostEnv, "devhost,otherhost"); err != nil {
+		t.Errorf("remote host list refused: %v", err)
+	}
+	if err := checkEnvSet("OTHER_SEALED", "devhost"); err == nil || !strings.Contains(err.Error(), "is a secret name") {
+		t.Errorf("sealed name: err %v, want a secret-name refusal", err)
+	}
+}
+
 // An existing @secret reference is the configure menu's to change, not SetEnv's.
 func TestSetEnvKeepsSecretReference(t *testing.T) {
 	vaulttest.Use(t)

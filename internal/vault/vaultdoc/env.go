@@ -60,9 +60,10 @@ func checkEnvSet(name, value string) error {
 
 // secretEnvName reports a name the sealed-secret path owns: internal, route credential, stored or credential-shaped.
 func secretEnvName(name string) bool {
-	// not every HARNESS_ name: the harness switches (HARNESS_WORKTREE, HARNESS_WATCH) are plain env values
+	// plain values despite the look: HARNESS_ switches, and the remote host list even beside a stray sealed copy
 	return name == providers.RouterSecretName || providers.IsSecretName(strings.ToUpper(name)) ||
-		providers.RouteSecretGuard()(name) || slices.Contains(providers.SecretNames(), name)
+		providers.RouteSecretGuard()(name) ||
+		name != providers.RemoteHostEnv && slices.Contains(providers.SecretNames(), name)
 }
 
 // UnsetEnv removes name from the vault env bucket through the menu's writer; dryRun writes nothing.
