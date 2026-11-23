@@ -62,7 +62,7 @@ func TestOpencodePermissionGolden(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := opencodePermission(c.p, false)
+			got, err := opencodePermission(c.p, false, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func withoutRoots(t *testing.T, perm json.RawMessage, want bool) string {
 
 // A Bash Deny renders natively again (the plugin's permission-gate covers `bash -c`); only --safe-mode refuses it.
 func TestOpencodePermissionBashDeny(t *testing.T) {
-	got, err := opencodePermission(permission.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false)
+	got, err := opencodePermission(permission.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false, "")
 	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || withoutRoots(t, got, true) != want {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
@@ -125,12 +125,12 @@ func requireFatal(t *testing.T, err error, wants ...string) {
 
 func TestOpencodePermissionRefusesWhatItCannotExpress(t *testing.T) {
 	for _, r := range []string{"WebFetch(domain:evil.com)", "NotebookEdit", "Glob(src/**)"} {
-		_, err := opencodePermission(permission.Permissions{Deny: rules(t, r)}, false)
+		_, err := opencodePermission(permission.Permissions{Deny: rules(t, r)}, false, "")
 		if err == nil || !strings.Contains(err.Error(), "cannot express deny "+r) {
 			t.Errorf("deny %s: err = %v, want it to name the rule", r, err)
 		}
 	}
-	if _, err := opencodePermission(permission.Permissions{Allow: rules(t, "Read(src/*.go)")}, false); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
+	if _, err := opencodePermission(permission.Permissions{Allow: rules(t, "Read(src/*.go)")}, false, ""); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
 		t.Error("an allow whose * would cross directories must refuse")
 	}
 }
@@ -141,7 +141,7 @@ func TestOpencodePermissionRefusesUnknownToolInPlan(t *testing.T) {
 	for name, p := range map[string]permission.Permissions{
 		"allow": {Mode: "plan", Allow: r}, "ask": {Mode: "plan", Ask: r}, "deny": {Mode: "plan", Deny: r},
 	} {
-		if _, err := opencodePermission(p, false); err == nil || !strings.Contains(err.Error(), "NotebookEdit") {
+		if _, err := opencodePermission(p, false, ""); err == nil || !strings.Contains(err.Error(), "NotebookEdit") {
 			t.Errorf("plan %s NotebookEdit: err = %v, want a refusal naming the tool", name, err)
 		}
 	}
@@ -155,7 +155,8 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	}
 	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}}
 	got, err = opencodeApplyPermissions([]string{opencodeConfigEnv + `={"model":"m"}`}, req, false)
-	raw, perr := opencodePermission(req.Permissions, false) // the env carries exactly what the renderer produces
+	cwd, _ := os.Getwd()
+	raw, perr := opencodePermission(req.Permissions, false, cwd) // the env carries exactly what the renderer produces
 	if perr != nil || withoutRoots(t, raw, true) != `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}` {
 		t.Fatalf("render: %s, %v", raw, perr)
 	}
@@ -279,7 +280,7 @@ func assertReadOnlyPerm(t *testing.T, perm, cfg string) {
 	if strings.Contains(perm, `"rm`) || strings.Contains(perm, `"git log *"`) {
 		t.Fatalf("gated read-only bash must not carry the native list: %s", perm)
 	}
-	own, err := opencodePermission(GatePolicy(agent.RunOptions{ReadOnly: true}), false)
+	own, err := opencodePermission(GatePolicy(agent.RunOptions{ReadOnly: true}), false, "")
 	if err != nil || !strings.Contains(string(own), `"bash":{"*":"deny"`) || !strings.Contains(string(own), `"git log *":"allow"`) {
 		t.Fatalf("without the plugin read-only bash stays the native list: %s, %v", own, err)
 	}

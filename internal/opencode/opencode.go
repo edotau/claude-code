@@ -432,7 +432,7 @@ func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, en
 	if s.Effort != "" && len(argv) > 0 && argv[0] == "run" && !slices.Contains(flagsOnly(argv), "--variant") {
 		argv = slices.Insert(slices.Clone(argv), 1, "--variant", s.Effort)
 	}
-	req := agent.RunOptions{Tools: s.Tools, SafeMode: s.SafeMode, Permissions: s.Permissions}
+	req := agent.RunOptions{Tools: s.Tools, SafeMode: s.SafeMode, Permissions: s.Permissions, WorkDir: s.WorkDir}
 	if env, err = opencodeApplyPermissions(env, req, false); err != nil {
 		return nil, nil, emulated, cleanup, err
 	}

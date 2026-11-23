@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 
@@ -31,9 +32,9 @@ var opencodeTools = map[string]struct {
 type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission keeps rule precedence; gated (plugin judges every bash call) leaves read-only bash to the gate.
-func opencodePermission(p permission.Permissions, gated bool) (json.RawMessage, error) {
+func opencodePermission(p permission.Permissions, gated bool, cwd string) (json.RawMessage, error) {
 	base := cmp.Or(map[string]string{"allow": "allow", "auto": "allow", "plan": "deny"}[p.Mode], "ask")
-	byKey := planEntries(p.Mode)
+	byKey := planEntries(p.Mode, cwd)
 	readOnly := opencodeReadOnly(agent.RunOptions{Permissions: p})
 	sets := []struct {
 		rules  []permission.Rule
@@ -74,10 +75,10 @@ func renderOpencodePermission(base string, byKey map[string][]opencodeEntry) jso
 var planDenied = map[string]bool{"edit": true, "bash": true, "task": true}
 
 // planEntries seeds plan mode's read-only policy: read tools allow, write tools deny, other tools fall to "*".
-func planEntries(mode string) map[string][]opencodeEntry {
+func planEntries(mode, cwd string) map[string][]opencodeEntry {
 	byKey := map[string][]opencodeEntry{}
 	if mode != "plan" { // the harness checkout is writable from any workspace; a deny rule added later still wins
-		for _, d := range agent.WritableRoots("") {
+		for _, d := range agent.WritableRoots(cwd) {
 			byKey["external_directory"] = append(byKey["external_directory"], opencodeEntry{d + "/**", "allow"})
 		}
 		return byKey
@@ -203,7 +204,11 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions, gated bool) ([
 	if nativeWebPinnedOff(env) { // the policy replaces the launch's permission block; keep its native web denies
 		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), permission.Rule{Tool: "WebFetch"}, permission.Rule{Tool: "WebSearch"})
 	}
-	perm, err := opencodePermission(req.Permissions, gated)
+	cwd := req.WorkDir
+	if cwd == "" {
+		cwd, _ = os.Getwd() // an empty cwd keeps the harness-only roots
+	}
+	perm, err := opencodePermission(req.Permissions, gated, cwd)
 	if err != nil {
 		return nil, retry.Fatal("opencode", err)
 	}
