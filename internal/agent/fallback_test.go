@@ -1480,3 +1480,20 @@ func TestRepickKeepsInvokedAsAsked(t *testing.T) {
 		t.Fatalf("err=%v runs=%+v invoked=%q; want concrete re-pick with invoked m-a", err, r.seen, res.Invoked)
 	}
 }
+
+// The answering hop's launched window reaches the envelope: a typed [1m] Claude model on the bare row, none for auto.
+func TestEnvelopeLaunchedWindow(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		want  bool
+	}{{"claude-opus-5", true}, {AutoModel, false}} {
+		r := &fakeRunner{name: "claude", errs: []error{nil}}
+		res, err := runWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p", Model: tc.model}, wire.Discard, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := envelopeMap(t, res, err)["context_window"]; (got != nil) != tc.want {
+			t.Errorf("model %q: context_window = %v, want present=%v", tc.model, got, tc.want)
+		}
+	}
+}

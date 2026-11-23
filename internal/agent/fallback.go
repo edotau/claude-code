@@ -209,9 +209,19 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	res = withPick(runCtx, lreq, res)
 	res.Invoked = launchedModel(runCtx, disp, lreq)
 	res, lreq, more, err := repick(runCtx, disp, lreq, res, err, sink, notify)
-	hops = append(append(hops, more...), hopOf(disp, lreq, res, err))
-	noteFailure(disp, lreq, ranModel(disp, lreq, res), err)
+	res, hops = settle(disp, lreq, res, err, append(hops, more...))
 	return res, hops, false, err
+}
+
+// settle stamps the answering row's launched window on res, records its hop after hops and notes the failure.
+func settle(disp Dispatch, req RunOptions, res wire.Result, err error, hops []wire.Hop) (wire.Result, []wire.Hop) {
+	ran := ranModel(disp, req, res)
+	if !res.NotStarted && !IsAuto(ran) {
+		res.ContextWindow = wire.LaunchedWindow(cmp.Or(res.Provider, req.Provider), ran, req.Typed1M)
+	}
+	hops = append(hops, hopOf(disp, req, res, err))
+	noteFailure(disp, req, ran, err)
+	return res, hops
 }
 
 // noteDropped1M says when opencode runs a typed [1m] request at the bare model's window (R8: no silent swap); Pi applies it.

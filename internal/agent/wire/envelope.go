@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -52,6 +53,18 @@ func RouteObject(s string) *route.Route {
 	return &r
 }
 
+// LaunchedWindow is the context window model runs at on the provider row (a typed [1m] included); 0 without a model.
+func LaunchedWindow(provider, model string, typed1M bool) int {
+	if model == "" {
+		return 0
+	}
+	if typed1M && !models.Has1M(model) {
+		model += "[1m]"
+	}
+	reg, _ := providers.Load()
+	return providers.Window(reg.Row(provider), model)
+}
+
 // Envelope is the one typed JSON body `ask --format json` prints for every agent, on success and on every error path.
 type Envelope struct {
 	Schema          int             `json:"schema"`
@@ -70,7 +83,9 @@ type Envelope struct {
 	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route asked for, as an object
 	Usage           *Usage          `json:"usage"`                     // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
-	Error           *EnvelopeError  `json:"error"` // null on success
+	Turns           int             `json:"turns,omitempty"`          // model turns the agent reported; absent when it reports none
+	ContextWindow   int             `json:"context_window,omitempty"` // tokens of the window the answering model was launched at
+	Error           *EnvelopeError  `json:"error"`                    // null on success
 	Denials         *Denials        `json:"denials,omitempty"`
 	Answer          string          `json:"answer"`
 	Dropped         []string        `json:"dropped"`
@@ -89,7 +104,7 @@ type Envelope struct {
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
-		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
+		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
 	if res.Denials != nil {
 		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
 	}
@@ -297,6 +312,8 @@ type Result struct {
 	Answer          string          `json:"answer"`
 	Usage           Usage           `json:"usage"`
 	DurationMs      int64           `json:"duration_ms"`
+	Turns           int             `json:"turns,omitempty"`          // model turns the agent's own stream reported
+	ContextWindow   int             `json:"context_window,omitempty"` // the answering model's launched window, set by runWithFallback
 	Dropped         []string        `json:"dropped,omitempty"`
 	SchemaUnchecked []string        `json:"-"`                         // schema keywords the minimal validator does not enforce
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel

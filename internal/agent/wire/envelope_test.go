@@ -129,3 +129,18 @@ func TestEnvelopeDenialsCommandsNeverNull(t *testing.T) {
 		t.Fatalf("denials = %s", raw)
 	}
 }
+
+// The envelope carries the reported turn count and launched window, and omits both when unknown.
+func TestEnvelopeTurnsAndWindow(t *testing.T) {
+	b, err := json.Marshal(NewEnvelope(Result{Agent: "claude", Status: StatusOK, Turns: 7, ContextWindow: 1000000}, nil, "d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); !strings.Contains(s, `"turns":7`) || !strings.Contains(s, `"context_window":1000000`) {
+		t.Errorf("envelope = %s, want turns 7 and context_window 1000000", s)
+	}
+	b, _ = json.Marshal(NewEnvelope(Result{Agent: "claude", Status: StatusOK}, nil, "d"))
+	if s := string(b); strings.Contains(s, "turns") || strings.Contains(s, "context_window") {
+		t.Errorf("envelope = %s, want neither field when unknown", s)
+	}
+}
