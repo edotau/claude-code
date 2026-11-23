@@ -841,6 +841,10 @@ let refused = false
 try { stepOf({fix:{profile:'qa'}}, 'fix', {}, {...opt, external:false}) }
 catch { refused = true }
 assert(refused, 'unwired route allowed')
+let refusedExt = ''
+try { stepOf({fix:{agent:'codex'}}, 'fix', {}, opt) }
+catch (e) { refusedExt = e.message }
+assert(refusedExt === 'stage "fix": agent codex is not a workflow stage; run it as claude-code agents ask --carry --agent codex', 'non-claude stage not refused: ' + refusedExt)
 `
 
 // An unpinned literal-options agent() call is filled by rewrite; auto mode rewrites it the same way.

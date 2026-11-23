@@ -23,19 +23,16 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 | `code-analyzer` {fix:false, partition} → `claude-code agents ask --waves <planPath>` → `code-looper` | `plan` and `findingsPath`; the dirs of a failed wave |
 | `code-evaluator` → `code-engineer` {skill} | `cells`, `deltas` |
 
-- A stage runs on `agent` = `claude` (in-context, session profile, `model` = `haiku|sonnet|opus|fable`) or
-  `codex|copilot|gemini|opencode|pi`: a `sonnet` `claude` leaf whose brief opens with the ask as its `Run:` line
-  runs the quoted task so the ran-on gate holds; no external agent has a relay subagent. A routed `claude` stage keeps
-  its attachment brief and also runs on a `claude` leaf. The external `Run:` line is
-  `claude-code agents ask --agent <a> --fallback agents --format json --tools|--read-only --effort <e> [--profile <p>]
-  [--overlay '<route>'] [--model <m>] -- <quoted task>`, and the stage reports `ran on`
-  (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin; `profile`/`provider`
-  (run args or per stage) become `--profile` or a provider/profile/model `--overlay` route. After
-  a 429/quota/auth failure, even mid-run, the `--fallback agents` order runs (the requested target, the agent's pin,
-  then other agents, never Claude), then BLOCKED ([cost-routing.md](cost-routing.md) → Fallback); an editing successor
-  checks `git diff` first. gemini defaults to Google; a named Databricks profile or the arm runs it there. A run
-  preflights each external route once with `claude-code gateway`. Parser: `stepOf`, verbatim in `code-analyzer`,
-  `code-looper`, `code-evaluator`, `code-workers` and `code-engineer` (enforced by `workflow lint`).
+- A stage runs on `agent` = `claude` (in-context on the session profile, `model` = `haiku|sonnet|opus|fable`, or routed
+  with `profile`/`provider` via an attachment brief on a `claude` leaf). Any other agent (`codex|copilot|gemini|
+  opencode|pi`) is not a workflow stage — `stepOf` throws at script start; run it from the main session with
+  `claude-code agents ask --carry --agent <who>`. A routed `claude` stage runs
+  `claude-code agents ask --agent claude --fallback agents --format json --tools --effort <e> [--profile <p>]
+  [--overlay '<route>'] [--model <m>] --attach <file>`, and reports `ran on` (with hop count) or BLOCKED (`coworkers`
+  rows in the result). `profile`/`provider` (run args or per stage) become `--profile` or a provider/profile/model
+  `--overlay` route; after a 429/quota/auth failure, `--fallback agents` applies ([cost-routing.md](cost-routing.md) →
+  Fallback). Parser: `stepOf`, verbatim in `code-analyzer`, `code-looper`, `code-evaluator`, `code-workers` and
+  `code-engineer` (enforced by `workflow lint`).
 - Stages: the `// ── stages:` block (`stageDetect`, `stageLoop`, `stageFix`, `stageRepair`, `stagePolish`), verbatim in
   `code-analyzer`, `code-looper`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
   in-script, so a workflow nests one level only. Shell prompts carry a `cd <cwd> &&` prefix (a subagent's cwd does not

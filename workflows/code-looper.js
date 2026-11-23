@@ -12,7 +12,7 @@ export const meta = {
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 // <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others by ask.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context or routed by ask.
 const COWORKERS = []
 // ranOnReworded: a reworded ran_on that still names the agent and a route (account·profile, profile:model, model id).
 const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode|pi)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
@@ -51,8 +51,6 @@ const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `cl
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
 const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
-// ANSI-C quotes decode task escapes; hex apostrophes also pass the hook's literal-quote check.
-const stepTaskArg = (p) => "$'" + p.replace(/[\\'\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')) + "'"
 const stepRecord = (name, who, label, r) => {
   const { ranOn, canon, ok } = ranOnVerdict(r)
   if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
@@ -65,17 +63,14 @@ const stepExt = (name, v, d, f) => {
   const { who, effort, profile, provider } = f
   // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
   const edit = d.tools === 'edit'
-  const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   // a named provider goes whole as --overlay; a bare profile stays sugar and ask fills the provider from the registry.
   const route = provider ? ` --overlay '${JSON.stringify({ provider, profile: profile || 'auto', ...(v.model ? { model: v.model } : {}) })}'`
     : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
-  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + route
-  const external = who !== 'claude'
-  const how = external ? 'Run the `Run:` line above exactly; its quoted argument is the complete task. Never do it in-context.'
-    : `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
+  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json --tools --effort ${effort}` + route
+  const how = `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
-    task: (p) => (external ? `Run: ${ask} -- ${stepTaskArg(p)}\n` : '') + `Agent: ${who}\n${how}` +
+    task: (p) => `Agent: ${who}\n${how}` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },
@@ -87,7 +82,8 @@ const stepOf = (steps, name, defaults, opt) => {
   const o = opt || {}, d = defaults || {}
   const v = stepCheck(steps, name, o.allowed)
   const f = stepFields(v, d, o)
-  if (f.who === 'claude' && !f.profile && !f.provider) return claudeStage(v, d, f.effort)
+  if (f.who !== 'claude') throw new Error(`stage "${name}": agent ${f.who} is not a workflow stage; run it as claude-code agents ask --carry --agent ${f.who}`)
+  if (!f.profile && !f.provider) return claudeStage(v, d, f.effort)
   if (!o.external) throw new Error(`steps.${name}.agent: ${f.who} is not wired in this workflow yet (claude only)`)
   return stepExt(name, v, d, f)
 }
