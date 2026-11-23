@@ -213,4 +213,8 @@ func TestLineSmellsSkipsNamedConstants(t *testing.T) {
 	if got := lineSmells("x = 120\nTimeout = 3000\n"); len(got) != 2 {
 		t.Fatalf("bare or mixed-case literal not flagged: %v", got)
 	}
+	doc := "def f():\n    \"\"\"One 120 line.\"\"\"\n    '''\n    IMGT 112 prose\n    '''\n/* 99\n 77 */\nx = 120\n"
+	if got := lineSmells(doc); len(got) != 1 || got[0].Location != "line 8" {
+		t.Fatalf("docstring prose flagged or code missed: %v", got)
+	}
 }
