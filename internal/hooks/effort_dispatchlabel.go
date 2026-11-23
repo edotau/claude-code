@@ -121,8 +121,11 @@ func labelSource(dispatchModel, label, sessionModel string) string {
 	return "derived"
 }
 
-// sessionModelOf is the model of the last turn in session sid's transcript in cwd's project; "" when unreadable.
+// sessionModelOf is the last turn's model in sid's transcript, found from the launch dir's project; "" when unreadable.
 func sessionModelOf(cwd, sid string) string {
+	if d := os.Getenv("CLAUDE_PROJECT_DIR"); filepath.IsAbs(d) {
+		cwd = d // the transcript lives under the launch dir's project; a cd moves only the cwd
+	}
 	u, _ := transcript.LastUsage(memory.LiveTranscript(cwd, sid))
 	return u.Model
 }

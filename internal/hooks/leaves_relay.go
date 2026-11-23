@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -351,11 +352,8 @@ func relayInput(seg string) (words []string, input string, err error) {
 		if at[i] == '\'' {
 			continue
 		}
-		if c == '`' || c == '$' {
-			return nil, "", errors.New("contains `$` or a backtick")
-		}
-		if at[i] == 0 && strings.ContainsRune(";|&(){}>*?[]~#", rune(c)) {
-			return nil, "", fmt.Errorf("contains an unquoted shell operator `%c`", c)
+		if err := relayByte(seg, at, i); err != nil {
+			return nil, "", err
 		}
 		if c == '<' && at[i] == 0 {
 			if redirect >= 0 || i > 0 && !strings.ContainsRune(" \t", rune(seg[i-1])) {
@@ -371,7 +369,33 @@ func relayInput(seg string) (words []string, input string, err error) {
 	if len(files) != 1 || files[0] == "" {
 		return nil, "", errors.New("redirect is not a literal `< file`")
 	}
+	if j := len(seg) - len(strings.TrimLeft(seg[redirect+1:], " \t")); at[j] == 0 && seg[j] == '~' {
+		files[0] = paths.ExpandHome(files[0]) // the shell expands it; the brief is read from the real path
+	}
 	return shell.Tokens(seg[:redirect]), files[0], nil
+}
+
+// relayByte refuses an expansion, or an unquoted operator other than a HOME tilde, at seg[i].
+func relayByte(seg string, at []byte, i int) error {
+	c := seg[i]
+	if c == '`' || c == '$' {
+		return errors.New("contains `$` or a backtick")
+	}
+	if at[i] != 0 || c == '~' && relayHomeTilde(seg, i) {
+		return nil
+	}
+	if strings.ContainsRune(";|&(){}>*?[]~#", rune(c)) {
+		return fmt.Errorf("contains an unquoted shell operator `%c`", c)
+	}
+	return nil
+}
+
+// relayHomeTilde is a `~` the shell expands to HOME: at a word start or after `=`, then `/` or the word's end.
+func relayHomeTilde(seg string, i int) bool {
+	if i > 0 && !strings.ContainsRune(" \t=", rune(seg[i-1])) {
+		return false
+	}
+	return i+1 == len(seg) || strings.ContainsRune("/ \t", rune(seg[i+1]))
 }
 
 func relayQuotesClosed(seg string) bool {

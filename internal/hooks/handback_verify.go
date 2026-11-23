@@ -3,6 +3,7 @@ package hooks
 import (
 	"cmp"
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,7 +21,7 @@ import (
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
 func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
-	top := checkoutTop(in.CWD)
+	top := verifyTop(in.CWD, lr.scan.brief)
 	if top == "" {
 		return nil
 	}
@@ -67,6 +68,37 @@ func checkoutTop(dir string) string {
 		return paths.Real(top) // git prints the symlink-resolved toplevel
 	}
 	return memory.GitToplevel(dir)
+}
+
+// verifyTop is cwd's checkout, or the harness when cwd is not the harness and the brief names harness paths.
+func verifyTop(cwd, brief string) string {
+	top := checkoutTop(cwd)
+	cfg := paths.ConfigDir()
+	if top != "" && (paths.SamePath(top, cfg) || paths.SamePath(paths.MainCheckout(top), cfg)) {
+		return top // the harness itself or one of its linked worktrees
+	}
+	if htop := checkoutTop(cfg); htop != "" && namesHarness(brief, cfg, plans.Name(htop)) {
+		return htop
+	}
+	return top
+}
+
+// namesHarness reports whether brief names a harness file or plan under cfg (absolute or ~/); other repos' plans skip.
+func namesHarness(brief, cfg, planDir string) bool {
+	forms := []string{filepath.ToSlash(cfg) + "/"}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, ok := paths.RelWithin(home, cfg); ok && rel != "." {
+			forms = append(forms, "~/"+filepath.ToSlash(rel)+"/")
+		}
+	}
+	for _, f := range forms {
+		for _, rest := range strings.Split(brief, f)[1:] {
+			if !strings.HasPrefix(rest, "plans/") || strings.HasPrefix(rest, "plans/"+planDir+"/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // untiedTask is the one open task of the plan whose owns: covers a dirty path; several or none is no guess.

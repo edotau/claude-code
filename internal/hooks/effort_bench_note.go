@@ -69,20 +69,38 @@ func benchPackages(cwd, task string) []string {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	baseTop, _ := paths.CheckoutOf(cwd)
+	bases := []string{cwd}
+	if cfg := paths.ConfigDir(); !paths.SamePath(cfg, cwd) {
+		bases = append(bases, cfg) // a harness brief dispatched from another repo names harness-relative paths
+	}
+	tops := make([]string, len(bases))
+	for i, b := range bases {
+		tops[i], _ = paths.CheckoutOf(b)
+	}
 	seen := map[string]bool{}
 	var pkgs []string
 	for _, tok := range tokens {
-		dir, top := resolveOwnedPkgDir(cwd, baseTop, tok)
-		if rel, ok := paths.RelWithin(top, dir); ok && rel != "." {
-			if pkg := filepath.ToSlash(rel); !seen[pkg] && dirHasBenchmarks(dir) {
-				seen[pkg] = true
-				pkgs = append(pkgs, pkg)
+		for i, base := range bases {
+			if pkg, ok := benchPackage(base, tops[i], tok); ok {
+				if !seen[pkg] {
+					seen[pkg] = true
+					pkgs = append(pkgs, pkg)
+				}
+				break
 			}
 		}
 	}
 	slices.Sort(pkgs)
 	return pkgs[:min(len(pkgs), maxBenchPackages)]
+}
+
+// benchPackage is tok's repo-relative package dir resolved against base, when it has benchmarks.
+func benchPackage(base, baseTop, tok string) (string, bool) {
+	dir, top := resolveOwnedPkgDir(base, baseTop, tok)
+	if rel, ok := paths.RelWithin(top, dir); ok && rel != "." && dirHasBenchmarks(dir) {
+		return filepath.ToSlash(rel), true
+	}
+	return "", false
 }
 
 // parseBriefOwned extracts owned file/dir tokens from Owned:, Owned files:, or owns: segments in task.

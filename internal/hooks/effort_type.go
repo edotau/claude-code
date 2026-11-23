@@ -34,8 +34,27 @@ func dispatchTypes() []string {
 		fmt.Fprintf(os.Stderr, "dispatch-effort: no agent definitions read from %s (%v); allowing the roster\n", dir, err)
 		names = append(slices.Clone(builtinTypes), agentid.All()...)
 	}
+	if pdir := projectAgentsDir(); pdir != "" && !paths.SamePath(pdir, dir) {
+		psrcs, _ := listAgents(pdir) // best effort: an unreadable project dir only drops its names
+		for _, s := range psrcs {
+			names = append(names, s.Name())
+		}
+	}
 	slices.Sort(names)
-	return names
+	return slices.Compact(names)
+}
+
+// projectAgentsDir is the launch repo's .claude/agents: CLAUDE_PROJECT_DIR, else the cwd's checkout; "" for neither.
+func projectAgentsDir() string {
+	root := os.Getenv("CLAUDE_PROJECT_DIR")
+	if root == "" || !filepath.IsAbs(root) {
+		cwd, _ := os.Getwd()
+		root, _ = paths.CheckoutOf(cwd)
+	}
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, ".claude", "agents")
 }
 
 // typeBlock denies a spawn whose subagent_type is not allowed, naming the type to use instead; "" runs general-purpose.
