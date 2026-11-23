@@ -133,6 +133,12 @@ func streamEvents(ctx context.Context, rec agent.Record, o ResultOptions, w io.W
 	return agent.TailEvents(ctx, rec, o.Follow, o.After, w)
 }
 
+// StreamEvents follows rec's events, a carrier's children's first, until the job settles or ctx ends.
+func StreamEvents(ctx context.Context, rec agent.Record, w io.Writer) error {
+	_, err := streamEvents(ctx, rec, ResultOptions{Follow: true}, w)
+	return err
+}
+
 // childWait is the pause between child lookups while the carrier is still running.
 var childWait = 200 * time.Millisecond
 

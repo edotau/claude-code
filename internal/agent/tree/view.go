@@ -14,9 +14,9 @@ import (
 )
 
 // dashFooter is the key hint under the dashboard's rows.
-const dashFooter = "↑/↓ move · →/← expand/collapse · enter open job · q/esc quit"
+const dashFooter = "↑/↓ move · →/← open/close · enter job · c cancel · y copy id · r result · q quit"
 
-// footerRows are the lines under the rows: a blank line and dashFooter.
+// footerRows are the lines under the rows: the status line (blank when unset) and dashFooter.
 const footerRows = 2
 
 // maxLineWidth caps a dashboard line on a wide terminal: CLI and TUI rows stay within 80 columns.
@@ -30,6 +30,8 @@ type dashState struct {
 	top           int             // first visible row in the viewport
 	count         int             // visible rows at the last clamp
 	width, height int
+	pending       string // job id an unconfirmed cancel names
+	status        string // the last action's line, shown above the footer
 }
 
 // nodeKey names a node across reloads; kinds keep a session and a dispatch with one id apart.
@@ -89,14 +91,26 @@ func onResize(s dashState, w, h int) dashState {
 	return clampTop(s)
 }
 
-// onKey moves the selection or opens or closes the selected node.
-func onKey(s dashState, k key, nodes []Node) dashState {
+// keyActions are the keys that act on the selected job.
+var keyActions = map[key]action{keyCancel: actCancel, keyCopy: actCopy, keyResult: actResult}
+
+// onKey answers an armed cancel with any key, else runs an action key, else moves or opens or closes the selection.
+func onKey(s dashState, k key, nodes []Node) (dashState, effect) {
 	vis := visible(nodes, s.open)
 	if s = clamp(s, vis); len(vis) == 0 {
-		return s
+		return s, effect{}
+	}
+	var e effect
+	if s.pending != "" {
+		s.pending, e = onConfirm(s.pending, k == keyConfirm, vis[s.sel])
+		return s, e
+	}
+	if a, ok := keyActions[k]; ok {
+		s.pending, e = onAction(s.pending, a, vis[s.sel])
+		return s, e
 	}
 	s = move(s, k, vis)
-	return clamp(s, visible(nodes, s.open))
+	return clamp(s, visible(nodes, s.open)), e
 }
 
 // move applies k to the selection s.sel of the non-empty vis; right on an open node steps into it, left to the parent.
@@ -172,7 +186,7 @@ type rowCtx struct {
 func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string {
 	vis := visible(nodes, s.open)
 	if len(vis) == 0 {
-		return []string{"agents dashboard: no sessions in scope", "", dashFooter}
+		return []string{"agents dashboard: no sessions in scope", s.status, dashFooter}
 	}
 	home, _ := os.UserHomeDir()
 	c := rowCtx{now: now, home: home, open: s.open}
@@ -188,7 +202,7 @@ func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string 
 	top := min(s.top, len(lines))
 	lines = lines[top:min(top+viewRows(s.height), len(lines))]
 	foot := ansi.Style(paint != "", ansi.Dim, textutil.TruncateCells(dashFooter, width, "…"))
-	return append(lines, "", foot)
+	return append(lines, textutil.TruncateCells(s.status, width, "…"), foot)
 }
 
 // addNode adds n's own row: a ▸/▾ twist, the depth's indent, then the cells `agents tree` prints for its kind.

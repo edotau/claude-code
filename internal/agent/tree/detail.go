@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -22,11 +23,11 @@ import (
 // streamFunc writes a job's event lines to w until the job settles or ctx ends.
 type streamFunc func(ctx context.Context, rec agent.Record, w io.Writer) error
 
-// paneStream is what `agents result -f --events` streams; a carrier's child events need ask's streamEvents exported.
-var paneStream streamFunc = func(ctx context.Context, rec agent.Record, w io.Writer) error {
-	_, err := agent.TailEvents(ctx, rec, true, 0, w)
-	return err
-}
+// paneStream is what `agents result -f --events` streams: a carrier's children's events, tagged via, then its own.
+var paneStream streamFunc = ask.StreamEvents
+
+// tailKeep caps the pane's kept lines and its feed's ring of unread ones.
+const tailKeep = 500
 
 // eventLine is one event line rendered for the pane; false for a line the pane does not show.
 func eventLine(raw []byte, width int) (string, bool) {
@@ -74,10 +75,10 @@ func viaTag(ev wire.Event) string {
 // escSeq matches CSI, OSC and two-byte escapes; ansi.Strip removes only the kit's own style markers.
 var escSeq = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]`)
 
-// paneText removes escape sequences before OneLine drops the bare ESC, so no "[31m" residue reaches the screen.
-func paneText(s string) string {
-	return textutil.OneLine(escSeq.ReplaceAllString(ansi.Strip(s), ""))
-}
+// stripEsc removes escape sequences before a caller drops the bare ESC, so no "[31m" residue reaches the screen.
+func stripEsc(s string) string { return escSeq.ReplaceAllString(ansi.Strip(s), "") }
+
+func paneText(s string) string { return textutil.OneLine(stripEsc(s)) }
 
 // paneState is the pane between frames: rendered lines, the scroll, follow (pinned to the newest) and live.
 type paneState struct {
@@ -146,7 +147,7 @@ func paneHead(head []string, width, height int) []string {
 		if strings.HasPrefix(h, "task ") {
 			limit = 3
 		}
-		lines = append(lines, wrapCells(printable(escSeq.ReplaceAllString(h, "")), width, limit)...) // keeps alignment
+		lines = append(lines, wrapCells(printable(h), width, limit)...)
 	}
 	lines = append(lines, strings.Repeat("─", width))
 	return lines[:min(len(lines), max(height-footerRows, 0))]

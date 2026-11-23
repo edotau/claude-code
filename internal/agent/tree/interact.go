@@ -6,19 +6,18 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // key is one keypress the dashboard reacts to.
@@ -32,6 +31,11 @@ const (
 	keyEnter
 	keyEsc
 	keyQuit
+	keyCancel
+	keyCopy
+	keyResult
+	keyConfirm
+	keyOther
 )
 
 // jobFooter is the key hint under the detail view.
@@ -43,41 +47,40 @@ const (
 	minInterval = 500 * time.Millisecond
 )
 
-// keySeqs are the byte sequences that name a key: arrows in CSI and SS3 form, vi hjkl, Enter and q.
+// keySeqs are the byte sequences that name a key: arrows in CSI and SS3 form, vi hjkl, Enter, q and the actions.
 var keySeqs = []struct {
 	seq string
 	k   key
 }{{"\x1b[A", keyUp}, {"\x1bOA", keyUp}, {"\x1b[B", keyDown}, {"\x1bOB", keyDown},
 	{"\x1b[C", keyRight}, {"\x1bOC", keyRight}, {"\x1b[D", keyLeft}, {"\x1bOD", keyLeft},
-	{"k", keyUp}, {"j", keyDown}, {"l", keyRight}, {"h", keyLeft}, {"\r", keyEnter}, {"\n", keyEnter}, {"q", keyQuit}}
+	{"k", keyUp}, {"j", keyDown}, {"l", keyRight}, {"h", keyLeft}, {"\r", keyEnter}, {"\n", keyEnter}, {"q", keyQuit},
+	{"c", keyCancel}, {"y", keyCopy}, {"r", keyResult}, {"Y", keyConfirm}}
 
-// decodeKeys maps raw terminal bytes to keys: keySeqs, then a lone Esc; any other sequence or byte drops.
+// decodeKeys maps raw terminal bytes to keys: keySeqs, then a lone Esc; any other sequence or byte is keyOther.
 func decodeKeys(b []byte) []key {
 	var out []key
 	for len(b) > 0 {
-		n, k, ok := decodeKey(b)
-		if ok {
-			out = append(out, k)
-		}
+		n, k := decodeKey(b)
+		out = append(out, k)
 		b = b[n:]
 	}
 	return out
 }
 
-// decodeKey reads one key off the front of b: the bytes it used, and the key when they name one.
-func decodeKey(b []byte) (n int, k key, ok bool) {
+// decodeKey reads one key off the front of b: the bytes it used and the key; unknown keys still disarm a cancel.
+func decodeKey(b []byte) (n int, k key) {
 	for _, s := range keySeqs {
 		if strings.HasPrefix(string(b), s.seq) {
-			return len(s.seq), s.k, true
+			return len(s.seq), s.k
 		}
 	}
 	switch {
 	case b[0] == 0x1b && len(b) >= 3 && (b[1] == '[' || b[1] == 'O'):
-		return 3, 0, false
+		return 3, keyOther
 	case b[0] == 0x1b:
-		return 1, keyEsc, true
+		return 1, keyEsc
 	}
-	return 1, 0, false
+	return 1, keyOther
 }
 
 // stty runs stty on the terminal: stdin is the device it reads and sets.
@@ -122,6 +125,7 @@ type dashboard struct {
 	opts      Options
 	view      View
 	keys      <-chan key
+	out       io.Writer
 	f         frame
 	tree      *Tree
 	nodes     []Node
@@ -149,7 +153,7 @@ func runDashboard(claudeDir string, opts Options, v View) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	w, h := termSize()
-	d := &dashboard{ctx: ctx, claudeDir: claudeDir, opts: opts, view: v, keys: keys,
+	d := &dashboard{ctx: ctx, claudeDir: claudeDir, opts: opts, view: v, keys: keys, out: os.Stdout,
 		f: frame{paint: activePaint(os.Stdout)}, st: dashState{width: w, height: h}}
 	return d.run()
 }
@@ -192,17 +196,16 @@ func (d *dashboard) reloadDue() error {
 	return nil
 }
 
-// onKey opens the selected dispatch's detail on Enter, else applies the key to the view state.
+// onKey opens the selected dispatch's pane on Enter with no cancel armed, else applies the key and performs its effect.
 func (d *dashboard) onKey(k key) {
-	if k != keyEnter {
-		d.st = onKey(d.st, k, d.nodes)
+	vis := visible(d.nodes, d.st.open)
+	if k == keyEnter && d.st.pending == "" && d.st.sel < len(vis) && vis[d.st.sel].Kind == KindDispatch {
+		d.showJob(actionTarget(vis[d.st.sel])) // a folded row opens its carrier, as `agents tree` lists it
 		return
 	}
-	vis := visible(d.nodes, d.st.open)
-	if d.st.sel < len(vis) && vis[d.st.sel].Kind == KindDispatch {
-		n := vis[d.st.sel]
-		d.openJob(cmp.Or(n.Via, n.ID)) // a folded row opens its carrier, as `agents tree` lists it
-	}
+	var e effect
+	d.st, e = onKey(d.st, k, d.nodes)
+	d.st.status = perform(e, d.out)
 }
 
 // draw lays the frame out for the current terminal size and writes it without a trailing newline, so nothing scrolls.
@@ -210,60 +213,52 @@ func (d *dashboard) draw() error {
 	if w, h := termSize(); w != d.st.width || h != d.st.height {
 		d.st = onResize(d.st, w, h)
 	}
-	d.f.text.Reset()
-	d.f.text.WriteString(strings.Join(dashLines(d.st, d.nodes, time.Now(), d.f.paint), "\n"))
-	return d.f.flush(os.Stdout)
+	return d.flush(dashLines(d.st, d.nodes, time.Now(), d.f.paint))
 }
 
-// openJob shows one job's detail and follows its output, as `agents result -f <id>` does, until Esc or q.
-func (d *dashboard) openJob(id string) {
+func (d *dashboard) flush(lines []string) error {
+	d.f.text.Reset()
+	d.f.text.WriteString(strings.Join(lines, "\n"))
+	return d.f.flush(d.out)
+}
+
+// showJob follows one job's event stream in the detail pane, as `agents result -f --events <id>` does, until Esc or q.
+func (d *dashboard) showJob(id string) {
 	rec, err := agent.LoadRecord(id)
 	if err != nil {
+		d.st.status = actionLine(fmt.Sprintf("open %s: %v", id, err))
 		return
 	}
-	ctx, cancel := context.WithCancel(d.ctx)
-	out, done := follow(ctx, rec)
-	defer func() { cancel(); <-done }()
-	head := jobHeader(d.tree, id, rec)
+	p := openPane(d.ctx, rec)
+	defer p.close()
+	s, head := newPane(), jobHeader(d.tree, id, rec)
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if d.drawJob(head, out.tail()) != nil {
+		if s, err = d.drawPane(s, head, p); err != nil {
 			return
 		}
 		select {
-		case <-ctx.Done():
+		case <-d.ctx.Done():
 			return
 		case <-tick.C:
 		case k, ok := <-d.keys:
 			if !ok || k == keyEsc || k == keyQuit {
 				return
 			}
+			s = paneOnKey(s, k)
 		}
 	}
 }
 
-// drawJob draws the detail view of head and output, sized to the terminal.
-func (d *dashboard) drawJob(head, output []string) error {
-	width, height := termSize()
-	d.f.text.Reset()
-	for _, line := range detailLines(head, output, width, height) {
-		fmt.Fprintln(&d.f.text, line)
+// drawPane takes the lines read since the last frame and draws the pane at the terminal's size.
+func (d *dashboard) drawPane(s paneState, head []string, p *paneFeed) (paneState, error) {
+	w, h := termSize()
+	s = paneResize(s, paneRows(head, w, h))
+	for _, l := range p.drain() {
+		s = paneOnLine(s, l)
 	}
-	return d.f.flush(os.Stdout)
-}
-
-// follow copies rec's log into a buffer until ctx ends or the job does; done closes when the copy stops.
-func follow(ctx context.Context, rec agent.Record) (*followBuf, <-chan struct{}) {
-	out, done := &followBuf{}, make(chan struct{})
-	go func() {
-		defer close(done)
-		cwd, _ := os.Getwd()
-		if _, err := agent.Tail(ctx, rec.Agent, cwd, rec.ID, true, out); err != nil && ctx.Err() == nil {
-			fmt.Fprintf(out, "\n· %v\n", err)
-		}
-	}()
-	return out, done
+	return s, d.flush(paneLines(s, head, w, h))
 }
 
 // termSize is stdout's columns and rows, 80x24 when it cannot be read.
@@ -286,10 +281,10 @@ func jobHeader(tr *Tree, id string, rec agent.Record) []string {
 		"agent  " + d.Agent,
 		"model  " + strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where(),
 		"id     " + id,
-		"task   " + textutil.OneLine(briefTask(rec.Request.Prompt)),
+		"task   " + paneText(briefTask(rec.Request.Prompt)),
 	}
 	if desc := descriptionOf(tr, id); desc != "" {
-		head = append(head, "about  "+textutil.OneLine(desc))
+		head = append(head, "about  "+paneText(desc))
 	}
 	return head
 }
@@ -311,25 +306,6 @@ func descriptionOf(tr *Tree, id string) string {
 	return ""
 }
 
-// detailLines fits head (the task wrapped to three lines), a rule and the newest output lines into width x height.
-func detailLines(head, output []string, width, height int) []string {
-	var lines []string
-	for _, h := range head {
-		limit := 1
-		if strings.HasPrefix(h, "task ") {
-			limit = 3
-		}
-		lines = append(lines, wrapCells(printable(h), width, limit)...)
-	}
-	lines = append(lines, strings.Repeat("─", min(width, 80)))
-	room := max(height-len(lines)-2, 0)
-	output = output[max(len(output)-room, 0):]
-	for _, o := range output {
-		lines = append(lines, textutil.TruncateCells(o, width, "…"))
-	}
-	return append(lines, "", jobFooter)
-}
-
 // wrapCells breaks s at spaces into at most limit lines of width cells, the last clipped with an ellipsis.
 func wrapCells(s string, width, limit int) []string {
 	var out []string
@@ -344,42 +320,9 @@ func wrapCells(s string, width, limit int) []string {
 	return append(out, textutil.TruncateCells(s, width, "…"))
 }
 
-// followBuf keeps the newest tailKeep lines a follow writes, terminal escapes and control bytes stripped.
-type followBuf struct {
-	mu      sync.Mutex
-	lines   []string
-	partial string
-}
-
-const tailKeep = 500
-
-func (t *followBuf) Write(p []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	parts := strings.Split(t.partial+string(p), "\n")
-	t.partial = parts[len(parts)-1]
-	for _, line := range parts[:len(parts)-1] {
-		t.lines = append(t.lines, printable(line))
-	}
-	if n := len(t.lines); n > tailKeep {
-		t.lines = slices.Clone(t.lines[n-tailKeep:])
-	}
-	return len(p), nil
-}
-
-// tail is the kept lines, then the partial line still being written.
-func (t *followBuf) tail() []string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.partial == "" {
-		return slices.Clone(t.lines)
-	}
-	return append(slices.Clone(t.lines), printable(t.partial))
-}
-
 // printable is line without escape sequences or control bytes, a tab as spaces and a carriage return's overwrite.
 func printable(line string) string {
-	line = ansi.Strip(line)
+	line = stripEsc(line)
 	if i := strings.LastIndexByte(strings.TrimRight(line, "\r"), '\r'); i >= 0 {
 		line = line[i+1:]
 	}

@@ -20,7 +20,7 @@ func dashNodes() []Node {
 
 func press(s dashState, nodes []Node, keys ...key) dashState {
 	for _, k := range keys {
-		s = onKey(s, k, nodes)
+		s, _ = onKey(s, k, nodes)
 	}
 	return s
 }

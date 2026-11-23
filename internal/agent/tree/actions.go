@@ -53,7 +53,7 @@ var cancelJob = func(id string) (string, error) {
 	return "cancelled " + rec.ID, nil
 }
 
-// actionTarget is the outer carrier of a folded row: cancelling it stops its child too, and openJob uses the same id.
+// actionTarget is the outer carrier of a folded row: cancelling it stops its child too, and Enter opens the same id.
 func actionTarget(n Node) string { return cmp.Or(n.Via, n.ID) }
 
 // onAction applies a to n; a cancel only arms the confirm (the returned pending id), it never cancels.
