@@ -59,10 +59,10 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) {
 		return core.Result{}
 	}
-	if judged := rtkWithCommand(in, pinned); judged == nil || !rtkGatesAllow(judged) {
+	if judged := rtkWithCommand(in, pinned); judged == nil || !rtkGatesAllow(judged) || rtkCodexFilesDiffer(in, cmd, pinned) {
 		return core.Result{}
 	}
-	updated := rtkAgentInput(in, agent, pinned)
+	updated := rtkAgentInput(in, pinned)
 	if updated == nil {
 		return core.Result{}
 	}
@@ -73,7 +73,51 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 func rtkAgentEligible(in *core.Input, mode, bin, cmd string) bool {
 	return mode == "on" && os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
 		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
-		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkCodexRuleHit(in, cmd)
+		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkCodexRuleHit(in, cmd) && !rtkOpencodeEnvHit(in)
+}
+
+// rtkOpencodeEnvHit: opencode's env layers (rtk reads only its files) hold a bash rule other than allow-all.
+func rtkOpencodeEnvHit(in *core.Input) bool {
+	if in.Agent() != core.AgentOpencode {
+		return false
+	}
+	var perms []any
+	if raw := os.Getenv("OPENCODE_PERMISSION"); raw != "" {
+		var perm any
+		if json.Unmarshal([]byte(raw), &perm) != nil {
+			return true
+		}
+		perms = append(perms, perm)
+	}
+	if raw := os.Getenv("OPENCODE_CONFIG_CONTENT"); raw != "" {
+		var cfg struct {
+			Permission any
+			Agent      map[string]struct{ Permission any }
+		}
+		if json.Unmarshal([]byte(raw), &cfg) != nil {
+			return true
+		}
+		perms = append(perms, cfg.Permission)
+		for _, a := range cfg.Agent {
+			perms = append(perms, a.Permission)
+		}
+	}
+	return slices.ContainsFunc(perms, func(perm any) bool { return !rtkOpencodeBashAllowsAll(perm) })
+}
+
+// rtkOpencodeBashAllowsAll: one opencode permission value leaves bash unset, "allow" or {"*":"allow"}.
+func rtkOpencodeBashAllowsAll(perm any) bool {
+	switch p := perm.(type) {
+	case nil:
+		return true
+	case string:
+		return p == "allow"
+	case map[string]any:
+		bash, ok := p["bash"]
+		all, _ := bash.(map[string]any)
+		return !ok || bash == "allow" || len(all) == 1 && all["*"] == "allow"
+	}
+	return false
 }
 
 // rtkHookCommand is `rtk hook <agent>`'s rewritten command; "" on any error, timeout or unknown agent (fail open).
@@ -84,8 +128,6 @@ func rtkHookCommand(bin, agent string, in *core.Input, cmd string) string {
 		args, path = []string{"hook", "opencode", cmd}, []string{"command"}
 	case core.AgentCodex:
 		args, path = []string{"hook", "codex"}, []string{"hookSpecificOutput", "updatedInput", "command"}
-	case core.AgentGemini:
-		args, path = []string{"hook", "antigravity"}, []string{"overwrite", "CommandLine"}
 	default:
 		return ""
 	}
@@ -157,11 +199,11 @@ func rtkWithCommand(in *core.Input, cmd string) *core.Input {
 	if json.Unmarshal(in.Raw, &doc) != nil || doc == nil {
 		return nil
 	}
-	holder, key := rtkCommandHolder(doc, in.Agent())
-	if holder == nil {
+	input, _ := doc["tool_input"].(map[string]any)
+	if input == nil {
 		return nil
 	}
-	holder[key] = cmd
+	input["command"] = cmd
 	payload, err := json.Marshal(doc)
 	if err != nil {
 		return nil
@@ -171,16 +213,6 @@ func rtkWithCommand(in *core.Input, cmd string) *core.Input {
 		return nil
 	}
 	return judged
-}
-
-// rtkCommandHolder is the object and key holding the command: agy's toolCall.args.CommandLine, else tool_input.command.
-func rtkCommandHolder(doc map[string]any, agent string) (map[string]any, string) {
-	if call, ok := doc["toolCall"].(map[string]any); ok && agent == core.AgentGemini {
-		args, _ := call["args"].(map[string]any)
-		return args, "CommandLine"
-	}
-	input, _ := doc["tool_input"].(map[string]any)
-	return input, "command"
 }
 
 // rtkCodexRuleHit: codex enforces dispatch Ask and Allow rules as .rules prefixes, which `rtk <cmd>` no longer matches.
@@ -201,19 +233,110 @@ func rtkCodexRuleHit(in *core.Input, cmd string) bool {
 	})
 }
 
-func rtkAgentInput(in *core.Input, agent, pinned string) map[string]any {
-	if agent == core.AgentGemini { // every run_command arg is sent back: agy's overwrite may replace, not merge
-		var doc map[string]any
-		if json.Unmarshal(in.Raw, &doc) != nil {
-			return nil
-		}
-		args, key := rtkCommandHolder(doc, agent)
-		if args != nil && key == "CommandLine" {
-			args[key] = pinned
-			return args
-		}
-		return nil
+// rtkCodexFilesDiffer: under codex's rules a raw and rewritten segment differ, one prompts or forbids, or checks fail.
+func rtkCodexFilesDiffer(in *core.Input, cmd, rewritten string) bool {
+	if in.Agent() != core.AgentCodex {
+		return false
 	}
+	files, err := rtkCodexRuleFiles(in.CWD)
+	if err != nil || len(files) == 0 {
+		return err != nil
+	}
+	bin, err := exec.LookPath("codex")
+	if err != nil {
+		return true
+	}
+	empty := func(seg string) bool { return len(shell.Tokens(seg)) == 0 }
+	raw, out := slices.DeleteFunc(shell.Segments(cmd), empty), slices.DeleteFunc(shell.Segments(rewritten), empty)
+	if len(raw) != len(out) {
+		return true
+	}
+	verdicts, err := rtkExecpolicy(bin, files, slices.Concat(raw, out))
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(verdicts[:len(raw)], func(v string) bool { return v != "" && v != "allow" }) ||
+		!slices.Equal(verdicts[:len(raw)], verdicts[len(raw):])
+}
+
+// rtkExecpolicy is `codex execpolicy check`'s decision per segment ("" = no rule), 8 at a time within the budget.
+func rtkExecpolicy(bin string, files, segs []string) ([]string, error) {
+	args := []string{"execpolicy", "check"}
+	for _, f := range files {
+		args = append(args, "--rules", f)
+	}
+	ctx, cancel := core.HookContext("rtk-rewrite")
+	defer cancel()
+	verdicts, errs := make([]string, len(segs)), make([]error, len(segs))
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	for i, seg := range segs {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			c := exec.CommandContext(ctx, bin, slices.Concat(args, []string{"--"}, shell.Tokens(seg))...)
+			c.WaitDelay = 200 * time.Millisecond
+			out, err := c.Output()
+			var reply struct{ Decision string }
+			if err == nil {
+				err = json.Unmarshal(out, &reply)
+			}
+			verdicts[i], errs[i] = reply.Decision, err
+		})
+	}
+	wg.Wait()
+	return verdicts, errors.Join(append(errs, ctx.Err())...)
+}
+
+// rtkCodexRuleDirs is every rules dir codex may load: $CODEX_HOME, /etc/codex, each absolute cwd ancestor's .codex.
+func rtkCodexRuleDirs(cwd string) ([]string, error) {
+	home, err := paths.CodexHome()
+	if err != nil {
+		return nil, err
+	}
+	if cwd == "" {
+		return nil, errors.New("rtk: no cwd")
+	}
+	if cwd, err = filepath.Abs(cwd); err != nil {
+		return nil, err
+	}
+	dirs := []string{filepath.Join(home, "rules"), filepath.Join("/etc", "codex", "rules")}
+	for d := cwd; ; d = filepath.Dir(d) {
+		dirs = append(dirs, filepath.Join(d, ".codex", "rules"))
+		if filepath.Dir(d) == d {
+			return dirs, nil
+		}
+	}
+}
+
+// rtkCodexRuleFiles is every regular *.rules file in rtkCodexRuleDirs; a dir or file it cannot read is an error.
+func rtkCodexRuleFiles(cwd string) ([]string, error) {
+	dirs, err := rtkCodexRuleDirs(cwd)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		for _, e := range entries {
+			f := filepath.Join(dir, e.Name())
+			if !strings.HasSuffix(e.Name(), ".rules") || slices.Contains(files, f) {
+				continue
+			}
+			if fi, err := os.Stat(f); err != nil {
+				return nil, err
+			} else if fi.Mode().IsRegular() {
+				files = append(files, f)
+			}
+		}
+	}
+	return files, nil
+}
+
+func rtkAgentInput(in *core.Input, pinned string) map[string]any {
 	updated := in.CloneToolInput()
 	if updated != nil {
 		updated["command"] = pinned
