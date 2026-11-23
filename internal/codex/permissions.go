@@ -307,10 +307,11 @@ func isLink(p string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-// requireFileAuth errors when neither a provider key in env nor auth.json would survive a per-dispatch CODEX_HOME.
-func requireFileAuth(env []string) error {
-	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, codexKeyEnv+"=") }) {
-		return nil
+// requireFileAuth errors when a ChatGPT-login run has no auth.json to survive a per-dispatch CODEX_HOME.
+func requireFileAuth(argv, env []string) error {
+	if slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, `model_provider="harness-`) }) ||
+		slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, codexKeyEnv+"=") }) {
+		return nil // a harness route's credential rides argv (auth command), env (key) or the proxy, never auth.json
 	}
 	if _, err := os.Stat(filepath.Join(codexHome(), "auth.json")); err != nil {
 		return errors.New("codex: Bash permission rules need a per-dispatch CODEX_HOME, which loses the keyring-backed ChatGPT sign-in; use a provider route")
@@ -354,7 +355,7 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if pol.rules == "" {
 		return argv, env, remove, nil
 	}
-	if err := requireFileAuth(env); err != nil {
+	if err := requireFileAuth(argv, env); err != nil {
 		return nil, nil, remove, err
 	}
 	home, remove, err := codexRulesHome(pol.rules)
