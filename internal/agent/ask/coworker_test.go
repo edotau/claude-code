@@ -29,7 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// confine sets this process's confinement to provider[:profile] as ApplyCoworker exports it; "" is none.
+// confine sets this process's confinement to provider[:profile] as ApplyRouteOverlay exports it; "" is none.
 func confine(t *testing.T, v string) {
 	provider, profile, _ := strings.Cut(v, ":")
 	t.Setenv(route.OverlayVar, agentconfig.InlineOverlay(provider, profile))
@@ -145,7 +145,7 @@ func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	t.Setenv(route.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	t.Setenv(egress.EnvHost, "")
-	ctx, err := ApplyCoworker(t.Context(), "openai", "", "", "", router.FallbackNone)
+	ctx, err := ApplyRouteOverlay(t.Context(), "openai", "", "", "", router.FallbackNone)
 	if err == nil {
 		ctx, err = overlayEgress(ctx, "syn-host")
 	}
@@ -207,7 +207,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
 	}
 	for _, tc := range cases {
-		confine(t, tc.inherited) // ApplyCoworker exports into this process: restore after each case
+		confine(t, tc.inherited) // ApplyRouteOverlay exports into this process: restore after each case
 		t.Setenv(providers.EnvSessionProfile, "")
 		args := append([]string{"--agent", "codex", "--fallback", "none"}, append(tc.args, "go")...)
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
@@ -306,7 +306,7 @@ func armFixture(t *testing.T, shared bool) string {
 	}
 	t.Setenv("GH_TOKEN", "SENTINEL-gh")
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	t.Setenv(route.OverlayVar, "") // ApplyCoworker and carryOverlay export into this process: restore after the run
+	t.Setenv(route.OverlayVar, "") // ApplyRouteOverlay and carryOverlay export into this process: restore after the run
 	armCopilotLogin(t)
 	orig := agent.MintSession
 	agent.MintSession = func(_ context.Context, p []string, _ int) (string, error) {

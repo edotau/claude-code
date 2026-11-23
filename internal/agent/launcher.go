@@ -256,7 +256,7 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	if err != nil {
 		return agentconfig.Resolved{}, err
 	}
-	if p, prof, _ := router.CoworkerContext(valuesContext(context.Background(), opts.Values)); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
+	if p, prof, _ := router.OverlayRoute(valuesContext(context.Background(), opts.Values)); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
 		o.Provider, o.Profile = "", "" // the inherited confinement, not this launch's routing (withOverlay hands it on)
 	}
 	if o.BudgetUSD != nil || o.BudgetCredits != nil { // a budget needs the ask loop to meter it

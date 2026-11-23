@@ -289,7 +289,7 @@ func gatewayRoute(args []string) int {
 	if err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	ctx, code := checkCoworkerFlags(ctx, name, cmp.Or(ov.Confinement(), ask.TypedWorkspace(q.Profile)), q.Profile, *format, q.Fallback, q.Agent, q.Model)
+	ctx, code := checkOverlayFlags(ctx, name, cmp.Or(ov.Confinement(), ask.TypedWorkspace(q.Profile)), q.Profile, *format, q.Fallback, q.Agent, q.Model)
 	if code != 0 {
 		return code
 	}
@@ -341,9 +341,9 @@ func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentc
 	return cfg, err
 }
 
-// checkCoworkerFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.
-func checkCoworkerFlags(ctx context.Context, name, confinement, profile, format, fallback, want, model string) (context.Context, int) {
-	ctx, err := ask.ApplyCoworker(ctx, confinement, profile, want, model, fallback)
+// checkOverlayFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.
+func checkOverlayFlags(ctx context.Context, name, confinement, profile, format, fallback, want, model string) (context.Context, int) {
+	ctx, err := ask.ApplyRouteOverlay(ctx, confinement, profile, want, model, fallback)
 	if err != nil {
 		helptext.Fail(name+": %v", err)
 		return ctx, ask.ApplyCode(err)

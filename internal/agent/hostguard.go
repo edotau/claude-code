@@ -176,7 +176,7 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	if confined { // arm "": a confined hop keeps its own agent's login, the confined provider's, and drops the others
-		ctx = withCoworkerLogins(ctx, arm, r.Name(), gp)
+		ctx = withOverlayLogins(ctx, arm, r.Name(), gp)
 	}
 	if gp == nil {
 		return ctx, nil
@@ -206,8 +206,8 @@ func ownCredentials(ctx context.Context, arm string, r Engine, gp *providers.Pro
 	return withOwnProvider(ctx, gp)
 }
 
-// withCoworkerLogins: a hop on the armed workspace keeps no agent's own-login env, an own-login hop only its agent's.
-func withCoworkerLogins(ctx context.Context, arm, agentName string, gp *providers.Provider) context.Context {
+// withOverlayLogins: a hop on the armed workspace keeps no agent's own-login env, an own-login hop only its agent's.
+func withOverlayLogins(ctx context.Context, arm, agentName string, gp *providers.Provider) context.Context {
 	own := agentName
 	if gp != nil && arm != "" && gp.Name == arm {
 		own = ""

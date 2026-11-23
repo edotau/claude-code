@@ -1064,7 +1064,7 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 		old := armPrepare
 		armPrepare = prepare
 		t.Cleanup(func() { armPrepare = old })
-		ctx, err := ApplyCoworker(t.Context(), "databricks:auto", "", "", "", "none")
+		ctx, err := ApplyRouteOverlay(t.Context(), "databricks:auto", "", "", "", "none")
 		if err != nil {
 			t.Fatal(err)
 		}

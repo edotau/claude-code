@@ -740,7 +740,7 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 
 // confinementDocContext excludes the env layer and per-run vendor budgets.
 func confinementDocContext(ctx context.Context) string {
-	provider, profile, _ := router.CoworkerContext(ctx)
+	provider, profile, _ := router.OverlayRoute(ctx)
 	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
 	return agentconfig.InlineOverlay(provider, profile, o)
 }

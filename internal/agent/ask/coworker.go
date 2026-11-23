@@ -24,14 +24,14 @@ import (
 	"github.com/edotau/claude-code/internal/serving"
 )
 
-// ApplyCoworker is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
-func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
+// ApplyRouteOverlay is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
+func ApplyRouteOverlay(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
 	if err := providers.CheckModelShared(model); err != nil { // before any arm preflight: an old --retry record too (D6)
 		return ctx, err
 	}
 	provider, p, err := route.Parse(value)
 	if err != nil {
-		if _, _, cerr := router.CoworkerContext(ctx); cerr != nil {
+		if _, _, cerr := router.OverlayRoute(ctx); cerr != nil {
 			return ctx, cerr
 		}
 		return ctx, err
@@ -42,7 +42,7 @@ func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallba
 // ApplyRoute is ctx with want as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
 // An inherited confinement is a fence: want must lie inside it, and nothing of it ever fills want.
 func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model, fallback string) (context.Context, error) {
-	ip, iprof, err := router.CoworkerContext(ctx)
+	ip, iprof, err := router.OverlayRoute(ctx)
 	if err != nil {
 		return ctx, err
 	}
@@ -468,7 +468,7 @@ func checkNative(ctx context.Context, native bool) error {
 	if !native {
 		return nil
 	}
-	switch p, prof, err := router.CoworkerContext(ctx); {
+	switch p, prof, err := router.OverlayRoute(ctx); {
 	case err != nil:
 		return err
 	case p != "":
@@ -559,7 +559,7 @@ func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context,
 		ov.Remote = egress.HostContext(ctx)
 	}
 	// resolved (never auto): the relaunch inherits it as its confinement
-	ov.Provider, ov.Profile, _ = router.CoworkerContext(ctx)
+	ov.Provider, ov.Profile, _ = router.OverlayRoute(ctx)
 	doc, err := json.Marshal(ov) // set holds names and @secret refs: validation refused credential values
 	if err != nil {
 		return ctx, err

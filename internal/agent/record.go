@@ -288,7 +288,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	ctx := valuesContext(context.Background(), req.Values)
 	parent := proc.Value(ctx, proc.DispatchIDEnv)
 	depth, maxDepth := lineage(ctx, parent)
-	provider, profile, _ := router.CoworkerContext(ctx)
+	provider, profile, _ := router.OverlayRoute(ctx)
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens, Widened: widened,

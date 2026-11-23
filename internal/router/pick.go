@@ -136,7 +136,7 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 func (t *RouteTable) pick(
 	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
 ) PickResult {
-	ctx = withCoworker(ctx)
+	ctx = withOverlayRoute(ctx)
 	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
 	pins := o.Pins
 	reg, err := providers.LoadShared()

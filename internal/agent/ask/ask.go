@@ -356,7 +356,7 @@ func (r *askRun) checkArm() (int, bool) {
 	}
 	moves := r.typedStart(value, fallback)
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
-	ctx, err := ApplyCoworker(r.ctx, value, f.profile, agentName, f.model, fallback)
+	ctx, err := ApplyRouteOverlay(r.ctx, value, f.profile, agentName, f.model, fallback)
 	if err != nil {
 		return refuse(r, err, fallback)
 	}
@@ -467,7 +467,7 @@ func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool)
 	return ag, false
 }
 
-// ApplyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
+// ApplyCode is the exit code for an ApplyRouteOverlay error: a preflight refusal is 1, the rest usage errors.
 func ApplyCode(err error) int {
 	if _, ok := errors.AsType[*agent.PreflightError](err); ok {
 		return 1

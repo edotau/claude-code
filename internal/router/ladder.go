@@ -383,12 +383,12 @@ func sortUnits(us []rungGroup) {
 	})
 }
 
-// CoworkerContext is the provider and profile an inline $COWORKER_OVERLAY names; a path or bare databricks gives none.
-func CoworkerContext(ctx context.Context) (provider, profile string, err error) {
+// OverlayRoute is the provider and profile an inline $COWORKER_OVERLAY names; a path or bare databricks gives none.
+func OverlayRoute(ctx context.Context) (provider, profile string, err error) {
 	if r, ok := ctx.Value(overlayKey{}).(overlayResult); ok {
 		return r.provider, r.profile, r.err
 	}
-	return parseCoworker(ctx)
+	return parseOverlayRoute(ctx)
 }
 
 // overlayKey carries one pick's resolved overlay in its context, so the env is parsed once per pick.
@@ -399,12 +399,12 @@ type overlayResult struct {
 	err               error
 }
 
-func withCoworker(ctx context.Context) context.Context {
-	provider, profile, err := parseCoworker(ctx)
+func withOverlayRoute(ctx context.Context) context.Context {
+	provider, profile, err := parseOverlayRoute(ctx)
 	return context.WithValue(ctx, overlayKey{}, overlayResult{provider, profile, err})
 }
 
-func parseCoworker(ctx context.Context) (provider, profile string, err error) {
+func parseOverlayRoute(ctx context.Context) (provider, profile string, err error) {
 	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
 	var doc struct{ Provider, Profile string }
 	switch {
@@ -422,9 +422,9 @@ func parseCoworker(ctx context.Context) (provider, profile string, err error) {
 	return provider, profile, nil
 }
 
-// ConfinedContext is the non-Databricks provider and profile CoworkerContext names; a bad overlay fails closed.
+// ConfinedContext is the non-Databricks provider and profile OverlayRoute names; a bad overlay fails closed.
 func ConfinedContext(ctx context.Context) (provider, profile string) {
-	provider, profile, err := CoworkerContext(ctx)
+	provider, profile, err := OverlayRoute(ctx)
 	switch {
 	case err != nil:
 		return BadOverlay, ""
@@ -462,7 +462,7 @@ func ConfineLeadContext(ctx context.Context, agentName, profile, provider string
 
 // ArmProfileContext is the workspace a databricks:<p> confinement confines the pick to; "" for any other route.
 func ArmProfileContext(ctx context.Context) string {
-	if mode, profile, err := CoworkerContext(ctx); err == nil && mode == RouteDatabricks {
+	if mode, profile, err := OverlayRoute(ctx); err == nil && mode == RouteDatabricks {
 		return profile
 	}
 	return ""

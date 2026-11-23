@@ -228,7 +228,7 @@ func TestRemoteScriptRelaysIdentity(t *testing.T) {
 	}
 }
 
-// The confinement must cross to the remote: ApplyCoworker exports it as env, which ssh drops, so it ran unconfined.
+// The confinement must cross to the remote: ApplyRouteOverlay exports it as env, which ssh drops, so it ran unconfined.
 func TestRemoteScriptRelaysCoworker(t *testing.T) {
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{})

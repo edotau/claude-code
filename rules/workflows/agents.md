@@ -83,7 +83,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   `model: inherit` on a call reads as unset. **Tools:** list them; a read-only role gets none that write.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
-- **Prose instructs, hooks guarantee.** CLI agents live in `agentid.All()` (`internal/agentid/agentid.go`),
+- **Prose instructs, hooks guarantee.** A CLI agent is one row in the `agentid` roster table
+  (`internal/agentid/agentid.go`) plus its vendor package's `agent.Register` row,
   subagent types in `agents/`; a workflow leaf's `Run:` line activates the ran-on stop gate in
   `internal/hooks/leaves.go`. Shapes and enforcers: `skills/subagent-workflows/references/patterns.md`.
 - Thinking is adaptive: never hand-roll a thinking budget. Mark stable large prefixes with `cache_control`; keep

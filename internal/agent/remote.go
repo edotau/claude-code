@@ -88,7 +88,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	w = appendOpt(w, "--profile", req.Provider)
 	w = appendOpt(w, "--effort", req.Effort)
 	w = appendOpt(w, "--as", req.Identity)
-	w = appendOpt(w, "--overlay", confinementDoc(req)) // ApplyCoworker exports the confinement as env, which ssh does not carry
+	w = appendOpt(w, "--overlay", confinementDoc(req)) // ApplyRouteOverlay exports the confinement as env, which ssh does not carry
 	w = appendOpt(w, "--session", req.SessionID)
 	w = appendOpt(w, "--system-prompt", req.SystemPrompt)
 	w = appendOpt(w, "--append-system-prompt", req.AppendSystemPrompt)
