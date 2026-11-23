@@ -563,13 +563,6 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 // guardResubmit reads a plain ask's task early (stdin once) so a resubmit of a recent cutoff can leave its route.
 func (r *askRun) guardResubmit() (int, bool) {
 	f := r.f
-	if f.retry != "" && f.job == "" {
-		rec, err := agent.LoadRecord(f.retry)
-		if err != nil {
-			return failAsk(f.format, f.name, err), true
-		}
-		r.ctx = retryLineage(r.ctx, rec)
-	}
 	if f.retry != "" || f.job != "" || f.stdinFramed || f.live || r.persona != nil {
 		return 0, false
 	}
