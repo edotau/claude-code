@@ -123,7 +123,21 @@ func (v *permValue) String() string {
 		return ""
 	}
 	f := v.f
-	return permission.PolicyArg(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+	if len(f.permKeys) == 0 {
+		return permission.PolicyArg(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+	}
+	// A typed key replaces the logged list on re-parse, so an explicit empty list must survive the write-back.
+	obj := map[string]any{}
+	if f.permMode != "" {
+		obj["mode"] = f.permMode
+	}
+	for key, list := range map[string][]string{"allow": f.permAllow, "ask": f.permAsk, "deny": f.permDeny} {
+		if len(list) > 0 || slices.Contains(f.permKeys, key) {
+			obj[key] = append([]string{}, list...)
+		}
+	}
+	b, _ := json.Marshal(obj)
+	return string(b)
 }
 
 func (v *permValue) Set(s string) error {

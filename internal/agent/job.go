@@ -33,12 +33,15 @@ func RepoRoot(ctx context.Context, cwd string) string {
 // WritableRoots is where a tools dispatch may write besides its cwd: the harness, its lanes and cwd's repo.
 func WritableRoots(cwd string) []string {
 	harness := paths.Real(paths.ConfigDir())
-	roots := []string{harness, paths.LaneRoot(harness)}
-	if cwd == "" {
-		return roots
+	cand := []string{harness, paths.LaneRoot(harness)}
+	if cwd != "" {
+		cand = append(cand, paths.Real(RepoRoot(context.Background(), cwd)))
 	}
-	if repo := paths.Real(RepoRoot(context.Background(), cwd)); repo != "" && !slices.Contains(roots, repo) {
-		roots = append(roots, repo)
+	var roots []string // only existing dirs: agy's --add-dir fails every command on a missing one
+	for _, d := range cand {
+		if fi, err := os.Stat(d); d != "" && err == nil && fi.IsDir() && !slices.Contains(roots, d) {
+			roots = append(roots, d)
+		}
 	}
 	return roots
 }
