@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // ttl is the backstop for a marker whose owner cannot be probed (or parsed): it stops counting after this long.
@@ -213,16 +214,29 @@ func readLiveRecord(path string) liveRecord {
 		return liveRecord{}
 	}
 	var r struct {
-		Status string    `json:"status"`
-		PID    int       `json:"pid"`
-		Time   time.Time `json:"time"`
-		Owner  int       `json:"owner"`
-		Route  string    `json:"route"`
+		Status string          `json:"status"`
+		PID    int             `json:"pid"`
+		Time   time.Time       `json:"time"`
+		Owner  int             `json:"owner"`
+		Route  json.RawMessage `json:"route"`
 	}
 	if json.Unmarshal(b, &r) != nil || !DispatchAlive(r.Status, r.PID, r.Time) {
 		return liveRecord{}
 	}
-	return liveRecord{owner: r.Owner, route: r.Route, alive: true}
+	return liveRecord{owner: r.Owner, route: routeKey(r.Route), alive: true}
+}
+
+// routeKey keys a record's route: an object as provider[:profile], a legacy string as is, null or junk as "".
+func routeKey(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var r route.Route
+	if json.Unmarshal(raw, &r) != nil {
+		return ""
+	}
+	return route.Join(r.Provider, r.Profile)
 }
 
 // readSized is os.ReadFile with one read syscall for a file that keeps its stat size (records land by rename).

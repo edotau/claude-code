@@ -1,11 +1,15 @@
 package inflight
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestSessionOwner(t *testing.T) {
@@ -130,6 +134,31 @@ func BenchmarkSessionOwner(b *testing.B) {
 	sessionParent = func(pid int) int { return pid + 1 }
 	for b.Loop() {
 		SessionOwner()
+	}
+}
+
+func TestLiveRoutesObjectAndLegacyString(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pid := os.Getpid()
+	now := time.Now().UTC().Format(time.RFC3339)
+	recs := map[string]string{
+		"a.json": `"route":{"provider":"databricks","profile":"dev"}`,
+		"b.json": `"route":"databricks:qa"`,
+		"c.json": `"route":null`,
+	}
+	for name, route := range recs {
+		body := fmt.Sprintf(`{"status":"running","pid":%d,"time":%q,%s}`, pid, now, route)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := LiveRoutes()
+	if len(got) != 2 || got["databricks:dev"] != 1 || got["databricks:qa"] != 1 {
+		t.Fatalf("LiveRoutes = %v, want databricks:dev and databricks:qa once each", got)
 	}
 }
 
