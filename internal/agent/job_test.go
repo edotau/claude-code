@@ -992,6 +992,31 @@ func TestCancelDetachedSplitReview(t *testing.T) {
 	assertSavedCancellation(t, rec.ID)
 }
 
+// A running job that writes its own end state while the signal stops it was cancelled, not already finished.
+func TestCancelJobRunningJobSettlingOnSignalIsCancelled(t *testing.T) {
+	setConfigDir(t)
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	rec.PID = os.Getpid()
+	rec.PIDStart, _ = proc.StartTime(rec.PID)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	old := stopJob
+	stopJob = func(r *Record) error {
+		_, _, err := UpdateRunning(r.ID, func(cur Record) Record {
+			cur.Status, cur.Cutoff, cur.Error = "partial", CutoffCancelled, "context canceled"
+			return cur
+		})
+		return err
+	}
+	t.Cleanup(func() { stopJob = old })
+	got, err := CancelJob(context.Background(), "codex", "", rec.ID)
+	if err != nil || got.AlreadyFinished || got.Status != "partial" || got.Cutoff != CutoffCancelled {
+		t.Fatalf("CancelJob = finished=%t status=%q cutoff=%q, %v; want cancelled with the job's end state kept",
+			got.AlreadyFinished, got.Status, got.Cutoff, err)
+	}
+}
+
 // Status with a ref decodes only the files it prefixes yet answers like the full-history resolution did.
 func TestStatusRefMatchesFullHistoryResolution(t *testing.T) {
 	setConfigDir(t)

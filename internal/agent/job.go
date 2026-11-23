@@ -298,6 +298,7 @@ func Cancel(rec *Record) error {
 	return err
 }
 
+// cancel reports false only when the job had exited and settled its record before any signal was sent.
 func cancel(rec *Record) (bool, error) {
 	if rec.PID <= 0 {
 		return false, fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
@@ -305,13 +306,21 @@ func cancel(rec *Record) (bool, error) {
 	if !proc.Alive(rec.PID) {
 		return failIfRunning(rec, "process gone", true)
 	}
+	if err := stopJob(rec); err != nil {
+		return false, err
+	}
+	if _, err := failIfRunning(rec, "cancelled by claude-code agents cancel", false); err != nil {
+		return false, err
+	}
+	return true, nil // the signal stopped a live job; its own end state written on the way out is still this cancel's
+}
+
+// stopJob signals rec's verified job process until it is gone; tests swap it to settle the record in between.
+var stopJob = func(rec *Record) error {
 	if err := checkJobPID(rec); err != nil {
-		return false, err
+		return err
 	}
-	if err := escalate(rec.PID, rec.ID); err != nil {
-		return false, err
-	}
-	return failIfRunning(rec, "cancelled by claude-code agents cancel", false)
+	return escalate(rec.PID, rec.ID)
 }
 
 // checkJobPID refuses to signal a rec.PID that is a foreground run or a reused pid.
