@@ -50,10 +50,11 @@ func codemodeOn(mode string) bool { return mode != "" && mode != "off" }
 
 // Experiment is the trial a run of req carries, from the same RTK_WRAP sources Wire reads.
 func (piEngine) Experiment(req agent.RunOptions) string {
-	return experiment(req.Codemode, rtkMode())
+	return experiment(req.Codemode, RTKMode())
 }
 
-func rtkMode() string {
+// RTKMode is the raw RTK_WRAP value a launch carries: the environment first, then the vault's custom env.
+func RTKMode() string {
 	return cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])
 }
 
@@ -70,7 +71,7 @@ func experiment(codemode, rtk string) string {
 
 // codemodeLaunchEnv is env exporting the effective code mode to Pi and putting the shim dir on PATH for it.
 func codemodeLaunchEnv(env []string, mode string) []string {
-	return rtkwrap.Launch(env, rtkMode(), mode, agent.NoticeOut)
+	return rtkwrap.Launch(env, RTKMode(), mode, agent.NoticeOut)
 }
 
 // lastEnv is the value the child gets for name: the last entry of env.

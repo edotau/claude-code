@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -18,8 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -270,7 +268,7 @@ func depDoctorDetail(s tools.DepStatus) (pass bool, detail string) {
 
 // rtkHookRows is one row per external agent whose hooks list rtk-rewrite, with the RTK_WRAP mode it runs under.
 func rtkHookRows() []check {
-	raw := strings.ToLower(strings.TrimSpace(cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])))
+	raw := strings.ToLower(strings.TrimSpace(pi.RTKMode()))
 	mode := raw
 	if mode != "on" && mode != "debug" {
 		mode = "off"

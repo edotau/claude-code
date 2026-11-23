@@ -93,7 +93,7 @@ func rtkHookCommand(bin, agent string, in *core.Input, cmd string) string {
 	defer cancel()
 	c := exec.CommandContext(ctx, bin, args...)
 	c.WaitDelay = 200 * time.Millisecond
-	c.Env = append(os.Environ(), "RTK_SUPPRESS_HOOK_WARNING=1")
+	c.Env = append(os.Environ(), paths.RTKQuietEnv+"=1")
 	if agent != core.AgentOpencode {
 		c.Stdin = bytes.NewReader(in.Raw)
 	}

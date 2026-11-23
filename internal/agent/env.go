@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/rtkwrap"
@@ -70,8 +71,8 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
-	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "RTK_SUPPRESS_HOOK_WARNING=") }) {
-		env = append(env, "RTK_SUPPRESS_HOOK_WARNING=1")
+	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, paths.RTKQuietEnv+"=") }) {
+		env = append(env, paths.RTKQuietEnv+"=1")
 	}
 	return withMemoryOrigin(env)
 }
