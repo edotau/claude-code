@@ -3,6 +3,7 @@ package ask
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
@@ -93,7 +95,7 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 	out := &endWriter{w: os.Stdout}
 	switch {
 	case o.Events:
-		rec, err = agent.TailEvents(ctx, rec, o.Follow, o.After, os.Stdout)
+		rec, err = streamEvents(ctx, rec, o, os.Stdout)
 	case o.Format == helptext.JSON: // the envelope is the only JSON: wait for the job, stream nothing
 		rec, err = agent.Tail(ctx, name, cwd, rec.ID, true, io.Discard)
 	default:
@@ -116,6 +118,116 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 		fmt.Println()
 	}
 	return emitResult(prefix, rec, "", o.Format)
+}
+
+// streamEvents tails the job's events; a carrier's file holds only its result, so its children's events go first.
+func streamEvents(ctx context.Context, rec agent.Record, o ResultOptions, w io.Writer) (agent.Record, error) {
+	if rec.Request.Carry && o.After == 0 { // --after counts the carrier's seq, which child lines do not share
+		if err := streamChildren(ctx, rec, o.Follow, w); err != nil {
+			return rec, err
+		}
+		if latest, err := agent.LoadRecord(rec.ID); err == nil { // the carrier may have ended while its children ran
+			rec = latest
+		}
+	}
+	return agent.TailEvents(ctx, rec, o.Follow, o.After, w)
+}
+
+// childWait is the pause between child lookups while the carrier is still running.
+var childWait = 200 * time.Millisecond
+
+// streamChildren tails each child of a carrier oldest first; a second child is the Pi takeover and is announced.
+func streamChildren(ctx context.Context, rec agent.Record, follow bool, w io.Writer) error {
+	seen, prev := map[string]bool{}, ""
+	for {
+		child, ok := unseenChild(rec.ID, seen)
+		if !ok {
+			if !follow || !carrierAlive(rec.ID) {
+				return nil
+			}
+			if err := waitCtx(ctx, childWait); err != nil {
+				return err
+			}
+			continue
+		}
+		seen[child.ID] = true
+		if prev != "" {
+			if err := writeTakeover(w, rec.ID, prev, child); err != nil {
+				return err
+			}
+		}
+		if err := tailChild(ctx, rec.ID, child, follow, w); err != nil {
+			return err
+		}
+		prev = child.ID
+	}
+}
+
+func tailChild(ctx context.Context, carrier string, child agent.Record, follow bool, w io.Writer) error {
+	_, err := agent.TailEvents(ctx, child, follow && carrierAlive(carrier), 0, viaWriter{w: w, child: child.ID})
+	if err != nil && !noEventFile(child) { // a child that never wrote events leaves nothing to forward
+		return err
+	}
+	return nil
+}
+
+func carrierAlive(id string) bool {
+	latest, err := agent.LoadRecord(id)
+	return err == nil && latest.Alive()
+}
+
+func noEventFile(rec agent.Record) bool {
+	_, err := os.Stat(rec.EventsPath())
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// unseenChild is the oldest record of parent's not in seen; ids sort by stamp and a child is stamped after parent.
+func unseenChild(parent string, seen map[string]bool) (agent.Record, bool) {
+	entries, _ := os.ReadDir(paths.DispatchDir()) // an unreadable dir is no child yet
+	for _, e := range entries {
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || id < parent || seen[id] {
+			continue
+		}
+		if r, err := agent.LoadRecord(id); err == nil && r.Parent == parent {
+			return r, true
+		}
+	}
+	return agent.Record{}, false
+}
+
+func waitCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// writeTakeover writes the takeover event the carrier's text log holds, so the event stream names the hand-over.
+func writeTakeover(w io.Writer, carrier, from string, to agent.Record) error {
+	ev := wire.Event{Schema: wire.EventSchema, DispatchID: carrier, Via: to.ID, Agent: to.Agent, Type: wire.EventTakeover,
+		Text: from + " cut off; " + to.Agent + " takes over"}
+	return json.NewEncoder(w).Encode(ev)
+}
+
+// viaWriter re-encodes one child event line with Via set; the child's result and heartbeats are the carrier's to write.
+type viaWriter struct {
+	w     io.Writer
+	child string
+}
+
+func (v viaWriter) Write(p []byte) (int, error) {
+	var ev wire.Event
+	if json.Unmarshal(p, &ev) != nil || ev.Type == wire.EventResult || ev.Type == "heartbeat" {
+		return len(p), nil
+	}
+	ev.Via = cmp.Or(ev.Via, v.child)
+	if err := json.NewEncoder(v.w).Encode(ev); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 // goneRecord: the job's process vanished, as marked on read or still running under a follow.

@@ -27,6 +27,8 @@ const (
 	EventProgress   = "progress" // a bare progress mark: counts as progress; EventLog and Stream drop it, JSONLSink keeps it
 	EventResult     = "result"
 	EventError      = "error"
+	EventTakeover   = "takeover"
+	EventQueued     = "queued"
 )
 
 // ToolRef names the tool a tool_use or tool_result event is about.
@@ -39,6 +41,7 @@ type ToolRef struct {
 type Event struct {
 	Schema     int       `json:"schema"`
 	DispatchID string    `json:"dispatch_id,omitempty"`
+	Via        string    `json:"via,omitempty"` // the child dispatch this event was forwarded from
 	Agent      string    `json:"agent,omitempty"`
 	Host       string    `json:"host,omitempty"`
 	Seq        int64     `json:"seq"`

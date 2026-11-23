@@ -370,7 +370,7 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 	}
 	cut := cmp.Or(child.Cutoff, child.Status)
 	fmt.Fprintf(os.Stderr, "ask: carry: %s was cut off (%s); pi takes over\n", child.ID, cut)
-	log.Emit("takeover", fmt.Sprintf("%s cut off (%s); pi takes over", child.ID, cut))
+	log.Emit(wire.EventTakeover, fmt.Sprintf("%s cut off (%s); pi takes over", child.ID, cut))
 	brief := fmt.Sprintf(takeoverBrief, rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
 	stopForward := agent.StartForward(ctx, rec.ID, child.ID, log)
 	code := carryExec(ctx, argv, strings.NewReader(brief), carryEnv(ctx, rec), out, carryErr(rec, out))
