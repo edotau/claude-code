@@ -256,17 +256,32 @@ case "$1" in /*/claude) n=$1; shift; exec "$n" "$@" ;; esac
 exec "$HOME/.local/bin/claude" "$@"
 `
 
+// browserLauncherScript is bin/browser, the one-path $BROWSER: it hands its URL to the shared opener.
+const browserLauncherScript = `#!/bin/sh
+# Written by claude-code install (edits are overwritten); $BROWSER entry: ` + proc.BrowserMarker + `.
+exec %s network browser --open "$@"
+`
+
 // writeClaudeLauncher replaces BinDir/claude (the old native link or a stale script) with the launcher script.
 func writeClaudeLauncher(w io.Writer, target string, dryRun bool) error {
-	dst := filepath.Join(paths.BinDir(), "claude")
 	body := []byte(fmt.Sprintf(claudeLauncherScript, textutil.QuoteSH(target)))
+	if err := writeLauncher(w, "claude", body, target+" claude --launcher", dryRun); err != nil {
+		return err
+	}
+	body = []byte(fmt.Sprintf(browserLauncherScript, textutil.QuoteSH(target)))
+	return writeLauncher(w, "browser", body, target+" network browser --open", dryRun)
+}
+
+// writeLauncher writes BinDir/name as body unless it already holds it; runs names the command for the report line.
+func writeLauncher(w io.Writer, name string, body []byte, runs string, dryRun bool) error {
+	dst := filepath.Join(paths.BinDir(), name)
 	// The size check keeps install from reading the native binary through the old symlink.
 	if fi, err := os.Lstat(dst); err == nil && fi.Mode().IsRegular() && fi.Size() == int64(len(body)) {
 		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, body) {
 			return nil
 		}
 	}
-	fmt.Fprintf(w, "launcher %s → %s claude --launcher\n", dst, target)
+	fmt.Fprintf(w, "launcher %s → %s\n", dst, runs)
 	if dryRun {
 		return nil
 	}

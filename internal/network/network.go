@@ -16,7 +16,7 @@ var networkPage = helptext.Page{
 	About: "Everything that reaches past this machine: browsers to automate, web search\n" +
 		"and agents on tailnet hosts.",
 	Commands: [][2]string{
-		{"browser", "list automatable browsers; --setup wires one up"},
+		{"browser", "list automatable browsers; --setup wires one; --open opens a URL"},
 		{"websearch", "stdio MCP web-search server; --query runs one search"},
 		{"remote", "run an agent on a tailnet host in tmux"},
 		{"pki", "build a pinned corporate CA bundle from PKI_* env"},

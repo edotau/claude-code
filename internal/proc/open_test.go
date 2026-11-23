@@ -21,16 +21,18 @@ func TestOpenerPicksWindowsBrowserOnWSL(t *testing.T) {
 func TestOpenRouteDecisionOrder(t *testing.T) {
 	vs := "/home/u/.vscode-server/bin/x/bin/helpers/browser.sh"
 	for _, tc := range []struct {
-		b       string
-		purpose OpenPurpose
-		want    string
+		b           string
+		purpose     OpenPurpose
+		vscode, ssh bool
+		want        string
 	}{
-		{"none", OpenSignIn, "print"}, {"none", OpenView, "print"},
-		{"firefox", OpenSignIn, "browser"}, {vs, OpenView, "browser"},
-		{vs, OpenSignIn, "desktop"}, {"", OpenView, "desktop"}, {"", OpenSignIn, "desktop"},
+		{"none", OpenView, true, false, "print"}, {"firefox", OpenSignIn, true, true, "browser"},
+		{vs, OpenView, true, true, "vscode"}, {vs, OpenSignIn, true, true, "desktop"},
+		{"", OpenSignIn, true, true, "desktop"}, {"", OpenView, true, false, "vscode"},
+		{"", OpenView, false, false, "desktop"}, {"", OpenView, false, true, "print"},
 	} {
-		if got := openRoute(tc.b, tc.purpose); got != tc.want {
-			t.Errorf("openRoute(%q, %v) = %q, want %q", tc.b, tc.purpose, got, tc.want)
+		if got := openRoute(tc.b, tc.purpose, tc.vscode, tc.ssh); got != tc.want {
+			t.Errorf("openRoute(%q, %v, vscode=%v, ssh=%v) = %q, want %q", tc.b, tc.purpose, tc.vscode, tc.ssh, got, tc.want)
 		}
 	}
 }

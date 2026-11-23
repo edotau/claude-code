@@ -4,14 +4,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // browserFlags declares `network browser`'s flags on fs.
-func browserFlags(fs *flag.FlagSet) (setup *bool, name *string, dryRun *bool, format *string) {
+func browserFlags(fs *flag.FlagSet) (open *string, setup *bool, name *string, dryRun *bool, format *string) {
+	open = fs.String("open", "", "open an http(s) URL or file: VS Code's client, this desktop, else print")
 	setup = fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
 	name = fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun = fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
@@ -32,8 +36,9 @@ func Flags() []helptext.Flag {
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
 		About: "List every installed browser's control paths and the system default; --setup\n" +
-			"repairs what the harness owns for one and opens its extension page."})
-	setup, name, dryRun, format := browserFlags(fs)
+			"repairs what the harness owns for one and opens its extension page; --open\n" +
+			"opens a URL where you sit ($BROWSER=~/.claude/bin/browser runs it)."})
+	open, setup, name, dryRun, format := browserFlags(fs)
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -44,7 +49,34 @@ func Cmd(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("network browser", err)
 	}
+	if *open != "" {
+		if setupFlagsSet(fs) != "" || *setup {
+			return helptext.FailUsage("network browser: --open takes no --setup flags")
+		}
+		return openTarget(*open)
+	}
 	return networkBrowserListOrSetup(fs, *setup, *name, *dryRun, *format)
+}
+
+// openTarget opens an http(s) URL or an existing file and nothing else; target reaches the opener as one argument.
+func openTarget(target string) int {
+	var err error
+	if u, perr := url.Parse(target); perr == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+		err = proc.OpenURL(target, proc.OpenView)
+	} else if abs, aerr := filepath.Abs(target); aerr == nil && regularFile(abs) {
+		err = proc.OpenFile(abs)
+	} else {
+		return helptext.FailUsage("network browser --open: %q is neither an http(s) URL nor a file", target)
+	}
+	if err != nil {
+		return helptext.Fail("network browser --open: %v", err)
+	}
+	return 0
+}
+
+func regularFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 func networkBrowserListOrSetup(fs *flag.FlagSet, setup bool, name string, dryRun bool, format string) int {
