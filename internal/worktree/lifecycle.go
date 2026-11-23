@@ -447,8 +447,11 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 	if err := os.Remove(laneInbox); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(log, "worktree-clean: warning: notice inbox: %v\n", err)
 	}
-	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
-		// -d refuses an unmerged branch; failure there just keeps it
+	del := "-d" // -d refuses an unmerged branch; -D only after the patch-equivalence check passed
+	if entry.patchMerged {
+		del = "-D"
+	}
+	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", del, result.Branch).Run() == nil {
 		result.BranchDeleted = true
 	}
 	closing.BranchDeleted = result.BranchDeleted
@@ -648,4 +651,33 @@ func isMainCheckout(repo *Repo, dest string) bool {
 	d, err1 := filepath.EvalSymlinks(dest)
 	m, err2 := filepath.EvalSymlinks(repo.Main)
 	return err1 != nil || err2 != nil || d == m
+}
+
+// CleanFinished removes eligible lanes that did work: cherry-picked, or a branch with its own commits.
+func CleanFinished(repo *Repo) ([]CleanResult, error) {
+	entries, err := List(repo)
+	if err != nil {
+		return nil, err
+	}
+	var results []CleanResult
+	for _, e := range entries {
+		if !e.EligibleForClean() || !repo.holds(filepath.Dir(e.Path)) || !e.patchMerged && !committed(repo.Main, e.Branch) {
+			continue
+		}
+		if r, err := Clean(repo, filepath.Base(e.Path), false); err == nil {
+			results = append(results, r)
+		}
+	}
+	return results, nil
+}
+
+// committed reports whether branch's reflog shows a commit after its creation entry.
+func committed(main, branch string) bool {
+	if branch == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", main, "reflog", "show", "--format=%H", "refs/heads/"+branch, "--").Output()
+	return err == nil && strings.Count(strings.TrimSpace(string(out)), "\n") >= 1
 }

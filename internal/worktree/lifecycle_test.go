@@ -741,3 +741,44 @@ func TestCleanAllDoesNotAliasNestedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCherryPickedLaneIsMergedAndCleaned(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	pick, err := Create(repo, "pick", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := Create(repo, "keep", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneCommit(t, pick)
+	laneCommit(t, keep)
+	commitIn(t, repo.Main, "cherry-pick", headOf(pick))
+	entries, err := List(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if want := filepath.Base(e.Path) == "pick"; e.Merged != want {
+			t.Fatalf("%s Merged = %v, want %v", e.Path, e.Merged, want)
+		}
+	}
+	res, err := Clean(repo, "pick", false)
+	if err != nil || !res.Removed || !res.BranchDeleted {
+		t.Fatalf("Clean(pick) = %+v, %v; want removed with branch deleted", res, err)
+	}
+	if res, _ := Clean(repo, "keep", false); res.Removed {
+		t.Fatal("an unpicked lane must stay")
+	}
+}
+
+func laneCommit(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, filepath.Base(dir)+".txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commitIn(t, dir, "add", ".")
+	commitIn(t, dir, "commit", "-q", "-m", "lane")
+}

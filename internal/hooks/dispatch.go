@@ -437,6 +437,7 @@ var native = map[string]core.Runner{
 	"worktree-busy":        busyWatched,
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": wthook.ClaimCheck,
+	"worktree-clean-end":   wthook.CleanEnd,
 	"permission-gate":      safety.PermissionGate,
 	"secrets-out":          SecretsOut,
 	"secrets-end":          SecretsEnd,

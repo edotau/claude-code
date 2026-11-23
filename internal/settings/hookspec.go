@@ -194,6 +194,8 @@ var Registry = []Group{
 		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
 		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
+		// A session end removes this repo's merged, clean lanes that did work (not fresh ones), one line each; never blocks.
+		{Name: "worktree-clean-end", Event: EventSessionEnd, Budget: 10 * sec},
 	}},
 	{Name: "secrets", Events: []EventSpec{
 		// A Bash result holding a vault value is replaced before the model and the transcript keep it (Claude only).
