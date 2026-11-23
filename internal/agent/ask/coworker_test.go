@@ -739,6 +739,14 @@ func TestTypedArmExportsFence(t *testing.T) {
 	if got, want := proc.Value(r.ctx, route.OverlayVar), agentconfig.InlineOverlay("databricks", "qa"); done || got != want {
 		t.Errorf("done = %v, %s = %q, want %q", done, route.OverlayVar, got, want)
 	}
+	if r.auto != "qa" || agent.AutoFailoverProvider(r.ctx) != router.RouteDatabricks {
+		t.Errorf("typed qa under --fallback all: auto = %q, failover = %q; want a movable start", r.auto, agent.AutoFailoverProvider(r.ctx))
+	}
+	f.fallback, r.ctx, r.auto = router.FallbackNone, t.Context(), ""
+	if r.checkArm(); r.auto != "" || agent.AutoFailoverProvider(r.ctx) != "" {
+		t.Errorf("typed qa under --fallback none: auto = %q, failover = %q; want a lock", r.auto, agent.AutoFailoverProvider(r.ctx))
+	}
+	f.fallback, r.auto = router.FallbackAll, ""
 	r.ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "dev")})
 	if code, done := r.checkArm(); !done || code != 2 {
 		t.Errorf("inherited dev fence: checkArm = %d, %v; want refusal", code, done)

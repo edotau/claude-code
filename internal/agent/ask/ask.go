@@ -354,13 +354,14 @@ func (r *askRun) checkArm() (int, bool) {
 			f.fallback = fallback
 		}
 	}
+	moves := r.typedStart(value, fallback)
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
 	ctx, err := ApplyCoworker(r.ctx, value, f.profile, agentName, f.model, fallback)
 	if err != nil {
 		return refuse(r, err, fallback)
 	}
 	r.ctx = ctx
-	r.markAuto(picks)
+	r.markAuto(picks, moves)
 	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
@@ -371,7 +372,8 @@ func (r *askRun) checkArm() (int, bool) {
 }
 
 // markAuto records an auto-picked workspace; a --job child (explicit profile) regains the parent's failover grant.
-func (r *askRun) markAuto(picks bool) {
+func (r *askRun) markAuto(picks, moves bool) {
+	picks = picks || moves // a typed start retries on the next workspace after a rate limit, as an auto pick does
 	if !picks && !r.jobAutoArm() {
 		return
 	}

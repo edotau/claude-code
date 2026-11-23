@@ -73,6 +73,17 @@ func typedArm(f *askFlags) string {
 	return ""
 }
 
+// typedMoves reports a typed --profile p that is a start, not a lock: unfenced, and not under --fallback none.
+func typedMoves(ctx context.Context, p, profile, fallback string) bool {
+	return p != "" && p == profile && fallback != router.FallbackNone && router.ArmProfileContext(ctx) == ""
+}
+
+// typedStart reports value is r's own typed --profile workspace and typedMoves lets it move.
+func (r *askRun) typedStart(value, fallback string) bool {
+	f := r.f
+	return value != "" && value == typedArm(f) && typedMoves(r.ctx, f.profile, f.profile, fallback)
+}
+
 // withValues is ctx whose run values are set laid over its own: what the run exports, with nothing set process-wide.
 func withValues(ctx context.Context, set proc.Values) context.Context {
 	_, values := agent.RunValues(ctx, nil)
@@ -218,8 +229,9 @@ func applyArm(ctx context.Context, p, profile, agentName, model, fallback string
 	if err := checkArmRow(ctx, p, explicit, fallback); err != nil {
 		return ctx, err
 	}
+	moves := typedMoves(ctx, p, profile, fallback) // read before armValues makes p the context's own workspace
 	ctx = withValues(ctx, armValues(ctx, p))
-	if !explicit {
+	if !explicit || moves {
 		ctx = agent.WithAutoFailover(ctx, router.RouteDatabricks)
 	}
 	return ctx, nil
