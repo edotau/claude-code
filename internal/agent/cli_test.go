@@ -363,3 +363,21 @@ func TestIdleReaderStampsFirstEventOnce(t *testing.T) {
 		t.Fatalf("parser value overwritten: %+v", kept)
 	}
 }
+
+func TestPrepareNotesHopModelOnRunningRecord(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := withDispatchID(context.Background(), rec.ID, 0)
+	p, _ := newCLIEngine("codex").prepare(ctx, RunOptions{Prompt: "p"}) // a later refusal is fine: the model is noted first
+	if p.Result.Model == "" {
+		t.Fatal("prepare resolved no model")
+	}
+	got, err := LoadRecord(rec.ID)
+	if err != nil || got.Model != p.Result.Model {
+		t.Errorf("record model = %q (err %v), want %q", got.Model, err, p.Result.Model)
+	}
+}

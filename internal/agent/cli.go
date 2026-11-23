@@ -253,6 +253,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		p.Result.Provider = t.Provider.Name
 		p.Result.Model = v.RanModel(t)
 	}
+	NotePick(ctx, p.Result.Model) // a hop's wire model reaches the running record; a model already noted writes nothing
 	if err = CheckAttachReadable(req.Permissions, req.Attach); err == nil {
 		p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
 	}
