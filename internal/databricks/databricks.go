@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -134,7 +135,7 @@ func runDesktop(name string) int {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: load providers: %v\n", err)
 		return 2
 	}
-	profile := resolveProfile(context.Background(), reg, name)
+	profile := launchProfile(context.Background(), reg, name)
 	if profile == "" {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", errNoProfile)
 		return 2
@@ -177,7 +178,7 @@ func plan(ctx context.Context, args []string) (launchPlan, error) {
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("load providers: %w", err)
 	}
-	if p.Provider = resolveProfile(ctx, reg, name); p.Provider == "" {
+	if p.Provider = launchProfile(ctx, reg, name); p.Provider == "" {
 		return launchPlan{}, errNoProfile
 	}
 	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
@@ -255,24 +256,75 @@ var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg wi
 
 // resolveProfile is name, else the session or recorded claude profile (if Databricks), else the first one.
 func resolveProfile(ctx context.Context, reg *providers.Registry, name string) string {
-	if name != "" || reg == nil {
+	if name, ok := chosenProfile(ctx, reg, name); ok {
 		return name
+	}
+	return firstProfile(reg)
+}
+
+func firstProfile(reg *providers.Registry) string {
+	if profs := providers.DatabricksProfiles(reg); len(profs) > 0 {
+		return profs[0]
+	}
+	return ""
+}
+
+// launchProfile is resolveProfile, except an unchosen fallback is the least-loaded workspace, not the first.
+func launchProfile(ctx context.Context, reg *providers.Registry, name string) string {
+	if name, ok := chosenProfile(ctx, reg, name); ok {
+		return name
+	}
+	st := router.LoadState()
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(p *providers.Provider, _, _ string, _ time.Time) []struct{} { return launchUnusable(p) },
+		Cooling: func(p *providers.Provider, now time.Time) bool {
+			return st.CoolingUntil(router.AccountOf(p)).After(now)
+		},
+		Live: workspaceLive,
+	}
+	if ranked, _, err := router.RankWorkspaces(launchView(reg), q, time.Now()); err == nil && len(ranked) > 0 {
+		return ranked[0]
+	}
+	return firstProfile(reg)
+}
+
+// launchUnusable skips a workspace with no stored credential or a recorded dead login; none usable keeps vault order.
+func launchUnusable(p *providers.Provider) []struct{} {
+	if !providers.CredentialPresent(p) || router.LoginDead(p) {
+		return []struct{}{{}}
+	}
+	return nil
+}
+
+// launchView holds exactly the launch-eligible profiles as preset-tagged copies: the router ranks only preset rows.
+func launchView(reg *providers.Registry) *providers.Registry {
+	view := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	for _, n := range providers.DatabricksProfiles(reg) {
+		c := *reg.Providers[n]
+		c.Preset = providers.PresetDatabricks
+		view.Providers[n] = &c
+	}
+	return view
+}
+
+// workspaceLive overrides the router's live load per workspace when set; nil reads in-flight markers and records.
+var workspaceLive func([]*providers.Provider) map[string]int
+
+// chosenProfile is name, else the session or recorded claude profile (if Databricks); ok is false for neither.
+func chosenProfile(ctx context.Context, reg *providers.Registry, name string) (string, bool) {
+	if name != "" || reg == nil {
+		return name, true
 	}
 	profs := providers.DatabricksProfiles(reg)
 	// The session profile shadows the vault pin, even when it is not a Databricks profile.
 	if s := providers.SessionProfileContext(ctx); s != "" {
 		if slices.Contains(profs, s) {
-			return s
+			return s, true
 		}
-	} else {
-		if c := providers.AgentRecord("claude").EffectiveRoute().Profile; slices.Contains(profs, c) {
-			return c
-		}
+	} else if c := providers.AgentRecord("claude").EffectiveRoute().Profile; slices.Contains(profs, c) {
+		return c, true
 	}
-	if len(profs) > 0 {
-		return profs[0]
-	}
-	return ""
+	return "", false
 }
 
 // providerHasBetaOff reports whether the profile's row Env already sets the experimental-beta opt-out.

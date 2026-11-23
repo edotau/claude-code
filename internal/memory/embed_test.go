@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -754,6 +755,41 @@ func TestEmbedProfilesFollowTheRunSnapshot(t *testing.T) {
 	}
 	if got := first(proc.WithValues(context.Background(), proc.Values{})); got == "ambient" {
 		t.Error("empty snapshot: the ambient profile leaked into the walk")
+	}
+}
+
+// Given unequal workspace loads, When embedProfiles walks unpinned, Then the idlest leads; a session pin still leads.
+func TestEmbedProfilesRankFallbackByLoad(t *testing.T) {
+	isolatedConfig1(t)
+	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		top["providers"] = json.RawMessage(`{"aa":{"provider":"databricks","preset":"databricks","host":"https://aa.example"},` +
+			`"bb":{"provider":"databricks","preset":"databricks","host":"https://bb.example"},` +
+			`"cc":{"provider":"databricks","preset":"databricks","host":"https://cc.example"}}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRecord, prevLive, prevWait := claudeRecord, workspaceLive, workspaceLoadWait
+	t.Cleanup(func() { claudeRecord, workspaceLive, workspaceLoadWait, ranking = prevRecord, prevLive, prevWait, nil })
+	claudeRecord = func() string { return "" }
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	workspaceLive, workspaceLoadWait, ranking = func([]*providers.Provider) map[string]int { <-stuck; return nil }, time.Millisecond, nil
+	if got := slices.Collect(embedProfiles(context.Background())); !slices.Equal(got, []string{"aa", "bb", "cc"}) {
+		t.Errorf("slow load walk %q, want name order [aa bb cc] past the wait", got)
+	}
+	workspaceLive, workspaceLoadWait, ranking = func([]*providers.Provider) map[string]int {
+		return map[string]int{"aa": 3, "bb": 0, "cc": 1}
+	}, time.Minute, nil
+	walk := func() []string { return slices.Collect(embedProfiles(context.Background())) }
+	t.Setenv("CLAUDE_PROFILE", "")
+	if got := walk(); !slices.Equal(got, []string{"bb", "cc", "aa"}) {
+		t.Errorf("unpinned walk %q, want [bb cc aa] (least loaded first)", got)
+	}
+	t.Setenv("CLAUDE_PROFILE", "aa")
+	if got := walk(); !slices.Equal(got, []string{"aa", "bb", "cc"}) {
+		t.Errorf("session aa walk %q, want aa first, then by load", got)
 	}
 }
 

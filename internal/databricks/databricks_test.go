@@ -70,6 +70,11 @@ func argValue(argv []string, flag string) string {
 const threeProfiles = `{"providers":{"databricks":{"aa":{"preset":"databricks",` + dbxHost + `},"bb":{"preset":"databricks",` +
 	dbxHost + `},"cc":{"preset":"databricks",` + dbxHost + `}}}}`
 
+// oauthRow is a Databricks u2m row; threeOAuth is threeProfiles with a login type, so seedLogins can make one usable.
+const oauthRow = `{"preset":"databricks",` + dbxHost + `,"auth":{"type":"oauth"}}`
+
+const threeOAuth = `{"providers":{"databricks":{"aa":` + oauthRow + `,"bb":` + oauthRow + `,"cc":` + oauthRow + `}}}`
+
 // opusDefault is the default model for the seeded rows: the opus alias at 1M, as the row spells it.
 func opusDefault(t *testing.T, name string) string {
 	t.Helper()
@@ -82,7 +87,9 @@ func opusDefault(t *testing.T, name string) string {
 
 // TestPlanTable pins the default model, profile selection, passthrough order and --profile forms.
 func TestPlanTable(t *testing.T) {
-	seedOverlay(t, threeProfiles)
+	seedOverlay(t, threeOAuth)
+	seedLogins(t, "aa", "bb", "cc")
+	stubLive(t, map[string]int{"aa": 2, "bb": 1, "cc": 0})
 	t.Setenv(providers.EnvSessionProfile, "")
 	def := opusDefault(t, "bb")
 	tests := []struct {
@@ -92,7 +99,7 @@ func TestPlanTable(t *testing.T) {
 		wantMod  string
 		wantRest []string
 	}{
-		{"model only", []string{"sonnet"}, "", "sonnet", nil},
+		{"model only takes the idle cc", []string{"sonnet"}, "cc", "sonnet", nil},
 		{"--profile bb", []string{"--profile", "bb"}, "bb", def, nil},
 		{"--profile after flags", []string{"--print", "hi", "--profile", "cc"}, "cc", def, []string{"--print", "hi"}},
 		{"--profile= form", []string{"--profile=bb"}, "bb", def, nil},
@@ -107,12 +114,8 @@ func TestPlanTable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
-			want := tt.wantProv
-			if want == "" {
-				want = providers.DatabricksProfiles(mustLoad(t))[0]
-			}
-			if p.Provider != want || p.Model != tt.wantMod && tt.wantProv != "" || p.Model == "" {
-				t.Errorf("got profile %q model %q, want %q %q", p.Provider, p.Model, want, tt.wantMod)
+			if p.Provider != tt.wantProv || p.Model != tt.wantMod {
+				t.Errorf("got profile %q model %q, want %q %q", p.Provider, p.Model, tt.wantProv, tt.wantMod)
 			}
 			if !slices.Equal(p.Rest, tt.wantRest) {
 				t.Errorf("rest = %q, want %q", p.Rest, tt.wantRest)
@@ -128,6 +131,22 @@ func mustLoad(t *testing.T) *providers.Registry {
 		t.Fatal(err)
 	}
 	return reg
+}
+
+// seedLogins stores a fixture login for each named profile, so launchProfile counts it usable.
+func seedLogins(t *testing.T, names ...string) {
+	t.Helper()
+	reg := mustLoad(t)
+	for _, n := range names {
+		t.Setenv(providers.AuthSecretName(reg.Providers[n]), "qwzxplmrtvbn")
+	}
+}
+
+// stubLive fixes each workspace's live load for the test.
+func stubLive(t *testing.T, load map[string]int) {
+	prev := workspaceLive
+	t.Cleanup(func() { workspaceLive = prev })
+	workspaceLive = func([]*providers.Provider) map[string]int { return load }
 }
 
 // TestResolveProfileOrder pins explicit, then session, then the CLAUDE_PROFILE pin, then the first Databricks profile.
@@ -153,6 +172,57 @@ func TestResolveProfileOrder(t *testing.T) {
 	t.Setenv(providers.EnvSessionProfile, "not-databricks") // shadows the pin of the same name
 	if got := resolveProfile(context.Background(), reg, ""); got != first {
 		t.Errorf("non-Databricks session = %q, want the first profile %q", got, first)
+	}
+}
+
+// TestLaunchProfileRanksUnchosenFallback moves only the unchosen launch fallback to the idlest workspace.
+func TestLaunchProfileRanksUnchosenFallback(t *testing.T) {
+	seedOverlay(t, threeOAuth)
+	reg := mustLoad(t)
+	stubLive(t, map[string]int{"aa": 2, "bb": 1, "cc": 0})
+	t.Setenv(providers.EnvSessionProfile, "")
+	ctx := context.Background()
+	if got := launchProfile(ctx, reg, ""); got != "aa" {
+		t.Errorf("no login anywhere = %q, want vault order's aa", got)
+	}
+	seedLogins(t, "aa", "bb")
+	if got := launchProfile(ctx, reg, ""); got != "bb" {
+		t.Errorf("idle cc has no login = %q, want the idlest logged-in bb", got)
+	}
+	seedLogins(t, "cc")
+	if got := launchProfile(ctx, reg, ""); got != "cc" {
+		t.Errorf("unchosen launch = %q, want the idle cc", got)
+	}
+	if got := resolveProfile(ctx, reg, ""); got != "aa" {
+		t.Errorf("non-launch default = %q, want the first profile aa", got)
+	}
+	if got := launchProfile(ctx, reg, "aa"); got != "aa" {
+		t.Errorf("explicit = %q, want aa", got)
+	}
+	vaulttest.SetRecord(t, "claude", "profile", "aa")
+	if got := launchProfile(ctx, reg, ""); got != "aa" {
+		t.Errorf("recorded = %q, want aa", got)
+	}
+	t.Setenv(providers.EnvSessionProfile, "bb")
+	if got := launchProfile(ctx, reg, ""); got != "bb" {
+		t.Errorf("session = %q, want bb", got)
+	}
+}
+
+// TestLaunchProfileRanksTheLaunchSet ranks the databricks group: a no-preset row counts, an other-group one not.
+func TestLaunchProfileRanksTheLaunchSet(t *testing.T) {
+	seedOverlay(t, `{"providers":{"databricks":{"aa":`+oauthRow+`,"dd":{"protocol":"anthropic",`+
+		`"base_url":"https://dd.example/serving-endpoints/anthropic","auth":{"type":"pat"}}},`+
+		`"openai":{"xx":{"preset":"databricks",`+dbxHost+`}}}}`)
+	reg := mustLoad(t)
+	if got := providers.DatabricksProfiles(reg); !slices.Equal(got, []string{"aa", "dd"}) {
+		t.Fatalf("launch set = %q, want [aa dd]", got)
+	}
+	seedLogins(t, "aa", "dd")
+	stubLive(t, map[string]int{"aa": 2, "dd": 0, "xx": 0})
+	t.Setenv(providers.EnvSessionProfile, "")
+	if got := launchProfile(context.Background(), reg, ""); got != "dd" {
+		t.Errorf("unchosen launch = %q, want the idle no-preset dd", got)
 	}
 }
 

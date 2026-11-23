@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -14,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -475,24 +475,29 @@ func pickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
 			ids = append(ids, m.ID)
 		}
 	}
-	sort.Strings(ids)
-	for _, want := range []string{"gte-large", "bge-large", "gte", "bge"} {
-		for _, id := range ids {
-			if strings.Contains(id, want) {
-				return id, true
-			}
+	for _, want := range []string{"gte-large", "bge-large", "gte", "bge", ""} {
+		if id := firstContaining(ids, want); id != "" {
+			return id, true
 		}
 	}
-	if len(ids) > 0 {
-		return ids[0], true
-	}
 	return "", false
+}
+
+// firstContaining is the name-first id containing want, or "".
+func firstContaining(ids []string, want string) string {
+	best := ""
+	for _, id := range ids {
+		if strings.Contains(id, want) && (best == "" || id < best) {
+			best = id
+		}
+	}
+	return best
 }
 
 // postEmbeddings POSTs {"input": texts} and decodes the OpenAI-shaped {"data":[{"index","embedding"}]} reply.
 func postEmbeddings(ctx context.Context, url string, texts []string, authorize func(http.Header) error) ([][]float32, error) {
 	body, _ := json.Marshal(map[string]any{"input": texts})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
@@ -637,21 +642,87 @@ func embedCapable(name string) bool {
 	return reg.Providers[name].Preset == providers.PresetDatabricks
 }
 
-// databricksProfiles lists the registry's Databricks workspaces in name order, so candidate order is deterministic.
+// databricksProfiles lists the registry's Databricks workspaces least-loaded first, ties in name order.
 func databricksProfiles() []string {
 	reg, err := providers.LoadShared()
 	if err != nil {
 		return nil
 	}
-	var out []string
+	return orderedProfiles(reg)
+}
+
+// workspaceLoadWait bounds how long a query embedding waits on the load ranking before it takes name order.
+var workspaceLoadWait = 50 * time.Millisecond
+
+// loadRankTTL is how long one process reuses a load ranking: hedgeFunc and embedProfiles share one scan.
+const loadRankTTL = 30 * time.Second
+
+// orderedProfiles is reg's ranked workspaces when the ranking lands within workspaceLoadWait, else name order.
+func orderedProfiles(reg *providers.Registry) []string {
+	var names []string
 	for name, p := range reg.Providers {
 		if p != nil && p.Preset == providers.PresetDatabricks {
-			out = append(out, name)
+			names = append(names, name)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(names)
+	r := rankByLoad(reg)
+	select {
+	case <-r.done:
+		if r.out != nil {
+			return r.out
+		}
+	case <-time.After(workspaceLoadWait):
+	}
+	return names
+}
+
+// loadRanking is one background load ranking of reg; out is set before done closes.
+type loadRanking struct {
+	reg  *providers.Registry
+	at   time.Time
+	done chan struct{}
+	out  []string
+}
+
+var (
+	rankMu  sync.Mutex
+	ranking *loadRanking
+)
+
+// rankByLoad starts one background ranking of reg's workspaces, or reuses this process's for loadRankTTL.
+func rankByLoad(reg *providers.Registry) *loadRanking {
+	rankMu.Lock()
+	defer rankMu.Unlock()
+	if r := ranking; r != nil && r.reg == reg && time.Since(r.at) < loadRankTTL {
+		return r
+	}
+	r := &loadRanking{reg: reg, at: time.Now(), done: make(chan struct{})}
+	ranking = r
+	live := workspaceLive // read here: the ranking goroutine never touches the test seam
+	parallel.Go(func() { r.out = rankWorkspaces(reg, live); close(r.done) }, func(error) { close(r.done) })
+	return r
+}
+
+// rankWorkspaces orders reg's Databricks workspaces by the router: dead and cooling last, then live load.
+func rankWorkspaces(reg *providers.Registry, live func([]*providers.Provider) map[string]int) []string {
+	st := router.LoadState()
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Cooling: func(p *providers.Provider, now time.Time) bool {
+			return st.CoolingUntil(router.AccountOf(p)).After(now)
+		},
+		Live: live,
+	}
+	out, _, err := router.RankWorkspaces(reg, q, time.Now())
+	if err != nil {
+		return nil
+	}
 	return out
 }
+
+// workspaceLive overrides the router's live load per workspace when set; nil reads in-flight markers and records.
+var workspaceLive func([]*providers.Provider) map[string]int
 
 // claudeRecord looks up the claude record's profile; a var so tests can block it.
 var claudeRecord = func() string { return providers.AgentRecord("claude").EffectiveRoute().Profile }
