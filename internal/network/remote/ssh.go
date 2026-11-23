@@ -28,8 +28,11 @@ import (
 // BinEnv names the remote claude-code binary; else "claude-code" on the remote PATH.
 const BinEnv = "HARNESS_REMOTE_BIN"
 
-// PathPrefix is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
-const PathPrefix = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/go/bin:$PATH";`
+// LoginPathDirs are `make install`'s login PATH dirs under $HOME, which a non-login shell lacks.
+var LoginPathDirs = []string{".claude/bin", ".local/bin", ".local/go/bin", "go/bin"}
+
+// PathPrefix exports LoginPathDirs first: ssh's non-login shell lacks them, so claude-code and auth commands fail.
+var PathPrefix = `export PATH="$HOME/` + strings.Join(LoginPathDirs, `:$HOME/`) + `:$PATH";`
 
 // Bin picks the remote binary: HARNESS_REMOTE_BIN, then "claude-code".
 func Bin() string { return cmp.Or(os.Getenv(BinEnv), "claude-code") }

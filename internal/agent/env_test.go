@@ -378,8 +378,8 @@ func TestEnvironDropsShimPath(t *testing.T) {
 	base := []string{"PATH=" + strings.Join([]string{shim, "/usr/bin", shim + "/", "/bin"}, string(os.PathListSeparator))}
 	for _, e := range (EnvSpec{Mode: EnvAgent, Base: base}).Environ(context.Background()) {
 		if v, ok := strings.CutPrefix(e, "PATH="); ok {
-			if want := "/usr/bin" + string(os.PathListSeparator) + "/bin"; v != want {
-				t.Errorf("PATH = %q, want %q", v, want)
+			if want := "/usr/bin" + string(os.PathListSeparator) + "/bin"; !strings.HasSuffix(v, want) || strings.Contains(v, shim) {
+				t.Errorf("PATH = %q, want suffix %q and no shim", v, want)
 			}
 			return
 		}

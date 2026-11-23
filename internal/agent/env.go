@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
@@ -52,6 +53,7 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	}
 	base, _ = s.Mode.scrub(ctx, base, s.Keep)
 	base = withoutShimPath(base) // only Pi's own launch (Set) puts the rtk shim dir on PATH
+	base = withToolchainPath(base)
 	drop := s.dropper(ctx)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
 	if doc := confinementDocContext(ctx); doc != "" && drop(route.OverlayVar+"=") { // one hop: only the confinement goes down
@@ -94,6 +96,32 @@ func withoutShimPath(env []string) []string {
 					fi, err := os.Stat(d)
 					return err == nil && shimInfo != nil && os.SameFile(fi, shimInfo)
 				}), string(os.PathListSeparator))
+			}
+			if !yield(kv) {
+				return
+			}
+		}
+	})
+}
+
+// withToolchainPath puts the login PATH dirs first when missing, so a non-login launch skips distro gccgo.
+func withToolchainPath(env []string) []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return env
+	}
+	return slices.Collect(func(yield func(string) bool) {
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+				have := filepath.SplitList(v)
+				var add []string
+				for _, rel := range remote.LoginPathDirs {
+					d := filepath.Join(home, filepath.FromSlash(rel))
+					if fi, err := os.Stat(d); err == nil && fi.IsDir() && !slices.Contains(have, d) {
+						add = append(add, d)
+					}
+				}
+				kv = "PATH=" + strings.Join(append(add, have...), string(os.PathListSeparator))
 			}
 			if !yield(kv) {
 				return
