@@ -388,6 +388,12 @@ func agyStdin(r agyRequest) (string, error) {
 	content := r.Prompt
 	if !r.Tools {
 		content = agyToolLessPreamble + content
+	} else { // agy's shell runs in its sorted-first workspace dir, never the run's cwd
+		dir := r.Cwd
+		if dir == "" {
+			dir, _ = os.Getwd()
+		}
+		content = "Run every shell command in " + dir + " (cd there first).\n\n" + content
 	}
 	line, err := json.Marshal(map[string]any{"event": "user", "message": map[string]any{"content": content}})
 	if err != nil {
@@ -845,6 +851,7 @@ func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
 type agyLive struct {
 	tools   bool
+	cwd     string // every turn's shell dir
 	dn      *agyDenier
 	intro   string // emulated system prompts, owed to the first turn only
 	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
@@ -869,7 +876,7 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	if areq.Tools && p.Target.Provider != nil {
 		b.intro += agent.WebViaCLI + "\n\n"
 	}
-	b.tools, b.resumed, b.dn = areq.Tools, req.SessionID != "", &agyDenier{p: areq.Permissions, cwd: areq.Cwd}
+	b.tools, b.cwd, b.resumed, b.dn = areq.Tools, areq.Cwd, req.SessionID != "", &agyDenier{p: areq.Permissions, cwd: areq.Cwd}
 	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
 		b.intro += agent.Preamble(req.SystemPrompt)
 	}
@@ -882,7 +889,7 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 
 func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 	prompt, b.intro = b.intro+prompt, ""
-	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools})
+	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools, Cwd: b.cwd})
 	if err != nil {
 		return err
 	}
