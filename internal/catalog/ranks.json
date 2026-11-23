@@ -16,7 +16,7 @@
     {"match": "gpt-6-2-sol*", "capability": 5, "speed": 2, "cost": 4},
     {"match": "gpt-6-2-astra*", "capability": 5, "speed": 2, "cost": 4},
     {"match": "gpt-6-1-sol*", "capability": 5, "speed": 2, "cost": 4},
-    {"match": "gpt-6-astra*", "capability": 5, "speed": 2, "cost": 4},
+    {"match": "gpt-6-astra*", "capability": 5, "speed": 2, "cost": 4, "rotate": false},
     {"match": "gpt-5-5-pro*", "capability": 5, "speed": 1, "cost": 5, "rotate": false},
     {"match": "gpt-6-2-terra*", "capability": 4, "speed": 3, "cost": 3},
     {"match": "gpt-6-1-terra*", "capability": 4, "speed": 3, "cost": 3},
