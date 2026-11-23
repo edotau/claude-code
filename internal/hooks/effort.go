@@ -124,14 +124,10 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 
 	promptField, task := spawnTask(in)
 
-	// a direct ask run's prompt changes only by a Run: line fix; its recall rides additionalContext
+	// a direct ask run's prompt is never rewritten; its recall rides additionalContext
 	direct := opensWithAsk(task)
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session), mode: mode}
-	task = e.fixRunLine(promptField, task)
-	if deny := preflightBlock(ctx, e.run, task); deny != nil {
-		return *deny
-	}
 	e.retype(in, fixType)
 	return e.finish(ctx, in, promptField, task, direct)
 }
@@ -150,7 +146,7 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 		e.changed = e.changed || pinNote != ""
 	}
 	if !fixedModelTypes[st] {
-		e.label(ctx, promptField, task)
+		e.label(ctx, task)
 	}
 	e.note = strings.TrimSpace(e.note + "\n" + extraNote)
 	if in.Nested("permission_mode") == "auto" && e.changed && e.mode != modeQuery && !e.retyped(st) {
@@ -287,11 +283,7 @@ func freshPointers(session, block string) string {
 }
 
 // label prefixes the description with the run's model, on every brief: only the description changes.
-func (e *effortPlan) label(ctx context.Context, field, task string) {
-	if frozen, note := e.freezeAuto(ctx, task); frozen != task {
-		e.updated[field], e.changed, task = frozen, true, frozen
-		e.fix(note)
-	}
+func (e *effortPlan) label(ctx context.Context, task string) {
 	changed, note := applyLabel(ctx, e.run, e.updated, task)
 	e.changed = changed || e.changed
 	e.fix(note)

@@ -158,7 +158,7 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 }
 
-// A Run: line's --model auto is frozen to the ranked model in an overlay, labelled with the bare `<id>`.
+// A Run: line's --model auto is labelled with the peeked bare `<id>` without rewriting the prompt.
 func TestLabelModelAutoRunLine(t *testing.T) {
 	useAgentsDir(t, "claude")
 	vaulttest.Use(t)
@@ -180,9 +180,8 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	d, _ := r.UpdatedInput["description"].(string)
 	p, _ := r.UpdatedInput["prompt"].(string)
 	id, _, _ := strings.Cut(d, ":")
-	frozen := strings.Contains(p, `"model":"`+id+`"`) && !strings.Contains(p, "--model")
-	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || !frozen {
-		t.Errorf("auto dispatch = %+v (%s), want a bare <id> label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
+	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || p != brief {
+		t.Errorf("auto dispatch = %+v (%s), want a bare <id> label and unchanged prompt", r.UpdatedInput, r.Reason)
 	}
 }
 

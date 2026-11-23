@@ -3,23 +3,17 @@ package hooks
 import (
 	"cmp"
 	"context"
-	"errors"
 	"flag"
 	"io"
 	"slices"
 	"strings"
-	"sync"
-	"time"
-
-	"github.com/edotau/claude-code/internal/route"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -73,14 +67,10 @@ type askLine struct {
 	profile, fallback    string // --profile and --fallback as typed
 	provider             string // --provider as typed: the route the label must resolve on
 	held                 bool   // --live, --background, --session, --host, --job or --batch: the pool pin never picks
-	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
 	tools                bool   // --tools, or --read-only, which ask folds into tools
 	review               bool   // a `<agent> review` line: the Agent call's own model is the relay's, not the vendor's
 	cfg                  agentconfig.Overlay
 }
-
-// offRoute are ask flags taking the run to another host, lead, record or batch: the hook predicts no preflight.
-var offRoute = []string{"agents", "native", "provider", "host", "retry", "resume", "live", "job", "jobs", "batch"}
 
 func (r *dispatchRun) opening(ctx context.Context, task string) askLine {
 	if r.line == nil || r.lineTask != task {
@@ -108,7 +98,7 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	}
 	agent = cmp.Or(a.Value("agent"), agent)
 	l := askLine{agent: agent, model: a.Value("model"),
-		profile: a.Value("profile"), provider: a.Value("provider"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
+		profile: a.Value("profile"), provider: a.Value("provider"), fallback: a.Value("fallback"),
 		held:  a.On("live", "background", "session", "host", "job", "batch"),
 		tools: a.Has("tools", "read-only") || packsToFile(agent, a)}
 	l.prompt = a.Prompt()
@@ -192,92 +182,6 @@ func packsToFile(agent string, a AskWords) bool {
 	return a.Has("dirs", "files", "diff") && agentpkg.SchemaFor(agent).CLI.PackVia == agentpkg.PackFile
 }
 
-// preflightBlock denies a Run: line `agents ask` refuses on local cached state alone; every doubt lets it through.
-func preflightBlock(ctx context.Context, run *dispatchRun, task string) *core.Result {
-	l := run.opening(ctx, task)
-	agent := cmp.Or(l.agent, agentid.Claude)
-	if !l.local || l.cfg.Host != "" || l.cfg.Remote != "" || !agentid.Known(agent) {
-		return nil
-	}
-	if provider, _, err := router.CoworkerContext(ctx); provider != "" || err != nil {
-		return nil // nested in a confinement: ask's own leave rules decide
-	}
-	reg, err := run.registry()
-	if err != nil {
-		return nil
-	}
-	if err := cmp.Or(agentconfig.CheckTypedProfile(reg, agent, l.profile), l.refusal(reg, agent)); err != nil {
-		return preflightDeny(agent, err)
-	}
-	if _, _, _, err := labelRoute(ctx, run, map[string]any{}, "", task); errors.Is(err, agentpkg.ErrModelRoute) {
-		return preflightDeny(agent, err)
-	}
-	return nil
-}
-
-// preflightDeny is ask's own refusal plus the fix: code cannot pick the workspace or model the brief meant.
-func preflightDeny(agent string, err error) *core.Result {
-	reason := "dispatch-effort: " + err.Error() + ". Fix the brief's `Run:` line " +
-		"(a --profile the registry has, a --model that workspace serves, or --fallback agents) and resend; " +
-		"`claude-code gateway resolve " + agent + " --profile <p> --model <m>` checks a route offline."
-	var pe *agentpkg.PreflightError
-	if errors.As(err, &pe) && len(pe.Finding.Served) > 0 {
-		reason += " " + pe.Finding.Profile + " serves " + strings.Join(pe.Finding.Served, ", ") + "."
-	}
-	return &core.Result{Decision: core.Block, Reason: reason}
-}
-
-// refusal is ask's AcceptModel verdict on l's row and raw model, judged on reg and the fresh listing; nil passes.
-func (l askLine) refusal(reg *providers.Registry, agent string) error {
-	none := sync.OnceValue(func() bool {
-		f := cmp.Or(l.fallback, l.cfg.Fallback)
-		return f == router.FallbackNone || f == "" && router.DefaultFallback() == router.FallbackNone
-	})
-	p, model, err := l.target(reg, none)
-	if err != nil || model == "" {
-		return err
-	}
-	row := p != nil
-	if !row {
-		p = &providers.Provider{Name: cmp.Or(l.profile, l.cfg.Profile)} // no row: only a prefixed model is refused
-	}
-	_, err = agentpkg.AcceptModel(agent, p, model, time.Now())
-	var ue *agentpkg.UnacceptedError
-	if errors.As(err, &ue) && (ue.Kind == agentpkg.UnacceptedPrefixed || row && none()) {
-		return err
-	}
-	return nil
-}
-
-// target is the row and raw model l's ask preflights; err is ask's refusal of the row, a nil row no prediction.
-func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.Provider, string, error) {
-	model := cmp.Or(l.model, l.cfg.Model)
-	if l.cfg.Provider == router.RouteDatabricks {
-		return l.overlayTarget(reg, model)
-	}
-	name := l.profile
-	if l.cfg.Provider != "" || name == "" || name == agentpkg.LeadSession {
-		return nil, model, nil
-	}
-	p, err := reg.Get(name)
-	if err != nil && !none() {
-		return nil, "", nil // a --profile lead with a fallback: ask routes on, it does not refuse
-	}
-	return p, model, err
-}
-
-// overlayTarget is target under overlay databricks:<p>; auto, bare, or a flag naming another row is not predicted.
-func (l askLine) overlayTarget(reg *providers.Registry, model string) (*providers.Provider, string, error) {
-	p := l.cfg.Profile
-	if p == "" || p == route.AutoArm || cmp.Or(l.profile, p) != p {
-		return nil, model, nil
-	}
-	if err := reg.ServingRow(p); err != nil {
-		return nil, "", err
-	}
-	return reg.Providers[p], model, nil
-}
-
 // workAgent is the external agent the line's --agent asks for ("" = Claude); with no --agent, the leaf type's.
 func (l askLine) workAgent(st, task string) string {
 	switch {
@@ -309,4 +213,46 @@ func isFlag(w string) bool { return w != "--" && len(w) >= 2 && w[0] == '-' }
 // takesValue is words[i] being the previous flag's value: a word or "-" (stdin); a flag means that one was boolean.
 func takesValue(words []string, i int) bool {
 	return i < len(words) && (words[i] == "-" || !strings.HasPrefix(words[i], "-"))
+}
+
+// RunLine is the brief's `Run:` line for ask argv, each word quoted for a shell.
+func RunLine(argv []string) string {
+	return "Run: " + textutil.ShellJoin(append([]string{"claude-code", "agents", "ask"}, argv...))
+}
+
+// OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
+func OverlayArgs(profile, model, identity, account string) []string {
+	t := overlayTarget(profile, model)
+	switch t.Provider {
+	case "databricks":
+		t.Identity = identity
+	case "github":
+		t.Account = account
+	case "":
+		if t.Profile != "" { // no registry row: ask resolves the name and refuses it if unknown
+			return append([]string{"--profile", t.Profile}, overlayFlag(route.Target{Model: t.Model})...)
+		}
+	}
+	return overlayFlag(t)
+}
+
+// overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
+func overlayTarget(profile, model string) route.Target {
+	reg, _ := providers.Load()
+	t := route.Target{Route: route.ParseLegacy(profile), Model: model}
+	if t.Provider != "" {
+		t.Profile = cmp.Or(t.Profile, agentpkg.AutoModel)
+	} else if reg != nil && t.Profile != "" {
+		if p, err := reg.Get(t.Profile); err == nil {
+			t.Provider = p.Provider
+		}
+	}
+	return t
+}
+
+func overlayFlag(t route.Target) []string {
+	if t.IsZero() && t.Model == "" {
+		return nil
+	}
+	return []string{"--overlay", t.JSON()}
 }
