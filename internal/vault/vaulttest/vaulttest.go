@@ -18,7 +18,8 @@ func Use(t testing.TB) string {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	t.Setenv("CLAUDE_PROFILE", "") // the launching session's marker must not steer a hermetic vault
+	t.Setenv("CLAUDE_PROFILE", "")   // the launching session's marker must not steer a hermetic vault
+	t.Setenv("HARNESS_ARM_HOST", "") // no host-salted workspace tie-break: ties rank by name on every machine
 	return dir
 }
 

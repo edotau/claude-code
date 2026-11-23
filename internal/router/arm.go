@@ -197,9 +197,18 @@ func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, co
 }
 
 // armHost seeds the cold-start tie-break, so two machines with no stamps prefer different workspaces.
-var armHost = func() string { h, _ := os.Hostname(); return h }
+var armHost = func() string {
+	if h, ok := os.LookupEnv("HARNESS_ARM_HOST"); ok { // set empty by hermetic tests: no salt, name order
+		return h
+	}
+	h, _ := os.Hostname()
+	return h
+}
 
 func hostTie(host, name string) uint64 {
+	if host == "" {
+		return 0
+	}
 	h := fnv.New64a()
 	h.Write([]byte(host + "\x00" + name))
 	return h.Sum64()

@@ -1040,6 +1040,7 @@ func cliEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("HARNESS_ARM_HOST", "") // no host-salted workspace tie-break: ties rank by name
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
 	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
 		if err := vault.SetAgentRecord(name, vault.AgentRecord{Route: route.Route{Profile: profile}}); err != nil {
