@@ -81,7 +81,7 @@ func hookBinaryStatus(dir string) (ok bool, detail string) {
 		return false, hook + " missing or not executable; hooks fall back to claude-code — run make install"
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, paths.StampFile))
-	stamp := strings.TrimSpace(string(raw))
+	stamp, _, _ := strings.Cut(strings.TrimSpace(string(raw)), " ") // the file is "<stamp> <size> <mtime>" of claude-code
 	if err != nil || stamp == "" {
 		return false, "no " + paths.StampFile + " in " + dir + "; hooks fall back to claude-code — run make install"
 	}

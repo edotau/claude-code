@@ -47,7 +47,7 @@ func TestHookBinaryStatus(t *testing.T) {
 	if ok, d := hookBinaryStatus(dir); ok || !strings.Contains(d, "not built with stamp stamp-b") {
 		t.Fatalf("stale: %v %q", ok, d)
 	}
-	write(paths.StampFile, "stamp-a\n")
+	write(paths.StampFile, "stamp-a 40747490 1795455228\n")
 	if ok, d := hookBinaryStatus(dir); !ok || !strings.Contains(d, "matches stamp stamp-a") {
 		t.Fatalf("match: %v %q", ok, d)
 	}
