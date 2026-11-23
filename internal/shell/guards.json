@@ -247,36 +247,6 @@
       "conda": ["-n", "--name", "-p", "--prefix", "--cwd"]
     }
   },
-  "patch_write_tools": {
-    "purpose": "patch tools and formatters that rewrite files in place whatever their arguments",
-    "words": ["patch", "black", "isort", "rustfmt"]
-  },
-  "formatter_write_flags": {
-    "purpose": "formatter -> flags that make it write files instead of printing",
-    "tools": {
-      "gofmt": ["-w"],
-      "goimports": ["-w"],
-      "shfmt": ["-w"],
-      "prettier": ["--write", "-w"],
-      "ruff": ["--fix"]
-    }
-  },
-  "formatter_write_subcommands": {
-    "purpose": "tool -> first argument that makes it write files",
-    "tools": {"go": ["fmt"], "ruff": ["format"]}
-  },
-  "print_only_flags": {
-    "purpose": "flags that make a patch tool or formatter print instead of write; * holds every tool's",
-    "tools": {
-      "*": ["--dry-run", "--version", "--help", "-h"],
-      "black": ["--check", "--diff"],
-      "go": ["-n"],
-      "isort": ["--check", "--check-only", "-c", "--diff", "-V", "--show-config", "--show-files"],
-      "patch": ["-v"],
-      "ruff": ["--check", "--diff"],
-      "rustfmt": ["--check", "-V", "--print-config"]
-    }
-  },
   "relay_go_env_flags": {
     "purpose": "go flags that write files or run other programs; a relay refuses a GOFLAGS carrying one (no dashes)",
     "words": ["o", "c", "exec", "toolexec", "vettool", "overlay", "coverprofile", "cpuprofile", "memprofile",
