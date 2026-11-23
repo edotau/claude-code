@@ -62,6 +62,8 @@ user's yes; no answer means keep working in place.
 file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused; another repo's
 primary checkout only asks, once per session.
 
+- **Owner review:** the lane is named when work starts; when it is ready, a summary plus `git diff --stat main...<lane>`
+  (the owner can open the lane folder in VS Code's Source Control); `worktree merge` only after the owner's yes.
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree merge <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
   importers; all concurrent) and fast-forwards `main` (a moved `main` is refused: re-run), then starts the full
