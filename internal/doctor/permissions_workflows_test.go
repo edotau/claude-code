@@ -88,23 +88,19 @@ func TestStageCellDeniesWhatAReadOnlyLaunchCannotDo(t *testing.T) {
 }
 
 func TestDoctorPermissionsFailsWhenAStageIsDeniedWhatItNeeds(t *testing.T) {
-	dir := t.TempDir()
-	wf := filepath.Join(dir, "workflows")
-	if err := os.Mkdir(wf, 0o700); err != nil {
-		t.Fatal(err)
+	orig := workflowStages
+	t.Cleanup(func() { workflowStages = orig })
+	workflowStages = func(string) ([]stageDef, error) {
+		return []stageDef{{Script: "a", Stage: "checker", Needs: []string{"read", "gate"}, Launch: "read-only"}}, nil
 	}
-	src := "const S = { gate: stepOf(a.steps, 'gate', { effort: 'low' }, OPT) }\n" +
-		"await stageGate(CTX, { scope: SCOPE, check: S.gate })\n"
-	if err := os.WriteFile(filepath.Join(wf, "a.js"), []byte(src), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var out bytes.Buffer
 	if code := doctorPermissions(&out, "copilot", false); code != 1 {
 		t.Fatalf("a read-only gate stage must fail the matrix: exit %d\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "denied: gate") || !strings.Contains(out.String(), "[read-only]") {
-		t.Fatalf("the denied need must be named:\n%s", out.String())
+	if !strings.Contains(out.String(), "checker") || !strings.Contains(out.String(), "denied: gate") ||
+		!strings.Contains(out.String(), "[read-only]") {
+		t.Fatalf("the stage and its denied need must be named:\n%s", out.String())
 	}
 }
 

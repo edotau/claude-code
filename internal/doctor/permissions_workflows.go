@@ -201,19 +201,31 @@ func stageCell(judge permVerdict, why, mode string, needs []string, probes map[s
 	return c
 }
 
-// permStageRows is one row per stage of every workflows/*.js under dir plus the `agents ask --waves` leaf.
-func permStageRows(dir string, agents []string, wd string) ([]permStageRow, permTally, error) {
+// workflowStages is the stage source the matrix judges; a var so a test can feed it stages.
+var workflowStages = scriptStages
+
+// scriptStages is every stepOf stage of the workflows/*.js under dir.
+func scriptStages(dir string) ([]stageDef, error) {
 	scripts, err := filepath.Glob(filepath.Join(dir, "*.js"))
 	if err != nil {
-		return nil, permTally{}, err
+		return nil, err
 	}
 	var defs []stageDef
 	for _, s := range scripts {
 		src, err := os.ReadFile(s)
 		if err != nil {
-			return nil, permTally{}, err
+			return nil, err
 		}
 		defs = append(defs, parseStages(strings.TrimSuffix(filepath.Base(s), ".js"), string(src))...)
+	}
+	return defs, nil
+}
+
+// permStageRows is one row per stage of every workflows/*.js under dir plus the `agents ask --waves` leaf.
+func permStageRows(dir string, agents []string, wd string) ([]permStageRow, permTally, error) {
+	defs, err := workflowStages(dir)
+	if err != nil {
+		return nil, permTally{}, err
 	}
 	leaf, err := wavesLeafDef()
 	if err != nil {
