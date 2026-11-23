@@ -625,6 +625,66 @@ func TestRTKRewriteWordsMatchRTK(t *testing.T) {
 	}
 }
 
+// rtkAgentCase is one rtkAgentRewrite row: env to set, the command, and the expected rewrite ("" = none).
+type rtkAgentCase struct {
+	name, cmd, want string
+	env             map[string]string
+}
+
+// runRTKAgentCases runs each row as agent through RTKRewrite with a fake `rtk hook <agent>` that prefixes rtk.
+func runRTKAgentCases(t *testing.T, agent string, cases []rtkAgentCase) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "rtk")
+	hosttest.WriteExec(t, bin, "#!/bin/sh\n[ \"$1\" = hook ] || exit 9\ncase \"$2\" in\n"+
+		"codex) printf '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk %s\"}}}' \"$FAKE_RTK_CMD\" ;;\n"+
+		"opencode) printf '{\"command\":\"rtk %s\"}' \"$3\" ;;\n*) exit 9 ;;\nesac\n")
+	hosttest.WriteExec(t, filepath.Join(dir, "codex"), "#!/bin/sh\nprintf '{\"decision\":\"prompt\"}'\n") // execpolicy
+	cwd := t.TempDir()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HARNESS_HOOK_AGENT", agent)
+			t.Setenv(paths.RTKBinaryEnv, bin)
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")) // PATH finds the pin: bare rtk
+			t.Setenv("CODEX_HOME", t.TempDir())
+			t.Setenv("RTK_WRAP", "on")
+			t.Setenv("FAKE_RTK_CMD", tc.cmd)
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			if got, _ := rtkOut(t, rtkCwdIn(tc.cmd, cwd)); got != tc.want {
+				t.Errorf("%s %q = %q, want %q", agent, tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
+// rtkGuardDenied passes every pre-exec veto but safety-scan's code floor blocks it for every agent.
+const rtkGuardDenied = "git log --oneline -20 && rm -rf /"
+
+// rtkAgentRows are the rows every hooked agent shares: all gates allow, a guard deny, rtk missing, RTK_WRAP unset.
+func rtkAgentRows() []rtkAgentCase {
+	const cmd = "git log --oneline -20"
+	return []rtkAgentCase{
+		{name: "gates allow", cmd: cmd, want: "rtk " + cmd},
+		{name: "guard deny", cmd: rtkGuardDenied},
+		{name: "rtk missing", cmd: cmd, env: map[string]string{paths.RTKBinaryEnv: "/nonexistent/rtk"}},
+		{name: "wrap unset", cmd: cmd, env: map[string]string{"RTK_WRAP": ""}},
+	}
+}
+
+func TestRTKAgentRewriteCodex(t *testing.T) {
+	home := t.TempDir()
+	hosttest.WriteRel(t, home, "rules/user.rules", "prefix_rule(pattern=[\"git\"], decision=\"prompt\")\n")
+	rows := append(rtkAgentRows(), rtkAgentCase{name: "prompt rule", cmd: "git log --oneline -20",
+		env: map[string]string{"CODEX_HOME": home}})
+	runRTKAgentCases(t, core.AgentCodex, rows)
+}
+
+func TestRTKAgentRewriteOpencode(t *testing.T) {
+	runRTKAgentCases(t, core.AgentOpencode, rtkAgentRows())
+}
+
 func TestClaudePrintRun(t *testing.T) {
 	for cmd, want := range map[string]bool{
 		`claude-code -p "hi"`: true, `claude -p hi`: true, `rtk claude-code --print x`: true,
