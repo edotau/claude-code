@@ -82,16 +82,21 @@ func (a *plansAction) decide(rel, seen, l, t string) {
 	}
 }
 
-// archived drops a copy equal to the archive, or unedited since sync once the other side moved it; false: none dropped.
+// archived drops a copy equal to the archive, or unedited since a settled sync once the other side moved it.
 func (a *plansAction) archived(rel, seen, l, t, h string) bool {
-	ls, ts := seenPair(seen) // a reused name both sides still hold never matches, so a live plan syncs as usual
-	if l != "" && (l == h || l == ls && t == "") {
+	ls, ts := seenPair(seen) // a recorded conflict (ls != ts) keeps both edits; a live plan syncs as usual
+	if droppable(l, h, ls, t, ls == ts) {
 		a.take.drop[rel] = l
 	}
-	if t != "" && (t == h || t == ts && l == "") {
+	if droppable(t, h, ts, l, ls == ts) {
 		a.send.drop[rel] = t
 	}
 	return a.take.drop[rel] != "" || a.send.drop[rel] != ""
+}
+
+// droppable: copy c equals the archive h, or is last (settled) while the other side no longer holds it.
+func droppable(c, h, last, other string, settled bool) bool {
+	return c != "" && (c == h || settled && c == last && other == "")
 }
 
 // seenPair splits a seen value into its local and peer hashes; one hash stands for both.
@@ -143,7 +148,7 @@ func settlePlans(seen, local, peer map[string]string) {
 // plans syncs the plans home with one peer after the memory pass; a failure is reported and never fails the pass.
 func (s *syncPass) plans(name string, p *PeerSync) {
 	peerTok, local := s.plansTok[name], hashTree(plansRoot())
-	if peerTok == p.PlansPulled && treeDigest(local) == p.PlansPushed {
+	if peerTok == p.PlansPulled && plansStamp(local) == p.PlansPushed {
 		s.say("plans", name, "unchanged")
 		return
 	}
@@ -155,18 +160,27 @@ func (s *syncPass) plans(name string, p *PeerSync) {
 	}
 	theirs := hashTree(dir)
 	a := decidePlans(p.PlansSeen, local, theirs, archivedPlans(union(local, theirs)))
+	if a.differ > 0 {
+		s.say("plans", name, fmt.Sprintf("differ %d", a.differ))
+	}
 	lines, ok := s.takePlans(name, p, dir, a.take, theirs)
 	if !ok {
 		return
 	}
-	kept, ok := s.sendPlans(name, a)
+	sent := map[string]string{}
+	kept, ok := s.sendPlans(name, a, sent)
 	if !ok || s.dryRun {
 		return
 	}
-	local = plansSent(p.PlansSeen, a, theirs, kept)
+	local = plansSent(p.PlansSeen, a, theirs, kept, sent)
 	if len(kept) == 0 && !slices.ContainsFunc(lines, isKeptLine) { // a held-back file keeps the next pass looking
-		p.PlansPulled, p.PlansPushed = peerTok, treeDigest(local)
+		p.PlansPulled, p.PlansPushed = peerTok, plansStamp(local)
 	}
+}
+
+// plansStamp digests the plans and their archive copies, so a plan archived elsewhere reruns an unchanged pass.
+func plansStamp(local map[string]string) string {
+	return digestOf([]byte(treeDigest(local) + treeDigest(archivedPlans(local))))
 }
 
 // takePlans applies the take side here and settles it, so a failed send never turns a taken file into a differ.
@@ -180,17 +194,23 @@ func (s *syncPass) takePlans(name string, p *PeerSync, dir string, take plansWri
 		return nil, false
 	}
 	if !s.dryRun {
-		settlePlans(p.PlansSeen, hashTree(plansRoot()), theirs)
+		local := hashTree(plansRoot())
+		for _, l := range lines { // settle on the bytes written, so a save since then stays changed
+			if rel, ok := strings.CutPrefix(l, "write "); ok {
+				local[rel] = theirs[rel]
+			}
+		}
+		settlePlans(p.PlansSeen, local, theirs)
 	}
 	return lines, true
 }
 
-// plansSent settles seen against what the peer now holds and returns the local tree.
-func plansSent(seen map[string]string, a plansAction, theirs map[string]string, kept map[string]bool) map[string]string {
+// plansSent settles seen on the bytes sent, so a save during the push stays changed; returns the settled local view.
+func plansSent(seen map[string]string, a plansAction, theirs map[string]string, kept map[string]bool, sent map[string]string) map[string]string {
 	local, peer := hashTree(plansRoot()), maps.Clone(theirs)
 	for _, rel := range a.send.rels {
-		if !kept[rel] {
-			peer[rel] = local[rel]
+		if h := sent[rel]; h != "" && !kept[rel] {
+			local[rel], peer[rel] = h, h
 		}
 	}
 	for rel := range a.send.drop {
@@ -204,14 +224,14 @@ func plansSent(seen map[string]string, a plansAction, theirs map[string]string, 
 
 func isKeptLine(l string) bool { _, ok := keptFile(l); return ok }
 
-// sendPlans pushes the send side; kept names the files the peer or the credential check held back.
-func (s *syncPass) sendPlans(name string, a plansAction) (map[string]bool, bool) {
+// sendPlans pushes the send side; kept names the files held back, sent gets the packed hashes.
+func (s *syncPass) sendPlans(name string, a plansAction, sent map[string]string) (map[string]bool, bool) {
 	kept := map[string]bool{}
 	if len(a.send.rels)+len(a.send.drop) == 0 {
 		return kept, true
 	}
 	var in, out bytes.Buffer
-	if err := writePlansTar(&in, a.send, kept); err != nil {
+	if err := writePlansTar(&in, a.send, kept, sent); err != nil {
 		s.say("plans", name, "packing: "+err.Error())
 		return nil, false
 	}
@@ -252,7 +272,7 @@ func plansPushScript(dryRun bool) string {
 }
 
 // writePlansTar writes the .replace and .remove lists, then the plans; one it cannot send is marked kept.
-func writePlansTar(w io.Writer, pw plansWrite, kept map[string]bool) error {
+func writePlansTar(w io.Writer, pw plansWrite, kept map[string]bool, sent map[string]string) error {
 	root, err := os.OpenRoot(plansRoot())
 	if err != nil {
 		return err
@@ -274,6 +294,7 @@ func writePlansTar(w io.Writer, pw plansWrite, kept map[string]bool) error {
 		if err := addTarBytes(tw, rel, data); err != nil {
 			return err
 		}
+		sent[rel] = digestOf(data)
 	}
 	return tw.Close()
 }
@@ -368,9 +389,9 @@ func applyPlan(dst, src *os.Root, rel, want string, dryRun bool) (string, error)
 	case credentialShaped(data):
 		return "skipped " + rel + ": " + credentialMark, nil
 	}
-	name := filepath.FromSlash(rel)
+	name, cur := filepath.FromSlash(rel), ""
 	if fi, err := dst.Lstat(name); err == nil {
-		cur, _ := hashFile(dst, rel)
+		cur, _ = hashFile(dst, rel)
 		switch {
 		case !fi.Mode().IsRegular():
 			return "skipped " + rel + ": not a regular file", nil
@@ -386,19 +407,23 @@ func applyPlan(dst, src *os.Root, rel, want string, dryRun bool) (string, error)
 	if err := dst.MkdirAll(path.Dir(rel), 0o700); err != nil {
 		return "", err
 	}
-	return "write " + rel, writeAtomic(dst, name, data)
+	return writeAtomic(dst, rel, data, cur)
 }
 
-// writeAtomic writes through a dot temp file hashTree skips, so lock-free readers never see a partial plan.
-func writeAtomic(dst *os.Root, name string, data []byte) error {
+// writeAtomic renames a dot temp file hashTree skips over rel; one whose hash moved off before (a save) is kept.
+func writeAtomic(dst *os.Root, rel string, data []byte, before string) (string, error) {
+	name := filepath.FromSlash(rel)
 	tmp := filepath.Join(filepath.Dir(name), ".sync-"+filepath.Base(name))
 	if err := dst.WriteFile(tmp, data, 0o600); err != nil {
-		return err
+		return "", err
+	}
+	if cur, _ := hashFile(dst, rel); cur != before {
+		return "kept local " + rel, dst.Remove(tmp)
 	}
 	if err := dst.Rename(tmp, name); err != nil {
-		return errors.Join(err, dst.Remove(tmp))
+		return "", errors.Join(err, dst.Remove(tmp))
 	}
-	return nil
+	return "write " + rel, nil
 }
 
 // dropPlan removes an archived plan whose hash is still want; an edited copy is kept.

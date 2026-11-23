@@ -364,10 +364,12 @@ func countPrefix(lines []string, prefix string) int {
 func hashTree(dir string) map[string]string {
 	out := map[string]string{}
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil { // d is nil for a missing root: an absent dir hashes as empty
+			return nil
+		}
 		rel, _ := filepath.Rel(dir, p)
 		rel = filepath.ToSlash(rel)
 		switch name := d.Name(); {
-		case err != nil:
 		case d.IsDir() && (name == ".git" || name == "locks" || name == ".locks"):
 			return fs.SkipDir
 		case !d.Type().IsRegular(), strings.HasPrefix(name, "."), strings.HasSuffix(name, ".lock"),
