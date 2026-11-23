@@ -165,7 +165,23 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	if err := refuseUnmappedDeny(s.Permissions); err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	return env, append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, onAnthropic(s.Target))...), emulated, cleanup, nil
+	argv = append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, onAnthropic(s.Target))...)
+	return env, append(argv, addDirArgs(s.Permissions.Mode, s.Tools, s.WorkDir)...), emulated, cleanup, nil
+}
+
+// addDirArgs widens an auto --tools run's reach to agent.WritableRoots, the plan's one cross-agent contract.
+func addDirArgs(mode string, tools bool, workDir string) []string {
+	if mode != permission.PermAuto || !tools {
+		return nil
+	}
+	if workDir == "" {
+		workDir, _ = os.Getwd() // claude runs in the process cwd; "" still yields the harness root
+	}
+	var args []string
+	for _, d := range agent.WritableRoots(workDir) {
+		args = append(args, "--add-dir", d)
+	}
+	return args
 }
 
 // claudeEffort spells e for claude's CLI and Messages API; "" stays "" and an unknown effort is refused.
@@ -213,6 +229,8 @@ func permissionModeArgs(mode string, anthropic bool) []string {
 		return nil
 	case mode == permission.PermAllow: // the development override: every call runs; --disallowedTools still holds
 		return []string{"--permission-mode", "bypassPermissions"}
+	case mode == permission.PermDefault: // unmatched calls are denied, never judged
+		return []string{"--permission-mode", "dontAsk"}
 	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
 		return []string{"--permission-mode", "auto"}
 	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied

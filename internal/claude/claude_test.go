@@ -310,6 +310,9 @@ func TestClaudeArgsPermissions(t *testing.T) {
 		return r
 	}
 	tail := []string{"--exclude-dynamic-system-prompt-sections"}
+	wd := t.TempDir()
+	roots := agent.WritableRoots(wd)
+	autoTail := append([]string{"--add-dir", roots[0], "--add-dir", roots[len(roots)-1]}, tail...)
 	cases := []struct {
 		name string
 		req  agent.RunOptions
@@ -320,14 +323,14 @@ func TestClaudeArgsPermissions(t *testing.T) {
 		{"empty no tools", agent.RunOptions{}, []string{"--tools", "", "--setting-sources", ""}},
 		{"allow", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Allow: rules("Bash(git *)", "Edit")}},
 			append([]string{"--allowedTools", "Bash(git *)", "Edit", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"deny with auto", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
-			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"deny with auto", agent.RunOptions{Tools: true, WorkDir: wd, Permissions: permission.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
+			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, autoTail...)},
 		{"ask", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Ask: rules("Write")}},
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 		{"plan denies writes, sets no mode", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "plan", Ask: rules("Write")}},
 			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-prompts", "none"}, tail...)},
-		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, Permissions: permission.Permissions{Mode: "auto"}},
-			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
+		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, WorkDir: wd, Permissions: permission.Permissions{Mode: "auto"}},
+			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, autoTail...)},
 	}
 	for _, c := range cases {
 		if got := renderedArgs(t, c.req, anthropicTarget); !slices.Equal(got, c.want) {
@@ -469,7 +472,7 @@ var anthropicTarget = providers.Target{Provider: &providers.Provider{Provider: "
 func renderedArgs(t *testing.T, req agent.RunOptions, tgt providers.Target) []string {
 	t.Helper()
 	s := agent.Settings{Agent: "claude", Effort: req.Effort, Permissions: req.Permissions, Target: tgt, Tools: req.Tools,
-		Autonomous: req.Autonomous, Headless: true}
+		Autonomous: req.Autonomous, Headless: true, WorkDir: req.WorkDir}
 	_, argv, _, _, err := claudeAgent.RenderSettings(context.Background(), s, nil, claudeArgs(nil, req))
 	if err != nil {
 		t.Fatal(err)

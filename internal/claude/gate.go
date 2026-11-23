@@ -98,9 +98,9 @@ func LaunchGate(p permission.Permissions, ro bool) (permission.Permissions, bool
 	return req.Permissions, req.Gate
 }
 
-// refuseUngatedBypass keeps bypassPermissions to a gated or bare --autonomous launch (off Anthropic, not --safe-mode).
+// refuseUngatedBypass keeps bypassPermissions to --permissions allow, a gated or a bare --autonomous launch.
 func refuseUngatedBypass(ctx context.Context, args []string, req agent.RunOptions) error {
-	if req.Gate || !slices.Contains(args, "bypassPermissions") ||
+	if req.Gate || !slices.Contains(args, "bypassPermissions") || req.Permissions.Mode == permission.PermAllow ||
 		req.Autonomous && req.Permissions.IsZero() && (onAnthropic(launchTarget(ctx, req)) || !req.SafeMode) {
 		return nil
 	}
