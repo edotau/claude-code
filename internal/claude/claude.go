@@ -166,22 +166,27 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 		return env, argv, emulated, cleanup, err
 	}
 	argv = append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, onAnthropic(s.Target))...)
-	return env, append(argv, addDirArgs(s.Permissions.Mode, s.Tools, s.WorkDir)...), emulated, cleanup, nil
+	dirs, err := addDirArgs(s.Permissions.Mode, s.Tools, s.WorkDir)
+	return env, append(argv, dirs...), emulated, cleanup, err
 }
 
 // addDirArgs widens an auto --tools run's reach to agent.WritableRoots, the plan's one cross-agent contract.
-func addDirArgs(mode string, tools bool, workDir string) []string {
+func addDirArgs(mode string, tools bool, workDir string) ([]string, error) {
 	if mode != permission.PermAuto || !tools {
-		return nil
+		return nil, nil
 	}
-	if workDir == "" {
-		workDir, _ = os.Getwd() // claude runs in the process cwd; "" still yields the harness root
+	if workDir == "" { // claude runs in the process cwd
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("claude: --permissions auto needs the working directory: %w", err)
+		}
+		workDir = wd
 	}
 	var args []string
 	for _, d := range agent.WritableRoots(workDir) {
 		args = append(args, "--add-dir", d)
 	}
-	return args
+	return args, nil
 }
 
 // claudeEffort spells e for claude's CLI and Messages API; "" stays "" and an unknown effort is refused.
