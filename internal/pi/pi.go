@@ -353,7 +353,11 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	parse := func(br *bufio.Reader, s wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { ti.beat(ev); return w.check() }, logs...)
 	}
-	return agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
+	res, err := agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
+	if cmd.Process != nil {
+		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a fork in flight at cancel escapes the group kill
+	}
+	return res, err
 }
 
 // childCmd is Pi's process; fail closed: no source (inherited, vault, overlay, --env) may hand it a HARNESS_HOOK_* switch.

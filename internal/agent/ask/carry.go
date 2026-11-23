@@ -66,6 +66,9 @@ var carryExec = func(ctx context.Context, argv []string, stdin io.Reader, env []
 	proc.TreeCancel(cmd, carryGrace) // own group; SIGTERM lets the child finalize its record, then the tree is killed
 	cmd.WaitDelay = 2 * carryGrace   // past TreeCancel's own kill: only a pipe a detached grandchild holds is left
 	err = cmd.Run()
+	if cmd.Process != nil {
+		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a fork in flight at cancel escapes the group kill
+	}
 	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exit.ExitCode()
 	}
