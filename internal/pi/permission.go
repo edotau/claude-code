@@ -12,7 +12,7 @@ import (
 // refuseRequest refuses what the guard cannot judge: an Ask rule (no one to ask) and a --env that replaces the guard's wiring.
 func refuseRequest(req agent.RunOptions) error {
 	if len(req.Permissions.Ask) > 0 {
-		return fmt.Errorf("pi cannot enforce ask rule %s: the guard only allows or blocks; use --deny", req.Permissions.Ask[0])
+		return fmt.Errorf("pi cannot enforce ask rule %s: the guard only allows or blocks; make it a deny rule", req.Permissions.Ask[0])
 	}
 	for _, kv := range req.Env {
 		k, _, _ := strings.Cut(kv, "=")

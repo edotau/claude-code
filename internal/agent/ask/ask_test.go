@@ -175,7 +175,7 @@ func askRetryCases() []askRetryCase {
 			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "TZ"}},
 		{name: "retry keeps recorded permissions", retry: true, recPerms: true,
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}, wantAllow: []string{"Bash(ls:*)"}, wantDeny: []string{"Bash(rm:*)"}},
-		{name: "retry --allow replaces recorded allow only", retry: true, recPerms: true, flags: []string{"--allow", "Read"},
+		{name: "retry --permissions allow replaces recorded allow only", retry: true, recPerms: true, flags: []string{"--permissions", `{"allow":["Read"]}`},
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}, wantAllow: []string{"Read"}, wantDeny: []string{"Bash(rm:*)"}},
 	}
 }
@@ -244,7 +244,7 @@ func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--deny", "Bash(", "say ok"})
+		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--permissions", `{"deny":["Bash("]}`, "say ok"})
 	})
 	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
 		t.Fatalf("exit = %d, stderr = %q; want 2 naming the rule", code, stderr)

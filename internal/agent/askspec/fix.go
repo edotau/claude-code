@@ -20,7 +20,7 @@ func LeadingAgentWord(args, pos, roster []string, agentTyped bool) (string, bool
 }
 
 // widening flags grant tools, permissions, routes or env; Fix never guesses them in or rewrites their values.
-var widening = []string{"tools", "permissions", "allow", "ask", "autonomous", "host", "env", "keep-env",
+var widening = []string{"tools", "permissions", "autonomous", "host", "env", "keep-env",
 	"overlay", "agents", "direct", "native", "safe-mode"}
 
 // fixer is one Fix pass; firstPos and unresolved are word indexes, -1 for none.

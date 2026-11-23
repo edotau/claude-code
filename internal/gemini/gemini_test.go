@@ -803,7 +803,7 @@ func TestAgyResumeReloadsPermissions(t *testing.T) {
 	}
 }
 
-// A refused tool step in the stream reaches the stderr note with its exact --allow.
+// A refused tool step in the stream reaches the stderr note with its exact allow rule.
 func TestParseAgyRefusalNamesAllow(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"make lint"},"error":{"message":"user denied permission to run command"}}}}
 {"event":"result","result":{"status":"SUCCESS","response":""}}`
@@ -817,12 +817,12 @@ func TestParseAgyRefusalNamesAllow(t *testing.T) {
 	os.Stderr = orig
 	w.Close()
 	out, _ := io.ReadAll(r)
-	if !strings.Contains(string(out), "--allow 'Bash(make lint)'") {
+	if !strings.Contains(string(out), `--permissions '{"allow":["Bash(make lint)"]}'`) {
 		t.Errorf("stderr = %q, want the exact allow for make lint", out)
 	}
 }
 
-// An empty answer after denied tools errors naming each denied tool with the --tools/--allow hint.
+// An empty answer after denied tools errors naming each denied tool with the --tools/--permissions hint.
 func TestParseAgyEmptyAnswerNamesDeniedTools(t *testing.T) {
 	for name, stream := range map[string]string{
 		"refused step": `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"ls"},"error":{"message":"user denied permission to run command"}}}}
@@ -830,8 +830,8 @@ func TestParseAgyEmptyAnswerNamesDeniedTools(t *testing.T) {
 		"denied action": `{"event":"result","result":{"status":"SUCCESS","response":"","denied_actions":[{"action":"run_command","display_name":"Bash"}]}}`,
 	} {
 		_, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "tool(s) were denied: Bash") || !strings.Contains(err.Error(), "--tools or --allow") {
-			t.Errorf("%s: err = %v; want the denied tool and the --tools/--allow hint", name, err)
+		if err == nil || !strings.Contains(err.Error(), "tool(s) were denied: Bash") || !strings.Contains(err.Error(), "--tools or --permissions") {
+			t.Errorf("%s: err = %v; want the denied tool and the --tools/--permissions hint", name, err)
 		}
 	}
 }

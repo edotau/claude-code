@@ -203,7 +203,7 @@ func TestRemoteHomePath(t *testing.T) {
 	}
 }
 
-// Each permission rule crosses to the remote as its own quoted argv word, so spaces in a rule cannot split it.
+// The policy crosses to the remote as one quoted --permissions word, so spaces in a rule cannot split it.
 func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 	perms, err := permission.ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
@@ -213,7 +213,7 @@ func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{" --permissions 'auto'", " --allow 'Bash(git log:*)'", " --allow 'Read'", " --deny 'Bash(rm:*)'"} {
+	for _, want := range []string{` --permissions '{"mode":"auto","allow":["Bash(git log:*)","Read"],"deny":["Bash(rm:*)"]}'`} {
 		if !strings.Contains(script, want) {
 			t.Errorf("script lacks %q: %s", want, script)
 		}

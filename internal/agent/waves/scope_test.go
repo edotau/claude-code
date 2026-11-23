@@ -34,13 +34,13 @@ func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
 	}
 	if piWave := scopeWave("pi", "pi"); func() bool {
 		f, ok := scopeFlags(piWave[0], LaunchOptions{Wave: piWave})
-		return !ok || !slices.Contains(f, "Edit(/r/b.go)")
+		return !ok || !strings.Contains(strings.Join(f, " "), "Edit(/r/b.go)")
 	}() {
 		t.Fatal("pi must enforce")
 	}
 	got := strings.Join(flags, " ")
-	for _, want := range []string{"--deny Edit(/r/b.go)", "--deny Write(/r/b.go)", "--deny Edit(/r/b_test.go)", "--deny Write(/r/b.go/**)",
-		"--permissions auto"} {
+	for _, want := range []string{`"Edit(/r/b.go)"`, `"Write(/r/b.go)"`, `"Edit(/r/b_test.go)"`, `"Write(/r/b.go/**)"`,
+		`--permissions {"mode":"auto","deny":[`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("flags %q lack %q", got, want)
 		}
@@ -48,7 +48,7 @@ func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
 	if strings.Contains(got, "/r/a.go") || strings.Contains(got, "/r/a_test.go") {
 		t.Errorf("flags %q deny the package's own file", got)
 	}
-	if flags, _ = scopeFlags(wave[0], LaunchOptions{Wave: wave, Route: []string{"--permissions", "plan"}}); slices.Contains(flags, "auto") {
+	if flags, _ = scopeFlags(wave[0], LaunchOptions{Wave: wave, Route: []string{"--permissions", "plan"}}); strings.Contains(strings.Join(flags, " "), "auto") {
 		t.Errorf("a caller's --permissions must stand: %v", flags)
 	}
 }
@@ -74,7 +74,7 @@ func TestLaunchBatchesRunUnscopedOnesAlone(t *testing.T) {
 		t.Fatalf("together %+v alone %+v", together, alone)
 	}
 	args := askArgs(1, LaunchOptions{Route: []string{"--overlay", "{}"}}, together[0].flags)
-	if i := slices.Index(args, "--overlay"); i < 0 || !slices.Contains(args[i:], "--deny") {
+	if i := slices.Index(args, "--overlay"); i < 0 || !slices.Contains(args[i:], "--permissions") {
 		t.Fatalf("scope flags must follow the route flags: %v", args)
 	}
 	if t2, a2 := launchBatches(wave[:1], LaunchOptions{Wave: wave[:1]}); len(t2) != 1 || len(a2) != 0 {
@@ -142,13 +142,13 @@ func TestLaunchScopesEachPackageAndRunsUnscopedAlone(t *testing.T) {
 			t.Errorf("envelope %d: %+v, want scoped=%v", i, envelopes[i], want)
 		}
 	}
-	for i, want := range map[string]string{"toy-1.1": "--deny\x1fEdit(/r/b.go)", "toy-1.2": "--deny\x1fWrite(/r/a.go)", "toy-1.3": "json"} {
+	for i, want := range map[string]string{"toy-1.1": `"Edit(/r/b.go)"`, "toy-1.2": `"Write(/r/a.go)"`, "toy-1.3": "json"} {
 		got, err := os.ReadFile(filepath.Join(dir, i+".args"))
 		if err != nil || !strings.Contains(string(got), want) {
 			t.Errorf("%s args %q (%v) lack %q", i, got, err, want)
 		}
 	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "toy-1.3.args")); strings.Contains(string(got), "--deny") {
+	if got, _ := os.ReadFile(filepath.Join(dir, "toy-1.3.args")); strings.Contains(string(got), "--permissions") {
 		t.Errorf("codex must launch with no scope flags: %q", got)
 	}
 }

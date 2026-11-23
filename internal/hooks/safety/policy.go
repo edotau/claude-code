@@ -177,7 +177,7 @@ func sudoDenied() bool {
 	})
 }
 
-// askHit is one settings ask match: the rule tool and target the dispatch judges, and the rule its --allow names.
+// askHit is one settings ask match: the rule tool and target the dispatch judges, and the rule its allow names.
 type askHit struct{ what, tool, arg, rule string }
 
 // dispatchAsk decides a settings ask where the agent has no ask (D1): dispatch deny blocks, allow runs, else blocks.
@@ -185,17 +185,17 @@ func dispatchAsk(in *core.Input, h askHit) (core.Decision, string) {
 	p, set, err := dispatchPolicy()
 	if err != nil || !set {
 		return core.Block, core.SafetyMessage(in, core.Block, h.what, h.rule, "No dispatch policy decides it."+noAskRoute+
-			" Or re-dispatch with --allow '"+h.rule+"' (claude-code agents ask).")
+			" Or re-dispatch with "+permission.AllowFlag(h.rule)+" (claude-code agents ask).")
 	}
 	if (permission.Permissions{Mode: permission.PermAllow, Deny: p.Deny}).DecideAt(in.CWD, h.tool, h.arg) == permission.Deny {
-		return core.Block, core.SafetyMessage(in, core.Block, h.what+"; the dispatch's --deny refuses it", h.rule, ownerRoute)
+		return core.Block, core.SafetyMessage(in, core.Block, h.what+"; the dispatch's deny rule refuses it", h.rule, ownerRoute)
 	}
 	if h.tool == "Bash" && settingsAllowed(h.arg, in.CWD, p.Allow) ||
 		h.tool != "Bash" && (permission.Permissions{Mode: permission.PermPlan, Allow: p.Allow}).DecideAt(in.CWD, h.tool, h.arg) == permission.Allow {
 		return core.Allow, ""
 	}
 	return core.Block, core.SafetyMessage(in, core.Block, h.what, h.rule,
-		"The dispatching agent decides: re-dispatch with --allow '"+h.rule+"' (claude-code agents ask) to run it.")
+		"The dispatching agent decides: re-dispatch with "+permission.AllowFlag(h.rule)+" (claude-code agents ask) to run it.")
 }
 
 // anchorGlob resolves a user-settings path pattern: //abs, ~/home, /config-dir, **/anywhere, else cwd ("" if none).
@@ -347,7 +347,7 @@ func stateOperandWrite(cmd, cwd string) string {
 }
 
 const stateHint = "The harness writes its own state; a dispatch the main session starts may lift this with " +
-	"--allow 'Write(/state/harness/<path>)' or a Bash rule for the command."
+	"--permissions '{\"allow\":[\"Write(/state/harness/<path>)\"]}' or a Bash rule for the command."
 
 // mainGrant is the dispatch's Allow and Deny rules when the main session started it (record: no parent, depth 0).
 func mainGrant() (permission.Permissions, bool) {

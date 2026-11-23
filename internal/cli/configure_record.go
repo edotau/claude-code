@@ -3,9 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"slices"
@@ -275,29 +273,6 @@ func parseRouteObject(field, val string) (rt route.Route, err error) {
 	return rt, nil
 }
 
-func parsePolicy(val string) (*vault.AgentPolicy, error) {
-	if val == "" {
-		return nil, nil
-	}
-	var policy *vault.AgentPolicy
-	dec := json.NewDecoder(strings.NewReader(val))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&policy); err != nil {
-		return nil, fmt.Errorf("permissions: want a JSON object: %w", err)
-	}
-	if policy == nil {
-		return nil, errors.New("permissions: want a JSON object")
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("permissions: trailing JSON: %v", err)
-	}
-	if _, err := permission.ParsePermissions(policy.Mode, policy.Allow, policy.Ask, policy.Deny); err != nil {
-		return nil, fmt.Errorf("permissions: %w", err)
-	}
-	return policy, nil
-}
-
 func validatePolicySet(agent string, set map[string]string) error {
 	if val, ok := set["PERMISSIONS"]; ok {
 		if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}); err != nil {
@@ -306,7 +281,7 @@ func validatePolicySet(agent string, set map[string]string) error {
 		if proc.InDispatch(context.Background()) {
 			return fmt.Errorf("%s permissions: only the owner's own session can set a permission policy; refused inside a dispatch", agent)
 		}
-		_, err := parsePolicy(val)
+		_, err := permission.ParsePolicy(val)
 		return err
 	}
 	return nil
@@ -315,7 +290,7 @@ func validatePolicySet(agent string, set map[string]string) error {
 // setField writes one record field; route fields store the route object and clear the legacy keys they replace.
 func setField(agent, field, val string) error {
 	if field == "PERMISSIONS" {
-		policy, err := parsePolicy(val)
+		policy, err := permission.ParsePolicy(val)
 		if err != nil {
 			return err
 		}

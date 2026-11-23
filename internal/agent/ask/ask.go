@@ -494,7 +494,7 @@ func recordConfinement(own, rec string) (string, error) {
 	return rec, nil
 }
 
-// parsePerms validates --allow/--ask/--deny/--permissions into r.perms; it reruns after a --retry record fills them.
+// parsePerms validates --permissions into r.perms; it reruns after a --retry record fills them.
 func (r *askRun) parsePerms() (int, bool) {
 	f := r.f
 	p, err := permission.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
@@ -686,7 +686,7 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode,
-		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
+		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny, permKeys: &f.permKeys,
 		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
 }
 

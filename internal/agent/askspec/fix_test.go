@@ -21,7 +21,7 @@ func TestFix(t *testing.T) {
 		{"tool", []string{"--tool", "hi"}, []string{"--tool", "hi"}, false},
 		{"hosts", []string{"--hosts", "h", "hi"}, []string{"--hosts", "h", "hi"}, false},
 		{"envs", []string{"--envs=A=1", "hi"}, []string{"--envs=A=1", "hi"}, false},
-		{"allows", []string{"--allows", "Bash", "hi"}, []string{"--allows", "Bash", "hi"}, false},
+		{"permission", []string{"--permission", "plan", "hi"}, []string{"--permission", "plan", "hi"}, false},
 		{"permissions all", []string{"--permissions", "all"}, []string{"--permissions", "all"}, false},
 	}
 	for _, c := range cases {
@@ -34,7 +34,7 @@ func TestFix(t *testing.T) {
 
 func fixSchema() Schema {
 	s := testSchema()
-	for _, n := range []string{"tools", "host", "env", "allow"} {
+	for _, n := range []string{"tools", "host", "env"} {
 		s.Fields = append(s.Fields, Field{Name: n, Kind: "string"})
 	}
 	s.Fields = append(s.Fields, Field{Name: "permissions", Kind: "string", Choices: []string{"allow", "plan"}})

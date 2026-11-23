@@ -71,7 +71,7 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 tools Pi has and sends each raw call to `claude-code hook PreToolUse --pi-guard`. That entry ignores every
 `HARNESS_HOOK_*` variable (a skip, a changed agent), normalizes the path as Pi does, builds a Claude-shaped payload
 from canonical fields only with `"harness_agent":"pi"`, and runs the two modules. Pi has no ask, so an ask is a block,
-and a dispatch `--ask` rule is refused. Reply: one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
+and a dispatch `ask` rule is refused. Reply: one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
 that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
 Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini: file edits meet `permission-gate`.
 Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-tools`, and the guard's seven tools are
@@ -103,8 +103,8 @@ It checks each call in order:
 1. The code floor blocks every agent: the block shapes (except `sudo` and settings-rule writes) and attribution
    footers in commits, merges and tags.
 2. Deny rows come from `~/.claude/settings.json` (template fallback, no other file); `sudo` follows `Bash(sudo:*)`.
-3. For ask rows, Claude asks. An agent without ask follows the dispatch's `--allow`/`--deny`; if neither matches,
-   it blocks and names `--allow '<rule>'`.
+3. For ask rows, Claude asks. An agent without ask follows the dispatch's allow/deny rules; if neither matches,
+   it blocks and names `--permissions '{"allow":["<rule>"]}'`.
 4. Allow rows apply only to main. A match skips the main-session rules, SQL ask and softWarn.
 5. After built-ins, `agentBashAllow` allows a leaf's block or ask except `Result.Floor` (code floor and settings deny).
 
@@ -164,7 +164,7 @@ A leaf is a subagent or a dispatched agent; rules match commands, never text, an
 turns a leaf's block or ask into allow. So a Claude subagent that runs one of the rows below is allowed with a note
 (replayed 2026-11-19: `make install|audit|fmt` and `vault get --secret` pass); only the code floor and settings deny
 rows stop a leaf. On codex, copilot, gemini and opencode an ask follows the dispatch's
-`--allow`/`--deny` or blocks, naming the routes (a Claude session or your own terminal). A main-thread settings allow
+allow/deny rules or blocks, naming the routes (a Claude session or your own terminal). A main-thread settings allow
 match turns these rules off.
 
 - `claude-code … --secret` (prints a credential) on any verb: main session only; a leaf gets credentials at launch and
@@ -183,8 +183,9 @@ match turns these rules off.
   pass.
 
 These last two are floor walls (R13, 2026-11-22): `agentBashAllow` never lifts them. Only a dispatch the main session
-started (its record: no parent, depth 0) lifts one, with an explicit scoped `--allow`
-(`Write(/state/harness/dispatch/**)`, or a Bash rule for the command); a nested dispatch's `--allow` never does, and
+started (its record: no parent, depth 0) lifts one, with an explicit scoped allow rule
+(`--permissions '{"allow":["Write(/state/harness/dispatch/**)"]}'`, or a Bash rule for the command); a nested
+dispatch's allow never does, and
 the dispatch's deny rules still win.
 
 ## Authoring a gate

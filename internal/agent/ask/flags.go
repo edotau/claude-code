@@ -43,7 +43,7 @@ type askFlags struct {
 	agents                                                                                                                                                                       agentsFlag
 	attach                                                                                                                                                                       attachFlag
 	keepEnv                                                                                                                                                                      []string
-	permAllow, permAsk, permDeny                                                                                                                                                 []string
+	permAllow, permAsk, permDeny, permKeys                                                                                                                                       []string
 	permMode                                                                                                                                                                     string
 	codemode                                                                                                                                                                     string
 	provider                                                                                                                                                                     string
@@ -110,10 +110,48 @@ func registerFallbackFlag(fs *flag.FlagSet, f *askFlags) {
 }
 
 func registerPermFlags(fs *flag.FlagSet, f *askFlags) {
-	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
-	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
-	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
-	fs.StringVar(&f.permMode, "permissions", "", "allow (dev: runs every call; --deny holds)|default|auto|plan")
+	fs.Var(&permValue{f}, "permissions", `allow (dev: runs every call; deny holds)|default|auto|plan, `+
+		`or {"mode":..,"allow":[..],"ask":[..],"deny":[..]}; repeats add rules`)
+}
+
+// permValue is --permissions: a mode word, or a policy object whose rules add and whose mode replaces.
+type permValue struct{ f *askFlags }
+
+func (v *permValue) Placeholder() string { return "MODE|JSON" }
+
+func (v *permValue) String() string {
+	if v == nil || v.f == nil {
+		return ""
+	}
+	f := v.f
+	return permission.PolicyArg(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+}
+
+func (v *permValue) Set(s string) error {
+	f := v.f
+	if !strings.HasPrefix(strings.TrimSpace(s), "{") {
+		if _, err := permission.ParsePermissions(s, nil, nil, nil); err != nil {
+			return err
+		}
+		f.permMode = s
+		return nil
+	}
+	p, err := permission.ParsePolicy(s)
+	if err != nil {
+		return err
+	}
+	f.permMode = cmp.Or(p.Mode, f.permMode)
+	for _, l := range []struct {
+		key string
+		in  []string
+		out *[]string
+	}{{"allow", p.Allow, &f.permAllow}, {"ask", p.Ask, &f.permAsk}, {"deny", p.Deny, &f.permDeny}} {
+		if l.in != nil && !slices.Contains(f.permKeys, l.key) {
+			f.permKeys = append(f.permKeys, l.key)
+		}
+		*l.out = append(*l.out, l.in...)
+	}
+	return nil
 }
 
 func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {
@@ -422,6 +460,7 @@ type askTarget struct {
 	Attach, KeepEnv                                                   *[]string
 	PermMode                                                          *string
 	PermAllow, PermAsk, PermDeny                                      *[]string
+	permKeys                                                          *[]string
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
@@ -628,12 +667,12 @@ func clearTyped(fs *flag.FlagSet, s *askState) {
 			*s.Attach = nil
 		case "keep-env":
 			*s.KeepEnv = nil
-		case "allow":
-			*s.PermAllow = nil
-		case "ask":
-			*s.PermAsk = nil
-		case "deny":
-			*s.PermDeny = nil
+		case "permissions": // each rule list the typed object names replaces the record's; the rest stay
+			for key, list := range map[string]*[]string{"allow": s.PermAllow, "ask": s.PermAsk, "deny": s.PermDeny} {
+				if slices.Contains(*s.permKeys, key) {
+					*list = nil
+				}
+			}
 		case "env":
 			*s.env = nil
 		}

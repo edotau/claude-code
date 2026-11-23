@@ -489,7 +489,7 @@ func TestOpencodeChildPermissionRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/never-launch", nil, nil, "probe", req)
 			requireFatal(t, err, name)
-			if cmd != nil || strings.Contains(err.Error(), "--allow") {
+			if cmd != nil || strings.Contains(err.Error(), "--permissions") {
 				t.Fatalf("refusal must precede child creation without allow remedy: cmd=%v err=%v", cmd, err)
 			}
 		})

@@ -849,7 +849,7 @@ func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
 	}
 }
 
-// A tool step agy refused for want of a grant yields the exact --allow, and that rule renders natively
+// A tool step agy refused for want of a grant yields the exact allow rule, and that rule renders natively
 func failedAgyStep(t *testing.T, tool, params, msg string) agyEvent {
 	t.Helper()
 	var ev agyEvent
@@ -869,7 +869,7 @@ func TestAgyRefusedCallRemedy(t *testing.T) {
 		t.Fatal("an allow miss is not recognised as a refused call")
 	}
 	d := &agyDenier{cwd: "/w"}
-	want := "agy: refused Bash(echo zebra-ran): retry with --allow 'Bash(echo zebra-ran)'"
+	want := `agy: refused Bash(echo zebra-ran): retry with --permissions '{"allow":["Bash(echo zebra-ran)"]}'`
 	if got := d.notes([]permission.Rule{call}); !slices.Equal(got, []string{want}) {
 		t.Fatalf("notes = %q, want %q", got, want)
 	}
@@ -890,7 +890,7 @@ func TestAgyRefusedCallRemedy(t *testing.T) {
 	}{"deny": {denied, call}, "glob": {d, glob}})
 }
 
-// checkNoAllowOffered expects each denier's note for its call to offer no --allow remedy.
+// checkNoAllowOffered expects each denier's note for its call to offer no allow remedy.
 func checkNoAllowOffered(t *testing.T, cases map[string]struct {
 	d    *agyDenier
 	call permission.Rule

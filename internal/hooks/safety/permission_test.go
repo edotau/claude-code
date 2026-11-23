@@ -352,7 +352,7 @@ func checkGateRecovery(t *testing.T, tc gateRecoveryCase) {
 	}
 	d := p.Explain(tc.tool, tc.arg)
 	wantAllow := tc.deny == "" && d.Replay != ""
-	if strings.Contains(r.Reason, "--allow") != wantAllow {
+	if strings.Contains(r.Reason, "--permissions") != wantAllow {
 		t.Fatalf("invalid remedy: %s", r.Reason)
 	}
 	if wantAllow {
@@ -411,7 +411,7 @@ func TestPermissionGateLeafSettingsPatch(t *testing.T) {
 	}
 }
 
-// dispatchAsk: the dispatch's own --allow/--deny rules decide a settings ask; with neither, the block names the flag.
+// dispatchAsk: the dispatch's own allow/deny rules decide a settings ask; with neither, the block names the flag.
 func TestDispatchAsk(t *testing.T) {
 	hit := askHit{what: "settings ask", tool: "Bash", arg: "go build ./...", rule: "Bash(go build *)"}
 	rules := func(specs ...string) []permission.Rule {
@@ -428,9 +428,9 @@ func TestDispatchAsk(t *testing.T) {
 		reason string
 	}{
 		{"allow", &permission.Permissions{Allow: rules("Bash(go build:*)")}, core.Allow, ""},
-		{"deny", &permission.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "--deny"},
-		{"neither with the hint", &permission.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, "--allow 'Bash(go build *)'"},
-		{"no policy with the hint", nil, core.Block, "--allow 'Bash(go build *)'"},
+		{"deny", &permission.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "deny rule"},
+		{"neither with the hint", &permission.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, `--permissions '{"allow":["Bash(go build *)"]}'`},
+		{"no policy with the hint", nil, core.Block, `--permissions '{"allow":["Bash(go build *)"]}'`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv(agent.DispatchPermissionsEnv, "")

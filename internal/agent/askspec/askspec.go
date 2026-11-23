@@ -220,7 +220,7 @@ func (f Field) intWords(v json.RawMessage) ([]string, error) {
 
 // CheckChoice refuses a value outside f.Choices, naming the nearest one.
 func (f Field) CheckChoice(v string) error {
-	if len(f.Choices) == 0 || slices.Contains(f.Choices, v) {
+	if len(f.Choices) == 0 || slices.Contains(f.Choices, v) || f.JSON && strings.HasPrefix(v, "{") {
 		return nil
 	}
 	if n, ok := textutil.Nearest(v, f.Choices); ok {

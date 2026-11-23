@@ -748,7 +748,7 @@ func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response s
 		return res, emitErr
 	}
 	if !once && res.Answer == "" && len(res.Structured) == 0 && len(denied) > 0 {
-		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools or --allow '<Tool>'"
+		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools or --permissions '{\"allow\":[\"<Tool>\"]}'"
 		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Err: errors.New(hint)}
 	}
 	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {

@@ -107,15 +107,10 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 
 // remoteScriptTail is remoteScript's permission and switch flags, each value single-quoted.
 func remoteScriptTail(req RunOptions) []string {
-	w := appendOpt(appendOpt(nil, "--permissions", req.Permissions.Mode), "--codemode", req.Codemode)
-	for _, set := range []struct {
-		flag  string
-		rules []permission.Rule
-	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
-		for _, s := range permission.RuleStrings(set.rules) {
-			w = appendOpt(w, set.flag, s)
-		}
-	}
+	p := req.Permissions
+	policy := permission.PolicyArg(p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Ask),
+		permission.RuleStrings(p.Deny))
+	w := appendOpt(appendOpt(nil, "--permissions", policy), "--codemode", req.Codemode)
 	for _, b := range []struct {
 		on   bool
 		flag string

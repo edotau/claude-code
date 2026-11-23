@@ -394,7 +394,7 @@ func TestPermissionRemedyResume(t *testing.T) {
 	o.Permissions.Deny = []permission.Rule{call}
 	d, err := buildResumeSessionConfig(o).OnPermissionRequest(req, copilot.PermissionInvocation{ManagedSettingsEnabled: true})
 	rejected, ok := d.(*rpc.PermissionDecisionReject)
-	if err != nil || !ok || rejected.Feedback == nil || strings.Contains(*rejected.Feedback, "--allow") ||
+	if err != nil || !ok || rejected.Feedback == nil || strings.Contains(*rejected.Feedback, "--permissions") ||
 		!strings.Contains(*rejected.Feedback, "permissions.deny") {
 		t.Fatalf("explicit deny = %v, err %v", d, err)
 	}
@@ -413,15 +413,22 @@ func remedyRule(t *testing.T, o Options, call permission.Rule, req rpc.Permissio
 		t.Fatalf("feedback %q lacks actionable remedy %+v", *rejected.Feedback, denial)
 	}
 	// Parse the actual feedback's rule, so this replay depends on the adapter's emitted repair.
-	_, quoted, found := strings.Cut(*rejected.Feedback, "--allow '")
-	if !found {
-		t.Fatal("feedback has no exact allow flag")
-	}
-	rule, err := permission.ParseRule(strings.TrimSuffix(quoted, "'"))
+	rule, err := permission.ParseRule(feedbackAllow(t, *rejected.Feedback))
 	if err != nil || rule != call {
 		t.Fatalf("repair = %v, err %v; want %v", rule, err, call)
 	}
 	return rule
+}
+
+// feedbackAllow is the one allow rule of the feedback's trailing --permissions flag.
+func feedbackAllow(t *testing.T, feedback string) string {
+	t.Helper()
+	_, quoted, found := strings.Cut(feedback, "--permissions '")
+	policy, err := permission.ParsePolicy(strings.TrimSuffix(quoted, "'"))
+	if !found || err != nil || len(policy.Allow) != 1 {
+		t.Fatalf("feedback %q has no exact allow flag: %v", feedback, err)
+	}
+	return policy.Allow[0]
 }
 
 func TestPermissionAskAndToolsOffResume(t *testing.T) {

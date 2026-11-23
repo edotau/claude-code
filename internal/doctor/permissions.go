@@ -137,7 +137,7 @@ func runtimeJudge(why string) permVerdict {
 	return func(string, string) permResult { return permResult{verdict: verdictRuntime, layer: why} }
 }
 
-// withAllow is p with the exact rule granted, as `--allow` merges it: an Ask the rule matches is dropped.
+// withAllow is p with the exact rule granted, as a --permissions allow rule merges it: an Ask the rule matches is dropped.
 func withAllow(p permission.Permissions, r permission.Rule) permission.Permissions {
 	p.Allow = append(slices.Clone(p.Allow), r)
 	p.Ask = slices.DeleteFunc(slices.Clone(p.Ask), func(x permission.Rule) bool { return x == r })
@@ -149,7 +149,7 @@ func remedyFor(eff permission.Permissions, tool, arg string, repaired func(permi
 	if d.Remedy != "" && (d.Replay == "" || repaired(permission.Rule{Tool: tool, Arg: arg})) {
 		return d.Remedy
 	}
-	return "no --allow repairs it: the launch tier, not a rule, refuses it"
+	return "no allow rule repairs it: the launch tier, not a rule, refuses it"
 }
 
 // hookInstalled reports whether the harness installs hook for the agent, from the hook spec.
@@ -422,12 +422,12 @@ func cellText(c permCell) string {
 	return s
 }
 
-// remedyLine is the legend line a denied cell adds: an exact --allow names its call, any other control prints once.
+// remedyLine is the legend line a denied cell adds: an exact allow rule names its call, any other control prints once.
 func remedyLine(job, mode string, c permCell) string {
 	switch {
 	case c.Verdict != "deny" || c.Remedy == "":
 		return ""
-	case strings.HasPrefix(c.Remedy, "--allow "):
+	case strings.HasPrefix(c.Remedy, "--permissions "):
 		return "remedy " + job + " in " + mode + ": " + c.Remedy
 	}
 	return "remedy: " + c.Remedy

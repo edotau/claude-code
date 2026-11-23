@@ -137,7 +137,7 @@ func TestEveryDenialCarriesARemedyThatRepairsIt(t *testing.T) {
 	}
 }
 
-// checkRemedyRepairs fails unless a denied cell names a remedy and an --allow remedy turns the call into an allow.
+// checkRemedyRepairs fails unless a denied cell names a remedy and an allow remedy turns the call into an allow.
 func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, wd string) {
 	t.Helper()
 	if c.Verdict != "deny" {
@@ -146,12 +146,16 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 	if c.Remedy == "" {
 		t.Fatalf("%s %s %q: a denial without a remedy", ag, mode, row.Job)
 	}
-	flag, isAllow := strings.CutPrefix(c.Remedy, "--allow ")
+	flag, isAllow := strings.CutPrefix(c.Remedy, "--permissions ")
 	if !isAllow {
 		return
 	}
 	tool, arg, _ := strings.Cut(row.Call, " ")
-	rule, err := permission.ParseRule(strings.Trim(flag, "'"))
+	policy, err := permission.ParsePolicy(strings.Trim(flag, "'"))
+	if err != nil || len(policy.Allow) != 1 {
+		t.Fatalf("%s %s %q: remedy %q: %v", ag, mode, row.Job, c.Remedy, err)
+	}
+	rule, err := permission.ParseRule(policy.Allow[0])
 	p, perr := agent.LaunchPermissions(ag, mode == "read-only")
 	if err != nil || perr != nil {
 		t.Fatalf("%s %s %q: remedy %q: %v %v", ag, mode, row.Job, c.Remedy, err, perr)

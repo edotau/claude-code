@@ -33,7 +33,7 @@ func askSchema() askspec.Schema {
 	return askspec.FromFlagSet(fs, askspec.Opts{
 		Choices: map[string][]string{"fallback": router.FallbackModes, "permissions": permModes,
 			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes},
-		JSON: []string{"overlay", "agents", "output-schema"},
+		JSON: []string{"overlay", "agents", "output-schema", "permissions"},
 	})
 }
 
@@ -176,9 +176,9 @@ func canonicalArgv(fs *flag.FlagSet, lists map[string][]string, prompt string, f
 
 func canonicalArgvSkip(name string) bool { return name == "spec" || name == "dry-run" }
 
-// listValues is each unsplit repeatable flag's elements: a rule may hold a comma, so String()+SplitCSV would split it.
+// listValues is each unsplit repeatable flag's elements: a value may hold a comma, so String()+SplitCSV would split it.
 func (f *askFlags) listValues() map[string][]string {
-	return map[string][]string{"allow": f.permAllow, "ask": f.permAsk, "deny": f.permDeny, "env": f.env}
+	return map[string][]string{"env": f.env}
 }
 
 func canonicalArgvFlag(f *flag.Flag, overlayArg *string, lists map[string][]string) []string {
@@ -360,7 +360,7 @@ func (d dryDoc) print(format string, out io.Writer) int {
 	return 0
 }
 
-// permLine is the mode plus each rule list, as --permissions and --allow/--ask/--deny take them.
+// permLine is the mode plus each rule list, as --permissions takes them.
 func permLine(p permission.Permissions) string {
 	parts := []string{cmp.Or(p.Mode, "default")}
 	for _, l := range []struct {

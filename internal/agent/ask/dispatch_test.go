@@ -142,7 +142,7 @@ func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
 	var args []string
 	fs.VisitAll(func(f *flag.Flag) {
 		val := "x"
-		if f.Name == "mode" {
+		if f.Name == "permissions" {
 			val = "plan"
 		}
 		args = append(args, "--"+f.Name, val)

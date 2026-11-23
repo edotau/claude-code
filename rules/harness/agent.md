@@ -44,7 +44,7 @@ paths:
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
-  Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
+  Write/Edit stay denied, and an allow rule never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
 - **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
@@ -73,8 +73,8 @@ paths:
   Pi has no sandbox, so the verify shell stops accidental writes, not a hostile test: content the leaf itself wrote
   can execute through a tool that reads it (a test, or a git helper configured in a repository the leaf created and
   `cd`-ed into), and the verify shell does not defend against that. A Deny on Read drops bash and grep, on Glob or
-  Grep bash, grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS` to the
-  gate as for opencode; an `--ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
+  Grep bash, grep, find and ls. `--permissions` (mode and allow/deny rules) rides `HARNESS_DISPATCH_PERMISSIONS` to the
+  gate as for opencode; an `ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
   `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission
   prompts or sandbox of its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
   so a repo's own `.pi` never runs code with your privileges, `--no-approve --no-extensions --no-skills
@@ -85,13 +85,13 @@ paths:
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
   reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work. The deny
-  comes only from the ask: its `--deny` flags plus those inherited from the dispatch above, never from the caller's
-  type, so a main-session or `claude`-leaf ask gets the same guard. A `--tools` run with no file deny keeps the whole
-  bash, judged by `safety-scan` and `permission-gate` only; one editing a worktree adds
-  `--deny 'Edit(<live checkout>/**)' --deny 'Write(<live checkout>/**)'` and so runs the verify shell: it builds,
-  vets and runs scoped tests (`go test -count=1 ./<pkg>`, so a test really runs); `make`, the live check and any
-  write stay with the main session or a paired gate leaf. An overlay setting `HARNESS_HOOK_*` is refused too, and
-  Pi's process never inherits one. The tool-name
+  comes only from the ask: its `--permissions` deny rules plus those inherited from the dispatch above, never from
+  the caller's type, so a main-session or `claude`-leaf ask gets the same guard. A `--tools` run with no file deny
+  keeps the whole bash, judged by `safety-scan` and `permission-gate` only; one editing a worktree adds
+  `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'` and so runs the verify
+  shell: it builds, vets and runs scoped tests (`go test -count=1 ./<pkg>`, so a test really runs); `make`, the live
+  check and any write stay with the main session or a paired gate leaf. An overlay setting `HARNESS_HOOK_*` is
+  refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
   `claude-code gateway resolve <agent> --overlay '{"provider":"databricks","profile":"dev"}'` names the model, then
@@ -271,10 +271,10 @@ vendor CLI untouched.
    `--batch`, `--loop`, `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
    Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
    - **Takeover.** A child cut off (deadline, stall, idle, auth-retry, or a partial/stalled record) is finished by
-     `agents ask --agent pi --tools` under the inner line's `--read-only`, `--permissions`, `--allow`, `--deny`,
+     `agents ask --agent pi --tools` under the inner line's `--read-only`, `--permissions` (minus ask rules),
      `--workdir` and overlay caps, on a fixed brief: the task, the last 16 KiB of output, "continue and finish; say what
      you changed". Its record has `takeover_of: <child id>`; the receipt prints the child's, then
-     `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `--ask`
+     `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `ask`
      rule refuses it too (Pi has no ask).
    - **Long runs.** Add `--background`, then `claude-code agents result -f <id>`: the `--job` child runs the carrier.
      `result -f --events <id>` streams the child's and a takeover's events, each with `via: <child id>`, then the
@@ -337,8 +337,8 @@ vendor CLI untouched.
 - **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
   claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
   it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
-  `--workdir` is no write boundary for any agent; scope writes with `--deny`. opencode `--read-only` runs without
-  `--auto`; opencode `--safe-mode` refuses any bound tool gate.
+  `--workdir` is no write boundary for any agent; scope writes with `--permissions` deny rules. opencode `--read-only`
+  runs without `--auto`; opencode `--safe-mode` refuses any bound tool gate.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the plugin's `tool.execute.before` (refused under `--safe-mode`, which loads no plugin), codex and agy

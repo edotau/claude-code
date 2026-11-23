@@ -156,7 +156,7 @@ func TestRunCarryTakesOverCutOffChild(t *testing.T) {
 		return serve.Direct
 	}
 	const outer, child, piID = "20261122T010000.000-gemini", "20261122T010000.001-gemini", "20261122T010000.002-pi"
-	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--tools", "--deny", "Write", "-"}
+	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--tools", "--permissions", `{"deny":["Write"]}`, "-"}
 	rec := agent.Record{ID: outer, Agent: "gemini", Status: "running", FallbackPolicy: "all",
 		Request: agent.RunOptions{Prompt: "the task", Carry: true, CarryArgv: inner}}
 	if err := rec.Save(); err != nil {
@@ -253,10 +253,10 @@ func checkOuter(t *testing.T, outer, child, piID string) {
 	}
 }
 
-// A toolless carried run gets a toolless Pi, and an --allow rule holding a comma rides the lines as one rule.
+// A toolless carried run gets a toolless Pi, and an allow rule holding a comma rides the lines as one rule.
 func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 	fs, f := askFlagSet()
-	if err := fs.Parse([]string{"--agent", "gemini", "--allow", "Bash(foo,bar)", "--deny", "Write"}); err != nil {
+	if err := fs.Parse([]string{"--agent", "gemini", "--permissions", `{"allow":["Bash(foo,bar)"],"deny":["Write"]}`}); err != nil {
 		t.Fatal(err)
 	}
 	inner := canonicalArgv(fs, f.listValues(), "task", true, nil)
@@ -265,8 +265,8 @@ func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, line := range [][]string{inner, pi} {
-		if i := slices.Index(line, "--allow"); i < 0 || line[i+1] != "Bash(foo,bar)" || slices.Contains(line, "bar)") {
-			t.Errorf("line %q: want --allow Bash(foo,bar) as one rule", line)
+		if i := slices.Index(line, "--permissions"); i < 0 || line[i+1] != `{"allow":["Bash(foo,bar)"],"deny":["Write"]}` {
+			t.Errorf("line %q: want --permissions with Bash(foo,bar) as one rule", line)
 		}
 	}
 	if slices.Contains(pi, "--tools") || slices.Contains(pi, "--read-only") {
@@ -278,8 +278,8 @@ func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 func checkTakeover(t *testing.T, argv []string, stdin io.Reader) {
 	t.Helper()
 	in, _ := io.ReadAll(stdin)
-	if !slices.Contains(argv, "pi") || !slices.Contains(argv, "--tools") || !slices.Contains(argv, "Write") {
-		t.Errorf("takeover argv %q: want --agent pi --tools --deny Write", argv)
+	if !slices.Contains(argv, "pi") || !slices.Contains(argv, "--tools") || !slices.Contains(argv, `{"deny":["Write"]}`) {
+		t.Errorf("takeover argv %q: want --agent pi --tools and the deny Write policy", argv)
 	}
 	if !strings.Contains(string(in), "the task") || !strings.Contains(string(in), "partial words") {
 		t.Errorf("takeover brief %q lacks the task or the partial output", in)

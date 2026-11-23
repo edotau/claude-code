@@ -469,7 +469,7 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 		return nil, err
 	}
 	if len(f.permAsk) > 0 {
-		return nil, errors.New("pi refuses --ask rules (its guard only allows or blocks)")
+		return nil, errors.New(`pi refuses "ask" permission rules (its guard only allows or blocks)`)
 	}
 	argv := []string{"claude-code", "agents", "ask", "--agent", agentid.Pi, "--format", f.format}
 	if f.tools { // a toolless carried run gets a toolless Pi
@@ -478,16 +478,10 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 	if f.readOnly {
 		argv = append(argv, "--read-only")
 	}
-	for _, kv := range [][2]string{{"permissions", f.permMode}, {"workdir", f.workdir}} {
+	for _, kv := range [][2]string{{"permissions", (&permValue{f}).String()}, {"workdir", f.workdir}} {
 		if kv[1] != "" {
 			argv = append(argv, "--"+kv[0], kv[1])
 		}
-	}
-	for _, rule := range f.permAllow {
-		argv = append(argv, "--allow", rule)
-	}
-	for _, rule := range f.permDeny {
-		argv = append(argv, "--deny", rule)
 	}
 	caps, err := overlayCaps(ctx, f.overlay)
 	return append(append(argv, caps...), "-"), err

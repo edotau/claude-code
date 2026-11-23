@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/user"
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Decision is a permission verdict; the zero value is Deny so an unset result fails closed.
@@ -178,6 +180,44 @@ func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, erro
 		}
 	}
 	return p, nil
+}
+
+// ParsePolicy reads a policy JSON object ({"mode","allow","ask","deny"}), refusing unknown keys and bad rules.
+func ParsePolicy(val string) (*vault.AgentPolicy, error) {
+	if val == "" {
+		return nil, nil
+	}
+	var policy *vault.AgentPolicy
+	dec := json.NewDecoder(strings.NewReader(val))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&policy); err != nil {
+		return nil, fmt.Errorf("permissions: want a JSON object with mode, allow, ask, deny: %w", err)
+	}
+	if policy == nil {
+		return nil, errors.New("permissions: want a JSON object")
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("permissions: trailing JSON: %v", err)
+	}
+	if _, err := ParsePermissions(policy.Mode, policy.Allow, policy.Ask, policy.Deny); err != nil {
+		return nil, fmt.Errorf("permissions: %w", err)
+	}
+	return policy, nil
+}
+
+// PolicyArg is the --permissions value for a policy: the bare mode when it has no rules, else its JSON object.
+func PolicyArg(mode string, allow, ask, deny []string) string {
+	if len(allow)+len(ask)+len(deny) == 0 {
+		return mode
+	}
+	b, _ := json.Marshal(vault.AgentPolicy{Mode: mode, Allow: allow, Ask: ask, Deny: deny})
+	return string(b)
+}
+
+// AllowFlag is the shell-quoted `--permissions` flag that allows rule, as a refusal's remedy names it.
+func AllowFlag(rule string) string {
+	return "--permissions " + textutil.ShellQuote(PolicyArg("", []string{rule}, nil, nil))
 }
 
 // Resolve layers defaults, role, request: rules add, last mode wins, widened names what a layer grants (D3).

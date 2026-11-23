@@ -109,7 +109,7 @@ func TestBatchLineOverlayRoute(t *testing.T) {
 // Replaying a failed batch leg retains its session and task, applies the exact repair, and leaves siblings alone.
 func TestPermissionBatchLegReplay(t *testing.T) {
 	failed := failBatchLeg(t)
-	code, out, stderr := runCLI(t, "ask", "--retry", failed.ID, "--allow", "Bash(make lint)", "--format", "json")
+	code, out, stderr := runCLI(t, "ask", "--retry", failed.ID, "--permissions", `{"allow":["Bash(make lint)"]}`, "--format", "json")
 	if code != 0 {
 		t.Fatalf("replay: %d, %s, %s", code, out, stderr)
 	}
@@ -126,7 +126,7 @@ func failBatchLeg(t *testing.T) agent.Record {
 	cliEnv(t)
 	cliFakes(t)
 	file := batchFile(t, cliTask(t, "a", "first"), cliTask(t, "b", "second"))
-	code, out, stderr := runCLI(t, "ask", "--batch", file, "--agent", "claude", "--fallback", "none", "--allow", "Read", "--deny", "Bash(rm *)")
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--agent", "claude", "--fallback", "none", "--permissions", `{"allow":["Read"],"deny":["Bash(rm *)"]}`)
 	if code != 0 {
 		t.Fatalf("batch: %d, %s, %s", code, out, stderr)
 	}

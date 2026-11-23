@@ -342,7 +342,7 @@ func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
 		{name: "deny rule", out: "command was blocked by policy", p: deny, tools: true, layer: "codex-rules", remedy: "narrow the deciding deny rule"},
 		{name: "foreign rule file", out: "command was blocked by policy", p: allowed, tools: true, layer: "codex-rules", remedy: "rule file"},
 		{name: "gate plan miss", out: "Command blocked by PreToolUse hook: permission-gate", p: plan, tools: true, layer: "hook",
-			remedy: "--allow 'Bash(make lint)'", replay: true},
+			remedy: `--permissions '{"allow":["Bash(make lint)"]}'`, replay: true},
 		{name: "gate safety block", out: "Command blocked by PreToolUse hook: safety", p: allowed, tools: true, layer: "hook", remedy: "no override"},
 	}
 	for _, c := range cases {
@@ -351,7 +351,7 @@ func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
 			if !ok || d.Layer != c.layer || !strings.Contains(d.Remedy, c.remedy) || d.Call.Arg != "make lint" {
 				t.Fatalf("denial = %+v ok %v, want layer %q remedy containing %q for `make lint`", d, ok, c.layer, c.remedy)
 			}
-			if c.replay != (d.Replay != "") || (!c.replay && strings.Contains(d.Remedy, "--allow")) {
+			if c.replay != (d.Replay != "") || (!c.replay && strings.Contains(d.Remedy, "--permissions")) {
 				t.Fatalf("denial %+v offers an allow where %v is the only repair", d, c.layer)
 			}
 		})
@@ -382,7 +382,7 @@ func TestCodexPermissionDenialSinkWarns(t *testing.T) {
 			if len(got) != len(c.events)+1 || len(warnings) != 1 || !strings.Contains(warnings[0], c.call) {
 				t.Fatalf("events = %+v, want every event forwarded plus one warning naming %q", got, c.call)
 			}
-			if !strings.Contains(warnings[0], "--tools") || strings.Contains(warnings[0], "--allow") {
+			if !strings.Contains(warnings[0], "--tools") || strings.Contains(warnings[0], "--permissions") {
 				t.Fatalf("warning %q must name the sandbox control, not an allow", warnings[0])
 			}
 		})

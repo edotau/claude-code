@@ -55,9 +55,9 @@ type Attempt struct {
 
 // LeafArgs is the one `agents ask` line, the brief on stdin; the deny keeps the leaf's writes in the lane.
 func LeafArgs(req LeafRequest) []string {
+	deny, _ := json.Marshal(map[string][]string{"deny": {"Edit(" + req.Live + "/**)", "Write(" + req.Live + "/**)"}})
 	return []string{"agents", "ask", "--background", "--format", "json", "--workdir", req.Lane,
-		"--provider", "databricks", "--tools", "--deny", "Edit(" + req.Live + "/**)",
-		"--deny", "Write(" + req.Live + "/**)", "-"}
+		"--provider", "databricks", "--tools", "--permissions", string(deny), "-"}
 }
 
 // LocalFindings drops findings whose path is not a plain repo-relative file name; dropped counts them.

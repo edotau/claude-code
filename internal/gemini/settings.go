@@ -266,7 +266,7 @@ func (d *agyDenier) report(calls []permission.Rule) {
 	}
 }
 
-// notes names, per refused call, the exact --allow that repairs it; a denied call gets none.
+// notes names, per refused call, the exact allow rule that repairs it; a denied call gets none.
 func (d *agyDenier) notes(calls []permission.Rule) []string {
 	if d == nil {
 		return nil
@@ -279,7 +279,7 @@ func (d *agyDenier) notes(calls []permission.Rule) []string {
 		case agyRules(c, d.cwd) == nil:
 			out = append(out, "agy: refused "+c.String()+": agy has no native rule for it; no allow offered")
 		default:
-			out = append(out, "agy: refused "+c.String()+": retry with --allow "+textutil.ShellQuote(c.String()))
+			out = append(out, "agy: refused "+c.String()+": retry with "+permission.AllowFlag(c.String()))
 		}
 	}
 	return out

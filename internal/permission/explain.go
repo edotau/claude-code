@@ -3,8 +3,6 @@ package permission
 import (
 	"slices"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Denial identifies a blocked call and its deciding policy; Replay holds flags for an existing dispatch replay.
@@ -46,7 +44,7 @@ func (p Permissions) ExplainAt(cwd, tool, arg string) Denial {
 	return d
 }
 
-// allowRemedy offers an exact --allow rule only when it repairs Decide; the replay equals it.
+// allowRemedy offers an exact allow rule (as --permissions) only when it repairs Decide; the replay equals it.
 func (p Permissions) allowRemedy(call Rule) (remedy, replay string) {
 	if hasRulePattern(call.Tool, call.Arg) {
 		return "the call contains a wildcard or rule keyword; write the rule by hand", ""
@@ -55,7 +53,7 @@ func (p Permissions) allowRemedy(call Rule) (remedy, replay string) {
 	if err == nil && candidate == call {
 		repaired, _ := Resolve(p, Permissions{Allow: []Rule{candidate}})
 		if repaired.Decide(call.Tool, call.Arg) == Allow {
-			flag := "--allow " + textutil.ShellQuote(candidate.String())
+			flag := AllowFlag(candidate.String())
 			return flag, flag
 		}
 	}

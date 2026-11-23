@@ -24,7 +24,7 @@ func TestExplainPermissionReplay(t *testing.T) {
 			t.Fatalf("%s: expected denial", tc.arg)
 		}
 		d := p.ExplainAt(tc.cwd, "Bash", tc.arg)
-		if d.Rule != tc.deny || d.Source != "permissions.deny" || d.Layer != "permissions" || strings.Contains(d.Remedy, "--allow") || d.Replay != "" {
+		if d.Rule != tc.deny || d.Source != "permissions.deny" || d.Layer != "permissions" || strings.Contains(d.Remedy, "--permissions") || d.Replay != "" {
 			t.Fatalf("%s: deny lost provenance or suggested an allow: %+v", tc.arg, d)
 		}
 	}
@@ -33,7 +33,7 @@ func TestExplainPermissionReplay(t *testing.T) {
 		t.Fatalf("allowed call explained as denial: %+v", d)
 	}
 	for _, cmd := range []string{"echo hi > file", "echo $(date)"} {
-		if d := (Permissions{Mode: "plan"}).Explain("Bash", cmd); strings.Contains(d.Remedy, "--allow") {
+		if d := (Permissions{Mode: "plan"}).Explain("Bash", cmd); strings.Contains(d.Remedy, "--permissions") {
 			t.Fatalf("ineffective allow: %+v", d)
 		}
 	}
@@ -45,13 +45,17 @@ func TestExplainRemedyNeverWidens(t *testing.T) {
 		{Tool: "Bash", Arg: "rm -rf *"}, {Tool: "Bash", Arg: "rm:*"}, {Tool: "Read", Arg: "/tmp/a?b"},
 		{Tool: "Read", Arg: "/tmp/**"}, {Tool: "Bash", Arg: "cd:/tmp"}, {Tool: "WebFetch", Arg: "domain:example.com"},
 	} {
-		if d := p.Explain(call.Tool, call.Arg); strings.Contains(d.Remedy, "--allow") || d.Replay != "" ||
+		if d := p.Explain(call.Tool, call.Arg); strings.Contains(d.Remedy, "--permissions") || d.Replay != "" ||
 			!strings.Contains(d.Remedy, "write the rule by hand") {
 			t.Fatalf("%v: pattern call got an allow remedy: %+v", call, d)
 		}
 	}
 	d := p.Explain("Bash", "rm -rf /tmp/x")
-	rule, err := ParseRule(strings.Trim(strings.TrimPrefix(d.Remedy, "--allow "), "'"))
+	policy, err := ParsePolicy(strings.Trim(strings.TrimPrefix(d.Remedy, "--permissions "), "'"))
+	if err != nil || len(policy.Allow) != 1 {
+		t.Fatal(d.Remedy, err)
+	}
+	rule, err := ParseRule(policy.Allow[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +74,11 @@ func assertPermissionReplay(t *testing.T, call Rule) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule, err := ParseRule(string(out))
+	policy, err := ParsePolicy(string(out))
+	if err != nil || len(policy.Allow) != 1 {
+		t.Fatal(string(out), err)
+	}
+	rule, err := ParseRule(policy.Allow[0])
 	if err != nil {
 		t.Fatal(err)
 	}

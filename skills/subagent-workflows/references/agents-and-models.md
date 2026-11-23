@@ -15,7 +15,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 ## OpenCode task guidance
 
 - `--tools` allows code and docs edits; `--read-only` limits reads and vetted shell commands. The `permission-gate`
-  plugin enforces `--deny`; `--ask` maps to OpenCode `--auto`, and `--permissions plan` denies Bash.
+  plugin enforces deny rules; ask rules map to OpenCode `--auto`, and `--permissions plan` denies Bash.
 - For DOC-UPDATE, map entry points and exports, update existing guides from code, and validate links, examples and
   freshness. Do not hand-author generated docs.
 - For DOC-LOOKUP, check installed docs first (`go doc`, CLI help, `pydoc`), then search official docs. Cite a
@@ -34,8 +34,8 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - Account and pin: `claude-code configure agents --agent codex`, model ids from `codex debug models`; `codex profile
   <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `codex setup` checks.
 - `--tools` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault readable; empty
-  means `workspace-write`, which blocks sockets, `ps` and the vault; no `--allow` changes that). An invalid value is
-  refused before launch; a nested `--tools` Codex dispatch inherits it. With `--permissions auto` or `--ask` under
+  means `workspace-write`, which blocks sockets, `ps` and the vault; no allow rule changes that). An invalid value is
+  refused before launch; a nested `--tools` Codex dispatch inherits it. With `--permissions auto` or ask rules under
   `danger-full-access` the sandbox stays and auto-review handles approvals (`workspace-write` uses `--approve-for-me`).
   Under `workspace-write` overlay `{"codexNetwork":true}` opens only network (refused inside a dispatch), and the launch
   points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp dir unless set.

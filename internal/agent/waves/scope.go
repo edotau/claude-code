@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 // scopeEnforcers hold a path-scoped Edit/Write deny; codex's OS sandbox reads no harness rule.
@@ -55,11 +56,12 @@ func scopeFlags(spec Spec, o LaunchOptions) (flags []string, enforced bool) {
 		return nil, false
 	}
 	rules, clean := scopeRules(spec, o.Wave)
-	for _, rule := range rules {
-		flags = append(flags, "--deny", rule)
-	}
+	mode := ""
 	if !slices.Contains(o.Route, "--permissions") { // a denied launch with no mode asks for the rest: opencode's judge would
-		flags = append(flags, "--permissions", "auto")
+		mode = "auto"
+	}
+	if arg := permission.PolicyArg(mode, nil, nil, rules); arg != "" {
+		flags = []string{"--permissions", arg}
 	}
 	return flags, clean
 }
