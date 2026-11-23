@@ -136,8 +136,8 @@ var Registry = []Group{
 		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, AlwaysOn: true, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode", "pi"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
-		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude and OpenCode).
-		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
+		// An eligible noisy Bash command is rewritten through the rtk output compressor (Claude, Codex, Gemini, OpenCode).
+		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Root or ignored docs/ markdown is blocked, a new plan-named one goes to the plans home, a draft needs the template.
