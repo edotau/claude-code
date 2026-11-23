@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentid"
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
@@ -932,12 +931,12 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := okAgents(t, "brief", "--task", task, "--own", "internal/a.go", "--own", "internal/b.go",
-		"--report", "/tmp/r.md", "--verify", "go build ./...", "--agent", "codex", "--run", "claude-code agents ask codex")
+		"--report", "/tmp/r.md", "--verify", "go build ./...", "--agent", "codex")
 	if got := agent.ParseOwned(out); !slices.Equal(got, []string{"internal/a.go", "internal/b.go"}) {
 		t.Errorf("Owned round trip = %q\n%s", got, out)
 	}
 	for _, want := range []string{"Do the thing.", "Report: /tmp/r.md", "implementation; edit only owned files",
-		"Verify: go build ./...\n", "Run: claude-code agents ask codex\nAgent: codex\nOwned:"} {
+		"Verify: go build ./...\n", "Agent: codex\nOwned:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("brief lacks %q:\n%s", want, out)
 		}
@@ -1250,38 +1249,8 @@ func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
 	}
 }
 
-func TestRunLineNamesEveryExternalAgent(t *testing.T) {
+func TestIsReadOnlyBrief(t *testing.T) {
 	t.Parallel()
-	for _, a := range agentid.External() {
-		want := "Run: claude-code agents ask --agent " + a + " --overlay '{\"model\":\"m\"}'"
-		if line, err := runLine(a, "", "m", "", false); err != nil || line != want {
-			t.Errorf("runLine(%s) = %q, %v; want %q", a, line, err, want)
-		}
-	}
-}
-
-func TestRunLineReadOnly(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		typ, spec string
-		ro        bool
-		want      string
-	}{
-		{"copilot", "", true, "Run: claude-code agents ask --agent copilot --overlay '{\"model\":\"m\"}' --read-only"},
-		{"copilot", "", false, "Run: claude-code agents ask --agent copilot --overlay '{\"model\":\"m\"}'"},
-		{"copilot", `{"tools":true}`, true, "Run: claude-code agents ask --agent copilot --tools=true --read-only"},
-		{"copilot", `{"no-tools":true}`, true, "Run: claude-code agents ask --agent copilot --no-tools=true"},
-		{"codex", "", true, "Run: claude-code agents ask --agent codex --overlay '{\"model\":\"m\"}'"},
-	}
-	for _, c := range cases {
-		model := "m"
-		if c.spec != "" {
-			model = ""
-		}
-		if line, err := runLine(c.typ, c.spec, model, "", c.ro); err != nil || line != c.want {
-			t.Errorf("runLine(%+v) = %q, %v", c, line, err)
-		}
-	}
 	if !agent.IsReadOnlyBrief("Owned: null\nMode: read-only; do not edit files\n\nTask:\nx") ||
 		agent.IsReadOnlyBrief("Owned: []\nMode: implementation\n\nMode: read-only") {
 		t.Error("IsReadOnlyBrief misreads the brief header")

@@ -1,5 +1,4 @@
-{{if .Run}}Run: {{.Run}}
-{{end}}{{if .Agent}}Agent: {{.Agent}}
+{{if .Agent}}Agent: {{.Agent}}
 {{end}}Owned: {{.OwnedLine}}
 Mode: {{if .ReadOnly}}read-only; do not edit files{{else}}implementation; edit only owned files{{end}}
 {{if .Verify}}Verify: {{.Verify}}
@@ -40,7 +39,7 @@ Task:
 {{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 {{if .ReadOnly}}Final answer: the full report, opening with an at most 8-line verdict: done or not, verify result,
-observable proof, anything blocked; the Run: line's --save files it.
+observable proof, anything blocked; --save files it.
 {{else}}Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.
 {{end}}

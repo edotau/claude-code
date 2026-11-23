@@ -39,7 +39,7 @@ func agentsSpec() *helptext.Node {
 			boolFlag("files")}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
 			boolFlag("watch"), flag("interval"), boolFlag("files"), formatFlag()}},
-		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), boolFlag("run"), flag("spec"), formatFlag()}},
+		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
@@ -53,7 +53,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("run"), flag("verify"), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("verify"), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
@@ -129,9 +129,8 @@ var agentsSubPages = map[string][3]string{
 		"--files adds each leaf's still-dirty files (claims ledger, or a dispatch's run), its latest undelivered note, and the dirty files no live leaf holds.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
-		"description, for a leaf of <type> with the given model and task. --run also prints the brief's exact Run: " +
-		"line, from --model/--profile or --spec; a brief whose header says Mode: read-only adds --read-only.",
-		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage or --spec."},
+		"description, for a leaf of <type> with the given model and task.",
+		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
 		"the ones outside every --path, each new Go test or helper with its caller count (advisory), and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
@@ -354,11 +353,9 @@ func checkTreeFlags(format string, watch bool, interval time.Duration) error {
 func cmdAgentsLabel(args []string) int {
 	fs := agentsFlags("label")
 	model := fs.String("model", "", "the dispatch's model (default unset: the hook classifies the brief)")
-	profile := fs.String("profile", "", "the ask --profile the leaf runs on, when the brief's Run: line names none")
+	profile := fs.String("profile", "", "the ask --profile the leaf runs on")
 	taskFile := fs.String("task", "", "the task file the leaf gets; - reads stdin")
 	sessionModel := fs.String("session-model", "", "the session's model id (default: from this session's transcript)")
-	run := fs.Bool("run", false, "also print the brief's Run: line for this leaf, first")
-	spec := fs.String("spec", "", "with --run: the ask spec (file, {...} or -) the Run: line carries")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -378,14 +375,6 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	freezeLabelRotation(*run, *spec+*profile, pos[0], task, model, profile)
-	runText, err := labelRun(*run, *spec, pos[0], task, model, profile)
-	if err != nil {
-		return helptext.FailUsage("agents label: %v", err)
-	}
-	if runText != "" {
-		task = runText + "\n\n" + task
-	}
 	row, err := labelRowFor(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task,
 		SessionModel: *sessionModel})
 	if err != nil {
@@ -394,7 +383,7 @@ func cmdAgentsLabel(args []string) int {
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
-	return emitLabel(row, runText, *model, *profile, task)
+	return emitLabel(row, *model, *profile, task)
 }
 
 // labelRowFor is the hook's label row for in.
@@ -406,8 +395,8 @@ func labelRowFor(in hooks.LabelInput) (hooks.LabelRow, error) {
 	return hooks.Label(in, cwd, os.Getenv(paths.SessionIDEnv)), nil
 }
 
-// emitLabel prints the Run: line, then the label, after the hook's refusal and notes.
-func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
+// emitLabel prints the label after the hook's refusal and notes.
+func emitLabel(row hooks.LabelRow, model, profile, task string) int {
 	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
 	}
@@ -417,82 +406,7 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 	if row.Type == "gemini" {
 		resolve.GoogleLabelWarning(context.Background(), os.Stderr, row.Type, model, profile, task)
 	}
-	if runText != "" {
-		fmt.Println(runText)
-	}
 	return printLabel(row.Label)
-}
-
-// freezeLabelRotation makes the Run: line carry the same rotation pick, model and profile, as the label.
-func freezeLabelRotation(run bool, pinned, typ, task string, model, profile *string) {
-	if !run || pinned != "" || (*model != "" && *model != agent.AutoModel) {
-		return
-	}
-	if row, m, note := agent.RotationFreeze(context.Background(), typ, task, *model); m != "" {
-		*model, *profile = m, row // The Run: line carries the pick so the label and run agree.
-		fmt.Fprintln(os.Stderr, "agents label: "+note)
-	}
-}
-
-// labelRun is --run's Run: line, and clears model/profile, which the line now carries.
-func labelRun(run bool, spec, typ, task string, model, profile *string) (string, error) {
-	if !run {
-		if spec != "" {
-			return "", errors.New("--spec needs --run")
-		}
-		return "", nil
-	}
-	line, err := runLine(typ, spec, *model, *profile, agent.IsReadOnlyBrief(task))
-	*model, *profile = "", ""
-	return line, err
-}
-
-// specFlags is the ask argv a label --run line carries: the spec's flags, else one --overlay object.
-func specFlags(spec, model, profile string) ([]string, error) {
-	var argv []string
-	if spec != "" {
-		if model != "" || profile != "" {
-			return nil, errors.New("--spec cannot be combined with --model or --profile")
-		}
-		a, prompt, err := ask.SpecArgv(spec, os.Stdin)
-		if err != nil {
-			return nil, err
-		}
-		if prompt != "" {
-			return nil, errors.New("--spec prompt: the brief body is the task; drop the key")
-		}
-		argv = a
-	}
-	return append(argv, hooks.OverlayArgs(profile, model, "", "")...), nil
-}
-
-// runLine is the Run: command for a leaf of typ, with no task words; readOnly adds --read-only unless set or codex.
-func runLine(typ, spec, model, profile string, readOnly bool) (string, error) {
-	argv, err := specFlags(spec, model, profile)
-	if err != nil {
-		return "", err
-	}
-	w, ok := hooks.ParseAskWords(argv)
-	if !ok {
-		return "", errors.New("the spec's flags do not parse as ask flags")
-	}
-	external := agent.IsExternal(typ)
-	switch a := w.Value("agent"); {
-	case a != "" && external && a != typ:
-		return "", fmt.Errorf("spec agent %q differs from leaf type %q", a, typ)
-	case a == "" && external:
-		argv = append([]string{"--agent", typ}, argv...)
-	}
-	argv = withReadOnly(argv, w, typ, readOnly)
-	return hooks.RunLine(argv), nil
-}
-
-// withReadOnly adds --read-only for a read-only brief unless the spec set read-only or no-tools; codex's turns tools off.
-func withReadOnly(argv []string, w hooks.AskWords, typ string, readOnly bool) []string {
-	if !readOnly || w.Has("read-only", "no-tools") || typ == "codex" {
-		return argv
-	}
-	return append(argv, "--read-only")
 }
 
 // printLabel prints the description prefix; an empty label prints nothing.
@@ -686,7 +600,6 @@ func cmdAgentsBrief(args []string) int {
 	fs.StringVar(&input.Report, "report", "", "where the leaf writes its full report")
 	fs.StringVar(&input.Verify, "verify", "", "how to verify completion; required unless --read-only")
 	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
-	fs.StringVar(&input.Run, "run", "", "dispatch command for the opening Run: line")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)

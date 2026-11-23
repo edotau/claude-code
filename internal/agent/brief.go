@@ -22,7 +22,6 @@ import (
 type BriefInput struct {
 	Task     string
 	Agent    string
-	Run      string
 	Owned    []string
 	ReadOnly bool
 	Report   string
@@ -41,8 +40,8 @@ func (input BriefInput) validate() error {
 			return errors.New("owned path cannot be blank")
 		}
 	}
-	if strings.ContainsAny(input.Agent, "\r\n") || strings.ContainsAny(input.Run, "\r\n") {
-		return errors.New("agent and run must each fit on one line")
+	if strings.ContainsAny(input.Agent, "\r\n") {
+		return errors.New("agent must fit on one line")
 	}
 	return nil
 }
