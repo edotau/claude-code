@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -277,6 +278,21 @@ func TestQueueKindFilter(t *testing.T) {
 	}
 }
 
+func TestQueuePkgFilterExact(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var buf strings.Builder
+	if err := runQueue(loopOpts{pkg: "internal/hooks/", top: 0}, true, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var got []Item
+	if err := json.Unmarshal([]byte(buf.String()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || slices.ContainsFunc(got, func(it Item) bool { return it.Pkg != "internal/hooks" }) {
+		t.Errorf("--pkg internal/hooks over the seeds (which also hold internal/hooks/safety): %+v", got)
+	}
+}
+
 func TestFromReportQueuesOnlyCleanRegressions(t *testing.T) {
 	cases := []struct {
 		name string
@@ -296,6 +312,26 @@ func TestFromReportQueuesOnlyCleanRegressions(t *testing.T) {
 				t.Fatalf("queued %+v, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestReportItemsTakePackageCallsPerDay(t *testing.T) {
+	s := *autoRow(time.Now(), regressed).Score
+	s.Name = "BenchmarkA-8"
+	b, err := json.Marshal(Report{Packages: []PkgResult{{Pkg: "internal/p", Benchmarks: []Score{s}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "post-commit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "post-commit", "r.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := reportItems(root, map[string]float64{"internal/p": 500})
+	if len(got) != 1 || got[0].CallsPerDay != 500 || got[0].score() <= 0 {
+		t.Errorf("post-commit fix must score in s/day with its package's calls/day: %+v", got)
 	}
 }
 

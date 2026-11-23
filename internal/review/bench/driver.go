@@ -45,6 +45,7 @@ const (
 // driver runs `agents ask` and `worktree` as subprocesses of this binary: internal/agent and worktree import bench.
 type driver struct {
 	top, exe string
+	pkg      string // --pkg: a hand run picks only this package's items
 	out, log io.Writer
 	skip     map[string]bool // items held for the owner this run; unrecorded, so the queue still ranks them
 	steps    loopSteps
@@ -134,6 +135,7 @@ func runDriver(l loopOpts, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "review bench --loop:", err)
 		return 1
 	}
+	d.pkg = l.pkg
 	if err := os.MkdirAll(benchRoot(), 0o755); err != nil {
 		fmt.Fprintln(stderr, "review bench --loop:", err)
 		return 1
@@ -267,7 +269,7 @@ func (d *driver) pick() (Item, bool, error) {
 		return pickRepo(d.top, d.skip)
 	}
 	var buf bytes.Buffer
-	if err := runQueue(loopOpts{kind: "fix"}, true, &buf); err != nil {
+	if err := runQueue(loopOpts{kind: "fix", pkg: d.pkg}, true, &buf); err != nil {
 		return Item{}, false, err
 	}
 	var items []Item

@@ -83,7 +83,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
-	fs.StringVar(&l.pkg, "pkg", "", "package dir, e.g. internal/hooks/safety")
+	fs.StringVar(&l.pkg, "pkg", "", "package dir; filters --queue, --loop, --pending")
 	fs.StringVar(&l.what, "what", "", "the candidate the fix addressed")
 	fs.StringVar(&l.verdict, "verdict", "", "kept|reverted|bench-change")
 	fs.StringVar(&l.agent, "agent", "", "fix leaf agent")
@@ -235,17 +235,32 @@ func collect(root string) ([]Item, error) {
 		items = append(items, Item{Kind: "fix", Pkg: q.Pkg, What: q.Module + " p95 rose",
 			CallsPerDay: 1, EstSavingMS: q.AfterMS - q.BeforeMS, Source: "queue:" + q.Source})
 	}
+	perDay, err := callsPerDay(cand)
+	if err != nil {
+		return nil, err
+	}
+	return append(items, reportItems(root, perDay)...), nil
+}
+
+// reportItems are the post-commit runs' items; a fix takes its package's calls/day, as history items do.
+func reportItems(root string, perDay map[string]float64) []Item {
+	var out []Item
 	files, _ := filepath.Glob(filepath.Join(root, "post-commit", "*.json"))
 	for _, f := range files {
+		var rep Report
 		if strings.HasSuffix(f, ".in.json") {
 			continue
+		} else if b, err := os.ReadFile(f); err != nil || json.Unmarshal(b, &rep) != nil {
+			continue
 		}
-		var rep Report
-		if b, err := os.ReadFile(f); err == nil && json.Unmarshal(b, &rep) == nil {
-			items = append(items, fromReport(rep, filepath.Base(f))...)
+		for _, it := range fromReport(rep, filepath.Base(f)) {
+			if it.Kind == "fix" {
+				it.CallsPerDay = cmp.Or(perDay[it.Pkg], 1)
+			}
+			out = append(out, it)
 		}
 	}
-	return items, nil
+	return out
 }
 
 func fromReport(rep Report, src string) []Item {
@@ -375,6 +390,16 @@ func rank(items []Item, rows []Row, now time.Time) []Item {
 	return out
 }
 
+// filterQueue keeps items of kind and of exactly package dir pkg; an empty value keeps all.
+func filterQueue(items []Item, kind, pkg string) []Item {
+	if pkg != "" {
+		pkg = filepath.ToSlash(filepath.Clean(pkg))
+	}
+	return slices.DeleteFunc(items, func(it Item) bool {
+		return (kind != "" && it.Kind != kind) || (pkg != "" && it.Pkg != pkg)
+	})
+}
+
 func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	root := benchRoot()
 	items, err := collect(root)
@@ -389,10 +414,7 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ranked := rank(append(items, history...), rows, time.Now())
-	if l.kind != "" {
-		ranked = slices.DeleteFunc(ranked, func(it Item) bool { return it.Kind != l.kind })
-	}
+	ranked := filterQueue(rank(append(items, history...), rows, time.Now()), l.kind, l.pkg)
 	if l.top > 0 && len(ranked) > l.top {
 		ranked = ranked[:l.top]
 	}
