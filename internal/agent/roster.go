@@ -64,6 +64,9 @@ type CLI struct {
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
 	Carry                 bool            // ask --carry may run it as a plain child process with a Pi takeover
+	ReviewReadOnly        bool            // review adds --read-only: with no tools the agent sees only the attached diff
+	CatalogTitle          string          // heading above a text catalog; "" = none
+	ProviderVerb          bool            // `claude-code <agent> <provider> [-p NAME]` launches on that provider
 
 	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string
@@ -125,15 +128,10 @@ var (
 
 // Register adds an agent from its init; a wiring bug (nil or mismatched Driver, duplicate, second Launcher/Hub) panics.
 func Register(a Agent) {
+	checkRow(a)
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	switch {
-	case a.Driver == nil:
-		panic("agent: Register " + a.Row.Name + " with a nil Driver")
-	case a.Row.Name != a.Driver.Name():
-		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
-	case !agentid.Known(a.Row.Name):
-		panic("agent: Register " + a.Row.Name + ", not a roster agent")
 	case a.Launcher != nil && defaultLauncher != nil:
 		panic("agent: second Launcher registered by " + a.Row.Name)
 	case a.Hub != nil && hub != nil:
@@ -148,6 +146,20 @@ func Register(a Agent) {
 		hub = a.Hub
 	}
 	maps.Copy(envRedactors, a.Redactors)
+}
+
+// checkRow panics on a row that disagrees with its Driver or agentid; it reads no registry state.
+func checkRow(a Agent) {
+	switch {
+	case a.Driver == nil:
+		panic("agent: Register " + a.Row.Name + " with a nil Driver")
+	case a.Row.Name != a.Driver.Name():
+		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
+	case !agentid.Known(a.Row.Name):
+		panic("agent: Register " + a.Row.Name + ", not a roster agent")
+	case a.Row.CLI.Binary != "" && a.Row.CLI.Binary != agentid.Binary(a.Row.Name):
+		panic("agent: row " + a.Row.Name + " binary " + a.Row.CLI.Binary + ", agentid says " + agentid.Binary(a.Row.Name))
+	}
 }
 
 // RegisterRowForTest adds a roster row with no driver, for tests that cannot import the vendor packages.
