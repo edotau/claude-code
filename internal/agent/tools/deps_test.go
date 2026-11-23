@@ -17,6 +17,9 @@ func stubDeps(t *testing.T, goos string, onPath map[string]string, runErr error)
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	for _, k := range []string{"NVM_DIR", "MISE_DATA_DIR", "XDG_DATA_HOME"} {
+		t.Setenv(k, "")
+	}
 	oldGOOS, oldLook, oldRun := goosOverride, depLookPath, depRun
 	t.Cleanup(func() { goosOverride, depLookPath, depRun = oldGOOS, oldLook, oldRun })
 	goosOverride = goos

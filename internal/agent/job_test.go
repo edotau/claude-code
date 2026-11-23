@@ -369,7 +369,8 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 
 	// the fast child stands in for `agents ask --job <id>`: it writes its finished record and exits at once.
 	script := filepath.Join(t.TempDir(), "fast.sh")
-	body := "#!/bin/sh\ncat > \"" + recordPath + "\" <<'EOF'\n" +
+	// it waits for Spawn's locked pid note: the real child writes under that lock, a bare shell write would race it.
+	body := "#!/bin/sh\nuntil grep -q '\"pid\"' \"" + recordPath + "\"; do sleep 0.01; done\ncat > \"" + recordPath + "\" <<'EOF'\n" +
 		`{"id":"` + rec.ID + `","status":"ok","agent":"codex"}` + "\nEOF\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
