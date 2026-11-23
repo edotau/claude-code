@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -264,6 +265,51 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			}
 			if got := f.profile + f.provider; got != tc.wantRoute {
 				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
+			}
+		})
+	}
+}
+
+// A --retry rejoins its recorded parent only from that parent's tree, or top-level while the parent runs.
+func TestAskRetryLineage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	parent := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, now)
+	parent.Depth, parent.Status = 1, "ok"
+	caller := agent.NewRecord("gemini", agent.RunOptions{Prompt: "g"}, now.Add(time.Millisecond))
+	child := agent.NewRecord("codex", agent.RunOptions{Prompt: "c"}, now.Add(2*time.Millisecond))
+	child.Parent, child.Depth = parent.ID, 2
+	live := agent.NewRecord("claude", agent.RunOptions{Prompt: "l"}, now.Add(3*time.Millisecond))
+	liveChild := agent.NewRecord("codex", agent.RunOptions{Prompt: "lc"}, now.Add(4*time.Millisecond))
+	liveChild.Parent, liveChild.Depth = live.ID, 1
+	sibling := agent.NewRecord("gemini", agent.RunOptions{Prompt: "s"}, now.Add(5*time.Millisecond))
+	sibling.Parent, sibling.Depth = parent.ID, 2
+	for _, rec := range []agent.Record{parent, caller, child, live, liveChild, sibling} {
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, caller, callerDepth, wantParent string
+		rec                                   agent.Record
+		wantDepth                             int
+	}{
+		{"caller is the parent, depth env stale", parent.ID, "4", parent.ID, child, 2},
+		{"caller descends from the parent", sibling.ID, "2", parent.ID, child, 2},
+		{"top level, parent finished", "", "", "", child, 0},
+		{"top level, parent running", "", "", live.ID, liveChild, 1},
+		{"nested caller in another tree", caller.ID, "0", caller.ID, child, 1},
+		{"send resumes under itself", child.ID, "2", child.ID, child, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vals := proc.Values{}
+			if tc.caller != "" {
+				vals[proc.DispatchIDEnv], vals[proc.DispatchDepthEnv] = tc.caller, tc.callerDepth
+			}
+			_, values := agent.RunValues(retryLineage(proc.WithValues(t.Context(), vals), tc.rec), nil)
+			got := agent.NewRecord("codex", agent.RunOptions{Prompt: "c", Values: values}, time.Now())
+			if got.Parent != tc.wantParent || got.Depth != tc.wantDepth {
+				t.Fatalf("retry lineage = %q depth %d, want %q depth %d", got.Parent, got.Depth, tc.wantParent, tc.wantDepth)
 			}
 		})
 	}

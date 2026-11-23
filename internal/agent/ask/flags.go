@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/pi"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -484,7 +485,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 }
 
 // loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
+func loadAskRetry(_ context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
 	if retry == "" {
 		return 0, false
 	}
@@ -562,6 +563,13 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 // guardResubmit reads a plain ask's task early (stdin once) so a resubmit of a recent cutoff can leave its route.
 func (r *askRun) guardResubmit() (int, bool) {
 	f := r.f
+	if f.retry != "" && f.job == "" {
+		rec, err := agent.LoadRecord(f.retry)
+		if err != nil {
+			return failAsk(f.format, f.name, err), true
+		}
+		r.ctx = retryLineage(r.ctx, rec)
+	}
 	if f.retry != "" || f.job != "" || f.stdinFramed || f.live || r.persona != nil {
 		return 0, false
 	}
@@ -572,6 +580,40 @@ func (r *askRun) guardResubmit() (int, bool) {
 	r.prompt = prompt // stdin is read once; execute takes it from here
 	guardResubmit(r.fs, r.state, prompt, os.Stderr, time.Now())
 	return 0, false
+}
+
+// retryLineage rejoins the retried run's parent only within the caller's own tree, or top-level while it still runs.
+func retryLineage(ctx context.Context, rec agent.Record) context.Context {
+	if rec.Parent == "" {
+		return ctx
+	}
+	_, values := agent.RunValues(ctx, nil)
+	caller := values[proc.DispatchIDEnv]
+	if caller == rec.ID { // agents send resumes a run as its own child
+		return ctx
+	}
+	p, err := agent.LoadRecord(rec.Parent)
+	if err != nil || (caller == "" && !p.Alive()) || (caller != "" && !inLineage(caller, rec.Parent)) {
+		return ctx
+	}
+	// The parent's own depth, not the caller's, so the rerun lands at parent depth+1.
+	depth := fmt.Sprint(p.Depth) //nolint:perfsprint // strconv would put the file over the 25-import cap
+	return proc.WithValues(ctx, values.Merge(proc.Values{proc.DispatchIDEnv: rec.Parent, proc.DispatchDepthEnv: depth}))
+}
+
+// inLineage reports whether id is caller or one of its recorded ancestors.
+func inLineage(caller, id string) bool {
+	for n := 0; caller != "" && n < 64; n++ { // bounded so a corrupt parent cycle cannot spin
+		if caller == id {
+			return true
+		}
+		rec, err := agent.LoadRecord(caller)
+		if err != nil {
+			return false
+		}
+		caller = rec.Parent
+	}
+	return false
 }
 
 // guardResubmit applies moveOffCutoff to a plain ask whose agent, model and task cut off within the last hour.
