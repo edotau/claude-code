@@ -53,7 +53,7 @@ any. Agent files list only what differs; the full list is `claude-code agents as
 | Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (reads plus a vetted read-only shell list; other Bash, Write and Edit denied; codex keeps its sandbox shell) |
 | Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--permissions allow\|default\|auto\|plan` (`allow`: dev override, every call runs; `--deny` and the AI-footer block hold) (hook-enforced per agent); an `--allow` adds but never reopens a deny; codex and gemini refuse `--tools` with `--permissions plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
-| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
+| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--provider databricks` (R20) |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
 | Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
 | Also | `--session <id>` (continues that session) · `--env` · `--fallback none\|pin\|agents\|all` · `--host <ssh>` · `--direct` · `--overlay <file\|json\|->` (the dispatch config) · `agents status` (the log) · `agents ask --retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` (compare models: one `model` per line) · `--fleet --tools` (copilot fleet) |

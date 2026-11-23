@@ -56,7 +56,7 @@ Route by where the answer lives; name any route other than "run the loop" in the
 |---|---|---|
 | **Question / assessment** | "why is…", "what do you think…", user thinks aloud | Findings + a recommendation. **Change nothing.** |
 | **Task** | "fix", "build", "change", "make" | The completed change, verified. |
-| **Plan-first** | ambiguous scope, irreversible/outward-facing action, or a plan was asked for | A plan with your recommendation. Stop for approval. |
+| **Plan-first** | ambiguous scope, irreversible/outward-facing action, or a plan was asked for | A plan with your recommendation (dated, R18). Stop for approval. |
 
 Tie-breaks: (1) any plan-first signal beats task; (2) a mixed ask ("why is this failing, can you fix it?") is a task
 whose report also answers the question; (3) unsure → plan-first.
@@ -123,7 +123,7 @@ Iron law and gate chain: `references/verify.md`. Three parts:
   broken build **fails**.
 - **(c)** after fixing a defect, write the forced `ISSUE:` sweep before reporting it fixed (`references/notes.md`).
 
-Code: live first, then tests with teeth (`rules/standards/testing-guidelines.md`).
+Code: live first (on the Mac, R19), then tests with teeth (`rules/standards/testing-guidelines.md`).
 
 On failure: a mechanical mistake → Step 4; a surprise → Step 2. **Hard bound:** after 3 failed fix-verify cycles on
 one issue, or when blocked outside your control (credentials, environment, permissions), stop and hand back with what

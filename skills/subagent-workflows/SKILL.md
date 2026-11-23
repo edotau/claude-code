@@ -182,7 +182,7 @@ Cap: `rules/harness/hooks.md` → (dispatch cap); repair leaves count. Batch dee
 fleet scans.
 
 Run at capacity: keep every unblocked task dispatched, and refill as soon as a leaf hands back or a file frees up;
-an idle slot with unblocked work is a fault. Spread leaves over the three Databricks profiles (`--profile
+an idle slot with unblocked work is a fault. Spread leaves over the three Databricks profiles (R20; `--profile
 dev|qa|prod` on the relay's Run line) and the four vendor CLIs so no single account carries the wave. The only
 limits are overlapping files, dependency order and an account's own rate limit.
 
@@ -206,8 +206,9 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
 
 #### Dispatch table
 
-Write it before the first dispatch of a multi-part request, re-check it on every hand-back and every new user message
-(merge the new asks into it; never serve requests in arrival order), and dispatch every unblocked row in one message.
+Write it before the first dispatch of a multi-part request (after its dated plan, R18), re-check it on every hand-back
+and every new user message (merge the new asks into it; never serve requests in arrival order), and dispatch every
+unblocked row in one message.
 
 | Task | Owns | Blocked by | Agent |
 |---|---|---|---|

@@ -62,7 +62,8 @@ run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points 
 
 ## The lane protocol (`HARNESS_WORKTREE=lanes`)
 
-One lane per stream of work; `main` stays clean and only ever fast-forwards. Vault env `HARNESS_WORKTREE=lanes` makes
+One lane per stream of work, opened after its dated plan (R18); `main` stays clean and only ever fast-forwards. Vault
+env `HARNESS_WORKTREE=lanes` makes
 the claim check refuse a leaf's edit or stage of a tracked file in the live checkout (it asks the main session) and name
 `claude-code worktree create <slug>`; a lane is never refused.
 
