@@ -41,6 +41,22 @@ func TestScoreFlagsNoiseAndCost(t *testing.T) {
 	checkB(t, b)
 }
 
+func TestScoreTopFramesFromPprofTop(t *testing.T) {
+	const top = `File: pkg.test
+Showing top 2 nodes out of 53
+      flat  flat%   sum%        cum   cum%
+     250ms 54.35% 54.35%      290ms 63.04%  example.com/m.Hot
+      70ms 15.22% 69.57%       70ms 15.22%  runtime.(*lfstack).pop
+`
+	got := parseTopFrames(top)
+	if len(got) != 2 || got[0] != (Frame{Func: "example.com/m.Hot", FlatPct: 54.35}) || got[1].Func != "runtime.(*lfstack).pop" {
+		t.Errorf("frames = %+v", got)
+	}
+	if len(parseTopFrames("")) != 0 {
+		t.Error("empty profile must give no frames")
+	}
+}
+
 func checkB(t *testing.T, b Score) {
 	if b.Metrics["corpus-bytes"].Median != 42 {
 		t.Errorf("custom metric lost: %+v", b.Metrics)

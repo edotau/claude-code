@@ -41,6 +41,7 @@ type options struct {
 	base    bool
 	out     string
 	verbose bool
+	profile bool
 	json    bool
 	loop    loopOpts
 }
@@ -84,6 +85,7 @@ type PkgResult struct {
 	Stale      bool      `json:"stale_baseline,omitempty"` // rolling.txt exists but holds another epoch
 	Stats      RunStats  `json:"stats"`
 	Benchmarks []Score   `json:"benchmarks"`
+	TopFrames  []Frame   `json:"top_frames,omitempty"` // --profile: the run's CPU profile, flat share of samples
 	Missing    []string  `json:"missing,omitempty"`
 	Verdicts   []Verdict `json:"verdicts,omitempty"`
 }
@@ -152,6 +154,7 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 	fs.StringVar(&o.re, "bench", ".", "benchmark name regexp")
 	fs.BoolVar(&o.base, "base", false, "store the run as a base and as rolling.txt")
 	fs.StringVar(&o.out, "out", "", "also write the run text to this file (one package)")
+	fs.BoolVar(&o.profile, "profile", false, "also record the top CPU frames (profiling skews timings)")
 	fs.BoolVar(&o.verbose, "v", false, "also show benchmarks that did not move")
 	fs.StringVar(&format, "format", "text", "text|json")
 	loopFlags(fs, &o.loop)
@@ -308,11 +311,55 @@ func hasBenchmarks(dir string) bool {
 	return false
 }
 
-func goTest(top, pkg string, o options) (out string, stats RunStats, err error) {
+// Frame is one function's flat share of a CPU profile, in percent.
+type Frame struct {
+	Func    string  `json:"func"`
+	FlatPct float64 `json:"flat_pct"`
+}
+
+const topFrameCount = 5
+
+// topFrames reads the heaviest flat frames from a profile with `go tool pprof -top`; a failure is no frames.
+func topFrames(ctx context.Context, bin, prof string) ([]Frame, error) {
+	out, err := exec.CommandContext(ctx, "go", "tool", "pprof", "-top", "-flat", "-nodecount="+strconv.Itoa(topFrameCount), bin, prof).Output()
+	if err != nil {
+		return nil, fmt.Errorf("go tool pprof: %w", err)
+	}
+	return parseTopFrames(string(out)), nil
+}
+
+// parseTopFrames reads pprof -top rows: flat, flat%, sum%, cum, cum%, name.
+func parseTopFrames(text string) []Frame {
+	var out []Frame
+	rows := false
+	for line := range strings.SplitSeq(text, "\n") {
+		f := strings.Fields(line)
+		switch {
+		case len(f) >= 2 && f[0] == "flat" && f[1] == "flat%":
+			rows = true
+		case rows && len(f) >= 6 && strings.HasSuffix(f[1], "%"):
+			if pct, err := strconv.ParseFloat(strings.TrimSuffix(f[1], "%"), 64); err == nil {
+				out = append(out, Frame{Func: strings.Join(f[5:], " "), FlatPct: pct})
+			}
+		}
+	}
+	return out
+}
+
+func goTest(top, pkg string, o options) (out string, frames []Frame, stats RunStats, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-trimpath", "-run", "^$", "-bench", o.re, "-benchmem", // -trimpath: snapshot dirs share cache entries
-		"-count", strconv.Itoa(o.count), "./"+pkg)
+	args := []string{"test", "-trimpath", "-run", "^$", "-bench", o.re, "-benchmem", // -trimpath: snapshot dirs share cache entries
+		"-count", strconv.Itoa(o.count), "./" + pkg}
+	scratch := ""
+	if o.profile {
+		if scratch, err = os.MkdirTemp("", "bench-profile-"); err != nil {
+			return "", nil, stats, err
+		}
+		defer func() { _ = os.RemoveAll(scratch) }()
+		args = append(args, "-o", filepath.Join(scratch, "pkg.test"), "-cpuprofile", filepath.Join(scratch, "cpu.prof"))
+	}
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = top
 	ownGroup(cmd)
 	cmd.WaitDelay = waitDelay
@@ -322,9 +369,15 @@ func goTest(top, pkg string, o options) (out string, stats RunStats, err error) 
 	runErr := cmd.Run()
 	stats = statsOf(cmd, time.Since(start), before)
 	if runErr != nil {
-		return "", stats, fmt.Errorf("go test %s: %w\n%s%s", pkg, runErr, outb.String(), errb.String())
+		return "", nil, stats, fmt.Errorf("go test %s: %w\n%s%s", pkg, runErr, outb.String(), errb.String())
 	}
-	return outb.String(), stats, nil
+	if o.profile {
+		var err error
+		if frames, err = topFrames(ctx, filepath.Join(scratch, "pkg.test"), filepath.Join(scratch, "cpu.prof")); err != nil {
+			fmt.Fprintf(os.Stderr, "bench: %s: no top frames: %v\n", pkg, err) // the timings stand without a profile
+		}
+	}
+	return outb.String(), frames, stats, nil
 }
 
 func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
@@ -336,7 +389,7 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 	if err != nil {
 		return PkgResult{}, err
 	}
-	out, stats, err := goTest(top, pkg, o)
+	out, frames, stats, err := goTest(top, pkg, o)
 	if err != nil {
 		return PkgResult{}, err
 	}
@@ -356,7 +409,7 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		return PkgResult{}, err
 	}
 	noisy := rep.NoisyRun || max(stats.LoadBefore, stats.LoadAfter) > float64(rep.CPUs)/2
-	res := PkgResult{Pkg: pkg, File: file, Stats: stats, Benchmarks: scoreAll(out, noisy)}
+	res := PkgResult{Pkg: pkg, File: file, Stats: stats, TopFrames: frames, Benchmarks: scoreAll(out, noisy)}
 	for i := range res.Benchmarks {
 		e := epochs[benchmarkFunc(res.Benchmarks[i].Name)]
 		res.Benchmarks[i].Epoch, res.Benchmarks[i].Source = e.Hash, e.File
@@ -634,6 +687,9 @@ func printText(w io.Writer, r Report, verbose bool) {
 		}
 		for _, m := range p.Missing {
 			fmt.Fprintln(w, "  "+m)
+		}
+		for _, f := range p.TopFrames {
+			fmt.Fprintf(w, "  frame %5.1f%%  %s\n", f.FlatPct, f.Func)
 		}
 		for _, s := range p.Benchmarks {
 			printScore(w, s, verbose)
