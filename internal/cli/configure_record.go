@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"slices"
@@ -12,6 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -20,7 +25,7 @@ import (
 
 // recordKeys maps each `configure agents` key to the agent record field it writes, in the order they are applied.
 var recordKeys = []struct{ key, field string }{{"profile", "PROFILE"}, {"model", "MODEL"}, {"fallback", "FALLBACK"},
-	{"account", "ACCOUNT"}, {"route", "ROUTE"}, {"fallbackRoute", "FALLBACKROUTE"}}
+	{"account", "ACCOUNT"}, {"route", "ROUTE"}, {"fallbackRoute", "FALLBACKROUTE"}, {"permissions", "PERMISSIONS"}}
 
 // routeKey is codex's record-only config_route preference, set here beside the pin keys.
 const routeKey = "config_route"
@@ -60,7 +65,7 @@ func parseRecordPairs(agent string, words []string) (map[string]string, error) {
 
 // recordKeyNames lists the keys `configure agents` takes: the pin keys, config_route and agent's declared extras.
 func recordKeyNames(agent string) []string {
-	names := []string{"profile", "model", "fallback", "account", "route", "fallbackRoute", routeKey}
+	names := []string{"profile", "model", "fallback", "account", "route", "fallbackRoute", "permissions", routeKey}
 	for k := range agentpkg.SchemaFor(agent).CLI.Extras {
 		if k != routeKey {
 			names = append(names, k)
@@ -91,6 +96,9 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	if err := validateRecordModel(agent, set); err != nil {
 		return helptext.FailUsage("configure agents: %v", err)
 	}
+	if err := validatePolicySet(agent, set); err != nil {
+		return helptext.FailUsage("configure agents: %v", err)
+	}
 	if err := validateRecordSet(agent, set, route, hasRoute); err != nil {
 		return helptext.Fail("configure agents: %v", err)
 	}
@@ -99,10 +107,7 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 		if !ok {
 			continue
 		}
-		old := configure.AgentField(recs[agent], k.field)
-		if isRouteField(k.field) {
-			old = routeText(recs[agent], k.field)
-		}
+		old := recordText(recs[agent], k.field)
 		line := fmt.Sprintf("%s %s: %s → %s", agent, k.key, orUnset(old), orUnset(val))
 		if dryRun {
 			fmt.Printf("would set %s; nothing written\n", line)
@@ -133,6 +138,9 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 		}
 	}
 	for field, val := range set {
+		if field == "PERMISSIONS" {
+			continue
+		}
 		if err := validateField(agent, field, val); err != nil {
 			return err
 		}
@@ -217,6 +225,20 @@ func routeText(rec vault.AgentRecord, field string) string {
 	return route.Target{Route: rt}.JSON()
 }
 
+func recordText(rec vault.AgentRecord, field string) string {
+	if field == "PERMISSIONS" {
+		if rec.Permissions == nil {
+			return ""
+		}
+		b, _ := json.Marshal(rec.Permissions)
+		return string(b)
+	}
+	if isRouteField(field) {
+		return routeText(rec, field)
+	}
+	return configure.AgentField(rec, field)
+}
+
 // resolveRoute turns a route-field value into the route to store; legacy means a pin with no registry row to fill from.
 func resolveRoute(field, val string) (rt route.Route, legacy bool, err error) {
 	switch {
@@ -253,8 +275,56 @@ func parseRouteObject(field, val string) (rt route.Route, err error) {
 	return rt, nil
 }
 
+func parsePolicy(val string) (*vault.AgentPolicy, error) {
+	if val == "" {
+		return nil, nil
+	}
+	var policy *vault.AgentPolicy
+	dec := json.NewDecoder(strings.NewReader(val))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&policy); err != nil {
+		return nil, fmt.Errorf("permissions: want a JSON object: %w", err)
+	}
+	if policy == nil {
+		return nil, errors.New("permissions: want a JSON object")
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("permissions: trailing JSON: %v", err)
+	}
+	if _, err := permission.ParsePermissions(policy.Mode, policy.Allow, policy.Ask, policy.Deny); err != nil {
+		return nil, fmt.Errorf("permissions: %w", err)
+	}
+	return policy, nil
+}
+
+func validatePolicySet(agent string, set map[string]string) error {
+	if val, ok := set["PERMISSIONS"]; ok {
+		if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}); err != nil {
+			return err
+		}
+		if proc.InDispatch(context.Background()) {
+			return fmt.Errorf("%s permissions: only the owner's own session can set a permission policy; refused inside a dispatch", agent)
+		}
+		_, err := parsePolicy(val)
+		return err
+	}
+	return nil
+}
+
 // setField writes one record field; route fields store the route object and clear the legacy keys they replace.
 func setField(agent, field, val string) error {
+	if field == "PERMISSIONS" {
+		policy, err := parsePolicy(val)
+		if err != nil {
+			return err
+		}
+		return vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
+			r := m[agent]
+			r.Permissions = policy
+			m[agent] = r
+		})
+	}
 	if !isRouteField(field) {
 		_, err := configure.SetAgentPin(agent, field, val)
 		return err

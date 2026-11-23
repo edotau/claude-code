@@ -4,14 +4,46 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestConfigureRecordPermissions(t *testing.T) {
+	hosttest.PinScratch(t)
+	vaulttest.Use(t)
+	check := func(value string, want int, stored bool, flags ...string) {
+		t.Helper()
+		code := cmdConfigure(append([]string{"agents", "pi", "permissions=" + value}, flags...))
+		if code != want || (vault.GetAgentRecord("pi").Permissions != nil) != stored {
+			t.Fatalf("permissions=%q: exit %d, record %+v; want %d, stored %v", value, code,
+				vault.GetAgentRecord("pi").Permissions, want, stored)
+		}
+	}
+	valid := `{"mode":"default","deny":["Read(**/state/vault.db)"]}`
+	check(valid, 0, false, "--dry-run")
+	check(valid, 0, true)
+	r := vault.GetAgentRecord("pi")
+	p, err := agent.DefaultPermissions("pi")
+	if r.Permissions == nil || len(r.Permissions.Deny) != 1 || r.Permissions.Deny[0] != "Read(**/state/vault.db)" ||
+		err != nil || len(p.Deny) != 1 || p.Deny[0] != (permission.Rule{Tool: "Read", Arg: "**/state/vault.db"}) {
+		t.Fatalf("stored %+v, default %+v, error %v", r.Permissions, p, err)
+	}
+	check("", 0, false)
+	check(`{"deny":["Bash()"]}`, 2, false)
+	check(`{"unknown":true}`, 2, false)
+	if code := cmdConfigure([]string{"agents", "nope", "permissions=" + valid}); code != 2 {
+		t.Fatalf("unknown agent exit %d, want 2", code)
+	}
+	t.Setenv(proc.DispatchIDEnv, "d-1")
+	check(valid, 2, false)
+}
 
 // configure agents refuses a bad key, agent or profile, writes nothing on --dry-run, and writes the record otherwise.
 func TestConfigureRecord(t *testing.T) {
