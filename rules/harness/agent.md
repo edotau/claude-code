@@ -107,6 +107,9 @@ paths:
   stay raw, and any failure runs the real binary.
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`. Rollback: `RTK_WRAP=off`, or
   delete `bin/.rtkwrap`. Plan: `/Users/edotau/.claude/plans/2026-11-22-rtk-wrap-and-parallel-rewrite.md`.
+- **RTK_WRAP for the other agents** — the same switch drives `rtk-rewrite` in the codex, agy and opencode hooks: `on`
+  rewrites, anything else (`debug` included) is off; never while `HARNESS_PI_CODEMODE` is set. Copilot is not hooked.
+  `claude-code doctor` shows one `rtk hook <agent>` row per hooked agent.
 - **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `PI_CODEMODE=off|on|only` per
   machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`), loads `builtin:codemode`. The
   model writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts.
