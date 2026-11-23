@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -222,18 +223,101 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 	return id, title, owns, sha, claim, partial
 }
 
-// Home is the plans directory for repoRoot, tagged like every other repo-scoped artifact.
+// Home is the plans directory for repoRoot: plans/<Name(repoRoot)>.
 func Home(repoRoot string) string {
-	return filepath.Join(paths.ConfigDir(), "plans", paths.RepoSlug(repoRoot))
+	return filepath.Join(paths.ConfigDir(), "plans", Name(repoRoot))
 }
 
-// homeOf is the plan's directory when it is the plans root or a direct child of it, else the plans root.
+// nameCache memoizes Name per config dir and checkout, since hooks resolve it on every plan write.
+var nameCache sync.Map
+
+// Name is repoRoot's plans folder: the repo's name, owner-qualified when another repo claimed it first.
+func Name(repoRoot string) string {
+	repo := paths.RepoName(repoRoot)
+	if repo.Key == "" {
+		return repo.Name
+	}
+	ck := paths.ConfigDir() + "\x00" + repo.Key
+	if v, ok := nameCache.Load(ck); ok {
+		return v.(string)
+	}
+	name := claimName(repo)
+	nameCache.Store(ck, name)
+	return name
+}
+
+// peekName is Name without claiming, for a lookup that must not register repos it only inspects.
+func peekName(repoRoot string) string {
+	repo := paths.RepoName(repoRoot)
+	reg, err := readNames()
+	if repo.Key == "" || err != nil {
+		return repo.Name
+	}
+	name, _ := pickName(reg, repo)
+	return name
+}
+
+// NamesFile records which repo key owns each plans folder name, so a later same-named repo is owner-qualified.
+func NamesFile() string { return filepath.Join(paths.StateDir(), "plans", "names.json") }
+
+// claimName records repo under its name, or its owner-qualified name on a clash; an unreadable registry writes nothing.
+func claimName(repo paths.Repo) string {
+	reg, err := readNames()
+	if err != nil {
+		return repo.Name
+	}
+	name, claim := pickName(reg, repo)
+	if !claim {
+		return name
+	}
+	_ = paths.WithFileLockWithin(NamesFile(), time.Second, func() error { // a lost claim only costs a later re-claim
+		reg, err := readNames()
+		if err != nil {
+			return err
+		}
+		if name, claim = pickName(reg, repo); claim {
+			return writeNames(reg, name, repo.Key)
+		}
+		return nil
+	})
+	return name
+}
+
+// pickName is repo's name under reg and whether reg lacks that claim.
+func pickName(reg map[string]string, repo paths.Repo) (string, bool) {
+	if owner, ok := reg[repo.Name]; !ok || owner == repo.Key || repo.Owner == "" {
+		return repo.Name, !ok
+	}
+	q := paths.Slug(repo.Owner+"-"+repo.Name, "._-", 0, repo.Name)
+	return q, reg[q] == ""
+}
+
+func readNames() (map[string]string, error) {
+	data, err := os.ReadFile(NamesFile())
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	reg := map[string]string{}
+	return reg, json.Unmarshal(data, &reg)
+}
+
+// writeNames is the registry's one write site (the schemas registry keys on it).
+func writeNames(reg map[string]string, name, key string) error {
+	next := maps.Clone(reg)
+	next[name] = key
+	return paths.WriteJSON(NamesFile(), next)
+}
+
+// homeOf is the plan's directory when it is a direct child of the plans root, else the @home folder.
 func homeOf(plan string) string {
-	dir, root := filepath.Dir(plan), filepath.Join(paths.ConfigDir(), "plans")
-	if paths.SamePath(filepath.Dir(dir), root) {
+	dir := filepath.Dir(plan)
+	if paths.SamePath(filepath.Dir(dir), filepath.Join(paths.ConfigDir(), "plans")) {
 		return dir
 	}
-	return root
+	return Home("")
 }
 
 // ResolvePlan confines explicit writes to dated regular plans in this repository's home.
@@ -731,21 +815,14 @@ func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	return commits, nil
 }
 
-// Dirs is the repo's Home by default, else the plans home plus every direct repo subdir.
+// Dirs is the cwd repo's Home by default, else every repo folder under the plans root (the root holds only drafts).
 func Dirs(all bool) []string {
-	root := filepath.Join(paths.ConfigDir(), "plans")
 	if !all {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return []string{root}
-		}
-		top, _ := paths.CheckoutOf(cwd)
-		if top == "" {
-			top = cwd
-		}
-		return []string{Home(top)}
+		cwd, _ := os.Getwd() // no cwd is outside any repo
+		return []string{Home(cwd)}
 	}
-	dirs := []string{root}
+	root := filepath.Join(paths.ConfigDir(), "plans")
+	var dirs []string
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return dirs

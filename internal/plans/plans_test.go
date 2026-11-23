@@ -795,6 +795,36 @@ func namedTestTick(t *testing.T, root, plan, sha string, files []string) (ticked
 	return ticked, notes, err
 }
 
+// Rule 5: the first repo keeps a name; a different remote (or path) gets <owner>-<name>; a bad registry writes nothing.
+func TestNameClashOwnerQualifies(t *testing.T) {
+	hermetic(t)
+	repo := func(dir, url string) string {
+		r := hosttest.RepoAt(t, dir)
+		if url != "" {
+			hosttest.In(t, r, "remote", "add", "origin", url)
+		}
+		return r
+	}
+	base := t.TempDir()
+	first := repo(filepath.Join(base, "a"), "https://example.invalid/first/api.git")
+	other := repo(filepath.Join(base, "b"), "git@example.invalid:second/api.git")
+	same := repo(filepath.Join(base, "c"), "git@example.invalid:first/api") // first's remote, spelled another way
+	svc := repo(filepath.Join(base, "x", "svc"), "")
+	svc2 := repo(filepath.Join(base, "y", "svc"), "")
+	for _, tc := range []struct{ root, want string }{
+		{first, "api"}, {other, "second-api"}, {same, "api"}, {first, "api"}, {svc, "svc"}, {svc2, "y-svc"},
+	} {
+		if got := Name(tc.root); got != tc.want {
+			t.Errorf("Name(%s) = %q, want %q", tc.root, got, tc.want)
+		}
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	writeFile(t, NamesFile(), "{not json")
+	if got := Name(other); got != "api" || readFile(t, NamesFile()) != "{not json" {
+		t.Errorf("unreadable registry: Name = %q, file %q; want the plain name, nothing written", got, readFile(t, NamesFile()))
+	}
+}
+
 // Outside a checkout an absolute --plan inside the plans home resolves; one outside it is refused.
 func TestResolvePlanOutsideCheckout(t *testing.T) {
 	dir := hermetic(t)

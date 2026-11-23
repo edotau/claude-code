@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -223,16 +222,16 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := paths.Real(paths.ConfigDir())
 	if harnessDocs := filepath.Join(config, "docs"); paths.Within(abs, harnessDocs) {
-		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
+		return harnessDocsPlacement(ctx, in, stderr, config, harnessDocs, abs, base)
 	}
 	if paths.SameFile(dir, paths.MemoryStoreDir()) { // the store is its own git repo; notes at its root are the point
 		return core.ExitProceed
 	}
-	return repoDocsPlacement(ctx, stderr, dir, base, abs)
+	return repoDocsPlacement(ctx, in, stderr, dir, base, abs)
 }
 
 // repoDocsPlacement gates the two shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
-func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs string) int {
+func repoDocsPlacement(ctx context.Context, in *core.Input, stderr io.Writer, dir, base, abs string) int {
 	root, _ := paths.CheckoutOf(dir)
 	if root == "" {
 		return core.ExitProceed
@@ -259,11 +258,11 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	if inDocs {
 		where = dir + ", which this repo gitignores — it vanishes on a fresh clone"
 	}
-	return blockPlacement(stderr, base, where, root)
+	return blockPlacement(stderr, base, where, planHome(in, root))
 }
 
 // harnessDocsPlacement gates a write under the harness's own docs/: images and templates and tracked files pass.
-func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harnessDocs, abs, base string) int {
+func harnessDocsPlacement(ctx context.Context, in *core.Input, stderr io.Writer, config, harnessDocs, abs, base string) int {
 	for _, tier := range []string{"images", "templates"} {
 		if paths.Within(abs, filepath.Join(harnessDocs, tier)) {
 			return core.ExitProceed
@@ -272,7 +271,7 @@ func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harness
 	if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
 		return core.ExitProceed
 	}
-	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
+	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", planHome(in, config))
 }
 
 // stranded: a new untracked root file or ignored docs/ page; any existing file is the owner's.
@@ -295,13 +294,13 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 }
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
-func blockPlacement(stderr io.Writer, base, where, root string) int {
+func blockPlacement(stderr io.Writer, base, where, home string) int {
 	var fix string
-	if dest := exactDest(base, root); dest != "" {
+	if dest := exactDest(base, home); dest != "" {
 		fix = "Re-issue the write to " + dest + "."
 	} else {
 		fix = fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
-			plans.Home(planRepoRoot(root)), paths.MemorySub("reports", "YYYY-MM-DD-<name>.md"), paths.MemorySub("handoffs", "YYYY-MM-DD-<topic>.md"))
+			home, paths.MemorySub("reports", "YYYY-MM-DD-<name>.md"), paths.MemorySub("handoffs", "YYYY-MM-DD-<topic>.md"))
 	}
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"%s A genuine repo doc the user\n"+
@@ -313,12 +312,12 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 }
 
 // exactDest is the free dated plan, report or handoff path a kind word in base picks ("" when it picks none).
-func exactDest(base, root string) string {
+func exactDest(base, home string) string {
 	stem, day := strings.TrimSuffix(base, filepath.Ext(base)), time.Now().Format("2006-01-02")
 	var prefix string
 	switch {
 	case hasNameToken(base, "plan", "plans"):
-		prefix = filepath.Join(plans.Home(planRepoRoot(root)), day+"-"+paths.Slug(stem, "-", 60, "plan"))
+		prefix = filepath.Join(home, day+"-"+paths.Slug(stem, "-", 60, "plan"))
 	case hasNameToken(base, "report", "reports", "audit", "review", "findings"):
 		prefix = paths.MemorySub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
 	case hasNameToken(base, "handoff", "handoffs"):

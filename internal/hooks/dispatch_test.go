@@ -218,7 +218,7 @@ func planBindingProbes() map[string]bindingProbe {
 				t.Fatal("seed draft:", err)
 			}
 			return writeProbe(cfg, draft, ""), func(core.Result) bool {
-				dated, _ := filepath.Glob(filepath.Join(cfg, "plans", time.Now().Format("2006-01-02")+"-*.md"))
+				dated, _ := filepath.Glob(filepath.Join(cfg, "plans", "*", time.Now().Format("2006-01-02")+"-*.md"))
 				return len(dated) == 1
 			}
 		},

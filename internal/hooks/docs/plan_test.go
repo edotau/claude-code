@@ -170,10 +170,7 @@ func TestSavePlanRelativeFallback(t *testing.T) {
 func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := filepath.Join(t.TempDir(), "My Repo")
-	if err := os.Mkdir(repo, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	repo := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "My Repo"))
 	save := func(plan string) {
 		if code := Save(core.ParseInput(strings.NewReader(planPayload(t, repo, plan, ""))), &bytes.Buffer{}); code != core.ExitProceed {
 			t.Fatalf("Save must never block, got %d", code)
@@ -267,6 +264,19 @@ func TestWithTasksCRLF(t *testing.T) {
 	}
 }
 
+// A Bash cd moves the payload cwd to repo B; the plan still files under the launch repo A (CLAUDE_PROJECT_DIR).
+func TestSavePlanFilesUnderLaunchRepo(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	base := t.TempDir()
+	a, b := hosttest.RepoAt(t, filepath.Join(base, "repo-a")), hosttest.RepoAt(t, filepath.Join(base, "repo-b"))
+	t.Setenv("CLAUDE_PROJECT_DIR", a)
+	Save(core.ParseInput(strings.NewReader(planPayload(t, b, "# Plan: Launch\n\nsteps\n", ""))), &bytes.Buffer{})
+	if got, want := savedPlans(t, cfg), "repo-a/"+time.Now().Format("2006-01-02")+"-launch.md"; len(got) != 1 || got[0] != want {
+		t.Errorf("saved = %v, want [%s]", got, want)
+	}
+}
+
 func TestSavePlanReadsPlanFilePathAndSkipsEmpty(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -276,7 +286,7 @@ func TestSavePlanReadsPlanFilePathAndSkipsEmpty(t *testing.T) {
 	}
 	Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "", src))), &bytes.Buffer{})
 	Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "  \n", ""))), &bytes.Buffer{})
-	want := time.Now().Format("2006-01-02") + "-plan.md" // config dir: untagged; no heading: "plan"
+	want := plans.Name(cfg) + "/" + time.Now().Format("2006-01-02") + "-plan.md" // config dir: the harness; no heading: "plan"
 	if got := savedPlans(t, cfg); len(got) != 1 || got[0] != want {
 		t.Errorf("saved = %v, want [%s]", got, want)
 	}
@@ -409,12 +419,12 @@ func approvePlan(t *testing.T, raw []byte) string {
 	return stderr.String()
 }
 
-func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
+func TestPlanMirrorHarnessHomeWhenCWDIsConfigDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", cfg, draft)
-	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
+	wantMirrorFile(t, filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
 	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "funny-random-words.md.dest")); err != nil {
 		t.Fatalf("expected a recorded dest: %v", err)
 	}
@@ -455,7 +465,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	plansDir := filepath.Join(cfg, "plans")
 	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
 	mirrorRun(t, "first mirror", "Write", cfg, draft)
-	dest := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+	dest := filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md")
 
 	edited := strings.Replace(planTemplate, "why\n", "why more\n", 1)
 	writeMirrorDraft(t, plansDir, "funny-random-words.md", edited)
@@ -466,7 +476,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	writeMirrorDraft(t, plansDir, "funny-random-words.md", renamed)
 	mirrorRun(t, "H1-change mirror", "Edit", cfg, draft)
 	wantMirrorFile(t, dest, renamed, "H1 change must keep the same dest")
-	if count := countPlanFiles(t, plansDir); count != 2 { // the dated file + the still-live undated draft
+	if count := countPlanFiles(t, plansDir) + countPlanFiles(t, plans.Home(cfg)); count != 2 { // dated file + live draft
 		t.Fatalf("plans/ holds %d files, want exactly the dated file and the draft", count)
 	}
 }
@@ -477,11 +487,11 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	plansDir := filepath.Join(cfg, "plans")
 	unrelated := "# Plan: Widget Refactor\n\nsome other plan, not ours\n"
-	preexisting := writeMirrorDraft(t, plansDir, dateStamp()+"-widget-refactor.md", unrelated)
+	preexisting := writeMirrorDraft(t, plans.Home(cfg), dateStamp()+"-widget-refactor.md", unrelated)
 	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", cfg, draft)
 	wantMirrorFile(t, preexisting, unrelated, "the unrelated dated file was touched:")
-	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), planTemplate, "mirror should have versioned to")
+	wantMirrorFile(t, filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor-2.md"), planTemplate, "mirror should have versioned to")
 }
 
 // TestSavePlanReusesMirroredDestAndCleansUpDraft: approval reuses the mirror's dest, then removes the draft and .dest.

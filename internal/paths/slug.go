@@ -45,13 +45,65 @@ func ProjectSlug(root string) string {
 	return string(b)
 }
 
-// RepoSlug is root's tag for repo-scoped artifacts
-func RepoSlug(root string) string {
-	main := MainCheckout(root)
-	if root == "" || SamePath(root, ConfigDir()) || SamePath(main, ConfigDir()) {
-		return ""
+// HomeRepo names the work outside any git repo; '@' never survives repoPart, so no repo can claim it.
+const HomeRepo = "@home"
+
+// Repo is a checkout's name, the owner a clash qualifies it with, and the key (origin URL, else path) owning it.
+type Repo struct{ Name, Owner, Key string }
+
+// RepoName names root's git repo: origin's last path element, else the main checkout's folder; HomeRepo outside git.
+func RepoName(root string) Repo {
+	if root == "" {
+		return Repo{Name: HomeRepo}
 	}
-	return Slug(filepath.Base(filepath.Clean(main)), "._-", 0, "")
+	top, main := CheckoutOf(root)
+	if top == "" {
+		return Repo{Name: HomeRepo}
+	}
+	url, _ := proc.RunGit(context.Background(), main, "config", "--get", "remote.origin.url")
+	if key, owner, name := remoteParts(strings.TrimSpace(url)); name != "" {
+		return Repo{Name: name, Owner: owner, Key: key}
+	}
+	main = Canon(main) // one key per checkout, whichever symlinked spelling reached it
+	return Repo{Name: repoPart(filepath.Base(main)), Owner: repoPart(filepath.Base(filepath.Dir(main))), Key: main}
+}
+
+// remoteParts splits an https, ssh, scp-style or local-path remote URL into a normalized key, owner and repo name.
+func remoteParts(url string) (key, owner, name string) {
+	if url == "" {
+		return "", "", ""
+	}
+	s, host := hostPath(url)
+	s = strings.TrimSuffix(strings.Trim(filepath.ToSlash(s), "/"), ".git")
+	parts := strings.Split(s, "/")
+	if host && len(parts) < 2 {
+		return "", "", "" // a bare host names no repo
+	}
+	name = repoPart(parts[len(parts)-1])
+	if len(parts) > 1 {
+		owner = repoPart(parts[len(parts)-2])
+	}
+	return strings.ToLower(s), owner, name
+}
+
+// hostPath is url as host/path without scheme or user (host false for a local path).
+func hostPath(url string) (s string, host bool) {
+	if _, rest, ok := strings.Cut(url, "://"); ok {
+		s = rest
+	} else if i := strings.IndexAny(url, ":/\\"); i > 0 && url[i] == ':' && !filepath.IsAbs(url) {
+		s = url[:i] + "/" + url[i+1:] // scp form host:owner/repo
+	} else {
+		return url, false
+	}
+	if at := strings.LastIndex(s, "@"); at >= 0 && at < strings.IndexAny(s+"/", "/") {
+		s = s[at+1:] // user@host
+	}
+	return s, true
+}
+
+// repoPart sanitises one name element; leading dots go so no name is hidden or ".."
+func repoPart(s string) string {
+	return strings.TrimLeft(Slug(strings.TrimSuffix(s, ".git"), "._-", 0, ""), ".-")
 }
 
 // GitTop is cwd's `git rev-parse --show-toplevel`, "" when git fails or prints nothing (not a repo).

@@ -42,7 +42,7 @@ func Save(in *core.Input, stderr io.Writer) int {
 	}
 	fresh := true
 	if !ok {
-		dest, fresh = planDestination(in.CWD, title, plan, true)
+		dest, fresh = planDestination(in, title, plan, true)
 	}
 	if !fresh {
 		retireDraft(draftPath, approvedText, stderr) // the dated file already holds this plan
@@ -175,8 +175,8 @@ func draftTarget(in *core.Input) (path string, ok bool) {
 }
 
 // planDestination picks <date>-<title>.md, then -2.md, …; adopt reuses a candidate already holding content.
-func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
-	for p := range datedNames(filepath.Join(plans.Home(planRepoRoot(cwd)), time.Now().Format("2006-01-02")+"-"+title)) {
+func planDestination(in *core.Input, title string, content []byte, adopt bool) (dest string, fresh bool) {
+	for p := range datedNames(filepath.Join(planHome(in, in.CWD), time.Now().Format("2006-01-02")+"-"+title)) {
 		dest = p
 		existing, err := os.ReadFile(p)
 		if err != nil {
@@ -210,6 +210,14 @@ func datedNames(prefix string) iter.Seq[string] {
 // planRepoRoot is cwd's git root; anything under the config dir (the memory store is its own git repo) is the harness.
 func planRepoRoot(cwd string) string {
 	return cmp.Or(planGitRoot(cwd), cwd)
+}
+
+// planHome files by Claude's launch dir (a cd moves cwd, not CLAUDE_PROJECT_DIR; other CLIs inherit it), else fallback.
+func planHome(in *core.Input, fallback string) string {
+	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && filepath.IsAbs(d) && in.Agent() == core.AgentClaude {
+		fallback = d
+	}
+	return plans.Home(planRepoRoot(fallback))
 }
 
 // planGitRoot is planRepoRoot without the cwd fallback: "" when cwd is in no repo.
@@ -407,7 +415,7 @@ func planDest(in *core.Input) (string, error) {
 		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")
-	return freeDated(filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug))
+	return freeDated(filepath.Join(planHome(in, root), time.Now().Format("2006-01-02")+"-"+slug))
 }
 
 // freeDated is the first absent datedNames candidate; a stat failure is returned.
@@ -537,7 +545,7 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 		base := filepath.Base(path)
 		dest, ok := plans.ReadRecordedDest(base)
 		if !ok {
-			dest, _ = planDestination(in.CWD, planTitle(content), content, false)
+			dest, _ = planDestination(in, planTitle(content), content, false)
 			if err := plans.RecordDest(base, dest); err != nil {
 				dropEmptyClaim(dest)
 				return err

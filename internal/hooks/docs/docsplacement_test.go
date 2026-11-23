@@ -372,7 +372,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> names the untagged harness plans dir.
+// TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> names the harness plans dir.
 func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	cfg, _ := filepath.EvalSymlinks(t.TempDir())
@@ -390,7 +390,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	if code := placeFiles(in, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
-	if want := "Plans belong in " + filepath.Join(cfg, "plans") + ","; !strings.Contains(stderr.String(), want) {
+	if want := "Plans belong in " + plans.Home(cfg) + ","; !strings.Contains(stderr.String(), want) {
 		t.Errorf("plan line missing %q:\n%s", want, stderr.String())
 	}
 	if want := "handoffs in " + filepath.Join(cfg, "memory", "handoffs", "YYYY-MM-DD-<topic>.md") + ";"; !strings.Contains(stderr.String(), want) {

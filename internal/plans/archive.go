@@ -82,11 +82,7 @@ func archivable(p Plan) (Summary, bool) {
 }
 
 func archiveDir(root string) string {
-	slug := paths.RepoSlug(root)
-	if slug == "" {
-		slug = "claude"
-	}
-	return filepath.Join(paths.MemoryStoreDir(), "archive", "plans", slug)
+	return filepath.Join(paths.MemoryStoreDir(), "archive", "plans", Name(root))
 }
 
 // movePlan renames c.Plan to to and logs c; a failed log moves the plan back, so every move has its Reopen line.

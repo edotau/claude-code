@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -372,12 +373,12 @@ func TestOpenPlansLineNamesOnlyOpenPlans(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(cfg, ".git"), 0o755); err != nil || os.WriteFile(filepath.Join(cfg, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644) != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(cfg, "plans"), 0o755); err != nil {
+	if err := os.MkdirAll(plans.Home(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	day := time.Now().Format(time.DateOnly)
 	plan := func(slug, body string) {
-		if err := os.WriteFile(filepath.Join(cfg, "plans", day+"-"+slug+".md"), []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(plans.Home(cfg), day+"-"+slug+".md"), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

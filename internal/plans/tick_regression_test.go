@@ -12,16 +12,17 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestUnreadableMirrorRecordPreventsTick(t *testing.T) {
-	for _, scope := range []string{"repo", "top-level"} {
+	for _, scope := range []string{"repo", paths.HomeRepo} {
 		t.Run(scope, func(t *testing.T) {
-			config := hermetic(t)
+			hermetic(t)
 			repo, base := tickRangeRepo(t)
 			home := Home(repo)
-			if scope == "top-level" {
-				home = filepath.Join(config, "plans")
+			if scope == paths.HomeRepo {
+				home = Home("")
 			}
 			plan := filepath.Join(home, "2026-11-09-draft.md")
 			body := "- [ ] 1.1 Draft owns: internal/a/a.go\n"

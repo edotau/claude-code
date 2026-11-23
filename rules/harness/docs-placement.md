@@ -11,7 +11,7 @@ paths:
 
 | Artifact | Path |
 | --- | --- |
-| Plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (others); gitignored; dated from the first write (`docs-plan-mirror`), filed on approval (`docs-plan-save`); the undated draft is scratch |
+| Plan | `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md`, `<repo>` the launch dir's git repo (origin's name, else the main checkout's folder; `<owner>-<repo>` when another remote owns the name; `@home` outside any repo); gitignored; dated from the first write (`docs-plan-mirror`), filed on approval (`docs-plan-save`); Claude Code's undated plan-mode draft in the root is scratch |
 | Session handoff | `~/.claude/memory/handoffs/YYYY-MM-DD-<topic>.md` — only when `activeContext.md` can't hold it; point to it from there |
 | Report (review, audit, techdebt scan, research brief) | `~/.claude/memory/reports/YYYY-MM-DD-<name>.md` |
 | Techdebt | `~/.claude/memory/techdebt/<area>.md`, one file per area; a plan or report may list it, its home is here |

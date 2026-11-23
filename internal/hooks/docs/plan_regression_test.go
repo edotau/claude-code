@@ -32,7 +32,7 @@ func TestMirrorConcurrentFirstWriteUsesOneDestination(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
-	files, err := filepath.Glob(filepath.Join(cfg, "plans", dateStamp()+"-*.md"))
+	files, err := filepath.Glob(filepath.Join(plans.Home(cfg), dateStamp()+"-*.md"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("destinations = %v, %v; want exactly one", files, err)
 	}
@@ -48,7 +48,7 @@ func TestMirrorRecordFailureDropsClaim(t *testing.T) {
 	in := core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)))
 	var stderr bytes.Buffer
 	Mirror(in, &stderr)
-	files, err := filepath.Glob(filepath.Join(cfg, "plans", dateStamp()+"-*.md"))
+	files, err := filepath.Glob(filepath.Join(plans.Home(cfg), dateStamp()+"-*.md"))
 	if err != nil || len(files) != 0 || !strings.Contains(stderr.String(), "plan-mirror:") {
 		t.Fatalf("failed record left mirrors %v, err %v, stderr %q", files, err, stderr.String())
 	}
@@ -109,8 +109,8 @@ func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 	}
 }
 
-// TestSavePlanFromNestedConfigRepoFilesUntagged: a repo nested in the config dir is the harness; its plan is untagged.
-func TestSavePlanFromNestedConfigRepoFilesUntagged(t *testing.T) {
+// TestSavePlanFromNestedConfigRepoFilesAsHarness: a repo nested in the config dir is the harness; its plan files there.
+func TestSavePlanFromNestedConfigRepoFilesAsHarness(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	nested := hosttest.RepoAt(t, filepath.Join(cfg, "memory"))
@@ -121,20 +121,20 @@ func TestSavePlanFromNestedConfigRepoFilesUntagged(t *testing.T) {
 	if code := Save(core.ParseInput(strings.NewReader(planPayload(t, cwd, "# Plan: Nested\n\nsteps\n", ""))), &bytes.Buffer{}); code != core.ExitProceed {
 		t.Fatalf("Save must never block, got %d", code)
 	}
-	want := []string{time.Now().Format("2006-01-02") + "-nested.md"}
+	want := []string{plans.Name(cfg) + "/" + time.Now().Format("2006-01-02") + "-nested.md"}
 	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("saved = %v, want %v", got, want)
 	}
 }
 
-// TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo: a cwd in memory/<repo> is the harness, so the copy lands in plans/.
-func TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo(t *testing.T) {
+// TestPlanMirrorAsHarnessWhenCWDIsMemoryStoreRepo: a cwd in memory/<repo> is the harness; the copy lands in its home.
+func TestPlanMirrorAsHarnessWhenCWDIsMemoryStoreRepo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	store := hosttest.RepoAt(t, filepath.Join(cfg, "memory", "claude-code"))
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "store-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", store, draft)
-	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
+	wantMirrorFile(t, filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
 }
 
 // TestPlanMirrorNeverAdoptsAnIdenticalDatedFile: a second draft with identical bytes must not adopt the first's file.
@@ -146,8 +146,8 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 	draftB := writeMirrorDraft(t, plansDir, "bbb-words.md", planTemplate)
 	mirrorRun(t, "mirror A", "Write", cfg, draftA)
 	mirrorRun(t, "mirror B", "Write", cfg, draftB)
-	destA := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
-	destB := filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md")
+	destA := filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md")
+	destB := filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor-2.md")
 	wantMirrorFile(t, destA, planTemplate, "destA")
 	wantMirrorFile(t, destB, planTemplate, "destB")
 
@@ -165,7 +165,7 @@ func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	edited := strings.Replace(planTemplate, "why\n", "why, edited after approval\n", 1)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", edited)
 	stderr := approvePlan(t, approvalPayload(t, cfg, draft, map[string]any{}))
-	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "approved plan not saved at")
+	wantMirrorFile(t, filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md"), planTemplate, "approved plan not saved at")
 	wantMirrorFile(t, draft, edited, "draft edited after approval must be kept untouched:")
 	if !strings.Contains(stderr, "save-plan: ") || !strings.Contains(stderr, draft) {
 		t.Errorf("missing kept-draft diagnostic: %s", stderr)
@@ -181,7 +181,7 @@ func TestSavePlanFailedRecordRemovalCannotOverwriteApproval(t *testing.T) {
 	plansDir := filepath.Join(cfg, "plans")
 	draft := writeMirrorDraft(t, plansDir, "pending-words.md", planTemplate)
 	mirrorRun(t, "initial mirror", "Write", cfg, draft)
-	dest := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+	dest := filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor.md")
 	edited := strings.Replace(planTemplate, "why\n", "unapproved edit\n", 1)
 	writeMirrorDraft(t, plansDir, filepath.Base(draft), edited)
 	scratch := plans.ScratchDir()
@@ -205,7 +205,7 @@ func TestSavePlanFailedRecordRemovalCannotOverwriteApproval(t *testing.T) {
 	}
 	mirrorRun(t, "post-approval edit", "Edit", cfg, draft)
 	wantMirrorFile(t, dest, planTemplate, "later mirror must not overwrite the approved plan")
-	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), edited, "new draft mirror")
+	wantMirrorFile(t, filepath.Join(plans.Home(cfg), dateStamp()+"-widget-refactor-2.md"), edited, "new draft mirror")
 }
 
 func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {

@@ -11,9 +11,9 @@ model: inherit
 ## Role
 
 The single definition of plan writing in this harness: a read-only architect that researches, decides and returns a
-plan in `docs/templates/plan.md`; it writes or edits only its own plan file under `~/.claude/plans/` (this repo at
-the top, `<repo-slug>/` for others), dated per the template; never any other file, never commits, never runs anything
-that changes state (docs-placement and safety-scan enforce it). Reached through plan mode or `Agent` with
+plan in `docs/templates/plan.md`; it writes or edits only its own plan file under `~/.claude/plans/<repo>/` (the
+launch dir's git repo; `@home` outside one), dated per the template; never any other file, never commits, never runs
+anything that changes state (docs-placement and safety-scan enforce it). Reached through plan mode or `Agent` with
 `subagent_type: "Plan"`; the request is the goal to plan.
 
 ## Owns
@@ -22,9 +22,9 @@ that changes state (docs-placement and safety-scan enforce it). Reached through 
   checklist convention; every other agent that emits a plan points here.
 - **Steps 0–3 of `problem-solving`** applied to planning: classify, define done with its verification, gather
   evidence from the real code, commit to one recommendation (`## Procedure`).
-- **Filing location** — plans live only in `~/.claude/plans/` (this repo at the top, `<repo-slug>/` subdir for any
-  other repo), never a repo root or a repo's own `.claude/`; mechanics (`docs-plan-save`, the `docs-placement` gate,
-  `docs-plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
+- **Filing location** — plans live only in `~/.claude/plans/<repo>/` (named by the launch dir's git repo, `@home`
+  outside any repo), never a repo root or a repo's own `.claude/`; mechanics (`docs-plan-save`, the `docs-placement`
+  gate, `docs-plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
 
 ## Knows
 

@@ -24,7 +24,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
-| `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
+| `plans/` | Implementation plans (native `plansDirectory`), gitignored, under `plans/<repo>/` named by the launch dir's git repo (`@home` outside any repo); the root holds only plan-mode drafts |
 | `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
 | `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (`<repo>` = checkout dir without a leading dot: `~/worktrees/claude/`) |

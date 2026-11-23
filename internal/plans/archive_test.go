@@ -8,6 +8,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestArchiveEligibilityAndDryRun(t *testing.T) {
@@ -38,6 +41,18 @@ func TestArchiveEligibilityAndDryRun(t *testing.T) {
 	}
 	if log := readFile(t, auditLogFile()); !strings.Contains(log, changes[0].Reopen) {
 		t.Fatalf("archive missing reopen record: %s", log)
+	}
+}
+
+// Rule 6: the archive folder is the plans folder's name, @home included; no hard-coded harness name.
+func TestArchiveDirIsThePlansName(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	hosttest.In(t, repo, "remote", "add", "origin", "https://example.invalid/acme/widget.git")
+	for root, want := range map[string]string{"": "@home", repo: "widget"} {
+		if got := archiveDir(root); got != filepath.Join(paths.MemoryStoreDir(), "archive", "plans", want) {
+			t.Errorf("archiveDir(%q) = %s, want archive/plans/%s", root, got, want)
+		}
 	}
 }
 

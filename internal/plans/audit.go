@@ -193,7 +193,7 @@ func (a *auditRun) auditPlan(d datedPlan, commits []Commit, history []auditCommi
 // otherHomes audits each other repo home whose checkout sits beside a.root's, else reports its plans by name.
 func (a *auditRun) otherHomes() error {
 	skip, base := MirrorDests(), filepath.Dir(paths.MainCheckout(a.root))
-	for _, home := range Dirs(true)[1:] {
+	for _, home := range Dirs(true) {
 		if paths.SamePath(home, Home(a.root)) {
 			continue
 		}
@@ -221,12 +221,13 @@ func (a *auditRun) otherHomes() error {
 	return nil
 }
 
-// siblingCheckout is the main checkout of repo slug one or two levels under base (dotted name too); "" when none.
-func siblingCheckout(base, slug string) string {
-	for _, pat := range []string{slug, "." + slug, filepath.Join("*", slug), filepath.Join("*", "."+slug)} {
-		matches, _ := filepath.Glob(filepath.Join(base, pat)) // a slug holds only [a-z0-9._-], never a glob meta
+// siblingCheckout is the main checkout one or two levels under base whose plans Name is name; "" when none.
+func siblingCheckout(base, name string) string {
+	for _, pat := range []string{"*", filepath.Join("*", "*")} {
+		matches, _ := filepath.Glob(filepath.Join(base, pat, ".git")) // a stat per dir; git runs only for checkouts
 		for _, m := range matches {
-			if top, main := paths.CheckoutOf(m); paths.SamePath(top, m) && paths.RepoSlug(main) == slug {
+			dir := filepath.Dir(m)
+			if top, main := paths.CheckoutOf(dir); paths.SamePath(top, dir) && paths.SamePath(top, main) && peekName(main) == name {
 				return main
 			}
 		}
