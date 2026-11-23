@@ -1,4 +1,4 @@
-// interact.go is the interactive --watch: arrow keys select a dispatch row, Enter opens it with its live output.
+// interact.go is the `agents dashboard` terminal loop: raw keys, periodic reload, Enter opens a job's live output.
 
 package tree
 
@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -22,29 +21,35 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// key is one keypress the interactive watch reacts to.
+// key is one keypress the dashboard reacts to.
 type key int
 
 const (
 	keyUp key = iota
 	keyDown
+	keyLeft
+	keyRight
 	keyEnter
 	keyEsc
 	keyQuit
 )
 
-// listFooter and jobFooter are the key hints under the list and the detail view.
+// jobFooter is the key hint under the detail view.
+const jobFooter = "esc/q back"
+
+// pollEvery is how often the dashboard checks the terminal size; minInterval is the shortest listing reload.
 const (
-	listFooter = "↑/↓ select · enter open · q quit"
-	jobFooter  = "esc/q back"
+	pollEvery   = 250 * time.Millisecond
+	minInterval = 500 * time.Millisecond
 )
 
-// keySeqs are the byte sequences that name a key: arrows in CSI and SS3 form, vi j/k, Enter and q.
+// keySeqs are the byte sequences that name a key: arrows in CSI and SS3 form, vi hjkl, Enter and q.
 var keySeqs = []struct {
 	seq string
 	k   key
 }{{"\x1b[A", keyUp}, {"\x1bOA", keyUp}, {"\x1b[B", keyDown}, {"\x1bOB", keyDown},
-	{"k", keyUp}, {"j", keyDown}, {"\r", keyEnter}, {"\n", keyEnter}, {"q", keyQuit}}
+	{"\x1b[C", keyRight}, {"\x1bOC", keyRight}, {"\x1b[D", keyLeft}, {"\x1bOD", keyLeft},
+	{"k", keyUp}, {"j", keyDown}, {"l", keyRight}, {"h", keyLeft}, {"\r", keyEnter}, {"\n", keyEnter}, {"q", keyQuit}}
 
 // decodeKeys maps raw terminal bytes to keys: keySeqs, then a lone Esc; any other sequence or byte drops.
 func decodeKeys(b []byte) []key {
@@ -83,7 +88,7 @@ func stty(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// rawKeys turns off echo and line buffering and streams keys; restore puts the terminal back and shows the cursor.
+// rawKeys enters the alternate screen without echo or line buffering and streams keys; restore undoes all of it.
 func rawKeys() (keys <-chan key, restore func(), err error) {
 	saved, err := stty("-g")
 	if err != nil {
@@ -92,9 +97,9 @@ func rawKeys() (keys <-chan key, restore func(), err error) {
 	if _, err := stty("-icanon", "-echo", "min", "1"); err != nil {
 		return nil, nil, err
 	}
-	fmt.Print("\x1b[?25l")
+	fmt.Print("\x1b[?1049h\x1b[?25l")
 	ch := make(chan key, 8)
-	go func() { // parks in read(2) until a key or exit; the verb ends with the watch, so it never steals input
+	go func() { // parks in read(2) until a key or exit; the verb ends with the dashboard, so it never steals input
 		defer close(ch)
 		buf := make([]byte, 64)
 		for {
@@ -107,11 +112,11 @@ func rawKeys() (keys <-chan key, restore func(), err error) {
 			}
 		}
 	}()
-	return ch, func() { fmt.Print("\x1b[?25h"); _, _ = stty(saved) }, nil
+	return ch, func() { fmt.Print("\x1b[?25h\x1b[?1049l"); _, _ = stty(saved) }, nil
 }
 
-// watcher is one interactive watch: the newest listing, the selected dispatch id and the key stream.
-type watcher struct {
+// dashboard is one `agents dashboard` run: the newest listing as nodes, the view state and the key stream.
+type dashboard struct {
 	ctx       context.Context
 	claudeDir string
 	opts      Options
@@ -119,126 +124,121 @@ type watcher struct {
 	keys      <-chan key
 	f         frame
 	tree      *Tree
-	sel       string
+	nodes     []Node
+	st        dashState
+	loaded    time.Time
 }
 
-// watchKeys runs the interactive watch when stdin and stdout are terminals; ok false leaves the plain watch to run.
-func watchKeys(claudeDir string, opts Options, v View) (code int, ok bool) {
-	if v.JSON || runtime.GOOS == "windows" || !proc.IsTerminal(os.Stdin) || rowWidth(os.Stdout) == 0 {
-		return 0, false
+// watchKeys is retired: `agents tree --watch` is the plain reprint and the walkable tree is `agents dashboard`.
+func watchKeys(string, Options, View) (int, bool) { return 0, false }
+
+// Dashboard runs the walkable tree until q, Esc, a signal or a failed load; stdin and stdout must be terminals.
+func Dashboard(claudeDir string, opts Options, v View) int {
+	if err := runDashboard(claudeDir, opts, v); err != nil {
+		fmt.Fprintln(os.Stderr, "agents dashboard:", err) // after the restore, so it lands on the main screen
+		return 1
 	}
+	return 0
+}
+
+// runDashboard owns the terminal: its deferred restore runs on return, panic and SIGINT/SIGTERM/SIGHUP alike.
+func runDashboard(claudeDir string, opts Options, v View) error {
+	opts.scans = loadScanCache()
 	keys, restore, err := rawKeys()
 	if err != nil {
-		return 0, false
+		return err
 	}
 	defer restore()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	w := &watcher{ctx: ctx, claudeDir: claudeDir, opts: opts, view: v, keys: keys, f: frame{paint: activePaint(os.Stdout)}}
-	return w.run(), true
+	w, h := termSize()
+	d := &dashboard{ctx: ctx, claudeDir: claudeDir, opts: opts, view: v, keys: keys,
+		f: frame{paint: activePaint(os.Stdout)}, st: dashState{width: w, height: h}}
+	return d.run()
 }
 
-// run reloads the listing every interval and redraws it on each key until q, Ctrl-C or a failed load.
-func (w *watcher) run() int {
-	tick := time.NewTicker(w.view.Interval)
-	defer tick.Stop()
+// run reloads the listing every interval, polls the terminal size and redraws until a quit key or signal.
+func (d *dashboard) run() error {
+	poll := time.NewTicker(pollEvery) // no SIGWINCH on Windows builds, so a resize is found by polling
+	defer poll.Stop()
 	for {
-		tr, err := listing(w.claudeDir, w.opts, w.view.All)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "agents tree:", err)
-			return 1
+		if err := d.reloadDue(); err != nil {
+			return err
 		}
-		tr.detail, w.tree = w.view.All, tr
-		for reload := false; !reload; {
-			ids := jobIDs(tr.Dispatches)
-			w.sel = pick(ids, w.sel, 0)
-			if err := w.drawList(); err != nil {
-				fmt.Fprintln(os.Stderr, "agents tree:", err)
-				return 1
+		if err := d.draw(); err != nil {
+			return err
+		}
+		select {
+		case <-d.ctx.Done():
+			return nil
+		case <-poll.C:
+		case k, ok := <-d.keys:
+			if !ok || k == keyQuit || k == keyEsc {
+				return nil
 			}
-			select {
-			case <-w.ctx.Done():
-				return 0
-			case <-tick.C:
-				reload = true
-			case k, ok := <-w.keys:
-				if !ok || k == keyQuit {
-					return 0
-				}
-				reload = w.onKey(k, ids)
-			}
+			d.onKey(k)
 		}
 	}
 }
 
-// onKey moves the selection, or opens the selected job; true when the listing should reload.
-func (w *watcher) onKey(k key, ids []string) bool {
-	switch k {
-	case keyUp:
-		w.sel = pick(ids, w.sel, -1)
-	case keyDown:
-		w.sel = pick(ids, w.sel, 1)
-	case keyEnter:
-		if w.sel != "" {
-			w.openJob(w.sel)
-			return true
-		}
+// reloadDue lists the tree again once an interval has passed, keeping the selection on the same node.
+func (d *dashboard) reloadDue() error {
+	if time.Since(d.loaded) < max(d.view.Interval, minInterval) {
+		return nil
 	}
-	return false
+	tr, err := listing(d.claudeDir, d.opts, d.view.All)
+	if err != nil {
+		return err
+	}
+	d.loaded, d.tree, d.nodes = time.Now(), tr, Build(tr.Sessions, tr.Dispatches)
+	d.st = clamp(d.st, visible(d.nodes, d.st.open))
+	return nil
 }
 
-// jobIDs are the dispatch rows' ids in the order the list prints them.
-func jobIDs(ds []Dispatch) []string {
-	var ids []string
-	for _, n := range jobRows(ds) {
-		ids = append(ids, n.ID)
+// onKey opens the selected dispatch's detail on Enter, else applies the key to the view state.
+func (d *dashboard) onKey(k key) {
+	if k != keyEnter {
+		d.st = onKey(d.st, k, d.nodes)
+		return
 	}
-	return ids
+	vis := visible(d.nodes, d.st.open)
+	if d.st.sel < len(vis) && vis[d.st.sel].Kind == KindDispatch {
+		n := vis[d.st.sel]
+		d.openJob(cmp.Or(n.Via, n.ID)) // a folded row opens its carrier, as `agents tree` lists it
+	}
 }
 
-// pick moves the selection by step over ids, clamped; a vanished or empty selection lands on the first row.
-func pick(ids []string, sel string, step int) string {
-	if len(ids) == 0 {
-		return ""
+// draw lays the frame out for the current terminal size and writes it without a trailing newline, so nothing scrolls.
+func (d *dashboard) draw() error {
+	if w, h := termSize(); w != d.st.width || h != d.st.height {
+		d.st = onResize(d.st, w, h)
 	}
-	i := slices.Index(ids, sel)
-	if i < 0 {
-		return ids[0]
-	}
-	return ids[min(max(i+step, 0), len(ids)-1)]
-}
-
-// drawList draws the listing with the selection reversed and the key hints below it.
-func (w *watcher) drawList() error {
-	w.tree.selected = w.sel
-	w.f.width = rowWidth(os.Stdout)
-	w.f.text.Reset()
-	renderTree(&w.f.text, w.tree, time.Now(), w.f.width, w.f.paint)
-	fmt.Fprintf(&w.f.text, "\n%s\n", ansi.Style(w.f.paint != "", ansi.Dim, listFooter))
-	return w.f.flush(os.Stdout)
+	d.f.text.Reset()
+	d.f.text.WriteString(strings.Join(dashLines(d.st, d.nodes, time.Now(), d.f.paint), "\n"))
+	return d.f.flush(os.Stdout)
 }
 
 // openJob shows one job's detail and follows its output, as `agents result -f <id>` does, until Esc or q.
-func (w *watcher) openJob(id string) {
+func (d *dashboard) openJob(id string) {
 	rec, err := agent.LoadRecord(id)
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(w.ctx)
+	ctx, cancel := context.WithCancel(d.ctx)
 	out, done := follow(ctx, rec)
 	defer func() { cancel(); <-done }()
-	head := jobHeader(w.tree, id, rec)
+	head := jobHeader(d.tree, id, rec)
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if w.drawJob(head, out.tail()) != nil {
+		if d.drawJob(head, out.tail()) != nil {
 			return
 		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-		case k, ok := <-w.keys:
+		case k, ok := <-d.keys:
 			if !ok || k == keyEsc || k == keyQuit {
 				return
 			}
@@ -247,13 +247,13 @@ func (w *watcher) openJob(id string) {
 }
 
 // drawJob draws the detail view of head and output, sized to the terminal.
-func (w *watcher) drawJob(head, output []string) error {
+func (d *dashboard) drawJob(head, output []string) error {
 	width, height := termSize()
-	w.f.text.Reset()
+	d.f.text.Reset()
 	for _, line := range detailLines(head, output, width, height) {
-		fmt.Fprintln(&w.f.text, line)
+		fmt.Fprintln(&d.f.text, line)
 	}
-	return w.f.flush(os.Stdout)
+	return d.f.flush(os.Stdout)
 }
 
 // follow copies rec's log into a buffer until ctx ends or the job does; done closes when the copy stops.
