@@ -28,7 +28,7 @@ var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 		"--ignore-rules", "--output-schema", "--json"},
 	HelpArgv:     []string{"exec", "--help"},
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError},
-	ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
+	ResumeFormat: "codex resume %s", ModelsProvider: "openai", ProviderVerb: true, LoginArgv: []string{"codex", "login"},
 	ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → profile",
 	Extras: map[string][]string{extraApprovalPolicy: nil, extraSandboxMode: nil, extraVerbosity: codexVerbosities,
 		extraConfigRoute: nil},

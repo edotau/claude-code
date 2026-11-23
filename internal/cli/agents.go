@@ -867,7 +867,7 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 var retiredAgentVerbs = []string{"resume", "status", "tail", "result", "cancel", "on", "off"}
 
 func agentProviderArgs(name string, args []string) ([]string, error) {
-	if !slices.Contains([]string{"codex", "copilot"}, name) || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
+	if !agent.SchemaFor(name).CLI.ProviderVerb || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
 		return args, nil
 	}
 	reg, err := providers.Load()

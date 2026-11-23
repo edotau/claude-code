@@ -101,8 +101,8 @@ func Catalog(name, format, profile string, models func(args []string) int) int {
 	if !ok || !s.External() {
 		return helptext.Fail("unknown agent %q", name)
 	}
-	if name == "copilot" && format == helptext.Text {
-		fmt.Println("GitHub Copilot catalog")
+	if s.CLI.CatalogTitle != "" && format == helptext.Text {
+		fmt.Println(s.CLI.CatalogTitle)
 	}
 	switch {
 	case s.CLI.ModelsProvider != "":

@@ -521,6 +521,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError},
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
+	ReviewReadOnly: true, CatalogTitle: "GitHub Copilot catalog", ProviderVerb: true,
 	LoginArgv:     []string{"copilot", "login"},
 	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic key",
 	// the CLI's own mode names, not validated here
