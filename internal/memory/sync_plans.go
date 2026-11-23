@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path"
@@ -62,6 +63,8 @@ func decidePlans(seen, local, theirs, archived map[string]string) plansAction {
 		case archived[rel] != "" && a.archived(rel, seen[rel], l, t, archived[rel]):
 		case l == "":
 			a.take.rels = append(a.take.rels, rel) // deletions do not propagate: a file only the peer has comes back
+		case t == "" && archived[rel] != "":
+			a.differ++ // never offer the peer a live copy of a plan the store archived
 		case t == "":
 			a.send.rels = append(a.send.rels, rel)
 		default:
@@ -160,10 +163,10 @@ func (s *syncPass) plans(name string, p *PeerSync) {
 	}
 	theirs := hashTree(dir)
 	a := decidePlans(p.PlansSeen, local, theirs, archivedPlans(union(local, theirs)))
-	if a.differ > 0 {
-		s.say("plans", name, fmt.Sprintf("differ %d", a.differ))
-	}
 	lines, ok := s.takePlans(name, p, dir, a.take, theirs)
+	if n := a.differ + countPrefix(lines, plansBeside); n > 0 {
+		s.say("plans", name, fmt.Sprintf("differ %d", n))
+	}
 	if !ok {
 		return
 	}
@@ -339,20 +342,81 @@ func ImportPlans(from string, dryRun bool) ([]string, error) {
 	if dryRun {
 		head = "plans: would have"
 	}
-	return append(lines, fmt.Sprintf("%s %d written, %d removed, %d kept", head, n("write "), n("remove "),
-		n("kept local ")+n("skipped "))), err
+	return append(lines, fmt.Sprintf("%s %d written, %d removed, %d kept, %d differ", head, n("write "), n("remove "),
+		n("kept local ")+n("skipped "), n(plansBeside))), err
 }
 
 // applyPlans copies pw.rels into home and drops pw.drop's files while each hash matches, under the plans lock.
 func applyPlans(home, from string, pw plansWrite, dryRun bool) (lines []string, err error) {
+	arch, err := os.OpenRoot(filepath.Join(paths.MemoryStoreDir(), "archive", "plans"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err // an unreadable archive could let an archived plan back live
+	}
+	if arch != nil {
+		defer arch.Close()
+	}
 	err = plans.WithLock(func() error {
-		lines, err = applyPlansLocked(home, from, pw, dryRun)
+		lines, err = applyPlansLocked(home, from, arch, pw, dryRun)
 		return err
 	})
 	return lines, err
 }
 
-func applyPlansLocked(home, from string, pw plansWrite, dryRun bool) ([]string, error) {
+// plansBeside starts the line for an incoming plan kept beside its archive copy instead of going live.
+const plansBeside = "archived "
+
+// keepArchived holds back a plan absent here but archived: an equal copy is dropped, a differing one kept beside it.
+func keepArchived(dst, src, arch *os.Root, rel string, dryRun bool) (string, bool, error) {
+	if held, line := archivedHere(dst, arch, rel); !held || line != "" {
+		return line, held, nil
+	}
+	data, err := readSource(src, rel)
+	if err != nil || credentialShaped(data) {
+		return "", false, nil // applyPlan reports the skip
+	}
+	return keepBeside(arch, rel, data, dryRun)
+}
+
+// archivedHere is true when rel is not live in dst but is in arch; line reports an archive it cannot read.
+func archivedHere(dst, arch *os.Root, rel string) (bool, string) {
+	name := filepath.FromSlash(rel)
+	if arch == nil {
+		return false, ""
+	}
+	if _, err := dst.Lstat(name); !errors.Is(err, fs.ErrNotExist) {
+		return false, ""
+	}
+	_, err := arch.Lstat(name)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, ""
+	case err != nil:
+		return true, "skipped " + rel + ": archive: " + err.Error()
+	}
+	return true, ""
+}
+
+// keepBeside writes data as <name>-<hash12><ext> beside the archive copy; equal bytes already kept write nothing.
+func keepBeside(arch *os.Root, rel string, data []byte, dryRun bool) (string, bool, error) {
+	sum := digestOf(data)
+	ext := path.Ext(rel)
+	side := strings.TrimSuffix(rel, ext) + "-" + sum[:12] + ext
+	for _, have := range []string{rel, side} { // a missing or unreadable file hashes "", never sum
+		if h, _ := hashFile(arch, have); h == sum {
+			return "", true, nil
+		}
+	}
+	line := plansBeside + rel + ": kept beside as archive/plans/" + side
+	if dryRun {
+		return line, true, nil
+	}
+	if l, err := writeAtomic(arch, side, data, ""); err != nil || !strings.HasPrefix(l, "write ") {
+		return "skipped " + rel + ": side copy " + side + " is taken", true, err
+	}
+	return line, true, nil
+}
+
+func applyPlansLocked(home, from string, arch *os.Root, pw plansWrite, dryRun bool) ([]string, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
 	}
@@ -368,7 +432,10 @@ func applyPlansLocked(home, from string, pw plansWrite, dryRun bool) ([]string, 
 	defer src.Close()
 	var lines []string
 	for _, rel := range pw.rels {
-		l, err := applyPlan(dst, src, rel, pw.over[rel], dryRun)
+		l, held, err := keepArchived(dst, src, arch, rel, dryRun)
+		if !held {
+			l, err = applyPlan(dst, src, rel, pw.over[rel], dryRun)
+		}
 		if err != nil {
 			return lines, err
 		}

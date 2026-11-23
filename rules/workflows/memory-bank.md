@@ -82,7 +82,10 @@ update`; the rest print none.
   map and a content digest in place of the store's git token. Deletions do not propagate, except an archived plan:
   once the store holds `archive/plans/<repo>/X.md` for `plans/<repo>/X.md` (`archive/plans/X.md` for the top level), a
   side's copy equal to it, or unedited since a settled sync while the other side no longer holds it, is removed; a
-  recorded conflict keeps both edits. Conflicts print as `differ N`. A peer whose binary predates
+  recorded conflict keeps both edits. A sync never makes an archived plan live again: a side whose store
+  archives it neither offers its live copy nor takes the peer's; an incoming copy equal to the archive is
+  dropped, a differing one is kept once as `archive/plans/<repo>/X-<sha256[:12]>.md`. Conflicts and those
+  copies print as `differ N`. A peer whose binary predates
   `memory import --plans` is found by the probe and syncs memory alone, with no plans fetch.
 
 ## Promotion ladder
