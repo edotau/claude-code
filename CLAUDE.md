@@ -54,7 +54,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    into checks and loop until they pass: `rules/standards/principles.md`.
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
-3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`,
+3. **Dispatch with the Agent tool** (Databricks arm, R20). Choose `subagent_type` from `claude`,
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
    offers it; else `general-purpose`); external work agents run carried, Pi as a plain ask (see
    `skills/subagent-workflows/SKILL.md` →
@@ -69,7 +69,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    disjoint files. Wave loop (blocked queue, review → fix → commit): `skills/subagent-workflows/SKILL.md`.
    **Before the first dispatch of a multi-part request, write the DISPATCH TABLE** (task → owned files → blocked-by →
    agent) and dispatch every unblocked row in one message; redo it on every hand-back and new user message, merging
-   new asks into it, not handling them in arrival order (`skills/subagent-workflows/SKILL.md` → Dispatch table).
+   new asks into it, not handling them in arrival order (`skills/subagent-workflows/SKILL.md` → Dispatch table; R18).
    **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
    listing it. Verify every returned diff, gate and deletion. Briefs, relay rules and recovery:
    `skills/subagent-workflows/SKILL.md`;

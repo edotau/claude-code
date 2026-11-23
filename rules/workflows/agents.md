@@ -54,8 +54,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   model).
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - External work agents run directly from the main session via carried asks
-  (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask); `dispatch-effort` rewrites a missing or wrong
-  `<model>:` description prefix on Agent leaves, never denies it.
+  (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20); `dispatch-effort`
+  rewrites a missing or wrong `<model>:` description prefix on Agent leaves, never denies it.
 
 ## Agent and command files
 
