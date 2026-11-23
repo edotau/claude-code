@@ -90,15 +90,49 @@ func TestNextCandidateForRepo(t *testing.T) {
 	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{row, old}); err != nil {
 		t.Fatal(err)
 	}
+	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","calls_per_day":20000}`)
+	benchPkg(t, a, "internal/p")
 	for _, top := range []string{a, link} {
-		if it, ok, err := NextCandidateFor(top, now); err != nil || !ok || it.Pkg != "internal/p" {
+		if it, ok, err := NextCandidateFor(top, now, nil); err != nil || !ok || it.Pkg != "internal/p" {
 			t.Fatalf("repo %s: %+v, %v, %v", top, it, ok, err)
 		}
 	}
-	if it, ok, err := NextCandidateFor(b, now); err != nil || ok {
+	if it, ok, err := NextCandidateFor(b, now, nil); err != nil || ok {
 		t.Fatalf("other repo got %+v, %v, %v", it, ok, err)
 	}
 	checkRepoLessRow(t, now)
+}
+
+// A higher-ranked item the automatic run cannot take is passed over for the next launchable fix.
+func TestNextCandidateForSkipsUnlaunchable(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	top := t.TempDir()
+	p, q := autoRow(now, regressed), autoRow(now, regressed)
+	p.Repo, q.Repo = repoIdentity(top), repoIdentity(top)
+	q.Pkg, q.Benchmark = "internal/q", "BenchmarkQ-8"
+	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{p, q}); err != nil {
+		t.Fatal(err)
+	}
+	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","calls_per_day":20000}`+"\n"+`{"pkg":"internal/q","calls_per_day":90000}`)
+	benchPkg(t, top, "internal/p") // internal/q ranks first but has no benchmarks in this repo
+	if it, ok, err := NextCandidateFor(top, now, nil); err != nil || !ok || it.Pkg != "internal/p" {
+		t.Fatalf("pick = %+v, %v, %v; want internal/p", it, ok, err)
+	}
+	if it, ok, err := NextCandidateFor(top, now, map[string]bool{closeKey(p.Pkg, "BenchmarkA regressed +10.00%"): true}); err != nil || ok {
+		t.Fatalf("skipped item picked: %+v, %v, %v", it, ok, err)
+	}
+}
+
+func benchPkg(t *testing.T, top, pkg string) {
+	t.Helper()
+	dir := filepath.Join(top, pkg)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p_test.go"), []byte("package p\n\nfunc BenchmarkA() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func checkRepoLessRow(t *testing.T, now time.Time) {
@@ -107,7 +141,7 @@ func checkRepoLessRow(t *testing.T, now time.Time) {
 	if err != nil || len(all) != 2 {
 		t.Fatalf("Candidates must keep the repo-less row: %+v, %v", all, err)
 	}
-	if it, ok, _ := NextCandidateFor("", now); ok {
+	if it, ok, _ := NextCandidateFor("", now, nil); ok {
 		t.Fatalf("empty top matched %+v", it)
 	}
 }

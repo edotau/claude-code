@@ -153,12 +153,18 @@ func NextCandidate(now time.Time) (Item, bool, error) {
 	return items[0], true, nil
 }
 
-// NextCandidateFor is NextCandidate limited to rows measured in the repository at top; rows without a repo match none.
-func NextCandidateFor(top string, now time.Time) (Item, bool, error) {
+// NextCandidateFor is the first launchable fix at or above the floor, from rows measured in the repository at top.
+func NextCandidateFor(top string, now time.Time, skip map[string]bool) (Item, bool, error) {
 	id := repoIdentity(top)
 	items, err := candidates(now, func(o observation) bool { return o.Repo != "" && o.Repo == id })
-	if err != nil || len(items) == 0 {
+	if err != nil {
 		return Item{}, false, err
 	}
-	return items[0], true, nil
+	for _, it := range items {
+		if it.Kind == "fix" && it.score() >= minScoreMSDay && !skip[closeKey(it.Pkg, it.What)] &&
+			filepath.IsLocal(it.Pkg) && hasBenchmarks(filepath.Join(top, it.Pkg)) {
+			return it, true, nil
+		}
+	}
+	return Item{}, false, nil
 }

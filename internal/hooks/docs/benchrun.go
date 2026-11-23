@@ -324,7 +324,7 @@ func benchLoopDecision(ctx context.Context, job benchJob) string {
 	if primaryTrunkHead(ctx, job.Top, job.SHA) == "" {
 		return "not primary trunk"
 	}
-	item, ok, err := bench.NextCandidateFor(job.Top, now)
+	item, ok, err := bench.NextCandidateFor(job.Top, now, nil)
 	if err != nil {
 		return "candidate lookup failed"
 	} else if !ok {

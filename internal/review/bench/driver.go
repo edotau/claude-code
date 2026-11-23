@@ -287,14 +287,9 @@ func (d *driver) pick() (Item, bool, error) {
 	return Item{}, false, nil
 }
 
-// pickRepo is an automatic run's pick: only the item NextCandidateFor offered this repo, the one that justified it.
+// pickRepo is an automatic run's pick: the first launchable fix NextCandidateFor offers this repo.
 func pickRepo(top string, skip map[string]bool) (Item, bool, error) {
-	it, ok, err := NextCandidateFor(top, budgetNow())
-	if err != nil || !ok || it.Kind != "fix" || skip[closeKey(it.Pkg, it.What)] || !filepath.IsLocal(it.Pkg) ||
-		!hasBenchmarks(filepath.Join(top, it.Pkg)) {
-		return Item{}, false, err
-	}
-	return it, true, nil
+	return NextCandidateFor(top, budgetNow(), skip)
 }
 
 // noCandidate is the loop's stop line when pick finds nothing.

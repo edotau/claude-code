@@ -472,6 +472,7 @@ func TestDriverReservedPicksOnlyThisRepo(t *testing.T) {
 	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{mine, theirs}); err != nil {
 		t.Fatal(err)
 	}
+	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","calls_per_day":20000}`)
 	setReserved(t, testSHA)
 	d := &driver{top: top, skip: map[string]bool{}}
 	if it, ok, err := d.pick(); err != nil || !ok || it.Pkg != "internal/p" {

@@ -618,6 +618,7 @@ func benchPkgDir(t *testing.T, top string) {
 	if err := os.MkdirAll(filepath.Join(top, "internal", "p"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeBenchFixture(t, filepath.Join(top, "internal", "p", "p_test.go"), "package p\n\nfunc BenchmarkA() {}\n")
 }
 
 func checkBenchLoopDecision(t *testing.T, want string) {
@@ -680,6 +681,9 @@ func prepareBenchLoopDecision(t *testing.T, scenario string, now time.Time, top 
 	history := filepath.Join(root, "p", "history.jsonl")
 	if scenario != "no candidate" {
 		writeBenchFixture(t, history, `{"schema":1,"at":"2026-11-23T12:00:00Z","repo":`+string(quoted)+`,"pkg":"internal/p","benchmark":"BenchmarkA-8","epoch":"`+strings.Repeat("a", 64)+`","score":{"samples":5,"cost_sec":1,"metrics":{"ns/op":{"median":1000000,"cv":1}},"deltas":{"sec/op":{"old":"100","new":"110","change":"+10%","significant":true}}}}`+"\n")
+	}
+	if scenario != "candidate lookup failed" { // 0.1 ms x 20000 calls/day clears the 1 s/day floor
+		writeBenchFixture(t, filepath.Join(root, "candidates.jsonl"), `{"pkg":"internal/p","calls_per_day":20000}`+"\n")
 	}
 	prepareBenchLoopRefusal(t, root, scenario, now)
 }
