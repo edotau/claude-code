@@ -19,6 +19,8 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -818,4 +820,160 @@ func claimLiveLeaf(t *testing.T) {
 	if ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: "toolu_x", Transcript: transcript}, inflight.Limits{Total: 9}); !ok {
 		t.Fatal("marker not claimed")
 	}
+}
+
+func treeWidthNodes() []Node {
+	long := strings.Repeat("界e\u0301", 80)
+	model := "fixture-model-5-" + strings.Repeat("long-", 40)
+	job := Dispatch{ID: "fake-job-" + long, Agent: "fake-agent-" + long, Model: model,
+		Provider: "fixture", Status: statusRunning, Duration: strings.Repeat("fixture-duration-", 10)}
+	root, queued := job, job
+	root.ID, queued.ID = "fake-root-"+long, "fake-queued-"+long
+	queued.Status, queued.queued = "queued", "waiting for fixture slot"
+	session := Session{ID: "fake-session-" + long, Name: long, Title: long, Branch: long, Status: statusActive,
+		Workflows: []WorkflowRun{{ID: "fake-workflow-" + long, Name: long, Status: statusRunning}},
+		Subagents: []Subagent{{ID: "fake-subagent-" + long, Type: long, Status: statusRunning,
+			Description: model + ": " + long, Dispatches: []Dispatch{job}}}}
+	return Build([]Session{session}, []Dispatch{root, queued})
+}
+
+func TestTreeRowWidths(t *testing.T) {
+	nodes := treeWidthNodes()
+	open := map[string]bool{}
+	for _, n := range visible(nodes, nil) {
+		open[nodeKey(n)] = true
+	}
+	rows := visible(nodes, open)
+	for _, tt := range []struct {
+		name string
+		id   string
+	}{{"session", nodes[0].ID}, {"workflow run", nodes[0].Children[1].ID}, {"subagent", nodes[0].Children[0].ID},
+		{"session dispatch", nodes[0].Children[0].Children[0].ID}, {"root dispatch", nodes[1].ID},
+		{"queued dispatch", nodes[2].ID}} {
+		row := slices.IndexFunc(rows, func(n Node) bool { return n.ID == tt.id })
+		t.Run(tt.name, func(t *testing.T) {
+			for _, width := range []int{120, 80, 60, 40, 20} {
+				t.Run(strconv.Itoa(width), func(t *testing.T) {
+					s := clamp(dashState{width: width, height: 24, open: open, selID: nodeKey(rows[row])}, rows)
+					lines := dashLines(s, nodes, time.Unix(0, 0), "\x1b[36m")
+					if len(lines) != len(rows)+footerRows {
+						t.Fatalf("got %d lines, want %d", len(lines), len(rows)+footerRows)
+					}
+					for _, line := range lines {
+						if got := textutil.DisplayWidth(ansi.Strip(line)); got > min(width, 80) {
+							t.Errorf("line width %d exceeds %d: %q", got, min(width, 80), line)
+						}
+					}
+					if line := printable(ansi.Strip(lines[row])); !strings.HasSuffix(line, "…") {
+						t.Errorf("over-long row lacks final ellipsis: %q", line)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestTreeFoldDepths(t *testing.T) {
+	var records []agent.Record
+	parent := ""
+	for i := range 5 {
+		carrier := modelRecord(fmt.Sprintf("fake-carrier-%d", i), parent, "codex", true)
+		worker := modelRecord(fmt.Sprintf("fake-worker-%d", i), carrier.ID, "pi", false)
+		records = append(records, carrier, worker)
+		parent = worker.ID
+	}
+	for _, depth := range []int{1, 2, 3, 4, 5} {
+		t.Run(strconv.Itoa(depth), func(t *testing.T) {
+			fixture := records[:2*depth]
+			nodes := Build(nil, modelDispatches(fixture...))
+			for i := range depth {
+				if len(nodes) != 1 {
+					t.Fatalf("level %d: got %d nodes, want one", i, len(nodes))
+				}
+				n := nodes[0]
+				carrier, worker := fixture[2*i], fixture[2*i+1]
+				if n.Depth != i || n.ID != worker.ID || n.Via != carrier.ID {
+					t.Fatalf("level %d: got depth=%d id=%q via=%q, want %d %q %q",
+						i, n.Depth, n.ID, n.Via, i, worker.ID, carrier.ID)
+				}
+				assertTreeWorkerID(t, n.ID, fixture)
+				nodes = n.Children
+			}
+			if len(nodes) != 0 {
+				t.Fatalf("extra nodes below depth %d: %+v", depth, nodes)
+			}
+		})
+	}
+}
+
+func assertTreeWorkerID(t *testing.T, id string, records []agent.Record) {
+	t.Helper()
+	for _, rec := range records {
+		if rec.Request.Carry && id == rec.ID {
+			t.Errorf("carrier %q appeared as a node ID", rec.ID)
+		}
+	}
+}
+
+func TestTreeKeyScripts(t *testing.T) {
+	nodes := rootNodes(40)
+	for i := range nodes {
+		nodes[i].Dispatch = &Dispatch{ID: nodes[i].ID, Agent: "fixture", Status: statusRunning}
+	}
+	selected := len(nodes) / 2
+	for _, tt := range []struct {
+		name, raw string
+		cancels   int
+		step      int
+	}{
+		{"unbound n", "cnY", 0, 0}, {"unbound x", "cxY", 0, 0}, {"unbound digit", "c1Y", 0, 0},
+		{"unbound space", "c Y", 0, 0}, {"delete", "c\x1b[3~Y", 0, 0}, {"shift tab", "c\x1b[ZY", 0, 0},
+		{"down disarms", "c\x1b[BY", 0, 0}, {"up disarms", "c\x1b[AY", 0, 0},
+		{"down after disarming", "c\x1b[B\x1b[BY", 0, 1}, {"up after disarming", "c\x1b[A\x1b[AY", 0, -1},
+		{"confirm once", "cYY", 1, 0}, {"lowercase y", "cyY", 0, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := clamp(dashState{width: 80, height: 10, selID: nodeKey(nodes[selected])}, visible(nodes, nil))
+			s, effects := runTreeKeyScript(t, s, nodes, tt.raw)
+			var cancelled []string
+			for _, e := range effects {
+				if e.Kind == effectCancel {
+					cancelled = append(cancelled, e.ID)
+				}
+			}
+			want := make([]string, tt.cancels)
+			for i := range want {
+				want[i] = nodes[selected].Dispatch.ID
+			}
+			if !slices.Equal(cancelled, want) {
+				t.Errorf("cancel effects = %v, want %v", cancelled, want)
+			}
+			if s.pending != "" || s.selID != nodeKey(nodes[selected+tt.step]) {
+				t.Errorf("final pending=%q selection=%q, want empty and %q", s.pending, s.selID, nodeKey(nodes[selected+tt.step]))
+			}
+			if last := effects[len(effects)-1]; last.Kind != effectNone {
+				t.Errorf("Y after disarming produced %+v", last)
+			}
+		})
+	}
+}
+
+func runTreeKeyScript(t *testing.T, s dashState, nodes []Node, raw string) (dashState, []effect) {
+	t.Helper()
+	var effects []effect
+	for i, k := range decodeKeys([]byte(raw)) {
+		var e effect
+		s, e = onKey(s, k, nodes)
+		effects = append(effects, e)
+		if i == 0 && s.pending != nodes[s.sel].Dispatch.ID {
+			t.Fatalf("cancel did not arm selected job: pending=%q", s.pending)
+		}
+		if i > 0 && s.pending != "" {
+			t.Fatalf("key %d did not disarm cancel: pending=%q", i, s.pending)
+		}
+		if e.Kind == effectCopy {
+			t.Fatalf("script %q copied job %q", raw, e.ID)
+		}
+	}
+	return s, effects
 }
