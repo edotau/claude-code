@@ -41,7 +41,7 @@ func wslMount() string {
 	return "/mnt"
 }
 
-// OpenPurpose says why a URL opens; sign-in never takes a VS Code helper, whose browser is the Mac's.
+// OpenPurpose says why a URL opens; sign-in stays on this box's browser, since policy forbids the Mac's.
 type OpenPurpose int
 
 const (
@@ -49,31 +49,58 @@ const (
 	OpenSignIn
 )
 
-// OpenURL opens url: $BROWSER (none prints, else a command; VS Code's helper not for sign-in), then the desktop opener.
+// BrowserMarker is in the install-written $BROWSER entry point, so OpenURL never runs itself through $BROWSER.
+const BrowserMarker = "claude-code network browser --open"
+
+// OpenURL opens url where the owner is: $BROWSER, VS Code's client (view only), this desktop, else print.
 func OpenURL(url string, purpose OpenPurpose) error {
 	b := strings.TrimSpace(os.Getenv("BROWSER"))
-	switch openRoute(b, purpose) {
+	code, sock := "", ""
+	if purpose == OpenView {
+		code, sock = vscodeCLI()
+	}
+	switch openRoute(b, purpose, sock != "", sshSession()) {
 	case "print":
 		return printURL(url)
 	case "browser":
 		return startDetached(b, url)
+	case "vscode":
+		return orPrint(url, vscodeOpen(code, sock, "--openExternal", url))
 	}
-	if err := openDesktop(url); err != nil {
-		_ = printURL(url)
-		return err
-	}
-	return nil
+	return orPrint(url, openDesktop(url))
 }
 
-// openRoute picks print, browser ($BROWSER as a command) or desktop (the platform opener).
-func openRoute(b string, purpose OpenPurpose) string {
+// OpenFile shows an existing file in VS Code's client (code --goto), else prints its path.
+func OpenFile(path string) error {
+	if code, sock := vscodeCLI(); sock != "" {
+		return orPrint(path, vscodeOpen(code, sock, "--goto", path))
+	}
+	return printURL(path)
+}
+
+// openRoute picks print, browser (a foreign $BROWSER), vscode (a live VS Code client), desktop or print.
+func openRoute(b string, purpose OpenPurpose, vscode, ssh bool) string {
 	switch {
 	case b == "none":
 		return "print"
-	case b != "" && (purpose != OpenSignIn || !isVSCodeHelper(b)):
+	case b != "" && !isVSCodeHelper(b) && !isOwnBrowser(b):
 		return "browser"
+	case purpose == OpenSignIn:
+		return "desktop"
+	case vscode:
+		return "vscode"
+	case !ssh:
+		return "desktop"
 	}
-	return "desktop"
+	return "print"
+}
+
+// orPrint prints target after a failed open, so the owner can still click it; the error stands.
+func orPrint(target string, err error) error {
+	if err != nil {
+		_ = printURL(target)
+	}
+	return err
 }
 
 func printURL(url string) error {
@@ -85,6 +112,24 @@ func printURL(url string) error {
 func isVSCodeHelper(b string) bool {
 	return strings.Contains(filepath.ToSlash(b), "/helpers/browser.sh") || strings.Contains(b, ".vscode-server")
 }
+
+// isOwnBrowser reports the install-written entry point, found by its marker.
+func isOwnBrowser(b string) bool {
+	p, err := exec.LookPath(b)
+	if err != nil {
+		return false
+	}
+	if fi, err := os.Stat(p); err != nil || fi.Size() > maxScript {
+		return false
+	}
+	data, err := os.ReadFile(p)
+	return err == nil && strings.Contains(string(data), BrowserMarker)
+}
+
+// maxScript bounds the marker read, so a binary $BROWSER is never read whole.
+const maxScript = 4 << 10
+
+func sshSession() bool { return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" }
 
 func startDetached(name, url string) error {
 	cmd := exec.CommandContext(context.Background(), name, url)
