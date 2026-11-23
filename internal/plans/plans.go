@@ -321,6 +321,21 @@ func writeNames(reg map[string]string, name, key string) error {
 	return paths.WriteJSON(NamesFile(), next)
 }
 
+// PlanRepo is the checkout whose plans home holds plan: cwdTop, a path-keyed registry repo or the harness; else "".
+func PlanRepo(plan, cwdTop string) string {
+	name := filepath.Base(filepath.Dir(plan))
+	cands := []string{cwdTop}
+	if reg, err := readNames(); err == nil && filepath.IsAbs(reg[name]) {
+		cands = append(cands, reg[name]) // a repo without an origin is keyed by its main checkout's path
+	}
+	for _, c := range append(cands, paths.ConfigDir()) {
+		if top, main := paths.CheckoutOf(c); top != "" && peekName(main) == name {
+			return main
+		}
+	}
+	return ""
+}
+
 // homeOf is the plan's directory when it is a direct child of the plans root, else the @home folder.
 func homeOf(plan string) string {
 	dir := filepath.Dir(plan)

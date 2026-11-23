@@ -877,7 +877,7 @@ func (r *JobReport) settle(e taskEdit, job, why string) error {
 		r.Kept = append(r.Kept, c)
 	case open(e.before):
 		c.Verdict = "reverted: " + why
-		if rerr = Reopen("", e.plan, c.ID); rerr != nil { // no root: restore the before text exactly, no marker
+		if rerr = reopenAt(e.plan, c.ID, e.before.Reopened); rerr != nil { // restore the marker the tick stripped
 			c.Verdict = "revert failed: " + why
 			r.Failed = append(r.Failed, c)
 			rerr = fmt.Errorf("revert %s: %w", c.ID, rerr)

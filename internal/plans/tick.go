@@ -158,7 +158,7 @@ func dropComments(lines []string, t Task, re *regexp.Regexp) []string {
 	return lines
 }
 
-// predatesReopen: t was reopened at trunk sha t.Reopened and sha is in its history (or unknown), so sha cannot tick t.
+// predatesReopen: t was reopened at trunk sha t.Reopened and sha is in its history, so sha cannot tick t.
 func predatesReopen(root string, t Task, sha string) bool {
 	if t.Reopened == "" {
 		return false
@@ -167,6 +167,10 @@ func predatesReopen(root string, t Task, sha string) bool {
 	defer cancel()
 	_, err := proc.RunGitInherit(ctx, root, "merge-base", "--is-ancestor", sha, t.Reopened)
 	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 128 { // a foreign or pruned marker sha must not block the task forever
+		fmt.Fprintf(os.Stderr, "plans: %s: reopen marker %s is unknown to %s; ignoring it\n", cmp.Or(t.ID, t.Title), t.Reopened, root)
+		return false
+	}
 	return !errors.As(err, &exit) || exit.ExitCode() != 1
 }
 
@@ -494,8 +498,10 @@ var struckLine = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // Reopen unticks taskID, drops its sha and marks root's trunk tip so only a later commit re-ticks it; or unstrikes it.
-func Reopen(root, planPath, taskID string) error {
-	at := trunkSha(root)
+func Reopen(root, planPath, taskID string) error { return reopenAt(planPath, taskID, trunkSha(root)) }
+
+// reopenAt is Reopen marking sha at ("" writes no marker and keeps any the line has).
+func reopenAt(planPath, taskID, at string) error {
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Dropped {
 			span := slices.DeleteFunc(slices.Clone(lines[t.Start:t.End+1]), func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "— superseded:") })

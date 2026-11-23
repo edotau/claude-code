@@ -355,9 +355,7 @@ func cmdPlanTask(args []string) int {
 	case *done:
 		err = plans.MarkDone(path, id, *sha)
 	case *reopen:
-		cwd, _ := os.Getwd() // taskPlan already failed on an unreadable cwd
-		top, _ := paths.CheckoutOf(cwd)
-		err = plans.Reopen(top, path, id)
+		err = reopenTask(path, id)
 	default:
 		err = plans.Strike(path, id, *strike)
 	}
@@ -366,6 +364,17 @@ func cmdPlanTask(args []string) int {
 	}
 	fmt.Printf("plans: %s updated in %s\n", id, filepath.Base(path))
 	return 0
+}
+
+// reopenTask reopens id, marking the trunk of the plan's own repo, whatever the cwd.
+func reopenTask(path, id string) error {
+	cwd, _ := os.Getwd() // taskPlan already failed on an unreadable cwd
+	top, _ := paths.CheckoutOf(cwd)
+	root := plans.PlanRepo(path, top)
+	if root == "" {
+		fmt.Fprintf(os.Stderr, "plans: no checkout found for %s; reopened without a marker\n", filepath.Dir(path))
+	}
+	return plans.Reopen(root, path, id)
 }
 
 // taskPlan resolves an explicit plan or the one repo plan with a matching task.
