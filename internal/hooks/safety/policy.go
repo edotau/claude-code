@@ -296,7 +296,8 @@ func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, 
 		return core.Allow, "", ""
 	}
 	globs := stateGlobs()
-	p := protectedWrite(cmd, in.CWD, globs, false)
+	// Precise paths skip a quoted or heredoc `>` and a relative target after a dynamic cd: reads pass.
+	p := protectedWriteOf(cmd, in.CWD, globs, false, core.WrittenPathsPrecise(cmd, in.CWD))
 	if p == "" {
 		p = stateOperandWrite(cmd, in.CWD)
 	}

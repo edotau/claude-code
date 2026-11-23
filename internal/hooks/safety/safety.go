@@ -774,6 +774,11 @@ var leafSettings = sync.OnceValue(func() *regexp.Regexp {
 
 // protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
 func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
+	return protectedWriteOf(cmd, cwd, raw, leaf, core.WrittenPaths(cmd, cwd))
+}
+
+// protectedWriteOf is protectedWrite judging the given written paths.
+func protectedWriteOf(cmd, cwd string, raw []string, leaf bool, written []string) string {
 	var globs []string
 	folded := false
 	fold := func() []string {
@@ -782,7 +787,7 @@ func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
 		}
 		return globs
 	}
-	for _, p := range core.WrittenPaths(cmd, cwd) {
+	for _, p := range written {
 		if (protectedPath(p, fold()) || leaf && leafSettings().MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
