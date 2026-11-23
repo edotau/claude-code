@@ -176,11 +176,7 @@ func addDirArgs(mode string, tools bool, workDir string) ([]string, error) {
 		return nil, nil
 	}
 	if workDir == "" { // claude runs in the process cwd
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("claude: --permissions auto needs the working directory: %w", err)
-		}
-		workDir = wd
+		workDir, _ = os.Getwd() // a Getwd error still runs, with the harness-only roots (never a new refusal)
 	}
 	var args []string
 	for _, d := range agent.WritableRoots(workDir) {
