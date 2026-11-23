@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +125,44 @@ func TestAgentsStatusQueued(t *testing.T) {
 	saved, err := agent.LoadRecord(r.ID)
 	if err != nil || saved.Status != "running" {
 		t.Fatalf("status display changed stored lifecycle: %+v, %v", saved, err)
+	}
+}
+
+func TestAgentsStatusDeadQueuedJSON(t *testing.T) {
+	pid := deadPID(t)
+	queued := "queued " + time.Now().Add(-time.Minute).Format(time.RFC3339Nano) + " qa"
+	for _, tc := range []struct {
+		status, progress, wantStatus, wantProgress string
+	}{
+		{"running", queued, "lost", ""},
+		{"error", queued, "error", ""},
+		{"ok", queued, "ok", ""},
+		{"running", "part 2/3", "lost", "part 2/3"},
+		{"error", "part 2/3", "error", "part 2/3"},
+	} {
+		t.Run(tc.status+"/"+tc.progress, func(t *testing.T) {
+			cfgDir(t)
+			r := seedCodexJob(t, "")
+			r.Status, r.PID, r.Progress = tc.status, pid, tc.progress
+			r.Time = time.Now().Add(-time.Hour)
+			if err := r.Save(); err != nil {
+				t.Fatal(err)
+			}
+			out := okAgents(t, "status", "--format", "json")
+			var recs []agent.Record
+			if err := json.Unmarshal([]byte(out), &recs); err != nil {
+				t.Fatal(err)
+			}
+			if len(recs) != 1 {
+				t.Fatalf("got %d records, want 1: %s", len(recs), out)
+			}
+			if got := recs[0]; got.ID != r.ID || got.Status != tc.wantStatus || got.Progress != tc.wantProgress {
+				t.Errorf("status = %s, want status %q, progress %q", out, tc.wantStatus, tc.wantProgress)
+			}
+			if saved, err := agent.LoadRecord(r.ID); err != nil || saved.Progress != r.Progress {
+				t.Fatalf("status changed stored progress: %+v, %v", saved, err)
+			}
+		})
 	}
 }
 

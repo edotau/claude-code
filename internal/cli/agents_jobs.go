@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -52,8 +53,12 @@ func agentsDispatchLog(format string) int {
 	}
 	recs := agent.RecentRecords(20)
 	for i, r := range recs {
-		if line := r.QueueLine(time.Now()); line != "" && r.Alive() {
-			recs[i].Status, recs[i].Progress = "queued", line
+		if r.Alive() {
+			if line := r.QueueLine(time.Now()); line != "" {
+				recs[i].Status, recs[i].Progress = "queued", line
+			}
+		} else if strings.HasPrefix(r.Progress, "queued ") {
+			recs[i].Progress = ""
 		}
 	}
 	return helptext.WriteJSONOrFail("agents status", recs)
