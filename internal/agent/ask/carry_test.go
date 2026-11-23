@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -180,16 +181,19 @@ func TestRunCarryTakesOverCutOffChild(t *testing.T) {
 // A background carrier sends the answer and the ask trailer down one stream, so the trailer cannot land mid-answer.
 // A foreground carrier keeps the trailer on stderr and tees only the answer into the record log.
 func TestCarryLogJoinsStreamsOnlyInBackground(t *testing.T) {
-	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bg := agent.Record{ID: "b", Background: true}
-	out, errOut, closeLog := carryLog(bg, io.Discard)
+	if err := os.MkdirAll(filepath.Dir(bg.LogPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, _, closeLog := carryLog(bg, io.Discard)
 	closeLog()
 	if out != errOut {
 		t.Fatal("background carry: stdout and stderr are different writers")
 	}
 	var answer bytes.Buffer
 	fg := agent.Record{ID: "20261122T030000.000-gemini", Agent: "gemini"}
-	out, errOut, closeLog = carryLog(fg, &answer)
+	out, errOut, _, closeLog = carryLog(fg, &answer)
 	t.Cleanup(closeLog)
 	io.WriteString(out, "the answer\n")
 	if errOut != os.Stderr {
@@ -201,6 +205,26 @@ func TestCarryLogJoinsStreamsOnlyInBackground(t *testing.T) {
 	log, err := os.ReadFile(fg.LogPath())
 	if err != nil || string(log) != "the answer\n" {
 		t.Fatalf("foreground log = %q (%v), want the answer only", log, err)
+	}
+}
+
+func TestLockedWriterEventNewlineGuard(t *testing.T) {
+	for _, answer := range []string{"", "answer", "answer\n"} {
+		var out bytes.Buffer
+		locked := &lockedWriter{w: &out}
+		if _, err := io.WriteString(locked, answer); err != nil {
+			t.Fatal(err)
+		}
+		locked.event("tool_use", "via child: Read")
+		locked.event("tool_result", "via child: ok")
+		want := answer
+		if answer == "answer" {
+			want += "\n"
+		}
+		want += "▸ tool_use: via child: Read\n▸ tool_result: via child: ok\n"
+		if out.String() != want {
+			t.Fatalf("answer %q: log = %q, want %q", answer, out.String(), want)
+		}
 	}
 }
 
