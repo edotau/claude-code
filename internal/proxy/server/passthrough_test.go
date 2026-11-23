@@ -674,7 +674,7 @@ func TestFixGeminiChatToolChoice(t *testing.T) {
 	}
 }
 
-// A Gemini chat reply whose content is an array of parts reaches the client as one string; other models' replies stay.
+// A Gemini chat reply whose content is an array of parts reaches the client as one string, whatever the model.
 func TestPassthroughGeminiChatReplyFlattened(t *testing.T) {
 	parts := func(w http.ResponseWriter, _ *http.Request, _ int) {
 		w.Header().Set("Content-Type", "application/json")
@@ -688,8 +688,8 @@ func TestPassthroughGeminiChatReplyFlattened(t *testing.T) {
 	}
 	_, resp = sendChat(t, strings.Replace(geminiChat, "databricks-gemini-3-8-flash", "databricks-llama", 1), parts)
 	b, _ = io.ReadAll(resp.Body)
-	if !strings.Contains(string(b), `"thoughtSignature"`) {
-		t.Errorf("non-gemini reply rewritten: %s", b)
+	if !strings.Contains(string(b), `"content":"OK"`) {
+		t.Errorf("non-gemini reply = %s, want content OK string", b)
 	}
 }
 

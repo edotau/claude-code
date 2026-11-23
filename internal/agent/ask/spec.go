@@ -232,6 +232,9 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	if r.f.profile == "" && r.typed != "" { // resolveLead moved the typed profile into the lead; the re-run types it
 		_ = r.fs.Set("profile", r.typed)
 	}
+	if r.f.provider == "" && r.typedProv != "" {
+		_ = r.fs.Set("provider", r.typedProv)
+	}
 	overlayArg := r.canonicalOverlayArg()
 	argv := canonicalArgv(r.fs, r.f.listValues(), prompt, taskFromStdin(r.pos), overlayArg)
 	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(argv)})

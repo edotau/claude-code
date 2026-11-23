@@ -79,6 +79,7 @@ type askRun struct {
 	state       *askState
 	perms       permission.Permissions
 	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.profile
+	typedProv   string // --provider as typed, kept for the --dry-run argv: poolValue clears f.provider
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
@@ -421,7 +422,7 @@ func (r *askRun) poolValue(value string) string {
 	switch {
 	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
 	case f.provider == router.RouteDatabricks:
-		f.provider = ""
+		r.typedProv, f.provider = f.provider, ""
 		return auto
 	case pinMoves(r):
 		return auto

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -257,7 +258,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		}
 		defer resp.Body.Close()
 		extra := passthroughDiag(resp, len(cur.body)) + retried
-		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, cur.geminiChat, extra)
+		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, extra)
 	}
 }
 
@@ -332,9 +333,9 @@ func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, 
 }
 
 func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *providers.Provider,
-	resp *http.Response, model, dialect string, geminiChat bool, extra string) (string, string, string) {
+	resp *http.Response, model, dialect string, extra string) (string, string, string) {
 	r.noteUnserved(p, resp)
-	if err := flattenPassthroughResponse(resp, geminiChat); err != nil {
+	if err := flattenPassthroughResponse(resp, isChatCompletion(dialect, in.URL.Path)); err != nil {
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 		return model, extra, p.Name
 	}
@@ -397,13 +398,41 @@ func isChatCompletion(dialect, path string) bool {
 	return dialect == providers.ProtocolOpenAI && strings.HasSuffix(path, "chat/completions")
 }
 
-func flattenPassthroughResponse(resp *http.Response, geminiChat bool) error {
-	if geminiChat && resp.StatusCode == http.StatusOK &&
-		!strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
-		return flattenGeminiResponse(resp)
+// flattenPassthroughResponse joins a chat reply's content-part arrays, reasoning items dropped, into plain text.
+func flattenPassthroughResponse(resp *http.Response, chat bool) error {
+	if !chat || resp.StatusCode != http.StatusOK {
+		return nil
 	}
-	return nil
+	if strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
+		resp.Body = &flatStream{src: bufio.NewReader(resp.Body), closer: resp.Body}
+		return nil
+	}
+	return flattenGeminiResponse(resp)
 }
+
+// flatStream rewrites an SSE body line by line through translate.FlattenChatStreamLine.
+type flatStream struct {
+	src    *bufio.Reader
+	closer io.Closer
+	buf    []byte
+	err    error
+}
+
+func (f *flatStream) Read(p []byte) (int, error) {
+	for len(f.buf) == 0 && f.err == nil {
+		var line []byte
+		line, f.err = f.src.ReadBytes('\n')
+		f.buf = translate.FlattenChatStreamLine(line)
+	}
+	n := copy(p, f.buf)
+	f.buf = f.buf[n:]
+	if len(f.buf) == 0 && f.err != nil {
+		return n, f.err
+	}
+	return n, nil
+}
+
+func (f *flatStream) Close() error { return f.closer.Close() }
 
 const (
 	effortNoneTTL = time.Hour
@@ -548,7 +577,7 @@ func teeUsageTail(resp *http.Response, in *http.Request, p *providers.Provider, 
 	return tail
 }
 
-// flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.
+// flattenGeminiResponse buffers a non-stream chat reply and joins its content parts into one string.
 func flattenGeminiResponse(resp *http.Response) error {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	_ = resp.Body.Close()

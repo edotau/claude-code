@@ -134,8 +134,24 @@ func chatToolChoice(typ, name string) (any, bool) {
 	return nil, false
 }
 
-// FlattenChatContent joins a non-stream chat response's content-part arrays (Databricks Gemini) into strings.
-func FlattenChatContent(body []byte) []byte {
+// FlattenChatContent joins a non-stream chat response's content-part arrays (reasoning items dropped) into strings.
+func FlattenChatContent(body []byte) []byte { return flattenChoices(body, "message") }
+
+// FlattenChatStreamLine is FlattenChatContent for one SSE line; the line comes back as is unless it changed.
+func FlattenChatStreamLine(line []byte) []byte {
+	data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r\n"), []byte("data: "))
+	if !ok || !bytes.Contains(data, []byte(`"content":[`)) {
+		return line
+	}
+	out := flattenChoices(data, "delta")
+	if bytes.Equal(out, data) {
+		return line
+	}
+	return append(append([]byte("data: "), out...), '\n')
+}
+
+// flattenChoices joins every choice's content-part array under key; body comes back unchanged when none was an array.
+func flattenChoices(body []byte, key string) []byte {
 	var top map[string]json.RawMessage
 	var choices []map[string]json.RawMessage
 	if json.Unmarshal(body, &top) != nil || json.Unmarshal(top["choices"], &choices) != nil {
@@ -143,7 +159,7 @@ func FlattenChatContent(body []byte) []byte {
 	}
 	changed := false
 	for _, c := range choices {
-		if flattenChoice(c) {
+		if flattenChoice(c, key) {
 			changed = true
 		}
 	}
@@ -157,10 +173,10 @@ func FlattenChatContent(body []byte) []byte {
 	return body
 }
 
-// flattenChoice joins one choice's content-part array into a string in place, reporting whether it did.
-func flattenChoice(c map[string]json.RawMessage) bool {
+// flattenChoice joins one choice's content-part array (under key) into a string in place, reporting whether it did.
+func flattenChoice(c map[string]json.RawMessage, key string) bool {
 	var msg map[string]json.RawMessage
-	if json.Unmarshal(c["message"], &msg) != nil || len(msg["content"]) == 0 || msg["content"][0] != '[' {
+	if json.Unmarshal(c[key], &msg) != nil || len(msg["content"]) == 0 || msg["content"][0] != '[' {
 		return false // a null (tool-call-only) or string content stays as sent
 	}
 	text, err := contentText(msg["content"])
@@ -168,7 +184,7 @@ func flattenChoice(c map[string]json.RawMessage) bool {
 		return false
 	}
 	msg["content"], _ = json.Marshal(text)
-	c["message"], _ = json.Marshal(msg)
+	c[key], _ = json.Marshal(msg)
 	return true
 }
 
