@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).
@@ -261,4 +266,25 @@ func depDoctorDetail(s tools.DepStatus) (pass bool, detail string) {
 		detail = "warn " + detail
 	}
 	return false, detail
+}
+
+// rtkHookRows is one row per external agent whose hooks list rtk-rewrite, with the RTK_WRAP mode it runs under.
+func rtkHookRows() []check {
+	raw := strings.ToLower(strings.TrimSpace(cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])))
+	mode := raw
+	if mode != "on" && mode != "debug" {
+		mode = "off"
+	}
+	detail := mode + " (RTK_WRAP=" + raw + ")"
+	if paths.RTKBinary() == "" {
+		detail += " - rtk binary not found, rewrite skipped"
+	}
+	var rows []check
+	for _, a := range []string{"codex", "copilot", "gemini", "opencode"} {
+		specs := slices.Concat(settings.SpecsFor(a, "native"), settings.SpecsFor(a, "plugin"))
+		if slices.ContainsFunc(specs, func(s settings.EventSpec) bool { return s.Name == "rtk-rewrite" }) {
+			rows = append(rows, check{Name: "rtk hook " + a, OK: true, Detail: detail})
+		}
+	}
+	return rows
 }

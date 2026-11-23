@@ -176,6 +176,9 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
 	check(rtkOK, false, "rtk compressor", rtkDetail)
+	for _, r := range rtkHookRows() {
+		check(r.OK, false, r.Name, r.Detail)
+	}
 	ccOK, ccDetail := pathBinaryStatus()
 	check(ccOK, false, "claude-code on PATH", ccDetail)
 	hookOK, hookDetail := hookBinaryStatus(paths.BinDir())
