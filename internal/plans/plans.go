@@ -35,6 +35,7 @@ type Task struct {
 	Sha        string
 	Claim      string // inner text of a working:/finished: comment
 	Partial    []string
+	Reopened   string // trunk sha at the last reopen; a commit in its history never ticks the task again
 }
 
 // Plan is one markdown file's parsed checklist.
@@ -65,6 +66,7 @@ var (
 	datedName  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`) })
 	claimRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`) })
 	partialRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`) })
+	reopenRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*reopened\s+([0-9a-f]{7,40})\s*-->`) })
 	claimWord  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^(?:working|finished):`) })
 	partialKey = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`) })
 	ownsKey    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)owns:`) })
@@ -106,6 +108,9 @@ func parseBytes(path string, b []byte) Plan {
 			text = strings.ReplaceAll(text, "~~", "")
 		}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
+		if m := reopenRe().FindStringSubmatch(text); m != nil {
+			t.Reopened = m[1]
+		}
 		p.Tasks = append(p.Tasks, t)
 		i = end
 	}

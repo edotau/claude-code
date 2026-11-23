@@ -62,7 +62,7 @@ func TestPlanTaskDoneReopenStrikeAndAmbiguousId(t *testing.T) {
 		want string
 	}{
 		{[]string{"plan", "task", "1.1", "--done", "--sha", "abc1234", "--plan", a}, "- [x] 1.1 Manual step (abc1234)\n"},
-		{[]string{"plan", "task", "1.1", "--reopen", "--plan", a}, "- [ ] 1.1 Manual step\n"},
+		{[]string{"plan", "task", "1.1", "--reopen", "--plan", a}, "- [ ] 1.1 Manual step <!-- reopened "},
 		{[]string{"plan", "task", "1.2", "--strike", "folded in", "--plan", a},
 			"- [ ] ~~1.2 Two lines first part and the second part~~ — superseded: folded in\n"},
 	}

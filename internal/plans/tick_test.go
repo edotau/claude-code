@@ -143,7 +143,7 @@ func TestPlanTaskOps(t *testing.T) {
 	if got := readFile(t, plan); !strings.HasPrefix(got, "- [x] 1.1 Manual step (abc1234)\n") {
 		t.Fatalf("done:\n%s", got)
 	}
-	if err := Reopen(plan, "1.1"); err != nil {
+	if err := Reopen("", plan, "1.1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, plan); !strings.HasPrefix(got, "- [ ] 1.1 Manual step\n") {
@@ -168,7 +168,7 @@ func TestPlanTaskOps(t *testing.T) {
 	if err := Strike(plan, "1.3", "why"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Reopen(plan, "1.3"); err != nil || readFile(t, plan) != got {
+	if err := Reopen("", plan, "1.3"); err != nil || readFile(t, plan) != got {
 		t.Fatalf("reopen must undo a one-line strike byte for byte (err=%v):\n%s", err, readFile(t, plan))
 	}
 	if Strike(plan, "1.1", "") == nil {

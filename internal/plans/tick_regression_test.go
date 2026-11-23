@@ -173,7 +173,7 @@ func TestCandidateMemoResetsAndIsCapped(t *testing.T) {
 	if !announce(plan, "1.1", false) {
 		t.Fatal("a ticked task must be forgotten")
 	}
-	if err := Reopen(plan, "1.1"); err != nil {
+	if err := Reopen("", plan, "1.1"); err != nil {
 		t.Fatal(err)
 	}
 	if !announce(plan, "1.1", false) {

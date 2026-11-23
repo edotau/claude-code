@@ -321,7 +321,7 @@ func cmdPlanTask(args []string) int {
 	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id> --done|--reopen|--strike <why> [flags]",
 		About: "Tick, reopen or strike one task by hand; quote an id with spaces: \"Phase 2.1\"."})
 	done := fs.Bool("done", false, "tick the task manually, with or without owns:")
-	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert)")
+	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert); only a later commit naming it ticks it again")
 	strike := fs.String("strike", "", "strike the task as superseded, with this reason")
 	sha := fs.String("sha", "", "with --done: the commit to record")
 	plan := fs.String("plan", "", "plan file (default: the one plan holding the id)")
@@ -355,7 +355,9 @@ func cmdPlanTask(args []string) int {
 	case *done:
 		err = plans.MarkDone(path, id, *sha)
 	case *reopen:
-		err = plans.Reopen(path, id)
+		cwd, _ := os.Getwd() // taskPlan already failed on an unreadable cwd
+		top, _ := paths.CheckoutOf(cwd)
+		err = plans.Reopen(top, path, id)
 	default:
 		err = plans.Strike(path, id, *strike)
 	}

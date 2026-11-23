@@ -506,6 +506,10 @@ func (a *auditRun) report(plan, id, problem, evidence string) {
 // tick ticks task t (by id, else title) with sha, mirroring the edit in tasks so later rules see it.
 func (a *auditRun) tick(plan string, t *Task, sha, rule string) error {
 	id := cmp.Or(t.ID, t.Title)
+	if predatesReopen(a.root, *t, sha) {
+		a.report(plan, id, "reopened after this commit; a new commit naming it or --done ticks it", sha)
+		return nil
+	}
 	ok, err := a.apply(Change{Plan: plan, ID: id, Action: "tick", Rule: rule, Evidence: sha}, func() error { return MarkDone(plan, id, sha) })
 	if ok {
 		t.Done, t.Sha = true, sha
@@ -873,7 +877,7 @@ func (r *JobReport) settle(e taskEdit, job, why string) error {
 		r.Kept = append(r.Kept, c)
 	case open(e.before):
 		c.Verdict = "reverted: " + why
-		if rerr = Reopen(e.plan, c.ID); rerr != nil {
+		if rerr = Reopen("", e.plan, c.ID); rerr != nil { // no root: restore the before text exactly, no marker
 			c.Verdict = "revert failed: " + why
 			r.Failed = append(r.Failed, c)
 			rerr = fmt.Errorf("revert %s: %w", c.ID, rerr)

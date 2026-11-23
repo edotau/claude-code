@@ -204,7 +204,7 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		{task + "'Phase 1.2' --strike 'moot — evidence: note:feedback/x.md' --plan " + plan,
 			func() error { return plans.Strike(plan, "Phase 1.2", "moot — evidence: note:feedback/x.md") }},
 		{task + "'Phase 1.3' --done --sha " + side + " --plan " + plan, func() error { return plans.MarkDone(plan, "Phase 1.3", side) }},
-		{task + "'Phase 1.4' --reopen --plan " + plan, func() error { return plans.Reopen(plan, "Phase 1.4") }},
+		{task + "'Phase 1.4' --reopen --plan " + plan, func() error { return plans.Reopen("", plan, "Phase 1.4") }},
 	}
 	denied, prompt := 0, ""
 	run := func(ctx context.Context, p, cwd string) (string, error) {

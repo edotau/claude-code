@@ -80,7 +80,7 @@ func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task
 		if !open(t) {
 			continue
 		}
-		if !namesTask(c.Message, planPath, t.ID) || (only != nil && !only(t)) {
+		if !namesTask(c.Message, planPath, t.ID) || (only != nil && !only(t)) || predatesReopen(root, t, c.Sha) {
 			continue
 		}
 		lines = markDone(lines, t, c.Sha)
@@ -143,16 +143,49 @@ func markDone(lines []string, t Task, sha string) []string {
 	return lines
 }
 
-// removeNotes drops every claim and partly-landed comment across t's line span.
+// removeNotes drops every claim, partly-landed and reopened comment across t's line span.
 func removeNotes(lines []string, t Task) []string {
-	lines = removeClaims(lines, t)
-	re := partialRe()
+	return dropComments(dropComments(removeClaims(lines, t), t, partialRe()), t, reopenRe())
+}
+
+// dropComments removes every re match across t's line span.
+func dropComments(lines []string, t Task, re *regexp.Regexp) []string {
 	for i := t.Start; i <= t.End; i++ {
 		if re.MatchString(lines[i]) {
 			lines[i] = strings.TrimRight(re.ReplaceAllString(lines[i], ""), " \t")
 		}
 	}
 	return lines
+}
+
+// predatesReopen: t was reopened at trunk sha t.Reopened and sha is in its history (or unknown), so sha cannot tick t.
+func predatesReopen(root string, t Task, sha string) bool {
+	if t.Reopened == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitReadTimeout)
+	defer cancel()
+	_, err := proc.RunGitInherit(ctx, root, "merge-base", "--is-ancestor", sha, t.Reopened)
+	var exit *exec.ExitError
+	return !errors.As(err, &exit) || exit.ExitCode() != 1
+}
+
+// trunkSha is the trunk tip of root's repo, "" when root is not a checkout or has no trunk.
+func trunkSha(root string) string {
+	if root == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitReadTimeout)
+	defer cancel()
+	trunk, _, _, err := trunkBranch(ctx, root)
+	if err != nil {
+		return ""
+	}
+	sha, err := proc.RunGitInherit(ctx, root, "rev-parse", "--verify", "--quiet", "--short=12", "refs/heads/"+trunk)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(sha)
 }
 
 // gitReadTimeout bounds each git read of a commit.
@@ -210,13 +243,7 @@ func WriteFile(dest string, data []byte) error {
 
 // removeClaims drops every working:/finished: comment across t's line span.
 func removeClaims(lines []string, t Task) []string {
-	re := claimRe()
-	for i := t.Start; i <= t.End; i++ {
-		if re.MatchString(lines[i]) {
-			lines[i] = strings.TrimRight(re.ReplaceAllString(lines[i], ""), " \t")
-		}
-	}
-	return lines
+	return dropComments(lines, t, claimRe())
 }
 
 // appendSuffix adds suffix to line after trimming its trailing whitespace.
@@ -466,8 +493,9 @@ var struckLine = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^(\s*(?:[-*] \[ \] )?)~~(.*?)~~(?: — superseded: .*)?$`)
 })
 
-// Reopen unticks taskID and removes its landing sha, or restores a struck task; for a reverted commit or a bad strike.
-func Reopen(planPath, taskID string) error {
+// Reopen unticks taskID, drops its sha and marks root's trunk tip so only a later commit re-ticks it; or unstrikes it.
+func Reopen(root, planPath, taskID string) error {
+	at := trunkSha(root)
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Dropped {
 			span := slices.DeleteFunc(slices.Clone(lines[t.Start:t.End+1]), func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "— superseded:") })
@@ -482,6 +510,10 @@ func Reopen(planPath, taskID string) error {
 		forget(planPath, t.ID)
 		lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1} ${2}")
 		lines[t.End] = shaTail().ReplaceAllString(lines[t.End], "$1")
+		if at != "" {
+			lines = dropComments(lines, t, reopenRe())
+			lines[t.End] = appendSuffix(lines[t.End], " <!-- reopened "+at+" -->")
+		}
 		return lines
 	})
 }

@@ -384,7 +384,7 @@ func TestPlanNoopLandingReplay(t *testing.T) {
 	if out := tick("git -C "+fmt.Sprintf("%q", repo)+" merge --ff-only landing", ""); !strings.Contains(out, "ticked") {
 		t.Fatalf("initial landing: %s", out)
 	}
-	if err := plans.Reopen(plan, "1.1"); err != nil {
+	if err := plans.Reopen("", plan, "1.1"); err != nil {
 		t.Fatal(err)
 	}
 	hosttest.In(t, repo, "pull", "--ff-only", ".", "main")
