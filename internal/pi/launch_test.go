@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -32,6 +33,8 @@ func TestResolveCodemode(t *testing.T) {
 		"setting":      {"", "only", "", "only", true},
 		"case":         {"", " On ", "", "on", true},
 		"typed wins":   {"on", "only", "on", "on", true},
+		"typed off":    {"off", "on", "", "", true},
+		"setting off":  {"", "off", "", "", true},
 		"no tools":     {"", "only", "", "", false},
 		"bad value":    {"", "yes", "", "", true},
 		"unset":        {"", "", "", "", true},
@@ -42,6 +45,29 @@ func TestResolveCodemode(t *testing.T) {
 		got, err := ResolveCodemode(c.typed, c.tools)
 		if got != c.want || err != nil {
 			t.Errorf("%s: got %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+}
+
+func TestCodemodeOffOverridesVault(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(CodemodeEnv, "")
+	if err := providers.SetCustomEnv(CodemodeEnv, "on"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ResolveCodemode("", true); got != "on" || err != nil {
+		t.Fatalf("vault control = %q, %v; want on", got, err)
+	}
+	for _, tools := range []bool{true, false} {
+		got, err := ResolveCodemode("off", tools)
+		if got != "" || err != nil {
+			t.Fatalf("off with tools=%v = %q, %v; want disabled", tools, got, err)
+		}
+		if err := checkCodemode(agent.RunOptions{Tools: tools, Codemode: got}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if argv := codemodeArgv(got); len(argv) != 0 || experiment(got, "") != "none" {
+			t.Fatalf("off enables codemode: argv=%v, experiment=%q", argv, experiment(got, ""))
 		}
 	}
 }

@@ -28,18 +28,21 @@ const (
 )
 
 // CodemodeModes are the --codemode values: Pi's codemode.mode setting.
-var CodemodeModes = []string{"on", "only"}
+var CodemodeModes = []string{"off", "on", "only"}
 
 // CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
 const CodemodeEnv = "PI_CODEMODE"
 
 // ResolveCodemode is the typed --codemode, else the PI_CODEMODE setting under --tools; any other setting value is off.
 func ResolveCodemode(typed string, tools bool) (string, error) {
+	if typed == "off" {
+		return "", nil
+	}
 	if typed != "" || !tools {
 		return typed, nil
 	}
 	mode := strings.ToLower(strings.TrimSpace(cmp.Or(os.Getenv(CodemodeEnv), providers.CustomEnv()[CodemodeEnv])))
-	if !slices.Contains(CodemodeModes, mode) {
+	if mode == "off" || !slices.Contains(CodemodeModes, mode) {
 		return "", nil
 	}
 	return mode, nil

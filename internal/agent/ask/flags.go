@@ -128,7 +128,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.StringVar(&f.codemode, "codemode", "", "pi only, with --tools: "+strings.Join(pi.CodemodeModes, "|")+", tools via scripts (setting PI_CODEMODE)")
+	fs.StringVar(&f.codemode, "codemode", "", "pi: "+strings.Join(pi.CodemodeModes, "|")+"; off overrides PI_CODEMODE; on/only need --tools")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (15m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
