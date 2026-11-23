@@ -411,6 +411,11 @@ type armQuery = router.WorkspaceQuery[agent.Finding]
 
 func workspaceQuery(q armQuery) armQuery {
 	q.Findings, q.Unserved, q.Cooling, q.Live = armFindings, errUnserved, armCooling, armLive
+	if q.AgentName != "" {
+		q.Cooling = func(p *providers.Provider, now time.Time) bool {
+			return armCooling(p, now) || agent.StallHeld(router.LoadState(), router.AccountOf(p), q.AgentName, now)
+		}
+	}
 	return q
 }
 

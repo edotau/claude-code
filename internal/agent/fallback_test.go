@@ -961,6 +961,42 @@ func TestGateModelCellQuota(t *testing.T) {
 	}
 }
 
+type beforeGateRunner struct{ fakeRunner }
+
+func (*beforeGateRunner) Before(_ RunOptions, t providers.Target) providers.Target {
+	t.Model = "gemini-4-hydrogen"
+	return t
+}
+
+func TestFallbackGateModelRunsBefore(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	disp := Dispatch{Agent: &beforeGateRunner{fakeRunner{name: "gemini"}}, Account: "google·antigravity"}
+	req := RunOptions{Agent: "gemini", Provider: "antigravity", Model: "sonnet", CellModel: true, Prompt: standardBrief}
+	if got := gateModel(disp, req); got != "gemini-4-hydrogen" {
+		t.Errorf("gate model = %q, want the engine's Before model", got)
+	}
+}
+
+func TestFallbackStallHoldsOnlyAgentOnWorkspace(t *testing.T) {
+	setConfigDir(t)
+	account := "databricks·prod"
+	stalled := Dispatch{Agent: &fakeRunner{name: "gemini"}, Account: account}
+	other := Dispatch{Agent: &fakeRunner{name: "pi"}, Account: account}
+	noteStall(stalled, fmt.Errorf("gemini was silent for 5m0s: %w", ErrStalled))
+	st := loadState()
+	if st[account].Status(time.Now()) == router.StateExhausted || !StallHeld(st, account, "gemini", time.Now()) ||
+		StallHeld(st, account, "pi", time.Now()) {
+		t.Fatalf("stall state = %+v; want gemini held and workspace/pi available", st)
+	}
+	if err := accountRefused(stalled, "sonnet"); err == nil || err.Kind != retry.KindQuota {
+		t.Fatalf("stalled agent refusal = %v, want quota", err)
+	}
+	if err := accountRefused(other, "sonnet"); err != nil {
+		t.Fatalf("unrelated agent refused on same workspace: %v", err)
+	}
+}
+
 // agy's Google quota is per model: a 429 holds that model for its own reset, and the account's other models still run.
 func TestPerModelQuotaHoldsOnlyTheModel(t *testing.T) {
 	setConfigDir(t)
@@ -1440,7 +1476,7 @@ func TestRepickKeepsInvokedAsAsked(t *testing.T) {
 	c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
 	c.Dispatches[0].servedRepick = func(string) string { return "m-b" }
 	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || len(r.seen) != 2 || res.Invoked != "m-a" {
-		t.Fatalf("err=%v runs=%d invoked=%q; want the re-pick to answer with invoked m-a", err, len(r.seen), res.Invoked)
+	if err != nil || len(r.seen) != 2 || res.Invoked != "m-a" || r.seen[1].CellModel {
+		t.Fatalf("err=%v runs=%+v invoked=%q; want concrete re-pick with invoked m-a", err, r.seen, res.Invoked)
 	}
 }

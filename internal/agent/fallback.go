@@ -268,7 +268,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			notify(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err)))
 		}
 		first := err
-		lreq.Model = next
+		lreq = repickTo(lreq, next, auto)
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
@@ -797,6 +797,9 @@ func accountRefused(disp Dispatch, model string) *retry.Error {
 	if reason, marked := st.AuthMarked(disp.Account, now); marked {
 		return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
 	}
+	if disp.Account != copilotLoginAccount() && StallHeld(st, disp.Account, disp.Agent.Name(), now) {
+		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(disp.Account + ": " + st[stallKey(disp.Account, disp.Agent.Name())].Reason)}
+	}
 	return nil
 }
 
@@ -805,8 +808,15 @@ func gateModel(disp Dispatch, req RunOptions) string {
 	if !req.CellModel || disp.Agent == nil || !router.PerModelQuota(disp.Account) {
 		return req.Model
 	}
-	if t, _, _, err := SchemaFor(disp.Agent.Name()).targetPeek(req); err == nil && t.Model != "" {
-		return t.Model
+	if t, _, _, err := SchemaFor(disp.Agent.Name()).targetPeek(req); err == nil {
+		if d, ok := disp.Agent.(interface {
+			Before(RunOptions, providers.Target) providers.Target
+		}); ok {
+			t = d.Before(req, t)
+		}
+		if t.Model != "" {
+			return t.Model
+		}
 	}
 	return req.Model
 }
@@ -899,9 +909,25 @@ func NoteCopilotQuota(cause error) string {
 	return acct
 }
 
-// noteStall remembers a stalled dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
+func stallKey(account, agentName string) string { return account + "·stall·" + agentName }
+
+// repickTo is lreq on model; a served repick is a concrete model, not the original ladder cell.
+func repickTo(lreq RunOptions, model string, auto bool) RunOptions {
+	lreq.Model = model
+	if !auto {
+		lreq.CellModel = false
+	}
+	return lreq
+}
+
+// StallHeld reports whether this agent stalled on this account within its hold window.
+func StallHeld(st router.State, account, agentName string, now time.Time) bool {
+	return account != "" && agentName != "" && st[stallKey(account, agentName)].Status(now) == router.StateExhausted
+}
+
+// noteStall remembers a stalled agent on an account for 15 minutes without benching other agents.
 func noteStall(disp Dispatch, err error) {
-	if disp.Account == "" || !errors.Is(err, ErrStalled) {
+	if disp.Account == "" || disp.Agent == nil || !errors.Is(err, ErrStalled) {
 		return
 	}
 	now := time.Now()
@@ -910,7 +936,7 @@ func noteStall(disp Dispatch, err error) {
 		limit, _, _ = strings.Cut(rest, " (")
 	}
 	reason := fmt.Sprintf("dispatch stalled (no output in %s)", limit)
-	warnHold(disp.Account, markExhausted(disp.Account, now.Add(stallHold), now, reason))
+	warnHold(disp.Account, markExhausted(stallKey(disp.Account, disp.Agent.Name()), now.Add(stallHold), now, reason))
 }
 
 // condemnAuth tags a KindAuth whose Recover failed, or any error that itself condemns (an initial invalid_grant).
