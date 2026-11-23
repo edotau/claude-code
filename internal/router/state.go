@@ -158,6 +158,7 @@ func (s State) clone() State {
 		e.ModelDead = maps.Clone(e.ModelDead)
 		e.Cooling = maps.Clone(e.Cooling)
 		e.Verified = maps.Clone(e.Verified)
+		e.Deferred = maps.Clone(e.Deferred)
 		out[k] = e
 	}
 	return out
