@@ -1,0 +1,3 @@
+internal/review/autofix/fixers.go:reverseRepair	unversioned: text: a temporary reverse patch that undoes a red autofix lane's edits
+internal/review/autofix/fixers.go:sortWriterRows	unversioned: text: a writer-rows registry file rewritten in sorted order
+internal/review/autofix/leaf.go:attemptLocked	unversioned: jsonl: one judgment fix-leaf attempt per sha and finding set under state/harness/autofix

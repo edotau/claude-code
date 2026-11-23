@@ -1,0 +1,22 @@
+Owned: {{.Owned}}
+Mode: implementation; edit only owned files
+Verify: {{.Gate}}
+Tier: standard
+
+Task:
+Work in the lane {{.Lane}} on findings from {{.Sha}}. Do not write to the live checkout {{.Live}}.
+Fix these judgment findings, one fix leaf for the whole set:
+{{range .Judgment}}- {{line .Path}}{{if .Line}}:{{.Line}}{{end}} {{.Class}} {{line .Rule}} {{line .Message}}
+{{end}}
+Gate output (evidence):
+```
+{{.GateOutput}}
+```
+
+Rerun the gate command in Verify after the fix.
+
+Leaf rules:
+- Edit only owned files; hand back uncommitted.
+- No git commit, stash, checkout, reset, restore, switch, merge, or push.
+- Do not print credentials; do not add new tests beyond repairing tests the fix breaks.
+- Report opening DONE, DONE_WITH_CONCERNS, or BLOCKED, with checks and absolute changed paths.
