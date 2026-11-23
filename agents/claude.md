@@ -90,6 +90,8 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 - Wait on a dispatch with `claude-code agents result -f <id>` or `agents wait <id>`, never a `sleep` loop.
 - Never a foreground `sleep` (`run_in_background` and wait for the notification, or an `until` loop in a background
   command); never `git checkout|switch|stash|reset|restore` or `sudo` in `~/.claude`: use `git show <rev>:<path>`.
+- No `sleep` polling loop: wait with `run_in_background` and its notification, or Monitor.
+- Always end with SubagentHandback when the host offers it, read-only and audit briefs included.
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
 - Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
