@@ -34,7 +34,7 @@ var sleepFn = time.Sleep
 // spawnSecretsJob is the detached-pass seam; tests replace it.
 var spawnSecretsJob = func(args []string) bool {
 	self, err := os.Executable()
-	return err == nil && proc.SpawnDetached(self, args, "", nil)
+	return err == nil && proc.SpawnDetached(self, args, paths.ConfigDir(), nil) // never the session's cwd: a lane must stay removable
 }
 
 // SecretsEnd (SessionEnd) starts a detached pass over the ended session's transcripts and returns at once.
