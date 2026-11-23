@@ -4,6 +4,7 @@
 //   - gemini: Claude's live deny list (template fallback) carried over as GuardRules, on by default unless the
 //     agent's `useGuardRules` extra is "false"; converted in internal/gemini (agyGuardRules).
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
+//   - per-dispatch `--permissions`: each agent's adapter maps it (dispatch-policy-details.md → Permission modes).
 //   - safety-scan hook: internal/hooks/safety/ guards destructive shapes for every agent, on top of all of the above.
 package agentconfig
 

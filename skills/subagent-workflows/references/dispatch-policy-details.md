@@ -56,3 +56,16 @@ behavior stay in the rule):
   that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
   `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` keeps its
   own launch.
+
+## Permission modes per agent
+
+`--permissions MODE|JSON` (`{"mode":..,"allow":[..],"ask":[..],"deny":[..]}`) maps its mode per agent; deny rules hold
+in every mode. Writable roots are `agent.WritableRoots` (`internal/agent/job.go`): `~/.claude` plus the cwd's repo.
+
+| Agent | `allow` | `default` and `auto` | `plan` |
+| --- | --- | --- | --- |
+| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `auto --tools` adds `--add-dir` per root; off it the gated launch above | `--disallowedTools Edit Write NotebookEdit Bash` with `--tools` |
+| codex | rules only, the agents.json sandbox | `auto` (or any ask rule) swaps the sandbox for codex's approval reviewer | refused with `--tools` |
+| copilot | the SDK approves every request the rules allow | as `allow` | the SDK approves read kinds and web search only |
+| gemini | `--tools` runs `--dangerously-skip-permissions` plus `--add-dir` per root | as `allow` | refused with `--tools`; without it needs the `permission-gate` on `read_file` |
+| opencode | `*` allow, roots as `external_directory` allow | `default` sends `*` to opencode's `--auto` judge; `auto` as `allow` | `*` deny, read tools allow, no roots |

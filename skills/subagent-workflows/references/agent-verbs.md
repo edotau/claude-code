@@ -51,7 +51,7 @@ any. Agent files list only what differs; the full list is `claude-code agents as
 | Need | Flags |
 | --- | --- |
 | Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (reads plus a vetted read-only shell list; other Bash, Write and Edit denied; codex keeps its sandbox shell) |
-| Guard the run | `--permissions allow\|default\|auto\|plan` or `--permissions '{"mode":"auto","allow":[..],"ask":[..],"deny":["Bash(git push:*)"]}'` (`allow`: dev override, every call runs; deny rules and the AI-footer block hold) (hook-enforced per agent); an allow rule adds but never reopens a deny; codex and gemini refuse `--tools` with `--permissions plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
+| Guard the run | `--permissions allow\|default\|auto\|plan` or `--permissions '{"mode":"auto","allow":[..],"ask":[..],"deny":["Bash(git push:*)"]}'` (`allow`: dev override, every call runs; deny rules and the AI-footer block hold) (per-agent mapping: `dispatch-policy-details.md` → Permission modes per agent); an allow rule adds but never reopens a deny; codex and gemini refuse `--tools` with `--permissions plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--provider databricks` (R20) |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |

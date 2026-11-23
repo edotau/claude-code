@@ -46,7 +46,8 @@ paths:
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
   Write/Edit stay denied, and an allow rule never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
-  `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
+  `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools; each agent's
+  `--permissions` modes: same file → Permission modes per agent.
 - **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
   `agents ask --agent pi`, on a Databricks profile through the loopback proxy, with no own login. It runs the models on
   the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
