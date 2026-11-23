@@ -16,8 +16,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/memory"
-
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -219,7 +217,7 @@ func planGitRoot(cwd string) string {
 	if cfg := paths.ConfigDir(); paths.Within(paths.CanonDeep(cwd), paths.CanonDeep(cfg)) {
 		return cfg
 	}
-	return memory.GitToplevel(cwd)
+	return toplevel(cwd)
 }
 
 // claimPlanFile reserves p with an O_EXCL create; false means a peer claimed it first.

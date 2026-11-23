@@ -37,8 +37,10 @@ var leadingCD = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 })
 
-// tickMatch matches a `git commit` or the `claude-code worktree commit` verb, alone or behind rtk or a && chain.
-var tickMatch = core.Gate(`\bgit\b[^;&|\n]*\bcommit\b|\bclaude-code\s+worktree\s+commit\b`, "commit")
+const harnessCommitPattern = `(?:^|[^\w.-])(?:claude-code|\.hookd)\s+worktree\s+commit\b`
+
+// tickMatch matches git or harness commits, alone or behind rtk or a && chain.
+var tickMatch = core.Gate(`\bgit\b[^;&|\n]*\bcommit\b|`+harnessCommitPattern, "commit")
 
 // Tick advances named tasks only after their commits land on main.
 func Tick(in *core.Input) core.Result {
@@ -97,7 +99,7 @@ func landsQuietly(cmd, out string) bool {
 var rtkCommitLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^ok ([0-9a-f]{7,40})\s*$`) })
 
 // verbCommit matches the worktree commit verb, whose output carries no sha line.
-var verbCommit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bclaude-code\s+worktree\s+commit\b`) })
+var verbCommit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(harnessCommitPattern) })
 
 // quietFlag matches commit's -q/--quiet (alone or bundled), which prints no summary line to find a sha in.
 var quietFlag = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s(?:--quiet|-[a-zA-Z]*q[a-zA-Z]*)(?:\s|$)`) })
@@ -380,7 +382,8 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	if dir == "" {
 		return core.Result{}
 	}
-	fresh, err := plans.ClaimLanding(memory.GitToplevel(dir), before, after)
+	top := toplevel(dir)
+	fresh, err := plans.ClaimLanding(top, before, after)
 	if err != nil {
 		return core.Result{Stderr: fmt.Sprintf("plan-tick: %v\n", err)}
 	}
@@ -388,7 +391,7 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 		return core.Result{}
 	}
 	var notes bytes.Buffer
-	err = plans.TickRange(ctx, memory.GitToplevel(dir), "", before+".."+after, "", plans.MirrorDests(), false, &notes)
+	err = plans.TickRange(ctx, top, "", before+".."+after, "", plans.MirrorDests(), false, &notes)
 	res := core.Result{Context: notes.String()}
 	if err != nil && !errors.Is(err, plans.ErrNotOnTrunk) { // a lane or a feature branch ticks nothing, by design
 		res.Stderr = fmt.Sprintf("plan-tick: %v\n", err)

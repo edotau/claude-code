@@ -58,8 +58,7 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	return planPath, sha, tick
 }
 
-// wantDeferred: ticking is deferred to the detached verifier (which cannot start under go test), so the plan stays
-// open while PendingCommit still names the tasks the commit would tick.
+// wantDeferred checks pending ticks while go test cannot start the detached verifier.
 func wantDeferred(t *testing.T, planPath, repo, sha string, ids ...string) {
 	t.Helper()
 	got, _ := os.ReadFile(planPath)
@@ -77,6 +76,24 @@ func wantDeferred(t *testing.T, planPath, repo, sha string, ids ...string) {
 }
 
 const tickCmd = "git -C ~/widgets commit -m x"
+
+func TestPlanTickHarnessCommitNames(t *testing.T) {
+	for _, cmd := range []string{
+		"claude-code worktree commit --task 1.1",
+		".hookd worktree commit --task 1.1",
+		"/tmp/bin/.hookd worktree commit --task 1.1",
+		"rtk /tmp/bin/.hookd worktree commit --task 1.1",
+	} {
+		if !tickMatch.MatchString(cmd) || !landsQuietly(cmd, "") {
+			t.Errorf("missed harness commit %q", cmd)
+		}
+	}
+	for _, cmd := range []string{"claude worktree commit", "other-hookd worktree commit", "./other-hookd worktree commit"} {
+		if tickMatch.MatchString(cmd) || landsQuietly(cmd, "") {
+			t.Errorf("matched non-harness command %q", cmd)
+		}
+	}
+}
 
 // Tick spanning: a real commit naming two tasks ticks both and notes the owned file the second missed.
 func TestPlanTickSpanning(t *testing.T) {
@@ -483,7 +500,7 @@ func BenchmarkPlanTickShell(b *testing.B) {
 	}
 }
 
-// ClaimPlanTask consumes the lookup read ahead of the cap check: a plan rewritten after it still gets the stale-task write.
+// ClaimPlanTask uses the prefetched lookup even if the plan changes before the claim.
 func TestClaimPlanTaskUsesPrefetchedLookup(t *testing.T) {
 	repo, plan := claimPlanRepo(t)
 	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": "toolu_p1", "cwd": repo,
