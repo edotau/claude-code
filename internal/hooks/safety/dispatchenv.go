@@ -302,7 +302,8 @@ const noAskRoute = " This agent has no ask: run it from a Claude session, where 
 // mainOnlyVerdict asks (main) or blocks (leaf) each main-session-only command mainOnlyHit finds.
 func mainOnlyVerdict(in *core.Input) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
-	if !slices.ContainsFunc([]string{"secret", "kubectl", "oc", "make"}, func(w string) bool { return strings.Contains(cmd, w) }) {
+	plain := unquoted.Replace(cmd) // `ma''ke` is make
+	if !slices.ContainsFunc([]string{"secret", "kubectl", "oc", "make"}, func(w string) bool { return strings.Contains(plain, w) }) {
 		return core.Allow, "", "" // the walk runs on every Bash call; most name none of these
 	}
 	hit := mainOnlyHit(in, cmd)

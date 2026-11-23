@@ -522,8 +522,10 @@ func TestHardBlockRmNeedsWordBoundary(t *testing.T) {
 func TestBareForcePushBlocksWhenGitIsUnrunnable(t *testing.T) {
 	hosttest.TierHarness(t)
 	t.Setenv("PATH", t.TempDir())
-	if got, msg := safetyScanDecision(t, tierPayload("git push --force", t.TempDir())); got != core.Block {
-		t.Errorf("decision %v want Block (%s)", got, msg)
+	for _, cmd := range []string{"git push --force", "git pu''sh --force"} {
+		if got, msg := safetyScanDecision(t, tierPayload(cmd, t.TempDir())); got != core.Block {
+			t.Errorf("%q: decision %v want Block (%s)", cmd, got, msg)
+		}
 	}
 }
 

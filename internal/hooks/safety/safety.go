@@ -333,9 +333,10 @@ func noExecShell(seg string) bool {
 func floorIntentVerdict(in *core.Input, asked string) (core.Decision, string, string) {
 	// Rules match inside ONE shell segment: `git push origin main; readlink -f x` is no force-push.
 	for _, seg := range shell.Segments(asked) {
+		read := shellRead(seg) // `git pu''sh -f origin ma''in` is the same push
 		for _, rule := range askRules {
 			for _, re := range rule.pats {
-				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
+				if (re.MatchString(seg) || re.MatchString(read)) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
 					return core.Block, core.SafetyMessage(in, core.Block, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
@@ -457,7 +458,7 @@ func builtinVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, st
 
 // bareForcePush is the protected branch a force-push names no refspec for (it updates the checked-out one), else "".
 func bareForcePush(cmd, cwd string) string {
-	if !strings.Contains(cmd, "push") {
+	if !strings.Contains(unquoted.Replace(cmd), "push") {
 		return ""
 	}
 	var branch string
