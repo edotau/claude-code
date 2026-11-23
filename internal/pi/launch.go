@@ -33,11 +33,8 @@ var CodemodeModes = []string{"off", "on", "only"}
 // CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
 const CodemodeEnv = "PI_CODEMODE"
 
-// ResolveCodemode is the typed --codemode, else the PI_CODEMODE setting under --tools; any other setting value is off.
+// ResolveCodemode is the typed --codemode (a typed off stays off), else PI_CODEMODE under --tools; other settings are "".
 func ResolveCodemode(typed string, tools bool) (string, error) {
-	if typed == "off" {
-		return "", nil
-	}
 	if typed != "" || !tools {
 		return typed, nil
 	}
@@ -47,6 +44,9 @@ func ResolveCodemode(typed string, tools bool) (string, error) {
 	}
 	return mode, nil
 }
+
+// codemodeOn reports whether a request's Codemode turns code mode on: "" and a typed "off" do not.
+func codemodeOn(mode string) bool { return mode != "" && mode != "off" }
 
 // Experiment is the trial a run of req carries, from the same RTK_WRAP sources Wire reads.
 func (piEngine) Experiment(req agent.RunOptions) string {
@@ -60,7 +60,7 @@ func rtkMode() string {
 // experiment is the one trial a run carries; code mode wins over RTK_WRAP=on, whose shim never wraps under it.
 func experiment(codemode, rtk string) string {
 	switch {
-	case codemode != "":
+	case codemodeOn(codemode):
 		return "codemode"
 	case strings.EqualFold(strings.TrimSpace(rtk), "on"):
 		return "rtk-wrap"
@@ -86,7 +86,7 @@ func lastEnv(env []string, name string) string {
 
 // checkCodemode refuses a code mode Pi would not run as asked: an unknown mode or no tools.
 func checkCodemode(req agent.RunOptions, _ []string) error {
-	if req.Codemode == "" {
+	if !codemodeOn(req.Codemode) {
 		return nil
 	}
 	if !slices.Contains(CodemodeModes, req.Codemode) {
@@ -100,7 +100,7 @@ func checkCodemode(req agent.RunOptions, _ []string) error {
 
 // codemodeArgv loads the builtin codemode extension explicitly (--no-extensions drops it) and turns its tool on.
 func codemodeArgv(mode string) []string {
-	if mode == "" {
+	if !codemodeOn(mode) {
 		return nil
 	}
 	return []string{"-e", codemodeSource, "--tools", "+" + codemodeTool}
@@ -108,7 +108,7 @@ func codemodeArgv(mode string) []string {
 
 // writeCodemodeSettings sets codemode.mode in the run's private settings.json, the file WriteConfig wrote.
 func writeCodemodeSettings(env []string, mode string) error {
-	if mode == "" {
+	if !codemodeOn(mode) {
 		return nil
 	}
 	file := filepath.Join(lastEnv(env, agentDirEnv), "settings.json")

@@ -189,7 +189,7 @@ func validateCodemode(mode, ag string, tools bool) (string, error) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
 	if ag != agentid.Pi {
-		if mode != "" {
+		if mode != "" && mode != "off" {
 			return "", fmt.Errorf("--codemode applies to pi only; %s has no codemode tool", ag)
 		}
 		return "", nil

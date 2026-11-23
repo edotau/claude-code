@@ -33,7 +33,7 @@ func TestResolveCodemode(t *testing.T) {
 		"setting":      {"", "only", "", "only", true},
 		"case":         {"", " On ", "", "on", true},
 		"typed wins":   {"on", "only", "on", "on", true},
-		"typed off":    {"off", "on", "", "", true},
+		"typed off":    {"off", "on", "", "off", true},
 		"setting off":  {"", "off", "", "", true},
 		"no tools":     {"", "only", "", "", false},
 		"bad value":    {"", "yes", "", "", true},
@@ -60,8 +60,8 @@ func TestCodemodeOffOverridesVault(t *testing.T) {
 	}
 	for _, tools := range []bool{true, false} {
 		got, err := ResolveCodemode("off", tools)
-		if got != "" || err != nil {
-			t.Fatalf("off with tools=%v = %q, %v; want disabled", tools, got, err)
+		if got != "off" || err != nil {
+			t.Fatalf("off with tools=%v = %q, %v; want off kept", tools, got, err)
 		}
 		if err := checkCodemode(agent.RunOptions{Tools: tools, Codemode: got}, nil); err != nil {
 			t.Fatal(err)
