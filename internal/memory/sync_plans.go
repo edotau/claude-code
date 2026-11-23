@@ -314,7 +314,11 @@ func ImportPlans(from string, dryRun bool) ([]string, error) {
 	}
 	lines, err := applyPlans(plansRoot(), from, pw, dryRun)
 	n := func(p string) int { return countPrefix(lines, p) }
-	return append(lines, fmt.Sprintf("plans: %d written, %d removed, %d kept", n("write "), n("remove "),
+	head := "plans:"
+	if dryRun {
+		head = "plans: would have"
+	}
+	return append(lines, fmt.Sprintf("%s %d written, %d removed, %d kept", head, n("write "), n("remove "),
 		n("kept local ")+n("skipped "))), err
 }
 
