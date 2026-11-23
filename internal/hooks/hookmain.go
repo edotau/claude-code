@@ -70,6 +70,5 @@ func stampMatches(dir string) bool {
 	if err != nil || !main.Mode().IsRegular() {
 		return false
 	}
-	want := fmt.Sprintf("%s %d %d", paths.BuildStamp, main.Size(), main.ModTime().Unix())
-	return strings.TrimSpace(string(b)) == want
+	return strings.TrimSpace(string(b)) == paths.StampLine(main)
 }

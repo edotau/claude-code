@@ -220,8 +220,7 @@ func installedBuildStamp(self string, dryRun bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	want := fmt.Sprintf("%s %d %d", paths.BuildStamp, main.Size(), main.ModTime().Unix())
-	if paths.BuildStamp == "" || strings.TrimSpace(string(data)) != want {
+	if paths.BuildStamp == "" || strings.TrimSpace(string(data)) != paths.StampLine(main) {
 		return nil, errors.New("build stamp does not match source binary; rebuild both binaries with make compile")
 	}
 	if dryRun {
@@ -231,7 +230,7 @@ func installedBuildStamp(self string, dryRun bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data = fmt.Appendf(nil, "%s %d %d\n", paths.BuildStamp, installed.Size(), installed.ModTime().Unix())
+	data = []byte(paths.StampLine(installed) + "\n")
 	target := filepath.Join(paths.BinDir(), paths.StampFile)
 	if current, err := os.ReadFile(target); err == nil && bytes.Equal(current, data) {
 		return nil, nil

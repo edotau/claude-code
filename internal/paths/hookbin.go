@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +15,11 @@ const StampFile = ".build-stamp"
 
 // BuildStamp is set by -ldflags -X; empty in a dev build.
 var BuildStamp string
+
+// StampLine is the .build-stamp content for main: a replaced claude-code changes its size or time.
+func StampLine(main os.FileInfo) string {
+	return fmt.Sprintf("%s %d %d", BuildStamp, main.Size(), main.ModTime().Unix())
+}
 
 // HookBinary is the .hookd sibling of self when it is an executable file, else self.
 func HookBinary(self string) string {
