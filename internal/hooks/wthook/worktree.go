@@ -572,3 +572,22 @@ func checkoutShared(run *hookRun) (bool, error) {
 	peers, err := run.peers()
 	return len(peers) > 0, err
 }
+
+// CleanEnd (SessionEnd) removes the repo's finished lanes (CleanFinished), one line each; never fails or blocks.
+func CleanEnd(in *core.Input) core.Result {
+	repo, err := worktree.ResolveRepo(in.CWD)
+	if err != nil {
+		return core.Result{}
+	}
+	results, err := worktree.CleanFinished(repo)
+	if err != nil {
+		return core.Result{}
+	}
+	var lines []string
+	for _, r := range results {
+		if r.Removed {
+			lines = append(lines, "worktree-clean-end: removed "+r.Path)
+		}
+	}
+	return core.Result{Stderr: strings.Join(lines, "\n")}
+}

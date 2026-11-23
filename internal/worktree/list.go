@@ -45,6 +45,8 @@ type Entry struct {
 	gitDir string
 	// Ancestry is known only for this List's matching porcelain and divergence snapshots.
 	mergedKnown bool
+	// Merged by patch-equivalence (cherry-picked), not ancestry: its branch needs `branch -D`.
+	patchMerged bool
 }
 
 // List returns every worktree under repo.Root (git registration plus directories on disk), each inspected.
@@ -379,11 +381,14 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	case e.Head == "":
 		e.Problems = append(e.Problems, "worktree HEAD unknown")
 	case e.mergedKnown:
+		e.markPatchMerged(ctx, repo.Main, target)
 	default:
 		merged, runErr := isAncestor(ctx, repo.Main, e.Head, target)
 		e.Merged = merged
 		if runErr != nil {
 			e.Problems = append(e.Problems, "merge check failed: "+runErr.Error())
+		} else {
+			e.markPatchMerged(ctx, repo.Main, target)
 		}
 	}
 
@@ -397,6 +402,28 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		e.ActivityAt, e.ActivitySource = activity(gitDir, e.Path)
 	}
 	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > staleAfter
+}
+
+// markPatchMerged sets Merged when every commit e.Head has over target already sits on target as a patch.
+func (e *Entry) markPatchMerged(ctx context.Context, main, target string) {
+	if e.Merged {
+		return
+	}
+	out, err := gitCmd(ctx, "-C", main, "cherry", target, e.Head).Output()
+	if err != nil {
+		e.Problems = append(e.Problems, "merge check failed: "+err.Error())
+		return
+	}
+	rows := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if rows[0] == "" {
+		return
+	}
+	for _, row := range rows {
+		if !strings.HasPrefix(row, "-") {
+			return
+		}
+	}
+	e.Merged, e.patchMerged = true, true
 }
 
 // gitDirFromPath resolves a worktree's git-dir from <path>/.git: a directory, or a linked worktree's gitdir file.
