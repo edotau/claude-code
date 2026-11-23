@@ -185,7 +185,7 @@ func installBinarySiblings(w io.Writer, self string, dryRun bool) error {
 	}{{paths.HookBinaryName, 0o755}, {paths.StampFile, 0o644}} {
 		source := filepath.Join(filepath.Dir(self), file.name)
 		target := filepath.Join(paths.BinDir(), file.name)
-		if sameBytes(source, target) {
+		if installedSiblingCurrent(source, target, file.name) {
 			continue
 		}
 		data, err := os.ReadFile(source)
@@ -202,14 +202,18 @@ func installBinarySiblings(w io.Writer, self string, dryRun bool) error {
 			}
 		}
 	}
-	if !dryRun {
-		if _, err := os.Stat(filepath.Join(paths.BinDir(), paths.HookBinaryName)); errors.Is(err, fs.ErrNotExist) {
-			return errors.New("hooks binary is missing; build both binaries with make compile")
-		} else if err != nil {
-			return err
-		}
+	if !dryRun && !executableFile(filepath.Join(paths.BinDir(), paths.HookBinaryName)) {
+		return errors.New("hooks binary is missing or not executable; build both binaries with make compile")
 	}
 	return nil
+}
+
+func installedSiblingCurrent(source, target, name string) bool {
+	return sameBytes(source, target) && (name != paths.HookBinaryName || executableFile(target))
+}
+
+func executableFile(name string) bool {
+	return paths.HookBinary(filepath.Join(filepath.Dir(name), "claude-code")) == name
 }
 
 // claudeLauncherScript is bin/claude: the harness launch, or native claude when claude-code is gone.

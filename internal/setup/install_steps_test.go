@@ -323,6 +323,26 @@ func TestInstallBinaryRepairsIdenticalNonExecutableCopy(t *testing.T) {
 	}
 }
 
+func TestInstallBinaryRepairsIdenticalNonExecutableHook(t *testing.T) {
+	hosttest.SkipOnWindows(t, "Windows does not use POSIX execute bits")
+	hermetic(t)
+	installTestBinary(t)
+	if _, err := installBinaryTarget(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(paths.BinDir(), paths.HookBinaryName)
+	if err := os.Chmod(hook, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installBinaryTarget(io.Discard, false); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(hook)
+	if err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("installed hook mode = %v, %v; want executable", info, err)
+	}
+}
+
 // No settings.json is seeded from the render; an existing file is never written, invalid or not.
 func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 	vaulttest.Use(t)

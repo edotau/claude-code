@@ -29,7 +29,9 @@ func Main(args []string) int {
 		// before AdoptEnvKey so claude-code keeps the vault key
 		err := proc.Exec(full, fwd, os.Environ())
 		fmt.Fprintln(os.Stderr, ".hookd: cannot run claude-code:", err)
-		return 2
+		if !isHook {
+			return 2
+		}
 	}
 	if !isHook {
 		fmt.Fprintln(os.Stderr, ".hookd: only hook verbs run here and claude-code is not beside it")
@@ -57,6 +59,12 @@ func stampMatches(dir string) bool {
 	if paths.BuildStamp == "" {
 		return false
 	}
-	b, err := os.ReadFile(filepath.Join(dir, paths.StampFile))
-	return err == nil && strings.TrimSpace(string(b)) == paths.BuildStamp
+	stamp := filepath.Join(dir, paths.StampFile)
+	b, err := os.ReadFile(stamp)
+	if err != nil || strings.TrimSpace(string(b)) != paths.BuildStamp {
+		return false
+	}
+	main, mainErr := os.Stat(filepath.Join(dir, "claude-code"))
+	mark, markErr := os.Stat(stamp)
+	return mainErr == nil && markErr == nil && !main.ModTime().After(mark.ModTime())
 }
