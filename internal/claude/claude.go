@@ -234,8 +234,6 @@ func permissionModeArgs(mode string, anthropic bool) []string {
 		return nil
 	case mode == permission.PermAllow: // the development override: every call runs; --disallowedTools still holds
 		return []string{"--permission-mode", "bypassPermissions"}
-	case mode == permission.PermDefault: // unmatched calls are denied, never judged
-		return []string{"--permission-mode", "dontAsk"}
 	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
 		return []string{"--permission-mode", "auto"}
 	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied
