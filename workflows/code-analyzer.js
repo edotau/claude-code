@@ -22,8 +22,7 @@ const IN = CWD ? ' in ' + CWD : ''
 const CD = CWD ? 'cd ' + CWD + ' && ' : ''
 let PATHS = Array.isArray(a.paths) ? a.paths.filter(Boolean) : []
 let PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : PATHS
-// A pre-verified findings list (same shape as FINDINGS_SCHEMA items) skips Scope/Find/Refute and goes straight to Fix.
-// Accept code-workers-shaped findings ({symbol, symptom, rederived}) as well as this script's {title, scenario, evidence}.
+// A pre-verified findings list (FINDINGS_SCHEMA items, or code-workers {symbol, symptom, rederived}) skips to Fix.
 const asFinding = f => ({ ...f, title: f.title || f.symptom || f.symbol || '(untitled)', scenario: f.scenario || f.rederived || f.symptom || 'not given',
   evidence: f.evidence || (f.symbol ? `${f.symbol} at ${f.file}:${f.line} (caller-supplied)` : 'caller-supplied, not re-verified') })
 let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings.map(asFinding) : null
@@ -41,7 +40,7 @@ const CAP = Math.min(Number.isInteger(a.cap) && a.cap > 0 ? a.cap : 8, 24)
 if (a.tests !== undefined && typeof a.tests !== 'boolean') return ERR('args.tests must be a boolean')
 const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
-// Rounds re-audit exactly the non-test source the previous round's fix touched, until dry/stalled/capped (D2: in-script loop, not self-recursion).
+// Rounds re-audit the non-test source the last fix touched until dry/stalled/capped (in-script loop, no recursion).
 const ROUNDS = Number.isInteger(a.rounds) && a.rounds > 0 ? a.rounds : 2
 if (a.maxAgents !== undefined && !(Number.isInteger(a.maxAgents) && a.maxAgents > 0)) return ERR('args.maxAgents must be a positive integer')
 const MAX_AGENTS = a.maxAgents || 200
@@ -75,11 +74,11 @@ const SHARED_TREE =
 
 // <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others by ask.
 const COWORKERS = []
-// ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
+// ranOnReworded: a reworded ran_on that still names the agent and a route (account·profile, profile:model, model id).
 const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode|pi)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
-// ranOnVerdict reads a leg's result: ranOn as relayed, whether it is the envelope's line (canon, wire.RanOn) and whether the leg ran.
+// ranOnVerdict reads a leg's result: ranOn as relayed, canon (the envelope's wire.RanOn line) and whether it ran.
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
@@ -100,7 +99,7 @@ const stepCheck = (steps, name, allowed) => {
   stepUnknown(v, S_FIELDS, (k) => `${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   return v
 }
-// The route unit comes whole from the step if it names profile or provider, else from the run-wide args; keys never mix.
+// The route unit comes whole from the step if it names profile or provider, else from the run args; never mixed.
 const stepFields = (v, d, o) => {
   const own = v.profile !== undefined || v.provider !== undefined, src = own ? v : o
   return { who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',
@@ -158,7 +157,7 @@ const stepOf = (steps, name, defaults, opt) => {
 // </block:stepOf>
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
-// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
+// Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
 const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/, '').replace(/^\.\//, '')
@@ -168,7 +167,7 @@ const stDiff = (ps) => '`git diff --no-ext-diff --no-textconv -- ' + ps.join(' '
 // sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
 const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
 const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
-// stCost: a cost finding (perf, runtime, complexity, test-quality) has no failing scenario, only a cited cost and a safe fix.
+// stCost: a cost finding (perf, runtime, complexity, test-quality) has a cited cost and a safe fix, no scenario.
 const stCost = (f) => !!f.kind && f.kind !== 'bug'
 const ST_LIST = { type: 'array', items: { type: 'string' } }
 const ST_WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, files: ST_LIST, summary: { type: 'string' }, callers: { type: 'string' }, leftUndone: ST_LIST }, required: ['status', 'files', 'summary'] }
@@ -178,7 +177,7 @@ const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LI
 const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
 const ST_DETECT = { type: 'object', additionalProperties: false, required: ['gate', 'source'],
   properties: { gate: { type: 'string', description: 'exact command, empty when nothing matches' }, source: { type: 'string' } } }
-// Measured run state: numstat rows per editing stage, proposed tests, over-budget fixes, seam needs, gate results in order.
+// Measured run state: numstat rows, proposed tests, over-budget fixes, seam needs, gate results in order.
 const ST_LINES = [], ST_PROPOSED = [], ST_OVER = [], ST_SEAMS = [], ST_GATES = []
 const ST_TEST_RE = /(_test\.go$|\.test\.[jt]sx?$|(^|\/)(tests|testdata)\/)/
 const ST_BUDGET = { shrink: 0, neutral: 20 } // max production net lines per package; free has no entry
@@ -202,7 +201,7 @@ async function stSnap(ctx, label, paths) {
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
   return m
 }
-// stDelta: what changed between two snapshots, split production/test per package (pkg: a dir or file -> dir); rows go to ST_LINES.
+// stDelta: change between two snapshots, production/test per package (pkg: dir or file -> dir); rows go to ST_LINES.
 function stDelta(stage, pkg, before, after) {
   const zero = () => ({ add: 0, del: 0, net: 0 })
   const tot = { stage, pkg: typeof pkg === 'string' ? pkg : '*', measured: !!(before && after), prod: zero(), test: zero(), files: [] }
@@ -257,7 +256,7 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
 }).catch((e) => { ST_ERR[label] = String((e && e.message) || e); log(label + ' failed: ' + ST_ERR[label]); return null }).then((r) => st.done(label, r))
-// stageDetect reads the scoped gate from `claude-code worktree gate`; no --lint-check: repo-wide lint trips on peers' WIP.
+// stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
@@ -388,7 +387,7 @@ function stFixSeams(ctx, pkg, impl) {
 }
 const stTdirs = (ctx, o, impl) => [...new Set([o.pkg, ...stList(impl, 'files').map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
 const stFixFiles = (ctx, impl, b, test) => [...new Set([...stList(impl, 'files'), ...stList(b.shrink, 'files'), ...stList(test, 'files')].map((f) => stRel(ctx, f)))]
-// stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
+// stageFix: one implementer over confirmed findings in a package, held to ctx.lineBudget, then the Test stage.
 async function stageFix(ctx, o) {
   const list = o.findings.map((f) => stFixItem(ctx, f)).join('\n')
   const own = stFixOwn(o)
@@ -415,7 +414,7 @@ async function stShrink(ctx, o, w, net, snap) {
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
-// stBudget measures the fix; over ctx.lineBudget it gets ONE shrink-or-justify iteration, still over lands in ST_OVER (never reverted).
+// stBudget measures the fix; over budget gets ONE shrink-or-justify pass, still over lands in ST_OVER (kept).
 async function stBudget(ctx, o, w) {
   let snap = await stSnap(ctx, 'fix:' + o.label, w.at)
   const fr = stDelta('fix', o.pkg, w.pre, snap)
@@ -426,7 +425,7 @@ async function stBudget(ctx, o, w) {
   if (over) ST_OVER.push(over)
   return { snap, shrink, over, files: [...new Set([...fr.files, ...stChanged(w.pre, snap)])] }
 }
-// stageRepair: stageFix, then stageLoop (ctx.gate, else a Go gate) once the fix is done; green is the gate's, never a stage's claim.
+// stageRepair: stageFix, then stageLoop once the fix is done; green is the gate's, never a stage's claim.
 async function stageRepair(ctx, pkg, findings, o) {
   const fx = await stageFix(ctx, { pkg, findings, label: o.label })
   const gate = fx.landed.length ? await stageLoop(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: fx.done ? ctx.gateMax || 0 : 0, label: o.gate, gate: ctx.gate }) : null
@@ -488,7 +487,7 @@ async function stFixAll(ctx, byPkg, keys) {
   }
   return keys.map((p) => byKey[p]).filter(Boolean)
 }
-// a Dedupe/Simplify edit no Fix-all re-gated gets a gate of its own (unmeasured edits: every package); its green is never assumed
+// a Dedupe/Simplify edit no Fix-all re-gated gets its own gate (unmeasured: every package); green is never assumed
 async function stPolishGates(ctx, P, passes, keys) {
   const unknown = passes.some((r) => r && r.measured === null && r.applied.length)
   const edited = (unknown ? P.pkgs : [...new Set(ST_LINES.filter((r) => r.measured && /^(dedupe|simplify)$/.test(r.stage)).map((r) => r.pkg))]).filter((p) => !keys.includes(p))
@@ -501,7 +500,7 @@ async function stPolishGates(ctx, P, passes, keys) {
 }
 function stPolishEnd(P, x) {
   const report = ['', '## Polish', ...P.lines.map((l) => '- ' + l), ...x.findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
-  // a review that never ran proves nothing, and a MEDIUM+ finding with no owner stays open: both hold red whatever a gate says
+  // an unrun review proves nothing and an ownerless MEDIUM+ finding stays open: both hold red whatever a gate says
   const hold = [...new Set([...x.open.map((f) => stDir(f.file)), ...(x.rv ? [] : P.pkgs)])]
   const red = [...new Set([...x.fixall.filter((g) => !g.green).map((g) => g.pkg), ...x.pg.filter((g) => g.exit !== 'green').map((g) => g.pkg), ...P.preRed, ...hold])]
   return { dedupe: x.dedupe, simplify: x.simplify, review: { findings: x.findings, ran: !!x.rv }, fixall: x.fixall, incomplete: x.incomplete, green: !red.length, red, hold,
@@ -587,14 +586,13 @@ const DEFAULT_DIMENSIONS = [
   { key: 'regressions', prompt: 'behaviour regressions: a path that used to check or emit X and silently no longer does; a doc, help or dry-run surface pointing at a removed symbol; a test rewritten to pin the broken output' },
   { key: 'tests', prompt: 'tests deleted alongside kept code, tests skipped in the range, guard tests that pin filenames the change moved, goldens that no longer match', effort: 'low' },
 ]
-// Files mode (paths, no range) audits whole files, so the lenses are about the CODE, not the change.
-// Its failure-modes lens (error handling) is not evaluate-code's references/failure-modes.md (LLM loop symptoms).
+// Files mode audits whole files, so lenses cover the CODE, not the change; its failure-modes lens is error handling.
 const CODE_DIMENSIONS = [
   { key: 'correctness', prompt: 'logic defects: wrong conditionals, off-by-one, nil/empty/zero-value paths that produce a wrong result or a crash, error values checked then ignored' },
   { key: 'failure-modes', prompt: 'error handling: swallowed errors, fail-open where the comment or name promises fail-closed, exec/HTTP without a timeout or context, locks that can be skipped, partial writes' },
   { key: 'contracts', prompt: 'contract drift: help text, comments or docs that disagree with the code; flags parsed but never read; fields declared but never set; exported symbols with no caller (verify with grep)', effort: 'low', hitsOnly: true },
 ]
-// kind consolidate: the lenses look for merge-and-delete candidates, never bugs; behaviour, messages and exit codes stay identical
+// kind consolidate: lenses seek merge-and-delete candidates, never bugs; behaviour, messages and exit codes stay
 const CONSOLIDATE_DIMENSIONS = [
   { key: 'duplicates', prompt: 'consolidation candidates, not bugs: duplicated helpers or logic across files or packages, legacy paths and shims no caller needs (verify with grep)' },
   { key: 'dead', prompt: 'consolidation candidates, not bugs: dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss', effort: 'low' },
@@ -642,7 +640,7 @@ const FINDINGS_SCHEMA = {
   properties: { findings: { type: 'array', items: {
     type: 'object', additionalProperties: false, required: ['file', 'line', 'symbol', 'package', 'title', 'scenario', 'evidence', 'severity'], properties: FINDING_PROPS } } },
 }
-// One refuter per package batch (round 8: 25 per-finding refuters were the widest phase); wrong citations are re-anchored.
+// One refuter per package batch (25 per-finding refuters were the widest phase); wrong citations are re-anchored.
 const VERDICT_PROPS = {
   index: { type: 'integer', description: 'the finding number as listed' },
   refuted: { type: 'boolean' },
@@ -670,7 +668,7 @@ const SCOPE_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['path', 'bytes'], properties: SCOPE_FILE_PROPS } } },
 }
 const relPath = p => (CWD ? String(p || '').replace(CWD + '/', '') : String(p || '')).replace(/^\.\//, '')
-// A missing package defaults to the finding's own file dir; an unknown severity defaults to medium (never silently dropped).
+// A missing package defaults to the finding's file dir; an unknown severity to medium (never dropped).
 const dirOfFile = f => relPath(f.file).split('/').slice(0, -1).join('/') || '.'
 const ownerPkg = f => {
   if (!f.package) return dirOfFile(f)
@@ -750,8 +748,8 @@ const SCAN_SCHEMA = {
   },
 }
 const REFUTE_BATCH = a.refuteBatch || 6
-// External audit/refute legs share one route: ≤4 in flight each (44 at once drew 429 storms); CAP is fix-wave width, not a rate.
-// Setup runs concurrently: route state, the scope split and round 1's unsplit scope (kept unless the split regroups).
+// External audit/refute legs share one route: ≤4 in flight each (44 at once drew 429 storms); CAP is fix-wave width.
+// Setup runs concurrently: route state, the scope split and round 1's unsplit scope (kept unless regrouped).
 const runScopes = (round, model) => parallel(GROUPS.map((g, gi) => () =>
   ag(S.scope.task(
     `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
@@ -782,7 +780,7 @@ else if (!routeState) log('pressure: route read failed — no downshift (fail op
 const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
-// Fix/gate stage context: bare commands (no `cd … &&`; copilot rejects compound commands), external agents use --workdir.
+// Fix/gate context: bare commands (copilot rejects `cd … &&`), external agents use --workdir.
 const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: m => { if (++AGENTS > MAX_AGENTS) LIMIT_HIT = true; return routeModel(m) }, // counts stage-block agents
    kind: JOB, lineBudget: LINE_BUDGET }
 const GATE_RULES = 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
@@ -869,7 +867,7 @@ let STARVED = false // set when a round's audit/refute legs were mostly BLOCKED
 let totalMerged = 0
 const PKG_COUNT = PKGS.length
 for (let round = 1; round <= ROUNDS; round++) {
-  // ── Scope: capture each group's diff/file sizes ONCE per round (round 1: auditors spent 31–113 turns rediscovering it) ──
+  // ── Scope: capture each group's diff/file sizes ONCE per round (auditors spent 31–113 turns rediscovering it) ──
   phase('Scope')
   const scopes = PRE ? [] : (round === 1 && earlyScopes) ? await earlyScopes : await runScopes(round, routeModel(S.scope.model))
   // Pack files into ≤ CHUNK_CHARS chunks so no auditor sees a truncated view and agent count follows diff size.
@@ -907,9 +905,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   }
   log(`${chunks.length} chunk(s) of ≤${CHUNK_CHARS} chars → ${planned} first-pass auditors`)
 
-  // ── Find → Refute as ONE pipeline: a chunk's findings are refuted while other chunks still audit ──
-  // hitsOnly lenses (contracts) run in a second pass over just the files the first pass confirmed a finding in:
-  // round 9–10 measured contracts at a third of Find while yielding mostly lows.
+  // ── Find → Refute as ONE pipeline; hitsOnly lenses (contracts) rerun only on files with a confirmed finding ──
   const mkUnits = (dims, cs, pass) => dims.flatMap(d => cs.map((c, ci) => ({ dim: d, group: c.group, key: `${d.key}:${pass}${ci}`, chunk: c })))
   const primaryDims = DIMENSIONS.filter(d => !d.hitsOnly)
   const hitDims = DIMENSIONS.filter(d => d.hitsOnly)
@@ -1005,7 +1001,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   }
   const planMd = planMarkdown(partition, byPkg, {})
 
-  // ── Fix: waves in sequence, tasks of a wave in parallel (per task ADK Sequential: implementer, then test repair), then the hotspot task ──
+  // ── Fix: waves in sequence, a wave's tasks in parallel (implementer, then test repair), then the hotspot task ──
   phase('Fix')
   const fixTask = async (pkg, fs, owns, hotspot) => {
     const high = fs.some(f => ORDER[f.severity] <= ORDER.high)
@@ -1090,7 +1086,7 @@ const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) ov
   '', `Fixed: ${fixedAll.map(f => f.package + ' (' + (f.findings || 0) + ')').join(', ') || 'none'}. Red: ${red.join(', ') || 'none'}.`,
   ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : []),
   ...(planOut ? ['', planOut] : [])].join('\n') + (ST_LINES.length || ST_PROPOSED.length ? '\n' + stTail(lines, ST_OVER, ST_PROPOSED) : '')
-// a fix still over the line budget after its one shrink pass turns a finished run into review (failures keep their exit)
+// a fix still over the line budget after one shrink pass turns a finished run into review (failures keep their exit)
 const EXIT = LIMIT_HIT ? 'error' : STARVED && lastRound.exit !== 'error' ? 'blocked' : ST_OVER.length && ['capped', 'nothing-changed', 'dry'].includes(lastRound.exit) ? 'review' : lastRound.exit
 // success is dry, nothing-changed or capped with no red and nothing over budget; every other exit asks for a look
 const OUTCOME = EXIT === 'error' ? 'error' : red.length ? 'red' : ST_OVER.length ? 'review' : ['dry', 'nothing-changed', 'capped'].includes(EXIT) ? 'green' : 'review'

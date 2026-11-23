@@ -1,9 +1,9 @@
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others by ask.
 const COWORKERS = []
-// ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
+// ranOnReworded: a reworded ran_on that still names the agent and a route (account·profile, profile:model, model id).
 const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode|pi)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
-// ranOnVerdict reads a leg's result: ranOn as relayed, whether it is the envelope's line (canon, wire.RanOn) and whether the leg ran.
+// ranOnVerdict reads a leg's result: ranOn as relayed, canon (the envelope's wire.RanOn line) and whether it ran.
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
@@ -24,7 +24,7 @@ const stepCheck = (steps, name, allowed) => {
   stepUnknown(v, S_FIELDS, (k) => `${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   return v
 }
-// The route unit comes whole from the step if it names profile or provider, else from the run-wide args; keys never mix.
+// The route unit comes whole from the step if it names profile or provider, else from the run args; never mixed.
 const stepFields = (v, d, o) => {
   const own = v.profile !== undefined || v.provider !== undefined, src = own ? v : o
   return { who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',

@@ -8,16 +8,15 @@ export const meta = {
   ],
 }
 
-// ── Args ────────────────────────────────────────────────────────────────────
-// Scope or files bounds every fixer; an explicit gate does not grant repository-wide edits.
+// ── Args: scope or files bounds every fixer; an explicit gate does not grant repository-wide edits ──
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 // <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others by ask.
 const COWORKERS = []
-// ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
+// ranOnReworded: a reworded ran_on that still names the agent and a route (account·profile, profile:model, model id).
 const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode|pi)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
-// ranOnVerdict reads a leg's result: ranOn as relayed, whether it is the envelope's line (canon, wire.RanOn) and whether the leg ran.
+// ranOnVerdict reads a leg's result: ranOn as relayed, canon (the envelope's wire.RanOn line) and whether it ran.
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
@@ -38,7 +37,7 @@ const stepCheck = (steps, name, allowed) => {
   stepUnknown(v, S_FIELDS, (k) => `${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   return v
 }
-// The route unit comes whole from the step if it names profile or provider, else from the run-wide args; keys never mix.
+// The route unit comes whole from the step if it names profile or provider, else from the run args; never mixed.
 const stepFields = (v, d, o) => {
   const own = v.profile !== undefined || v.provider !== undefined, src = own ? v : o
   return { who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',
@@ -96,7 +95,7 @@ const stepOf = (steps, name, defaults, opt) => {
 // </block:stepOf>
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
-// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
+// Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
 const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/, '').replace(/^\.\//, '')
@@ -106,7 +105,7 @@ const stDiff = (ps) => '`git diff --no-ext-diff --no-textconv -- ' + ps.join(' '
 // sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
 const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
 const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
-// stCost: a cost finding (perf, runtime, complexity, test-quality) has no failing scenario, only a cited cost and a safe fix.
+// stCost: a cost finding (perf, runtime, complexity, test-quality) has a cited cost and a safe fix, no scenario.
 const stCost = (f) => !!f.kind && f.kind !== 'bug'
 const ST_LIST = { type: 'array', items: { type: 'string' } }
 const ST_WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, files: ST_LIST, summary: { type: 'string' }, callers: { type: 'string' }, leftUndone: ST_LIST }, required: ['status', 'files', 'summary'] }
@@ -116,7 +115,7 @@ const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LI
 const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
 const ST_DETECT = { type: 'object', additionalProperties: false, required: ['gate', 'source'],
   properties: { gate: { type: 'string', description: 'exact command, empty when nothing matches' }, source: { type: 'string' } } }
-// Measured run state: numstat rows per editing stage, proposed tests, over-budget fixes, seam needs, gate results in order.
+// Measured run state: numstat rows, proposed tests, over-budget fixes, seam needs, gate results in order.
 const ST_LINES = [], ST_PROPOSED = [], ST_OVER = [], ST_SEAMS = [], ST_GATES = []
 const ST_TEST_RE = /(_test\.go$|\.test\.[jt]sx?$|(^|\/)(tests|testdata)\/)/
 const ST_BUDGET = { shrink: 0, neutral: 20 } // max production net lines per package; free has no entry
@@ -140,7 +139,7 @@ async function stSnap(ctx, label, paths) {
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
   return m
 }
-// stDelta: what changed between two snapshots, split production/test per package (pkg: a dir or file -> dir); rows go to ST_LINES.
+// stDelta: change between two snapshots, production/test per package (pkg: dir or file -> dir); rows go to ST_LINES.
 function stDelta(stage, pkg, before, after) {
   const zero = () => ({ add: 0, del: 0, net: 0 })
   const tot = { stage, pkg: typeof pkg === 'string' ? pkg : '*', measured: !!(before && after), prod: zero(), test: zero(), files: [] }
@@ -195,7 +194,7 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
 }).catch((e) => { ST_ERR[label] = String((e && e.message) || e); log(label + ' failed: ' + ST_ERR[label]); return null }).then((r) => st.done(label, r))
-// stageDetect reads the scoped gate from `claude-code worktree gate`; no --lint-check: repo-wide lint trips on peers' WIP.
+// stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
@@ -326,7 +325,7 @@ function stFixSeams(ctx, pkg, impl) {
 }
 const stTdirs = (ctx, o, impl) => [...new Set([o.pkg, ...stList(impl, 'files').map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
 const stFixFiles = (ctx, impl, b, test) => [...new Set([...stList(impl, 'files'), ...stList(b.shrink, 'files'), ...stList(test, 'files')].map((f) => stRel(ctx, f)))]
-// stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
+// stageFix: one implementer over confirmed findings in a package, held to ctx.lineBudget, then the Test stage.
 async function stageFix(ctx, o) {
   const list = o.findings.map((f) => stFixItem(ctx, f)).join('\n')
   const own = stFixOwn(o)
@@ -353,7 +352,7 @@ async function stShrink(ctx, o, w, net, snap) {
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
-// stBudget measures the fix; over ctx.lineBudget it gets ONE shrink-or-justify iteration, still over lands in ST_OVER (never reverted).
+// stBudget measures the fix; over budget gets ONE shrink-or-justify pass, still over lands in ST_OVER (kept).
 async function stBudget(ctx, o, w) {
   let snap = await stSnap(ctx, 'fix:' + o.label, w.at)
   const fr = stDelta('fix', o.pkg, w.pre, snap)
@@ -364,7 +363,7 @@ async function stBudget(ctx, o, w) {
   if (over) ST_OVER.push(over)
   return { snap, shrink, over, files: [...new Set([...fr.files, ...stChanged(w.pre, snap)])] }
 }
-// stageRepair: stageFix, then stageLoop (ctx.gate, else a Go gate) once the fix is done; green is the gate's, never a stage's claim.
+// stageRepair: stageFix, then stageLoop once the fix is done; green is the gate's, never a stage's claim.
 async function stageRepair(ctx, pkg, findings, o) {
   const fx = await stageFix(ctx, { pkg, findings, label: o.label })
   const gate = fx.landed.length ? await stageLoop(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: fx.done ? ctx.gateMax || 0 : 0, label: o.gate, gate: ctx.gate }) : null
@@ -426,7 +425,7 @@ async function stFixAll(ctx, byPkg, keys) {
   }
   return keys.map((p) => byKey[p]).filter(Boolean)
 }
-// a Dedupe/Simplify edit no Fix-all re-gated gets a gate of its own (unmeasured edits: every package); its green is never assumed
+// a Dedupe/Simplify edit no Fix-all re-gated gets its own gate (unmeasured: every package); green is never assumed
 async function stPolishGates(ctx, P, passes, keys) {
   const unknown = passes.some((r) => r && r.measured === null && r.applied.length)
   const edited = (unknown ? P.pkgs : [...new Set(ST_LINES.filter((r) => r.measured && /^(dedupe|simplify)$/.test(r.stage)).map((r) => r.pkg))]).filter((p) => !keys.includes(p))
@@ -439,7 +438,7 @@ async function stPolishGates(ctx, P, passes, keys) {
 }
 function stPolishEnd(P, x) {
   const report = ['', '## Polish', ...P.lines.map((l) => '- ' + l), ...x.findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
-  // a review that never ran proves nothing, and a MEDIUM+ finding with no owner stays open: both hold red whatever a gate says
+  // an unrun review proves nothing and an ownerless MEDIUM+ finding stays open: both hold red whatever a gate says
   const hold = [...new Set([...x.open.map((f) => stDir(f.file)), ...(x.rv ? [] : P.pkgs)])]
   const red = [...new Set([...x.fixall.filter((g) => !g.green).map((g) => g.pkg), ...x.pg.filter((g) => g.exit !== 'green').map((g) => g.pkg), ...P.preRed, ...hold])]
   return { dedupe: x.dedupe, simplify: x.simplify, review: { findings: x.findings, ran: !!x.rv }, fixall: x.fixall, incomplete: x.incomplete, green: !red.length, red, hold,

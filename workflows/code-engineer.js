@@ -20,11 +20,11 @@ export const meta = {
 
 // <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
-// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
+// stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others by ask.
 const COWORKERS = []
-// ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
+// ranOnReworded: a reworded ran_on that still names the agent and a route (account·profile, profile:model, model id).
 const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode|pi)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
-// ranOnVerdict reads a leg's result: ranOn as relayed, whether it is the envelope's line (canon, wire.RanOn) and whether the leg ran.
+// ranOnVerdict reads a leg's result: ranOn as relayed, canon (the envelope's wire.RanOn line) and whether it ran.
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
@@ -45,7 +45,7 @@ const stepCheck = (steps, name, allowed) => {
   stepUnknown(v, S_FIELDS, (k) => `${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   return v
 }
-// The route unit comes whole from the step if it names profile or provider, else from the run-wide args; keys never mix.
+// The route unit comes whole from the step if it names profile or provider, else from the run args; never mixed.
 const stepFields = (v, d, o) => {
   const own = v.profile !== undefined || v.provider !== undefined, src = own ? v : o
   return { who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',
@@ -103,7 +103,7 @@ const stepOf = (steps, name, defaults, opt) => {
 // </block:stepOf>
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
-// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
+// Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
 const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/, '').replace(/^\.\//, '')
@@ -113,7 +113,7 @@ const stDiff = (ps) => '`git diff --no-ext-diff --no-textconv -- ' + ps.join(' '
 // sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
 const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
 const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
-// stCost: a cost finding (perf, runtime, complexity, test-quality) has no failing scenario, only a cited cost and a safe fix.
+// stCost: a cost finding (perf, runtime, complexity, test-quality) has a cited cost and a safe fix, no scenario.
 const stCost = (f) => !!f.kind && f.kind !== 'bug'
 const ST_LIST = { type: 'array', items: { type: 'string' } }
 const ST_WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, files: ST_LIST, summary: { type: 'string' }, callers: { type: 'string' }, leftUndone: ST_LIST }, required: ['status', 'files', 'summary'] }
@@ -123,7 +123,7 @@ const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LI
 const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
 const ST_DETECT = { type: 'object', additionalProperties: false, required: ['gate', 'source'],
   properties: { gate: { type: 'string', description: 'exact command, empty when nothing matches' }, source: { type: 'string' } } }
-// Measured run state: numstat rows per editing stage, proposed tests, over-budget fixes, seam needs, gate results in order.
+// Measured run state: numstat rows, proposed tests, over-budget fixes, seam needs, gate results in order.
 const ST_LINES = [], ST_PROPOSED = [], ST_OVER = [], ST_SEAMS = [], ST_GATES = []
 const ST_TEST_RE = /(_test\.go$|\.test\.[jt]sx?$|(^|\/)(tests|testdata)\/)/
 const ST_BUDGET = { shrink: 0, neutral: 20 } // max production net lines per package; free has no entry
@@ -147,7 +147,7 @@ async function stSnap(ctx, label, paths) {
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
   return m
 }
-// stDelta: what changed between two snapshots, split production/test per package (pkg: a dir or file -> dir); rows go to ST_LINES.
+// stDelta: change between two snapshots, production/test per package (pkg: dir or file -> dir); rows go to ST_LINES.
 function stDelta(stage, pkg, before, after) {
   const zero = () => ({ add: 0, del: 0, net: 0 })
   const tot = { stage, pkg: typeof pkg === 'string' ? pkg : '*', measured: !!(before && after), prod: zero(), test: zero(), files: [] }
@@ -202,7 +202,7 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
 }).catch((e) => { ST_ERR[label] = String((e && e.message) || e); log(label + ' failed: ' + ST_ERR[label]); return null }).then((r) => st.done(label, r))
-// stageDetect reads the scoped gate from `claude-code worktree gate`; no --lint-check: repo-wide lint trips on peers' WIP.
+// stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
@@ -333,7 +333,7 @@ function stFixSeams(ctx, pkg, impl) {
 }
 const stTdirs = (ctx, o, impl) => [...new Set([o.pkg, ...stList(impl, 'files').map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
 const stFixFiles = (ctx, impl, b, test) => [...new Set([...stList(impl, 'files'), ...stList(b.shrink, 'files'), ...stList(test, 'files')].map((f) => stRel(ctx, f)))]
-// stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
+// stageFix: one implementer over confirmed findings in a package, held to ctx.lineBudget, then the Test stage.
 async function stageFix(ctx, o) {
   const list = o.findings.map((f) => stFixItem(ctx, f)).join('\n')
   const own = stFixOwn(o)
@@ -360,7 +360,7 @@ async function stShrink(ctx, o, w, net, snap) {
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
-// stBudget measures the fix; over ctx.lineBudget it gets ONE shrink-or-justify iteration, still over lands in ST_OVER (never reverted).
+// stBudget measures the fix; over budget gets ONE shrink-or-justify pass, still over lands in ST_OVER (kept).
 async function stBudget(ctx, o, w) {
   let snap = await stSnap(ctx, 'fix:' + o.label, w.at)
   const fr = stDelta('fix', o.pkg, w.pre, snap)
@@ -371,7 +371,7 @@ async function stBudget(ctx, o, w) {
   if (over) ST_OVER.push(over)
   return { snap, shrink, over, files: [...new Set([...fr.files, ...stChanged(w.pre, snap)])] }
 }
-// stageRepair: stageFix, then stageLoop (ctx.gate, else a Go gate) once the fix is done; green is the gate's, never a stage's claim.
+// stageRepair: stageFix, then stageLoop once the fix is done; green is the gate's, never a stage's claim.
 async function stageRepair(ctx, pkg, findings, o) {
   const fx = await stageFix(ctx, { pkg, findings, label: o.label })
   const gate = fx.landed.length ? await stageLoop(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: fx.done ? ctx.gateMax || 0 : 0, label: o.gate, gate: ctx.gate }) : null
@@ -433,7 +433,7 @@ async function stFixAll(ctx, byPkg, keys) {
   }
   return keys.map((p) => byKey[p]).filter(Boolean)
 }
-// a Dedupe/Simplify edit no Fix-all re-gated gets a gate of its own (unmeasured edits: every package); its green is never assumed
+// a Dedupe/Simplify edit no Fix-all re-gated gets its own gate (unmeasured: every package); green is never assumed
 async function stPolishGates(ctx, P, passes, keys) {
   const unknown = passes.some((r) => r && r.measured === null && r.applied.length)
   const edited = (unknown ? P.pkgs : [...new Set(ST_LINES.filter((r) => r.measured && /^(dedupe|simplify)$/.test(r.stage)).map((r) => r.pkg))]).filter((p) => !keys.includes(p))
@@ -446,7 +446,7 @@ async function stPolishGates(ctx, P, passes, keys) {
 }
 function stPolishEnd(P, x) {
   const report = ['', '## Polish', ...P.lines.map((l) => '- ' + l), ...x.findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
-  // a review that never ran proves nothing, and a MEDIUM+ finding with no owner stays open: both hold red whatever a gate says
+  // an unrun review proves nothing and an ownerless MEDIUM+ finding stays open: both hold red whatever a gate says
   const hold = [...new Set([...x.open.map((f) => stDir(f.file)), ...(x.rv ? [] : P.pkgs)])]
   const red = [...new Set([...x.fixall.filter((g) => !g.green).map((g) => g.pkg), ...x.pg.filter((g) => g.exit !== 'green').map((g) => g.pkg), ...P.preRed, ...hold])]
   return { dedupe: x.dedupe, simplify: x.simplify, review: { findings: x.findings, ran: !!x.rv }, fixall: x.fixall, incomplete: x.incomplete, green: !red.length, red, hold,
@@ -491,7 +491,7 @@ const lst = (v) => v || []
 const errOf = (r, dflt) => (r && r.error) || dflt
 // texts: the first n looper residual rows ({file, line, text}) as their text
 const texts = (rs, n) => strs((Array.isArray(rs) ? rs : []).slice(0, n).map((x) => (x && x.text) || ''))
-// rels makes every path repo-relative: an absolute and a relative spelling of one dir would become two overlapping children
+// rels makes every path repo-relative: absolute and relative spellings of one dir would be two overlapping children
 const rels = (v) => [...new Set(strs(v).map((x) => x.replace(CWD ? CWD + '/' : /^$/, '').replace(/^\.\//, '').replace(/\/+$/, '')).filter(Boolean))]
 let PATHS = rels(a.paths)
 let PKGS = rels(a.packages)
@@ -518,18 +518,17 @@ const PROFILES = a.provider === 'databricks' && !a.profile ? (a.profiles || []).
 const profileOf = (i) => (PROFILES.length ? PROFILES[i % PROFILES.length] : a.profile)
 // A bare range (no task, paths or packages) is a diff audit, so code-analyzer owns it (D2).
 const ANALYZE = !!RANGE && !TASK && !PATHS.length && !PKGS.length
-// args.gate + gateScope: a shared gate a code-looper child keeps green beside the children, editing gateScope.
-// args.gate alone: every package's gate, passed to the code-workers children and used by code-engineer's own repairs.
+// args.gate + gateScope: a shared gate a code-looper child keeps green; args.gate alone: every package's gate.
 const GATE_SCOPE = strs(a.gateScope).map((d) => d.replace(/\/+$/, ''))
 const GATE = a.gate && GATE_SCOPE.length ? String(a.gate) : ''
 const PKG_GATE = a.gate && !GATE_SCOPE.length ? String(a.gate) : undefined
 if (PLAN_FILE && (TASK || PATHS.length || PKGS.length || RANGE || EVAL || GATE_SCOPE.length || a.fix === false)) return ERR('args.plan runs a plan only: not with task, paths, packages, range, skill, gateScope or fix:false')
 // steps.child is the routed child's own steps; the rest are ours.
 const { child: CHILD_RAW, ...OWN } = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? a.steps : {}
-// a fix task never runs impl (code-workers' fix stage does the edit), so steps.impl drives that fix stage unless child.fix is set
+// a fix task never runs impl (code-workers' fix stage edits), so steps.impl drives that stage unless child.fix is set
 const CHILD_STEPS = OWN.impl && !(CHILD_RAW && CHILD_RAW.fix) ? { ...(CHILD_RAW || {}), fix: OWN.impl } : CHILD_RAW
 for (const k of ['simplify', 'review', 'dedupe']) if (CHILD_STEPS && CHILD_STEPS[k]) return ERR('steps.child.' + k + ': code-engineer runs polish once; set steps.' + k)
-// the child's stages are code-workers' (the dispatch hook checks the same list): an unknown key is refused, never dropped
+// the child's stages are code-workers' (the dispatch hook checks the same list): an unknown key is refused
 const CHILD_STAGES = ['find', 'rederive', 'fix', 'test', 'gate']
 for (const k of Object.keys(CHILD_STEPS || {})) if (!CHILD_STAGES.includes(k)) return ERR('steps.child.' + k + ': unknown stage (allowed: ' + CHILD_STAGES.join('|') + ')')
 const OPT = { external: true, profile: a.profile, provider: a.provider, allowed: ['size', 'intel', 'impl', 'plan', 'runner', 'dedupe', 'simplify', 'review', 'record'] }
@@ -659,22 +658,19 @@ if (PLAN_FILE) {
   decisions.push('sized as ' + tier + ' (rule: ' + sz.kind + ', ' + PATHS.length + ' file(s)): ' + sz.reason)
   if (!a.focus && sz.focus) focus = sz.focus
 } else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
-// lineBudget: args win; else refactor holds each package to +20 production lines, consolidate to net ≤ 0, the rest are free
+// lineBudget: args win; else refactor allows +20 production lines per package, consolidate net ≤ 0, the rest free
 const LINE_BUDGET = a.lineBudget || (KIND === 'refactor' ? 'neutral' : KIND === 'consolidate' ? 'shrink' : 'free')
 CTX = { ...CTX, kind: KIND, lineBudget: LINE_BUDGET }
 if (LINE_BUDGET !== 'free') decisions.push('line budget: ' + LINE_BUDGET + (a.lineBudget ? ' (args)' : ' (kind ' + KIND + ')'))
 
-// ── Route ──
-// analytical first: an audit (bare range, package list with no task, or kind audit) scans with code-analyzer, then code-workers fix what it confirmed
+// ── Route: an audit (bare range, packages with no task, kind audit) runs code-analyzer, then code-workers ──
 const SCAN = a.scan !== undefined ? !!a.scan : ANALYZE || KIND === 'audit' || (!TASK && PKGS.length > 0)
 const route = PLAN_FILE ? 'plan' : EVAL_ONLY ? 'code-evaluator' : tier === 'EPIC' ? 'plan' : (EVAL ? 'code-evaluator→' : '') + (SCAN ? 'code-analyzer→' : '') + (tier === 'HIGH' || ANALYZE ? 'code-workers:packages' : 'code-workers:paths')
 decisions.push('route: ' + route)
 log('route: ' + route + ' (tier ' + tier + ', kind ' + (KIND || 'n/a') + ')')
 const head = '# code-engineer: ' + tier + ' → ' + route
 phase('Route')
-// runChild runs one child workflow one nesting level down; a throw becomes an error result.
-// children load from the harness scripts (args.scripts for a worktree copy); a target's own workflows/ dir is unreadable outside the session roots
-// workflow() does not expand ~, so the default needs the absolute home
+// runChild runs a child a level down from harness scripts (a target's workflows/ is unreadable); no ~ expansion
 const scriptsDir = async () => {
   if (a.scripts) return String(a.scripts).replace(/\/$/, '')
   if (!HOME) HOME = ((await agent('Run `echo $HOME` and return it as home. Edit nothing.', { label: 'home', phase: 'Route', model: 'haiku', effort: 'low', schema: { type: 'object', required: ['home'], properties: { home: { type: 'string' } } } }).catch(() => null)) || {}).home || ''
@@ -720,7 +716,7 @@ if (tier === 'MEDIUM' && TASK) {
     focus = TASK + '. Intel: ' + intel.focus
   } else decisions.push('intel returned nothing; kept the sized paths')
 }
-// code-workers only fixes bugs: a feature or refactor task gets an implementer first, then code-workers audits and hardens the new code.
+// code-workers only fixes bugs: a feature or refactor task gets an implementer first, then code-workers hardens it.
 const builds = KIND ? KIND === 'feature' || KIND === 'refactor' : /^\W*(build|add|implement|create|introduce|support|write|finish|refactor|move|migrate|replace|rewire|fold|extract|retire|remove|delete|rename|phase)\b/i.test(TASK) // leading verb only: constraint text mentioning review must not veto
 const implTargets = target.paths || (PATHS.length ? PATHS : target.packages) // HIGH builds in the named files, else its package dirs
 if (TASK && implTargets.length && builds && a.fix === false) decisions.push('feature task: implementer skipped under fix=false (review only)')
@@ -745,7 +741,7 @@ else if (TASK && implTargets.length && builds) {
 
 // ── Run ──
 phase('Run')
-// Fast path: a LOW/MEDIUM fix task names the bug, so code-workers skips Find and Rederive for those files (audits and features never).
+// Fast path: a LOW/MEDIUM fix task names the bug, so code-workers skips Find and Rederive (never audits or features).
 const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (sized.length ? sized : target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
 const known = fastFiles.map((file) => ({ file, symptom: TASK }))
 if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to code-workers as known'); log('fast path: known ' + known.length + ' file(s)') }
@@ -799,8 +795,7 @@ async function polishInto(r0, files) {
   }
 }
 
-// ── plan route: `agents ask --waves` launches, checks and gates; this script starts, awaits and judges ──
-// planRun: one runner leaf runs one command (argv, shell-quoted by the leaf) and returns its exit and stdout.
+// ── plan route: `agents ask --waves` launches and gates; planRun runs one command in a leaf (exit, stdout) ──
 async function planRun(label, argv, note) {
   const r = await agent(
     S.runner.task(RULES + ' Run exactly the argv below once from ' + CWD + ', shell-quoting every element and appending </dev/null; it is one of `claude-code agents ask --waves <plan> ...`, ' +
@@ -904,7 +899,7 @@ async function runWaves(ws) {
   }
   return { runs, seamFiles }
 }
-// applySeams: exported-signature and cross-package changes the children reported, applied once with every caller (nothing else runs).
+// applySeams: exported-signature and cross-package changes the children reported, applied once with every caller.
 async function applySeams(need, w) {
   phase('Seam')
   const sf = [...new Set(need.map((x) => stRel(CTX, x.file)).filter(Boolean))]
@@ -916,7 +911,7 @@ async function applySeams(need, w) {
   decisions.push('seam step after wave ' + w + ': ' + need.length + ' need(s), ' + (r ? r.status : 'agent returned nothing'))
   return r ? strs(r.files).map((f) => stRel(CTX, f)) : []
 }
-// measured: red = every dir whose last gate is not green (self-reported reds included unless a later gate proved them green).
+// measured: red = every dir whose last gate is not green (self-reported reds count unless a later gate proved green).
 function measured(r0) {
   const touched = [...touchedFiles(r0.fixed), ...strs(r0.files)].filter((f) => PKG_GATE || /\.go$/.test(f)).map((f) => stDir(stRel(CTX, f)))
   const red = [...new Set([...stGateRed([...ST_GATES.map((g) => g.dir), ...touched, ...strs(r0.red)]), ...((r0.polish && r0.polish.hold) || [])])].sort()
@@ -926,7 +921,7 @@ function measured(r0) {
   if (exit === 'green' && ST_OVER.length) { exit = 'review'; d.push('over line budget ' + LINE_BUDGET + ': ' + ST_OVER.map((o) => o.pkg + ' net ' + o.net).join(', ') + ' — exit review') }
   return { ...r0, exit, red, decisions: d }
 }
-// absorb folds a child's measured state (numstat rows, gate results, proposed tests, over-budget fixes) into this run's, in order.
+// absorb folds a child's measured state (numstat rows, gates, proposed tests, over-budget fixes) into this run's.
 function absorb(r) {
   if (!r) return
   ST_LINES.push(...((r.lines && r.lines.stages) || []))
@@ -1013,7 +1008,7 @@ function mergeDups(ok) { // a finding cited outside its group that the owning gr
   const owns = (x, f) => x.group.some((dd) => overlaps(dirsOf([stRel(CTX, f.file)])[0], dd))
   return (x, f) => !owns(x, f) && ok.some((o) => o !== x && owns(o, f) && lst(o.r.confirmed).some((g) => sameBug(CTX, g, f)))
 }
-// merge folds the children's results into one; a failed child turns its group red, and only an all-failed run is an error.
+// merge folds the children's results into one; a failed child turns its group red, an all-failed run is an error.
 function merge(done) {
   for (const x of done) absorb(x.r)
   const code = done.filter((x) => x.child !== 'code-looper')
@@ -1029,7 +1024,7 @@ function merge(done) {
   }
 }
 
-// scanFirst: code-analyzer audits the target review-only; its confirmed findings become code-workers' known bugs (Find and Rederive skipped).
+// scanFirst: code-analyzer audits review-only; its confirmed findings become code-workers' known bugs.
 async function scanFirst() {
   const where = ANALYZE ? { range: RANGE } : { paths: target.packages || target.paths }
   const sc = await runChild('code-analyzer', { cwd: CWD, ...where, fix: false, minFix: MIN_FIX, focus, dimensions: a.dimensions, kind: KIND || undefined, steps: stepsFor({ find: 'audit', rederive: 'refute' }), profile: a.profile, provider: a.provider })
@@ -1050,7 +1045,7 @@ async function loopAfter(r0, scope, why, ok, more) { // code-looper over scope (
     decisions: [...r0.decisions, 'loop (' + why + '): code-looper over ' + scope.join(', ') + ' exit ' + ((gk && gk.exit) || 'none') +
       (green ? ok : ': ' + [errOf(gk, ''), ...texts(gk && gk.residual, 2)].filter(Boolean).join('; '))] }
 }
-// loopIfNeeded: code-looper over the dirs whose fix landed but gate stayed red, and over every touched dir when 2+ children ran.
+// loopIfNeeded: code-looper over dirs whose fix landed but gate stayed red, and every touched dir when 2+ children ran.
 async function loopIfNeeded(r0, nChildren, extra) {
   const gateRed = [...new Set(lst(r0.fixed).filter((f) => f.impl && f.impl.status === 'done' && f.gate && f.gate.exit !== 'green').map((f) => f.pkg))]
   const touched = [...new Set([...touchedFiles(r0.fixed), ...r0.files, ...extra].filter((f) => PKG_GATE || /\.go$/.test(f)).map((f) => stDir(stRel(CTX, f))))]
@@ -1070,7 +1065,7 @@ function stepsFor(map) {
   for (const [k, v] of Object.entries(CHILD_STEPS || {})) if (map[k]) out[map[k]] = v
   return Object.keys(out).length ? out : undefined
 }
-// repairForeign fixes the findings children cited outside their groups, one dir at a time after every child finished (one owner per file).
+// repairForeign fixes findings cited outside their groups, one dir at a time after every child finished.
 async function repairForeign(r0) {
   const byDir = {}
   for (const f of r0.foreign) (byDir[stDir(stRel(CTX, f.file))] = byDir[stDir(stRel(CTX, f.file))] || []).push(f)
@@ -1090,7 +1085,7 @@ async function repairForeign(r0) {
   const reds = [...new Set([...r0.red, ...red])]
   return { ...r0, exit: reds.length ? 'red' : r0.exit, red: reds, fixed: [...r0.fixed, ...fixed], files: [...new Set([...r0.files, ...fixed.flatMap((x) => x.files)])], decisions: [...r0.decisions, ...d] }
 }
-// touchedFiles is the sorted, deduped union of the files the implementer, fixers, gate fixers and test writers reported changing.
+// touchedFiles is the sorted, deduped union of files the implementer, fixers, gate fixers and test writers changed.
 function touchedFiles(fixed) {
   const fs = (fixed || []).flatMap((f) => [...strs(f.files), ...strs(f.impl && f.impl.files), ...strs(f.test && f.test.files)])
   return [...new Set([...IMPL_FILES, ...fs].map((f) => stRel(CTX, f)))].sort()
