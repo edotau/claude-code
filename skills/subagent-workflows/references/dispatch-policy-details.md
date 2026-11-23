@@ -64,7 +64,7 @@ in every mode. Writable roots are `agent.WritableRoots` (`internal/agent/job.go`
 
 | Agent | `allow` | `default` and `auto` | `plan` |
 | --- | --- | --- | --- |
-| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `auto --tools` adds `--add-dir` per root; off it the gated launch above | `--disallowedTools Edit Write NotebookEdit Bash` with `--tools` |
+| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `default` or `auto` with `--tools` adds `--add-dir` per root; off it the gated launch above | `--disallowedTools Edit Write NotebookEdit Bash` with `--tools` |
 | codex | rules only, the agents.json sandbox | `auto` (or any ask rule) swaps the sandbox for codex's approval reviewer | refused with `--tools` |
 | copilot | the SDK approves every request the rules allow | as `allow` | the SDK approves read kinds and web search only |
 | gemini | `--tools` runs `--dangerously-skip-permissions` plus `--add-dir` per root | as `allow` | refused with `--tools`; without it needs the `permission-gate` on `read_file` |
