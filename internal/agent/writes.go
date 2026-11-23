@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -78,13 +79,19 @@ func treeHolds(top, workdir string) bool {
 // watchWrites observes the workdir and allowed write roots; nil means observation was incomplete.
 func watchWrites(ctx context.Context, workdir, top string, allow ...permission.Rule) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
-	roots, ok := writeRoots(ctx, workdir, top, allow)
-	if !ok {
+	roots, plain, ok := writeRoots(ctx, workdir, top, allow)
+	if !ok || len(roots)+len(plain) == 0 {
 		return unobserved
 	}
 	before, err := snapTrees(ctx, roots, nil)
 	if err != nil {
 		return unobserved
+	}
+	beforePlain := treeSnap{}
+	if plain != "" {
+		if beforePlain, err = snapPlain(plain); err != nil {
+			return unobserved
+		}
 	}
 	return func() (*[]string, *[]string) {
 		after, err := snapTrees(ctx, roots, before)
@@ -101,6 +108,13 @@ func watchWrites(ctx context.Context, workdir, top string, allow ...permission.R
 				changed = append(changed, p)
 			}
 		}
+		if plain != "" {
+			afterPlain, err := snapPlain(plain)
+			if err != nil {
+				return nil, nil
+			}
+			changed = append(changed, diffPlain(beforePlain, afterPlain)...)
+		}
 		if len(touched) == 0 {
 			return capPaths(changed), nil
 		}
@@ -108,7 +122,8 @@ func watchWrites(ctx context.Context, workdir, top string, allow ...permission.R
 	}
 }
 
-func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rule) ([]string, bool) {
+// writeRoots returns the repos to watch and, when workdir sits in no repo, workdir itself as a plain directory.
+func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rule) ([]string, string, bool) {
 	root := top
 	if !treeHolds(root, workdir) { // a resumed or re-run job can carry another directory's tree
 		gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
@@ -121,14 +136,73 @@ func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rul
 	}
 	extras, ok := allowedWriteRoots(ctx, workdir, allow)
 	if !ok {
-		return nil, false
+		return nil, "", false
 	}
 	for _, extra := range extras {
 		if !slices.Contains(roots, extra) {
 			roots = append(roots, extra)
 		}
 	}
-	return roots, len(roots) > 0
+	if root != "" {
+		return roots, "", true
+	}
+	return roots, plainDir(workdir), true
+}
+
+// plainDir is workdir (the cwd when empty) as an absolute real directory, or "" when it is none.
+func plainDir(workdir string) string {
+	abs, err := filepath.Abs(workdir)
+	if err != nil {
+		return ""
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return ""
+	}
+	if fi, err := os.Stat(real); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return real
+}
+
+// plainCap bounds a plain directory's entries; a bigger one (a home, /tmp) stays unobserved rather than guessed at.
+const plainCap = 5000
+
+var errPlainTooBig = errors.New("directory too large to observe")
+
+// snapPlain is the signature of every file under a non-repo root.
+func snapPlain(root string) (treeSnap, error) {
+	snap, seen := treeSnap{}, 0
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // a file vanishing mid-walk is a change, not a failure
+		}
+		if seen++; seen > plainCap {
+			return errPlainTooBig
+		}
+		if d.IsDir() {
+			return nil
+		}
+		snap.add(p)
+		return nil
+	})
+	return snap, err
+}
+
+// diffPlain lists the paths added, removed or rewritten between two plain snapshots.
+func diffPlain(before, after treeSnap) []string {
+	var out []string
+	for p, sig := range after {
+		if was, ok := before[p]; !ok || was != sig {
+			out = append(out, p)
+		}
+	}
+	for p := range before {
+		if _, ok := after[p]; !ok {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func allowedWritePath(workdir, arg string) string {
