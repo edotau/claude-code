@@ -288,6 +288,8 @@ files only.
 
 Inside a linked worktree, split work into units, not files, so leaves that touch one file still run in parallel.
 Everything converges in the worktree before it merges onto the source branch; the live checkout never sees a unit file.
+It applies only when work runs in a linked worktree: never under vault `HARNESS_WORKTREE=off`, always under `lanes`,
+otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.md` → Worktrees).
 
 - **New code goes in a unit file.** A leaf adding functions or tests writes them to its own file beside the target:
   `<file>_<task>.go`, `<file>_<task>_test.go` (Go compiles a package's files together, so it builds and tests at once;
