@@ -281,8 +281,8 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 // GatePolicy is the policy the plugin's permission-gate judges for req, plan mode included when read-only.
 func GatePolicy(req agent.RunOptions) permission.Permissions {
 	if req.ReadOnly {
-		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), permission.ReadOnlyDeny...)
-		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), permission.ReadOnlyAllow)
+		req.Permissions.Deny = permission.Union(req.Permissions.Deny, permission.ReadOnlyDeny) // checkRun may have added them
+		req.Permissions.Allow = permission.Union(req.Permissions.Allow, []permission.Rule{permission.ReadOnlyAllow})
 	}
 	if opencodeReadOnly(req) {
 		req.Permissions.Mode = "plan"

@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/permission"
@@ -39,8 +38,9 @@ func withReadOnlyRules(c Caps, p permission.Permissions) permission.Permissions 
 	if c.ReadOnly != Emulated {
 		return p
 	}
-	p.Deny = append(slices.Clone(p.Deny), permission.ReadOnlyDeny...)
-	p.Allow = append(slices.Clone(p.Allow), permission.ReadOnlyAllow) // Bash only where ReadOnlyShell approves
+	// Union: an inherited read-only policy may already hold them
+	p.Deny = permission.Union(p.Deny, permission.ReadOnlyDeny)
+	p.Allow = permission.Union(p.Allow, []permission.Rule{permission.ReadOnlyAllow}) // Bash only where ReadOnlyShell approves
 	return p
 }
 

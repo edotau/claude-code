@@ -86,8 +86,9 @@ func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
 
 // readOnlyGatePolicy is a --read-only run's gate policy: reads, the shared shell list, no write, no redirect, no Ask.
 func readOnlyGatePolicy(p permission.Permissions) permission.Permissions {
-	allow := slices.Concat([]permission.Rule{{Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}, p.Allow)
-	deny := slices.Concat(p.Deny, p.Ask, permission.ReadOnlyDeny, []permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}})
+	allow := permission.Union([]permission.Rule{{Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}, p.Allow)
+	deny := permission.Union(nil, slices.Concat(p.Deny, p.Ask, permission.ReadOnlyDeny, // checkRun may have added them
+		[]permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}}))
 	return permission.Permissions{Mode: "plan", Allow: allow, Deny: deny}
 }
 
