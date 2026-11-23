@@ -10,7 +10,7 @@ import (
 
 // BriefTask is the first candidate plan's open task a hand-back worked: the dispatch's plan_task, else its Task: line.
 func BriefTask(cwd, brief, planTask string) (plans.Task, bool) {
-	for _, c := range planCands(cwd, brief) {
+	for _, c := range planCands(cwd, briefPlan(brief)) {
 		if t, ok := PlanBriefTask(c.parsed, brief, planTask); ok {
 			return t, true
 		}

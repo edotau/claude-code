@@ -11,3 +11,4 @@ internal/hooks/docs/benchrun.go:benchStart	unversioned: marker: atomically publi
 internal/hooks/docs/benchrun.go:benchWorker	unversioned: marker: post-commit benchmark running and completed lifecycle, pruned after 7 days
 internal/hooks/docs/plan.go:claimPlanFile	unversioned: marker: reserved dated plan file, replaced by the plan
 internal/hooks/docs/plan.go:dropRecord	unversioned: marker: plan mirror record emptied when it cannot be removed
+internal/hooks/docs/plantick.go:recordClaim	unversioned: marker: plan path a spawn claimed in, by tool_use_id, removed when the claim clears

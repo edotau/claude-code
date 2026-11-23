@@ -10,6 +10,8 @@ import (
 
 	"fmt"
 	"io"
+	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -231,7 +233,7 @@ func PrefetchPlan(in *core.Input) *PlanLookup {
 	l := &PlanLookup{done: make(chan struct{})}
 	go func() {
 		defer close(l.done)
-		l.cands = planCands(in.CWD, in.Nested("tool_input", "prompt"))
+		l.cands = planCands(in.CWD, briefPlan(in.Nested("tool_input", "prompt")))
 	}()
 	return l
 }
@@ -239,7 +241,7 @@ func PrefetchPlan(in *core.Input) *PlanLookup {
 // wait is the prefetched lookup, or a direct one when nothing was prefetched.
 func (l *PlanLookup) wait(cwd, brief string) []planCand {
 	if l == nil {
-		return planCands(cwd, brief)
+		return planCands(cwd, briefPlan(brief))
 	}
 	<-l.done
 	return l.cands
@@ -264,6 +266,9 @@ func ClaimPlanTask(in *core.Input, id string, pre *PlanLookup) error {
 		if err := plans.ClaimFree(c.plan, taskKey(task), text); err != nil {
 			return fmt.Errorf("plan-claim: %w", err)
 		}
+		if err := recordClaim(id, c.plan); err != nil {
+			return fmt.Errorf("plan-claim: record: %w", err)
+		}
 		if c.worktreeName == "" {
 			return nil
 		}
@@ -280,8 +285,10 @@ func ClearPlanClaim(cwd, id string) error {
 	if id == "" {
 		return nil
 	}
+	rec := claimRecord(id)
+	claimed, _ := os.ReadFile(rec) // the plan ClaimPlanTask claimed in; none falls back to the default plans
 	var errs []error
-	for _, c := range planCands(cwd, "") {
+	for _, c := range planCands(cwd, string(claimed)) {
 		for _, t := range c.parsed.Tasks {
 			if strings.Contains(t.Claim, " "+id+" ") {
 				errs = append(errs, plans.ClearClaimOwned(c.plan, taskKey(t), " "+id+" "))
@@ -291,7 +298,23 @@ func ClearPlanClaim(cwd, id string) error {
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("plan-claim: release: %w", err)
 	}
+	if err := os.Remove(rec); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("plan-claim: release: %w", err)
+	}
 	return nil
+}
+
+// claimRecord is where ClaimPlanTask notes the plan a spawn's claim went to, for the clear that has no brief.
+func claimRecord(id string) string {
+	return filepath.Join(paths.StateDir(), "plan-claims", url.PathEscape(id))
+}
+
+func recordClaim(id, plan string) error {
+	rec := claimRecord(id)
+	if err := os.MkdirAll(filepath.Dir(rec), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(rec, []byte(plan), 0o600)
 }
 
 // toplevel is dir's checkout root: a stat walk first, git only for layouts it cannot see.
@@ -310,8 +333,8 @@ type planCand struct {
 	worktreeName string
 }
 
-// planCands is the brief's named plan, then cwd's repo active plan, then the harness's, each once; it never writes.
-func planCands(cwd, brief string) []planCand {
+// planCands is the named plan alone, else cwd's repo active plan then the harness's, each once; it never writes.
+func planCands(cwd, named string) []planCand {
 	top, wt := toplevel(cwd), ""
 	if top != "" {
 		wt = plans.WorktreeName(top)
@@ -327,8 +350,10 @@ func planCands(cwd, brief string) []planCand {
 		}
 		out = append(out, c)
 	}
-	if p, parsed, ok := briefPlan(brief); ok {
-		add(p, parsed)
+	if named != "" {
+		parsed, _ := plans.Parse(named) // an unreadable named plan has no tasks to claim, and no fallback
+		add(named, parsed)
+		return out
 	}
 	if top != "" {
 		if p, parsed, ok := plans.Active(plans.PeekHome(top), wt, plans.MirrorDests()); ok {
@@ -341,15 +366,13 @@ func planCands(cwd, brief string) []planCand {
 	return out
 }
 
-// briefPlan is the absolute plan file a brief names, parsed.
-func briefPlan(brief string) (string, plans.Plan, bool) {
+// briefPlan is the absolute plan file a brief names, else "".
+func briefPlan(brief string) string {
 	m := briefPlanRe().FindStringSubmatch(brief)
 	if m == nil || !filepath.IsAbs(paths.ExpandHome(m[1])) {
-		return "", plans.Plan{}, false
+		return ""
 	}
-	p := paths.ExpandHome(m[1])
-	parsed, err := plans.Parse(p)
-	return p, parsed, err == nil
+	return paths.ExpandHome(m[1])
 }
 
 func taskKey(t plans.Task) string { return cmp.Or(t.ID, t.Title) }
