@@ -39,14 +39,14 @@ func pongCap(agent string) time.Duration {
 	return Budget
 }
 
-// RefreshStale re-lists Databricks profiles in use with a missing or stale cache (all when force); errors skip.
+// RefreshStale re-lists Databricks profiles with a missing or stale cache, pinned or not (pinned only when force).
 func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now time.Time, force bool) []error {
 	var (
 		mu   sync.Mutex
 		wg   sync.WaitGroup
 		errs []error
 	)
-	for _, prov := range profiles(reg, ps) {
+	for _, prov := range refreshTargets(reg, ps, force) {
 		if !force && listingFresh(prov.Name, now) {
 			continue
 		}
@@ -70,6 +70,18 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 	}
 	wg.Wait()
 	return errs
+}
+
+// refreshTargets are the pinned profiles, plus every credentialed Databricks row unless force: auto picks use them all.
+func refreshTargets(reg *providers.Registry, ps []Pin, force bool) []*providers.Provider {
+	if force {
+		return profiles(reg, ps)
+	}
+	all := slices.Clone(ps)
+	for name := range reg.Providers { // profiles() keeps only credentialed Databricks rows
+		all = append(all, Pin{Profile: name})
+	}
+	return profiles(reg, all)
 }
 
 // discoverGithub re-lists row in a waited child (copilot import is a test cycle), so a failure reaches our stderr.
@@ -312,7 +324,7 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 
 // Stale reports whether a Databricks profile in use has no fresh listing, or a github row no fresh snapshot.
 func Stale(reg *providers.Registry, ps []Pin, now time.Time) bool {
-	return slices.ContainsFunc(profiles(reg, ps), func(p *providers.Provider) bool {
+	return slices.ContainsFunc(refreshTargets(reg, ps, false), func(p *providers.Provider) bool {
 		return !listingFresh(p.Name, now)
 	}) || len(staleGithubRows(reg, now, false)) > 0
 }

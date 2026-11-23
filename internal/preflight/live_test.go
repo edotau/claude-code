@@ -414,3 +414,19 @@ func TestStaleGithubRows(t *testing.T) {
 		}
 	}
 }
+
+// An unpinned Databricks profile with a past-TTL listing is re-listed by a non-force refresh.
+func TestRefreshStaleRelistsUnpinnedStaleProfile(t *testing.T) {
+	hermeticVault(t)
+	reg, now := preflightRegistry(true), time.Now()
+	var got []string
+	refresh = func(_ context.Context, p *providers.Provider) error { got = append(got, p.Name); return nil }
+	t.Cleanup(func() { refresh = catalog.Refresh })
+	stale := serving.Served{Schema: 1, Profile: "dev", FetchedAt: now.Add(-26 * time.Hour), Models: []serving.ServedModel{{ID: "m"}}}
+	if err := serving.Save(stale); err != nil {
+		t.Fatal(err)
+	}
+	if errs := RefreshStale(context.Background(), reg, nil, now, false); len(errs) != 0 || len(got) != 1 || got[0] != "dev" {
+		t.Fatalf("errs=%v relisted=%v, want [dev]", errs, got)
+	}
+}
