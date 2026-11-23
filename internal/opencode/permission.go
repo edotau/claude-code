@@ -206,7 +206,7 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions, gated bool) ([
 	}
 	cwd := req.WorkDir
 	if cwd == "" {
-		cwd, _ = os.Getwd() // an empty cwd keeps the harness-only roots
+		cwd, _ = os.Getwd() // a Getwd error leaves cwd empty: harness-only roots
 	}
 	perm, err := opencodePermission(req.Permissions, gated, cwd)
 	if err != nil {
