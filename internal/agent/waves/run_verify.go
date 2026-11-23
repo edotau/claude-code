@@ -167,7 +167,7 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 			return w, err
 		}
 	}
-	passed, result, err := r.taskCheck(ctx, s)
+	passed, result, err := r.checkOnce(ctx, s)
 	l.Verify = result
 	if err != nil {
 		return w, err
@@ -177,6 +177,15 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 	}
 	w = w.WithLeaf(l)
 	return w, r.save(w)
+}
+
+// checkOnce reuses the verify a release already ran for s, so its output file is written once.
+func (r *runner) checkOnce(ctx context.Context, s Spec) (bool, *stepResult, error) {
+	if c, ok := r.checked[s.ID]; ok {
+		delete(r.checked, s.ID)
+		return c.passed, c.result, nil
+	}
+	return r.taskCheck(ctx, s)
 }
 
 func (r *runner) taskCheck(ctx context.Context, s Spec) (bool, *stepResult, error) {

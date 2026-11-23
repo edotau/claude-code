@@ -3,6 +3,7 @@ package waves
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 
@@ -91,6 +92,8 @@ func blocked(w wait, status map[string]string) (string, bool) {
 		case LeafStateOK:
 		case "":
 			return "", false
+		case unverified:
+			return "blocker " + id + " failed its verify", false
 		default:
 			return "blocker " + id + " failed", false
 		}
@@ -122,6 +125,55 @@ func nextRound(pending []Spec, waits map[string]wait, status map[string]string) 
 	return ready, rest, skipped
 }
 
+// unverified is a round status: the dispatch ended ok but its routing proof or verify failed.
+const unverified = "unverified"
+
+// released is whether ok leaf id may release the siblings waiting on it: its routing proof and verify pass.
+func (r *runner) released(ctx context.Context, ready []Spec, e Envelope, id string, waits map[string]wait) (bool, error) {
+	if !slices.ContainsFunc(slices.Collect(maps.Values(waits)), func(w wait) bool { return slices.Contains(w.after, id) }) {
+		return true, nil
+	}
+	if e.DispatchID != "" {
+		proof, err := RoutingProof(r.h.check, r.o.Dir, e.DispatchID)
+		if err != nil || proof.Mismatch {
+			return false, err
+		}
+	}
+	i := slices.IndexFunc(ready, func(s Spec) bool { return s.ID == id })
+	if i < 0 {
+		return false, nil
+	}
+	passed, result, err := r.taskCheck(ctx, ready[i])
+	if err == nil {
+		if r.checked == nil {
+			r.checked = map[string]checkResult{}
+		}
+		r.checked[id] = checkResult{passed, result}
+	}
+	return passed && err == nil, err
+}
+
+// settle records each ready leaf's round status: ok only when its dispatch ended ok and it is released.
+func (r *runner) settle(ctx context.Context, ready []Spec, envelopes []Envelope, waits map[string]wait,
+	status map[string]string) error {
+	var errs error
+	for _, s := range ready {
+		status[s.ID] = "failed"
+	}
+	for _, e := range envelopes {
+		if e.Status != LeafStateOK {
+			continue
+		}
+		id := strings.TrimPrefix(e.TaskID, r.slug+"-")
+		ok, err := r.released(ctx, ready, e, id, waits)
+		errs, status[id] = errors.Join(errs, err), unverified
+		if ok {
+			status[id] = LeafStateOK
+		}
+	}
+	return errs
+}
+
 // launchRounds launches the wave in rounds: a leaf starts once every sibling it waits on finished ok.
 func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits map[string]wait,
 	checkpoint func([]Envelope) error) ([]Envelope, error) {
@@ -148,15 +200,7 @@ func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits ma
 			continue
 		}
 		envelopes, err := r.launch(ctx, ready, wave)
-		runErr = errors.Join(runErr, err)
-		for _, s := range ready {
-			status[s.ID] = "failed"
-		}
-		for _, e := range envelopes {
-			if e.Status == LeafStateOK {
-				status[strings.TrimPrefix(e.TaskID, r.slug+"-")] = LeafStateOK
-			}
-		}
+		runErr = errors.Join(runErr, err, r.settle(ctx, ready, envelopes, waits, status))
 		out = append(out, envelopes...)
 		if err := checkpoint(envelopes); err != nil {
 			return out, errors.Join(runErr, err)

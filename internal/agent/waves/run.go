@@ -3,11 +3,13 @@ package waves
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,7 +45,14 @@ type runner struct {
 	state                    State
 	plan                     plans.WavePlan // read once; Blocked by looks up ticks and waves across it
 	path, dir, slug, reports string
-	day                      time.Time // fixed at start so report names agree across midnight
+	day                      time.Time              // fixed at start so report names agree across midnight
+	launched                 map[string]bool        // leaf ids this run launches, in any wave; their kept dependents relaunch
+	checked                  map[string]checkResult // verify results taken at release, reused by verifyLeaf
+}
+
+type checkResult struct {
+	passed bool
+	result *stepResult
 }
 
 // Run prints the wave report and returns the dispatch exit code.
@@ -103,10 +112,36 @@ func (r *runner) run(ctx context.Context) (int, error) {
 		r.state.Next = "stopped, same command resumes"
 		return 4, ctx.Err()
 	}
+	return r.locked(ctx, p)
+}
+
+// locked loads the resume state and runs the plan under its run lock.
+func (r *runner) locked(ctx context.Context, p plans.WavePlan) (int, error) {
+	unlock, err := r.lock()
+	if err != nil {
+		return 1, err
+	}
+	defer unlock()
 	if err = r.load(); err != nil {
 		return 1, err
 	}
 	return r.execute(ctx, p)
+}
+
+// lock holds the plan's run lock, so a second run of one plan cannot launch duplicate writers.
+func (r *runner) lock() (func(), error) {
+	if err := os.MkdirAll(r.dir, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(r.dir, "run.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if !paths.TryLock(f) {
+		_ = f.Close()
+		return nil, fmt.Errorf("another run of %s holds %s", r.o.Plan, f.Name())
+	}
+	return func() { _ = f.Close() }, nil
 }
 
 func (r *runner) execute(ctx context.Context, p plans.WavePlan) (int, error) {
@@ -136,10 +171,27 @@ func (r *runner) prepare() error {
 	}
 	r.slug = planSlug(r.o.Plan)
 	r.day = time.Now()
-	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug), paths.MemorySubDir("reports")
+	// keyed by the full path too: two repos' same-named plans never share resume state
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(r.o.Plan)))[:8]
+	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug+"-"+key), paths.MemorySubDir("reports")
 	r.path = filepath.Join(r.dir, "state.json")
 	r.state.Plan = r.o.Plan
+	r.adoptLegacy(filepath.Join(paths.StateDir(), "waves", r.slug, "state.json"))
 	return nil
+}
+
+// adoptLegacy moves this plan's pre-hash <slug>/state.json to the keyed path, so an in-flight run still resumes.
+func (r *runner) adoptLegacy(old string) {
+	if _, err := os.Stat(r.path); !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if s, err := StateLoad(old); err != nil || s.Plan != r.o.Plan {
+		return
+	}
+	if os.MkdirAll(r.dir, 0o700) == nil && os.Rename(old, r.path) == nil {
+		return
+	}
+	r.path = old // the move failed: resume from the old file in place
 }
 
 // planSlug names a plan's state dir, reports and notices.
@@ -180,6 +232,9 @@ func (r *runner) gate(w plans.Wave) string {
 func (r *runner) load() error {
 	if !r.o.Fresh {
 		s, err := StateLoad(r.path)
+		if err == nil && s.Plan != r.o.Plan {
+			return fmt.Errorf("%s belongs to plan %s, not %s; --fresh starts over", r.path, s.Plan, r.o.Plan)
+		}
 		if err == nil {
 			r.state = s
 			return nil
@@ -312,7 +367,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 	ws.Fallback = nil
 	ws.NoVerify = nil
 	var launch []Spec
-	for i, d := range decision.Leaves {
+	for i, d := range r.staleKeeps(w, decision.Leaves) {
 		if specs[i].Verify == "" {
 			ws.NoVerify = append(ws.NoVerify, specs[i].ID)
 		}
@@ -330,6 +385,38 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 		return nil, WaveState{}, nil, false, err
 	}
 	return specs, ws, launch, false, nil
+}
+
+// staleKeeps relaunches a kept leaf whose blocker launches in this run, transitively, so it reruns on new work.
+func (r *runner) staleKeeps(w plans.Wave, leaves []DecideLeaf) []DecideLeaf {
+	if r.launched == nil {
+		r.launched = map[string]bool{}
+	}
+	blockedBy := map[string][]string{}
+	for _, t := range w.Tasks {
+		for _, b := range t.BlockedBy {
+			blockedBy[specID(t.ID)] = append(blockedBy[specID(t.ID)], specID(b))
+		}
+	}
+	out := slices.Clone(leaves)
+	for _, d := range out { // seeded first: a dependent may precede its blocker in the wave
+		if d.Action != DecideKeep {
+			r.launched[d.ID] = true
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for i, d := range out {
+			if d.Action != DecideKeep {
+				continue
+			}
+			if j := slices.IndexFunc(blockedBy[d.ID], func(id string) bool { return r.launched[id] }); j >= 0 {
+				out[i] = DecideLeaf{ID: d.ID, Action: DecideRelaunch, Why: "blocker relaunched: " + blockedBy[d.ID][j]}
+				r.launched[d.ID], changed = true, true
+			}
+		}
+	}
+	return out
 }
 
 func (r *runner) rerun(n int) string {

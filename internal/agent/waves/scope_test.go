@@ -217,11 +217,15 @@ func TestLaunchAllContainsPanic(t *testing.T) {
 			if i != 1 {
 				want = []Envelope{{TaskID: wave[i].ID, Status: "ok", DispatchID: "job"}}
 			}
-			expected := batchResult{batch: res.batch, envelopes: want}
-			expected.batch.idx = []int{i}
-			if !reflect.DeepEqual(res, expected) {
+			if !slotIs(res, i, want) {
 				t.Fatalf("slot %d: %+v, want envelopes %+v", i, res, want)
 			}
 		}
 	}
+}
+
+// slotIs is whether res is batch i's clean result carrying want.
+func slotIs(res batchResult, i int, want []Envelope) bool {
+	return res.err == nil && res.snapErr == nil && len(res.foreign) == 0 && slices.Equal(res.batch.idx, []int{i}) &&
+		reflect.DeepEqual(res.envelopes, want)
 }

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -288,8 +291,33 @@ func TestRunLeafThatWroteAlonePathsOfAnotherPackageFailsTheWave(t *testing.T) {
 	}
 }
 
+// A pre-hash <slug>/state.json of this plan moves to the keyed path; another plan's stays put.
+func TestPrepareAdoptsLegacyState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := filepath.Join(paths.StateDir(), "waves", "my-plan", "state.json")
+	if err := (State{Plan: "/elsewhere/my-plan.md"}).Save(old); err != nil {
+		t.Fatal(err)
+	}
+	r := &runner{o: Options{Dir: t.TempDir(), Plan: "/x/my-plan.md"}}
+	if err := r.prepare(); err != nil || r.path == old {
+		t.Fatalf("foreign legacy state adopted: path %q err %v", r.path, err)
+	}
+	if err := (State{Plan: "/x/my-plan.md", Base: "abc"}).Save(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := StateLoad(r.path); err != nil || s.Base != "abc" || r.path == old {
+		t.Fatalf("legacy state not moved to %q: %+v %v", r.path, s, err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("legacy state left behind: %v", err)
+	}
+}
+
 func TestPrepareKeepsUndatedSlugAndFixesDay(t *testing.T) {
-	t.Setenv("CLAUDE_CODE_STATE_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	r := &runner{o: Options{Dir: t.TempDir(), Plan: "/x/my-plan.md"}}
 	if err := r.prepare(); err != nil {
 		t.Fatal(err)
@@ -297,7 +325,73 @@ func TestPrepareKeepsUndatedSlugAndFixesDay(t *testing.T) {
 	if !strings.HasPrefix(r.path, paths.StateDir()) {
 		t.Errorf("state path %q is outside the harness state tree", r.path)
 	}
-	if r.slug != "my-plan" || !strings.HasSuffix(r.path, filepath.Join("waves", "my-plan", "state.json")) || r.day.IsZero() {
+	if r.slug != "my-plan" || !strings.HasPrefix(filepath.Base(r.dir), "my-plan-") || r.day.IsZero() {
 		t.Errorf("slug %q path %q day %v", r.slug, r.path, r.day)
+	}
+	other := &runner{o: Options{Dir: r.o.Dir, Plan: "/y/my-plan.md"}}
+	if err := other.prepare(); err != nil || other.path == r.path {
+		t.Errorf("same-named plans share state %q (err %v)", r.path, err)
+	}
+}
+
+// A second run of one plan is refused while the first holds the lock; a copied foreign state is refused.
+func TestRunLockAndForeignState(t *testing.T) {
+	f := newRunFixture(t)
+	r := &runner{o: f.o}
+	if err := r.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWith(t.Context(), f.o, f.h); code != 1 || len(f.calls) != 0 || !strings.Contains(f.out.String(), "another run") {
+		t.Fatalf("locked run: exit %d calls %d\n%s", code, len(f.calls), &f.out)
+	}
+	unlock()
+	if err := (State{Plan: "/elsewhere/toy.jsonl"}).Save(r.path); err != nil {
+		t.Fatal(err)
+	}
+	f.out.Reset()
+	if code := runWith(t.Context(), f.o, f.h); code != 1 || len(f.calls) != 0 || !strings.Contains(f.out.String(), "belongs to plan") {
+		t.Fatalf("foreign state: exit %d calls %d\n%s", code, len(f.calls), &f.out)
+	}
+}
+
+// A resume that relaunches 1.1 relaunches its kept dependent 1.2 too, whatever their order in the plan.
+func TestRunResumeRelaunchesStaleDependent(t *testing.T) {
+	first := `{"id":"1.1","wave":1,"agent":"codex","owns":["a.txt"],"task":"first"}` + "\n"
+	second := `{"id":"1.2","wave":1,"agent":"codex","owns":["b.txt"],"task":"second","blocked_by":["1.1"]}` + "\n"
+	for name, plan := range map[string]string{"blocker first": first + second, "dependent first": second + first} {
+		t.Run(name, func(t *testing.T) { resumeRelaunchesDependent(t, plan) })
+	}
+}
+
+func resumeRelaunchesDependent(t *testing.T, plan string) {
+	f := newRunFixture(t)
+	verifyWrite(t, f.o.Dir, "toy.jsonl", plan)
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatal(code, &f.out)
+	}
+	r := &runner{o: f.o}
+	if err := r.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := StateLoad(r.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := s.Wave(1)
+	i := slices.IndexFunc(w.Leaves, func(l LeafState) bool { return strings.HasSuffix(l.ID, "1.1") })
+	w.Status, w.Leaves[i].Status = WaveStateFailed, "error"
+	if err := s.WithWave(w).Save(r.path); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatal(code, &f.out)
+	}
+	if len(f.calls) != 2 || f.calls[0][0].ID != "1.1" || f.calls[1][0].ID != "1.2" {
+		t.Fatalf("resume launched %+v, want 1.1 then its dependent 1.2", f.calls)
 	}
 }
