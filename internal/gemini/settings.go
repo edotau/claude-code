@@ -211,7 +211,11 @@ func agyPermissionSettings(p permission.Permissions, guard, tools bool, cwd stri
 	if len(allow) > 0 {
 		perms["allow"] = mergeAgyDeny(nil, allow)
 	}
-	b, err := json.Marshal(map[string]any{"permissions": perms})
+	obj := map[string]any{"permissions": perms}
+	if p.Mode == permission.PermDefault {
+		obj["agentMode"] = "" // agy 1.5.7+ starts an unset mode in Auto; "" is its Default mode
+	}
+	b, err := json.Marshal(obj)
 	if err != nil {
 		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
 	}

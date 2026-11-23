@@ -355,10 +355,19 @@ func agyArgv(r agyRequest) []string {
 	return append(append(argv, r.SettingsArgv...), "-p=")
 }
 
-// agyToolArgv is a tools run's approval and workspace flags; default keeps agy's prompts and the cwd-only workspace.
+// ensureAgyPackDir creates the pack dir for a tools run: agy fails every command when an --add-dir is missing.
+func ensureAgyPackDir(r agyRequest) error {
+	if !r.Tools {
+		return nil
+	}
+	if err := os.MkdirAll(paths.PackDir(), 0o700); err != nil {
+		return fmt.Errorf("agy: create pack dir: %w", err)
+	}
+	return nil
+}
+
+// agyToolArgv is a tools run's approval and workspace flags; default omits auto-approval (headless -p soft-denies prompts).
 func agyToolArgv(mode, cwd string) []string {
-	// agy fails every command when an --add-dir is missing
-	_ = os.MkdirAll(paths.PackDir(), 0o700)
 	if mode == permission.PermDefault {
 		return []string{"--add-dir", paths.PackDir()}
 	}
@@ -421,6 +430,9 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 		return wire.Result{}, err
 	}
 	r = headlessAgy(ctx, agent.DispatchIDOf(ctx), r)
+	if err := ensureAgyPackDir(r); err != nil {
+		return wire.Result{}, err
+	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	dn := &agyDenier{p: r.Permissions, cwd: r.Cwd}
 	idle := agent.NewIdleTimeout("gemini", agent.IdleLimitFor("gemini"), nil)
@@ -891,6 +903,9 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	}
 	if req.AppendSystemPrompt != "" {
 		b.intro += agent.Preamble(req.AppendSystemPrompt)
+	}
+	if err := ensureAgyPackDir(areq); err != nil {
+		return nil, nil, "", err
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
 	return cmd, tail, p.Result.Provider, nil
