@@ -92,6 +92,29 @@ func TestVerifyUnionOutsideOnlyWhenFingerprintChanged(t *testing.T) {
 	verifyOutside(t, in, "clean-at-launch file edited", []string{"other/o.txt"})
 }
 
+func TestVerifyUnionPeerCommitIsNotAStray(t *testing.T) {
+	dir := verifyRepo(t, map[string]string{"in/a.txt": "a\n", "other/o.txt": "o\n", "other/p.txt": "p\n"})
+	head, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := CheckUnionInput{Dir: dir, Base: strings.TrimSpace(string(head)), Packages: []CheckPackage{{ID: "1.1", Owns: []string{"in"}}}}
+	commit := func(msg string) {
+		verifyGit(t, dir, "add", "-A")
+		verifyGit(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", msg)
+	}
+
+	verifyWrite(t, dir, "other/o.txt", "o2\n")
+	commit("feat: peer\n\nTask: plan 2.1")
+	verifyOutside(t, in, "peer commit with a Task trailer", nil)
+	verifyWrite(t, dir, "other/p.txt", "p2\n")
+	verifyOutside(t, in, "leaf leaves an unowned file dirty", []string{"other/p.txt"})
+	commit("leaf commit without a trailer")
+	verifyOutside(t, in, "commit without a Task trailer", []string{"other/p.txt"})
+	verifyWrite(t, dir, "other/o.txt", "o3\n")
+	verifyOutside(t, in, "dirty on top of a peer commit", []string{"other/o.txt", "other/p.txt"})
+}
+
 func TestVerifyUnionGateFailureAndScope(t *testing.T) {
 	var got inspect.DiffOptions
 	rep := inspect.DiffReport{Gates: []inspect.GateResult{{Name: "go test", Status: "FAIL"}}, Outside: []string{"x.go"}}
