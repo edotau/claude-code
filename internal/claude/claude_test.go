@@ -312,7 +312,11 @@ func TestClaudeArgsPermissions(t *testing.T) {
 	tail := []string{"--exclude-dynamic-system-prompt-sections"}
 	wd := t.TempDir()
 	roots := agent.WritableRoots(wd)
-	autoTail := append([]string{"--add-dir", roots[0], "--add-dir", roots[len(roots)-1]}, tail...)
+	var autoTail []string
+	for _, r := range roots {
+		autoTail = append(autoTail, "--add-dir", r)
+	}
+	autoTail = append(autoTail, tail...)
 	cases := []struct {
 		name string
 		req  agent.RunOptions
