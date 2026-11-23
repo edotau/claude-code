@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// requeueWindow bounds the whole admission exchange, including queue waits and replacement-daemon retries.
+// requeueWindow bounds each handshake (request, first reply) and each re-dial, not the queue wait.
 var requeueWindow = 15 * time.Second
 
 // dialStep paces those re-dials; a var so a test can shorten it.
@@ -36,8 +36,6 @@ func Admit(ctx context.Context, rec agent.Record, note io.Writer) Outcome {
 		return Direct
 	}
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, requeueWindow)
-	defer cancel()
 	for {
 		out, requeue := admitOnce(ctx, rec, note)
 		if !requeue {
@@ -53,8 +51,10 @@ func Admit(ctx context.Context, rec agent.Record, note io.Writer) Outcome {
 	}
 }
 
-// redial shares the admission budget, including backoff between successful but unhelpful probes.
+// redial waits up to requeueWindow for a replacement daemon to answer a status probe.
 func redial(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, requeueWindow)
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
@@ -76,18 +76,16 @@ func admitOnce(ctx context.Context, rec agent.Record, note io.Writer) (Outcome, 
 	defer c.Close()
 	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
 	defer stop()
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := c.SetDeadline(deadline); err != nil {
-			return Direct, false
-		}
-	}
-	if err := writeRequest(c, request{Schema: wireSchema, Op: "admit", ID: rec.ID, Parent: rec.Parent}); err != nil {
+	if sendAdmit(c, rec) != nil {
 		return Direct, false
 	}
 	sc, queued := bufio.NewScanner(c), false
 	for sc.Scan() {
 		var r reply
 		if json.Unmarshal(sc.Bytes(), &r) != nil {
+			return Direct, false
+		}
+		if err := c.SetDeadline(time.Time{}); err != nil {
 			return Direct, false
 		}
 		switch r.State {
@@ -104,6 +102,14 @@ func admitOnce(ctx context.Context, rec agent.Record, note io.Writer) (Outcome, 
 		}
 	}
 	return Direct, queued && ctx.Err() == nil // a drop mid-wait is a restart; before any reply, a full daemon
+}
+
+// sendAdmit arms the handshake deadline (the first reply clears it; ctx bounds the wait) and sends the request.
+func sendAdmit(c net.Conn, rec agent.Record) error {
+	if err := c.SetDeadline(time.Now().Add(requeueWindow)); err != nil {
+		return err
+	}
+	return writeRequest(c, request{Schema: wireSchema, Op: "admit", ID: rec.ID, Parent: rec.Parent})
 }
 
 // QueryStatus asks the running daemon for its queue view.
