@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,6 +13,42 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestWaitRowsProgress(t *testing.T) {
+	oldSlice, oldLoad := waitSlice, waitLoad
+	t.Cleanup(func() { waitSlice, waitLoad = oldSlice, oldLoad })
+	const id = "progress-test"
+	calls, loads := 0, 0
+	waitSlice = func(_ context.Context, _ []string, _, _ time.Duration) ([]agent.WaitResult, error) {
+		calls++
+		state := agent.WaitTimeout
+		if calls == 4 {
+			state = agent.WaitDone
+		}
+		return []agent.WaitResult{{ID: id, State: state}}, nil
+	}
+	waitLoad = func(string) (agent.Record, error) {
+		tools := []int64{1, 1, 2}
+		rec := agent.Record{ID: id, Activity: &agent.Activity{Tools: tools[loads]}}
+		loads++
+		return rec, nil
+	}
+	var rows []agent.WaitResult
+	var err error
+	_, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+		rows, err = waitRows(context.Background(), []string{id}, time.Second, true)
+		return 0
+	})
+	if err != nil || len(rows) != 1 || rows[0].State != agent.WaitDone {
+		t.Fatalf("rows = %+v, err = %v; want done", rows, err)
+	}
+	if calls != 4 || loads != 3 {
+		t.Errorf("wait calls %d, record loads %d; want 4 and 3", calls, loads)
+	}
+	if want := "progress-test · 1 tools · ↑- ↓-\nprogress-test · 2 tools · ↑- ↓-\n"; stderr != want || stdout != "" {
+		t.Errorf("stdout = %q, stderr = %q; want empty stdout and %q", stdout, stderr, want)
+	}
+}
 
 // runCLI drives the real dispatcher: Run(["claude-code", args...]).
 func runCLI(t *testing.T, args ...string) (int, string, string) {

@@ -70,6 +70,7 @@ claude-code agents ask --agent codex "Review this branch."    # one-shot; --form
 claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
 claude-code agents ask --spec task.json --dry-run   # resolved route and argv; no model call
 claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
+claude-code agents wait <id> --progress              # stderr line per change: step, tools, last text
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code agents serve --start [--cap N] | --status | --restart | --stop   # queue --background jobs per pool
                                                  # make install restarts a running daemon, never starts one

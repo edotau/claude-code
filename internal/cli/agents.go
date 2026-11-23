@@ -50,7 +50,7 @@ func agentsSpec() *helptext.Node {
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
-		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
+		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("run"), flag("verify"), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
@@ -621,6 +621,7 @@ func cmdAgentsWaves(args []string) int {
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
 	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
+	progress := fs.Bool("progress", false, "print a stderr line each time a job's activity changes")
 	format := helptext.FormatFlag(fs)
 	ids, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -635,7 +636,7 @@ func cmdAgentsWait(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	rows, err := agent.Wait(ctx, ids, *timeout, time.Second)
+	rows, err := waitRows(ctx, ids, *timeout, *progress)
 	if err != nil {
 		return helptext.Fail("agents wait: %v", err)
 	}
@@ -793,7 +794,7 @@ func agentPage(name string) helptext.Page {
 	}
 	usage := "claude-code " + name + " [<command>|--] [launch flags] [args…]"
 	hint := ""
-	if name == "codex" || name == "copilot" {
+	if s.CLI.ProviderVerb {
 		usage += "\nclaude-code " + name + " <provider> [-p NAME] [rest…]"
 		hint = "\nclaude-code " + name + " databricks -p dev ask \"Explain this code\""
 	}

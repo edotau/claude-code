@@ -1,17 +1,106 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
+
+const waitProgressWidth = 80
+
+// waitProgressEvery matches the record's 2 s activity refresh; waitLoad and waitSlice are test seams.
+var (
+	waitProgressEvery = 2 * time.Second
+	waitLoad          = agent.LoadRecord
+	waitSlice         = agent.Wait
+)
+
+// waitRows is agent.Wait; with progress it waits in slices and prints a stderr line per activity change.
+func waitRows(ctx context.Context, ids []string, timeout time.Duration, progress bool) ([]agent.WaitResult, error) {
+	if !progress {
+		return agent.Wait(ctx, ids, timeout, time.Second)
+	}
+	return waitRowsProgress(ctx, ids, timeout, os.Stderr)
+}
+
+func waitRowsProgress(ctx context.Context, ids []string, timeout time.Duration, out io.Writer) ([]agent.WaitResult, error) {
+	deadline := time.Now().Add(timeout)
+	last := make(map[string]string, len(ids))
+	for {
+		remaining := time.Until(deadline)
+		rows, err := waitSlice(ctx, ids, min(max(remaining, 0), waitProgressEvery), time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if !waitHasTimeout(rows) || time.Until(deadline) <= 0 {
+			return rows, nil
+		}
+		for _, row := range rows {
+			if row.State != agent.WaitTimeout {
+				continue
+			}
+			rec, err := waitLoad(row.ID)
+			if err != nil {
+				continue
+			}
+			line := waitProgressLine(rec, time.Now())
+			if line == last[row.ID] {
+				continue
+			}
+			if _, err := fmt.Fprintln(out, line); err != nil {
+				return nil, err
+			}
+			last[row.ID] = line
+		}
+	}
+}
+
+func waitHasTimeout(rows []agent.WaitResult) bool {
+	for _, row := range rows {
+		if row.State == agent.WaitTimeout {
+			return true
+		}
+	}
+	return false
+}
+
+// waitProgressLine is one --progress row: id, step, tools, tokens so far, last log text; it is also the change key.
+func waitProgressLine(rec agent.Record, now time.Time) string {
+	p := agent.ProgressOf(rec, now)
+	tools, usage := int64(p.Tools), wire.Usage{}
+	if rec.Activity != nil {
+		tools, usage = rec.Activity.Tools, rec.Activity.Usage
+	}
+	parts := []string{rec.ID, rec.Progress}
+	if tools >= 0 {
+		parts = append(parts, fmt.Sprintf("%d tools", tools))
+	}
+	parts = append(parts, "↑"+tokenOrDash(usage.InputTokens)+" ↓"+tokenOrDash(usage.OutputTokens), p.Doing)
+	parts = slices.DeleteFunc(parts, func(s string) bool { return s == "" })
+	return textutil.TruncateCells(strings.Join(parts, " · "), waitProgressWidth, "…")
+}
+
+// tokenOrDash shows "-" for 0: agents report usage only in their final event, so a running job usually has none.
+func tokenOrDash(n int) string {
+	if n == 0 {
+		return "-"
+	}
+	return strconv.Itoa(n)
+}
 
 // cmdAgentsStatus is `agents status [<id>] [--agent A] [--all]`: recent dispatches, one agent's jobs, or one dispatch.
 func cmdAgentsStatus(args []string) int {
