@@ -30,13 +30,17 @@ func RepoRoot(ctx context.Context, cwd string) string {
 	return repo
 }
 
-// WritableRoots is where a tools dispatch may write besides its cwd: the harness checkout and cwd's repo.
+// WritableRoots is where a tools dispatch may write besides its cwd: the harness, its lanes and cwd's repo.
 func WritableRoots(cwd string) []string {
-	roots := []string{paths.Real(paths.ConfigDir())}
+	harness := paths.Real(paths.ConfigDir())
+	roots := []string{harness}
+	if home, err := os.UserHomeDir(); err == nil { // worktree.Root's layout; worktree imports agent, so no call
+		roots = append(roots, filepath.Join(paths.Canon(home), "worktrees", strings.TrimPrefix(filepath.Base(harness), ".")))
+	}
 	if cwd == "" {
 		return roots
 	}
-	if repo := paths.Real(RepoRoot(context.Background(), cwd)); repo != "" && repo != roots[0] {
+	if repo := paths.Real(RepoRoot(context.Background(), cwd)); repo != "" && !slices.Contains(roots, repo) {
 		roots = append(roots, repo)
 	}
 	return roots
