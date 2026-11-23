@@ -29,8 +29,11 @@ const syncDigestScript = `{ git --no-optional-locks status --porcelain; ` +
 	`{ git -c core.quotePath=false diff --name-only --diff-filter=d HEAD; git -c core.quotePath=false ls-files -o --exclude-standard; } | ` +
 	`git hash-object --stdin-paths; } | git hash-object --stdin`
 
-// syncProbeScript prints the peer's .layout, store HEAD and dirty-state digest, one per line.
-const syncProbeScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && cat .layout && git rev-parse HEAD && ` + syncDigestScript
+// syncProbeScript prints the peer's .layout, store HEAD, dirty-state digest and plans digest, one per line.
+func syncProbeScript() string {
+	return `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && cat .layout && git rev-parse HEAD && ` +
+		syncDigestScript + ` && ` + plansProbeScript()
+}
 
 const (
 	SyncOffMsg       = "memory sync is off on this machine: claude-code vault env set NETWORK_MEMORY on"
@@ -107,13 +110,14 @@ type syncPass struct {
 	out                           io.Writer
 	layout                        string
 	refused                       map[string]bool
+	plansTok                      map[string]string // peer -> plans digest from the probe
 	synced, down, failed, retried int
 }
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
 	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout)),
-		refused: map[string]bool{}}
+		refused: map[string]bool{}, plansTok: map[string]string{}}
 	tokens := map[string]string{}
 	for _, peer := range peers {
 		if tok, ok := s.probe(peer, s.peer(peer)); ok {
@@ -123,6 +127,11 @@ func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	bad := map[string]bool{}
 	s.each(peers, tokens, bad, s.pull) // every pull first, so each push carries what the other peers had
 	s.each(peers, tokens, bad, s.push)
+	for _, peer := range peers { // after memory, so both sides hold every archived plan copy
+		if _, ok := s.plansTok[peer]; ok {
+			s.plans(peer, s.peer(peer))
+		}
+	}
 	for peer := range bad {
 		if s.refused[peer] {
 			s.failed++
@@ -161,6 +170,9 @@ func (s *syncPass) peer(name string) *PeerSync {
 	if p.Seen == nil {
 		p.Seen = map[string]string{}
 	}
+	if p.PlansSeen == nil {
+		p.PlansSeen = map[string]string{}
+	}
 	return p
 }
 
@@ -187,12 +199,15 @@ func (s *syncPass) probe(name string, p *PeerSync) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), syncProbeTimeout)
 	defer cancel()
 	var buf bytes.Buffer
-	tail, exit, err := syncSSH(ctx, name, syncProbeScript, nil, &buf)
+	tail, exit, err := syncSSH(ctx, name, syncProbeScript(), nil, &buf)
 	p.Tried = s.now
 	if s.unreachable(name, p, tail, exit, err) {
 		return "", false
 	}
-	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	lines, plans := strings.Split(strings.TrimSpace(buf.String()), "\n"), ""
+	if len(lines) == 4 { // the plans digest; a probe without it syncs memory alone
+		lines, plans = lines[:3], strings.TrimSpace(lines[3])
+	}
 	if exit != 0 || len(lines) != 3 {
 		s.failed++
 		s.refuse(&p.Pull, "probe", name, fmt.Sprintf("probe failed (exit %d): %s", exit, lastLine(tail)), "")
@@ -204,10 +219,22 @@ func (s *syncPass) probe(name string, p *PeerSync) (string, bool) {
 		s.refuse(&p.Pull, "probe", name, fmt.Sprintf("layout %q differs from local %q", layout, s.layout), tok)
 		return "", false
 	}
-	if r := p.Pull.Refusal; r == syncNoLogin || strings.HasPrefix(r, "layout ") || strings.HasPrefix(r, "probe failed") {
-		p.Pull.Refusal = "" // the probe's own refusal is over once a probe passes
+	clearProbeRefusal(p)
+	switch plans {
+	case "":
+	case plansOldPeer: // known before the ~3 MB plans fetch, so an old peer costs nothing
+		s.say("plans", name, "peer's claude-code predates plans sync (update it); memory only")
+	default:
+		s.plansTok[name] = plans
 	}
 	return tok, true
+}
+
+// clearProbeRefusal ends the probe's own refusal once a probe passes.
+func clearProbeRefusal(p *PeerSync) {
+	if r := p.Pull.Refusal; r == syncNoLogin || strings.HasPrefix(r, "layout ") || strings.HasPrefix(r, "probe failed") {
+		p.Pull.Refusal = ""
+	}
 }
 
 // unreachable reports an ssh-level failure (exit 255, no answer): a refused login is held a day, the rest retried.
@@ -346,6 +373,9 @@ func hashTree(dir string) map[string]string {
 		case !d.Type().IsRegular(), strings.HasPrefix(name, "."), strings.HasSuffix(name, ".lock"),
 			rel == "MEMORY.md", rel == "index.md", rel == "catalog.md":
 		default:
+			if fi, err := d.Info(); err != nil || fi.Size() > importMaxFile {
+				return nil
+			}
 			if b, err := os.ReadFile(p); err == nil {
 				sum := sha256.Sum256(b)
 				out[rel] = hex.EncodeToString(sum[:])
@@ -565,8 +595,11 @@ const memoryFetchTimeout = 10 * time.Minute
 const memoryFetchScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
 
 // FetchRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
-func FetchRoot(host string) (string, error) {
-	argv, err := syncArgv(host, memoryFetchScript)
+func FetchRoot(host string) (string, error) { return fetchTar(host, memoryFetchScript) }
+
+// fetchTar extracts the tar script prints on host into a fresh private temp dir, within the store's caps.
+func fetchTar(host, script string) (string, error) {
+	argv, err := syncArgv(host, script)
 	if err != nil {
 		return "", err
 	}

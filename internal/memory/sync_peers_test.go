@@ -35,7 +35,7 @@ func stubSyncSeams(t *testing.T, st *syncStub) {
 	oldSSH, oldFetch := syncSSH, fetchRoot
 	t.Cleanup(func() { syncSSH, fetchRoot = oldSSH, oldFetch })
 	syncSSH = func(_ context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
-		if script == syncProbeScript {
+		if script == syncProbeScript() {
 			st.calls = append(st.calls, "probe "+host)
 			o, ok := st.probe[host]
 			if !ok {
@@ -264,12 +264,12 @@ func (ts *twoStores) asPeer(fn func()) {
 // ssh answers the probe and the push for peer.example; any other host answers its probe, then is cut off.
 func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
 	if host != "peer.example" {
-		_, _ = io.WriteString(out, map[bool]string{true: "flat 3\n" + syncTestHead + "\nother\n"}[script == syncProbeScript])
-		return "", map[bool]int{false: sshFailExit}[script == syncProbeScript], nil
+		_, _ = io.WriteString(out, map[bool]string{true: "flat 3\n" + syncTestHead + "\nother\n"}[script == syncProbeScript()])
+		return "", map[bool]int{false: sshFailExit}[script == syncProbeScript()], nil
 	}
 	code := 0
 	ts.asPeer(func() {
-		if script == syncProbeScript {
+		if script == syncProbeScript() {
 			layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
 			head, digest, _ := strings.Cut(LocalToken(), " ")
 			_, _ = fmt.Fprintf(out, "%s\n%s\n%s\n", strings.TrimSpace(string(layout)), head, digest)
@@ -448,7 +448,7 @@ func TestSyncProbeDigestTracksContent(t *testing.T) {
 	}
 	newTwoStores(t)
 	probe := func() string {
-		cmd := exec.Command(sh, "-c", syncProbeScript)
+		cmd := exec.Command(sh, "-c", syncProbeScript())
 		cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+paths.ConfigDir())
 		b, err := cmd.Output()
 		syncMust(t, err)
@@ -458,7 +458,7 @@ func TestSyncProbeDigestTracksContent(t *testing.T) {
 	syncMust(t, os.WriteFile(note, []byte("one\n"), 0o600))
 	a := probe()
 	syncMust(t, os.WriteFile(note, []byte("two\n"), 0o600))
-	if b := probe(); a == b || b != probe() || strings.Count(b, "\n") != 3 {
-		t.Fatalf("probe %q then %q: want three lines that move with the bytes and nothing else", a, b)
+	if b := probe(); a == b || b != probe() || strings.Count(b, "\n") != 4 {
+		t.Fatalf("probe %q then %q: want four lines that move with the bytes and nothing else", a, b)
 	}
 }

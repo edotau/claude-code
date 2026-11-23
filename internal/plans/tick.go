@@ -161,6 +161,9 @@ const gitReadTimeout = 10 * time.Second
 // plansLock is the path of the lock every plan write holds.
 func plansLock() string { return filepath.Join(paths.StateDir(), "plans.lock") }
 
+// WithLock runs fn under the plans lock, for a writer outside this package (memory sync).
+func WithLock(fn func() error) error { return paths.WithFileLock(plansLock(), fn) }
+
 // editPlan re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
 func editPlan(planPath string, fn func(text string) (string, error)) error {
 	return paths.WithFileLock(plansLock(), func() error {

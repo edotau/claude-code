@@ -78,6 +78,12 @@ update`; the rest print none.
   retried at the next pass; credential-shaped content and a `.layout` or flag mismatch are held for 24 hours or until
   the source changes.
 
+  The same pass then syncs the plans home (`plans/`, subdirectories included) by the same table, with its own `seen`
+  map and a content digest in place of the store's git token. Deletions do not propagate, except an archived plan:
+  once the store holds `archive/plans/<slug>/X.md` (`claude` for the top level), a side's `plans/X.md` equal to it, or
+  unedited since the last sync while the other side no longer holds it, is removed. A peer whose binary predates
+  `memory import --plans` is found by the probe and syncs memory alone, with no plans fetch.
+
 ## Promotion ladder
 
 The one copy; each step costs more context. Each step prints the block, target and procedure and the agent edits by
@@ -181,7 +187,7 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   Replays run `memory update --historical` (history and decisions only).
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
   `memory index` learns a bounded access boost from 30 days of same-session follow-ups.
-- Detached `memory import --sync` — imports memory and pushes to peers every 4 hours while an opted-in machine is
+- Detached `memory import --sync` — imports memory and pushes to peers every 30 minutes while an opted-in machine is
   in use; writes `state/harness/memory/sync.json` and `state/harness/memory/sync-<stamp>.log`.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough

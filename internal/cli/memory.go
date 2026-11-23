@@ -227,7 +227,8 @@ func memorySpec() *helptext.Node {
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
-			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace")}},
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
+			helptext.BoolFlag("plans")}},
 	}}
 }
 
@@ -564,14 +565,15 @@ func cmdMemoryImport(args []string) int {
 	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
 	sync := fs.Bool("sync", false, "pull, then push; all peers when no --host")
 	replaceFile := fs.String("replace", "", "file of sha256 lines: replace those files on a match")
+	plans := fs.Bool("plans", false, "apply a sync peer's plans from --from DIR")
 	if code, done := memoryParseNoArgs(fs, "import", args); done {
 		return code
 	}
+	if *plans {
+		return memoryImportPlans(*from, *dryRun, *sync, *host, *replaceFile)
+	}
 	if *sync {
-		if *from != "" || *replaceFile != "" {
-			return helptext.FailUsage("memory import: --sync takes neither --from nor --replace (usage: %s)", memoryImportPage.Usage)
-		}
-		return memorySync(*host, *dryRun)
+		return memorySync(*host, *from, *replaceFile, *dryRun)
 	}
 	if (*from == "") == (*host == "") {
 		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
@@ -595,8 +597,24 @@ func cmdMemoryImport(args []string) int {
 	return 0
 }
 
+// memoryImportPlans is the peer side of the plans sync, run by the syncing machine over ssh.
+func memoryImportPlans(from string, dryRun, sync bool, host, replaceFile string) int {
+	if from == "" || sync || host != "" || replaceFile != "" {
+		return helptext.FailUsage("memory import: --plans takes --from DIR and --dry-run only (usage: %s)", memoryImportPage.Usage)
+	}
+	lines, err := memory.ImportPlans(from, dryRun)
+	fmt.Println(strings.Join(lines, "\n"))
+	if err != nil {
+		return helptext.Fail("memory import --plans: %v", err)
+	}
+	return 0
+}
+
 // memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
-func memorySync(host string, dryRun bool) int {
+func memorySync(host, from, replaceFile string, dryRun bool) int {
+	if from != "" || replaceFile != "" {
+		return helptext.FailUsage("memory import: --sync takes neither --from nor --replace (usage: %s)", memoryImportPage.Usage)
+	}
 	if memory.InSandbox() {
 		fmt.Fprintln(os.Stderr, "memory sync: refused: this config dir is a sandbox")
 		return 0

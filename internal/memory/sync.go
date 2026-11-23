@@ -22,8 +22,8 @@ import (
 
 const (
 	syncEnv       = "NETWORK_MEMORY"
-	syncSchema    = 1
-	syncEvery     = 4 * time.Hour
+	syncSchema    = 2
+	syncEvery     = 30 * time.Minute
 	syncStampName = "memory-sync"
 )
 
@@ -57,7 +57,10 @@ type PeerSync struct {
 	Pushed      string            `json:"pushed"` // local token at the last push
 	Tried       time.Time         `json:"tried"`
 	Unreachable time.Time         `json:"unreachable_since"`
-	Seen        map[string]string `json:"seen"` // file -> "local peer" sha256; one hash when equal
+	Seen        map[string]string `json:"seen"`         // file -> "local peer" sha256; one hash when equal
+	PlansSeen   map[string]string `json:"plans_seen"`   // Seen for the plans home
+	PlansPulled string            `json:"plans_pulled"` // peer plans digest at the last settled plans pass
+	PlansPushed string            `json:"plans_pushed"` // local plans digest then
 }
 
 // SyncDir is the outcome of one direction's last pass.
@@ -75,7 +78,7 @@ func syncStatePath() string { return filepath.Join(paths.MemoryStateDir(), "sync
 var syncFormat = schemas.Register(schemas.Format{
 	Name: "memory-sync", Owner: "internal/memory", Kind: schemas.Cache, Version: syncSchema,
 	Glob: syncStatePath,
-	New:  func() any { return new(SyncState) },
+	New:  func() any { return new(SyncState) }, Migrate: schemas.SameShape, // v2 adds the plans fields
 	Keep: "rebuildable cache; a version mismatch is a miss and the next pass reseeds",
 })
 
@@ -249,7 +252,7 @@ func SyncReport() []SyncRow {
 	return rows
 }
 
-// SyncIfDue starts the detached sync pass when this machine opted in, the 4-hour slot is free and there was activity.
+// SyncIfDue starts the detached sync pass when this machine opted in, the 30-minute slot is free and there was activity.
 func SyncIfDue(now, active time.Time, cwd string) bool {
 	return SyncOn() && syncIfDue(now, active, cwd)
 }

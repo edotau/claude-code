@@ -70,12 +70,12 @@ func TestSyncIfDue(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stampAt(now.Add(-time.Hour))
+	stampAt(now.Add(-syncEvery / 2))
 	if SyncIfDue(now, now, "") {
 		t.Fatal("a fresh stamp started a pass")
 	}
-	stampAt(now.Add(-5 * time.Hour))
-	if SyncIfDue(now, now.Add(-6*time.Hour), "") {
+	stampAt(now.Add(-syncEvery - time.Hour))
+	if SyncIfDue(now, now.Add(-syncEvery-2*time.Hour), "") {
 		t.Fatal("a due slot without activity started a pass")
 	}
 	if !SyncIfDue(now, now, "") || SyncIfDue(now, now, "") || spawns.Sync.Load() != 1 {
