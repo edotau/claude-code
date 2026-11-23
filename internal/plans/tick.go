@@ -287,7 +287,7 @@ func findTask(p Plan, taskID string) (Task, bool) {
 		}
 	}
 	for _, t := range p.Tasks {
-		title := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(t.Title, "**you**")), "—")) // owner marker and dash precede the id
+		title := strings.TrimLeft(strings.TrimPrefix(t.Title, "**you**"), " —") // the owner marker and its dash precede the id
 		if taskID != "" && titleHasPrefix(title, taskID) {
 			return t, true
 		}
