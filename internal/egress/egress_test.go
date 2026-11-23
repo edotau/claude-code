@@ -30,9 +30,17 @@ type socksServer struct {
 
 func startSocks(t *testing.T, port int) *socksServer {
 	t.Helper()
-	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	s, err := listenSocks(port)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return s
+}
+
+func listenSocks(port int) (*socksServer, error) {
+	l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return nil, err
 	}
 	s := &socksServer{l: l}
 	go func() {
@@ -44,7 +52,7 @@ func startSocks(t *testing.T, port int) *socksServer {
 			go s.serve(conn)
 		}
 	}()
-	return s
+	return s, nil
 }
 
 // serve answers the greeting, then relays one CONNECT; a probe that only greets ends at the failed read.
@@ -99,7 +107,11 @@ func TestWorkspaceRequestsLeaveThroughTheTunnelOrFail(t *testing.T) {
 	isWorkspace = func(h string) bool { return h == "127.0.0.1" }
 	startWait = 2 * time.Second
 	spawn = func(_ string, port int, _ string) (int, <-chan struct{}, error) {
-		socks = startSocks(t, port)
+		s, err := listenSocks(port)
+		if err != nil {
+			return 0, nil, err
+		}
+		socks = s
 		return 0, nil, nil
 	}
 	tr := &http.Transport{Proxy: proxyFor("box"), DisableKeepAlives: true}
@@ -298,8 +310,11 @@ func TestEnsureReusesOnlyOurOwnTunnel(t *testing.T) {
 			t.Cleanup(func() { spawn = origSpawn })
 			var spawns int
 			spawn = func(_ string, port int, _ string) (int, <-chan struct{}, error) {
+				s, err := listenSocks(port)
+				if err != nil {
+					return 0, nil, err // Ensure's probed port was taken by a host process: it retries
+				}
 				spawns++
-				s := startSocks(t, port)
 				t.Cleanup(func() { _ = s.l.Close() })
 				return fakeSSH(t, s.l.Addr().String()), nil, nil
 			}
@@ -336,4 +351,40 @@ func recordImpostor(t *testing.T, pid int, listen bool) string {
 		t.Fatal(err)
 	}
 	return s.l.Addr().String()
+}
+
+// A first ssh that exits on a failed -D bind is retried on a fresh port; any other exit cause fails at once.
+func TestStartRetriesOnlyBindFailures(t *testing.T) {
+	for _, tc := range []struct {
+		cause     string
+		wantSpawn int
+		wantErr   bool
+	}{
+		{"bind [127.0.0.1]:1: Address already in use", 2, false},
+		{"Permission denied", 1, true},
+	} {
+		t.Run(tc.cause, func(t *testing.T) {
+			origSpawn := spawn
+			t.Cleanup(func() { spawn = origSpawn })
+			var spawns int
+			spawn = func(_ string, port int, logPath string) (int, <-chan struct{}, error) {
+				spawns++
+				if spawns == 1 || tc.wantErr {
+					if err := os.WriteFile(logPath, []byte(tc.cause+"\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					exited := make(chan struct{})
+					close(exited)
+					return 0, exited, nil
+				}
+				s := startSocks(t, port)
+				t.Cleanup(func() { _ = s.l.Close() })
+				return 0, nil, nil
+			}
+			_, err := start(t.Context(), "box", filepath.Join(t.TempDir(), "box.log"))
+			if (err != nil) != tc.wantErr || spawns != tc.wantSpawn {
+				t.Fatalf("start err = %v after %d spawns; want err=%v after %d", err, spawns, tc.wantErr, tc.wantSpawn)
+			}
+		})
+	}
 }

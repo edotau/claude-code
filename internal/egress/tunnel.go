@@ -116,37 +116,57 @@ func answers(ctx context.Context, addr string) bool {
 	return err == nil && reply[0] == 5 && reply[1] == 0
 }
 
-// start spawns the tunnel on a free loopback port and waits until it answers, ssh exits, or startWait passes.
+// start tries up to 3 free loopback ports: a spawn error or an ssh exit on a failed -D bind retries, any other failure ends it.
 func start(ctx context.Context, host, logPath string) (Tunnel, error) {
+	var err error
+	for range 3 {
+		var t Tunnel
+		var retry bool
+		if t, retry, err = startOn(ctx, host, logPath); err == nil || !retry {
+			return t, err
+		}
+	}
+	return Tunnel{}, err
+}
+
+// startOn spawns the tunnel on one free port and waits until it answers, ssh exits, or startWait passes.
+func startOn(ctx context.Context, host, logPath string) (Tunnel, bool, error) {
 	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
-		return Tunnel{}, err
+		return Tunnel{}, false, err
 	}
 	t := Tunnel{Host: host, Port: l.Addr().(*net.TCPAddr).Port}
-	_ = l.Close()
+	_ = l.Close() // the port can be taken before spawn binds it
 	pid, exited, err := spawn(host, t.Port, logPath)
 	if err != nil {
-		return Tunnel{}, err
+		return Tunnel{}, true, err
 	}
 	t.PID = pid
 	deadline := time.NewTimer(startWait)
 	defer deadline.Stop()
 	for {
 		if answers(ctx, t.addr()) {
-			return t, nil
+			return t, false, nil
 		}
 		select {
 		case <-exited:
-			return Tunnel{}, fmt.Errorf("ssh tunnel failed: %s", sshCause(logPath))
+			cause := sshCause(logPath)
+			return Tunnel{}, bindFailed(cause), fmt.Errorf("ssh tunnel failed: %s", cause)
 		case <-ctx.Done():
 			kill(t)
-			return Tunnel{}, ctx.Err()
+			return Tunnel{}, false, ctx.Err()
 		case <-deadline.C:
 			kill(t)
-			return Tunnel{}, fmt.Errorf("ssh tunnel did not come up within %s", startWait)
+			return Tunnel{}, false, fmt.Errorf("ssh tunnel did not come up within %s", startWait)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// bindFailed reports ssh's log line says the local -D port could not be listened on.
+func bindFailed(cause string) bool {
+	return strings.Contains(cause, "Address already in use") || strings.Contains(cause, "cannot listen to port") ||
+		strings.Contains(cause, "Could not request local forwarding")
 }
 
 // sshArgs is the tunnel's ssh argv after "ssh": no prompt, no shared master, dead within 30s of a lost link.
