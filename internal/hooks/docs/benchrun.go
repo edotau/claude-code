@@ -111,7 +111,11 @@ var benchRun = func(args []string, top string, lock *os.File) int {
 		"HARNESS_BENCH_DEADLINE="+strconv.FormatFloat(benchRunTimeout.Seconds(), 'f', -1, 64))
 	proc.TreeCancel(cmd, 0)
 	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
+	err = cmd.Run()
+	if cmd.Process != nil {
+		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a straggler holding fd 3 keeps the measurement lock
+	}
+	if err != nil {
 		if cmd.ProcessState != nil {
 			return cmd.ProcessState.ExitCode()
 		}

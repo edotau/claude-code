@@ -15,3 +15,6 @@ func TreeCancel(cmd *exec.Cmd, _ time.Duration) {
 		return cmd.Process.Kill()
 	}
 }
+
+// ReapGroup is a no-op off unix: taskkill /T already took the whole tree.
+func ReapGroup(int, time.Duration) bool { return true }

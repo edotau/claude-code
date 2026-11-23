@@ -40,6 +40,21 @@ func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
 	}
 }
 
+// ReapGroup SIGKILLs a dead leader's group until it is empty: a child forked during the cancel sweep escapes it.
+func ReapGroup(pgid int, limit time.Duration) bool {
+	if pgid <= 1 {
+		return true
+	}
+	for end := time.Now().Add(limit); ; time.Sleep(time.Millisecond) {
+		if errors.Is(syscall.Kill(-pgid, syscall.SIGKILL), syscall.ESRCH) {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
+	}
+}
+
 // treeTag is a fresh env name no process outside this run's tree carries.
 func treeTag() string {
 	b := make([]byte, 8)
