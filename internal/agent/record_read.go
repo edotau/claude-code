@@ -72,16 +72,32 @@ func jsonToken(s string) string {
 	return string(b)
 }
 
+// settledScan is the not-running index for a RunningToken scan of dir; any other needle gets none (nil skips nothing).
+func settledScan(dir, needle string) *inflight.Settled {
+	if needle != inflight.RunningToken {
+		return nil
+	}
+	return inflight.NewSettled(dir)
+}
+
 // eachRecent calls fn newest first on each decodable record in dir holding needle (jsonToken, RunningToken, "" = all).
 func eachRecent(dir, needle string, fn func(Record) bool) error {
 	names, err := recordNames(dir)
 	probe := []byte(needle)
+	settled := settledScan(dir, needle)
+	defer settled.Done()
 	var buf []byte // one read buffer for every record
 	for _, n := range slices.Backward(names) {
+		if settled.Skip(n) {
+			continue
+		}
 		var rerr error
 		var b []byte
 		b, buf, rerr = readInto(filepath.Join(dir, n), buf)
 		if rerr != nil || !bytes.Contains(b, probe) {
+			if rerr == nil {
+				settled.Note(n)
+			}
 			continue
 		}
 		if r, derr := decodeRecord(b); derr == nil && !fn(r) {
@@ -108,9 +124,17 @@ func readAllRecent(dir, needle string, since time.Time) ([]Record, error) {
 func readNames(dir string, names []string, needle string) []Record {
 	slices.Reverse(names)
 	probe := []byte(needle)
+	settled := settledScan(dir, needle)
+	defer settled.Done()
 	got, _ := parallel.Map(context.Background(), names, 8, func(_ context.Context, n string) (*Record, error) {
+		if settled.Skip(n) {
+			return nil, nil
+		}
 		b, _, rerr := readInto(filepath.Join(dir, n), nil)
 		if rerr != nil || !bytes.Contains(b, probe) {
+			if rerr == nil {
+				settled.Note(n)
+			}
 			return nil, nil
 		}
 		if r, derr := decodeRecord(b); derr == nil {

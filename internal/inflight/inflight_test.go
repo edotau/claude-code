@@ -164,6 +164,34 @@ func TestLiveRoutesObjectAndLegacyString(t *testing.T) {
 	}
 }
 
+func TestSettledRecordRewrittenRunningIsSeen(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "a.json")
+	if err := os.WriteFile(path, []byte(`{"status":"ok","route":"x:y"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSettled(dir)
+	if s.Skip("a.json") {
+		t.Fatal("first scan skipped an unseen record")
+	}
+	s.Note("a.json")
+	s.Done()
+	if !NewSettled(dir).Skip("a.json") {
+		t.Fatal("unchanged settled record was not skipped")
+	}
+	body := fmt.Sprintf(`{"status":"running","pid":%d,"time":%q,"route":"x:y"}`, os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := LiveRoutes(); got["x:y"] != 1 {
+		t.Fatalf("LiveRoutes = %v, want the rewritten record counted", got)
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 func benchmarkDispatchRecords(b *testing.B) {

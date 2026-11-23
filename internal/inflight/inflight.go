@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/parallel"
@@ -98,6 +99,81 @@ func liveness(now time.Time) func(name string) bool {
 
 // RunningToken is the status a dispatch record's bytes must hold to be alive; a prefilter, not a check.
 const RunningToken = `"running"`
+
+type stamp struct {
+	size int64
+	mod  int64
+}
+
+// settledStore holds, per dispatch dir, the records last read without RunningToken (by size and mtime).
+var settledStore struct {
+	sync.Mutex
+	m map[string]map[string]stamp
+}
+
+// Settled is one dir scan skipping records read without RunningToken and unchanged (size+mtime); nil skips none.
+type Settled struct {
+	dir  string
+	mu   sync.Mutex
+	prev map[string]stamp
+	cur  map[string]stamp // stamps taken before each read, so a record rewritten mid-read never matches
+	next map[string]stamp
+}
+
+// NewSettled starts a scan of dir.
+func NewSettled(dir string) *Settled {
+	settledStore.Lock()
+	defer settledStore.Unlock()
+	return &Settled{dir: dir, prev: settledStore.m[dir], cur: map[string]stamp{}, next: map[string]stamp{}}
+}
+
+// Skip reports whether record name was read without RunningToken and is unchanged; else it stamps it for Note.
+func (s *Settled) Skip(name string) bool {
+	if s == nil {
+		return false
+	}
+	fi, err := os.Lstat(filepath.Join(s.dir, name))
+	if err != nil {
+		return false
+	}
+	st := stamp{fi.Size(), fi.ModTime().UnixNano()}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.prev[name] == st {
+		s.next[name] = st
+		return true
+	}
+	s.cur[name] = st
+	return false
+}
+
+// Note records that name, just read after a false Skip, held no RunningToken.
+func (s *Settled) Note(name string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.cur[name]; ok {
+		s.next[name] = st
+	}
+}
+
+// Done keeps what this scan saw (dropping deleted records); an early-ended scan just forgets the unseen ones.
+func (s *Settled) Done() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	next := s.next
+	s.mu.Unlock()
+	settledStore.Lock()
+	defer settledStore.Unlock()
+	if settledStore.m == nil {
+		settledStore.m = map[string]map[string]stamp{}
+	}
+	settledStore.m[s.dir] = next
+}
 
 // DispatchAlive is the shared liveness rule for a dispatch record (status, pid, start time)
 func DispatchAlive(status string, pid int, t time.Time) bool {
@@ -198,9 +274,18 @@ func liveRecords(fn func(owner int, route string)) {
 			names = append(names, e.Name())
 		}
 	}
+	settled := NewSettled(dir)
 	recs, _ := parallel.Map(context.Background(), names, recordReaders, func(_ context.Context, n string) (liveRecord, error) {
-		return readLiveRecord(filepath.Join(dir, n)), nil
+		if settled.Skip(n) {
+			return liveRecord{}, nil
+		}
+		r, noToken := readLiveRecord(filepath.Join(dir, n))
+		if noToken {
+			settled.Note(n)
+		}
+		return r, nil
 	})
+	settled.Done()
 	for _, r := range recs {
 		if r.alive {
 			fn(r.owner, r.route)
@@ -208,10 +293,14 @@ func liveRecords(fn func(owner int, route string)) {
 	}
 }
 
-func readLiveRecord(path string) liveRecord {
+// readLiveRecord also says whether the bytes held no RunningToken (a verdict that holds until a rewrite).
+func readLiveRecord(path string) (liveRecord, bool) {
 	b, err := readSized(path)
-	if err != nil || !bytes.Contains(b, []byte(RunningToken)) {
-		return liveRecord{}
+	if err != nil {
+		return liveRecord{}, false
+	}
+	if !bytes.Contains(b, []byte(RunningToken)) {
+		return liveRecord{}, true
 	}
 	var r struct {
 		Status string          `json:"status"`
@@ -221,9 +310,9 @@ func readLiveRecord(path string) liveRecord {
 		Route  json.RawMessage `json:"route"`
 	}
 	if json.Unmarshal(b, &r) != nil || !DispatchAlive(r.Status, r.PID, r.Time) {
-		return liveRecord{}
+		return liveRecord{}, false
 	}
-	return liveRecord{owner: r.Owner, route: routeKey(r.Route), alive: true}
+	return liveRecord{owner: r.Owner, route: routeKey(r.Route), alive: true}, false
 }
 
 // routeKey keys a record's route: an object as provider[:profile], a legacy string as is, null or junk as "".
