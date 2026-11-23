@@ -179,37 +179,68 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 }
 
 func installBinarySiblings(w io.Writer, self string, dryRun bool) error {
-	for _, file := range []struct {
-		name string
-		mode fs.FileMode
-	}{{paths.HookBinaryName, 0o755}, {paths.StampFile, 0o644}} {
-		source := filepath.Join(filepath.Dir(self), file.name)
-		target := filepath.Join(paths.BinDir(), file.name)
-		if installedSiblingCurrent(source, target, file.name) {
-			continue
-		}
+	source := filepath.Join(filepath.Dir(self), paths.HookBinaryName)
+	target := filepath.Join(paths.BinDir(), paths.HookBinaryName)
+	if !installedSiblingCurrent(source, target) {
 		data, err := os.ReadFile(source)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "copy     %s → %s\n", source, target)
-		if !dryRun {
-			if err := paths.AtomicWrite(target, data, file.mode); err != nil {
-				return err
+		switch {
+		case err == nil:
+			fmt.Fprintf(w, "copy     %s → %s\n", source, target)
+			if !dryRun {
+				if err := paths.AtomicWrite(target, data, 0o755); err != nil {
+					return err
+				}
 			}
+		case !errors.Is(err, fs.ErrNotExist):
+			return err
 		}
 	}
 	if !dryRun && !executableFile(filepath.Join(paths.BinDir(), paths.HookBinaryName)) {
 		return errors.New("hooks binary is missing or not executable; build both binaries with make compile")
 	}
-	return nil
+	data, err := installedBuildStamp(self, dryRun)
+	if err != nil || data == nil {
+		return err
+	}
+	target = filepath.Join(paths.BinDir(), paths.StampFile)
+	fmt.Fprintf(w, "stamp    %s\n", target)
+	return paths.AtomicWrite(target, data, 0o644)
 }
 
-func installedSiblingCurrent(source, target, name string) bool {
-	return sameBytes(source, target) && (name != paths.HookBinaryName || executableFile(target))
+func installedBuildStamp(self string, dryRun bool) ([]byte, error) {
+	source := filepath.Join(filepath.Dir(self), paths.StampFile)
+	data, err := os.ReadFile(source)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	main, err := os.Stat(self)
+	if err != nil {
+		return nil, err
+	}
+	want := fmt.Sprintf("%s %d %d", paths.BuildStamp, main.Size(), main.ModTime().Unix())
+	if paths.BuildStamp == "" || strings.TrimSpace(string(data)) != want {
+		return nil, errors.New("build stamp does not match source binary; rebuild both binaries with make compile")
+	}
+	if dryRun {
+		return nil, nil
+	}
+	installed, err := os.Stat(filepath.Join(paths.BinDir(), "claude-code"))
+	if err != nil {
+		return nil, err
+	}
+	data = fmt.Appendf(nil, "%s %d %d\n", paths.BuildStamp, installed.Size(), installed.ModTime().Unix())
+	target := filepath.Join(paths.BinDir(), paths.StampFile)
+	if current, err := os.ReadFile(target); err == nil && bytes.Equal(current, data) {
+		return nil, nil
+	}
+	return data, nil
+}
+
+func installedSiblingCurrent(source, target string) bool {
+	return sameBytes(source, target) && executableFile(target)
 }
 
 func executableFile(name string) bool {
