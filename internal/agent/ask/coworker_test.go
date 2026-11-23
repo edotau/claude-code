@@ -724,6 +724,27 @@ func TestCarrierLevelIsNotCountedInDepth(t *testing.T) {
 	}
 }
 
+// A typed --profile workspace exports the fence the --overlay form does, and still cannot leave an inherited one.
+func TestTypedArmExportsFence(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.example.com","auth":{"type":"none"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)
+	fs, f := askFlagSet()
+	if err := fs.Parse([]string{"--profile", "qa", "--fallback", "all"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "codex"}
+	_, done := r.checkArm()
+	if got, want := proc.Value(r.ctx, route.OverlayVar), agentconfig.InlineOverlay("databricks", "qa"); done || got != want {
+		t.Errorf("done = %v, %s = %q, want %q", done, route.OverlayVar, got, want)
+	}
+	r.ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "dev")})
+	if code, done := r.checkArm(); !done || code != 2 {
+		t.Errorf("inherited dev fence: checkArm = %d, %v; want refusal", code, done)
+	}
+}
+
 // The run's caps survive into the confinement a child inherits.
 func TestConfinementCarriesCaps(t *testing.T) {
 	one, tok := 1, 7

@@ -1467,7 +1467,7 @@ func TestPoolValue(t *testing.T) {
 	}
 }
 
-// A stored pool pin resolves to one workspace; only a typed --provider databricks keeps the pool pick.
+// A stored pool pin takes the pool pick; only a live or resumed run stays on one workspace.
 func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("DEV_WS_TOKEN", "x")
@@ -1481,9 +1481,9 @@ func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 			if err := fs.Parse(parsed); err != nil {
 				t.Fatal(err)
 			}
-			want := "databricks:dev"
-			if f.provider != "" {
-				want = route.Join(router.RouteDatabricks, route.AutoArm)
+			want := route.Join(router.RouteDatabricks, route.AutoArm)
+			if f.live || f.session != "" {
+				want = "databricks:dev"
 			}
 			r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: ag}
 			if got := r.poolValue(""); got != want {

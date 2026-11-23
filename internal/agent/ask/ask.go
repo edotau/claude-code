@@ -344,7 +344,7 @@ func (r *askRun) checkArm() (int, bool) {
 	if err != nil {
 		return r.fail(err, 2)
 	}
-	value = r.poolValue(value)
+	value = r.poolValue(cmp.Or(value, typedArm(f)))
 	agentName, batchLines := confineAgent(r.ov, f, r.ag)
 	picks := armAutoPick(r.ctx, value)
 	fallback := f.fallback
@@ -435,10 +435,10 @@ func poolPinned(r *askRun) bool {
 	return f.provider == "" && f.batchSrc == "" && agent.PoolPicks(r.ag, f.model, false)
 }
 
-// storedWorkspace is databricks:<workspace> as a label resolves the stored pin, else the pool pick.
+// storedWorkspace is the pool pick, except a live or resumed run stays on databricks:<its session's workspace>.
 func storedWorkspace(r *askRun, pool string) string {
 	reg, err := providers.Load()
-	if err != nil {
+	if err != nil || !r.f.live && r.f.session == "" {
 		return pool
 	}
 	q, _, err := agent.RunQuery(r.ctx, reg, agent.ModelQuery{Agent: r.ag}, "")

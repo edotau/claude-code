@@ -62,6 +62,17 @@ func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model
 	return applyArm(ctx, p, profile, agentName, model, fallback)
 }
 
+// typedArm is databricks:<workspace> for a typed --profile naming one, so nested dispatches inherit its fence.
+func typedArm(f *askFlags) string {
+	if f.profile == "" || cmp.Or(f.host, f.job, f.retry, f.batchSrc) != "" {
+		return ""
+	}
+	if fr := flagRoute(f); fr.Provider == router.RouteDatabricks && fr.Profile != route.AutoArm {
+		return route.Join(fr.Provider, fr.Profile)
+	}
+	return ""
+}
+
 // withValues is ctx whose run values are set laid over its own: what the run exports, with nothing set process-wide.
 func withValues(ctx context.Context, set proc.Values) context.Context {
 	_, values := agent.RunValues(ctx, nil)
