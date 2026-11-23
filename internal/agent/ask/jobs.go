@@ -140,15 +140,21 @@ func StreamEvents(ctx context.Context, rec agent.Record, w io.Writer) error {
 }
 
 // childWait is the pause between child lookups while the carrier is still running.
-var childWait = 200 * time.Millisecond
+var childWait = 50 * time.Millisecond
+
+// findChild and carrierLive are seams for the child-lookup tests.
+var (
+	findChild   = unseenChild
+	carrierLive = carrierAlive
+)
 
 // streamChildren tails each child of a carrier oldest first; a second child is the Pi takeover and is announced.
 func streamChildren(ctx context.Context, rec agent.Record, follow bool, w io.Writer) error {
 	seen, prev := map[string]bool{}, ""
 	for {
-		child, ok := unseenChild(rec.ID, seen)
+		child, ok := findChild(rec.ID, seen)
 		if !ok {
-			if !follow || !carrierAlive(rec.ID) {
+			if !follow || !carrierLive(rec.ID) {
 				return nil
 			}
 			if err := waitCtx(ctx, childWait); err != nil {

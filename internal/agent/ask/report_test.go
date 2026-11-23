@@ -324,3 +324,15 @@ func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 		}
 	}
 }
+
+func TestDroppedNoteNeverClaimsToolsOffForCodexReadOnly(t *testing.T) {
+	for _, c := range []struct{ drop, agent, want, not string }{
+		{"--read-only (tools off)", "codex", "read-only sandbox", "tools off"},
+		{"--effort=high", "codex", "--effort=high has no channel on the codex agent", "sandbox"},
+	} {
+		got := droppedNote(c.drop, c.agent)
+		if !strings.Contains(got, c.want) || strings.Contains(got, c.not) {
+			t.Errorf("droppedNote(%q, %q) = %q; want %q and no %q", c.drop, c.agent, got, c.want, c.not)
+		}
+	}
+}

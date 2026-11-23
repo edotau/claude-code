@@ -228,10 +228,10 @@ func askTrailer(format string, res wire.Result, refused bool) []string {
 	return lines
 }
 
-// droppedNote words one dropped flag; codex's read-only turns tools off rather than losing the request.
+// droppedNote words one dropped flag; codex's --read-only runs its read-only sandbox shell, never tools off.
 func droppedNote(d, agentName string) string {
 	if d == "--read-only (tools off)" {
-		return fmt.Sprintf("the %s agent runs with tools off (read-only sandbox where it has one)", agentName)
+		return fmt.Sprintf("--read-only runs the %s agent in its read-only sandbox (shell reads only, no tool grants)", agentName)
 	}
 	return fmt.Sprintf("%s has no channel on the %s agent — dropped", d, agentName)
 }

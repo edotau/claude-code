@@ -565,3 +565,24 @@ func TestResultExitFailsCutoffStatuses(t *testing.T) {
 		t.Errorf("ok job: rc = %d, want 0", rc)
 	}
 }
+
+func TestStreamChildrenPollsFastAndStopsWhenCarrierSettles(t *testing.T) {
+	if childWait > 50*time.Millisecond || childWait < 20*time.Millisecond {
+		t.Fatalf("childWait = %v, want 20-50ms", childWait)
+	}
+	oldWait, oldFind, oldAlive := childWait, findChild, carrierLive
+	t.Cleanup(func() { childWait, findChild, carrierLive = oldWait, oldFind, oldAlive })
+	looks := 0
+	childWait = time.Millisecond
+	findChild = func(string, map[string]bool) (agent.Record, bool) { looks++; return agent.Record{}, false }
+	carrierLive = func(string) bool { return looks < 4 }
+	if err := streamChildren(context.Background(), agent.Record{ID: "p"}, true, io.Discard); err != nil || looks != 4 {
+		t.Fatalf("settled carrier: err=%v looks=%d, want nil and 4", err, looks)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	carrierLive = func(string) bool { return true }
+	if err := streamChildren(ctx, agent.Record{ID: "p"}, true, io.Discard); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled: err=%v, want context.Canceled", err)
+	}
+}
