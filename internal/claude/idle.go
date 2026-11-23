@@ -31,6 +31,7 @@ type idleWatch struct {
 	paused          bool                // a tool-call ceiling window is running
 	pauseEnd        time.Time           // ceiling for pending calls whose ids were not tracked
 	row             string              // the launch profile row, named in a rejected-login message; empty when unknown
+	onModel         func(string)        // gets the model the stream reports, so a live run is labelled with it
 }
 
 type openTool struct {
@@ -89,6 +90,9 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 		return
 	}
 	w.retries, w.authRun = 0, 0
+	if ev.Model != "" && w.onModel != nil {
+		w.onModel(ev.Model)
+	}
 	if ev.ParentToolUseID == "" {
 		switch ev.Type {
 		case "result":
