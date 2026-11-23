@@ -25,7 +25,7 @@ func TestPlansSyncDecideAndArchiveMove(t *testing.T) {
 	put(peer, "b.md", "B0")
 	put(plansRoot(), "c.md", "C") // archived into the store: removed on both sides
 	put(peer, "c.md", "C")
-	put(filepath.Join(cfg, "memory", "archive", "plans"), "claude/c.md", "C")
+	put(filepath.Join(cfg, "memory", "archive", "plans"), "c.md", "C")
 	put(peer, "x/d.md", "D") // only the peer has it: copied, slug subdirectory included
 	seen := map[string]string{"a.md": h("A"), "b.md": h("B0"), "c.md": h("C")}
 	local, theirs := hashTree(plansRoot()), hashTree(peer)

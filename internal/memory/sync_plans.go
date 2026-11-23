@@ -109,7 +109,7 @@ func union(a, b map[string]string) map[string]string {
 	return out
 }
 
-// archivedPlans hashes each plan's store archive copy: plans/X is archive/plans/claude/X, else archive/plans/X.
+// archivedPlans hashes each plan's store archive copy: plans/<repo>/X is archive/plans/<repo>/X.
 func archivedPlans(rels map[string]string) map[string]string {
 	out := map[string]string{}
 	root, err := os.OpenRoot(filepath.Join(paths.MemoryStoreDir(), "archive", "plans"))
@@ -118,11 +118,8 @@ func archivedPlans(rels map[string]string) map[string]string {
 	}
 	defer root.Close()
 	for rel := range rels {
-		for _, arch := range []string{"claude/" + rel, rel} { // the top-level home's slug, then plans/<slug>/X.md's own
-			if h, ok := hashFile(root, arch); ok {
-				out[rel] = h
-				break
-			}
+		if h, ok := hashFile(root, rel); ok {
+			out[rel] = h
 		}
 	}
 	return out
