@@ -2,6 +2,7 @@ package router
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"hash/fnv"
 	"maps"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -265,6 +267,9 @@ func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model st
 	rows := []*providers.Provider{}
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
 		p := reg.Providers[n]
+		if slices.Contains(q.Tried, n) {
+			continue
+		}
 		if group == providers.GroupDatabricks {
 			if p.Preset == providers.PresetDatabricks {
 				rows = append(rows, p)
@@ -273,12 +278,13 @@ func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model st
 			rows = append(rows, p)
 		}
 	}
-	for _, p := range rows {
-		n := p.Name
-		if slices.Contains(q.Tried, n) {
-			continue
-		}
-		if fs := q.Findings(p, q.AgentName, model, now); len(fs) > 0 {
+	// each workspace's probes are independent network calls: run them side by side, results in row order
+	findings, err := parallel.Map(context.Background(), rows, refreshConcurrency, func(_ context.Context, p *providers.Provider) ([]F, error) {
+		return q.Findings(p, q.AgentName, model, now), nil
+	})
+	parallel.Rethrow(err)
+	for i, p := range rows {
+		if fs := findings[i]; len(fs) > 0 {
 			skipped = append(skipped, fs[0])
 			continue
 		}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -27,6 +28,9 @@ import (
 )
 
 const profileTimeout = 20 * time.Second
+
+// refreshConcurrency bounds the profile listings one refresh runs at once.
+const refreshConcurrency = 4
 
 // Budget caps the install step's listing refresh; each pong then gets its own pongCap window; a var for tests.
 var Budget = 45 * time.Second
@@ -46,11 +50,12 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		wg   sync.WaitGroup
 		errs []error
 	)
-	for _, prov := range refreshTargets(reg, ps, force) {
-		if !force && listingFresh(prov.Name, now) {
-			continue
-		}
-		wg.Go(func() {
+	stale := slices.DeleteFunc(refreshTargets(reg, ps, force), func(p *providers.Provider) bool {
+		return !force && listingFresh(p.Name, now)
+	})
+	wg.Go(func() {
+		// the pool never stops early: a cancelled ctx still reaches each fetch and lists its error
+		_, err := parallel.Map(context.WithoutCancel(ctx), stale, refreshConcurrency, func(_ context.Context, prov *providers.Provider) (struct{}, error) {
 			lctx, cancel := context.WithTimeout(ctx, profileTimeout)
 			defer cancel()
 			if err := fetch(lctx, prov); err != nil {
@@ -58,8 +63,10 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 				errs = append(errs, fmt.Errorf("%s: %w", prov.Name, err))
 				mu.Unlock()
 			}
+			return struct{}{}, nil
 		})
-	}
+		parallel.Rethrow(err)
+	})
 	if rows := staleGithubRows(reg, now, force); len(rows) > 0 {
 		wg.Go(func() { // one at a time: each child starts a Copilot runtime
 			for _, g := range rows {

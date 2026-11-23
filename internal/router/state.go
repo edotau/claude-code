@@ -172,7 +172,23 @@ func loadState() (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	return decodeState(raw)
+	lastDecode.Lock()
+	defer lastDecode.Unlock()
+	if lastDecode.state != nil && bytes.Equal(raw, lastDecode.raw) {
+		return lastDecode.state, nil
+	}
+	s, err := decodeState(raw)
+	if err == nil {
+		lastDecode.raw, lastDecode.state = raw, s
+	}
+	return s, err
+}
+
+// lastDecode reuses the last decode for identical bytes: a racy stamp skips stateCache, never the read.
+var lastDecode struct {
+	sync.Mutex
+	raw   []byte
+	state State
 }
 
 // update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.

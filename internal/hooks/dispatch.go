@@ -85,33 +85,32 @@ func runBudgeted[T any](f func() T, budget time.Duration, wg *sync.WaitGroup) (w
 		dur time.Duration
 		err error
 	}
-	done, res := make(chan outcome, 1), make(chan outcome, 1)
+	res := make(chan outcome, 1)
+	var once sync.Once // the first of the result and the deadline is the outcome
+	deliver := func(o outcome) { once.Do(func() { res <- o }) }
 	start := time.Now()
+	var expire *time.Timer
+	if budget > 0 {
+		expire = time.AfterFunc(budget, func() {
+			deliver(outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), hooktelemetry.OutcomeOverrun}})
+		})
+	}
+	stop := func() {
+		if expire != nil {
+			expire.Stop()
+		}
+	}
 	wg.Go(func() {
 		defer func() {
 			if p := recover(); p != nil {
-				done <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), hooktelemetry.OutcomePanic}}
+				stop()
+				deliver(outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), hooktelemetry.OutcomePanic}})
 			}
 		}()
-		done <- outcome{v: f(), dur: time.Since(start)}
+		o := outcome{v: f(), dur: time.Since(start)}
+		stop()
+		deliver(o)
 	})
-	var expire <-chan time.Time
-	if budget > 0 {
-		expire = time.After(budget)
-	}
-	go func() {
-		select {
-		case o := <-done:
-			res <- o
-		case <-expire:
-			select {
-			case o := <-done: // a result landing at the deadline still counts
-				res <- o
-			default:
-				res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), hooktelemetry.OutcomeOverrun}}
-			}
-		}
-	}()
 	return func() (T, time.Duration, error) {
 		o := <-res
 		return o.v, o.dur, o.err

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -21,6 +22,8 @@ const (
 	keepaliveJitter  = 20 * time.Second
 	keepaliveWindow  = 24 * time.Hour // a profile is kept alive this long after its last request
 	keepaliveTimeout = 30 * time.Second
+	// keepaliveConcurrency bounds the profiles one tick refreshes at once.
+	keepaliveConcurrency = 4
 )
 
 // keepalive holds the loop's seams: tests replace the wait, the jitter and the refresh.
@@ -89,7 +92,7 @@ func (r *Router) startKeepalive(ctx context.Context) (stop func()) {
 	return func() { cancel(); <-done }
 }
 
-// keepaliveTick refreshes each recently used profile in turn, one bounded call apiece.
+// keepaliveTick refreshes recently used profiles up to keepaliveConcurrency at once, one bounded call apiece.
 func (r *Router) keepaliveTick(ctx context.Context) {
 	names := r.recentlyUsed()
 	if len(names) == 0 {
@@ -99,11 +102,12 @@ func (r *Router) keepaliveTick(ctx context.Context) {
 	if err != nil {
 		return // requests report a broken registry
 	}
-	for _, n := range names {
+	_, _ = parallel.Map(ctx, names, keepaliveConcurrency, func(ctx context.Context, n string) (struct{}, error) {
 		if p := reg.Providers[n]; p != nil && ctx.Err() == nil {
-			r.keepaliveOne(ctx, p)
+			r.keepaliveOne(ctx, p) // contains its own panics
 		}
-	}
+		return struct{}{}, nil
+	})
 }
 
 // keepaliveOne logs the profile name and the failure's verdict only: an error text may carry a token.
