@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -11,8 +12,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -76,6 +80,85 @@ func TestNearestDispatchRejectsPoolHistory(t *testing.T) {
 	finished.PIDStart = "reused-pid"
 	if got, err := nearestDispatch([]Record{finished, a}, map[int]int{a.PID: 0}); err != nil || got.ID != a.ID {
 		t.Fatalf("unrelated process history blocked unique dispatch: %q, %v", got.ID, err)
+	}
+}
+
+func TestAncestryRestoresFenceAndSkipsWaves(t *testing.T) {
+	setConfigDir(t)
+	start, err := proc.StartTime(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := Record{ID: "leaf", PID: os.Getpid(), PIDStart: start, Status: "running",
+		Route: route.Route{Provider: "databricks", Profile: "qa"}}
+	waves := Record{ID: "coord", Agent: wavesJobAgent, PID: leaf.PID, PIDStart: start, Status: "running"}
+	if got, err := nearestDispatch([]Record{waves}, map[int]int{waves.PID: 0}); err != nil || got.ID != "" {
+		t.Fatalf("waves coordinator taken as parent: %q, %v", got.ID, err)
+	}
+	got, err := nearestDispatch([]Record{waves, leaf}, map[int]int{leaf.PID: 0})
+	if err != nil || got.ID != leaf.ID {
+		t.Fatalf("parent = %q, %v", got.ID, err)
+	}
+	previous := ancestorDispatch
+	ancestorDispatch = func() (Record, error) { return got, nil }
+	t.Cleanup(func() { ancestorDispatch = previous })
+	values := withAncestorDispatch(proc.Values{route.OverlayVar: `{"provider":"anthropic"}`})
+	if want := agentconfig.InlineOverlay("databricks", "qa"); values[route.OverlayVar] != want {
+		t.Fatalf("fence = %q, want %q", values[route.OverlayVar], want)
+	}
+}
+
+// An env-wiped ask carries the recovered parent fence in its context before any route check reads it.
+func TestAncestryContextInstallsFence(t *testing.T) {
+	setConfigDir(t)
+	t.Setenv(proc.DispatchIDEnv, "")
+	t.Setenv(route.OverlayVar, `{"provider":"anthropic"}`)
+	previous := ancestorDispatch
+	ancestorDispatch = func() (Record, error) {
+		return Record{ID: "leaf", Status: "running", Route: route.Route{Provider: "databricks", Profile: "qa"}}, nil
+	}
+	t.Cleanup(func() { ancestorDispatch = previous })
+	ctx := AncestorContext(context.Background())
+	if want := agentconfig.InlineOverlay("databricks", "qa"); proc.Value(ctx, route.OverlayVar) != want {
+		t.Fatalf("fence = %q, want %q", proc.Value(ctx, route.OverlayVar), want)
+	}
+}
+
+// The ancestry walk decodes only records whose pid is in the chain and caches every pid in .children.idx.
+func TestAncestryRecordsUseChildIndex(t *testing.T) {
+	setConfigDir(t)
+	mine := Record{ID: "mine", Agent: "claude", PID: os.Getpid(), Status: "done", Time: time.Now()}
+	other := Record{ID: "other", Agent: "claude", PID: os.Getpid() + 1, Status: "running", Time: time.Now()}
+	for _, rec := range []Record{mine, other} {
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := paths.DispatchDir()
+	for i := range 2 {
+		if got := ancestorRecords(dir, map[int]int{mine.PID: 0}); len(got) != 1 || got[0].ID != mine.ID {
+			t.Fatalf("ancestor records = %+v", got)
+		}
+		if i == 0 { // a same-stat garbage body: a second walk that decoded it would drop its cached pid
+			garbleKeepingStat(t, filepath.Join(dir, other.ID+".json"))
+		}
+	}
+	if idx := readChildIndex(dir); len(idx) != 2 || idx[other.ID+".json"].PID != other.PID {
+		t.Fatalf("index = %+v", idx)
+	}
+}
+
+func garbleKeepingStat(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Repeat("~", int(fi.Size()))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
 	}
 }
 

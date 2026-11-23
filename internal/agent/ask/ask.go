@@ -113,9 +113,6 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	if done {
 		return code
 	}
-	if err := checkAncestry(ctx); err != nil {
-		return failAsk(f.format, f.name, err)
-	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
 		if !slices.Contains(router.FallbackModes, f.fallback) {
@@ -163,6 +160,10 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 
 // config loads the overlay once and folds its routing keys under the typed flags; a bad value is a usage error.
 func (r *askRun) config() (int, bool) {
+	var err error
+	if r.ctx, err = jobAncestry(r.ctx, r.f.job); err != nil { // first: the overlay read must see the parent's fence
+		return r.fail(err, 1)
+	}
 	busy := ""
 	if r.stdinTaken() {
 		busy = "stdin is the overlay, so give the task as an argument"
@@ -288,6 +289,19 @@ func (r *askRun) prelude() (int, bool) {
 		return r.fail(err, 2)
 	}
 	return 0, false
+}
+
+var ancestorContext = agent.AncestorContext
+
+// jobAncestry checks ancestry and installs the recovered parent values, except for a --job child, already checked.
+func jobAncestry(ctx context.Context, job string) (context.Context, error) {
+	if job != "" {
+		return ctx, nil
+	}
+	if err := checkAncestry(ctx); err != nil {
+		return ctx, err
+	}
+	return ancestorContext(ctx), nil
 }
 
 // selectAgent resolves the --agent selector and checks the flag combinations it enables.

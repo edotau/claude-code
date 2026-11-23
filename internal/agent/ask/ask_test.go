@@ -120,6 +120,32 @@ func TestCmdAskRefusesAmbiguousAncestryBeforeLaunch(t *testing.T) {
 	}
 }
 
+// An env-wiped ask resolves its route under the recovered parent fence, not the ambient overlay.
+func TestCmdAskRoutesUnderAncestorFence(t *testing.T) {
+	prevCheck, prevCtx := checkAncestry, ancestorContext
+	checkAncestry = func(context.Context) error { return nil }
+	ancestorContext = func(ctx context.Context) context.Context {
+		ctx, _ = agent.RunValues(ctx, map[string]string{route.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")})
+		return ctx
+	}
+	t.Cleanup(func() { checkAncestry, ancestorContext = prevCheck, prevCtx })
+	dir := t.TempDir()
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	t.Setenv(route.OverlayVar, agentconfig.InlineOverlay("databricks", "dev"))
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.example.com","auth":{"type":"none"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--dry-run", "x"})
+	})
+	if code != 0 || !strings.Contains(out, "databricks·qa") || strings.Contains(out, "databricks·dev") {
+		t.Fatalf("exit = %d, want the parent's qa fence\nout=%s\nstderr=%s", code, out, stderr)
+	}
+}
+
 type askRetryCase struct {
 	name        string
 	retry       bool
