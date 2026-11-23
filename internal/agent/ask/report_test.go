@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,8 +17,13 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Text keeps ran-on and the dispatch id, json drops both, a refusal drops did-not-run.
@@ -215,5 +221,106 @@ func TestMaskStructuredKeepsCleanBytes(t *testing.T) {
 	raw := json.RawMessage(`{"z":1.50,"a":[1e3,"x"]}`)
 	if got := maskStructured(raw); string(got) != string(raw) {
 		t.Errorf("maskStructured = %s, want %s unchanged", got, raw)
+	}
+}
+
+// A background start whose job-id line cannot be written reports the write error instead of exiting 0 silently.
+func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close() // a reader-less pipe fails every write with EPIPE
+	orig := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = orig; w.Close() })
+	for _, format := range []string{helptext.Text, helptext.JSON} {
+		if err := reportBackgroundStart(format, agent.Record{ID: "j1"}); err == nil {
+			t.Errorf("%s: write to a closed pipe returned nil", format)
+		}
+	}
+}
+
+// A dry-run reports a typed model refusal as usage and never writes a dispatch record.
+func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--overlay", `{"provider":"databricks","profile":"dev"}`,
+		"--model", "gpt-nonexistent-9", "--dry-run", "x")
+	if code != 2 || !strings.Contains(stderr, "not served") || strings.TrimSpace(out) != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want 2 naming the rejected model", code, out, stderr)
+	}
+	if records := agent.RecentRecords(1); len(records) != 0 {
+		t.Fatalf("dry-run refusal wrote %d records", len(records))
+	}
+}
+
+// poolValue sends --provider databricks and a typed model the pin lacks to the pool; the rest stays.
+func TestPoolValue(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	vaulttest.SetRecord(t, "opencode", "profile", "dev")
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	auto := route.Join(router.RouteDatabricks, route.AutoArm)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"provider databricks", []string{"--provider", "databricks"}, auto},
+		{"typed profile", []string{"--provider", "databricks", "--profile", "dev"}, ""},
+		{"pin serves the model", []string{"--model", "claude-sonnet-5-5"}, ""},
+		{"pin lacks the model", []string{"--model", "kimi-k3"}, auto},
+		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, ""},
+		{"untyped model", nil, ""},
+		{"own-login model over the pin", []string{"--model", "opencode-go/kimi-k3.1-pro"}, ""},
+	}
+	for _, c := range cases {
+		fs, f := askFlagSet()
+		if err := fs.Parse(c.args); err != nil {
+			t.Fatal(err)
+		}
+		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "opencode"}
+		if got := r.poolValue(""); got != c.want {
+			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
+		}
+		if own := strings.Contains(c.name, "own-login"); f.native != own {
+			t.Errorf("%s: native = %v, want %v", c.name, f.native, own)
+		}
+	}
+}
+
+// A stored pool pin takes the pool pick; only a live or resumed run stays on one workspace.
+func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("DEV_WS_TOKEN", "x")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	for _, ag := range []string{"pi", "codex"} {
+		vaulttest.SetRecord(t, ag, "profile", "databricks")
+		for _, mode := range [][]string{nil, {"--background"}, {"--live"}, {"--session", "held"}, {"--provider", "databricks"}} {
+			fs, f := askFlagSet()
+			parsed := append([]string{"--model", "auto"}, mode...)
+			if err := fs.Parse(parsed); err != nil {
+				t.Fatal(err)
+			}
+			want := route.Join(router.RouteDatabricks, route.AutoArm)
+			if f.live || f.session != "" {
+				want = "databricks:dev"
+			}
+			r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: ag}
+			if got := r.poolValue(""); got != want {
+				t.Errorf("%s args %q: poolValue = %q, want %q", ag, parsed, got, want)
+			}
+		}
 	}
 }

@@ -155,3 +155,35 @@ func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) 
 		t.Fatalf("replay lost exact repair or deny: %+v", got.Permissions)
 	}
 }
+
+func TestBatchFlagErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"jobs", []string{"--jobs", "2", "hi"}, "--jobs needs --batch"},
+		{"fail-fast", []string{"--fail-fast", "hi"}, "--fail-fast needs --batch"},
+		{"text format", []string{"--batch", "-", "--format", "text"}, "--batch always prints JSON"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cliEnv(t)
+			code, out, stderr := runCLI(t, append([]string{"ask"}, c.argv...)...)
+			if code != 2 || !strings.Contains(out+stderr, c.want) {
+				t.Errorf("exit %d, output %q, want exit 2 naming %q", code, out+stderr, c.want)
+			}
+		})
+	}
+}
+
+// --batch validates --provider like a single ask does: an unknown provider exits 2 before any task runs.
+func TestBatchRejectsUnknownProvider(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "a", "agent": "claude", "prompt": "one", "workdir": t.TempDir(), "tools": true}))
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--provider", "nonexistent")
+	if code != 2 || !strings.Contains(stderr, "nonexistent") || strings.TrimSpace(out) != "" {
+		t.Fatalf("exit %d, want 2 naming the provider with no envelopes\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+}
