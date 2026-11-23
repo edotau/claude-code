@@ -14,19 +14,25 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// originClone builds an origin and a clone with one unpushed commit, so origin/HEAD resolves and HEAD is ahead.
+// originClone is a repo whose origin/HEAD is written as loose refs one commit behind HEAD, without a git clone.
 func originClone(t *testing.T) string {
 	t.Helper()
-	origin := gitRepo(t)
-	main := filepath.Join(t.TempDir(), "clone")
-	cmd := exec.Command("git", "clone", "-q", origin, main)
-	cmd.Env = gitEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("clone: %v: %s", err, out)
-	}
-	main = paths.Canon(main)
+	main := gitRepo(t)
+	sha := readRef(t, main, "refs/heads/main")
+	hosttest.WriteRel(t, main, ".git/refs/remotes/origin/main", sha+"\n")
+	hosttest.WriteRel(t, main, ".git/refs/remotes/origin/HEAD", "ref: refs/remotes/origin/main\n")
 	commitIn(t, main, "commit", "--allow-empty", "-q", "-m", "unpushed")
 	return main
+}
+
+// readRef reads a loose ref straight from .git, sparing a rev-parse spawn on the fresh template repo.
+func readRef(t *testing.T, main, ref string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(main, ".git", filepath.FromSlash(ref)))
+	if err != nil {
+		t.Fatalf("read %s: %v", ref, err)
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // rootFor gives main an isolated worktree root, like testRepo but for a caller-built main checkout.

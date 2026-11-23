@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -282,17 +281,8 @@ func TestWorktreeRootUnderHome(t *testing.T) {
 func detachedHead(t *testing.T) string {
 	t.Helper()
 	dir := gitRepo(t)
-	revCmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
-	revCmd.Env = gitEnv()
-	out, err := revCmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	coCmd := exec.Command("git", "-C", dir, "checkout", "-q", strings.TrimSpace(string(out)))
-	coCmd.Env = gitEnv()
-	if out2, err := coCmd.CombinedOutput(); err != nil {
-		t.Fatalf("checkout detached: %v: %s", err, out2)
-	}
+	// the template commit is empty, so detaching is just HEAD naming the sha: no rev-parse or checkout spawn
+	hosttest.WriteRel(t, dir, ".git/HEAD", readRef(t, dir, "refs/heads/main")+"\n")
 	return dir
 }
 
