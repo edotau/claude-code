@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -180,5 +181,12 @@ func TestAdmitOrderUnderPoolCap(t *testing.T) {
 	wantGranted(t, "cool-down over", ws, true, true, true, true)
 	if q.Len() != 0 {
 		t.Fatalf("queue left %d", q.Len())
+	}
+}
+
+func TestPoolOfChargesRecordedAccount(t *testing.T) {
+	rec := agent.Record{Account: "databricks·qa", Route: route.Route{Provider: "databricks", Profile: "dev"}}
+	if got := PoolOf(rec); got != "databricks·qa" {
+		t.Fatalf("PoolOf = %q, want the recorded account, not the route's profile", got)
 	}
 }

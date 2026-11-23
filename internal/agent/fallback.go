@@ -727,6 +727,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	disp = ownLoginActual(disp, lreq)
 	key := cmp.Or(disp.Account, disp.Agent.Name()+"·own")
 	retry.WaitCooldown(ctx, key, retry.DefaultMaxDelay)
+	noteAccount(ctx, disp.Account, notify)
 	var dhops []wire.Hop
 	var panicked bool
 	lreq.YieldFallback = c.retryYield(ctx, i, s.req)

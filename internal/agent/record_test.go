@@ -599,7 +599,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
-	_, err := runRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
+	_, err := runRecorded(context.Background(), &rec, probe, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) {
 			return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "hi"}, nil
 		})
@@ -664,7 +664,7 @@ func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
 	ran := false
-	_, err := runRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
+	_, err := runRecorded(context.Background(), &rec, brokenSink{}, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) { ran = true; return wire.Result{}, nil })
 	if err == nil || ran {
 		t.Fatalf("err = %v, ran = %v; want the emit error and no run", err, ran)
@@ -745,7 +745,7 @@ func TestRunRecordedFinalAnswerWriteError(t *testing.T) {
 			setConfigDir(t)
 			rec := ClaimRecord("codex", RunOptions{}, time.Now())
 			var events collect
-			_, err := runRecorded(context.Background(), &rec, "codex", &events,
+			_, err := runRecorded(context.Background(), &rec, &events,
 				RunRecordedOpts{AnswerTo: partialErrorWriter{want}},
 				func(context.Context, wire.Sink) (wire.Result, error) {
 					return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "final answer"}, nil
@@ -894,7 +894,7 @@ func TestRecordLineageAndUsage(t *testing.T) {
 	for depth := range 3 {
 		_, values := RunValues(ctx, nil)
 		rec := ClaimRecord("codex", RunOptions{Values: values}, time.Now())
-		_, err := runRecorded(ctx, &rec, "codex", wire.Discard, RunRecordedOpts{},
+		_, err := runRecorded(ctx, &rec, wire.Discard, RunRecordedOpts{},
 			func(child context.Context, _ wire.Sink) (wire.Result, error) {
 				ctx = proc.WithValues(context.Background(), proc.ValuesFromEnv((EnvSpec{}).Environ(child)))
 				return wire.Result{Provider: "test-provider", Model: "test-model", Usage: usage}, nil
@@ -1371,5 +1371,28 @@ func BenchmarkStampProcessGroupSelf(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		r.stampProcessGroup()
+	}
+}
+
+// A hop that moves accounts re-charges the running record; a finished record is left alone.
+func TestNoteAccountMovesRunningRecord(t *testing.T) {
+	setConfigDir(t)
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
+	rec.Account = "databricks·dev"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := withDispatchID(context.Background(), rec.ID, 0)
+	noteAccount(ctx, "databricks·qa", nil)
+	if got, _ := LoadRecord(rec.ID); got.Account != "databricks·qa" {
+		t.Fatalf("account = %q, want databricks·qa", got.Account)
+	}
+	rec.Status, rec.Account = "ok", "databricks·qa"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	noteAccount(ctx, "databricks·prod", nil)
+	if got, _ := LoadRecord(rec.ID); got.Account != "databricks·qa" {
+		t.Fatalf("finished record re-charged to %q", got.Account)
 	}
 }

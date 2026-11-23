@@ -192,8 +192,11 @@ func (q *Queue) View(now time.Time) []PoolRow {
 	return out
 }
 
-// PoolOf is rec's admission pool: the account key of the profile it runs on, the registry default when unrouted.
+// PoolOf is rec's admission pool: the account it was charged to, else the key of the profile it runs on.
 func PoolOf(rec agent.Record) string {
+	if rec.Account != "" {
+		return rec.Account
+	}
 	profile := cmp.Or(rec.Route.Profile, rec.Request.Lead, rec.Request.Provider, rec.Provider)
 	if profile == "" {
 		if reg, err := providers.LoadShared(); err == nil {

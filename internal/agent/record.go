@@ -76,6 +76,7 @@ type Record struct {
 	RanIdentity    string      `json:"ran_identity,omitempty"`    // sp | user: the Databricks identity the proxy last served the run
 	Attempts       []wire.Hop  `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
 	Route          route.Route `json:"route,omitzero"`            // overlay confinement at launch, so a running job shows where it is going
+	Account        string      `json:"account,omitempty"`         // the account key the run is charged to; moves with the hop
 	PID            int         `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	PPID           int         `json:"ppid,omitempty"`            // parent pid at launch or claim, before reparenting
 	PGID           int         `json:"pgid,omitempty"`            // process group at launch or claim
@@ -532,6 +533,24 @@ func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result 
 		}
 	}
 	return res
+}
+
+// noteAccount charges the running dispatch ctx carries to account, so admission counts the account that runs it.
+func noteAccount(ctx context.Context, account string, notify func(string)) {
+	id := DispatchIDOf(ctx)
+	if id == "" || account == "" {
+		return
+	}
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+		if r.Status != "running" || r.Account == account {
+			return r, false
+		}
+		r.Account = account
+		return r, true
+	})
+	if err != nil && notify != nil {
+		notify(fmt.Sprintf("dispatch %s account %s not recorded: %v", id, account, err))
+	}
 }
 
 func updateRecord(id string, fix func(Record) (Record, bool)) (Record, bool, error) {
@@ -1062,7 +1081,7 @@ func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunR
 }
 
 // runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id.
-func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Sink, o RunRecordedOpts,
+func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedOpts,
 	run func(context.Context, wire.Sink) (wire.Result, error)) (wire.Result, error) {
 	logSink := wire.NewLogSink(rec.LogPath())
 	defer logSink.Close() // idempotent: covers a panic in Run
@@ -1075,8 +1094,8 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	defer events.Close()
 	sink := wire.Multi(out, events)
 	begin := time.Now()
-	res := wire.Result{Agent: agentName, Status: wire.StatusError}
-	err := sink.Emit(wire.Event{Type: wire.EventStart, Agent: agentName, DispatchID: rec.ID, Status: "running"})
+	res := wire.Result{Agent: rec.Agent, Status: wire.StatusError}
+	err := sink.Emit(wire.Event{Type: wire.EventStart, Agent: rec.Agent, DispatchID: rec.ID, Status: "running"})
 	if err != nil {
 		logSink.Close()
 		rec.finishSave(res, err, time.Since(begin), o.Notify)

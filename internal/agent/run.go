@@ -120,6 +120,9 @@ func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, c
 		return err
 	}
 	p.Record.Preflight = p.Chain.Preflight
+	if len(p.Chain.Dispatches) > 0 {
+		p.Record.Account = p.Chain.Dispatches[0].Account
+	}
 	if o.Pack == nil {
 		return nil
 	}
@@ -272,7 +275,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		}
 		defer p.pack.remove()
 	}
-	res, err := runRecorded(ctx, &p.Record, p.Chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
+	res, err := runRecorded(ctx, &p.Record, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
