@@ -224,7 +224,8 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 
 	// dir == "" (no --workdir): ChildCmd must append nothing past the scrubbed environ, no PWD.
-	t.Setenv(memory.OriginEnv, "/inherited") // already inherited, so withMemoryOrigin adds nothing either
+	t.Setenv(memory.OriginEnv, "/inherited")   // already inherited, so withMemoryOrigin adds nothing either
+	t.Setenv("RTK_SUPPRESS_HOOK_WARNING", "1") // likewise for the rtk banner switch
 	scrubbed, _ := proc.Scrub(os.Environ(), nil)
 	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if n, want := len(cmd.Env), len(scrubbed); n != want {

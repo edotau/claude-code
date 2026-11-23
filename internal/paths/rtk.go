@@ -63,6 +63,7 @@ func RTKRewrite(ctx context.Context, cmd string) string {
 		defer cancel()
 		c := exec.CommandContext(ctx, bin, "rewrite", cmd)
 		c.WaitDelay = 200 * time.Millisecond
+		c.Env = append(os.Environ(), "RTK_SUPPRESS_HOOK_WARNING=1")
 		b, err := c.Output()
 		var ee *exec.ExitError
 		if got := strings.TrimSpace(string(b)); got != "" && (err == nil || errors.As(err, &ee) && ee.ExitCode() == 3) {

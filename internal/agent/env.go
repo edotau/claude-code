@@ -70,6 +70,9 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
+	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "RTK_SUPPRESS_HOOK_WARNING=") }) {
+		env = append(env, "RTK_SUPPRESS_HOOK_WARNING=1")
+	}
 	return withMemoryOrigin(env)
 }
 
