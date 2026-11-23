@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/review/bench"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -229,6 +230,48 @@ func TestBenchRunDeadlineReleasesInheritedLock(t *testing.T) {
 	defer next.Close()
 	if !paths.TryLock(next) {
 		t.Fatal("timed-out process group retained the measurement lock")
+	}
+}
+
+func TestBenchMeasureCleansWorktreeALeftByAKill(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bench post-commit runs are unix only")
+	}
+	top, sha := benchRepo(t)
+	base := filepath.Join(t.TempDir(), "job")
+	tree := base + ".json.wt.abc123"
+	run := benchRun
+	t.Cleanup(func() { benchRun = run })
+	benchRun = func([]string, string, *os.File) int { // the watchdog's SIGKILL skips the script's EXIT trap
+		if out, err := exec.CommandContext(context.Background(), "git", "-C", top, "worktree", "add", "-q", "--detach", tree, sha).CombinedOutput(); err != nil {
+			t.Errorf("git worktree add: %v %s", err, out)
+		}
+		return -1
+	}
+	if code := benchMeasure(base, benchJob{Top: top, SHA: sha}, nil, false); code != -1 {
+		t.Fatalf("exit = %d, want the kill's -1", code)
+	}
+	if _, err := os.Stat(tree); !os.IsNotExist(err) {
+		t.Errorf("detached worktree survived the kill: %v", err)
+	}
+	list, err := exec.CommandContext(context.Background(), "git", "-C", top, "worktree", "list", "--porcelain").Output()
+	if err != nil || strings.Contains(string(list), ".wt.") {
+		t.Errorf("worktree registration survived: %v %s", err, list)
+	}
+}
+
+func TestBenchLockIsTheLoopDriversLock(t *testing.T) {
+	want, err := bench.MeasurementLockPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := benchLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if lock.Name() != want {
+		t.Errorf("worker lock %s, driver lock %s", lock.Name(), want)
 	}
 }
 

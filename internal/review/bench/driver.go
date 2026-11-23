@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ const (
 	reverted
 	held
 	noComparison
+	deferred
 )
 
 // driver runs `agents ask` and `worktree` as subprocesses of this binary: internal/agent and worktree import bench.
@@ -60,7 +62,40 @@ var (
 	driverRun         = execRun // the subprocess runner; a test swaps it
 	errJobActive      = errors.New("background job cancellation failed")
 	errParentWorktree = errors.New("parent worktree removal failed")
+	errMeasureBusy    = errors.New("benchmark measurement lock busy")
+	measureLockPath   = MeasurementLockPath // a test swaps it
+	measureWait       = 50 * time.Minute    // past the post-commit worker's 45 minute deadline
 )
+
+// MeasurementLockPath is the uid-scoped machine-wide lock every benchmark measurement holds, created 0700.
+func MeasurementLockPath() (string, error) {
+	dir := filepath.Join("/tmp", "claude-code-bench-"+strconv.Itoa(os.Getuid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return "", err
+	}
+	uid, ok := paths.OwnerUID(fi)
+	if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 || !ok || uid != os.Getuid() {
+		return "", fmt.Errorf("unsafe benchmark lock directory %s", dir)
+	}
+	return filepath.Join(dir, "measurement.lock"), nil
+}
+
+// measured runs fn holding the measurement lock the post-commit worker shares, so the two never overlap.
+func measured(fn func() error) error {
+	path, err := measureLockPath()
+	if err != nil {
+		return err
+	}
+	ran, err := paths.TryFileLock(path, measureWait, fn)
+	if err == nil && !ran {
+		err = errMeasureBusy
+	}
+	return err
+}
 
 // candidate is one queue item's lane and the evidence gathered for it.
 type candidate struct {
@@ -143,7 +178,10 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 		}
 		switch o {
 		case noComparison:
-			fmt.Fprintln(d.out, "bench loop: no comparable benchmark; item dropped, stopping")
+			fmt.Fprintln(d.out, "bench loop: no conclusive comparison; item dropped, stopping")
+			return nil
+		case deferred:
+			fmt.Fprintln(d.out, "bench loop: measurement lock busy; deferred")
 			return nil
 		case reverted:
 			reverts++
@@ -208,6 +246,9 @@ func (d *driver) pick() (Item, bool, error) {
 // item runs steps 3-12 for one candidate.
 func (d *driver) item(ctx context.Context, it Item) (outcome, error) {
 	c, err := d.openLane(ctx, it)
+	if errors.Is(err, errMeasureBusy) {
+		return deferred, nil // openLane already cleaned the lane
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -218,18 +259,24 @@ func (d *driver) item(ctx context.Context, it Item) (outcome, error) {
 		}
 		return 0, errors.Join(err, d.clean(ctx, c))
 	}
-	if why, err := d.gates(ctx, &c); err != nil || why != "" {
-		if err != nil {
-			return 0, errors.Join(err, d.clean(ctx, c))
-		}
+	why, err := d.gates(ctx, &c)
+	if err != nil {
+		return 0, errors.Join(err, d.clean(ctx, c))
+	}
+	if why != "" {
 		return d.revert(ctx, c, why)
 	}
 	if err := d.interleave(ctx, &c); err != nil {
-		if errors.Is(err, errParentWorktree) {
+		if errors.Is(err, errParentWorktree) || errors.Is(err, errMeasureBusy) {
 			return d.hold(c, err.Error())
 		}
 		return 0, errors.Join(err, d.clean(ctx, c))
 	}
+	return d.verdict(ctx, c)
+}
+
+// verdict acts on the decision: clean a no-comparison, revert a loss, judge a keep.
+func (d *driver) verdict(ctx context.Context, c candidate) (outcome, error) {
 	switch dec := c.res.Decision; {
 	case dec.NoComparison:
 		return noComparison, d.clean(ctx, c)
@@ -250,7 +297,10 @@ func (d *driver) openLane(ctx context.Context, it Item) (candidate, error) {
 	c.work = filepath.Join(benchRoot(), "loop", c.slug)
 	c.before = filepath.Join(c.work, "before-run.txt")
 	if c.parent, err = source.GitInherit(c.lane, "rev-parse", "--short", "HEAD"); err == nil {
-		_, _, err = d.run(ctx, c.lane, "", d.exe, "review", "bench", "--path", it.Pkg, "--count", "8", "--out", c.before)
+		err = measured(func() error {
+			_, _, err := d.run(ctx, c.lane, "", d.exe, "review", "bench", "--path", it.Pkg, "--count", "8", "--out", c.before)
+			return err
+		})
 	}
 	if err != nil {
 		return c, errors.Join(err, d.clean(ctx, c))
@@ -376,6 +426,10 @@ func (d *driver) commit(ctx context.Context, c *candidate) error {
 
 // interleave is step 6's A/B run: A a detached worktree at the parent, B the lane at the fix.
 func (d *driver) interleave(ctx context.Context, c *candidate) error {
+	return measured(func() error { return d.interleaveLocked(ctx, c) })
+}
+
+func (d *driver) interleaveLocked(ctx context.Context, c *candidate) error {
 	parent := filepath.Join(c.work, "parent")
 	if _, err := source.GitInherit(c.lane, "worktree", "add", "--detach", parent, c.parent); err != nil {
 		return err
@@ -547,7 +601,7 @@ func medians(file string) (string, error) {
 	return sb.String(), nil
 }
 
-// savedMSDay is calls/day times the largest median ns/op drop across the A/B benchmarks, in ms.
+// savedMSDay is calls/day times the largest median ns/op drop among the benchmarks the decision judged faster, in ms.
 func savedMSDay(c candidate) float64 {
 	bt, berr := os.ReadFile(c.res.Before)
 	at, aerr := os.ReadFile(c.res.After)
@@ -560,7 +614,8 @@ func savedMSDay(c candidate) float64 {
 	}
 	best := 0.0
 	for _, s := range scoreAll(string(bt), false) {
-		if a, ok := after[s.Name]; ok {
+		a, ok := after[s.Name]
+		if ok && slices.Contains(c.res.Decision.Faster, strings.TrimPrefix(s.Name, "Benchmark")) {
 			best = max(best, s.Metrics["ns/op"].Median-a)
 		}
 	}

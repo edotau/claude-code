@@ -3,6 +3,7 @@ package bench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -86,10 +87,20 @@ func TestDriverSavedMSDay(t *testing.T) {
 	before, after := filepath.Join(dir, "before"), filepath.Join(dir, "after")
 	writeFile(t, before, "BenchmarkA-8\t1\t3000 ns/op\nBenchmarkB-8\t1\t9000 ns/op\nBenchmarkC-8\t1\t5000 ns/op\n")
 	writeFile(t, after, "BenchmarkA-8\t1\t1000 ns/op\nBenchmarkB-8\t1\t8000 ns/op\nBenchmarkOther-8\t1\t1 ns/op\n")
-	c := candidate{CallsPerDay: 1e6, res: ABResult{Before: before, After: after}}
-	if got := savedMSDay(c); got != 2000 { // the largest drop is A's 2000 ns, times 1e6 calls
+	c := candidate{CallsPerDay: 1e6, res: ABResult{Before: before, After: after,
+		Decision: Decision{Faster: []string{"A-8", "B-8"}}}}
+	if got := savedMSDay(c); got != 2000 { // the largest judged drop is A's 2000 ns, times 1e6 calls
 		t.Errorf("savedMSDay = %v, want 2000", got)
 	}
+	c.res.Decision.Faster = []string{"B-8"} // A's drop is larger but the decision did not judge it faster
+	if got := savedMSDay(c); got != 1000 {
+		t.Errorf("only B judged: savedMSDay = %v, want 1000", got)
+	}
+	c.res.Decision.Faster = nil // an allocation-only KEEP saves no judged time
+	if got := savedMSDay(c); got != 0 {
+		t.Errorf("no judged timing win: savedMSDay = %v, want 0", got)
+	}
+	c.res.Decision.Faster = []string{"A-8"}
 	c.res.After = filepath.Join(dir, "missing")
 	if got := savedMSDay(c); got != 0 {
 		t.Errorf("unreadable after file: %v, want 0", got)
@@ -262,6 +273,8 @@ func TestDriverLoopBudgets(t *testing.T) {
 		{"two reverts stop the loop", 5, []outcome{reverted}, false, 2, "2 reverts in a row; stopping"},
 		{"a keep resets the revert count", 4, []outcome{reverted, kept, reverted, kept}, false, 4, "done (--max 4)"},
 		{"busy machine defers", 3, []outcome{kept}, true, 0, "machine busy (load 9.00); deferred"},
+		{"busy measurement lock defers", 3, []outcome{deferred}, false, 1, "measurement lock busy; deferred"},
+		{"an inconclusive run stops", 3, []outcome{noComparison}, false, 1, "no conclusive comparison"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -272,6 +285,23 @@ func TestDriverLoopBudgets(t *testing.T) {
 				t.Errorf("exit %d, %d items (want %d), output %q (want %q)", code, calls, c.calls, out, c.say)
 			}
 		})
+	}
+}
+
+func TestDriverMeasuredExcludesTheWorkerLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "measurement.lock")
+	oldPath, oldWait := measureLockPath, measureWait
+	t.Cleanup(func() { measureLockPath, measureWait = oldPath, oldWait })
+	measureLockPath, measureWait = func() (string, error) { return lock, nil }, 20*time.Millisecond
+	ran := false
+	held, err := paths.TryFileLock(lock, 0, func() error { // the post-commit worker's flock on the same file
+		return measured(func() error { ran = true; return nil })
+	})
+	if !held || !errors.Is(err, errMeasureBusy) || ran {
+		t.Fatalf("under the worker's lock: held=%v err=%v ran=%v, want busy and fn skipped", held, err, ran)
+	}
+	if err := measured(func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("free lock: err=%v ran=%v", err, ran)
 	}
 }
 

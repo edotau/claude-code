@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/review/bench"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -295,20 +296,13 @@ func benchWorker(base string, rerun bool) {
 	benchDeliver(base, job)
 }
 
+// The loop driver takes the same lock, so a post-commit measurement never overlaps its A/B runs.
 func benchLock() (*os.File, error) {
-	dir := filepath.Join("/tmp", "claude-code-bench-"+strconv.Itoa(os.Getuid()))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	fi, err := os.Lstat(dir)
+	path, err := bench.MeasurementLockPath()
 	if err != nil {
 		return nil, err
 	}
-	uid, ok := paths.OwnerUID(fi)
-	if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 || !ok || uid != os.Getuid() {
-		return nil, fmt.Errorf("unsafe benchmark lock directory %s", dir)
-	}
-	return os.OpenFile(filepath.Join(dir, "measurement.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 }
 
 func benchWaitQuiet() bool {
@@ -354,10 +348,30 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 		args = append(args, "--path", rel)
 	}
 	code := benchRun(args, top, lock)
+	benchCleanTrees(top, base+".json")
 	if code != 0 {
 		return code
 	}
 	return benchAnnotate(base, benchBaselines(job, base+".baseline"), underLoad)
+}
+
+// A deadline SIGKILL skips the script's EXIT trap, so the worker removes the detached worktrees it left.
+func benchCleanTrees(top, result string) {
+	dir, prefix := filepath.Dir(result), filepath.Base(result)+".wt."
+	entries, _ := os.ReadDir(dir)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	found := false
+	for _, e := range entries {
+		if tree := filepath.Join(dir, e.Name()); strings.HasPrefix(e.Name(), prefix) {
+			_, _ = proc.RunGit(ctx, top, "worktree", "remove", "--force", tree)
+			_ = os.RemoveAll(tree)
+			found = true
+		}
+	}
+	if found {
+		_, _ = proc.RunGit(ctx, top, "worktree", "prune")
+	}
 }
 
 // Capture the exact benchstat input without redirecting the runner's history or rolling-baseline writes.

@@ -394,9 +394,10 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 // Decision is the keep/revert verdict and the benchstat rows that decided it.
 type Decision struct {
 	Keep         bool
-	NoComparison bool // no benchmark is in both runs, so neither KEEP nor REVERT
+	NoComparison bool // inconclusive, so neither KEEP nor REVERT: no benchmark in both runs, or timing only on a noisy run
 	Rule         string
 	Rows         []string
+	Faster       []string // benchmarks whose sec/op win on a quiet run backs a KEEP
 }
 
 const exitNoComparison = 3
@@ -437,27 +438,39 @@ func changePct(d Delta) (float64, bool) {
 }
 
 type benchRow struct {
-	unit, text string
-	pct        float64
+	unit, text, name string
+	pct              float64
+	worse            bool
 }
 
-// sortRows splits significant deltas into wins (sec/op only on quiet runs) and regressions.
-func sortRows(deltas map[string]map[string]Delta, quiet map[string]bool) (win, loss []benchRow) {
+// sortRows splits significant deltas into wins, regressions and sec/op moves on noisy runs, which prove nothing.
+func sortRows(deltas map[string]map[string]Delta, quiet map[string]bool) (win, loss, noisy []benchRow) {
 	for name, units := range deltas {
 		for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
 			d := units[u]
 			pct, ok := changePct(d)
-			r := benchRow{u, fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P), math.Abs(pct)}
+			r := benchRow{u, fmt.Sprintf("%s %s %s -> %s %s (%s)", name, u, d.Old, d.New, d.Change, d.P), name,
+				math.Abs(pct), pct > 0}
 			switch {
 			case !d.Significant || !ok || pct == 0:
+			case u == "sec/op" && !quiet[name]:
+				noisy = append(noisy, r)
 			case pct > 0:
 				loss = append(loss, r)
-			case u != "sec/op" || quiet[name]:
+			default:
 				win = append(win, r)
 			}
 		}
 	}
-	return win, loss
+	return win, loss, noisy
+}
+
+// inconclusive is true when noisy timing alone could flip the verdict: a regression it may hide, or the only win.
+func inconclusive(win, noisy []benchRow, allQuiet bool) bool {
+	if len(win) == 0 {
+		return len(noisy) > 0 || !allQuiet
+	}
+	return slices.ContainsFunc(noisy, func(r benchRow) bool { return r.worse && r.pct >= minRegressionPct })
 }
 
 // bestSpeedup is the largest sec/op win, or 0 when a sec/op row regresses by minRegressionPct or more.
@@ -478,9 +491,33 @@ func bestSpeedup(win, loss []benchRow) float64 {
 
 // decide keeps on a significant win with no regression that counts: under 2% is minor, a speedup outweighs less memory.
 func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
-	win, loss := sortRows(deltas, quietBoth(before, after))
+	win, loss, noisy := sortRows(deltas, quietBoth(before, after))
 	speed := bestSpeedup(win, loss)
-	var counted, outweighed, minor, wins []string
+	counted, outweighed, minor := classifyLoss(loss, speed)
+	var wins, noisyRows, faster []string
+	for _, r := range win {
+		wins = append(wins, "improved: "+r.text)
+		if r.unit == "sec/op" {
+			faster = append(faster, r.name)
+		}
+	}
+	for _, r := range noisy {
+		noisyRows = append(noisyRows, "noisy: "+r.text)
+	}
+	for _, s := range [][]string{counted, outweighed, minor, wins, noisyRows, faster} {
+		slices.Sort(s)
+	}
+	d := Decision{Keep: len(wins) > 0 && len(counted) == 0, Rule: decideRule(len(wins), counted, outweighed, minor, speed),
+		Rows: slices.Concat(counted, outweighed, minor, wins, noisyRows), Faster: faster}
+	allQuiet := !slices.ContainsFunc(slices.Concat(before, after), func(s Score) bool { return !isQuiet(s) })
+	if len(counted) == 0 && inconclusive(win, noisy, allQuiet) {
+		d.Keep, d.NoComparison, d.Rule = false, true, "no verdict on a noisy run; rerun on a quiet machine"
+	}
+	return d
+}
+
+// classifyLoss splits regressions into those that count, those a speedup outweighs and minor ones.
+func classifyLoss(loss []benchRow, speed float64) (counted, outweighed, minor []string) {
 	for _, r := range loss {
 		switch {
 		case r.pct < minRegressionPct:
@@ -491,15 +528,7 @@ func decide(deltas map[string]map[string]Delta, before, after []Score) Decision 
 			counted = append(counted, "regressed: "+r.text)
 		}
 	}
-	for _, r := range win {
-		wins = append(wins, "improved: "+r.text)
-	}
-	for _, s := range [][]string{counted, outweighed, minor, wins} {
-		slices.Sort(s)
-	}
-	d := Decision{Keep: len(wins) > 0 && len(counted) == 0, Rule: decideRule(len(wins), counted, outweighed, minor, speed)}
-	d.Rows = slices.Concat(counted, outweighed, minor, wins)
-	return d
+	return counted, outweighed, minor
 }
 
 // decideRule names the rule that decided the verdict.
@@ -563,7 +592,7 @@ func decideFiles(before, after string) (Decision, error) {
 		common = common || an[n]
 	}
 	if !common {
-		return Decision{NoComparison: true, Rows: miss}, nil
+		return Decision{NoComparison: true, Rule: "no benchmark is in both runs", Rows: miss}, nil
 	}
 	deltas, err := compare(before, after)
 	if err != nil {
@@ -588,7 +617,7 @@ func runDecide(l loopOpts, stdout, stderr io.Writer) int {
 	verdict, code := "REVERT", 1
 	switch {
 	case d.NoComparison:
-		verdict, code = "NO COMPARISON: no comparable benchmark", exitNoComparison
+		verdict, code = "NO COMPARISON", exitNoComparison
 	case d.Keep:
 		verdict, code = "KEEP", 0
 	}

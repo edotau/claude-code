@@ -3,6 +3,7 @@ package bench
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -88,6 +89,8 @@ type PkgResult struct {
 	TopFrames  []Frame   `json:"top_frames,omitempty"` // --profile: the run's CPU profile, flat share of samples
 	Missing    []string  `json:"missing,omitempty"`
 	Verdicts   []Verdict `json:"verdicts,omitempty"`
+
+	top, hold string // the repo, and why this run must not become the baseline ("" when it may)
 }
 
 // Report is the whole run, the input of the improvement loop.
@@ -414,6 +417,7 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		e := epochs[benchmarkFunc(res.Benchmarks[i].Name)]
 		res.Benchmarks[i].Epoch, res.Benchmarks[i].Source = e.Hash, e.File
 	}
+	res.top, res.hold = top, baselineHold(res.Benchmarks)
 	if err := compareRolling(&res, dir, body, o.base, !rep.Dirty); err != nil {
 		return res, err
 	}
@@ -425,11 +429,13 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	rolling := filepath.Join(dir, "rolling.txt")
 	old, err := os.ReadFile(rolling)
+	promote, why := base || seed && err != nil, res.hold
 	switch {
 	case err == nil:
 		if !sameEpochs(string(old), body) {
-			res.Stale, base = true, base || seed
-			res.Missing = append(res.Missing, staleWhy(string(old))+"; "+rebaseNote(base))
+			res.Stale, promote = true, base || seed
+			why = cmp.Or(why, rolledBack(res.top, string(old), body))
+			res.Missing = append(res.Missing, staleWhy(string(old))+"; "+rebaseNote(promote, why))
 			break
 		}
 		deltas, err := compareSnapshot(dir, old, res.File)
@@ -442,14 +448,49 @@ func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
 	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
-	if hookLoaded() {
-		return nil // a loaded run never becomes the baseline later runs trust
-	}
-	if base || seed && err != nil {
+	return promoteBaseline(res, dir, body, promote, why)
+}
+
+// promoteBaseline writes body as rolling.txt when promoted and not held, else notes why it was kept.
+func promoteBaseline(res *PkgResult, dir, body string, promote bool, why string) error {
+	switch {
+	case !promote:
+	case why != "":
+		if !res.Stale {
+			res.Missing = append(res.Missing, "baseline kept: "+why)
+		}
+	default:
 		res.Baseline = true
 		return writeRolling(dir, []byte(body))
 	}
 	return nil
+}
+
+// baselineHold is why this run must not become the baseline later runs trust, or "".
+func baselineHold(scores []Score) string {
+	switch {
+	case hookLoaded():
+		return "the run was under load"
+	case len(scores) == 0:
+		return "the run holds no benchmark samples"
+	case slices.ContainsFunc(scores, func(s Score) bool { return !isQuiet(s) }):
+		return "the run is noisy"
+	}
+	return ""
+}
+
+var headerCommit = regexp.MustCompile(`(?m)^# commit: ([0-9a-f]+)$`)
+
+// rolledBack is a hold reason when the run's commit is a strict ancestor of the baseline's: a historical run.
+func rolledBack(top, old, body string) string {
+	oc, nc := headerCommit.FindStringSubmatch(old), headerCommit.FindStringSubmatch(body)
+	if top == "" || oc == nil || nc == nil || strings.HasPrefix(oc[1], nc[1]) || strings.HasPrefix(nc[1], oc[1]) {
+		return ""
+	}
+	if _, err := source.GitInherit(top, "merge-base", "--is-ancestor", nc[1], oc[1]); err != nil {
+		return ""
+	}
+	return "this run's commit " + nc[1] + " predates the baseline's " + oc[1]
 }
 
 // staleWhy tells a pre-epoch rolling.txt from one in another epoch.
@@ -460,11 +501,11 @@ func staleWhy(old string) string {
 	return "benchmark epoch changed"
 }
 
-// rebaseNote says what an epoch change does to rolling.txt; only --base or a clean tree replaces it.
-func rebaseNote(base bool) string {
+// rebaseNote says what an epoch change does to rolling.txt; only an unheld --base or clean-tree run replaces it.
+func rebaseNote(base bool, why string) string {
 	switch {
-	case hookLoaded():
-		return "baseline held under load"
+	case why != "":
+		return "baseline kept: " + why
 	case base:
 		return "this run starts a new package baseline"
 	}

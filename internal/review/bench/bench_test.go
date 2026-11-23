@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/review/source"
 )
 
 const canned = `goos: darwin
@@ -132,6 +136,89 @@ func TestCompareRollingSeedsFirstCleanRun(t *testing.T) {
 	}
 	if b, err := os.ReadFile(dir + "/rolling.txt"); err != nil || string(b) != "clean" {
 		t.Errorf("rolling.txt = %q, %v", b, err)
+	}
+}
+
+func TestBaselineHold(t *testing.T) {
+	steady := "BenchmarkA-8 1000 1000 ns/op\nBenchmarkA-8 1000 1000 ns/op\n"
+	quiet := scoreAll(steady, false)
+	for _, c := range []struct {
+		name   string
+		scores []Score
+		loaded bool
+		want   string
+	}{
+		{"quiet run", quiet, false, ""},
+		{"hook admitted under load", quiet, true, "the run was under load"},
+		{"no samples", nil, false, "the run holds no benchmark samples"},
+		{"measured load", scoreAll(steady, true), false, "the run is noisy"},
+		{"benchmark noise", scoreAll(canned, false)[:1], false, "the run is noisy"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("HARNESS_BENCH_UNDER_LOAD", strconv.FormatBool(c.loaded))
+			if got := baselineHold(c.scores); got != c.want {
+				t.Errorf("baselineHold = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestCompareRollingHeldRunKeepsBaselineAndSaysWhy(t *testing.T) {
+	dir := t.TempDir()
+	res := PkgResult{File: dir + "/run.txt", hold: "the run is noisy"}
+	if err := compareRolling(&res, dir, "noisy", false, true); err != nil || res.Baseline {
+		t.Fatalf("a noisy first run seeded the baseline: %+v %v", res, err)
+	}
+	if _, err := os.Stat(dir + "/rolling.txt"); err == nil || !slices.Contains(res.Missing, "baseline kept: the run is noisy") {
+		t.Errorf("rolling.txt written or no reason given: %v, missing %v", err, res.Missing)
+	}
+}
+
+func TestRolledBackOnlyForAnAncestorRun(t *testing.T) {
+	top := gitRepo(t)
+	rev := func() string {
+		sha, err := source.GitInherit(top, "rev-parse", "--short", "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sha
+	}
+	older := rev()
+	if out, err := exec.Command("git", "-C", top, "-c", "user.name=t", "-c", "user.email=t@t", "-c",
+		"commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "next").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	newer := rev()
+	body := func(sha string) string { return "# commit: " + sha + "\n# dirty: false\n" }
+	for _, c := range []struct {
+		name, top, old, run string
+		rolls               bool
+	}{
+		{"historical run over a newer baseline", top, body(newer), body(older), true},
+		{"newer run over an older baseline", top, body(older), body(newer), false},
+		{"same commit", top, body(newer), body(newer), false},
+		{"pre-header baseline", top, "BenchmarkA-8 1 1 ns/op\n", body(older), false},
+		{"same commit, shorter hash", top, body(newer), body(newer[:6]), false},
+		{"unknown commit", top, body("deadbee"), body(older), false},
+		{"no repo", "", body(newer), body(older), false},
+	} {
+		if got := rolledBack(c.top, c.old, c.run) != ""; got != c.rolls {
+			t.Errorf("%s: rolledBack = %v, want %v", c.name, got, c.rolls)
+		}
+	}
+	dir := t.TempDir()
+	oldEpoch := epochHeader(map[string]benchmarkEpoch{"BenchmarkA": {File: "a_test.go", Hash: strings.Repeat("b", 64)}})
+	newEpoch := epochHeader(map[string]benchmarkEpoch{"BenchmarkA": {File: "a_test.go", Hash: strings.Repeat("a", 64)}})
+	baseline := oldEpoch + body(newer)
+	if err := os.WriteFile(dir+"/rolling.txt", []byte(baseline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := PkgResult{File: dir + "/run.txt", top: top}
+	if err := compareRolling(&res, dir, newEpoch+body(older), true, true); err != nil || res.Baseline || !res.Stale {
+		t.Fatalf("a historical run replaced the baseline: %+v %v", res, err)
+	}
+	if got, _ := os.ReadFile(dir + "/rolling.txt"); string(got) != baseline {
+		t.Errorf("rolling.txt rewritten to %q", got)
 	}
 }
 

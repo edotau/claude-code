@@ -3,6 +3,7 @@ package bench
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -72,6 +73,40 @@ func TestDecide(t *testing.T) {
 	}
 	if decide(map[string]map[string]Delta{"A-8": {"sec/op": d("~")}}, quiet, quiet).Keep {
 		t.Error("no move kept")
+	}
+}
+
+func TestDecideNoisyTimingIsInconclusive(t *testing.T) {
+	d := func(c string) Delta { return decideDelta(t, c) }
+	quiet := []Score{{Name: "BenchmarkA-8"}}
+	noisy := []Score{{Name: "BenchmarkA-8", Flags: []string{"noisy"}}}
+	one := func(u, c string) map[string]map[string]Delta { return map[string]map[string]Delta{"A-8": {u: d(c)}} }
+	slower, faster := one("sec/op", "+20.00%"), one("sec/op", "-20.00%")
+	hidden := map[string]map[string]Delta{"A-8": {"sec/op": d("+20.00%"), "allocs/op": d("-40.00%")}}
+	both := map[string]map[string]Delta{"A-8": {"sec/op": d("+20.00%"), "allocs/op": d("+40.00%")}}
+	for _, c := range []struct {
+		name          string
+		deltas        map[string]map[string]Delta
+		before, after []Score
+		noComparison  bool
+	}{
+		{"quiet timing regression reverts", slower, quiet, quiet, false},
+		{"noisy timing regression is inconclusive", slower, quiet, noisy, true},
+		{"timing win only on a noisy run", faster, noisy, quiet, true},
+		{"allocs win over a hidden timing regression", hidden, noisy, quiet, true},
+		{"counted allocs regression still reverts", both, noisy, quiet, false},
+		{"noisy run with nothing significant", one("sec/op", "~"), quiet, noisy, true},
+		{"quiet run with nothing significant reverts", one("sec/op", "~"), quiet, quiet, false},
+	} {
+		if got := decide(c.deltas, c.before, c.after); got.Keep || got.NoComparison != c.noComparison {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+	}
+	if got := decide(slower, quiet, quiet); !strings.HasPrefix(got.Rows[0], "regressed") {
+		t.Errorf("a quiet timing regression row: %+v", got)
+	}
+	if got := decide(faster, quiet, quiet); !slices.Equal(got.Faster, []string{"A-8"}) {
+		t.Errorf("Faster = %v, want [A-8]", got.Faster)
 	}
 }
 
