@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -417,6 +418,9 @@ func stubBenchWorkers(t *testing.T) (chan string, chan struct{}, *atomic.Bool) {
 			t.Error("overlapping benchmark measurements")
 		}
 		defer active.Add(-1)
+		if i := slices.Index(args, "--repo"); i < 8 || i+1 >= len(args) || args[i+1] != args[5] {
+			t.Errorf("measurement argv lacks --repo <top>: %q", args)
+		}
 		entered <- args[4]
 		<-release
 		if err := os.WriteFile(args[4], []byte(cannedBench), 0o600); err != nil {
@@ -602,7 +606,7 @@ func TestBenchCommitFormsAndLaggingHead(t *testing.T) {
 }
 
 func TestBenchLoopDecision(t *testing.T) {
-	for _, scenario := range []string{"not primary trunk", "candidate lookup failed", "no candidate",
+	for _, scenario := range []string{"not primary trunk", "candidate lookup failed", "no candidate", "no candidate for this repo",
 		"machine busy", "budget refused", "loop already locked", "budget record failed", "loop launch failed", "loop launched"} {
 		t.Run(scenario, func(t *testing.T) { checkBenchLoopDecision(t, scenario) })
 	}
@@ -639,7 +643,7 @@ func checkBenchLoopDecision(t *testing.T, want string) {
 	if want == "not primary trunk" {
 		top = t.TempDir()
 	}
-	prepareBenchLoopDecision(t, want, now)
+	prepareBenchLoopDecision(t, want, now, top)
 	if got := benchLoopDecision(context.Background(), benchJob{Top: top, SHA: sha}); !strings.Contains(got, want) {
 		t.Fatalf("decision = %q, want %q", got, want)
 	}
@@ -656,22 +660,35 @@ func checkBenchLoopDecision(t *testing.T, want string) {
 	}
 }
 
-func prepareBenchLoopDecision(t *testing.T, scenario string, now time.Time) {
+func prepareBenchLoopDecision(t *testing.T, scenario string, now time.Time, top string) {
 	t.Helper()
+	repo, err := filepath.EvalSymlinks(top)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scenario == "no candidate for this repo" {
+		repo = filepath.Join(repo, "other")
+	}
+	quoted, err := json.Marshal(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	root := filepath.Join(paths.StateDir(), "bench")
 	if err := os.MkdirAll(filepath.Join(root, "p"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	history := filepath.Join(root, "p", "history.jsonl")
 	if scenario != "no candidate" {
-		writeBenchFixture(t, history, `{"schema":1,"at":"2026-11-23T12:00:00Z","pkg":"internal/p","benchmark":"BenchmarkA-8","epoch":"`+strings.Repeat("a", 64)+`","score":{"samples":5,"cost_sec":1,"metrics":{"ns/op":{"median":1000000,"cv":1}},"deltas":{"sec/op":{"old":"100","new":"110","change":"+10%","significant":true}}}}`+"\n")
+		writeBenchFixture(t, history, `{"schema":1,"at":"2026-11-23T12:00:00Z","repo":`+string(quoted)+`,"pkg":"internal/p","benchmark":"BenchmarkA-8","epoch":"`+strings.Repeat("a", 64)+`","score":{"samples":5,"cost_sec":1,"metrics":{"ns/op":{"median":1000000,"cv":1}},"deltas":{"sec/op":{"old":"100","new":"110","change":"+10%","significant":true}}}}`+"\n")
 	}
 	prepareBenchLoopRefusal(t, root, scenario, now)
 }
 
 func assertBenchLoopSpawn(t *testing.T, bin string, args []string, dir, top string) {
 	t.Helper()
-	if bin == "" || strings.Join(args, " ") != "review bench --loop --max 1" || dir != top {
+	want := "review bench --loop --max 1 --reserved " // the worker names the commit whose slot it reserved
+	got := strings.Join(args, " ")
+	if bin == "" || !strings.HasPrefix(got, want) || len(got) != len(want)+40 || dir != top {
 		t.Errorf("unexpected detached spawn: %q %v %q", bin, args, dir)
 	}
 }

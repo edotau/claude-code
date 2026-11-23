@@ -324,11 +324,11 @@ func benchLoopDecision(ctx context.Context, job benchJob) string {
 	if primaryTrunkHead(ctx, job.Top, job.SHA) == "" {
 		return "not primary trunk"
 	}
-	item, ok, err := bench.NextCandidate(now)
+	item, ok, err := bench.NextCandidateFor(job.Top, now)
 	if err != nil {
 		return "candidate lookup failed"
 	} else if !ok {
-		return "no candidate"
+		return "no candidate for this repo"
 	}
 	pkg := filepath.FromSlash(item.Pkg)
 	if fi, err := os.Stat(filepath.Join(job.Top, pkg)); pkg == "." || !filepath.IsLocal(pkg) || err != nil || !fi.IsDir() {
@@ -365,7 +365,7 @@ func benchLaunchLoop(job benchJob, now time.Time) string {
 	if ok, why := bench.Reserve(bench.KindBenchLoop, job.SHA, now); !ok {
 		return "budget refused: " + why
 	}
-	if !benchLoopSpawn(bin, []string{"review", "bench", "--loop", "--max", "1"}, job.Top, nil) {
+	if !benchLoopSpawn(bin, []string{"review", "bench", "--loop", "--max", "1", "--reserved", job.SHA}, job.Top, nil) {
 		return "loop launch failed"
 	}
 	return "loop launched"
@@ -413,8 +413,8 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 		return -1
 	}
 	top, sha, files := job.Top, job.SHA, job.Files
-	// The runner must see admission load before it writes history verdicts or advances rolling.txt.
-	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha, strconv.FormatBool(underLoad)}
+	// The runner sees admission load before writing history; --repo names the repo, not the temporary worktree.
+	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha, strconv.FormatBool(underLoad), "--repo", top}
 	for _, p := range files {
 		rel, err := filepath.Rel(top, p)
 		if err != nil {

@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,5 +130,39 @@ func TestRecordRunConcurrentRecordsOneEpochChange(t *testing.T) {
 	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("bench-change rows=%d err=%v, want 1", len(rows), err)
+	}
+}
+
+func TestRecordRunStampsRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir, top := filepath.Join(benchRoot(), "p"), t.TempDir()
+	s := Score{Name: "BenchmarkA-8", Epoch: strings.Repeat("a", 64), Samples: 2}
+	res := PkgResult{Pkg: "p", Benchmarks: []Score{s}, top: top}
+	if _, err := recordRun(dir, Report{}, res, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readHistory(filepath.Join(dir, "history.jsonl"))
+	if err != nil || len(rows) != 1 || rows[0].Repo != repoIdentity(top) || rows[0].Repo == "" {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+}
+
+// The worker measures in a temporary worktree; --repo makes the row name the repository the commit landed in.
+func TestRecordRunStampsRepoFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, worktree := t.TempDir(), t.TempDir()
+	o, code, done := parseArgs([]string{"--repo", repo}, io.Discard, io.Discard)
+	if done || code != 0 || checkRepo(o.repo) != nil || checkRepo("relative") == nil {
+		t.Fatalf("parse --repo: %+v, exit %d", o, code)
+	}
+	dir := filepath.Join(benchRoot(), "p")
+	s := Score{Name: "BenchmarkA-8", Epoch: strings.Repeat("a", 64), Samples: 2}
+	res := PkgResult{Pkg: "p", Benchmarks: []Score{s}, top: worktree, repo: o.repo}
+	if _, err := recordRun(dir, Report{}, res, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readHistory(filepath.Join(dir, "history.jsonl"))
+	if err != nil || len(rows) != 1 || rows[0].Repo != repoIdentity(repo) {
+		t.Fatalf("rows=%+v err=%v; want repo %s", rows, err, repoIdentity(repo))
 	}
 }

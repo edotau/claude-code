@@ -96,6 +96,11 @@ func noisyTwice(it Item, name string, group []observation, measured []int) (Item
 
 // Candidates ranks the items derived from every package's benchmark history, closed ones dropped.
 func Candidates(now time.Time) ([]Item, error) {
+	return candidates(now, nil)
+}
+
+// candidates keeps only history rows that keep accepts (all when nil), before grouping, so repos never mix epochs.
+func candidates(now time.Time, keep func(observation) bool) ([]Item, error) {
 	root := benchRoot()
 	files, err := filepath.Glob(filepath.Join(root, "*", "history.jsonl"))
 	if err != nil {
@@ -106,6 +111,9 @@ func Candidates(now time.Time) ([]Item, error) {
 		history, err := readHistory(file)
 		if err != nil {
 			return nil, err
+		}
+		if keep != nil {
+			history = slices.DeleteFunc(history, func(o observation) bool { return !keep(o) })
 		}
 		items = append(items, historyCandidates(history)...)
 	}
@@ -139,6 +147,16 @@ func callsPerDay(file string) (map[string]float64, error) {
 // NextCandidate is the top-ranked history candidate; false when none is open.
 func NextCandidate(now time.Time) (Item, bool, error) {
 	items, err := Candidates(now)
+	if err != nil || len(items) == 0 {
+		return Item{}, false, err
+	}
+	return items[0], true, nil
+}
+
+// NextCandidateFor is NextCandidate limited to rows measured in the repository at top; rows without a repo match none.
+func NextCandidateFor(top string, now time.Time) (Item, bool, error) {
+	id := repoIdentity(top)
+	items, err := candidates(now, func(o observation) bool { return o.Repo != "" && o.Repo == id })
 	if err != nil || len(items) == 0 {
 		return Item{}, false, err
 	}

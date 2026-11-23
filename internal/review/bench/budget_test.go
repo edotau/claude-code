@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -130,6 +131,50 @@ func TestReserveOnePerCommit(t *testing.T) {
 	}
 }
 
+const testSHA = "0123456789abcdef0123456789abcdef01234567"
+
+func TestAdmitLoopReservationStartsOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	if ok, why := Reserve(KindBenchLoop, testSHA, now); !ok {
+		t.Fatal(why)
+	}
+	if why, err := AdmitLoop(testSHA, now); why != "" || err != nil {
+		t.Fatalf("first start refused: %q, %v", why, err)
+	}
+	if why, err := AdmitLoop(testSHA, now); !strings.Contains(why, "already used") || err != nil {
+		t.Fatalf("second start: %q, %v", why, err)
+	}
+	rows, err := readBudget()
+	if runs, tokens := dayUse(rows, KindBenchLoop, now); err != nil || runs != 1 || tokens != 0 || len(rows) != 2 {
+		t.Fatalf("%d rows, %d runs, %d tokens, %v; want the reservation and its start counted as 1 run", len(rows),
+			runs, tokens, err)
+	}
+}
+
+func TestAdmitLoopReservationRefusals(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name, id, want string
+		reservedAt     time.Time
+	}{
+		{"yesterday's reservation", testSHA, "another day", now.AddDate(0, 0, -1)},
+		{"a hand id", "hand-20261123T120000.000000000", "40-hex", now},
+		{"no reservation", testSHA, "no launch reservation", time.Time{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			if ok, why := Reserve(KindBenchLoop, c.id, c.reservedAt); !c.reservedAt.IsZero() && !ok {
+				t.Fatal(why)
+			}
+			if why, err := AdmitLoop(c.id, now); !strings.Contains(why, c.want) || err != nil {
+				t.Fatalf("admit %s: %q, %v; want %q", c.id, why, err, c.want)
+			}
+		})
+	}
+}
+
 func TestLoopLockedProbeCreatesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := os.MkdirAll(benchRoot(), 0o700); err != nil {
@@ -155,7 +200,35 @@ func TestSpendDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := readBudget()
-	if err != nil || len(rows) != 1 || rows[0].ID != "" || rows[0].Tokens != 100 {
+	if err != nil || len(rows) != 1 || rows[0].Dispatch != "dispatch-one" || rows[0].Tokens != 100 {
 		t.Fatalf("dispatch spend: %+v, %v", rows, err)
+	}
+}
+
+func TestSpendDispatchReplacesAnEarlierAmount(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	settled := 0
+	old := settleDispatch
+	t.Cleanup(func() { settleDispatch = old })
+	settleDispatch = func(string) { settled++ }
+	write := func(status string, tokens int) {
+		if err := paths.WriteJSON(filepath.Join(paths.DispatchDir(), "d1.json"), map[string]any{
+			"status": status, "usage": map[string]int{"input_tokens": tokens},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	write("running", 10)
+	if err := SpendDispatch(KindBenchLoop, "d1", now); err != nil || settled != 1 {
+		t.Fatalf("running record: err %v, settle waits %d, want 1", err, settled)
+	}
+	write("ok", 50)
+	if err := SpendDispatch(KindBenchLoop, "d1", now); err != nil || settled != 1 {
+		t.Fatalf("settled record: err %v, settle waits %d, want still 1", err, settled)
+	}
+	rows, err := readBudget()
+	if _, tokens := dayUse(rows, KindBenchLoop, now); err != nil || len(rows) != 2 || tokens != 50 {
+		t.Fatalf("%d rows, day total %d, %v; want 2 rows counting 50 once", len(rows), tokens, err)
 	}
 }

@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,18 @@ type observation struct {
 	Decisive       bool      `json:"decisive,omitempty"`
 	ProductionPath string    `json:"production_path,omitempty"`
 	Subject        string    `json:"subject,omitempty"`
+	Repo           string    `json:"repo,omitempty"`
+}
+
+// repoIdentity is the repository top-level path, symlink-resolved and cleaned; unresolvable stays as given, cleaned.
+func repoIdentity(top string) string {
+	if top == "" {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(top); err == nil {
+		top = real
+	}
+	return filepath.Clean(top)
 }
 
 var historyFormat = schemas.Register(schemas.Format{
@@ -112,7 +125,8 @@ func recordRunLocked(dir string, rep Report, res PkgResult, at time.Time) ([]Ver
 			return nil, fmt.Errorf("%s: benchmark source was not found", s.Name)
 		}
 		rows = append(rows, observation{At: at, Pkg: res.Pkg, Benchmark: s.Name, Epoch: s.Epoch,
-			Env: rep.Env, Score: &s, Compared: len(s.Deltas) > 0, Decisive: moved(s) && isQuiet(s)})
+			Env: rep.Env, Score: &s, Compared: len(s.Deltas) > 0, Decisive: moved(s) && isQuiet(s),
+			Repo: repoIdentity(cmp.Or(res.repo, res.top))})
 	}
 	if err := recordEpochChanges(history, rows, rep.Commit); err != nil {
 		return nil, err

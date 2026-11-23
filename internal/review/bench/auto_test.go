@@ -75,6 +75,43 @@ func TestNextCandidate(t *testing.T) {
 	}
 }
 
+func TestNextCandidateForRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	a, b := t.TempDir(), t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(a, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	row := autoRow(now, regressed)
+	row.Repo = repoIdentity(a)
+	old := autoRow(now.Add(-time.Hour), regressed)
+	old.Pkg, old.Benchmark = "internal/old", "BenchmarkOld-8"
+	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{row, old}); err != nil {
+		t.Fatal(err)
+	}
+	for _, top := range []string{a, link} {
+		if it, ok, err := NextCandidateFor(top, now); err != nil || !ok || it.Pkg != "internal/p" {
+			t.Fatalf("repo %s: %+v, %v, %v", top, it, ok, err)
+		}
+	}
+	if it, ok, err := NextCandidateFor(b, now); err != nil || ok {
+		t.Fatalf("other repo got %+v, %v, %v", it, ok, err)
+	}
+	checkRepoLessRow(t, now)
+}
+
+func checkRepoLessRow(t *testing.T, now time.Time) {
+	t.Helper()
+	all, err := Candidates(now)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("Candidates must keep the repo-less row: %+v, %v", all, err)
+	}
+	if it, ok, _ := NextCandidateFor("", now); ok {
+		t.Fatalf("empty top matched %+v", it)
+	}
+}
+
 func writeBenchFile(t *testing.T, name, line string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(benchRoot(), name), []byte(line+"\n"), 0o644); err != nil {

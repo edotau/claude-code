@@ -72,6 +72,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.subject, "subject", "", "record observed subject state: present|gone")
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.status, "status", false, "show today's budget, automatic lanes, queue and loop")
+	fs.StringVar(&reservedSHA, "reserved", "", "internal: the commit whose loop slot the post-commit worker reserved")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
 	fs.BoolFunc("record", "add a scorecard row; a kept --after waits for its lane to merge", func(value string) error {
 		record, err := strconv.ParseBool(value)

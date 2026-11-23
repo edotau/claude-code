@@ -67,6 +67,7 @@ var (
 	measureWait       = 50 * time.Minute    // past the post-commit worker's 45 minute deadline
 	loopLockWait      = time.Second / 2     // outlasts the post-commit worker's brief loopLocked probe
 	spendDispatch     = SpendDispatch       // a test swaps it
+	reservedSHA       string                // --reserved: the commit whose loop slot the post-commit worker holds
 )
 
 // MeasurementLockPath is the uid-scoped machine-wide lock every benchmark measurement holds, created 0700.
@@ -116,6 +117,18 @@ type askEnvelope struct {
 }
 
 func runDriver(l loopOpts, stdout, stderr io.Writer) int {
+	why, err := AdmitLoop(reservedSHA, budgetNow())
+	switch {
+	case err != nil:
+		fmt.Fprintln(stderr, "review bench --loop:", err)
+		return 1
+	case why == whyLoopLocked:
+		fmt.Fprintln(stdout, "bench loop: another loop is running; deferred")
+		return 0
+	case why != "":
+		fmt.Fprintf(stdout, "bench loop: %s\n", why)
+		return 0
+	}
 	d, err := newDriverFn(stdout, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "review bench --loop:", err)
@@ -162,37 +175,61 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 			fmt.Fprintf(d.out, "bench loop: %d reverts in a row; stopping\n", reverts)
 			return nil
 		}
-		if quiet, why := d.steps.quiet(ctx); !quiet {
-			fmt.Fprintf(d.out, "bench loop: machine busy (%s); deferred\n", why)
-			return nil
-		}
-		it, ok, err := d.steps.pick()
+		it, ok, err := d.steps.pick() // before the quiet check: an automatic run with no candidate ends at once
 		if err != nil {
 			return err
 		}
 		if !ok {
-			fmt.Fprintln(d.out, "bench loop: no fix candidate at 1 s/day or more; stopping")
+			fmt.Fprintln(d.out, noCandidate())
 			return nil
+		}
+		if ok, err := ready(ctx, d.out, d.steps.quiet); !ok {
+			return err
 		}
 		o, err := d.steps.item(ctx, it)
 		if err != nil {
 			return err
 		}
-		switch o {
-		case noComparison:
-			fmt.Fprintln(d.out, "bench loop: no conclusive comparison; item dropped, stopping")
+		if settle(d.out, o, &reverts) {
 			return nil
-		case deferred:
-			fmt.Fprintln(d.out, "bench loop: deferred")
-			return nil
-		case reverted:
-			reverts++
-		default:
-			reverts = 0
 		}
 	}
 	fmt.Fprintf(d.out, "bench loop: done (--max %d)\n", maxItems)
 	return nil
+}
+
+// ready is the check before an item's first paid dispatch: the day's tokens, then a quiet machine.
+func ready(ctx context.Context, out io.Writer, quiet func(context.Context) (bool, string)) (bool, error) {
+	why, err := TokenStop(budgetNow())
+	if err != nil {
+		return false, err
+	}
+	if why != "" {
+		fmt.Fprintf(out, "bench loop: %s\n", why)
+		return false, nil
+	}
+	if ok, why := quiet(ctx); !ok {
+		fmt.Fprintf(out, "bench loop: machine busy (%s); deferred\n", why)
+		return false, nil
+	}
+	return true, nil
+}
+
+// settle counts an item's outcome and reports whether the loop stops.
+func settle(out io.Writer, o outcome, reverts *int) bool {
+	switch o {
+	case noComparison:
+		fmt.Fprintln(out, "bench loop: no conclusive comparison; item dropped, stopping")
+		return true
+	case deferred:
+		fmt.Fprintln(out, "bench loop: deferred")
+		return true
+	case reverted:
+		*reverts++
+	default:
+		*reverts = 0
+	}
+	return false
 }
 
 // quiet is step 1: load at most half the CPUs and no model job running, served or in flight.
@@ -226,6 +263,9 @@ func (d *driver) quiet(ctx context.Context) (bool, string) {
 
 // pick is step 2: the best fix item with a benchmark, skipping items held this run; ranked by score.
 func (d *driver) pick() (Item, bool, error) {
+	if reservedSHA != "" {
+		return pickRepo(d.top, d.skip)
+	}
 	var buf bytes.Buffer
 	if err := runQueue(loopOpts{kind: "fix"}, true, &buf); err != nil {
 		return Item{}, false, err
@@ -243,6 +283,24 @@ func (d *driver) pick() (Item, bool, error) {
 		}
 	}
 	return Item{}, false, nil
+}
+
+// pickRepo is an automatic run's pick: only the item NextCandidateFor offered this repo, the one that justified it.
+func pickRepo(top string, skip map[string]bool) (Item, bool, error) {
+	it, ok, err := NextCandidateFor(top, budgetNow())
+	if err != nil || !ok || it.Kind != "fix" || skip[closeKey(it.Pkg, it.What)] || !filepath.IsLocal(it.Pkg) ||
+		!hasBenchmarks(filepath.Join(top, it.Pkg)) {
+		return Item{}, false, err
+	}
+	return it, true, nil
+}
+
+// noCandidate is the loop's stop line when pick finds nothing.
+func noCandidate() string {
+	if reservedSHA != "" {
+		return "bench loop: no candidate for this repo"
+	}
+	return "bench loop: no fix candidate at 1 s/day or more; stopping"
 }
 
 // item runs steps 3-12 for one candidate.

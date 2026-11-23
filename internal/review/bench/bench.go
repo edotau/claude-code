@@ -44,6 +44,7 @@ type options struct {
 	verbose bool
 	profile bool
 	json    bool
+	repo    string
 	loop    loopOpts
 }
 
@@ -91,6 +92,7 @@ type PkgResult struct {
 	Verdicts   []Verdict `json:"verdicts,omitempty"`
 
 	top, hold string // the repo, and why this run must not become the baseline ("" when it may)
+	repo      string // --repo: the repository history rows name when top is a temporary worktree of it
 }
 
 // Report is the whole run, the input of the improvement loop.
@@ -160,6 +162,7 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 	fs.BoolVar(&o.profile, "profile", false, "also record the top CPU frames (profiling skews timings)")
 	fs.BoolVar(&o.verbose, "v", false, "also show benchmarks that did not move")
 	fs.StringVar(&format, "format", "text", "text|json")
+	fs.StringVar(&o.repo, "repo", "", "internal: the repository the post-commit worker measures")
 	loopFlags(fs, &o.loop)
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
@@ -198,6 +201,9 @@ func (o options) flagConflict() string {
 }
 
 func run(o options, stderr io.Writer) (Report, error) {
+	if err := checkRepo(o.repo); err != nil {
+		return Report{}, err
+	}
 	top, err := repoTop()
 	if err != nil {
 		return Report{}, err
@@ -237,6 +243,17 @@ func writeOut(out, runFile string) error {
 		return err
 	}
 	return paths.AtomicWriteNoSync(out, b, 0o644)
+}
+
+// checkRepo accepts "" or an absolute existing directory; the error never names the path.
+func checkRepo(repo string) error {
+	if repo == "" {
+		return nil
+	}
+	if fi, err := os.Stat(repo); !filepath.IsAbs(repo) || err != nil || !fi.IsDir() {
+		return errors.New("--repo must be an absolute, existing directory")
+	}
+	return nil
 }
 
 func repoTop() (string, error) {
@@ -419,7 +436,7 @@ func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
 		e := epochs[benchmarkFunc(res.Benchmarks[i].Name)]
 		res.Benchmarks[i].Epoch, res.Benchmarks[i].Source = e.Hash, e.File
 	}
-	res.top, res.hold = top, baselineHold(res.Benchmarks)
+	res.top, res.hold, res.repo = top, baselineHold(res.Benchmarks), o.repo
 	if err := compareRolling(&res, dir, body, o.base, !rep.Dirty); err != nil {
 		return res, err
 	}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -345,5 +346,159 @@ func TestDriverHeldLockDefers(t *testing.T) {
 	}
 	if code != 0 || calls != 0 || !strings.Contains(out, "another loop is running; deferred") {
 		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+// noDispatch fails the test when the loop reaches a subprocess.
+func noDispatch(t *testing.T) {
+	t.Helper()
+	old := driverRun
+	t.Cleanup(func() { driverRun = old })
+	driverRun = func(context.Context, string, string, string, ...string) (string, int, error) {
+		t.Error("the loop dispatched past its budget")
+		return "", 0, nil
+	}
+}
+
+func setReserved(t *testing.T, sha string) {
+	t.Helper()
+	old := reservedSHA
+	t.Cleanup(func() { reservedSHA = old })
+	reservedSHA = sha
+}
+
+func ledgerLoops(t *testing.T) int {
+	t.Helper()
+	rows, err := readBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := dayUse(rows, KindBenchLoop, time.Now())
+	return runs
+}
+
+func TestDriverHandRunStopsAtTokenLimit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	if err := Record(KindGateFix, "", dailyTokens, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	code, out := stubLoop(t, 3, scripted([]outcome{kept}, false, &calls))
+	want := "daily token budget reached: 15000000/15000000; resumes tomorrow"
+	if code != 0 || calls != 0 || !strings.Contains(out, want) || ledgerLoops(t) != 0 {
+		t.Errorf("exit %d, %d items, %d loop slots, output %q (want %q)", code, calls, ledgerLoops(t), out, want)
+	}
+}
+
+func TestDriverLoopStopsWhenItemsSpendTheDay(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if ok, why := Reserve(KindBenchLoop, testSHA, time.Now()); !ok {
+		t.Fatal(why)
+	}
+	setReserved(t, testSHA)
+	calls := 0
+	steps := scripted([]outcome{kept}, false, &calls)
+	item := steps.item
+	steps.item = func(ctx context.Context, it Item) (outcome, error) {
+		if err := Record(KindBenchLoop, "", dailyTokens, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		return item(ctx, it)
+	}
+	code, out := stubLoop(t, 3, steps)
+	if code != 0 || calls != 1 || !strings.Contains(out, "daily token budget reached") {
+		t.Errorf("exit %d, %d items (want 1), output %q", code, calls, out)
+	}
+}
+
+func TestDriverHandRunRefusedAtFiveLoops(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	for i := range dailyBenchLoops {
+		if err := Record(KindBenchLoop, strconv.Itoa(i), 0, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	code, out := stubLoop(t, 3, scripted([]outcome{kept}, false, &calls))
+	if code != 0 || calls != 0 || !strings.Contains(out, "daily bench-loop count limit reached") {
+		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+func TestDriverRunsAreCountedOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	calls := 0
+	if code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls)); code != 0 || calls != 1 || ledgerLoops(t) != 1 {
+		t.Fatalf("hand run: exit %d, %d items, %d slots, output %q; want 1 slot", code, calls, ledgerLoops(t), out)
+	}
+	if ok, why := Reserve(KindBenchLoop, testSHA, time.Now()); !ok {
+		t.Fatal(why)
+	}
+	setReserved(t, testSHA)
+	if code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls)); code != 0 || calls != 2 || ledgerLoops(t) != 2 {
+		t.Fatalf("worker run: exit %d, %d items, %d slots, output %q; want 2 slots in all", code, calls, ledgerLoops(t), out)
+	}
+}
+
+func TestDriverReservedNeedsALedgerRow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	setReserved(t, testSHA)
+	calls := 0
+	code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls))
+	if code != 0 || calls != 0 || !strings.Contains(out, "no launch reservation for "+testSHA) {
+		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+// An automatic run picks only its repo's item; with none it ends before any dispatch.
+func TestDriverReservedPicksOnlyThisRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	top, other := t.TempDir(), t.TempDir()
+	pkg := filepath.Join(top, "internal", "p")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "p_test.go"), []byte("package p\n\nfunc BenchmarkA() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mine, theirs := autoRow(time.Now(), regressed), autoRow(time.Now(), regressed)
+	mine.Repo, theirs.Repo = repoIdentity(top), repoIdentity(other)
+	theirs.Pkg, theirs.Benchmark = "internal/q", "BenchmarkQ-8"
+	theirs.Score.Metrics["ns/op"] = Spread{Median: 1e9, CV: 1} // outranks mine machine-wide
+	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{mine, theirs}); err != nil {
+		t.Fatal(err)
+	}
+	setReserved(t, testSHA)
+	d := &driver{top: top, skip: map[string]bool{}}
+	if it, ok, err := d.pick(); err != nil || !ok || it.Pkg != "internal/p" {
+		t.Fatalf("pick = %+v, %v, %v; want this repo's internal/p", it, ok, err)
+	}
+	var out strings.Builder
+	d = &driver{top: t.TempDir(), out: &out, log: io.Discard, skip: map[string]bool{}}
+	d.steps = loopSteps{quiet: func(context.Context) (bool, string) { return true, "" }, pick: d.pick,
+		item: func(context.Context, Item) (outcome, error) { t.Error("item ran with no candidate"); return kept, nil }}
+	if err := d.loop(context.Background(), 1); err != nil || !strings.Contains(out.String(), "no candidate for this repo") {
+		t.Fatalf("loop err %v, output %q", err, out.String())
+	}
+}
+
+func TestDriverCorruptLedgerRefuses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	noDispatch(t)
+	if err := paths.AppendLine(budgetFile(), []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, sha := range []string{"", testSHA} {
+		setReserved(t, sha)
+		var out, errb strings.Builder
+		if code := runDriver(loopOpts{maxItems: 1}, &out, &errb); code != 1 ||
+			!strings.Contains(errb.String(), "inspect budget.jsonl") || strings.Contains(errb.String(), dir) {
+			t.Errorf("reserved %q: exit %d, stderr %q", sha, code, errb.String())
+		}
 	}
 }
