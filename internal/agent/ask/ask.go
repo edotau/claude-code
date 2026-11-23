@@ -643,12 +643,14 @@ func (r *askRun) applyRecord() (int, bool) {
 			return rc, true
 		}
 	}
-	if f.retry != "" && !f.recover && !helptext.Explicit(r.fs, "session") {
+	if f.retry != "" {
 		rec, err := agent.LoadRecord(f.retry)
 		if err != nil {
 			return r.fail(err, 1)
 		}
-		if (rec.RanAs == "" || rec.RanAs == rec.Agent) && f.name == rec.Agent { // never another agent's session
+		r.ctx = retryLineage(r.ctx, rec)
+		own := (rec.RanAs == "" || rec.RanAs == rec.Agent) && f.name == rec.Agent // never another agent's session
+		if own && !f.recover && !helptext.Explicit(r.fs, "session") {
 			f.session = cmp.Or(rec.SessionID, f.session)
 		}
 	}
