@@ -91,7 +91,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	fs.BoolVar(&f.readOnly, "read-only", false, "reads and a vetted read-only shell list (codex: tools off)")
+	fs.BoolVar(&f.readOnly, "read-only", false, "read + vetted shell only; codex: read-only sandbox")
 	registerPermFlags(fs, f)
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
