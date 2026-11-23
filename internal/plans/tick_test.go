@@ -95,6 +95,27 @@ func TestNamedSubsetCommitTicksAndNotes(t *testing.T) {
 	}
 }
 
+// A shorthand or misplaced owns: entry counts a committed file under a row entry's dir; a real miss still warns.
+func TestMissingOwnsResolvesShorthand(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name        string
+		owns, files []string
+		want        string
+	}{
+		{"3.10 sibling subdir", []string{"internal/agent/ancestry.go", "ask/ask.go"},
+			[]string{"internal/agent/ancestry.go", "internal/agent/ancestry_test.go", "internal/agent/ask/ask.go"}, ""},
+		{"3.27 misplaced dir", []string{"internal/hooks/wthook/claims.go", "internal/hooks/handback_verify.go", "internal/hooks/worktree.go"},
+			[]string{"internal/hooks/handback_verify.go", "internal/hooks/wthook/claims.go", "internal/hooks/wthook/worktree.go"}, ""},
+		{"3.21 true miss", []string{"internal/hooks/safety/policy.go", "stamp.go"},
+			[]string{"internal/hooks/safety/policy.go", "internal/hooks/safety/policy_test.go"}, "internal/hooks/safety/stamp.go"},
+	} {
+		if got := strings.Join(missingOwns(root, tc.owns, tc.files), ", "); got != tc.want {
+			t.Errorf("%s: missing %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // A trailer commit ticks only its named task even when it covers every file of two others.
 func TestTrailerCommitIgnoresCoverage(t *testing.T) {
 	hermetic(t)

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -103,12 +104,33 @@ func reopenCmd(plan, id string) string {
 // missingOwns lists the file entries of owns that files do not touch; directory entries never count.
 func missingOwns(root string, owns, files []string) []string {
 	var out []string
-	for _, entry := range ownEntries(owns, files) {
-		if !isDirOwn(entry) && !touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), files) {
+	entries := ownEntries(owns, files)
+	for _, entry := range entries {
+		if !isDirOwn(entry) && !touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), files) && !nearbyOwn(root, entry, entries, files) {
 			out = append(out, entry)
 		}
 	}
 	return out
+}
+
+// nearbyOwn: an entry naming no file counts a committed file of its base name under any row entry's directory.
+func nearbyOwn(root, entry string, entries, files []string) bool {
+	if path.IsAbs(entry) || strings.ContainsAny(entry, "*?[") {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(entry))); root != "" && err == nil {
+		return false // the file exists, so leaving it untouched is a real miss
+	}
+	for _, f := range files {
+		file := filepath.ToSlash(f)
+		if !strings.HasSuffix(file, "/"+path.Base(entry)) {
+			continue
+		}
+		if slices.ContainsFunc(entries, func(e string) bool { return strings.HasPrefix(file, path.Dir(e)+"/") }) {
+			return true
+		}
+	}
+	return false
 }
 
 // markDone ticks t's box, drops its claim and partial notes and appends sha (when given) as its landing commit.
