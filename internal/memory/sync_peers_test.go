@@ -462,3 +462,9 @@ func TestSyncProbeDigestTracksContent(t *testing.T) {
 		t.Fatalf("probe %q then %q: want four lines that move with the bytes and nothing else", a, b)
 	}
 }
+
+func TestHashTreeMissingRootIsEmpty(t *testing.T) {
+	if got := hashTree(filepath.Join(t.TempDir(), "nope")); len(got) != 0 {
+		t.Fatalf("hashTree(missing) = %v, want empty", got)
+	}
+}
