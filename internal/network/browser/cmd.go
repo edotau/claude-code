@@ -53,6 +53,7 @@ func Cmd(args []string) int {
 		if setupFlagsSet(fs) != "" || *setup {
 			return helptext.FailUsage("network browser: --open takes no --setup flags")
 		}
+		registerDeviceHosts()
 		return openTarget(*open)
 	}
 	return networkBrowserListOrSetup(fs, *setup, *name, *dryRun, *format)

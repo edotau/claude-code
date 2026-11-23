@@ -55,6 +55,9 @@ const BrowserMarker = "claude-code network browser --open"
 // OpenURL opens url where the owner is: $BROWSER, VS Code's client (view only), this desktop, else print.
 func OpenURL(url string, purpose OpenPurpose) error {
 	b := strings.TrimSpace(os.Getenv("BROWSER"))
+	if deviceHostURL(url) {
+		purpose = OpenSignIn
+	}
 	code, sock := "", ""
 	if purpose == OpenView {
 		code, sock = vscodeCLI()
