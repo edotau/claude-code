@@ -217,13 +217,10 @@ var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
 
 var nonWordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^\p{L}\p{N}.]+`) })
 
-// PlanLookup is activePlan's result for a spawn, read ahead on its own goroutine; nil means nothing to claim.
+// PlanLookup is planCands' result for a spawn, read ahead on its own goroutine; nil means nothing to claim.
 type PlanLookup struct {
-	done         chan struct{}
-	plan         string
-	parsed       plans.Plan
-	worktreeName string
-	ok           bool
+	done  chan struct{}
+	cands []planCand
 }
 
 // PrefetchPlan starts the read-only plan lookup ClaimPlanTask needs, so it overlaps the caller's other reads.
@@ -234,43 +231,46 @@ func PrefetchPlan(in *core.Input) *PlanLookup {
 	l := &PlanLookup{done: make(chan struct{})}
 	go func() {
 		defer close(l.done)
-		l.plan, l.parsed, l.worktreeName, l.ok = activePlan(in.CWD)
+		l.cands = planCands(in.CWD, in.Nested("tool_input", "prompt"))
 	}()
 	return l
 }
 
 // wait is the prefetched lookup, or a direct one when nothing was prefetched.
-func (l *PlanLookup) wait(cwd string) (string, plans.Plan, string, bool) {
+func (l *PlanLookup) wait(cwd, brief string) []planCand {
 	if l == nil {
-		return activePlan(cwd)
+		return planCands(cwd, brief)
 	}
 	<-l.done
-	return l.plan, l.parsed, l.worktreeName, l.ok
+	return l.cands
 }
 
-// ClaimPlanTask claims the active plan's task a spawn names (`Task:` line or unique title match), else nothing.
+// ClaimPlanTask claims the first candidate plan's task a spawn names (`Task:` line or unique title match), else nothing.
 func ClaimPlanTask(in *core.Input, id string, pre *PlanLookup) error {
 	if !core.SpawnTools[in.ToolName] || id == "" {
 		return nil
 	}
-	plan, parsed, worktreeName, ok := pre.wait(in.CWD)
-	if !ok {
+	brief := in.Nested("tool_input", "prompt")
+	for _, c := range pre.wait(in.CWD, brief) {
+		task, ok := matchBriefTask(c.parsed, brief, in.Nested("tool_input", "description"))
+		if !ok {
+			continue
+		}
+		if task.Claim != "" { // the locked ClaimFree below re-checks
+			return nil
+		}
+		agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
+		text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(c.worktreeName, "main"), time.Now().Format("15:04"))
+		if err := plans.ClaimFree(c.plan, taskKey(task), text); err != nil {
+			return fmt.Errorf("plan-claim: %w", err)
+		}
+		if c.worktreeName == "" {
+			return nil
+		}
+		if _, err := worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(c.plan), ".md"), time.Now()); err != nil {
+			return fmt.Errorf("plan-claim: ledger: %w", err)
+		}
 		return nil
-	}
-	task, ok := matchBriefTask(parsed, in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description"))
-	if !ok || task.Claim != "" { // the locked ClaimFree below re-checks
-		return nil
-	}
-	agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
-	text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(worktreeName, "main"), time.Now().Format("15:04"))
-	if err := plans.ClaimFree(plan, taskKey(task), text); err != nil {
-		return fmt.Errorf("plan-claim: %w", err)
-	}
-	if worktreeName == "" {
-		return nil
-	}
-	if _, err := worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(plan), ".md"), time.Now()); err != nil {
-		return fmt.Errorf("plan-claim: ledger: %w", err)
 	}
 	return nil
 }
@@ -280,14 +280,12 @@ func ClearPlanClaim(cwd, id string) error {
 	if id == "" {
 		return nil
 	}
-	plan, parsed, _, ok := activePlan(cwd)
-	if !ok {
-		return nil
-	}
 	var errs []error
-	for _, t := range parsed.Tasks {
-		if strings.Contains(t.Claim, " "+id+" ") {
-			errs = append(errs, plans.ClearClaimOwned(plan, taskKey(t), " "+id+" "))
+	for _, c := range planCands(cwd, "") {
+		for _, t := range c.parsed.Tasks {
+			if strings.Contains(t.Claim, " "+id+" ") {
+				errs = append(errs, plans.ClearClaimOwned(c.plan, taskKey(t), " "+id+" "))
+			}
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -305,15 +303,53 @@ func toplevel(dir string) string {
 	return paths.Real(top) // git prints the symlink-resolved toplevel
 }
 
-// activePlan is cwd's repo plan with an open owned task, parsed, plus its linked worktree's name ("" in main).
-func activePlan(cwd string) (plan string, parsed plans.Plan, worktreeName string, ok bool) {
-	top := toplevel(cwd)
-	if top == "" {
-		return "", plans.Plan{}, "", false
+// planCand is a plan a spawn's task may live in; worktreeName is cwd's lane when it is that lane's repo plan.
+type planCand struct {
+	plan         string
+	parsed       plans.Plan
+	worktreeName string
+}
+
+// planCands is the brief's named plan, then cwd's repo active plan, then the harness's, each once.
+func planCands(cwd, brief string) []planCand {
+	top, wt := toplevel(cwd), ""
+	if top != "" {
+		wt = plans.WorktreeName(top)
 	}
-	worktreeName = plans.WorktreeName(top)
-	plan, parsed, ok = plans.Active(plans.Home(top), worktreeName, plans.MirrorDests())
-	return plan, parsed, worktreeName, ok
+	var out []planCand
+	add := func(p string, parsed plans.Plan) {
+		if p == "" || slices.ContainsFunc(out, func(o planCand) bool { return paths.SameFile(o.plan, p) }) {
+			return
+		}
+		c := planCand{plan: p, parsed: parsed}
+		if top != "" && paths.SameFile(filepath.Dir(p), plans.Home(top)) {
+			c.worktreeName = wt
+		}
+		out = append(out, c)
+	}
+	if p, parsed, ok := briefPlan(brief); ok {
+		add(p, parsed)
+	}
+	if top != "" {
+		if p, parsed, ok := plans.Active(plans.Home(top), wt, plans.MirrorDests()); ok {
+			add(p, parsed)
+		}
+	}
+	if p, parsed, ok := plans.Active(plans.Home(paths.ConfigDir()), "", plans.MirrorDests()); ok {
+		add(p, parsed)
+	}
+	return out
+}
+
+// briefPlan is the absolute plan file a brief names, parsed.
+func briefPlan(brief string) (string, plans.Plan, bool) {
+	m := briefPlanRe().FindStringSubmatch(brief)
+	if m == nil || !filepath.IsAbs(paths.ExpandHome(m[1])) {
+		return "", plans.Plan{}, false
+	}
+	p := paths.ExpandHome(m[1])
+	parsed, err := plans.Parse(p)
+	return p, parsed, err == nil
 }
 
 func taskKey(t plans.Task) string { return cmp.Or(t.ID, t.Title) }

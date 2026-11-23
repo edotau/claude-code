@@ -214,6 +214,9 @@ func planRepoRoot(cwd string) string {
 
 // planHome files by Claude's launch dir (a cd moves cwd, not CLAUDE_PROJECT_DIR; other CLIs inherit it), else fallback.
 func planHome(in *core.Input, fallback string) string {
+	if cfg := paths.ConfigDir(); paths.SameFile(planRepoRoot(fallback), cfg) { // a harness plan from any launch dir
+		return plans.Home(cfg)
+	}
 	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && filepath.IsAbs(d) && in.Agent() == core.AgentClaude {
 		fallback = d
 	}
@@ -406,11 +409,11 @@ func planDest(in *core.Input) (string, error) {
 	if _, err := os.Stat(abs); err == nil {
 		return "", nil
 	}
-	root := planGitRoot(in.CWD)
+	dir := filepath.Dir(abs)
+	root := cmp.Or(planGitRoot(dir), planGitRoot(in.CWD))
 	if root == "" { // docs-placement: non-repo paths pass
 		return "", nil
 	}
-	dir := filepath.Dir(abs)
 	if !paths.SameFile(dir, root) && !paths.SameFile(dir, filepath.Join(root, "docs")) {
 		return "", nil
 	}

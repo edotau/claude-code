@@ -33,6 +33,9 @@ func Create(in *core.Input) core.Result {
 		name = filepath.Base(filepath.Clean(in.Nested("worktree_path")))
 	}
 	repo, err := worktree.ResolveRepo(in.CWD)
+	if top, _ := paths.CheckoutOf(in.CWD); err != nil && top == "" { // no repo at cwd: a harness lane
+		repo, err = worktree.ResolveRepo(paths.ConfigDir())
+	}
 	if err != nil {
 		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
 		return core.ExitResult(1, stderr.String())

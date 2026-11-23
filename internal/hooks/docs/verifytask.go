@@ -8,13 +8,14 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// BriefTask is the active plan's open task a hand-back worked: the dispatch's plan_task, else the brief's Task: line.
+// BriefTask is the first candidate plan's open task a hand-back worked: the dispatch's plan_task, else its Task: line.
 func BriefTask(cwd, brief, planTask string) (plans.Task, bool) {
-	_, parsed, _, ok := activePlan(cwd)
-	if !ok {
-		return plans.Task{}, false
+	for _, c := range planCands(cwd, brief) {
+		if t, ok := PlanBriefTask(c.parsed, brief, planTask); ok {
+			return t, true
+		}
 	}
-	return PlanBriefTask(parsed, brief, planTask)
+	return plans.Task{}, false
 }
 
 // PlanBriefTask is BriefTask over an already parsed active plan.
