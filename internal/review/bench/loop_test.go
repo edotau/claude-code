@@ -277,6 +277,48 @@ func TestQueueKindFilter(t *testing.T) {
 	}
 }
 
+func TestFromReportQueuesOnlyCleanRegressions(t *testing.T) {
+	cases := []struct {
+		name string
+		mod  func(*Score)
+		want int
+	}{
+		{"clean", regressed, 1},
+		{"load held", func(s *Score) { regressed(s); s.Flags = []string{"load"} }, 0},
+		{"empty", func(s *Score) { regressed(s); s.Samples = 1 }, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := *autoRow(time.Now(), tc.mod).Score
+			s.Name = "BenchmarkA-8"
+			got := fromReport(Report{Packages: []PkgResult{{Pkg: "internal/p", Benchmarks: []Score{s}}}}, "r.json")
+			if len(got) != tc.want {
+				t.Fatalf("queued %+v, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQueueMergesHistoryOncePerBenchmark(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	rows := []observation{autoRow(now.Add(-2*time.Hour), noisyRun), autoRow(now.Add(-time.Hour), noisyRun),
+		{At: now, Pkg: "internal/p", Benchmark: "BenchmarkB-8", Epoch: strings.Repeat("b", 64), Score: autoRow(now, regressed).Score}}
+	if err := appendHistory(filepath.Join(benchRoot(), "p"), rows); err != nil {
+		t.Fatal(err)
+	}
+	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","what":"BenchmarkB regressed +3.00%","calls_per_day":1}`)
+	var buf strings.Builder
+	if err := runQueue(loopOpts{kind: "benchmark"}, false, &buf); err != nil || strings.Count(buf.String(), "\n") != 1 {
+		t.Fatalf("--kind benchmark: %q %v", buf.String(), err)
+	}
+	buf.Reset()
+	if err := runQueue(loopOpts{kind: "fix"}, false, &buf); err != nil || strings.Count(buf.String(), "BenchmarkB") != 1 ||
+		!strings.Contains(buf.String(), "+10.00%") {
+		t.Fatalf("--kind fix keeps one BenchmarkB item, the larger saving: %q %v", buf.String(), err)
+	}
+}
+
 func TestRecordRowScorecardFailureLeavesNoPending(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, after := pendingFixture(t, "internal/p")

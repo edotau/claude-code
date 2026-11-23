@@ -207,9 +207,11 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 			return 1
 		}
 	}
-	out, errOut, closeLog := carryLog(rec, out)
+	out, errOut, log, closeLog := carryLog(rec, out)
 	start, tail := time.Now(), &tailWriter{max: carryTail}
+	stopForward := agent.StartForward(ctx, rec.ID, "", log)
 	code := carryExec(ctx, rec.Request.CarryArgv, strings.NewReader(rec.Request.Prompt), carryEnv(ctx, rec), io.MultiWriter(out, tail), errOut)
+	stopForward()
 	child, found := agent.LatestChild(rec.ID)
 	if found {
 		child = settleChild(child, code)
@@ -220,7 +222,7 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 		fmt.Fprintln(os.Stderr, "ask: carry:", why)
 	}
 	if take && ctx.Err() == nil {
-		if pcode, pi, ok := runTakeover(ctx, rec, child, string(tail.b), out); ok {
+		if pcode, pi, ok := runTakeover(ctx, rec, child, string(tail.b), out, log); ok {
 			code, final = pcode, pi
 		}
 	}
@@ -285,28 +287,49 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 	return route, err
 }
 
-// carryLog tees a foreground carrier's answer into rec's log (redacted), keeping the trailer on os.Stderr.
-// A background carrier's answer and trailer share one stream: a --job child's stdout is the log, so a second stream
-// would let the child's ask trailer land before the redaction buffer flushes the answer's end.
-func carryLog(rec agent.Record, out io.Writer) (io.Writer, io.Writer, func()) {
+// carryLog is the answer, trailer and event-line writers into rec's log; a background carrier shares one stream.
+func carryLog(rec agent.Record, out io.Writer) (io.Writer, io.Writer, wire.StreamLog, func()) {
 	if rec.Background {
 		locked := &lockedWriter{w: out} // the child's stdout and stderr copy from two goroutines
-		return locked, locked, func() {}
+		return locked, locked, locked.event, func() {}
 	}
 	sink := wire.NewLogSink(rec.LogPath())
-	return io.MultiWriter(out, sink.Stream()), os.Stderr, sink.Close
+	log := wire.EventLogFor(wire.WithLog(context.Background(), sink))
+	return io.MultiWriter(out, sink.Stream()), os.Stderr, log, sink.Close
 }
 
 // lockedWriter serializes writes to w, which is not safe for concurrent use.
 type lockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu      sync.Mutex
+	w       io.Writer
+	partial bool
 }
 
 func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.w.Write(p)
+	n, err := l.w.Write(p)
+	if n > 0 {
+		l.partial = p[n-1] != '\n'
+	}
+	return n, err
+}
+
+func (l *lockedWriter) event(kind, text string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	prefix := ""
+	if l.partial {
+		prefix = "\n"
+	}
+	line := []byte(prefix + "▸ " + kind + ": " + text + "\n")
+	n, err := l.w.Write(line)
+	if n > 0 {
+		l.partial = line[n-1] != '\n'
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: carry: log event: %v\n", err)
+	}
 }
 
 // settleChild is child once its process has exited: a record left running is ended, since nothing else will end it.
@@ -339,7 +362,7 @@ func takeoverDecision(child agent.Record, found bool, policy string, modelTyped 
 }
 
 // runTakeover starts Pi under the inner line's tools and permissions on the fixed brief; false: Pi left no record.
-func runTakeover(ctx context.Context, rec, child agent.Record, partial string, out io.Writer) (int, agent.Record, bool) {
+func runTakeover(ctx context.Context, rec, child agent.Record, partial string, out io.Writer, log wire.StreamLog) (int, agent.Record, bool) {
 	argv, err := takeoverArgv(ctx, rec.Request.CarryArgv)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: carry: no Pi takeover: %v\n", err)
@@ -347,8 +370,11 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 	}
 	cut := cmp.Or(child.Cutoff, child.Status)
 	fmt.Fprintf(os.Stderr, "ask: carry: %s was cut off (%s); pi takes over\n", child.ID, cut)
+	log.Emit(wire.EventTakeover, fmt.Sprintf("%s cut off (%s); pi takes over", child.ID, cut))
 	brief := fmt.Sprintf(takeoverBrief, rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
+	stopForward := agent.StartForward(ctx, rec.ID, child.ID, log)
 	code := carryExec(ctx, argv, strings.NewReader(brief), carryEnv(ctx, rec), out, carryErr(rec, out))
+	stopForward()
 	pi, ok := agent.LatestChild(rec.ID)
 	if !ok || pi.ID == child.ID || pi.Agent != agentid.Pi {
 		fmt.Fprintf(os.Stderr, "ask: carry: pi takeover left no record (exit %d)\n", code)

@@ -276,6 +276,8 @@ vendor CLI untouched.
      `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `--ask`
      rule refuses it too (Pi has no ask).
    - **Long runs.** Add `--background`, then `claude-code agents result -f <id>`: the `--job` child runs the carrier.
+     `result -f --events <id>` streams the child's and a takeover's events, each with `via: <child id>`, then the
+     carrier's `result`.
 2. **The mark (D2).** The outer record has `request.carry: true` and is the parent of the inner run (and of a takeover).
    - Its child has a direct call's depth; the exemption needs a running top-level `carry` record whose live process
      is the child's ancestor.

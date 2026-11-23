@@ -233,6 +233,24 @@ func TestEventLogMasksEncodedVaultValue(t *testing.T) {
 	}
 }
 
+// Via is written when set and left out entirely when empty.
+func TestEventViaOmittedWhenEmpty(t *testing.T) {
+	with, err := json.Marshal(Event{Schema: EventSchema, Type: EventToolUse, Via: "child-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(with), `"via":"child-1"`) {
+		t.Fatalf("marshal = %s, want the via field", with)
+	}
+	without, err := json.Marshal(Event{Schema: EventSchema, Type: EventText})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(without), `"via"`) {
+		t.Fatalf("empty Via must be omitted, got %s", without)
+	}
+}
+
 // A registered value in JSON-escaped form inside a structured result is masked by redactValue itself.
 func TestRedactValueMasksRegisteredEscapedValue(t *testing.T) {
 	value := `FAKE-SECRET-0123456789"\abc`

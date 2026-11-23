@@ -287,6 +287,16 @@ func TestRegisterPanicsOnUnknownAgent(t *testing.T) {
 	Register(Agent{Row: Schema{Name: "bogus"}, Driver: fixtureDriver{NewBaseEngine("bogus")}})
 }
 
+func TestRegisterPanicsOnBinaryMismatch(t *testing.T) {
+	defer func() {
+		if r := recover(); r != "agent: row codex binary notcodex, agentid says codex" {
+			t.Errorf("recovered %v, want the binary-mismatch panic", r)
+		}
+	}()
+	row := Schema{Name: agentid.Codex, CLI: CLI{Binary: "notcodex"}}
+	Register(Agent{Row: row, Driver: fixtureDriver{NewBaseEngine(agentid.Codex)}})
+}
+
 // A shell model env beats the vault model pin for a CLI agent.
 func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {}}`)

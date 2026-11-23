@@ -69,7 +69,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 		l.record = record || l.pending
 		return err
 	})
-	fs.StringVar(&l.kind, "kind", "", "with --queue: only items of this kind, fix|weak")
+	fs.StringVar(&l.kind, "kind", "", "with --queue: only items of this kind, fix|weak|benchmark")
 	fs.IntVar(&l.top, "top", 5, "queue items to print")
 	fs.StringVar(&l.before, "before", "", "benchmark file before the fix")
 	fs.StringVar(&l.after, "after", "", "benchmark file after the fix")
@@ -250,8 +250,12 @@ func fromReport(rep Report, src string) []Item {
 			if len(weak) > 0 {
 				out = append(out, Item{Kind: "weak", Pkg: p.Pkg, What: weakWhat(name, weak), Source: src})
 			}
-			if d, ok := s.Deltas["sec/op"]; ok && d.Significant && strings.HasPrefix(d.Change, "+") {
-				out = append(out, Item{Kind: "fix", Pkg: p.Pkg, What: name + " regressed " + d.Change, Source: src})
+			// Same guard as the history candidates: a noisy, empty or load-held run queues no fix.
+			if !usable(observation{Score: &s}) || !isQuiet(s) {
+				continue
+			}
+			if it, ok := regression(Item{Pkg: p.Pkg, Source: src}, name, s); ok {
+				out = append(out, it)
 			}
 		}
 	}
@@ -295,11 +299,11 @@ func mergeWeak(a, b Item) Item {
 	return b
 }
 
-// itemKey dedupes a weak item by package and benchmark, a fix item by package and text.
+// itemKey dedupes a weak item or one naming a benchmark by kind, package and benchmark, any other by package and text.
 func itemKey(it Item) string {
-	if it.Kind == "weak" {
-		name, _, _ := strings.Cut(it.What, " is ")
-		return "weak\x00" + it.Pkg + "\x00" + name
+	name, _, _ := strings.Cut(it.What, " ")
+	if it.Kind == "weak" || strings.HasPrefix(name, "Benchmark") {
+		return it.Kind + "\x00" + it.Pkg + "\x00" + name
 	}
 	return it.Pkg + "\x00" + it.What
 }
@@ -365,11 +369,15 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	history, err := Candidates(time.Now())
+	if err != nil {
+		return err
+	}
 	rows, err := readJSONL[Row](filepath.Join(root, "scorecard.jsonl"))
 	if err != nil {
 		return err
 	}
-	ranked := rank(items, rows, time.Now())
+	ranked := rank(append(items, history...), rows, time.Now())
 	if l.kind != "" {
 		ranked = slices.DeleteFunc(ranked, func(it Item) bool { return it.Kind != l.kind })
 	}

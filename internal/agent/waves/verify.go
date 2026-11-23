@@ -333,11 +333,12 @@ func checkScope(owned []string) []string {
 	return sel
 }
 
-// checkChanged is false only for a file that was dirty at launch and still has that fingerprint.
+// checkChanged is false for a file dirty at launch with that fingerprint, or one only peers committed since the base.
 func checkChanged(env CheckEnv, in CheckUnionInput, rel string) (bool, error) {
 	was, ok := in.Launch[rel]
 	if !ok {
-		return true, nil
+		peer, err := checkPeerCommitted(in.Dir, in.Base, rel)
+		return !peer, err
 	}
 	fp := env.Fingerprint
 	if fp == nil {
@@ -348,6 +349,28 @@ func checkChanged(env CheckEnv, in CheckUnionInput, rel string) (bool, error) {
 		return false, fmt.Errorf("fingerprint %s: %w", rel, err)
 	}
 	return now != was, nil
+}
+
+// checkPeerCommitted is true when rel is clean at HEAD and every commit since base touching it has a Task: trailer.
+func checkPeerCommitted(dir, base, rel string) (bool, error) {
+	if base == "" {
+		return false, nil
+	}
+	ctx := context.Background()
+	dirty, err := proc.RunGit(ctx, dir, "status", "--porcelain", "--", rel)
+	if err != nil || dirty != "" { // an unreadable repo keeps the file a stray
+		return false, nil
+	}
+	log, err := proc.RunGit(ctx, dir, "log", base+"..HEAD", "--format=%H%x09%(trailers:key=Task,valueonly,separator=%x2C)", "--", rel)
+	if err != nil || log == "" {
+		return false, nil
+	}
+	for line := range strings.SplitSeq(log, "\n") {
+		if _, task, _ := strings.Cut(line, "\t"); task == "" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // checkHashObject is `git hash-object` of dir/rel, "absent" when the file is gone.

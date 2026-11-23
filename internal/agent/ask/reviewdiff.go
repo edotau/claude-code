@@ -252,7 +252,7 @@ func reviewArgs(agentName string, diff []byte, adversarial, background bool, foc
 		return nil, nil, err
 	}
 	args := []string{"--agent", agentName, "--fallback", router.FallbackAgents, "--attach", f.Name()}
-	if agentName == "copilot" { // without a tools tier copilot sees only the attached diff, not the surrounding code
+	if agent.SchemaFor(agentName).CLI.ReviewReadOnly { // no tools tier: the agent sees only the attached diff
 		args = append(args, "--read-only")
 	}
 	if background {

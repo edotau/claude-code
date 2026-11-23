@@ -834,9 +834,9 @@ func TestCollectorLogsLiveActivity(t *testing.T) {
 
 // A session that goes silent past the idle limit is killed and reads as a stall.
 func TestSDKAskIdleStall(t *testing.T) {
-	old := agent.CopilotIdleLimit
-	agent.CopilotIdleLimit = 300 * time.Millisecond
-	defer func() { agent.CopilotIdleLimit = old }()
+	old := agent.IdleLimit
+	agent.IdleLimit = 300 * time.Millisecond
+	defer func() { agent.IdleLimit = old }()
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log", registryPick)
 	o.ChildEnv = append(o.ChildEnv, "FAKECLI_SILENT=1")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

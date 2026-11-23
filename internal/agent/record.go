@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -83,6 +82,7 @@ type Record struct {
 	PIDStart       string      `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
 	Background     bool        `json:"background,omitempty"`      // set only by the `ask --background` spawn
 	Log            string      `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
+	Activity       *Activity   `json:"activity,omitempty"`        // running only: usage, tool calls and last event time so far
 	Progress       string      `json:"progress,omitempty"`        // "part 2/3" or "queued <RFC3339Nano> <pool>"
 	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
@@ -726,30 +726,6 @@ func CutoffOf(err error) string {
 	return ""
 }
 
-// tally counts the tool calls and text bytes a run streamed, so a cut-off error can say what was lost.
-type tally struct {
-	wire.Sink
-	tools, geminiTools, toolProgress, text atomic.Int64
-}
-
-func (t *tally) Emit(ev wire.Event) error {
-	switch ev.Type {
-	case wire.EventToolUse:
-		if ev.Agent == "gemini" {
-			t.geminiTools.Add(1)
-		} else {
-			t.tools.Add(1)
-		}
-	case wire.EventProgress:
-		if ev.Agent == "gemini" && ev.Tool != nil {
-			t.toolProgress.Add(1)
-		}
-	case wire.EventText:
-		t.text.Add(int64(len(ev.Text)))
-	}
-	return t.Sink.Emit(ev)
-}
-
 // cutoffError wraps err with one line naming what was lost and the command that continues; deadlines and stalls only.
 type cutoffError struct {
 	err  error
@@ -775,7 +751,7 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 		lost = fmt.Sprintf("%d B of text streamed", n)
 	}
 	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
-		who, kind, took.Round(time.Second), t.tools.Load()+max(t.geminiTools.Load(), t.toolProgress.Load()), lost, next)
+		who, kind, took.Round(time.Second), t.toolCount(), lost, next)
 	if rec.RanIdentity == "" {
 		rec.RanIdentity = ranIdentityOf(rec.ID)
 	}
@@ -1101,8 +1077,9 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 		rec.finishSave(res, err, time.Since(begin), o.Notify)
 		return res, err
 	}
-	tl := &tally{Sink: sink}
+	tl := &tally{Sink: sink, live: startActivity(rec.ID)}
 	res, err = run(ctx, tl)
+	tl.live.close()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
 	logSink.Close() // flush before writing the answer, so tail -f never misses the last line
 	if o.Hold {

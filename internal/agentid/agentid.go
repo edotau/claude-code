@@ -19,21 +19,27 @@ const (
 )
 
 // All is every roster agent: claude first, then the external CLIs by name; a fresh slice each call.
-func All() []string { return []string{Claude, Codex, Copilot, Gemini, OpenCode, Pi} }
+func All() []string {
+	names := make([]string, len(roster))
+	for i, agent := range roster {
+		names[i] = agent.name
+	}
+	return names
+}
 
 // External is the agents that run an external CLI (All without claude).
 func External() []string { return All()[1:] }
 
 // Projected is the external agents whose CLI reads a synced agents dir (External without NoProjection ones).
 func Projected() []string {
-	return slices.DeleteFunc(External(), func(n string) bool { return routeFacts[n].NoProjection })
+	return slices.DeleteFunc(External(), func(n string) bool { return facts(n).NoProjection })
 }
 
 // Known reports whether name is a roster agent.
 func Known(name string) bool { return slices.Contains(All(), name) }
 
 // Binary is the executable an agent runs: gemini is agy, every other agent its own name.
-func Binary(name string) string { return cmp.Or(routeFacts[name].binary, name) }
+func Binary(name string) string { return cmp.Or(facts(name).binary, name) }
 
 // Effort is a reasoning-effort level on the harness scale.
 type Effort string
@@ -76,21 +82,33 @@ type RouteFacts struct {
 	nativeEfforts []string
 }
 
-// routeFacts is the one per-agent table; an unknown agent reads as the zero value.
-var routeFacts = map[string]RouteFacts{
-	Claude:   {AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()},
-	Codex:    {ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}},
-	Copilot:  {FreezeTarget: true, Discovery: true},
-	Gemini:   {EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
-	OpenCode: {SubLadder: true, Discovery: true},
-	Pi:       {Discovery: true, NoOwnLogin: true, NoProjection: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
+// roster is the ordered agent names and their routing facts.
+var roster = []struct {
+	name string
+	RouteFacts
+}{
+	{Claude, RouteFacts{AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()}},
+	{Codex, RouteFacts{ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}}},
+	{Copilot, RouteFacts{FreezeTarget: true, Discovery: true}},
+	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()}},
+	{OpenCode, RouteFacts{SubLadder: true, Discovery: true}},
+	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
+}
+
+func facts(name string) RouteFacts {
+	for _, agent := range roster {
+		if agent.name == name {
+			return agent.RouteFacts
+		}
+	}
+	return RouteFacts{}
 }
 
 // Routing is name's routing facts.
-func Routing(name string) RouteFacts { return routeFacts[name] }
+func Routing(name string) RouteFacts { return facts(name) }
 
 // NativeEfforts is the values agent's CLI accepts, weakest first; nil means model-specific (passed through).
-func NativeEfforts(agent string) []string { return slices.Clone(routeFacts[agent].nativeEfforts) }
+func NativeEfforts(agent string) []string { return slices.Clone(facts(agent).nativeEfforts) }
 
 // SplitNativeEffort cuts a case-sensitive Gemini effort suffix, preserving the split even when ok is false.
 func SplitNativeEffort(model string) (base, effort string, ok bool) {

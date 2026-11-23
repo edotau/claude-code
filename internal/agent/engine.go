@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -23,6 +24,14 @@ import (
 
 // Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
 type Driver interface {
+	DispatchDriver
+	RouteDriver
+	LaunchDriver
+	ConfigDriver
+}
+
+// DispatchDriver is what a headless run calls: identity, sign-in and the env and argv it builds.
+type DispatchDriver interface {
 	Name() string
 	// Caps is the roster row's verified flags; with Name and Available it is every Engine's shared base.
 	Caps() Caps
@@ -41,6 +50,14 @@ type Driver interface {
 	Login(ctx context.Context, p *providers.Provider, model string, h *Headless) (env, argv []string, err error)
 	// Wire builds env and argv for a resolved harness route.
 	Wire(ctx context.Context, r WireRoute, h *Headless) (env, argv []string, err error)
+	// OwnLogin is the headless form of the CLI running on its own stored login.
+	OwnLogin(ctx context.Context, h Headless) (env, argv []string, err error)
+	// LaunchEnv is the env every launch of the CLI carries ahead of the agent spec's.
+	LaunchEnv() []string
+}
+
+// RouteDriver is how the CLI picks, vets and reports the target it runs on.
+type RouteDriver interface {
 	// FallbackTarget is the CLI's own route to a working credential when the session provider has none.
 	FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool)
 	// DescribeRoute reports the fallback dispatch the CLI resolves to today.
@@ -57,15 +74,14 @@ type Driver interface {
 	FallbackNote(ft providers.Target, note string) (string, bool)
 	// FollowsPin reports whether the CLI runs on session provider p.
 	FollowsPin(p *providers.Provider) bool
-	// LaunchEnv is the env every launch of the CLI carries ahead of the agent spec's.
-	LaunchEnv() []string
 	// Presence is the CLI-specific no-network readiness check for a routed cell.
 	Presence(ctx context.Context, c router.Cell) error
-	// OwnLogin is the headless form of the CLI running on its own stored login.
-	OwnLogin(ctx context.Context, h Headless) (env, argv []string, err error)
-	Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
-	// ConfigPaths lists the files render writes, for revert.
-	ConfigPaths(home string) ([]agentconfig.LabelPath, error)
+	// RouteDetail is the "<agent> route" doctor detail; ok is false when there is none.
+	RouteDetail(ctx context.Context) (detail string, ok bool)
+}
+
+// LaunchDriver is what an interactive launch adds: -f, selection hints and the native model registry.
+type LaunchDriver interface {
 	// LaunchArgs applies the -f file to the launch argv.
 	LaunchArgs(file string, args []string) ([]string, error)
 	// ProfileHint is the error a failed selection resolves to when the CLI knows the cause.
@@ -74,8 +90,13 @@ type Driver interface {
 	NativeRegistry(ctx context.Context, t providers.Target) bool
 	// RegistryLaunch builds the native-registry launch NativeRegistry reported; dry mints and writes nothing.
 	RegistryLaunch(ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool) (RegistryLaunch, error)
-	// RouteDetail is the "<agent> route" doctor detail; ok is false when there is none.
-	RouteDetail(ctx context.Context) (detail string, ok bool)
+}
+
+// ConfigDriver writes and reverts the CLI's config and applies launch settings.
+type ConfigDriver interface {
+	Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
+	// ConfigPaths lists the files render writes, for revert.
+	ConfigPaths(home string) ([]agentconfig.LabelPath, error)
 	// RenderSettings applies s to a built launch; emulated names what a shim honoured; cleanup is never nil.
 	RenderSettings(ctx context.Context, s Settings, env, argv []string) (outEnv, outArgv, emulated []string, cleanup func(), err error)
 }
@@ -482,31 +503,15 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
-// IdleLimit is how long a codex or opencode stream may stay silent mid-run (a test shrinks it).
+// IdleLimit is how long any agent's stream may stay silent mid-run (a test shrinks it).
 var IdleLimit = 5 * time.Minute
 
-// ClaudeIdleLimit is how long a claude child may emit nothing while a model response is expected.
-const ClaudeIdleLimit = 5 * time.Minute
-
-// CopilotIdleLimit is how long a copilot SDK run may log nothing outside a tool call (a test shrinks it).
-var CopilotIdleLimit = 5 * time.Minute
-
-// GeminiIdleLimit is how long an agy stream may emit nothing outside a tool step (a test shrinks it).
-var GeminiIdleLimit = 5 * time.Minute
-
-// IdleLimitFor is the mid-stream idle limit per agent, 0 for none: claude's own watch (internal/claude/idle.go) uses it.
+// IdleLimitFor is the mid-stream idle limit for a roster agent, 0 for any other name.
 func IdleLimitFor(name string) time.Duration {
-	switch name {
-	case "claude":
-		return ClaudeIdleLimit
-	case "codex", "opencode", "pi":
-		return IdleLimit
-	case "copilot":
-		return CopilotIdleLimit
-	case "gemini":
-		return GeminiIdleLimit
+	if !agentid.Known(name) {
+		return 0
 	}
-	return 0
+	return IdleLimit
 }
 
 // ErrStalled is a dispatch silent past its stall deadline: fatal, so Do never retries but the chain falls through.

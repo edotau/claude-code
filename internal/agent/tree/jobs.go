@@ -17,48 +17,24 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// jobRows is ds with each carried pair folded into one row, every child after its parent.
-func jobRows(ds []Dispatch) []nested { return nestDispatches(foldCarries(ds)) }
-
-// foldCarries folds each carry record's children into it, the newest child (a Pi takeover) doing the work.
-func foldCarries(ds []Dispatch) []Dispatch {
-	worker, alias := carryWorkers(ds)
-	if len(alias) == 0 {
-		return ds
-	}
-	out := make([]Dispatch, 0, len(ds)-len(alias))
-	for _, d := range ds {
-		if _, folded := alias[d.ID]; folded {
-			continue
-		}
-		if p, ok := alias[d.Parent]; ok { // a worker's own sub-dispatch hangs off the folded row
-			d.Parent = p
-		}
-		if w, ok := worker[d.ID]; ok {
-			d = foldInto(d, w)
-		}
-		out = append(out, d)
-	}
-	return out
-}
-
-// carryWorkers maps each carry id to its newest child, and every carry child's id to its carry id.
-func carryWorkers(ds []Dispatch) (worker map[string]Dispatch, alias map[string]string) {
-	carried := map[string]bool{}
-	for _, d := range ds {
-		carried[d.ID] = carried[d.ID] || d.carry
-	}
-	worker, alias = map[string]Dispatch{}, map[string]string{}
-	for _, d := range ds {
-		if !carried[d.Parent] || d.Parent == d.ID {
-			continue
-		}
-		alias[d.ID] = d.Parent
-		if w, ok := worker[d.Parent]; !ok || d.ID > w.ID {
-			worker[d.Parent] = d
+// jobRows flattens ds's node tree into printed rows, so the text and the node tree fold carriers alike.
+func jobRows(ds []Dispatch) []nested {
+	var rows []nested
+	var walk func(Node, string, string)
+	walk = func(n Node, prefix, guide string) {
+		rows = append(rows, nested{Dispatch: *n.Dispatch, guide: guide})
+		for i, child := range n.Children {
+			branch, next := "├─ ", "│  "
+			if i == len(n.Children)-1 {
+				branch, next = "└─ ", "   "
+			}
+			walk(child, prefix+next, prefix+branch)
 		}
 	}
-	return worker, alias
+	for _, n := range dispatchNodes(ds, 0) {
+		walk(n, "", "")
+	}
+	return rows
 }
 
 // foldInto is the carry row d showing worker w's model, tokens and last event; id, status and elapsed stay d's.

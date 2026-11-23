@@ -35,6 +35,8 @@ func agentsSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"),
 			formatFlag()}},
+		"dashboard": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"), flag("interval"),
+			boolFlag("files")}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
 			boolFlag("watch"), flag("interval"), boolFlag("files"), formatFlag()}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), boolFlag("run"), flag("spec"), formatFlag()}},
@@ -50,7 +52,7 @@ func agentsSpec() *helptext.Node {
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
-		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
+		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("run"), flag("verify"), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
@@ -94,6 +96,7 @@ var agentsPage = helptext.Page{
 		{"ask", "one-shot task on an agent; --format json = envelope"},
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
+		{"dashboard", "walk the live tree: move, expand, collapse; enter follows a job"},
 		{"label", "print a leaf's dispatch description prefix"},
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
@@ -207,16 +210,17 @@ func wireAsk() {
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
-	"diff":   cmdAgentsDiff,
-	"fix":    cmdAgentsFix,
-	"find":   cmdAgentsFind,
-	"status": cmdAgentsStatus,
-	"result": cmdAgentsResult,
-	"cancel": cmdAgentsCancel,
-	"wait":   cmdAgentsWait,
-	"brief":  cmdAgentsBrief,
-	"watch":  cmdAgentsWatch,
-	"serve":  cmdAgentsServe,
+	"dashboard": cmdAgentsDashboard,
+	"diff":      cmdAgentsDiff,
+	"fix":       cmdAgentsFix,
+	"find":      cmdAgentsFind,
+	"status":    cmdAgentsStatus,
+	"result":    cmdAgentsResult,
+	"cancel":    cmdAgentsCancel,
+	"wait":      cmdAgentsWait,
+	"brief":     cmdAgentsBrief,
+	"watch":     cmdAgentsWatch,
+	"serve":     cmdAgentsServe,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
@@ -621,6 +625,7 @@ func cmdAgentsWaves(args []string) int {
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
 	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
+	progress := fs.Bool("progress", false, "print a stderr line each time a job's activity changes")
 	format := helptext.FormatFlag(fs)
 	ids, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -635,7 +640,7 @@ func cmdAgentsWait(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	rows, err := agent.Wait(ctx, ids, *timeout, time.Second)
+	rows, err := waitRows(ctx, ids, *timeout, *progress)
 	if err != nil {
 		return helptext.Fail("agents wait: %v", err)
 	}
@@ -793,7 +798,7 @@ func agentPage(name string) helptext.Page {
 	}
 	usage := "claude-code " + name + " [<command>|--] [launch flags] [args…]"
 	hint := ""
-	if name == "codex" || name == "copilot" {
+	if s.CLI.ProviderVerb {
 		usage += "\nclaude-code " + name + " <provider> [-p NAME] [rest…]"
 		hint = "\nclaude-code " + name + " databricks -p dev ask \"Explain this code\""
 	}
@@ -866,7 +871,7 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 var retiredAgentVerbs = []string{"resume", "status", "tail", "result", "cancel", "on", "off"}
 
 func agentProviderArgs(name string, args []string) ([]string, error) {
-	if !slices.Contains([]string{"codex", "copilot"}, name) || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
+	if !agent.SchemaFor(name).CLI.ProviderVerb || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
 		return args, nil
 	}
 	reg, err := providers.Load()

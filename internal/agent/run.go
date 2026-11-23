@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -903,4 +904,109 @@ func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
 	}
 	slices.Sort(all)
 	return capPaths(slices.Compact(all))
+}
+
+// tally counts the tool calls and text bytes a run streamed, so a cut-off error can say what was lost.
+type tally struct {
+	wire.Sink
+	live                                   *activityLog
+	tools, geminiTools, toolProgress, text atomic.Int64
+}
+
+func (t *tally) Emit(ev wire.Event) error {
+	switch ev.Type {
+	case wire.EventToolUse:
+		if ev.Agent == "gemini" {
+			t.geminiTools.Add(1)
+		} else {
+			t.tools.Add(1)
+		}
+	case wire.EventProgress:
+		if ev.Agent == "gemini" && ev.Tool != nil {
+			t.toolProgress.Add(1)
+		}
+	case wire.EventText:
+		t.text.Add(int64(len(ev.Text)))
+	}
+	t.live.note(ev, t.toolCount())
+	return t.Sink.Emit(ev)
+}
+
+func (t *tally) toolCount() int64 {
+	return t.tools.Load() + max(t.geminiTools.Load(), t.toolProgress.Load())
+}
+
+// Activity is a running dispatch's progress; it never holds text, commands, paths or briefs.
+type Activity struct {
+	Usage wire.Usage `json:"usage,omitzero"`
+	Tools int64      `json:"tools"`
+	Last  time.Time  `json:"last"`
+}
+
+var activityEvery = 2 * time.Second
+
+type activityLog struct {
+	mu      sync.Mutex
+	current Activity
+	stop    chan struct{}
+	done    chan struct{}
+	once    sync.Once
+}
+
+func startActivity(id string) *activityLog {
+	a := &activityLog{stop: make(chan struct{}), done: make(chan struct{})}
+	ticker := time.NewTicker(activityEvery)
+	go func() {
+		defer close(a.done)
+		defer ticker.Stop()
+		var saved Activity
+		for {
+			select {
+			case <-a.stop:
+				return
+			case <-ticker.C:
+				a.save(id, &saved)
+			}
+		}
+	}()
+	return a
+}
+
+func (a *activityLog) note(ev wire.Event, tools int64) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.current.Tools, a.current.Last = tools, time.Now().UTC()
+	if ev.Usage != nil {
+		a.current.Usage = *ev.Usage
+	}
+}
+
+func (a *activityLog) save(id string, saved *Activity) {
+	a.mu.Lock()
+	current := a.current
+	a.mu.Unlock()
+	if current == *saved {
+		return
+	}
+	_, applied, err := updateRecord(id, func(r Record) (Record, bool) {
+		if r.Status != "running" {
+			return r, false
+		}
+		r.Activity = &current
+		return r, true
+	})
+	if err == nil && applied {
+		*saved = current
+	}
+}
+
+func (a *activityLog) close() {
+	if a == nil {
+		return
+	}
+	a.once.Do(func() { close(a.stop) })
+	<-a.done
 }

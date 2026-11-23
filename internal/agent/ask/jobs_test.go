@@ -338,6 +338,53 @@ func TestResultFollowJSONPrintsOnlyEnvelope(t *testing.T) {
 	}
 }
 
+// A carrier streams its child's events, a takeover and Pi's events, each tagged via, then its own closing result.
+func TestResultEventsForwardsChildLines(t *testing.T) {
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "ok", "", 0)
+	rec.Request.Carry = true
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	child := seedJob(t, 30*time.Second, "ok", "", 0)
+	child.Parent = rec.ID
+	if err := child.Save(); err != nil {
+		t.Fatal(err)
+	}
+	pi := seedJob(t, 20*time.Second, "ok", "", 0)
+	pi.Parent = rec.ID
+	if err := pi.Save(); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{ // lines as a live carried run wrote them, host made up
+		child.EventsPath(): `{"schema":1,"agent":"opencode","host":"devhost","seq":2,"t_ms":36,"type":"tool_use","tool":{"name":"read","id":"c1"}}` + "\n" +
+			`{"schema":1,"agent":"opencode","host":"devhost","seq":5,"t_ms":0,"type":"result","status":"error"}` + "\n",
+		pi.EventsPath():  `{"schema":1,"agent":"pi","host":"devhost","seq":1,"t_ms":9,"type":"text","text":"QuietMachine"}` + "\n",
+		rec.EventsPath(): `{"schema":1,"host":"devhost","seq":1,"t_ms":0,"type":"result","status":"ok"}` + "\n",
+	}
+	for path, body := range files {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out, stderr := runResult(t, ResultOptions{Ref: rec.ID, Events: true})
+	if code != 0 {
+		t.Fatalf("exit %d stderr %q", code, stderr)
+	}
+	var got []string
+	for ln := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var ev wire.Event
+		if err := json.Unmarshal([]byte(ln), &ev); err != nil {
+			t.Fatalf("bad line %q: %v", ln, err)
+		}
+		got = append(got, ev.Type+"@"+ev.Via)
+	}
+	want := []string{"tool_use@" + child.ID, "takeover@" + pi.ID, "text@" + pi.ID, "result@"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("stream = %v, want %v", got, want)
+	}
+}
+
 // --events copies the NDJSON event file as is, with no log trailer.
 func TestResultEventsStreamsEventFile(t *testing.T) {
 	jobsEnv(t)
