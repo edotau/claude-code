@@ -166,9 +166,9 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	return env, append(argv, dirs...), emulated, cleanup, err
 }
 
-// addDirArgs widens an auto --tools run's reach to agent.WritableRoots, the plan's one cross-agent contract.
+// addDirArgs widens an auto or default --tools run's reach to agent.WritableRoots, the plan's one cross-agent contract.
 func addDirArgs(mode string, tools bool, workDir string) ([]string, error) {
-	if mode != permission.PermAuto || !tools {
+	if (mode != permission.PermAuto && mode != permission.PermDefault) || !tools {
 		return nil, nil
 	}
 	if workDir == "" { // claude runs in the process cwd

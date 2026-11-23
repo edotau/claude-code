@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,13 +28,13 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// Status prints agent's jobs in this repo (all: every repo; ref narrows) as JSON or text; empty stands in for none.
+// Status prints agent's jobs as jobRows scopes them (all: every repo; ref narrows); empty stands in for none.
 func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
-	rows, err := agent.Status(context.Background(), agentName, cwd, ref, all)
+	rows, err := jobRows(context.Background(), agentName, cwd, ref, all)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
@@ -47,6 +48,60 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Detail())
 	}
 	return 0
+}
+
+// jobRows is agent.Status plus the harness's jobs from another repo, and every repo's from outside any repo.
+func jobRows(ctx context.Context, name, cwd, ref string, all bool) ([]agent.Row, error) {
+	if ref != "" || all || paths.GitTop(ctx, cwd) == "" {
+		return agent.Status(ctx, name, cwd, ref, all || ref == "")
+	}
+	rows, err := agent.Status(ctx, name, cwd, "", false)
+	harness := paths.ConfigDir()
+	if err != nil || agent.RepoRoot(ctx, cwd) == agent.RepoRoot(ctx, harness) {
+		return rows, err
+	}
+	more, err := agent.Status(ctx, name, harness, "", false)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, more...)
+	slices.SortStableFunc(rows, func(a, b agent.Row) int { return strings.Compare(b.ID, a.ID) }) // ids lead with a stamp
+	return rows, nil
+}
+
+// widerRef is the newest job keep accepts as jobRows scopes them, for a default lookup cwd's repo failed; "" if none.
+func widerRef(ctx context.Context, name, cwd string, keep func(agent.Row) bool) string {
+	rows, _ := jobRows(ctx, name, cwd, "", false) // best-effort: an error keeps the original lookup's error
+	for _, r := range rows {
+		if keep(r) {
+			return r.ID
+		}
+	}
+	return ""
+}
+
+// jobResult is agent.JobResult; a default ref with no finished job in cwd's repo retries on widerRef's pick.
+func jobResult(ctx context.Context, name, cwd, ref string) (agent.Record, string, error) {
+	rec, log, err := agent.JobResult(ctx, name, cwd, ref)
+	if err == nil || ref != "" {
+		return rec, log, err
+	}
+	if id := widerRef(ctx, name, cwd, func(r agent.Row) bool { return r.Status != "running" }); id != "" {
+		return agent.JobResult(ctx, name, cwd, id)
+	}
+	return rec, log, err
+}
+
+// resolveJob is agent.ResolveJob; a default ref with no job in cwd's repo retries on widerRef's pick.
+func resolveJob(ctx context.Context, name, cwd, ref string) (agent.Record, error) {
+	rec, err := agent.ResolveJob(ctx, name, cwd, ref)
+	if err == nil || ref != "" {
+		return rec, err
+	}
+	if id := widerRef(ctx, name, cwd, func(agent.Row) bool { return true }); id != "" {
+		return agent.ResolveJob(ctx, name, cwd, id)
+	}
+	return rec, err
 }
 
 // ResultOptions select `agents result`: Ref "" needs Agent; Follow streams until the job ends, Events the event file.
@@ -77,7 +132,7 @@ func Result(o ResultOptions) int {
 	if o.Follow || o.Events {
 		return streamResult(prefix, o, name, cwd, ref)
 	}
-	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
+	rec, log, err := jobResult(context.Background(), name, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
@@ -88,7 +143,7 @@ func Result(o ResultOptions) int {
 func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	rec, err := agent.ResolveJob(ctx, name, cwd, ref)
+	rec, err := resolveJob(ctx, name, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
