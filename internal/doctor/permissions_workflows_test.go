@@ -142,7 +142,7 @@ func TestPermNeedsStayInStepWithTheProbesAndScripts(t *testing.T) {
 		if len(parseStages(s, string(src))) == 0 {
 			t.Errorf("%s: no stepOf stage parsed", s)
 		}
-		if !strings.Contains(string(src), "who === 'copilot' ? '--read-only' : '--tools'") {
+		if !strings.Contains(string(src), "--format json --tools --effort") {
 			t.Errorf("%s: stepOf's launch-mode rule changed; update stageLaunchMode", s)
 		}
 	}

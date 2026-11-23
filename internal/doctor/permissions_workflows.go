@@ -58,7 +58,7 @@ func launchModeOf(args []string, tools *bool) string {
 
 func leafMode(name, launch string) string {
 	if launch == "tools" {
-		return stageLaunchMode(name, "edit")
+		return stageLaunchMode(name)
 	}
 	return launch
 }
@@ -129,11 +129,8 @@ func stageNeeds(prompt []string, gate, web bool) []string {
 	return out
 }
 
-func stageLaunchMode(name, tools string) string {
-	switch {
-	case tools == "" && name == "copilot":
-		return "read-only"
-	case name == "claude":
+func stageLaunchMode(name string) string {
+	if name == "claude" {
 		return "tools/gateway"
 	}
 	return "tools"
@@ -237,7 +234,7 @@ func permStageRows(dir string, agents []string, wd string) ([]permStageRow, perm
 	for _, d := range defs {
 		row := permStageRow{Script: d.Script, Stage: d.Stage, Needs: d.Needs, Cells: map[string]permStageCell{}}
 		for _, a := range agents {
-			mode := stageLaunchMode(a, d.Tools)
+			mode := stageLaunchMode(a)
 			if d.Launch != "" {
 				mode = leafMode(a, d.Launch)
 			}
