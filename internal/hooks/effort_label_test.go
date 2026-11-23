@@ -249,7 +249,7 @@ func TestAskLinePackFileTools(t *testing.T) {
 // A gemini dispatch on Google gets the low-pool warning and a held model's reset; no other dispatch reads agy.
 func TestLabelModelGoogleQuotaNote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	reset := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC)
+	reset := time.Now().Add(time.Hour) // a fixed date expires: a past hold prints no note
 	low := gemini.QuotaRow{Pool: "Gemini Models", Limit: "Five Hour Limit Remaining", Remaining: 12}
 	for _, tc := range []struct {
 		name, agent, account string
