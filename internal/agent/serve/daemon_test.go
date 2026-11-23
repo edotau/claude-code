@@ -16,6 +16,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+func TestRecoveryBootTime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("daemon is unsupported on Windows")
+	}
+	boot, err := recoveryBootTime()
+	if err != nil || !boot.After(time.Unix(0, 0)) || boot.After(time.Now()) {
+		t.Fatalf("boot time = %v, %v", boot, err)
+	}
+}
+
 func TestConnectionSlotCoversStatusProcessing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix socket transport")

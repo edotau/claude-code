@@ -1,7 +1,8 @@
 internal/agent/ancestry.go:indexedAncestors	unversioned: cache: .children.idx ancestry index, rebuilt when missing or bad
 internal/agent/brief.go:reserveBrief	unversioned: marker: empty relay brief file reserved by exclusive create; the relay fills it
 internal/agent/cutoffs.go:updateCutoffs	dispatch-cutoffs
-internal/agent/job.go:SpawnArgvContext	unversioned: log: vendor job log, humans only
+internal/agent/job.go:markRecovery	unversioned: log: relaunch marker line in the vendor job log, humans only
+internal/agent/job.go:spawnArgvContext	unversioned: log: vendor job log, humans only
 internal/agent/launch.go:WriteFiles	unversioned: per-launch 0600 files: settings-overlay row; copilot's foreign registry
 internal/agent/limits.go:liveDispatchChildren	unversioned: cache: .children.idx admission index, rebuilt when missing or bad
 internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file, flock only, no content

@@ -716,6 +716,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	}
 	cl := newClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
+	req.Identity = cmp.Or(as, req.Identity)                                   // on the record, so a replay or a reboot relaunch keeps a typed --as
 	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
 		return dryRun(ctx, req, dry, format, out)
 	}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -134,10 +136,61 @@ func serveLocked(ctx context.Context, st State) error {
 	fmt.Fprintf(os.Stderr, "agents serve: pid %d on %s (cap %d)\n", st.PID, SockPath(), st.Cap)
 	var wg sync.WaitGroup
 	wg.Go(func() { d.schedule(ctx) })
+	wg.Go(func() { recoverJobs(ctx) })
 	context.AfterFunc(ctx, func() { _ = ln.Close() })
 	d.accept(ctx, ln, &wg)
 	wg.Wait()
 	return nil
+}
+
+func recoveryBootTime() (time.Time, error) {
+	if runtime.GOOS == "darwin" {
+		start, err := proc.StartTime(1)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return time.ParseInLocation(time.ANSIC, start, time.Local)
+	}
+	raw, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}, err
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if seconds, ok := strings.CutPrefix(line, "btime "); ok {
+			n, err := strconv.ParseInt(strings.TrimSpace(seconds), 10, 64)
+			if err != nil || n <= 0 {
+				return time.Time{}, fmt.Errorf("invalid boot time %q", seconds)
+			}
+			return time.Unix(n, 0), nil
+		}
+	}
+	return time.Time{}, errors.New("boot time missing from /proc/stat")
+}
+
+func recoverJobs(ctx context.Context) {
+	boot, err := recoveryBootTime()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agents serve: reboot recovery: %v\n", err)
+		return
+	}
+	recs, err := agent.ReadRecentWith(agent.AllRecords, "")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "agents serve: reboot recovery records: %v\n", err)
+		return
+	}
+	for _, rec := range recs {
+		if ctx.Err() != nil {
+			return
+		}
+		if !rec.Time.Before(boot) || !rec.Background {
+			continue
+		}
+		if recovered, err := agent.RecoverJob(ctx, rec.ID, boot); err != nil {
+			fmt.Fprintf(os.Stderr, "agents serve: recover %s: %v\n", rec.ID, err)
+		} else if recovered {
+			fmt.Fprintf(os.Stderr, "agents serve: requeued %s after reboot\n", rec.ID)
+		}
+	}
 }
 
 // accept takes a connection slot before starting each handler; an admit trades it for a waiter slot.

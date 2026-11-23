@@ -77,6 +77,10 @@ func SpawnContext(ctx context.Context, rec *Record, extra []string) error {
 
 // SpawnArgvContext preserves run values while detaching the child lifetime.
 func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) error {
+	return spawnArgvContext(ctx, rec, argv, env, false)
+}
+
+func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, recovering bool) error {
 	ctx, _ = RunValues(ctx, nil)
 	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
 	exe, err := executable()
@@ -87,12 +91,19 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 		return errors.New("agent: refusing to relaunch the test binary as a job")
 	}
 	logPath := rec.LogPath()
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0o600) // append: the job's sink writes too
+	trunc := os.O_TRUNC
+	if recovering {
+		trunc = 0 // keep the log the dead run wrote
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|trunc, 0o600)
 	if err != nil {
 		return err
 	}
 	defer logFile.Close()
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
+	if recovering {
+		cmd.Dir = cmp.Or(rec.Cwd, rec.Request.WorkDir, rec.Tree, rec.Repo)
+	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Env = (EnvSpec{Mode: EnvClaude, Extra: env}).Environ(context.WithoutCancel(ctx))
 	proc.Detach(cmd)
@@ -103,9 +114,76 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 	rec.PID, rec.Log, rec.Background = cmd.Process.Pid, logPath, true
 	rec.PIDStart, _ = proc.StartTime(rec.PID) // "" on failure: Cancel then refuses to signal this pid
 	// persist the pid while the on-disk one is 0, so a child dying before ClaimJob is not alive and cancel has a pid
-	_ = NotePID(*rec, false)
+	if !recovering {
+		_ = NotePID(*rec, false)
+	}
 	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
 	return nil
+}
+
+// RecoverJob relaunches an earlier boot's dead background job while holding its record lock.
+func RecoverJob(ctx context.Context, id string, boot time.Time) (bool, error) {
+	r, err := LoadRecord(id)
+	if err != nil {
+		return false, err
+	}
+	path := filepath.Join(paths.DispatchDir(), r.ID+".json")
+	recovered := false
+	err = paths.WithFileLock(path, func() error {
+		cur, err := readRecord(path)
+		if err != nil {
+			return err
+		}
+		if !cur.recoverable(boot) {
+			return nil
+		}
+		if cur.Status == "lost" {
+			fi, err := os.Stat(path)
+			if err != nil {
+				return err
+			}
+			if fi.ModTime().Before(boot) {
+				return nil
+			}
+		}
+		if err := markRecovery(cur); err != nil {
+			return err
+		}
+		cur.Status, cur.Error, cur.Progress = "running", "", ""
+		cur.PID, cur.PPID, cur.PGID, cur.PIDStart = 0, 0, 0, ""
+		cur.Time = time.Now().UTC()
+		if err := cur.Save(); err != nil {
+			return err
+		}
+		if err := spawnArgvContext(ctx, &cur, recoverArgv(cur), nil, true); err != nil {
+			cur.Status, cur.Error = "error", "reboot recovery: "+err.Error()
+			return errors.Join(err, cur.Save())
+		}
+		recovered = true
+		return cur.Save()
+	})
+	return recovered, err
+}
+
+func markRecovery(r Record) error {
+	f, err := os.OpenFile(r.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(recoveryMark)
+	return errors.Join(err, f.Close())
+}
+
+// recoverArgv replays the flags askSpawn passed that the record keeps; --as is not recorded for a plain ask.
+func recoverArgv(r Record) []string {
+	argv := []string{"agents", "ask", "--job", r.ID, "--fallback", r.FallbackPolicy}
+	if r.Request.Native {
+		argv = append(argv, "--native")
+	}
+	if r.Request.Identity != "" {
+		argv = append(argv, "--as", r.Request.Identity)
+	}
+	return argv
 }
 
 // list is name's dispatch records, newest first; a ref decodes only the files it prefixes, else !all keeps Repo.
