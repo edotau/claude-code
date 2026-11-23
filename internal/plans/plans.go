@@ -257,6 +257,11 @@ func peekName(repoRoot string) string {
 	return name
 }
 
+// PeekHome is Home without claiming the name: a read-only lookup writes nothing.
+func PeekHome(repoRoot string) string {
+	return filepath.Join(paths.ConfigDir(), "plans", peekName(repoRoot))
+}
+
 // NamesFile records which repo key owns each plans folder name, so a later same-named repo is owner-qualified.
 func NamesFile() string { return filepath.Join(paths.StateDir(), "plans", "names.json") }
 

@@ -310,7 +310,7 @@ type planCand struct {
 	worktreeName string
 }
 
-// planCands is the brief's named plan, then cwd's repo active plan, then the harness's, each once.
+// planCands is the brief's named plan, then cwd's repo active plan, then the harness's, each once; it never writes.
 func planCands(cwd, brief string) []planCand {
 	top, wt := toplevel(cwd), ""
 	if top != "" {
@@ -322,7 +322,7 @@ func planCands(cwd, brief string) []planCand {
 			return
 		}
 		c := planCand{plan: p, parsed: parsed}
-		if top != "" && paths.SameFile(filepath.Dir(p), plans.Home(top)) {
+		if top != "" && paths.SameFile(filepath.Dir(p), plans.PeekHome(top)) {
 			c.worktreeName = wt
 		}
 		out = append(out, c)
@@ -331,11 +331,11 @@ func planCands(cwd, brief string) []planCand {
 		add(p, parsed)
 	}
 	if top != "" {
-		if p, parsed, ok := plans.Active(plans.Home(top), wt, plans.MirrorDests()); ok {
+		if p, parsed, ok := plans.Active(plans.PeekHome(top), wt, plans.MirrorDests()); ok {
 			add(p, parsed)
 		}
 	}
-	if p, parsed, ok := plans.Active(plans.Home(paths.ConfigDir()), "", plans.MirrorDests()); ok {
+	if p, parsed, ok := plans.Active(plans.PeekHome(paths.ConfigDir()), "", plans.MirrorDests()); ok {
 		add(p, parsed)
 	}
 	return out
