@@ -224,6 +224,13 @@ func prefetchRecall(ctx context.Context, in *core.Input) context.Context {
 	return context.WithValue(ctx, recallKey{}, p)
 }
 
+// waitRecall joins the prefetch so no recall-index write outlives the hook's return.
+func waitRecall(ctx context.Context) {
+	if p, ok := ctx.Value(recallKey{}).(*recallPrefetch); ok {
+		<-p.done
+	}
+}
+
 func recallSearch(ctx context.Context, session, task string) string {
 	if p, ok := ctx.Value(recallKey{}).(*recallPrefetch); ok && p.task == task {
 		<-p.done

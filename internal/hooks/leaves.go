@@ -57,6 +57,7 @@ func Effort(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	ctx := prefetchRecall(context.Background(), in) // the hook entry: no caller context
+	defer waitRecall(ctx)
 	owner := inflight.SessionOwner()
 	if owner == 0 {
 		return agentEffortResult(ctx, in) // an unidentifiable owner claims nothing: fail open
