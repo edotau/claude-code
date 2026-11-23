@@ -463,10 +463,13 @@ func checkCodeSmells(content, lang string, functions []FunctionInfo, classes []C
 // lineSmells flags magic numbers (outside comments and imports) and commented-out code, line by line.
 func lineSmells(content string) []Smell {
 	var smells []Smell
+	closer := ""
 	for i, line := range strings.Split(content, "\n") {
 		lineNo := i + 1
 		trimmed := strings.TrimSpace(line)
-		skip := strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
+		var prose bool
+		prose, closer = proseLine(trimmed, closer)
+		skip := prose || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
 			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from") || constDefinition().MatchString(line)
 		if !skip {
 			if m, ok := magicNumberOnLine(line); ok {
@@ -480,6 +483,31 @@ func lineSmells(content string) []Smell {
 		}
 	}
 	return smells
+}
+
+// proseLine reports whether a line is inside a docstring or block comment, and the closer still open after it.
+func proseLine(trimmed, closer string) (bool, string) {
+	if closer != "" {
+		if strings.Contains(trimmed, closer) {
+			return true, ""
+		}
+		return true, closer
+	}
+	for _, d := range [...]string{`"""`, `'''`} {
+		if rest, ok := strings.CutPrefix(strings.TrimLeft(trimmed, "rRbBuUfF"), d); ok {
+			if strings.Contains(rest, d) {
+				return true, ""
+			}
+			return true, d
+		}
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "/*"); ok {
+		if strings.Contains(rest, "*/") {
+			return true, ""
+		}
+		return true, "*/"
+	}
+	return false, ""
 }
 
 // isKeywordLine reports whether line starts with kw as a whole word.
