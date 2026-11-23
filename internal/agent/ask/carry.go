@@ -40,6 +40,7 @@ const noRecordFmt = "carried ask exited %d without finishing a dispatch record"
 const takeoverBrief = `A carried %s run was cut off (%s) before it finished.
 Continue the task below from where it stopped and finish it; say what you changed.
 Read every file named below that you need, and batch all of those independent reads into one response.
+Keep it small: read only what the task or the partial output names, never survey the repository to start over.
 
 Task:
 %s
