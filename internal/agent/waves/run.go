@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -384,10 +385,32 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 		ws = ws.WithLeaf(LeafState{ID: specs[i].ID, Agent: specs[i].Agent, Profile: specs[i].Profile,
 			Owns: specs[i].Owns, Status: WaveStateRunning})
 	}
-	if err = r.save(ws); err != nil {
+	if err = r.snapshotDirty(len(launch) > 0, ws); err != nil {
 		return nil, WaveState{}, nil, false, err
 	}
 	return specs, ws, launch, false, nil
+}
+
+// snapshotDirty adds the files dirty before a launch to the snapshot, so a leaf answers only for its own run's writes.
+func (r *runner) snapshotDirty(launching bool, ws WaveState) error {
+	if !launching {
+		return r.save(ws)
+	}
+	_, dirty, err := StateGitHead(r.o.Dir)
+	if err != nil {
+		return err
+	}
+	now, err := FingerprintAll(FingerprintGit(r.o.Dir), dirty)
+	if err != nil {
+		return err
+	}
+	merged := maps.Clone(r.state.Dirty)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, now)
+	r.state.Dirty = merged
+	return r.save(ws)
 }
 
 // staleKeeps relaunches a kept leaf whose blocker launches in this run, transitively, so it reruns on new work.

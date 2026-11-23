@@ -538,6 +538,22 @@ func TestTickCommitsTicksNamedTaskOnce(t *testing.T) {
 	}
 }
 
+func TestOwnEntriesWithoutFiles(t *testing.T) {
+	cases := []struct{ in, want []string }{
+		{[]string{"internal/workflows/blocks/stages.js", "workflows/code-analyzer.js"},
+			[]string{"internal/workflows/blocks/stages.js", "workflows/code-analyzer.js"}},
+		{[]string{"internal/hooks/safety/hardblock.go", "hardblock_test.go"},
+			[]string{"internal/hooks/safety/hardblock.go", "internal/hooks/safety/hardblock_test.go"}},
+		{[]string{"internal/a/a.go", "and their tests"}, []string{"internal/a/a.go", "and their tests"}},
+		{[]string{"internal/a/a.go", "none"}, []string{"internal/a/a.go", "none"}},
+	}
+	for _, c := range cases {
+		if got := ownEntries(c.in, nil); !slices.Equal(got, c.want) {
+			t.Errorf("ownEntries(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // An owns entry abbreviated against the previous one resolves to the spliced path.
 func TestCoversSplicesAbbreviatedOwns(t *testing.T) {
 	owns := []string{"skills/subagent-workflows/references/prompts.md", "references/cost-routing.md", "references/lane.md"}

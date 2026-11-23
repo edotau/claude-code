@@ -30,6 +30,7 @@ type runFixture struct {
 	parallel, scoped                   bool                        // 1.1 and 1.2 ran in one window, and 1.1 wrote 1.2's file; 1.1 was refused it
 	gates                              int
 	cancel                             context.CancelFunc
+	unowned                            []string // the union check's changed files outside every owner
 }
 
 func newRunFixture(t *testing.T) *runFixture {
@@ -73,7 +74,7 @@ func (f *runFixture) launch(_ context.Context, _ string, specs []Spec, o LaunchO
 }
 
 func (f *runFixture) diff(o inspect.DiffOptions) int {
-	rep := inspect.DiffReport{}
+	rep := inspect.DiffReport{Outside: f.unowned}
 	if o.Verify != "" {
 		rep = verifyWindow(0, 30)
 		rep.Verify.ID = o.Verify
@@ -288,6 +289,19 @@ func TestRunLeafThatWroteAlonePathsOfAnotherPackageFailsTheWave(t *testing.T) {
 	f.foreign = map[string][]CheckViolation{"1.1": {{Package: "1.1", File: "b.txt", Owners: []string{"1.2"}}}}
 	if code := runWith(t.Context(), f.o, f.h); code != 3 || !strings.Contains(f.out.String(), "1.1 wrote b.txt (owner 1.2)") {
 		t.Fatalf("exit %d, want 3 naming 1.1, b.txt and owner 1.2\n%s", code, &f.out)
+	}
+}
+
+func TestRunFileDirtiedBeforeTheWaveIsNotOutside(t *testing.T) {
+	f := newRunFixture(t)
+	f.o.From, f.o.To = 1, 1
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatalf("wave 1: exit %d\n%s", code, &f.out)
+	}
+	verifyWrite(t, f.o.Dir, "d.txt", "main session edit between waves")
+	f.unowned, f.o.From, f.o.To = []string{"d.txt"}, 2, 2
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatalf("a file dirty before wave 2 launched failed it: exit %d\n%s", code, &f.out)
 	}
 }
 

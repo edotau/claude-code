@@ -89,6 +89,19 @@ func TestWavesOwnsNoneSharesNothing(t *testing.T) {
 	}
 }
 
+func TestWavesStruckWrappedTaskParses(t *testing.T) {
+	raw := "- [ ] Phase 6.1 — leaf: claude, Agent: claude — owns: a.go\n" +
+		"- [ ] ~~Phase 6.2 — old work — leaf: claude, Agent: claude —~~\n" +
+		"  ~~Blocked by: 6.1 — verify: go test ./x — owns: b.go~~ — superseded\n"
+	p, err := ParseWaves(wavesFile(t, raw))
+	if err != nil {
+		t.Fatalf("struck wrapped task: %v", err)
+	}
+	if got := p.Waves[0].Tasks[1]; got.Agent != "claude" || !got.Done {
+		t.Fatalf("struck task = %+v", got)
+	}
+}
+
 func TestWavesBlockedBy(t *testing.T) {
 	task := func(id, blocked, own string) string {
 		return "- [ ] Phase " + id + " — leaf: claude, Agent: claude" + blocked + " — owns: " + own + "\n"
