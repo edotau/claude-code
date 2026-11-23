@@ -229,6 +229,12 @@ func Canon(p string) string {
 	return p
 }
 
+// LaneRoot is ~/worktrees/<main's basename without a leading dot> under the canonical home.
+func LaneRoot(main string) string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(Canon(home), "worktrees", strings.TrimPrefix(filepath.Base(filepath.Clean(main)), "."))
+}
+
 const maxLinkDepth = 40
 
 // CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved

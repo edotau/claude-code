@@ -34,13 +34,8 @@ func worktreeRoot() string {
 	return filepath.Join(home, "worktrees")
 }
 
-// laneName is main's basename with one leading dot dropped, the directory its lanes live in.
-func laneName(main string) string {
-	return strings.TrimPrefix(filepath.Base(filepath.Clean(main)), ".")
-}
-
-// Root is repo main's own worktree root: worktreeRoot()/laneName(main).
-func Root(main string) string { return filepath.Join(worktreeRoot(), laneName(main)) }
+// Root is repo main's own worktree root.
+func Root(main string) string { return paths.LaneRoot(main) }
 
 // legacyRoot is the pre-dot-strip root of main, "" when it equals Root.
 func legacyRoot(main string) string {

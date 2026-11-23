@@ -33,10 +33,7 @@ func RepoRoot(ctx context.Context, cwd string) string {
 // WritableRoots is where a tools dispatch may write besides its cwd: the harness, its lanes and cwd's repo.
 func WritableRoots(cwd string) []string {
 	harness := paths.Real(paths.ConfigDir())
-	roots := []string{harness}
-	if home, err := os.UserHomeDir(); err == nil { // worktree.Root's layout; worktree imports agent, so no call
-		roots = append(roots, filepath.Join(paths.Canon(home), "worktrees", strings.TrimPrefix(filepath.Base(harness), ".")))
-	}
+	roots := []string{harness, paths.LaneRoot(harness)}
 	if cwd == "" {
 		return roots
 	}
