@@ -263,6 +263,9 @@ func (r *runner) specs(w plans.Wave) ([]Spec, []string) {
 			manual = append(manual, t.ID)
 			continue
 		}
+		if t.Done { // ticked or struck: the work is settled, so no leaf runs it again
+			continue
+		}
 		owns := make([]string, len(t.Owns))
 		for i, own := range t.Owns {
 			owns[i] = filepath.Join(r.o.Dir, own)
