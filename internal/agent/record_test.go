@@ -1396,3 +1396,57 @@ func TestNoteAccountMovesRunningRecord(t *testing.T) {
 		t.Fatalf("finished record re-charged to %q", got.Account)
 	}
 }
+
+func TestRecordActivityStopsBeforeFinish(t *testing.T) {
+	setConfigDir(t)
+	old := activityEvery
+	activityEvery = 5 * time.Millisecond
+	t.Cleanup(func() { activityEvery = old })
+	rec := NewRecord("codex", RunOptions{}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	tl := &tally{Sink: wire.Discard, live: startActivity(rec.ID)}
+	t.Cleanup(tl.live.close)
+	usage := wire.Usage{InputTokens: 12, OutputTokens: 3}
+	if err := tl.Emit(wire.Event{Type: wire.EventToolUse, Usage: &usage}); err != nil {
+		t.Fatal(err)
+	}
+	waitRecordActivity(t, rec.ID, usage)
+	tl.live.close()
+	rec.Finish(wire.Result{}, nil, time.Second)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Emit(wire.Event{Type: wire.EventToolUse}); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(4 * activityEvery); time.Now().Before(deadline); {
+		got, err := LoadRecord(rec.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "ok" || got.Activity != nil {
+			t.Fatalf("finished record rewritten: status=%s activity=%+v", got.Status, got.Activity)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func waitRecordActivity(t *testing.T, id string, usage wire.Usage) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		got, err := LoadRecord(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Activity != nil && got.Activity.Tools == 1 && got.Activity.Usage == usage && !got.Activity.Last.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("activity not saved: %+v", got.Activity)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
