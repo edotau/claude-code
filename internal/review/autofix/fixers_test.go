@@ -34,9 +34,10 @@ func fakeRepair(t *testing.T, changed, red bool) (string, string, *[]repairCall)
 			t.Fatal(err)
 		}
 	}
-	oldRun, oldBin := run, harnessBin
-	t.Cleanup(func() { run, harnessBin = oldRun, oldBin })
+	oldRun, oldBin, oldCap := run, harnessBin, laneCap
+	t.Cleanup(func() { run, harnessBin, laneCap = oldRun, oldBin, oldCap })
 	harnessBin = func() (string, error) { return "harness", nil }
+	laneCap = func(context.Context, string) error { return nil }
 	var calls []repairCall
 	fake := repairFake{lane, changed, red}
 	run = func(_ context.Context, dir, name string, args ...string) (string, error) {

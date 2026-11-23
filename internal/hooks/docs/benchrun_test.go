@@ -3,6 +3,7 @@ package docs
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -432,7 +433,7 @@ func assertBenchComplete(t *testing.T, base string) {
 	if m.Status != "done" || m.PID != os.Getpid() || m.Start.IsZero() || m.End.Before(m.Start) {
 		t.Errorf("incomplete lifecycle: %+v", m)
 	}
-	if m.Exit == nil || *m.Exit != 0 || m.Notice != "delivered" {
+	if m.Exit == nil || *m.Exit != 0 || m.Notice != "delivered" || m.Loop != "not primary trunk" {
 		t.Errorf("incomplete outcome: %+v", m)
 	}
 }
@@ -597,5 +598,107 @@ func TestBenchCommitFormsAndLaggingHead(t *testing.T) {
 	benchOnCommit(context.Background(), in, dir, sha[:7])
 	if spawned != 1 {
 		t.Errorf("spawned %d runs for a commit HEAD has moved past, want 1", spawned)
+	}
+}
+
+func TestBenchLoopDecision(t *testing.T) {
+	for _, scenario := range []string{"not primary trunk", "candidate lookup failed", "no candidate",
+		"machine busy", "budget refused", "loop already locked", "budget record failed", "loop launch failed", "loop launched"} {
+		t.Run(scenario, func(t *testing.T) { checkBenchLoopDecision(t, scenario) })
+	}
+}
+
+// The candidate fixture names internal/p; the decision needs that package in the committing repo.
+func benchPkgDir(t *testing.T, top string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(top, "internal", "p"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkBenchLoopDecision(t *testing.T, want string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	top, sha := benchRepo(t)
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.Local)
+	busy, spawn, clock, clean := benchBusy, benchLoopSpawn, benchLoopNow, benchLaneClean
+	t.Cleanup(func() { benchBusy, benchLoopSpawn, benchLoopNow, benchLaneClean = busy, spawn, clock, clean })
+	benchLoopNow = func() time.Time { return now }
+	benchLaneClean = func(context.Context, string, io.Writer) error { return nil }
+	benchBusy = func() bool { return want == "machine busy" }
+	calls := 0
+	benchLoopSpawn = func(bin string, args []string, dir string, out *os.File, env ...string) bool {
+		calls++
+		if out != nil || len(env) != 0 {
+			t.Errorf("spawn output=%v extra env=%v", out, env)
+		}
+		assertBenchLoopSpawn(t, bin, args, dir, top)
+		return want != "loop launch failed"
+	}
+	benchPkgDir(t, top)
+	if want == "not primary trunk" {
+		top = t.TempDir()
+	}
+	prepareBenchLoopDecision(t, want, now)
+	if got := benchLoopDecision(context.Background(), benchJob{Top: top, SHA: sha}); !strings.Contains(got, want) {
+		t.Fatalf("decision = %q, want %q", got, want)
+	}
+	expected := 0
+	if want == "loop launched" || want == "loop launch failed" {
+		expected = 1
+		raw, err := os.ReadFile(filepath.Join(paths.StateDir(), "bench", "budget.jsonl"))
+		if err != nil || !strings.Contains(string(raw), `"id":"`+sha+`"`) {
+			t.Fatalf("launch was not counted: %s, %v", raw, err)
+		}
+	}
+	if calls != expected {
+		t.Fatalf("spawn called %d times, want %d", calls, expected)
+	}
+}
+
+func prepareBenchLoopDecision(t *testing.T, scenario string, now time.Time) {
+	t.Helper()
+	root := filepath.Join(paths.StateDir(), "bench")
+	if err := os.MkdirAll(filepath.Join(root, "p"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	history := filepath.Join(root, "p", "history.jsonl")
+	if scenario != "no candidate" {
+		writeBenchFixture(t, history, `{"schema":1,"at":"2026-11-23T12:00:00Z","pkg":"internal/p","benchmark":"BenchmarkA-8","epoch":"`+strings.Repeat("a", 64)+`","score":{"samples":5,"cost_sec":1,"metrics":{"ns/op":{"median":1000000,"cv":1}},"deltas":{"sec/op":{"old":"100","new":"110","change":"+10%","significant":true}}}}`+"\n")
+	}
+	prepareBenchLoopRefusal(t, root, scenario, now)
+}
+
+func assertBenchLoopSpawn(t *testing.T, bin string, args []string, dir, top string) {
+	t.Helper()
+	if bin == "" || strings.Join(args, " ") != "review bench --loop --max 1" || dir != top {
+		t.Errorf("unexpected detached spawn: %q %v %q", bin, args, dir)
+	}
+}
+
+func prepareBenchLoopRefusal(t *testing.T, root, scenario string, now time.Time) {
+	t.Helper()
+	switch scenario {
+	case "candidate lookup failed":
+		if err := os.MkdirAll(filepath.Join(root, "candidates.jsonl"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	case "budget refused":
+		if err := bench.Record(bench.KindGateFix, "", 15_000_000, now); err != nil {
+			t.Fatal(err)
+		}
+	case "loop already locked":
+		f, err := os.OpenFile(filepath.Join(root, "loop.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		if !paths.TryLock(f) {
+			t.Fatal("could not hold loop lock")
+		}
+	case "budget record failed":
+		if err := os.Mkdir(filepath.Join(root, "budget.jsonl.lock"), 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

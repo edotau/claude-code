@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/review/bench"
 )
 
 // Result is the lane a repair left (empty when none) and the one-line notice for the owner.
@@ -24,6 +25,7 @@ type Result struct {
 var (
 	run        = repairRun
 	harnessBin = paths.SelfBinary
+	laneCap    = bench.LaneCap
 )
 
 // Repair fixes sha's deterministic findings in lane autofix-<sha7> and commits there; it never merges (D1).
@@ -41,6 +43,9 @@ func Repair(ctx context.Context, top, sha string, findings []Finding) (Result, e
 		return Result{}, fmt.Errorf("check autofix branch: %w", err)
 	} else if strings.TrimSpace(out) != "" {
 		return Result{Notice: "autofix " + sha[:7] + ": already tried (branch worktree-" + name + ")"}, nil
+	}
+	if err := laneCap(ctx, top); err != nil {
+		return Result{Notice: "autofix " + sha[:7] + ": " + err.Error()}, nil
 	}
 	bin, err := harnessBin()
 	if err != nil {

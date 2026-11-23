@@ -65,6 +65,8 @@ var (
 	errMeasureBusy    = errors.New("benchmark measurement lock busy")
 	measureLockPath   = MeasurementLockPath // a test swaps it
 	measureWait       = 50 * time.Minute    // past the post-commit worker's 45 minute deadline
+	loopLockWait      = time.Second / 2     // outlasts the post-commit worker's brief loopLocked probe
+	spendDispatch     = SpendDispatch       // a test swaps it
 )
 
 // MeasurementLockPath is the uid-scoped machine-wide lock every benchmark measurement holds, created 0700.
@@ -123,7 +125,7 @@ func runDriver(l loopOpts, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "review bench --loop:", err)
 		return 1
 	}
-	ran, err := paths.TryFileLock(filepath.Join(benchRoot(), "loop.lock"), 0, func() error {
+	ran, err := paths.TryFileLock(filepath.Join(benchRoot(), "loop.lock"), loopLockWait, func() error {
 		return d.loop(context.Background(), l.maxItems)
 	})
 	switch {
@@ -181,7 +183,7 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 			fmt.Fprintln(d.out, "bench loop: no conclusive comparison; item dropped, stopping")
 			return nil
 		case deferred:
-			fmt.Fprintln(d.out, "bench loop: measurement lock busy; deferred")
+			fmt.Fprintln(d.out, "bench loop: deferred")
 			return nil
 		case reverted:
 			reverts++
@@ -246,8 +248,9 @@ func (d *driver) pick() (Item, bool, error) {
 // item runs steps 3-12 for one candidate.
 func (d *driver) item(ctx context.Context, it Item) (outcome, error) {
 	c, err := d.openLane(ctx, it)
-	if errors.Is(err, errMeasureBusy) {
-		return deferred, nil // openLane already cleaned the lane
+	if deferrable(err) {
+		fmt.Fprintf(d.out, "bench loop: %v\n", err)
+		return deferred, nil // openLane already cleaned the lane, or opened none
 	}
 	if err != nil {
 		return 0, err
@@ -288,6 +291,9 @@ func (d *driver) verdict(ctx context.Context, c candidate) (outcome, error) {
 
 // openLane is steps 3-4: a fresh lane and a before run in it.
 func (d *driver) openLane(ctx context.Context, it Item) (candidate, error) {
+	if err := LaneCap(ctx, d.top); err != nil {
+		return candidate{Item: it}, err
+	}
 	c := candidate{Item: it, slug: d.nextSlug(it.Pkg)}
 	out, _, err := d.run(ctx, d.top, "", d.exe, "worktree", "create", c.slug)
 	if err != nil {
@@ -341,7 +347,23 @@ func (d *driver) fixLeaf(ctx context.Context, c *candidate) error {
 	}
 	env, err := d.ask(ctx, c.lane, brief, "--provider", "databricks", "--tools")
 	c.fixID = env.DispatchID
+	d.spend(env.DispatchID)
 	return err
+}
+
+// deferrable is a busy measurement lock or LaneCap's cap refusal, matched by prefix: lanes.go has no sentinel.
+func deferrable(err error) bool {
+	return errors.Is(err, errMeasureBusy) || err != nil && strings.HasPrefix(err.Error(), "automatic lane cap:")
+}
+
+// spend counts a returned dispatch's tokens toward the daily budget; ask has waited, so its record is final.
+func (d *driver) spend(id string) {
+	if id == "" {
+		return
+	}
+	if err := spendDispatch(KindBenchLoop, id, time.Now()); err != nil {
+		fmt.Fprintf(d.log, "bench loop: budget spend for %s: %v\n", id, err)
+	}
 }
 
 // gates is step 6's commit and step 7: a reason to revert, or "" when the fix passes.
@@ -464,6 +486,7 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 	}
 	env, err := d.ask(ctx, c.lane, brief, "--provider", "databricks", "--model", "opus", "--fallback", "none",
 		"--read-only")
+	d.spend(env.DispatchID)
 	verdict := strings.TrimSpace(firstLine(env.Answer))
 	switch {
 	case err != nil:

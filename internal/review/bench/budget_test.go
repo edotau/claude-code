@@ -1,0 +1,161 @@
+package bench
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
+)
+
+func TestAllowCountLimit(t *testing.T) {
+	for _, kind := range []string{KindBenchLoop, KindGateFix} {
+		t.Run(kind, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			now := time.Now()
+			for i := range budgetLimit(kind) {
+				if ok, why := Allow(kind, now); !ok {
+					t.Fatalf("refused before limit: %s", why)
+				}
+				for range 2 {
+					if err := Record(kind, strconv.Itoa(i), 0, now); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := Record(kind, "", 1, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if ok, why := Allow(kind, now); ok || why != "daily "+kind+" count limit reached" {
+				t.Fatalf("at limit: %v, %q", ok, why)
+			}
+		})
+	}
+}
+
+func TestAllowTokenLimit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	for _, kind := range []string{KindBenchLoop, KindGateFix} {
+		if err := Record(kind, "", dailyTokens/2, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kind := range []string{KindBenchLoop, KindGateFix} {
+		if ok, why := Allow(kind, now); ok || why != "daily token limit reached" {
+			t.Fatalf("at token limit: %v, %q", ok, why)
+		}
+	}
+}
+
+func TestAllowCorruptLedger(t *testing.T) {
+	for _, raw := range []string{"not json\n", "{}\n", "null\n", "\n"} {
+		t.Run(fmt.Sprintf("%q", raw), func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			if err := Record(KindBenchLoop, "one", 0, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if err := paths.AppendLine(filepath.Join(benchRoot(), "budget.jsonl"), []byte(raw)); err != nil {
+				t.Fatal(err)
+			}
+			if ok, why := Allow(KindBenchLoop, time.Now()); ok || why == "" {
+				t.Fatalf("corrupt ledger allowed: %v, %q", ok, why)
+			}
+		})
+	}
+}
+
+func TestAllowUnreadableLedger(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(benchRoot(), "budget.jsonl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if ok, why := Allow(KindBenchLoop, time.Now()); ok || why == "" {
+		t.Fatalf("unreadable ledger allowed: %v, %q", ok, why)
+	}
+}
+
+func TestAllowLocalDayBoundary(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	loc := time.FixedZone("local", -5*60*60)
+	before := time.Date(2026, 11, 23, 23, 59, 59, 0, loc)
+	if err := Record(KindBenchLoop, "yesterday", dailyTokens, before.UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := Allow(KindBenchLoop, before); ok {
+		t.Fatal("UTC date bypassed the local day limit")
+	}
+	if ok, why := Allow(KindBenchLoop, before.Add(time.Second)); !ok {
+		t.Fatalf("new local day refused: %s", why)
+	}
+}
+
+func TestReserveAtomicAtLimit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	for i := range dailyBenchLoops - 1 {
+		if err := Record(KindBenchLoop, "seed"+strconv.Itoa(i), 0, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	var granted atomic.Int32
+	for i := range 8 {
+		wg.Go(func() {
+			if ok, _ := Reserve(KindBenchLoop, "sha"+strconv.Itoa(i), now); ok {
+				granted.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	if rows, err := readBudget(); granted.Load() != 1 || err != nil || len(rows) != dailyBenchLoops {
+		t.Fatalf("granted %d, ledger %d rows (%v); want 1 and %d", granted.Load(), len(rows), err, dailyBenchLoops)
+	}
+}
+
+func TestReserveOnePerCommit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	if ok, why := Reserve(KindBenchLoop, "abc", now); !ok {
+		t.Fatalf("first launch refused: %s", why)
+	}
+	if ok, why := Reserve(KindBenchLoop, "abc", now.AddDate(0, 0, 1)); ok || why != "already launched for this commit" {
+		t.Fatalf("second launch: %v, %q", ok, why)
+	}
+}
+
+func TestLoopLockedProbeCreatesNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(benchRoot(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if loopLocked() {
+		t.Fatal("missing lock file reported held")
+	}
+	if _, err := os.Stat(filepath.Join(benchRoot(), "loop.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("probe created the lock file: %v", err)
+	}
+}
+
+func TestSpendDispatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := paths.WriteJSON(filepath.Join(paths.DispatchDir(), "dispatch-one.json"), map[string]any{
+		"usage": map[string]int{"input_tokens": 10, "output_tokens": 20, "cache_creation_tokens": 30, "cache_read_tokens": 40},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := SpendDispatch(KindBenchLoop, "dispatch-one", now); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := readBudget()
+	if err != nil || len(rows) != 1 || rows[0].ID != "" || rows[0].Tokens != 100 {
+		t.Fatalf("dispatch spend: %+v, %v", rows, err)
+	}
+}

@@ -61,6 +61,9 @@ var benchPollWait = time.Second
 var benchMaxBusyPolls = 30
 var benchRunTimeout = benchDeadline
 var benchMeasurementLock = benchLock
+var benchLoopSpawn = proc.SpawnDetached
+var benchLoopNow = time.Now
+var benchLaneClean = bench.CleanLanes
 
 // The worker owns lifecycle writes; fd 3 keeps its measurement lock alive if the worker dies mid-command.
 const benchScript = `b=$1; r=$2; top=$3; sha=$4; load=$5; shift 5
@@ -92,6 +95,7 @@ type benchMarker struct {
 	End       time.Time `json:"end"`
 	Exit      *int      `json:"exit"`
 	Notice    string    `json:"notice,omitempty"`
+	Loop      string    `json:"loop,omitempty"`
 }
 
 var benchRun = func(args []string, top string, lock *os.File) int {
@@ -294,6 +298,77 @@ func benchWorker(base string, rerun bool) {
 		return
 	}
 	benchDeliver(base, job)
+	err = lock.Close()
+	_ = benchDecideLoop(base, job, err)
+}
+
+// The marker is the worker's only log: one loop decision per measured job, never a path or command.
+func benchDecideLoop(base string, job benchJob, lockErr error) error {
+	raw, err := os.ReadFile(base + ".marker")
+	if err != nil {
+		return err
+	}
+	var m benchMarker
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
+	}
+	m.Loop = "measurement lock close failed"
+	if lockErr == nil {
+		m.Loop = benchLoopDecision(context.Background(), job)
+	}
+	return paths.WriteJSON(base+".marker", m)
+}
+
+func benchLoopDecision(ctx context.Context, job benchJob) string {
+	now := benchLoopNow()
+	if primaryTrunkHead(ctx, job.Top, job.SHA) == "" {
+		return "not primary trunk"
+	}
+	item, ok, err := bench.NextCandidate(now)
+	if err != nil {
+		return "candidate lookup failed"
+	} else if !ok {
+		return "no candidate"
+	}
+	pkg := filepath.FromSlash(item.Pkg)
+	if fi, err := os.Stat(filepath.Join(job.Top, pkg)); pkg == "." || !filepath.IsLocal(pkg) || err != nil || !fi.IsDir() {
+		return "candidate not in this repo" // the history is machine-wide; another repo's commit must not fix a package it lacks
+	}
+	if benchBusy() {
+		return "machine busy"
+	}
+	benchCleanLanes(ctx, job)
+	return benchLaunchLoop(job, now)
+}
+
+// Merged lanes free their cap slots first; a clean failure is a notice and never stops the decision.
+func benchCleanLanes(ctx context.Context, job benchJob) {
+	var out strings.Builder
+	if err := benchLaneClean(ctx, job.Top, &out); err != nil {
+		fmt.Fprintf(&out, "automatic lane clean failed: %s\n", strings.SplitN(err.Error(), "\n", 2)[0])
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		if line == "" || job.SessionID == "" {
+			continue
+		}
+		// best-effort: a lost lane notice never blocks the loop decision, and `review bench --status` lists the lanes
+		_ = worktree.Append(job.SessionID, worktree.Notice{TS: time.Now().Unix(), From: "bench", Kind: "bench", Text: line})
+	}
+}
+
+// One launch row per commit, reserved atomically before the spawn, so a crash between them still counts.
+func benchLaunchLoop(job benchJob, now time.Time) string {
+	bin, err := paths.SelfBinary()
+	if err != nil {
+		return "binary lookup failed"
+	}
+	if ok, why := bench.Reserve(bench.KindBenchLoop, job.SHA, now); !ok {
+		return "budget refused: " + why
+	}
+	if !benchLoopSpawn(bin, []string{"review", "bench", "--loop", "--max", "1"}, job.Top, nil) {
+		return "loop launch failed"
+	}
+	return "loop launched"
 }
 
 // The loop driver takes the same lock, so a post-commit measurement never overlaps its A/B runs.

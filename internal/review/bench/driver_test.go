@@ -234,6 +234,25 @@ func TestDriverJudgeVerdicts(t *testing.T) {
 	}
 }
 
+func TestDriverSpendsDispatchTokens(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	judgeRun(t, "REVERT")
+	var spent []string
+	old := spendDispatch
+	t.Cleanup(func() { spendDispatch = old })
+	spendDispatch = func(kind, id string, _ time.Time) error { spent = append(spent, kind+" "+id); return nil }
+	lane := gitRepo(t)
+	cand := candidate{Pkg: "internal/x", What: "w", slug: "bench-x-1", lane: lane, parent: "HEAD",
+		res: ABResult{Before: "before.txt", After: "after.txt", Decision: Decision{Rows: []string{"A-8 sec/op -20%"}}}}
+	d := &driver{top: lane, exe: "claude-code", out: io.Discard, log: io.Discard, skip: map[string]bool{}}
+	if _, err := d.judge(context.Background(), cand); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spent, []string{KindBenchLoop + " j1"}) {
+		t.Fatalf("spent %v, want the review dispatch j1", spent)
+	}
+}
+
 // stubLoop runs the loop through runDriver with canned steps; it returns the exit code and output.
 func stubLoop(t *testing.T, max int, steps loopSteps) (int, string) {
 	t.Helper()
@@ -273,7 +292,7 @@ func TestDriverLoopBudgets(t *testing.T) {
 		{"two reverts stop the loop", 5, []outcome{reverted}, false, 2, "2 reverts in a row; stopping"},
 		{"a keep resets the revert count", 4, []outcome{reverted, kept, reverted, kept}, false, 4, "done (--max 4)"},
 		{"busy machine defers", 3, []outcome{kept}, true, 0, "machine busy (load 9.00); deferred"},
-		{"busy measurement lock defers", 3, []outcome{deferred}, false, 1, "measurement lock busy; deferred"},
+		{"busy measurement lock defers", 3, []outcome{deferred}, false, 1, "bench loop: deferred"},
 		{"an inconclusive run stops", 3, []outcome{noComparison}, false, 1, "no conclusive comparison"},
 	}
 	for _, c := range cases {
@@ -306,6 +325,9 @@ func TestDriverMeasuredExcludesTheWorkerLock(t *testing.T) {
 }
 
 func TestDriverHeldLockDefers(t *testing.T) {
+	oldWait := loopLockWait
+	t.Cleanup(func() { loopLockWait = oldWait })
+	loopLockWait = 0
 	calls := 0
 	steps := scripted([]outcome{kept}, false, &calls)
 	var code int

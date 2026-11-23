@@ -1,5 +1,6 @@
 internal/hooks/docs/benchrun.go:benchAnnotate	unversioned: marker: post-commit bench run record, annotated with the compared commit and baseline
 internal/hooks/docs/benchrun.go:benchComplete	unversioned: marker: post-commit bench run record closed with end time and exit status
+internal/hooks/docs/benchrun.go:benchDecideLoop	unversioned: marker: post-commit bench run record annotated with the automatic loop decision
 internal/hooks/docs/benchrun.go:benchFinish	unversioned: marker: post-commit bench run record marked done or failed before its notice
 internal/hooks/docs/benchrun.go:benchLock	unversioned: marker: uid-scoped machine-wide benchmark measurement lock
 internal/hooks/docs/benchrun.go:benchReconcile	unversioned: marker: abandoned post-commit benchmarks requeued for detached recovery
