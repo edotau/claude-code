@@ -162,6 +162,10 @@ func runDashboard(claudeDir string, opts Options, v View) error {
 func (d *dashboard) run() error {
 	poll := time.NewTicker(pollEvery) // no SIGWINCH on Windows builds, so a resize is found by polling
 	defer poll.Stop()
+	ctx, cancel := context.WithCancel(d.ctx)
+	defer cancel()
+	headers := make(chan headerStatus, 1)
+	go refreshHeader(ctx, d.claudeDir, headers)
 	for {
 		if err := d.reloadDue(); err != nil {
 			return err
@@ -172,14 +176,25 @@ func (d *dashboard) run() error {
 		select {
 		case <-d.ctx.Done():
 			return nil
+		case h := <-headers:
+			d.st.header = &h
+			d.st = clampTop(d.st)
 		case <-poll.C:
 		case k, ok := <-d.keys:
-			if !ok || k == keyQuit || k == keyEsc {
+			if d.keyQuits(k, ok) {
 				return nil
 			}
-			d.onKey(k)
 		}
 	}
+}
+
+// keyQuits reports a quit key or a closed stream, else applies the key.
+func (d *dashboard) keyQuits(k key, ok bool) bool {
+	if !ok || k == keyQuit || k == keyEsc {
+		return true
+	}
+	d.onKey(k)
+	return false
 }
 
 // reloadDue lists the tree again once an interval has passed, keeping the selection on the same node.

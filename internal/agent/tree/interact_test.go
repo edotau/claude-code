@@ -6,6 +6,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,5 +63,26 @@ func TestDashboardEnterOpensPane(t *testing.T) {
 	if streamed != rec.ID || !strings.Contains(frame, "id     "+rec.ID) || !strings.Contains(frame, "live ·") ||
 		!strings.Contains(frame, "read the files") || strings.Contains(frame, "[31m") {
 		t.Fatalf("streamed %q, frame:\n%q", streamed, frame)
+	}
+}
+
+func TestDashboardHeaderRefreshStops(t *testing.T) {
+	original := headerSource
+	var calls atomic.Int32
+	headerSource = func(context.Context, string) headerStatus {
+		calls.Add(1)
+		return headerStatus{served: true}
+	}
+	t.Cleanup(func() { headerSource = original })
+	ctx, cancel := context.WithCancel(t.Context())
+	updates := make(chan headerStatus, 1)
+	done := make(chan struct{})
+	top := t.TempDir()
+	go func() { refreshHeader(ctx, top, updates); close(done) }()
+	<-updates
+	cancel()
+	<-done
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("refresh calls = %d, want 1", got)
 	}
 }

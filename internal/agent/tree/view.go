@@ -19,6 +19,11 @@ const dashFooter = "↑/↓ move · →/← open/close · enter job · c cancel 
 // footerRows are the lines under the rows: the status line (blank when unset) and dashFooter.
 const footerRows = 2
 
+const (
+	headerHeight = 2
+	minTreeRows  = 3
+)
+
 // maxLineWidth caps a dashboard line on a wide terminal: CLI and TUI rows stay within 80 columns.
 const maxLineWidth = 80
 
@@ -32,6 +37,7 @@ type dashState struct {
 	width, height int
 	pending       string // job id an unconfirmed cancel names
 	status        string // the last action's line, shown above the footer
+	header        *headerStatus
 }
 
 // nodeKey names a node across reloads; kinds keep a session and a dispatch with one id apart.
@@ -56,8 +62,15 @@ func visible(nodes []Node, open map[string]bool) []Node {
 	return out
 }
 
-// viewRows is how many tree rows fit above the footer in height terminal rows.
-func viewRows(height int) int { return max(height-footerRows, 1) }
+func headerRows(s dashState) int {
+	if s.header != nil && s.height >= footerRows+headerHeight+minTreeRows {
+		return headerHeight
+	}
+	return 0
+}
+
+// viewRows reserves header space only when three tree rows still fit.
+func viewRows(s dashState) int { return max(s.height-footerRows-headerRows(s), 1) }
 
 // clamp re-finds the selection in vis by id (else keeps its index), then scrolls it into the viewport.
 func clamp(s dashState, vis []Node) dashState {
@@ -76,7 +89,7 @@ func clamp(s dashState, vis []Node) dashState {
 
 // clampTop keeps the selection inside the viewport and the viewport inside the rows.
 func clampTop(s dashState) dashState {
-	rows := viewRows(s.height)
+	rows := viewRows(s)
 	s.top = min(s.top, s.sel)
 	if s.sel >= s.top+rows {
 		s.top = s.sel - rows + 1
@@ -185,8 +198,13 @@ type rowCtx struct {
 // dashLines is the frame: the viewport's rows, laid out by the tree's one row formatter, then the footer.
 func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string {
 	vis := visible(nodes, s.open)
+	width := min(max(s.width, 1), maxLineWidth)
+	var head []string
+	if headerRows(s) != 0 {
+		head = headerLines(*s.header, width)
+	}
 	if len(vis) == 0 {
-		return []string{"agents dashboard: no sessions in scope", s.status, dashFooter}
+		return append(head, "agents dashboard: no sessions in scope", s.status, dashFooter)
 	}
 	home, _ := os.UserHomeDir()
 	c := rowCtx{now: now, home: home, open: s.open}
@@ -197,12 +215,11 @@ func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string 
 		}
 		addNode(&l, n, &c, i == s.sel)
 	}
-	width := min(max(s.width, 1), maxLineWidth)
 	lines := l.lines(width, paint)
 	top := min(s.top, len(lines))
-	lines = lines[top:min(top+viewRows(s.height), len(lines))]
+	lines = lines[top:min(top+viewRows(s), len(lines))]
 	foot := ansi.Style(paint != "", ansi.Dim, textutil.TruncateCells(dashFooter, width, "…"))
-	return append(lines, textutil.TruncateCells(s.status, width, "…"), foot)
+	return append(append(head, lines...), textutil.TruncateCells(s.status, width, "…"), foot)
 }
 
 // addNode adds n's own row: a ▸/▾ twist, the depth's indent, then the cells `agents tree` prints for its kind.
