@@ -905,9 +905,9 @@ func TestRunAgySilentChildStalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HARNESS_AGENT_BIN_DIR", dir)
-	old := agent.GeminiIdleLimit
-	agent.GeminiIdleLimit = 200 * time.Millisecond
-	t.Cleanup(func() { agent.GeminiIdleLimit = old })
+	old := agent.IdleLimit
+	agent.IdleLimit = 200 * time.Millisecond
+	t.Cleanup(func() { agent.IdleLimit = old })
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	_, err := runAgy(ctx, agyRequest{Prompt: "hi", Cwd: dir}, wire.Discard)

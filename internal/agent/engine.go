@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -502,31 +503,15 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
-// IdleLimit is how long a codex or opencode stream may stay silent mid-run (a test shrinks it).
+// IdleLimit is how long any agent's stream may stay silent mid-run (a test shrinks it).
 var IdleLimit = 5 * time.Minute
 
-// ClaudeIdleLimit is how long a claude child may emit nothing while a model response is expected.
-const ClaudeIdleLimit = 5 * time.Minute
-
-// CopilotIdleLimit is how long a copilot SDK run may log nothing outside a tool call (a test shrinks it).
-var CopilotIdleLimit = 5 * time.Minute
-
-// GeminiIdleLimit is how long an agy stream may emit nothing outside a tool step (a test shrinks it).
-var GeminiIdleLimit = 5 * time.Minute
-
-// IdleLimitFor is the mid-stream idle limit per agent, 0 for none: claude's own watch (internal/claude/idle.go) uses it.
+// IdleLimitFor is the mid-stream idle limit for a roster agent, 0 for any other name.
 func IdleLimitFor(name string) time.Duration {
-	switch name {
-	case "claude":
-		return ClaudeIdleLimit
-	case "codex", "opencode", "pi":
-		return IdleLimit
-	case "copilot":
-		return CopilotIdleLimit
-	case "gemini":
-		return GeminiIdleLimit
+	if !agentid.Known(name) {
+		return 0
 	}
-	return 0
+	return IdleLimit
 }
 
 // ErrStalled is a dispatch silent past its stall deadline: fatal, so Do never retries but the chain falls through.
