@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -12,11 +13,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -34,8 +38,8 @@ var (
 
 // LeafRequest is one commit's findings: Lane is the autofix-<sha7> worktree, Live the checkout the leaf must not write.
 type LeafRequest struct {
-	Sha, Lane, Live, Gate, GateOutput string
-	Findings                          []Finding
+	Sha, Lane, Live, Gate string
+	Findings              []Finding
 }
 
 // Attempt is one attempts.jsonl row; it never stores gate output or brief text.
@@ -56,9 +60,26 @@ func LeafArgs(req LeafRequest) []string {
 		"--deny", "Write(" + req.Live + "/**)", "-"}
 }
 
+// LocalFindings drops findings whose path is not a plain repo-relative file name; dropped counts them.
+func LocalFindings(in []Finding) (kept []Finding, dropped int) {
+	kept = slices.DeleteFunc(slices.Clone(in), func(f Finding) bool { return f.Path != "" && !localPath(f.Path) })
+	return kept, len(in) - len(kept)
+}
+
+// safePath is the charset a path may use where it is named in Owned: and the Verify command line.
+var safePath = regexp.MustCompile(`^[\w.+/-]+$`)
+
+func localPath(p string) bool {
+	return safePath.MatchString(p) && filepath.IsLocal(p) && !strings.HasPrefix(p, "-") && path.Clean(p) == p
+}
+
+// Attempts reads the attempts ledger; a missing ledger is empty, a corrupt row an error.
+func Attempts() ([]Attempt, error) { return readAttempts(attemptFile()) }
+
 // FixLeaf launches one fix leaf for the judgment findings of req.Sha, at most once per sha and finding set.
 func FixLeaf(ctx context.Context, req LeafRequest, budget func() (ok bool, why string)) (Attempt, error) {
-	findings := slices.DeleteFunc(slices.Clone(req.Findings), func(f Finding) bool { return f.Class.Deterministic() })
+	findings, _ := LocalFindings(req.Findings)
+	findings = slices.DeleteFunc(findings, func(f Finding) bool { return f.Class.Deterministic() })
 	if len(findings) == 0 {
 		return Attempt{}, nil
 	}
@@ -83,7 +104,8 @@ func attemptLocked(ctx context.Context, file string, req LeafRequest, findings [
 	if err != nil {
 		return Attempt{}, err
 	}
-	if i := slices.IndexFunc(prior, func(a Attempt) bool { return a.Key == row.Key }); i >= 0 {
+	// the last row of a key is its outcome: dispatching is superseded by dispatched or launch-failed
+	if i := lastIndex(prior, row.Key); i >= 0 {
 		return prior[i], ErrAttempted
 	}
 	if ok, why := budget(); !ok {
@@ -93,19 +115,36 @@ func attemptLocked(ctx context.Context, file string, req LeafRequest, findings [
 	if err != nil {
 		return Attempt{}, err
 	}
+	row.Verdict = "dispatching" // written before the launch: a crash after it blocks a retry, never launches unrecorded
+	if err := appendAttempt(file, row); err != nil {
+		return Attempt{}, err
+	}
 	row.Verdict = "dispatched"
 	row.DispatchID, err = launchLeaf(ctx, req.Lane, brief, LeafArgs(req))
 	if err != nil {
 		row.Verdict, row.DispatchID = "launch-failed", "" // recorded too: a failed launch is not retried either
 	}
-	data, marshalErr := json.Marshal(row)
-	if marshalErr == nil {
-		marshalErr = paths.AppendLine(file, data)
+	return row, errors.Join(err, appendAttempt(file, row))
+}
+
+func lastIndex(rows []Attempt, key string) int {
+	for i, row := range slices.Backward(rows) {
+		if row.Key == key {
+			return i
+		}
 	}
-	if marshalErr != nil {
-		return row, errors.Join(err, fmt.Errorf("record autofix attempt: %w", marshalErr))
+	return -1
+}
+
+func appendAttempt(file string, row Attempt) error {
+	data, err := json.Marshal(row)
+	if err == nil {
+		err = paths.AppendLine(file, data)
 	}
-	return row, err
+	if err != nil {
+		return fmt.Errorf("record autofix attempt: %w", err)
+	}
+	return nil
 }
 
 // newAttempt keys on the sha and the sorted class/path pairs, so finding order and line moves do not matter.
@@ -149,27 +188,55 @@ func readAttempts(file string) ([]Attempt, error) {
 	return rows, sc.Err()
 }
 
+// maxDataRunes caps one finding message in the brief's data block.
+const maxDataRunes = 200
+
 func renderLeaf(req LeafRequest, findings []Finding, owned []string) (string, error) {
 	encoded, err := json.Marshal(owned)
 	if err != nil {
 		return "", err
 	}
-	tmpl, err := template.New("fix").Funcs(template.FuncMap{"line": func(s string) string {
-		return strings.Join(strings.Fields(s), " ")
-	}}).Option("missingkey=error").Parse(leafBrief)
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("autofix brief nonce: %w", err)
+	}
+	fence := "AUTOFIX-DATA-" + hex.EncodeToString(nonce)
+	data := make([]Finding, len(findings))
+	for i, f := range findings {
+		data[i] = Finding{Class: f.Class, Path: f.Path, Line: f.Line,
+			Rule: dataLine(f.Rule, fence), Message: dataLine(f.Message, fence)}
+	}
+	tmpl, err := template.New("fix").Option("missingkey=error").Parse(leafBrief)
 	if err != nil {
 		return "", fmt.Errorf("parse autofix brief: %w", err)
 	}
 	var out bytes.Buffer
 	err = tmpl.Execute(&out, struct {
 		LeafRequest
-		Owned    string
-		Judgment []Finding
-	}{req, string(encoded), findings})
+		Owned, Fence string
+		Judgment     []Finding
+	}{req, string(encoded), fence, data})
 	if err != nil {
 		return "", fmt.Errorf("render autofix brief: %w", err)
 	}
 	return out.String(), nil
+}
+
+// dataLine defangs tool text for the data block: one line, no control runes, backticks or fence, capped.
+func dataLine(s, fence string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '`' {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.ReplaceAll(s, fence, "")
+	s = strings.ReplaceAll(s, "AUTOFIX-DATA-", "")
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > maxDataRunes {
+		s = string(r[:maxDataRunes]) + "…"
+	}
+	return s
 }
 
 // execLaunch starts the background job and returns its id without waiting; the gate rerun is the caller's.

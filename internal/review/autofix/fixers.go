@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -56,15 +58,26 @@ func Repair(ctx context.Context, top, sha string, findings []Finding) (Result, e
 		return Result{}, fmt.Errorf("create autofix lane: %w", err)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	res := Result{Lane: name, Path: lines[len(lines)-1]}
+	res, why, err := repairLane(ctx, top, bin, Result{Lane: name, Path: lines[len(lines)-1]}, findings)
+	if err == nil && why == "" {
+		return res, nil // a green lane, committed and left for the owner (D1)
+	}
+	res.Notice = why
+	return dropLane(ctx, top, bin, res, err)
+}
+
+// repairLane fixes and gates the lane; a non-empty why or an error means the lane is not green.
+func repairLane(ctx context.Context, top, bin string, res Result, findings []Finding) (Result, string, error) {
 	if err := checkRepairLane(ctx, top, res); err != nil {
-		return res, err
+		res.Path = "" // not a verified lane: never roll back inside it
+		return res, "lane check failed", err
 	}
-	res.Fixed, err = applyFixers(ctx, bin, res.Path, findings)
+	fixed, err := applyFixers(ctx, bin, res.Path, findings)
 	if err != nil {
-		return discardRepair(ctx, top, bin, res, "fixer failed: "+err.Error())
+		return res, "fixer failed", err
 	}
-	return finishRepair(ctx, top, bin, sha, res)
+	res.Fixed = fixed
+	return finishRepair(ctx, bin, res)
 }
 
 func repairRun(ctx context.Context, dir, name string, args ...string) (string, error) {
@@ -220,32 +233,52 @@ func laneChanges(ctx context.Context, lane string) ([]string, error) {
 	return files, nil
 }
 
-func finishRepair(ctx context.Context, top, bin, sha string, res Result) (Result, error) {
+// finishRepair gates and commits the lane's changes; why says why the lane did not end green.
+func finishRepair(ctx context.Context, bin string, res Result) (Result, string, error) {
 	files, err := laneChanges(ctx, res.Path)
 	if err != nil {
-		return res, err
+		return res, "lane status failed", err
 	}
 	if len(files) == 0 {
-		return cleanRepair(ctx, top, bin, res, "fixers changed nothing")
+		return res, "fixers changed nothing", nil
 	}
 	args := []string{"agents", "diff", "--check"}
 	for _, f := range files {
 		args = append(args, "--path", f)
 	}
 	if out, err := run(ctx, res.Path, bin, args...); err != nil {
-		lines := strings.Split(strings.TrimSpace(out), "\n")
-		return discardRepair(ctx, top, bin, res, "gate still red: "+strings.Join(lines[max(0, len(lines)-6):], "\n"))
+		return res, "gate still red: " + failedGates(out), nil
 	}
+	short := strings.TrimPrefix(res.Lane, "autofix-")
 	classes := repairClasses(res.Fixed)
-	msg := fmt.Sprintf("chore(autofix): repair %s found on %s", classes, sha[:7])
+	msg := fmt.Sprintf("chore(autofix): repair %s found on %s", classes, short)
 	args = append([]string{"worktree", "commit", "-m", msg, "--"}, files...)
 	if _, err := run(ctx, res.Path, bin, args...); err != nil {
-		return discardRepair(ctx, top, bin, res, "commit refused: "+err.Error())
+		return res, "commit refused", err
 	}
 	res.Notice = fmt.Sprintf("autofix %s: fixed %s in lane %s; gate green; land it: claude-code worktree merge %s",
-		sha[:7], classes, res.Lane, res.Lane)
-	return res, nil
+		short, classes, res.Lane, res.Lane)
+	return res, "", nil
 }
+
+// failedGates names the FAIL gates in a summary, read as Classify reads headers; raw output never reaches a notice.
+func failedGates(out string) string {
+	var gates []string
+	for line := range strings.Lines(out) {
+		m := reHeader.FindStringSubmatch(strings.TrimSpace(reANSI.ReplaceAllString(line, "")))
+		if m != nil && m[1] == "FAIL" && safeGate.MatchString(m[2]) {
+			gates = append(gates, m[2])
+		}
+	}
+	if len(gates) == 0 {
+		return "no gate named"
+	}
+	slices.Sort(gates)
+	return strings.Join(slices.Compact(gates), ", ")
+}
+
+// safeGate keeps a gate name a plain word, so a crafted header carries no text into a notice.
+var safeGate = regexp.MustCompile(`^[\w-]{1,40}$`)
 
 func repairClasses(classes []Class) string {
 	names := make([]string, len(classes))
@@ -255,31 +288,35 @@ func repairClasses(classes []Class) string {
 	return strings.Join(names, ", ")
 }
 
-func cleanRepair(ctx context.Context, top, bin string, res Result, why string) (Result, error) {
-	if _, err := run(ctx, top, bin, "worktree", "clean", res.Lane); err != nil {
-		res.Notice = res.Lane + ": " + why
-		return res, fmt.Errorf("clean autofix lane: %w", err)
+const dropLaneTimeout = 30 * time.Second
+
+// dropLane removes a lane that did not end green, or names it in the notice when removal fails; cause is returned.
+func dropLane(ctx context.Context, top, bin string, res Result, cause error) (Result, error) {
+	// the repair's own deadline may have expired; cleanup must still run or the lane is stranded
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dropLaneTimeout)
+	defer cancel()
+	if res.Path != "" {
+		cause = errors.Join(cause, discardRepair(ctx, res.Path))
 	}
-	return Result{Notice: res.Lane + ": " + why + "; lane removed"}, nil
+	note := res.Lane + ": " + res.Notice
+	if _, err := run(ctx, top, bin, "worktree", "clean", res.Lane); err != nil {
+		return Result{Notice: note + "; lane " + res.Lane + " left, clean failed: claude-code worktree clean " + res.Lane},
+			cause
+	}
+	return Result{Notice: note + "; lane removed"}, cause
 }
 
 // discardRepair reverses the lane's uncommitted fixes so a plain, unforced clean can remove it.
-func discardRepair(ctx context.Context, top, bin string, res Result, why string) (Result, error) {
-	res.Notice = res.Lane + ": " + why
-	files, err := laneChanges(ctx, res.Path)
+func discardRepair(ctx context.Context, lane string) error {
+	files, err := laneChanges(ctx, lane)
+	if err != nil || len(files) == 0 {
+		return err
+	}
+	patch, err := run(ctx, lane, "git", "diff", "--binary")
 	if err != nil {
-		return res, err
+		return fmt.Errorf("capture autofix patch: %w", err)
 	}
-	if len(files) > 0 {
-		patch, err := run(ctx, res.Path, "git", "diff", "--binary")
-		if err != nil {
-			return res, fmt.Errorf("capture autofix patch: %w", err)
-		}
-		if err := reverseRepair(ctx, res.Path, patch); err != nil {
-			return res, err
-		}
-	}
-	return cleanRepair(ctx, top, bin, res, why)
+	return reverseRepair(ctx, lane, patch)
 }
 
 func reverseRepair(ctx context.Context, lane, patch string) (err error) {

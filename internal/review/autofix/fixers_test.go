@@ -10,7 +10,11 @@ import (
 	"testing"
 )
 
-const repairSHA = "abcdef0123456789"
+const (
+	repairSHA      = "abcdef0123456789"
+	redGateFixture = "ok gofmt (0.1s)\nFAIL test (1.2s)\n--- FAIL: TestX at /Users/x/y.go\n" +
+		"FAIL lint (0.3s)\nsample.go:3: golangci-lint/errcheck: unchecked\n"
+)
 
 type repairCall struct {
 	dir, name string
@@ -20,9 +24,14 @@ type repairCall struct {
 type repairFake struct {
 	lane         string
 	changed, red bool
+	fail         string // joined args of the one call that errors
 }
 
 func fakeRepair(t *testing.T, changed, red bool) (string, string, *[]repairCall) {
+	return fakeRepairFailing(t, changed, red, "")
+}
+
+func fakeRepairFailing(t *testing.T, changed, red bool, fail string) (string, string, *[]repairCall) {
 	t.Helper()
 	top, lane := t.TempDir(), t.TempDir()
 	for _, file := range []string{".git", "sample.go", "guide.md", "internal/schemas/testdata/writers/example.txt"} {
@@ -39,7 +48,7 @@ func fakeRepair(t *testing.T, changed, red bool) (string, string, *[]repairCall)
 	harnessBin = func() (string, error) { return "harness", nil }
 	laneCap = func(context.Context, string) error { return nil }
 	var calls []repairCall
-	fake := repairFake{lane, changed, red}
+	fake := repairFake{lane, changed, red, fail}
 	run = func(_ context.Context, dir, name string, args ...string) (string, error) {
 		calls = append(calls, repairCall{dir, name, slices.Clone(args)})
 		return fake.output(args)
@@ -49,6 +58,8 @@ func fakeRepair(t *testing.T, changed, red bool) (string, string, *[]repairCall)
 
 func (fake repairFake) output(args []string) (string, error) {
 	switch strings.Join(args, " ") {
+	case fake.fail:
+		return "", errors.New("run /abs/bin/harness " + fake.fail + ": exit status 1")
 	case "worktree create autofix-abcdef0":
 		return "created lane\n" + fake.lane + "\n", nil
 	case "symbolic-ref --short HEAD":
@@ -61,7 +72,7 @@ func (fake repairFake) output(args []string) (string, error) {
 		return "binary patch\n", nil
 	case "agents diff --check --path sample.go --path internal/schemas/testdata/writers/example.txt":
 		if fake.red {
-			return "FAIL test: still broken\n", errors.New("gate red")
+			return redGateFixture, errors.New("gate red")
 		}
 	}
 	if slices.Equal(args[:min(2, len(args))], []string{"apply", "-R"}) {
@@ -151,13 +162,66 @@ func TestRepairRedGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Lane != "" || !strings.Contains(res.Notice, "gate still red: FAIL test: still broken") {
+	if res.Lane != "" || !strings.Contains(res.Notice, "gate still red: lint, test") {
 		t.Fatalf("result = %+v", res)
+	}
+	for line := range strings.Lines(redGateFixture) {
+		if strings.Contains(res.Notice, strings.TrimSpace(line)) {
+			t.Fatalf("notice carries gate output %q: %q", line, res.Notice)
+		}
 	}
 	if !repairCalled(*calls, "apply", "-R") || !repairCalled(*calls, "worktree", "clean", "autofix-abcdef0") {
 		t.Fatalf("calls = %+v", *calls)
 	}
 	if repairCalled(*calls, "worktree", "commit") {
 		t.Fatal("red gate committed")
+	}
+}
+
+// an expired repair context still cleans the lane: cleanup runs on its own context.
+func TestDropLaneCancelledContext(t *testing.T) {
+	top, _, calls := fakeRepair(t, false, false)
+	inner := run
+	run = func(ctx context.Context, dir, name string, args ...string) (string, error) {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return inner(ctx, dir, name, args...)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	res, _ := dropLane(ctx, top, "harness", Result{Lane: "autofix-abcdef0", Notice: "fixer failed"}, nil)
+	if !repairCalled(*calls, "worktree", "clean", "autofix-abcdef0") || !strings.HasSuffix(res.Notice, "lane removed") {
+		t.Fatalf("notice = %q calls = %+v", res.Notice, *calls)
+	}
+}
+
+// every Repair error after the lane exists removes it, or names it in the notice when the clean fails.
+func TestRepairErrorPathsDropLane(t *testing.T) {
+	tests := []struct {
+		name, fail, notice string
+		changed            bool
+	}{
+		{"lane check", "symbolic-ref --short HEAD", "lane check failed; lane removed", true},
+		{"lane status", "status --porcelain=v1 -z", "lane status failed; lane removed", true},
+		{"commit refused", "worktree commit", "commit refused; lane removed", true},
+		{"clean fails", "worktree clean autofix-abcdef0", "lane autofix-abcdef0 left, clean failed", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fail := tc.fail
+			if fail == "worktree commit" {
+				fail = "worktree commit -m chore(autofix): repair gofmt found on abcdef0 -- sample.go " +
+					"internal/schemas/testdata/writers/example.txt"
+			}
+			top, _, calls := fakeRepairFailing(t, tc.changed, false, fail)
+			res, err := Repair(context.Background(), top, repairSHA, []Finding{{Class: ClassGofmt, Path: "sample.go"}})
+			if res.Lane != "" || !strings.Contains(res.Notice, tc.notice) {
+				t.Fatalf("result = %+v, %v", res, err)
+			}
+			if !repairCalled(*calls, "worktree", "clean", "autofix-abcdef0") {
+				t.Fatalf("lane not cleaned: %+v", *calls)
+			}
+		})
 	}
 }

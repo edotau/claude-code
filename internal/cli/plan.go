@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/waves"
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/review/planlint"
@@ -187,7 +189,28 @@ func runTickVerify(plan, sha string, ids []string, session string) int {
 		tickNotice(session, "plans: "+strings.Join(ids, ", ")+" not ticked: verifier failed: "+err.Error())
 		return 1
 	}
-	green := reportChecks(session, sha, tasks, checks)
+	code := tickGreen(session, top, sha, tasks, reportChecks(session, sha, tasks, checks))
+	tickFollowUp(session, top, sha, checks) // after the ticks and their notices, and never changing the exit code
+	return code
+}
+
+// Seams: a test swaps both; the real ones write the ledgers and launch lanes.
+var (
+	tickSweep   = docs.SweepAutofixSpend
+	tickAutofix = docs.GateAutofix
+)
+
+// tickFollowUp records fix-leaf spend on every run, green or red, then repairs a red gate; notices only.
+func tickFollowUp(session, top, sha string, checks map[string][]waves.TaskCheck) {
+	lines := tickSweep(time.Now())
+	lines = append(lines, tickAutofix(top, sha, redGateOutput(checks))...)
+	for _, l := range lines {
+		tickNotice(session, l)
+	}
+}
+
+// tickGreen ticks the green tasks on sha and posts their notices; 1 means the plan write failed.
+func tickGreen(session, top, sha string, tasks []plans.Task, green map[string]bool) int {
 	results, _, err := plans.TickCommit(top, sha, nil, verifiedOnly(tasks, green))
 	for _, r := range results {
 		for _, l := range r.Lines(sha) {
@@ -199,6 +222,22 @@ func runTickVerify(plan, sha string, ids []string, session string) int {
 		return 1
 	}
 	return 0
+}
+
+// redGateOutput joins the saved output of each failed, unskipped check; all green is "".
+func redGateOutput(checks map[string][]waves.TaskCheck) string {
+	var out strings.Builder
+	for _, id := range slices.Sorted(maps.Keys(checks)) {
+		for _, c := range checks[id] {
+			if c.Exit == 0 || c.Skip != "" || c.Saved == "" {
+				continue
+			}
+			if b, err := os.ReadFile(c.Saved); err == nil {
+				out.WriteString(strings.TrimSuffix(string(b), "\n") + "\n")
+			}
+		}
+	}
+	return out.String()
 }
 
 // verifiedOnly admits green tasks of this plan; a same-id task in another plan differs in title or position.

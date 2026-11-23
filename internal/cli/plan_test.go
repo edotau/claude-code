@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -116,6 +118,40 @@ func TestPlanExplicitBoundary(t *testing.T) {
 	}
 	if got, err := os.ReadFile(outside); err != nil || string(got) != "- [ ] 1.1 Outside\n" {
 		t.Fatalf("outside changed: %s %v", got, err)
+	}
+}
+
+// redGateOutput is empty for green or skipped checks and carries only a failed check's saved output.
+func TestRedGateOutput(t *testing.T) {
+	red := filepath.Join(t.TempDir(), "red.txt")
+	if err := os.WriteFile(red, []byte("FAIL gofmt (0.0s)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	green := map[string][]waves.TaskCheck{"1.1": {{Exit: 0, Saved: red}, {Exit: 1, Skip: "skipped", Saved: red}}}
+	if got := redGateOutput(green); got != "" {
+		t.Fatalf("green checks = %q, want empty", got)
+	}
+	green["1.2"] = []waves.TaskCheck{{Exit: 1, Saved: red}}
+	if got := redGateOutput(green); got != "FAIL gofmt (0.0s)\n" {
+		t.Fatalf("red checks = %q", got)
+	}
+}
+
+// a green tick still sweeps fix-leaf spend; autofix gets no gate output.
+func TestTickFollowUpSweepsGreen(t *testing.T) {
+	oldSweep, oldFix := tickSweep, tickAutofix
+	t.Cleanup(func() { tickSweep, tickAutofix = oldSweep, oldFix })
+	var swept int
+	tickSweep = func(time.Time) []string { swept++; return nil }
+	tickAutofix = func(_, _, out string) []string {
+		if out != "" {
+			t.Errorf("autofix gate output = %q, want empty", out)
+		}
+		return nil
+	}
+	tickFollowUp("", t.TempDir(), "abcdef0", map[string][]waves.TaskCheck{"1.1": {{Exit: 0}}})
+	if swept != 1 {
+		t.Fatalf("sweep calls = %d, want 1", swept)
 	}
 }
 

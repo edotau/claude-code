@@ -1,3 +1,4 @@
+internal/hooks/docs/autofix.go:autofixMarkSwept	unversioned: text: one fix-leaf dispatch id per line whose settled spend is in the budget ledger
 internal/hooks/docs/benchrun.go:benchAnnotate	unversioned: marker: post-commit bench run record, annotated with the compared commit and baseline
 internal/hooks/docs/benchrun.go:benchComplete	unversioned: marker: post-commit bench run record closed with end time and exit status
 internal/hooks/docs/benchrun.go:benchDecideLoop	unversioned: marker: post-commit bench run record annotated with the automatic loop decision
