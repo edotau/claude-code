@@ -67,7 +67,12 @@ func typedArm(f *askFlags) string {
 	if f.profile == "" || cmp.Or(f.host, f.job, f.retry, f.batchSrc) != "" {
 		return ""
 	}
-	if fr := flagRoute(f); fr.Provider == router.RouteDatabricks && fr.Profile != route.AutoArm {
+	return TypedWorkspace(f.profile)
+}
+
+// TypedWorkspace is databricks:<workspace> for a --profile naming one Databricks workspace, else "".
+func TypedWorkspace(profile string) string {
+	if fr := flagRoute(&askFlags{profile: profile}); fr.Provider == router.RouteDatabricks && fr.Profile != route.AutoArm {
 		return route.Join(fr.Provider, fr.Profile)
 	}
 	return ""

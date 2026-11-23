@@ -764,3 +764,11 @@ func TestConfinementCarriesCaps(t *testing.T) {
 		t.Errorf("doc %s: err %v, want provider databricks, maxChildren 1, maxTreeTokens 7", got, err)
 	}
 }
+
+func TestTypedWorkspace(t *testing.T) {
+	for profile, want := range map[string]string{"": "", "databricks:qa": "databricks:qa", "databricks:auto": "", "session": ""} {
+		if got := TypedWorkspace(profile); got != want {
+			t.Errorf("TypedWorkspace(%q) = %q, want %q", profile, got, want)
+		}
+	}
+}
