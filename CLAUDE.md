@@ -54,7 +54,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    into checks and loop until they pass: `rules/standards/principles.md`.
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
-3. **Dispatch with the Agent tool** (Databricks arm, R20). Choose `subagent_type` from `claude`,
+3. **Dispatch with the Agent tool.** On the Databricks arm (R20), choose `subagent_type` from `claude`,
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
    offers it; else `general-purpose`); external work agents run carried, Pi as a plain ask (see
    `skills/subagent-workflows/SKILL.md` →
