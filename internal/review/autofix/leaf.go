@@ -210,12 +210,17 @@ func renderLeaf(req LeafRequest, findings []Finding, owned []string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("parse autofix brief: %w", err)
 	}
+	policy := slices.ContainsFunc(owned, func(p string) bool { // hook/permission fixes change cost only (R27)
+		p = filepath.ToSlash(p)
+		return strings.HasPrefix(p, "internal/hooks/") || strings.HasPrefix(p, "internal/permission/")
+	})
 	var out bytes.Buffer
 	err = tmpl.Execute(&out, struct {
 		LeafRequest
 		Owned, Fence string
 		Judgment     []Finding
-	}{req, string(encoded), fence, data})
+		Policy       bool
+	}{req, string(encoded), fence, data, policy})
 	if err != nil {
 		return "", fmt.Errorf("render autofix brief: %w", err)
 	}

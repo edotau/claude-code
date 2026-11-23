@@ -49,9 +49,13 @@ func (e *effortPlan) benchNote(cwd, task string) string {
 	var lines []string
 	for _, pkg := range benchPackages(cwd, task) {
 		dashed := strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-")
-		lines = append(lines, fmt.Sprintf(
+		line := fmt.Sprintf(
 			"perf: %s has benchmarks; run rtk bypass go test -run ^$ -bench . -benchmem -count=10 ./%s/ before and after, compare with benchstat against state/harness/bench/%s/rolling.txt, and report the table",
-			pkg, pkg, dashed))
+			pkg, pkg, dashed)
+		if strings.HasPrefix(pkg+"/", "internal/hooks/") || strings.HasPrefix(pkg+"/", "internal/permission/") {
+			line += "; hook package: cost only, never what it allows or blocks (R27)"
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }
