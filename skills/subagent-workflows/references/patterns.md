@@ -76,7 +76,7 @@ main session -> Explore x3 -> Plan -> claude || claude -> fan-in -> verify -> co
 ```
 
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
-  `ask: ran on` line (`Run:`-brief gate, `internal/hooks/leaves.go`).
+  `ask: ran on` line (carried asks via `claude-code agents ask --carry`).
 
 ### Hierarchical
 

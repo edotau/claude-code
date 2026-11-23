@@ -84,7 +84,7 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
   (`sonnet: running go test`).
 - Write the forced notes at the action point: `TASK:` before a behavior-changing edit, `ISSUE:` after a defect fix
   (`skills/problem-solving/references/notes.md`).
-- Named `Agent:` other than claude, or a `Run:` line: [Work here or dispatch](#work-here-or-dispatch).
+- Named `Agent:` other than claude: [Work here or dispatch](#work-here-or-dispatch).
 - A brief naming a skill: read `skills/<name>/SKILL.md` and its `references/` first.
 - Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`); Read a file before you Write or Edit it.
 - Wait on a dispatch with `claude-code agents result -f <id>` or `agents wait <id>`, never a `sleep` loop.
@@ -98,11 +98,11 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 
 ### Work here or dispatch
 
-- Do the task yourself. Dispatch only when it needs another agent partway through, or the brief names one (`Agent:`,
-  `Run:`). A task wholly another agent's is the main session's direct carried ask, never a leaf that only forwards
-  it (about 10 to 14 thousand prompt tokens wasted); a workflow stage's `Run:` line is the one forwarding leaf.
+- Do the task yourself. Dispatch only when it needs another agent partway through, or the brief names one (`Agent:`).
+  A task wholly another agent's is the main session's direct carried ask, never a leaf that only forwards it (about 10
+  to 14 thousand prompt tokens wasted).
 - Brief: Write it to the path `claude-code agents brief --path <a>` prints (Read it first); task, owned paths,
-  constraints and verify, plus "never stash/checkout/reset/restore". A `Run:` line runs once, flags unchanged.
+  constraints and verify, plus "never stash/checkout/reset/restore".
 - codex, copilot, gemini, opencode run carried, then one `claude-code agents result -f <id>`:
   `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
 - Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; no

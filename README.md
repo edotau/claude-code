@@ -10,7 +10,7 @@ What you get on top of a stock install:
   model aliases per profile and a loopback proxy that translates dialects and fails over on 429/5xx.
 - **Agents**: run one-shot tasks on Claude, Codex, Gemini, OpenCode, Copilot or Pi (`claude-code agents ask`), or
   start their interactive CLIs through the same registry (`claude-code codex`). External work agents run carried,
-  Pi as a plain ask; the one worker subagent is `claude`, and workflow stages use a Claude leaf with a `Run:` line.
+  Pi as a plain ask; the one worker subagent is `claude`, and workflow stages run on `claude`.
 - **Guards**: hooks that stop or ask about destructive commands, leaked secrets and staging files another agent
   holds (see [Safety](#safety)).
 - **Memory and status line**: one memory bank shared by every workspace, and a status line showing provider, model,

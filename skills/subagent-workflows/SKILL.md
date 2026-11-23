@@ -42,8 +42,8 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
-Build every `Run:` line with `claude-code agents label <type> --run [--model m] [--profile p | --spec FILE] --task
-FILE`: it prints the exact `Run:` line, then the label (`--session-model` supplies the parent's). Pass the Agent
+Print a leaf's description prefix with `claude-code agents label <type> [--model m] [--profile p] --task FILE`
+(`--session-model` supplies the parent's). Pass the Agent
 tool's `model` to raise one call (`fable` only for two large designs at once). `dispatch-effort` sets model and
 effort only for an agent with no `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The
 root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
@@ -68,25 +68,23 @@ Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; aut
 
 ### External relay contract
 
-For a `claude` leaf whose brief opens with `Run:` (a workflow stage), or that dispatches a step of its own task
-(`agents/claude.md` → Work here or dispatch); the wait, hand-back and receipt rules bind both:
+For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` → Work here or dispatch), or a routed
+`claude` workflow stage; the wait, hand-back and receipt rules bind both:
 
-- A `Run:` stage is a thin pipe, in this order:
-  1. You do none of the work yourself.
-  2. Run the `Run:` line once, flags, model and quoted task unchanged. If it has no task argument, write everything
-     after that line unchanged to the path `claude-code agents brief --path <agent>` prints (Read it first), and
-     attach it as `- < PATH`. Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a flag
-     (an "edit nothing" brief keeps `--tools`) or start another ask.
-  3. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
+- Run the prescribed `claude-code agents ask --carry --agent <a> …` (or plain ask for `claude`/`pi`) once:
+  1. Write the task to the path `claude-code agents brief --path <agent>` prints (Read it first), and attach it as
+     `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
+     flag (an "edit nothing" brief keeps `--tools`) or start another ask.
+  2. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
      output and exit code.
-  4. Always end with `SubagentHandback`, even on failure.
-- Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
+  3. Always end with `SubagentHandback`, even on failure.
+- Background only via `agents ask --background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
   1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), and a foreground ask the Bash tool backgrounds
      prints no id, so unless your own successful `agents result|wait <id>` names a record of your session whose agent
      and prompt match your ask, the hand-back passes unattributed: a note naming the candidate ids, your `ask: ran on`
-     lines marked unverified. A long task's `Run:` line therefore carries `--background`; read the id from its
+     lines marked unverified. Long tasks therefore carry `--background`; read the id from its
      `job <id> started` line. Run an ask with `"timeout": 600000`, once, never re-run it.
   2. Wait with ONE call per turn: `claude-code agents result -f <id>` (`-f` follows to the end; or `agents wait <id>
      --timeout 590s`, exit 4 = still running), 600000 ms Bash timeout. Never poll with Read, `head`, `ls`, `--verdict`
@@ -138,11 +136,10 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
 
 - `Objective:` one outcome. `Agent:` the work agent; omit for the selected type, `in-context` for direct work; keep
   it consistent with the type (no hidden relay).
-- `Run:` optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook: put `--model`
-  on the command. `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
+- `Model:` is not parsed by the hook: put `--model` on the carried ask (`agents ask --carry --agent <a> --model m`).
+  `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
   identifies a plan task for the hook's slot claim. `Tier: fast|standard|deep` (own line) sets the task tier that
-  picks an unpinned run's model (`agent.TaskTier`); without it the wording decides. Never hand-type the line: take it
-  from `agents label --run`; `dispatch-effort` fixes a typo it can decide and notes the rest. A gate-run leaf that
+  picks an unpinned run's model (`agent.TaskTier`); without it the wording decides. A gate-run leaf that
   only reports carries `Tier: fast`. Name the plan task
   (`Task: Phase W.k`): the hand-back then carries its `verify:` result.
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
@@ -157,9 +154,8 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   rules and the reporting contract from `internal/agent/brief.tmpl`; never restate that footer. Pipe it to
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
-The hook reads `Agent:` only before the first blank line. A leading `Run: claude-code agents ask …` or
-`claude-code <agent> ask …` (optionally with global `--remote <h>`) is left unrewritten; `--profile` leads then
-falls back unless `--fallback none` pins it; `Run:` lines and held-job hints carry the route as `--overlay '<object>'`
+The hook reads `Agent:` only before the first blank line. `--profile` leads then falls back unless `--fallback none`
+pins it; carried asks and held-job hints carry the route as `--overlay '<object>'`
 (one unit: provider and profile together, an inherited `COWORKER_OVERLAY` is a fence). Overlay keys:
 `rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`;
 `--remote` vs `--host`: `rules/harness/network.md`.
@@ -294,15 +290,14 @@ files only.
   the Agent tool with a harness type (`claude`; external work agents run carried, Pi as a plain ask). A job
   expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
-  no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can
-  outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends
+  no leaf sits waiting on a shell. External agents run via carried asks (`claude-code agents ask --carry --agent <a>`);
+  a long ask started from a leaf puts `--background` on the command: the stop gate holds the leaf until the job ends
   (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
   `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt; with
   none it passes unattributed, never refused),
   whereas a shell-backgrounded ask dies when the leaf stops. A hand-back waits up to 13 s for a running job, then is
-  held; a hold keeps every finished job's answer and the later pass attaches them in dispatch order. A never-run
-  `Run:` line is run by the hook, which tells the leaf to wait. Cap: `rules/harness/hooks.md` → (dispatch cap); queue
-  the rest.
+  held; a hold keeps every finished job's answer and the later pass attaches them in dispatch order. Cap:
+  `rules/harness/hooks.md` → (dispatch cap); queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
 - Preserve explicit agent/model choices unless the owner authorizes a change; models go on `ask --model`.

@@ -117,16 +117,15 @@ the placement block and the plan checks.
 
 Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
 line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
-(effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief; claims
-slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall is a context note in auto
-mode for every brief, otherwise only on a `Run:` brief; any other brief gets it appended, and a `Run:` prompt stays
-byte-identical. A dispatched `agents ask` carries the same block for every agent (`withRecall`,
-`internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`. The label is the model the
-run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its pin, else the
-model of the brief's task tier: a `Tier:` line, else the classifier, opus when the brief has no text; `auto` ranks the
-row's served models; claude runs the brief's alias), an untyped external dispatch takes the route ladder's first hop; a
-route that does not resolve offline leaves the description unlabelled with a note; print it with `claude-code agents
-label <type> --run [--profile p] [--model m | --spec S] --task FILE`. Every fix (type, label, pin) rides one
+(effort only when neither the call nor the agent file sets one); claims
+slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall rides `additionalContext`
+as a context note so the brief prompt stays unchanged. A dispatched `agents ask` carries the same block for every agent
+(`withRecall`, `internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`. The label is
+the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
+pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the brief has no text;
+`auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch takes the route
+ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a note; print it with
+`claude-code agents label <type> [--profile p] [--model m] --task FILE`. Every fix (type, label, pin) rides one
 `updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
 Implementation: `internal/hooks/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In auto mode a
 rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a hook-modified input
@@ -139,29 +138,23 @@ hand-back, which ends it before SubagentStop; the verbs below say hand-back or s
 
 Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 hours from the dispatch's start, then a
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
-result -f <id>`; a blocked stop retires nothing. A `claude` workflow leaf with an opening `Run:` ask line whose
-tool results carry no `ask: ran on <agent> ·` line or `ran_on` field is checked for a receipt.
+result -f <id>`; a blocked stop retires nothing. An external-type leaf (reachable through the type gate's fallback)
+whose tool results carry no `ask: ran on <agent> ·` line or `ran_on` field is checked for a receipt.
 Its job is an id its own `agents ask|result` call printed, else a record of that agent started
-within 2 minutes after one of its ask calls (or after the hook's own launch). (1) Job running: a hand-back polls it
+within 2 minutes after one of its ask calls. (1) Job running: a hand-back polls it
 every 25 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
 counted, naming `claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); a
 hold keeps every finished job's answer and the later pass attaches them in dispatch order; once ended it passes with a
 top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's result appended to
 `message`: one summary line and its last message in full; an answer the report already quotes is replaced by `(final
-answer already in the report above)`. (2) No job, the brief opens with a `Run:` ask line and the leaf made no
-Edit/Write/MultiEdit/NotebookEdit call and no file-changing Bash call (redirect, `sed -i`, `tee`, `cp`, `mv`, `rm`,
-`git apply`, a formatter; temp-dir scratch, memory reports, handoffs and notes excluded): the hook starts that line
-detached with its flags unchanged
-(marker and output under `state/harness/dispatch-relay/`), holds the leaf (one foreground
-`claude-code agents result -f <id>` on the job it launched, then hand back) and
-attaches the output and receipt with a note saying the hook ran it. (3) The leaf edited files, or the brief has no
-`Run:` line: it passes with a top-line note that the work was done on the relay model, not on the agent; the line is
-not run. (4) Every hold saves the report it carried (`message`, else the last assistant text) to the reports home and
-names the path. A stop has no input to rewrite, so it gets the note as a system message only. Unreadable transcripts
-fail open. A stop it isn't blocking kills the leaf's leftover background shells (its own task ids only)
+answer already in the report above)`. (2) No job: it passes with a top-line note that the work was done on the relay
+model, not on the agent. (3) Every hold saves the report it carried (`message`, else the last assistant text) to the
+reports home and names the path. A stop has no input to rewrite, so it gets the note as a system message only.
+Unreadable transcripts fail open. A stop it isn't blocking kills the leaf's leftover background shells (its own task ids
+only).
 
 On Bash, `dispatch-workflow` (the synchronous entry, so the line reaches the model) gives a subagent of an external
-type (`relayLeaf`; never a `claude` `Run:` leaf or the main session) whose own `agents result` poll returned on an
+type (`relayLeaf`; never a `claude` leaf or the main session) whose own `agents result` poll returned on an
 ended job the context line `job <id> ended: hand back now with this result`, and marks jobs it read collected for the
 stuck-leaf watchdog.
 
@@ -178,11 +171,10 @@ result|wait <id>` named whose record is this session's, started within 2 min aft
 agent and a prompt holding its brief. With no such id it binds a record only when exactly one of this session's
 records of the ask's agent has a prompt equal to the ask's whole task (parsed by `ask`'s own grammar, flags anywhere,
 `--` ends them; a stdin task ties nothing) and launched within 2 min after it; otherwise the report passes with an
-unattributed note naming the candidate ids, never held or refused. The hook's `Run:` launch is claimed with an
-exclusive create, so overlapping hand-backs start it once. Every hold names `claude-code agents result -f <id>` to run
-once (never a sleep).
+unattributed note naming the candidate ids, never held or refused. Every hold names `claude-code agents result -f <id>`
+to run once (never a sleep).
 
-On Bash, only in a subagent of an external type (`relayLeaf`; a `claude` `Run:` leaf and the main session pass), it
+On Bash, only in a subagent of an external type (`relayLeaf`; a `claude` leaf and the main session pass), it
 refuses a poll of a finished job the leaf already handed back (`already reported: stop`) and a second follow poll of
 one job while the first is in flight or backgrounded with a live writer (`one poller only`). That leaf's Bash is
 limited to `claude-code` asks, commands the shared read-only judge allows, `gofmt -l`, and `go build|vet|test`

@@ -41,7 +41,7 @@ paths:
 ## Routing precedence
 
 - **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`),
-  `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
+  `COWORKER_OVERLAY`, waves, coworker specs, `configure` menus and agent
   records all normalise into one overlay whose route is one unit, taken whole from one source;
   launch, preflight, labels and `ran on` read only it. Print it:
   (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)

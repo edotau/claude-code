@@ -53,10 +53,9 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   agent's untyped default with a note, and it is never refused (`--fallback none` refuses only a typed concrete
   model).
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
-- A brief opening `Run: claude-code agents ask …` keeps its prompt byte-identical through `dispatch-effort`; a missing
-  or wrong `<model>:` description prefix (the model the run resolves) is rewritten, never denied. Its hand-back is
-  never lost: with no `ask: ran on` line it is held while the job runs, the hook runs a never-run `Run:` line itself,
-  and relay-done work passes with a top-line note naming the relay model.
+- External work agents run directly from the main session via carried asks
+  (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask); `dispatch-effort` rewrites a missing or wrong
+  `<model>:` description prefix on Agent leaves, never denies it.
 
 ## Agent and command files
 
@@ -67,8 +66,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   the report; procedure lives in the agent or skill. Skill shell logic lives in `skills/<name>/scripts/`, anything
   else in a Go verb or Makefile target.
 - Agents hold no memory scope: they propose memory in their report and the main session writes it; the dispatch hook
-  appends recall pointers to a brief; in auto mode, or on a brief opening `Run: claude-code agents ask`, they arrive
-  as a context note instead.
+  attaches recall pointers as a context note on every Agent dispatch.
 
 ## Authoring: file, skill or brief
 
@@ -76,7 +74,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   **brief** = this task. A one-off role is a brief to `claude`, never a new file.
 - **Split** a role only when its expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
-  belongs in a direct ask (carried, Pi plain); workflow stages use a `claude` leaf with a `Run:` line.
+  belongs in a direct carried ask (Pi plain); saved workflow stages run on `claude`.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
   (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` inherits; raise
   one call with the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
@@ -85,7 +83,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A CLI agent is one row in the `agentid` roster table
   (`internal/agentid/agentid.go`) plus its vendor package's `agent.Register` row,
-  subagent types in `agents/`; a workflow leaf's `Run:` line activates the ran-on stop gate in
-  `internal/hooks/leaves.go`. Shapes and enforcers: `skills/subagent-workflows/references/patterns.md`.
+  subagent types in `agents/`; external agents run via carried asks and `internal/hooks/leaves.go` holds any leaf
+  whose own background job is still running. Shapes and enforcers: `skills/subagent-workflows/references/patterns.md`.
 - Thinking is adaptive: never hand-roll a thinking budget. Mark stable large prefixes with `cache_control`; keep
   per-call content outside the cached block.

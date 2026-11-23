@@ -64,8 +64,9 @@ prints the CLI's help.
 
 ## Procedure skeleton
 
-1. **Choose once.** Follow `../SKILL.md` → External relay contract. Use a leading `Run:` or select the requested
-   verb; check `claude-code <agent> -h` when uncertain. Run `setup` only to diagnose a route/login failure.
+1. **Choose once.** Follow `../SKILL.md` → Carried dispatch / External relay contract. Run `claude-code agents ask
+   --carry --agent <a> …` (plain ask for Pi) or select the requested verb; check `claude-code <agent> -h` when
+   uncertain. Run `setup` only to diagnose a route/login failure.
 2. **Run once, observe, report.** Backgrounding, `result -f`, no-verify and verbatim `## Result` rules: the same
    contract.
 
