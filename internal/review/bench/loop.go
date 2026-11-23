@@ -41,6 +41,14 @@ type loopOpts struct {
 	durationS, savingMSDay            float64
 }
 
+// reads reports a mode runLoop serves: the queue, a record, the verdicts or the status.
+func (l loopOpts) reads() bool { return l.queue || l.record || l.verdicts || l.status }
+
+// statusMixed reports --status combined with another mode or an output file.
+func (l loopOpts) statusMixed(out string) bool {
+	return l.status && (l.queue || l.decide || l.record || l.verdicts || out != "")
+}
+
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.BoolFunc("pending", "list pending lane baselines; optionally filter with --lane and --pkg", func(value string) error {
 		var err error
