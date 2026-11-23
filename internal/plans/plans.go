@@ -101,6 +101,9 @@ func parseBytes(path string, b []byte) Plan {
 		// the leading strike marker is stripped so a struck task keeps its id
 		text := strings.TrimPrefix(first+cont, "~~")
 		t := Task{Start: i, End: end, Done: mark != ' ', Dropped: struck(first)}
+		if t.Dropped { // a strike rewrap leaves ~~ inside attribute values
+			text = strings.ReplaceAll(text, "~~", "")
+		}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
 		p.Tasks = append(p.Tasks, t)
 		i = end
@@ -338,7 +341,8 @@ func spliceOwn(prev, entry string, files []string) string {
 	if !ok {
 		return spliceBare(prev, entry, files)
 	}
-	if prev == "" || first == "" || matchesCommitted(entry, files) {
+	// with no commit to check against, a pathed entry is taken as written
+	if prev == "" || first == "" || files == nil || matchesCommitted(entry, files) {
 		return entry
 	}
 	segs := strings.Split(prev, "/")
@@ -352,7 +356,9 @@ func spliceOwn(prev, entry string, files []string) string {
 
 // spliceBare puts a bare file name beside the previous entry, unless a committed file is literally that name.
 func spliceBare(prev, entry string, files []string) string {
-	if prev == "" || entry == "" || slices.Contains(files, entry) || !strings.Contains(prev, "/") {
+	// "none" and prose such as "and their tests" name no file, so they stay as written
+	if prev == "" || entry == "" || strings.EqualFold(entry, "none") || strings.Contains(entry, " ") ||
+		slices.Contains(files, entry) || !strings.Contains(prev, "/") {
 		return entry
 	}
 	return path.Dir(prev) + "/" + entry

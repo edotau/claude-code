@@ -43,7 +43,9 @@ func Main(args []string) int {
 	return code
 }
 
-func mainSibling() (string, bool) {
+var mainSibling = findMainSibling
+
+func findMainSibling() (string, bool) {
 	self, err := os.Executable()
 	if err != nil {
 		return "", false
@@ -61,10 +63,13 @@ func stampMatches(dir string) bool {
 	}
 	stamp := filepath.Join(dir, paths.StampFile)
 	b, err := os.ReadFile(stamp)
-	if err != nil || strings.TrimSpace(string(b)) != paths.BuildStamp {
+	if err != nil {
 		return false
 	}
-	main, mainErr := os.Stat(filepath.Join(dir, "claude-code"))
-	mark, markErr := os.Stat(stamp)
-	return mainErr == nil && markErr == nil && !main.ModTime().After(mark.ModTime())
+	main, err := os.Stat(filepath.Join(dir, "claude-code"))
+	if err != nil || !main.Mode().IsRegular() {
+		return false
+	}
+	want := fmt.Sprintf("%s %d %d", paths.BuildStamp, main.Size(), main.ModTime().Unix())
+	return strings.TrimSpace(string(b)) == want
 }

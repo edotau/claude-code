@@ -2,12 +2,14 @@ package setup
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
@@ -341,6 +343,61 @@ func TestInstallBinaryRepairsIdenticalNonExecutableHook(t *testing.T) {
 	if err != nil || info.Mode()&0o111 == 0 {
 		t.Fatalf("installed hook mode = %v, %v; want executable", info, err)
 	}
+}
+
+func TestInstallBuildStampRecordsInstalledMain(t *testing.T) {
+	hermetic(t)
+	self, mtime := installStampedTestBinary(t)
+	if _, err := installBinaryTarget(io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	stamp := filepath.Join(paths.BinDir(), paths.StampFile)
+	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
+		t.Fatalf("dry run wrote stamp: %v", err)
+	}
+	target, err := installBinaryTarget(io.Discard, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("%s %d %d\n", paths.BuildStamp, info.Size(), info.ModTime().Unix())
+	if got, err := os.ReadFile(stamp); err != nil || string(got) != want {
+		t.Fatalf("installed stamp = %q, %v; want %q", got, err, want)
+	}
+	if err := os.WriteFile(self, []byte("replacement binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(self, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installBinaryTarget(io.Discard, false); err == nil {
+		t.Fatal("install accepted stale source stamp with preserved main mtime")
+	}
+}
+
+func installStampedTestBinary(t *testing.T) (string, time.Time) {
+	t.Helper()
+	installTestBinary(t)
+	self, err := selfBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := paths.BuildStamp
+	paths.BuildStamp = "install-stamp"
+	t.Cleanup(func() { paths.BuildStamp = old })
+	mtime := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(self, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(filepath.Dir(self), paths.StampFile)
+	data := fmt.Appendf(nil, "%s %d %d\n", paths.BuildStamp, len("binary"), mtime.Unix())
+	if err := os.WriteFile(source, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return self, mtime
 }
 
 // No settings.json is seeded from the render; an existing file is never written, invalid or not.

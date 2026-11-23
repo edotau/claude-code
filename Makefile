@@ -69,7 +69,7 @@ compile:  ## Compile bin/claude-code, bin/.hookd and bin/.rtkwrap, no install
 	rm -f "$(STAMP_FILE)" && \
 	mv -f "$(HOOK_BIN)$$tmp" "$(HOOK_BIN)" && \
 	mv -f "$(BIN)$$tmp" "$(BIN)" && \
-	printf '%s\n' "$$stamp" > "$(STAMP_FILE)$$tmp" && \
+	printf '%s %s %s\n' "$$stamp" "$$(wc -c < "$(BIN)" | tr -d ' ')" "$$(date -r "$(BIN)" +%s)" > "$(STAMP_FILE)$$tmp" && \
 	mv -f "$(STAMP_FILE)$$tmp" "$(STAMP_FILE)" && \
 	$(GO) build -trimpath -ldflags="-s -w" -o "$(RTKWRAP_BIN)$$tmp" ./cmd/rtkwrap && \
 	mv -f "$(RTKWRAP_BIN)$$tmp" "$(RTKWRAP_BIN)"
