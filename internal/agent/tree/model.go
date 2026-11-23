@@ -1,5 +1,7 @@
 package tree
 
+import "encoding/json"
+
 // Kind names what a Node stands for: a session, one of its subagents, or a dispatch job.
 type Kind string
 
@@ -7,35 +9,68 @@ const (
 	KindSession  Kind = "session"
 	KindSubagent Kind = "subagent"
 	KindDispatch Kind = "dispatch"
+	KindWorkflow Kind = "workflow"
 )
 
 // Node is one row of the tree; a folded carrier's id is Via and its Dispatch payload is the carrier's folded row.
 type Node struct {
-	Kind     Kind      `json:"kind"`
-	ID       string    `json:"id"`
-	Depth    int       `json:"depth"`
-	Via      string    `json:"via,omitempty"`
-	Agent    string    `json:"agent,omitempty"`
-	Children []Node    `json:"children,omitempty"`
-	Session  *Session  `json:"-"`
-	Subagent *Subagent `json:"-"`
-	Dispatch *Dispatch `json:"-"`
+	Kind     Kind         `json:"kind"`
+	ID       string       `json:"id"`
+	Depth    int          `json:"depth"`
+	Via      string       `json:"via,omitempty"`
+	Agent    string       `json:"agent,omitempty"`
+	Children []Node       `json:"children,omitempty"`
+	Session  *Session     `json:"-"`
+	Subagent *Subagent    `json:"-"`
+	Dispatch *Dispatch    `json:"-"`
+	Workflow *WorkflowRun `json:"-"`
 }
 
-// Build is sessions then records as one node tree; a carrier is never a node, its newest child takes its place.
+// MarshalJSON is the listing's schema plus its node tree, so the JSON and the printed tree cannot disagree.
+func (t Tree) MarshalJSON() ([]byte, error) {
+	type plain Tree
+	return json.Marshal(struct {
+		plain
+		Nodes []Node `json:"nodes,omitempty"`
+	}{plain: plain(t), Nodes: Build(t.Sessions, t.Dispatches)})
+}
+
+// Build follows printed order; a carrier is never a node, its newest child takes its place.
 func Build(sessions []Session, records []Dispatch) []Node {
 	var nodes []Node
-	for _, session := range sessions {
-		n := Node{Kind: KindSession, ID: session.ID, Session: &session}
-		for _, sub := range session.Subagents {
-			n.Children = append(n.Children, Node{
-				Kind: KindSubagent, ID: sub.ID, Depth: 1, Agent: sub.Type, Subagent: &sub,
-				Children: dispatchNodes(sub.Dispatches, 2),
-			})
+	for _, active := range []bool{true, false} {
+		if !active {
+			nodes = append(nodes, dispatchNodes(records, 0)...)
 		}
-		nodes = append(nodes, n)
+		for _, repo := range groupByRepo(sessions, active) {
+			for _, session := range repo.sessions {
+				nodes = append(nodes, sessionNode(session))
+			}
+		}
 	}
-	return append(nodes, dispatchNodes(records, 0)...)
+	return nodes
+}
+
+func sessionNode(session Session) Node {
+	n := Node{Kind: KindSession, ID: session.ID, Session: &session}
+	for _, sub := range session.Subagents {
+		n.Children = append(n.Children, subagentNode(sub, 1))
+	}
+	for _, run := range session.Workflows {
+		workflow := Node{Kind: KindWorkflow, ID: run.ID, Agent: run.Name, Depth: 1, Workflow: &run}
+		forEachRunAgent(run, func(sub Subagent) {
+			workflow.Children = append(workflow.Children, subagentNode(sub, 2))
+		})
+		n.Children = append(n.Children, workflow)
+	}
+	return n
+}
+
+func subagentNode(sub Subagent, depth int) Node {
+	return Node{
+		Kind: KindSubagent, ID: sub.ID, Depth: depth, Agent: sub.Type, Subagent: &sub,
+		Children: dispatchNodes(sub.Dispatches, depth+1),
+	}
 }
 
 func dispatchNodes(records []Dispatch, depth int) []Node {

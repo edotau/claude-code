@@ -159,7 +159,7 @@ func TestBuildSession(t *testing.T) {
 		modelRecord("a", "", "codex", true), modelRecord("b", "a", "pi", false),
 		modelRecord("c", "b", "claude", false),
 	)
-	sessions := []Session{{ID: "session", Subagents: []Subagent{
+	sessions := []Session{{ID: "session", Status: statusActive, Subagents: []Subagent{
 		{ID: "sub", Type: "claude", Depth: 9, Dispatches: dispatches},
 	}}}
 	roots := modelDispatches(modelRecord("root", "", "pi", false))
@@ -214,5 +214,67 @@ func TestBuildFoldPayloadImmutable(t *testing.T) {
 	}
 	if !reflect.DeepEqual(records, before) || files[1] != "untouched.go" {
 		t.Fatal("Build modified input values or their backing storage")
+	}
+}
+
+func TestBuildPrintedOrder(t *testing.T) {
+	sessions := []Session{
+		{ID: "idle-a", Cwd: "/a"},
+		{ID: "active-b", Cwd: "/b", Status: statusActive},
+		{ID: "active-a", Cwd: "/a", Status: statusActive},
+		{ID: "active-b2", Cwd: "/b", Status: statusActive},
+		{ID: "idle-b", Cwd: "/b"},
+		{ID: "idle-a2", Cwd: "/a"},
+	}
+	tree := Tree{Sessions: sessions, Dispatches: []Dispatch{{ID: "job"}}, Free: []string{"a<b.go"}}
+	var ids []string
+	for _, n := range Build(tree.Sessions, tree.Dispatches) {
+		ids = append(ids, n.ID)
+	}
+	want := []string{"active-b", "active-b2", "active-a", "job", "idle-a", "idle-a2", "idle-b"}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("root IDs = %v, want %v", ids, want)
+	}
+	got, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type plain Tree
+	base, err := json.Marshal(plain(tree))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := json.Marshal(Build(tree.Sessions, tree.Dispatches))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := string(base[:len(base)-1]) + `,"nodes":` + string(nodes) + `}`; string(got) != want {
+		t.Fatalf("JSON = %s, want %s", got, want)
+	}
+}
+
+func TestBuildWorkflow(t *testing.T) {
+	run := WorkflowRun{ID: "run", Name: "review", Phases: []WorkflowPhase{
+		{Name: "first", Agents: []Subagent{{ID: "one", Type: "claude", Dispatches: []Dispatch{
+			{ID: "carrier", Agent: "codex", carry: true},
+			{ID: "worker", Parent: "carrier", Agent: "pi"},
+		}}}},
+		{Name: "second", Agents: []Subagent{{ID: "two", Type: "codex"}}},
+	}}
+	nodes := Build([]Session{{ID: "session", Workflows: []WorkflowRun{run}}}, nil)
+	got, err := json.Marshal(nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"kind":"session","id":"session","depth":0,"children":[` +
+		`{"kind":"workflow","id":"run","depth":1,"agent":"review","children":[` +
+		`{"kind":"subagent","id":"one","depth":2,"agent":"claude","children":[` +
+		`{"kind":"dispatch","id":"worker","depth":3,"via":"carrier","agent":"codex→pi"}]},` +
+		`{"kind":"subagent","id":"two","depth":2,"agent":"codex"}]}]}]`
+	if string(got) != want {
+		t.Fatalf("Build() = %s, want %s", got, want)
+	}
+	if wf := nodes[0].Children[0]; !reflect.DeepEqual(wf.Workflow, &run) {
+		t.Fatalf("workflow payload = %+v", wf.Workflow)
 	}
 }
