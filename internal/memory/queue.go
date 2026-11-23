@@ -249,7 +249,7 @@ var runQueuedJob = func(ctx context.Context, self string, j Job, path string, ou
 	if err := os.MkdirAll(filepath.Dir(childPath(path)), 0o700); err != nil {
 		return err
 	}
-	if err := paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("0 %d\n", deadline.Unix())), 0o600); err != nil {
+	if err := paths.AtomicWrite(childPath(path), fmt.Appendf(nil, "0 %d\n", deadline.Unix()), 0o600); err != nil {
 		return err
 	}
 	gate, closeGate, err := gateChild(cmd)
@@ -262,7 +262,7 @@ var runQueuedJob = func(ctx context.Context, self string, j Job, path string, ou
 	}
 	start, err := proc.StartTime(cmd.Process.Pid)
 	if err == nil {
-		err = paths.AtomicWrite(childPath(path), []byte(fmt.Sprintf("%d %s\n", cmd.Process.Pid, start)), 0o600)
+		err = paths.AtomicWrite(childPath(path), fmt.Appendf(nil, "%d %s\n", cmd.Process.Pid, start), 0o600)
 	}
 	if err == nil && gate != nil {
 		_, err = gate.Write([]byte{'1'})

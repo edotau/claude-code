@@ -634,7 +634,9 @@ func benchBankFile(b *testing.B, name string, fi, limit int, wide bool, id *int,
 	b.Helper()
 	vocab := benchRecallVocab
 	var sb strings.Builder
-	sb.WriteString("# " + filepath.Base(name) + "\n\n")
+	sb.WriteString("# ")
+	sb.WriteString(filepath.Base(name))
+	sb.WriteString("\n\n")
 	for sb.Len() < limit {
 		words := make([]string, 14)
 		for w := range words { // coprime strides plus one rare token per block keep BM25 scores from tying
