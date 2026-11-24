@@ -160,8 +160,24 @@ func scopeLive(ctx context.Context, sc proxy.Scope) string {
 // ensureTeam is a seam for tests; it finds or starts a detached team's proxy.
 var ensureTeam = proxy.EnsureTeam
 
-// ensureDetached resolves a detached team to its slot's proxy; why is the reason it cannot start.
-func ensureDetached(ctx context.Context, c routeCand) (routeCand, string, string) {
+// teamFailed reports whether any slot of team died mid-run; a dispatch maps to one slot, so this is its slot.
+func teamFailed(skip map[string]bool, team string) bool {
+	for l := range skip {
+		if strings.HasPrefix(l, team+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureDetached resolves a detached team to its slot's proxy (a preview starts none); why is the failure.
+func ensureDetached(ctx context.Context, c routeCand, skip map[string]bool) (routeCand, string, string) {
+	if teamFailed(skip, c.team.Name) {
+		return c, "", "failed mid-run"
+	}
+	if IsDryRun(ctx) {
+		return c, PreviewRouterBase(ctx), ""
+	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
 	sc, err := ensureTeam(ctx, c.team, id)
 	if err != nil {
@@ -175,14 +191,11 @@ func ensureDetached(ctx context.Context, c routeCand) (routeCand, string, string
 func resolveCand(ctx context.Context, c routeCand, skip map[string]bool,
 	ensure func(context.Context) (string, error)) (routeCand, string, string) {
 	var base, why string
-	if c.team.Host == proxyteam.HostDetached {
-		c, base, why = ensureDetached(ctx, c)
-	}
 	switch {
-	case why != "":
+	case c.team.Host == proxyteam.HostDetached:
+		return ensureDetached(ctx, c, skip)
 	case skip[c.label()]:
 		why = "failed mid-run"
-	case c.team.Host == proxyteam.HostDetached:
 	case c.team.Host == proxyteam.HostDaemon:
 		base, err := ensure(ctx)
 		if err != nil {
