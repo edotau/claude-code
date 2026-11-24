@@ -2,6 +2,8 @@ package worktree
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -268,7 +270,7 @@ func TestSeedPathVenvWithDirOnlyIgnoreRule(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dest, ".gitignore"), []byte(".venv/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedPath(main, dest, ".venv"); err != nil {
+	if err := seedPath(main, dest, ".venv", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	requireSeededVenv(t, dest, main)
@@ -293,5 +295,120 @@ func TestSeedLinksUnignoredVenvAndExcludesIt(t *testing.T) {
 	cmd.Env = gitEnv()
 	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "" {
 		t.Fatalf("status = %q, err %v; the venv link must stay invisible to git", out, err)
+	}
+}
+
+const fakeEditableFinder = `import importlib.abc, importlib.util, sys
+MAPPING = {'pkg': '%s'}
+class _F(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        p = MAPPING.get(name)
+        return p and importlib.util.spec_from_file_location(name, p + "/__init__.py", submodule_search_locations=[p])
+def install():
+    sys.meta_path.append(_F())
+`
+
+// A lane venv reuses the primary packages yet imports the editable package from the lane, leaving the primary alone.
+func TestSeedBuildsLaneVenvRerootingEditable(t *testing.T) {
+	hosttest.SkipOnWindows(t, "venv layout")
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not installed")
+	}
+	main, dest := t.TempDir(), gitRepo(t)
+	for dir, v := range map[string]string{main: "1", dest: "2"} {
+		mustWriteFile(t, filepath.Join(dir, "src", "pkg", "__init__.py"), "VALUE = "+v+"\n")
+	}
+	if out, err := exec.Command(py, "-m", "venv", "--without-pip", filepath.Join(main, ".venv")).CombinedOutput(); err != nil {
+		t.Skipf("venv unavailable: %v %s", err, out)
+	}
+	sp := sitePackages(filepath.Join(main, ".venv"))
+	mustWriteFile(t, filepath.Join(sp, "__editable___pkg_0_finder.py"), fmt.Sprintf(fakeEditableFinder, filepath.Join(main, "src", "pkg")))
+	mustWriteFile(t, filepath.Join(sp, "__editable__.pkg-0.pth"), "import __editable___pkg_0_finder; __editable___pkg_0_finder.install()\n")
+	if err := seedPath(main, dest, ".venv", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(filepath.Join(dest, ".venv")); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf(".venv must be a built venv, got %v, err %v", info, err)
+	}
+	out, err := exec.Command(filepath.Join(dest, ".venv", "bin", "python"), "-c", "import pkg;print(pkg.VALUE, pkg.__file__)").CombinedOutput()
+	if want := "2 "; err != nil || !strings.HasPrefix(string(out), want) || !strings.Contains(string(out), filepath.Join(filepath.Base(dest), "src", "pkg")) {
+		t.Fatalf("lane import = %q, err %v; want it from %s", out, err, want)
+	}
+}
+
+func mustWriteFile(t *testing.T, p, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseMappingReadsMultilineMixedQuotes(t *testing.T) {
+	src := "MAPPING: dict[str, str] = {\n  'a': '/x/a',\n  \"it's\": \"/y/{b}\",\n}\nNAMESPACES = {'ns': ['/z']}\n"
+	got := parseMapping(src)
+	if len(got) != 2 || got["a"] != "/x/a" || got["it's"] != "/y/{b}" {
+		t.Fatalf("parseMapping = %v", got)
+	}
+}
+
+const nspkgRow = `import sys, types, os;has_mfs = sys.version_info > (3, 5);p = os.path.join(sys._getframe(1).f_locals['sitedir'], *('nspk',));importlib = has_mfs and __import__('importlib.util');has_mfs and __import__('importlib.machinery');m = has_mfs and sys.modules.setdefault('nspk', importlib.util.module_from_spec(importlib.machinery.PathFinder.find_spec('nspk', [os.path.dirname(p)])));m = m or sys.modules.setdefault('nspk', types.ModuleType('nspk'));mp = (m or []) and m.__dict__.setdefault('__path__',[]);(p not in mp) and mp.append(p)
+`
+
+// addPrimaryExtras gives the primary venv a dotted-name editable, a namespace .pth and a console script.
+func addPrimaryExtras(t *testing.T, main, dest string) {
+	t.Helper()
+	venv := filepath.Join(main, ".venv")
+	sp := sitePackages(venv)
+	for dir, v := range map[string]string{main: "1", dest: "2"} {
+		mustWriteFile(t, filepath.Join(dir, "src", "ns", "sub", "__init__.py"), "VALUE = "+v+"\n")
+	}
+	mustWriteFile(t, filepath.Join(sp, "__editable___ns_0_finder.py"),
+		strings.Replace(fmt.Sprintf(fakeEditableFinder, filepath.Join(main, "src", "ns", "sub")), "'pkg'", "'ns.sub'", 1))
+	mustWriteFile(t, filepath.Join(sp, "__editable__.ns-0.pth"), "import __editable___ns_0_finder; __editable___ns_0_finder.install()\n")
+	mustWriteFile(t, filepath.Join(sp, "nspk", "mod.py"), "X = 7\n")
+	mustWriteFile(t, filepath.Join(sp, "x-nspkg.pth"), nspkgRow)
+	script := "#!" + filepath.Join(venv, "bin", "python") + "\nimport pkg\nprint('script', pkg.VALUE)\n"
+	mustWriteFile(t, filepath.Join(venv, "bin", "tool"), script)
+	if err := os.Chmod(filepath.Join(venv, "bin", "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSeedLaneVenvDottedNamespaceAndScripts(t *testing.T) {
+	hosttest.SkipOnWindows(t, "venv layout")
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not installed")
+	}
+	main, dest := t.TempDir(), gitRepo(t)
+	for dir, v := range map[string]string{main: "1", dest: "2"} {
+		mustWriteFile(t, filepath.Join(dir, "src", "pkg", "__init__.py"), "VALUE = "+v+"\n")
+	}
+	if out, err := exec.Command(py, "-m", "venv", "--without-pip", filepath.Join(main, ".venv")).CombinedOutput(); err != nil {
+		t.Skipf("venv unavailable: %v %s", err, out)
+	}
+	sp := sitePackages(filepath.Join(main, ".venv"))
+	mustWriteFile(t, filepath.Join(sp, "__editable___pkg_0_finder.py"), fmt.Sprintf(fakeEditableFinder, filepath.Join(main, "src", "pkg")))
+	mustWriteFile(t, filepath.Join(sp, "__editable__.pkg-0.pth"), "import __editable___pkg_0_finder; __editable___pkg_0_finder.install()\n")
+	addPrimaryExtras(t, main, dest)
+	if err := seedPath(main, dest, ".venv", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	if got := run(filepath.Join(dest, ".venv", "bin", "python"), "-c", "import ns.sub, nspk.mod;print(ns.sub.VALUE, ns.sub.__file__, nspk.mod.X)"); !strings.HasPrefix(got, "2 ") || !strings.Contains(got, filepath.Base(dest)) || !strings.HasSuffix(strings.TrimSpace(got), " 7") {
+		t.Fatalf("dotted or namespace import = %q", got)
+	}
+	if got := run(filepath.Join(dest, ".venv", "bin", "tool")); strings.TrimSpace(got) != "script 2" {
+		t.Fatalf("lane console script = %q, want it to run lane code", got)
 	}
 }

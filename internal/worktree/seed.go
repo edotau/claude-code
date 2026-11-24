@@ -16,13 +16,13 @@ import (
 
 func seedWorktree(main, dest string, log io.Writer) {
 	for _, name := range []string{".venv", "venv", ".env"} {
-		if err := seedPath(main, dest, name); err != nil {
+		if err := seedPath(main, dest, name, log); err != nil {
 			fmt.Fprintf(log, "worktree-create: warning: seed %s: %v\n", name, err)
 		}
 	}
 }
 
-func seedPath(main, dest, name string) error {
+func seedPath(main, dest, name string, log io.Writer) error {
 	source, err := filepath.Abs(filepath.Join(main, name))
 	if err != nil {
 		return err
@@ -39,7 +39,10 @@ func seedPath(main, dest, name string) error {
 		return err
 	}
 	if isVenv(name) {
-		return linkVenv(source, target, dest, name, info.IsDir())
+		if !info.IsDir() {
+			return nil
+		}
+		return linkVenv(source, target, dest, name, log)
 	}
 	if ignored, err := seedIgnored(dest, name); err != nil || !ignored {
 		return err
@@ -47,16 +50,22 @@ func seedPath(main, dest, name string) error {
 	return copyEnvFile(source, target, info.Mode().Perm())
 }
 
-// linkVenv symlinks a primary venv directory into the lane and excludes it, undoing the link when the exclude fails.
-func linkVenv(source, target, dest, name string, isDir bool) error {
-	if !isDir {
-		return nil
+// linkVenv gives the lane its own venv over the primary's packages (a symlink if unbuildable) and excludes it.
+func linkVenv(source, target, dest, name string, log io.Writer) error {
+	built := false
+	if paths.FileExists(filepath.Join(source, "bin", "python")) {
+		err := overlayVenv(source, target, dest)
+		if built = err == nil; !built {
+			fmt.Fprintf(log, "worktree-create: note: %s linked to the primary, not rebuilt: %v\n", name, err)
+		}
 	}
-	if err := os.Symlink(source, target); err != nil {
-		return err
+	if !built {
+		if err := os.Symlink(source, target); err != nil {
+			return err
+		}
 	}
 	if err := excludeSymlink(dest, name); err != nil {
-		return errors.Join(err, os.Remove(target))
+		return errors.Join(err, os.RemoveAll(target))
 	}
 	return nil
 }

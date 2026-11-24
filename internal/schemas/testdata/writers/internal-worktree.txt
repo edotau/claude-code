@@ -9,3 +9,6 @@ internal/worktree/operation.go:SaveOperation	worktree-merge-op
 internal/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/worktree/sessions.go:Append	notices
 internal/worktree/sessions.go:capInbox	notices
+internal/worktree/venvoverlay.go:copyScript	unversioned: text: console script copied into a lane venv
+internal/worktree/venvoverlay.go:inheritSystemSitePackages	unversioned: text: pyvenv.cfg of a lane venv
+internal/worktree/venvoverlay.go:writeOverlayPth	unversioned: text: .pth files of a lane venv
