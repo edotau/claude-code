@@ -265,7 +265,7 @@ func (d *dashboard) showSubagent(sub Subagent) {
 	s := newPaneSet()
 	s.ev.noLog = true
 	head := subagentHeader(sub, transcriptStart(path), time.Now())
-	d.runPane(agent.Record{}, head, &paneFeeds{ev: openFeed(d.ctx, agent.Record{}, transcriptStream(path))}, s)
+	d.runPane(agent.Record{}, head, &paneFeeds{ev: openFeed(d.ctx, agent.Record{}, transcriptStream(path), eventMark)}, s)
 }
 
 // runPane draws the pane's frames until Esc or q, closing feeds on the way out.

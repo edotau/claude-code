@@ -496,8 +496,11 @@ func firstLine(s string) string {
 // Oversized event lines are dropped whole so an unfinished tool dump cannot grow the reader without bound.
 const paneLineBytes = 1 << 20
 
-// oversizeMark stands in for a dropped line, so a large result still shows that the job answered.
-var oversizeMark = []byte(`{"type":"text","sep":true,"text":"[an event over 1 MiB is not shown here; agents result prints it]"}`)
+// Marks stand in for a dropped line, so a large result still shows that something arrived.
+var (
+	eventMark = []byte(`{"type":"text","sep":true,"text":"[an event over 1 MiB is not shown here]\n"}`)
+	rawMark   = []byte("[a log line over 1 MiB is not shown here]")
+)
 
 // paneFeed is the pane's one reader goroutine; the UI loop only drains its ring of complete lines.
 type paneFeed struct {
@@ -510,19 +513,26 @@ type paneFeed struct {
 	count   int
 	partial []byte
 	discard bool
+	mark    []byte // pushed in place of a line over paneLineBytes
+	failed  bool   // the stream ended on an error, not because the job settled
 }
 
 // openPane starts reading rec's stream; it ends when the stream does, on close, or when ctx ends.
-func openPane(ctx context.Context, rec agent.Record) *paneFeed { return openFeed(ctx, rec, paneStream) }
+func openPane(ctx context.Context, rec agent.Record) *paneFeed {
+	return openFeed(ctx, rec, paneStream, eventMark)
+}
 
-func openFeed(ctx context.Context, rec agent.Record, stream streamFunc) *paneFeed {
+func openFeed(ctx context.Context, rec agent.Record, stream streamFunc, mark []byte) *paneFeed {
 	ctx, cancel := context.WithCancel(ctx)
-	p := &paneFeed{ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	p := &paneFeed{ctx: ctx, cancel: cancel, done: make(chan struct{}), mark: mark}
 	go func() {
 		defer close(p.done)
 		defer cancel()
 		if err := stream(ctx, rec, p); err != nil && ctx.Err() == nil {
 			_ = json.NewEncoder(p).Encode(wire.Event{Type: wire.EventError, Text: err.Error()})
+			p.mu.Lock()
+			p.failed = true
+			p.mu.Unlock()
 		}
 	}()
 	return p
@@ -560,7 +570,7 @@ func (p *paneFeed) push(b []byte, complete bool) {
 	}
 	line := p.partial
 	if p.discard {
-		line = oversizeMark
+		line = p.mark
 	}
 	p.pending[p.next] = line
 	p.next = (p.next + 1) % tailKeep
@@ -581,10 +591,13 @@ func (p *paneFeed) drain() [][]byte {
 	return out
 }
 
-func (p *paneFeed) finished() bool {
+// settled is true once the stream ended because the job did; an errored stream leaves the pane live.
+func (p *paneFeed) settled() bool {
 	select {
 	case <-p.done:
-		return true
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return !p.failed
 	default:
 		return false
 	}
@@ -608,7 +621,7 @@ func (f *paneFeeds) onKey(ctx context.Context, rec agent.Record, ps paneSet, k k
 	}
 	ps = paneSetKey(ps, k)
 	if ps.onRaw && f.raw == nil {
-		f.raw = openFeed(ctx, rec, f.rawFn)
+		f.raw = openFeed(ctx, rec, f.rawFn, rawMark)
 	}
 	return ps
 }
@@ -622,13 +635,13 @@ func (f *paneFeeds) close() {
 
 // paneDrain feeds each view the lines read since the last frame; the raw view settles once its log ended.
 func paneDrain(ps paneSet, f *paneFeeds) paneSet {
-	evEnded := f.ev.finished() // checked before the drain, so the last lines are never missed
+	evEnded := f.ev.settled() // checked before the drain, so the last lines are never missed
 	for _, l := range f.ev.drain() {
 		ps.ev = paneOnLine(ps.ev, l)
 	}
 	ps.ev.live = ps.ev.live && !evEnded
 	if f.raw != nil {
-		ended := f.raw.finished() // checked before the drain, so the last lines are never missed
+		ended := f.raw.settled() // checked before the drain, so the last lines are never missed
 		for _, l := range f.raw.drain() {
 			ps.raw = rawOnLine(ps.raw, l)
 		}

@@ -52,7 +52,11 @@ func TestDashboardEnterOpensPane(t *testing.T) {
 	}
 	orig, streamed := paneStream, ""
 	t.Cleanup(func() { paneStream = orig })
-	paneStream = func(_ context.Context, r agent.Record, _ io.Writer) error { streamed = r.ID; return nil }
+	paneStream = func(ctx context.Context, r agent.Record, _ io.Writer) error { // a live job: streams until the pane closes
+		streamed = r.ID
+		<-ctx.Done()
+		return nil
+	}
 	keys := make(chan key)
 	close(keys)
 	var out bytes.Buffer
