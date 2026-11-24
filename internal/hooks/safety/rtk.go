@@ -53,7 +53,7 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 	}
 	_, onPath := paths.RTKOnPath(bin)
 	word := rtkWord(bin, os.Getenv("HOME"), onPath)
-	pinned := rtkAbsolute(rewritten, word)
+	pinned := rtkwrap.PinRTK(rewritten, word)
 	if word != "rtk" && rtkwrap.BareCount(pinned) > rtkwrap.BareCount(cmd) {
 		return core.Result{}
 	}
@@ -360,7 +360,7 @@ func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
 	if !rtkwrap.EnvAltered(cmd) {
 		word = rtkWord(bin, os.Getenv("HOME"), onPath)
 	}
-	pinned := rtkAbsolute(rewritten, word)
+	pinned := rtkwrap.PinRTK(rewritten, word)
 	if word != "rtk" && rtkwrap.BareCount(pinned) > rtkwrap.BareCount(cmd) { // rtk put a bare rtk where PATH may not find it
 		return rtkForm{}
 	}
@@ -428,48 +428,6 @@ func rtkRewritten(bin, cmd string) string {
 		return ""
 	}
 	return got
-}
-
-// rtkCommandWord matches a bare `rtk` at command position (line start, or after `&&`, `||`, `;`, `|`, `(`, backtick).
-var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
-})
-
-// rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
-func rtkAbsolute(cmd, word string) string {
-	out := rtkAbsolutePass(cmd, word)
-	if strings.Count(cmd, "rtk") < 2 { // a match eats its trailing separator, so only a second rtk needs a second pass
-		return out
-	}
-	return rtkAbsolutePass(out, word)
-}
-
-// rtkAbsolutePass rewrites only matches whose prefix the shell runs; quoted text like '(rtk x)' stays as data.
-func rtkAbsolutePass(cmd, word string) string {
-	quote := shell.QuoteAt(cmd)
-	var b strings.Builder
-	last := 0
-	for _, m := range rtkCommandWord().FindAllStringSubmatchIndex(cmd, -1) {
-		if p := m[2]; p < m[3] && !rtkPrefixRuns(cmd, quote, p) {
-			continue
-		}
-		b.WriteString(cmd[last:m[5]])
-		b.WriteString(word)
-		b.WriteString(cmd[m[6]:m[7]])
-		last = m[1]
-	}
-	return b.String() + cmd[last:]
-}
-
-// rtkPrefixRuns reports whether the separator at cmd[p] is live shell syntax rather than quoted text.
-func rtkPrefixRuns(cmd string, quote []byte, p int) bool {
-	switch quote[p] {
-	case 0:
-		return true
-	case '"':
-		return cmd[p] == '`' || cmd[p] == '(' && p > 0 && cmd[p-1] == '$'
-	}
-	return false
 }
 
 // rtkWord spells bin so allow rules stay machine-independent: bare rtk on PATH, else `"$HOME/<rest>"`, else quoted.

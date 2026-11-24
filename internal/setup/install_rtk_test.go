@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestInstallRTKConfig(t *testing.T) {
@@ -39,6 +41,30 @@ func TestInstallRTKConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRTKConfig(t, file, userConfig)
+	if !strings.Contains(out.String(), "kept user file") {
+		t.Fatalf("missing user config note: %q", out.String())
+	}
+}
+
+// TestInstallRTKConfigKeepsEditsUnderMarker: the marker alone never proves the file is untouched.
+func TestInstallRTKConfigKeepsEditsUnderMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("rtk config is not installed on Windows")
+	}
+	t.Setenv("HOME", t.TempDir())
+	file := paths.RTKConfig()
+	edited := rtkConfig + "\n[limits]\ngrep_max_results = 50\n"
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := installRTKConfig(&out, false); err != nil {
+		t.Fatal(err)
+	}
+	assertRTKConfig(t, file, edited)
 	if !strings.Contains(out.String(), "kept user file") {
 		t.Fatalf("missing user config note: %q", out.String())
 	}

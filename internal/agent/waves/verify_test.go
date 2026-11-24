@@ -451,3 +451,16 @@ func TestVerifyThreeParallelLeavesEachOwnTheirFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestGateBashRunsPinnedRTKUnderChildPath: a gate env whose PATH has no rtk still runs the pinned one.
+func TestGateBashRunsPinnedRTKUnderChildPath(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "rtk")
+	hosttest.WriteExec(t, bin, "#!/bin/sh\nif [ \"$1\" = rewrite ]; then printf 'rtk %s' \"$3\"; exit 0; fi\necho pinned-ran\n")
+	t.Setenv("HARNESS_RTK_BIN", bin)
+	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var out strings.Builder
+	exit, err := gateBash(context.Background(), t.TempDir(), "git status", []string{"PATH=/usr/bin:/bin"}, &out)
+	if err != nil || exit != 0 || !strings.Contains(out.String(), "pinned-ran") {
+		t.Fatalf("exit = %d, err = %v, output = %q", exit, err, out.String())
+	}
+}

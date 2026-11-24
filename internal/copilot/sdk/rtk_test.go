@@ -1,21 +1,19 @@
 package sdk
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/textutil"
 	copilot "github.com/github/copilot-sdk/go"
 )
 
 func TestRTKPreToolUseRewritesBashOutsideCodeMode(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
-	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	in := copilot.PreToolUseHookInput{ToolName: "bash", WorkingDirectory: t.TempDir(),
 		ToolArgs: map[string]any{"command": "git log --oneline -3", "description": "d"}}
-	for mode, want := range map[string]string{"": "rtk git log --oneline -3", "1": ""} {
+	for mode, want := range map[string]string{"": textutil.QuoteSH(bin) + " git log --oneline -3", "1": ""} {
 		t.Setenv(rtkwrap.CodemodeEnv, mode)
 		out, err := rtkPreToolUse(in, copilot.HookInvocation{})
 		if err != nil || out.PermissionDecision != "" {

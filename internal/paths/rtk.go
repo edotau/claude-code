@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // RTKBinaryEnv overrides the rtk binary: tests cannot rely on rtk being installed, and a wrapper path also works.
@@ -30,6 +31,18 @@ func RTKBinary() string {
 		}
 	}
 	return ""
+}
+
+// RTKConfig is rtk's own config.toml (macOS Application Support, else ~/.config); "" on Windows or with no home.
+func RTKConfig() string {
+	home, err := os.UserHomeDir()
+	switch {
+	case runtime.GOOS == "windows" || err != nil:
+		return ""
+	case runtime.GOOS == "darwin":
+		return filepath.Join(home, "Library", "Application Support", "rtk", "config.toml")
+	}
+	return filepath.Join(home, ".config", "rtk", "config.toml")
 }
 
 // RTKPinned is the harness-pinned rtk install, BinDir/rtk; it may not exist.
