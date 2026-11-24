@@ -116,29 +116,36 @@ func ContractEnv() contract.Env {
 	return contract.Env{Lost: holderLost, Queue: queueFailedLane}
 }
 
-// holderLost reports whether the dispatch's record is lost, or errored with a vanished process.
+// holderLost: the dispatch's record is lost, errored with a vanished process, or still running with a dead one.
 func holderLost(id string) bool {
 	rec, err := agent.LoadRecord(id)
-	return err == nil && (rec.Status == "lost" || rec.Status == "error" && strings.HasPrefix(rec.Error, agent.LostError))
+	if err != nil {
+		return false
+	}
+	return rec.Status == "lost" || rec.Status == "error" && strings.HasPrefix(rec.Error, agent.LostError) ||
+		rec.Status == "running" && !rec.Alive()
 }
 
 // queueFailedLane queues a failed contract's kept lane marked failed; a lane that is gone has nothing to queue.
 func queueFailedLane(c contract.Contract) error {
 	rec, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
-	if err != nil || rec.Repo == "" {
+	if err != nil {
+		return err
+	}
+	if rec.Repo == "" {
 		return nil
 	}
-	lane := laneDir(rec.Repo, c.Scope.Lane)
-	if lane == "" {
-		return nil
+	lane, err := laneDir(rec.Repo, c.Scope.Lane)
+	if err != nil || lane == "" {
+		return err
 	}
 	return worktree.Enqueue(worktree.QueuedLane{Lane: lane, Repo: rec.Repo, Task: c.Scope.PlanTask,
 		Reason: "contract failed: owner-dead", Detail: "contract " + c.ID + ": the owner's process is gone; lane kept",
 		Next: "claude-code worktree merge " + c.Scope.Lane + " after reviewing it, or worktree clean " + c.Scope.Lane})
 }
 
-// laneDir is the existing directory of lane under repo's worktree root or its legacy root, "" when neither has it.
-func laneDir(repo, lane string) string {
+// laneDir is lane's directory under repo's worktree root or legacy root, "" when neither has it.
+func laneDir(repo, lane string) (string, error) {
 	roots := []string{worktree.Root(repo)}
 	if r, err := worktree.ResolveRepo(repo); err == nil {
 		roots = append(roots, r.Root, r.Legacy)
@@ -147,11 +154,15 @@ func laneDir(repo, lane string) string {
 		if root == "" {
 			continue
 		}
-		if fi, err := os.Stat(filepath.Join(root, lane)); err == nil && fi.IsDir() {
-			return filepath.Join(root, lane)
+		fi, err := os.Stat(filepath.Join(root, lane))
+		switch {
+		case err == nil && fi.IsDir():
+			return filepath.Join(root, lane), nil
+		case err != nil && !errors.Is(err, fs.ErrNotExist):
+			return "", err
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // reapContracts fails or re-assigns the contracts of lost owners; a dry run only lists them.
@@ -163,6 +174,7 @@ func reapContracts(dryRun bool, out, errw io.Writer) (int, int) {
 		}
 		if err != nil {
 			fmt.Fprintln(errw, "agents cancel --lost: contracts:", err)
+			return len(orphans), 1
 		}
 		return len(orphans), 0
 	}
@@ -188,7 +200,7 @@ func contractNote(id string, usage *wire.Usage) string {
 	parts := []string{"contract " + string(c.State()), "owner " + c.Owner.Agent,
 		fmt.Sprintf("leaves %d/%d", len(c.Children), c.Limits.Leaves)}
 	if usage != nil && c.Limits.Tokens > 0 {
-		used := usage.InputTokens + usage.CacheCreationTokens + usage.OutputTokens
+		used := usage.InputTokens + usage.CacheCreationTokens + usage.CacheReadTokens + usage.OutputTokens
 		parts = append(parts, fmt.Sprintf("%d%% budget", used*percent/c.Limits.Tokens))
 	}
 	if un := c.Unmet(); len(un) > 0 {
