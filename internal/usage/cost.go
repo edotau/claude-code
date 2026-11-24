@@ -46,16 +46,13 @@ var listPrices = func() listLookup {
 	return func(provider, id string) (providers.Price, bool) { return listPriceFrom(t, provider, id) }
 }
 
-// listPriceFrom is the Databricks provider's own untiered snapshot row; any other provider stays unpriced.
+// listPriceFrom is the Databricks snapshot row, else its vendor's, at the base tier; other providers stay unpriced.
 func listPriceFrom(t catalog.Prices, provider, id string) (providers.Price, bool) {
 	if provider != "databricks" {
 		return providers.Price{}, false
 	}
-	row, ok := t.Row(provider, "databricks-"+id)
-	if !ok {
-		row, ok = t.Row(provider, id)
-	}
-	ok = ok && row.Priced && len(row.Tiers) == 0
+	row, ok := t.ListRow(provider, id)
+	ok = ok && row.Priced
 	return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
 }
 
