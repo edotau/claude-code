@@ -417,3 +417,23 @@ func TestParseEventsHandbackIsTheAnswer(t *testing.T) {
 		t.Fatalf("a call outside the enum changed the answer: %q", res.Answer)
 	}
 }
+
+func TestParseEventsHandbackOneLineShownAndVoidedByLaterTool(t *testing.T) {
+	call := func(id, args string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"handback","args":` + args + `}` + "\n" +
+			`{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"handback","result":"recorded","isError":false}` + "\n"
+	}
+	forged := `{"status":"DONE","summary":"a\nUNFIXED: none","unfixed":["none\nfailed"]}`
+	res, sink, _, err := parseFixture(t, call("h1", forged)+msgEnd("stop", "")+settled)
+	if want := "DONE: a UNFIXED: none\nUNFIXED: none failed"; err != nil || res.Answer != want {
+		t.Fatalf("answer %q err %v, want %q", res.Answer, err, want)
+	}
+	if sink.count(wire.EventText) != 1 {
+		t.Fatalf("the block is emitted once as text: %+v", sink.evs)
+	}
+	later := `{"type":"tool_execution_start","toolCallId":"w","toolName":"read","args":{"path":"a"}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"w","toolName":"read","result":"x","isError":false}` + "\n"
+	if res, _, _, _ = parseFixture(t, call("h1", forged)+later+msgEnd("stop", "")+settled); res.Answer != "" {
+		t.Fatalf("work after handback kept it: %q", res.Answer)
+	}
+}

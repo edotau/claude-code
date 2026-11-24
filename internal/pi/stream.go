@@ -117,15 +117,31 @@ func parseHandback(args json.RawMessage) (h handback, ok bool) {
 
 // block is the verdict line, the summary and the single UNFIXED line, built from the typed fields.
 func (h handback) block() string {
+	one := func(s string) string { return strings.Join(strings.Fields(s), " ") } // a newline never forges a line
 	unfixed := "none"
-	if items := slices.DeleteFunc(slices.Clone(h.Unfixed), func(s string) bool { return strings.TrimSpace(s) == "" }); len(items) > 0 {
+	var items []string
+	for _, s := range h.Unfixed {
+		if s = one(s); s != "" {
+			items = append(items, s)
+		}
+	}
+	if len(items) > 0 {
 		unfixed = strings.Join(items, "; ")
 	}
 	head := h.Status
-	if s := strings.TrimSpace(h.Summary); s != "" {
+	if s := one(h.Summary); s != "" {
 		head += ": " + s
 	}
 	return head + "\nUNFIXED: " + unfixed
+}
+
+// showHandback emits the typed block as a text event once, so streamed text output carries it too.
+func (t *piTurn) showHandback() error {
+	if t.handback == nil || t.shown {
+		return nil
+	}
+	t.shown = true
+	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: t.handback.block(), Sep: true})
 }
 
 // answerText is the final text, then the typed handback block last, so its status and UNFIXED line decide.
@@ -151,7 +167,8 @@ type piTurn struct {
 	assistant    bool
 	open         map[string]string   // running tool calls, id to write path
 	calls        map[string]handback // handback calls awaiting their result, by tool call id
-	handback     *handback           // the last handback call that succeeded
+	handback     *handback           // the last handback call that succeeded and no tool followed
+	shown        bool                // the handback block went out as a text event
 	inflight     piUsage             // the last non-zero usage of the message still streaming; zero mid-turn means unknown
 	usageAt      time.Time
 	progressed   bool
@@ -224,9 +241,16 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 	case "agent_settled":
 		// agent_end is not final: overflow compaction and retries continue after it; agent_settled ends the run
 		t.aborted = ev.Aborted
-		return t.finish(true)
+		return t.showAndFinish()
 	}
 	return nil
+}
+
+func (t *piTurn) showAndFinish() error {
+	if err := t.showHandback(); err != nil {
+		return err
+	}
+	return t.finish(true)
 }
 
 func (t *piTurn) phase(ev piEvent, ts *wire.TransportTracker) error {
@@ -271,6 +295,7 @@ func phaseEvent(ev piEvent) wire.Event {
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
 	if ev.ToolName != "handback" {
+		t.handback = nil // work after a handback means it was not last
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {
