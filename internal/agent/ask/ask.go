@@ -136,7 +136,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
+	r := &askRun{ctx: withPlanTask(ctx, f.planTask), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
@@ -288,7 +288,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), tierCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), tierCheck(f), planTaskCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -757,6 +757,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		return failAsk(format, name, err)
 	}
 	finishRecover(ctx, prepared.Record.ID)
+	stampPlanTask(ctx, jobRec, &prepared.Record)
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		if saveErr != nil { // the --job child loads this record; without it the job never starts

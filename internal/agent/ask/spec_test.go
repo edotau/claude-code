@@ -182,3 +182,13 @@ func TestSpecTaskKeysRefuseBatchAndEmptyValues(t *testing.T) {
 		t.Error("empty verify accepted")
 	}
 }
+
+func TestSpecBriefCarriesPlanTaskAndTier(t *testing.T) {
+	brief, err := specBrief("p", []string{"--plan-task", "Phase 1.1", "--tier", "fast"}, askspec.Task{Own: []string{"a.go"}})
+	if err != nil || !strings.Contains(brief, "Task: Phase 1.1") || !strings.HasPrefix(brief, "Tier: fast") {
+		t.Fatalf("brief = %q err %v", brief, err)
+	}
+	if planTaskCheck(&askFlags{planTask: "a\nb"}) == nil || planTaskCheck(&askFlags{planTask: "x", batchSrc: "f"}) == nil {
+		t.Fatal("planTaskCheck accepted a bad id or a batch")
+	}
+}

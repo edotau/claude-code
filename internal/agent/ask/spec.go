@@ -64,32 +64,38 @@ func specBrief(prompt string, argv []string, t askspec.Task) (string, error) {
 	if strings.ContainsAny(t.Report, "\r\n") {
 		return "", errors.New("spec report: want a one-line path")
 	}
-	name, codeMode, err := briefTarget(argv)
+	bf, err := briefTarget(argv)
 	if err != nil {
 		return "", err
 	}
-	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: name, Owned: t.Own, Report: t.Report,
-		Verify: t.Verify, CodeMode: &codeMode})
+	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: bf.name, Owned: t.Own, Report: t.Report,
+		Verify: t.Verify, PlanTask: bf.planTask, Tier: bf.tier, CodeMode: &bf.codeMode})
 }
 
-// briefTarget is the agent and code mode the merged argv dispatches, resolved as the real run will.
-func briefTarget(argv []string) (name string, codeMode bool, err error) {
+// briefFlags is what the merged argv dispatches, as the brief renders it.
+type briefFlags struct {
+	name, planTask, tier string
+	codeMode             bool
+}
+
+// briefTarget is the agent, code mode, plan task and tier the merged argv dispatches, resolved as the real run will.
+func briefTarget(argv []string) (briefFlags, error) {
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
 	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag
 	if f.batchSrc != "" || f.loop || f.live || f.waves != "" || f.retry != "" || f.job != "" {
-		return "", false, errors.New("spec own, report and verify are for one new dispatch: not with --batch, --loop, " +
+		return briefFlags{}, errors.New("spec own, report and verify are for one new dispatch: not with --batch, --loop, " +
 			"--live, --waves, --retry or --job")
 	}
 	defaultTools(fs, f)
-	name = f.name
+	name := f.name
 	if defs, err := parseAgentDefs(string(f.agents), f.host); err == nil {
 		if ag, _, err := agent.SelectAgent(name, defs); err == nil {
 			name = ag
 		}
 	}
 	mode, _ := validateCodemode(f.codemode, name, f.tools)
-	return name, mode != "" && mode != "off", nil
+	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, codeMode: mode != "" && mode != "off"}, nil
 }
 
 // withSpec puts the spec's argv first, so a typed scalar flag wins and a typed list adds to the spec's.

@@ -46,6 +46,7 @@ type askFlags struct {
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
 	spec, verify                                                                                                                                                                       string
+	planTask                                                                                                                                                                           string
 	dryRun                                                                                                                                                                             bool
 	loop                                                                                                                                                                               bool
 	waves                                                                                                                                                                              string
@@ -80,6 +81,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
+	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the brief's Task: line and the record's plan_task")
 	fs.StringVar(&f.tier, "tier", "", "task tier: "+strings.Join(agent.TierNames(), "|")+"; heads the brief with a Tier: line, sized under --model auto")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
@@ -843,4 +845,39 @@ func (r *askRun) recoverRetry() (int, bool) {
 	r.prompt = p
 	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
 	return 0, false
+}
+
+// planTaskCheck refuses a --plan-task that is not a plan id, or on a run that dispatches more than one task.
+func planTaskCheck(f *askFlags) error {
+	switch {
+	case f.planTask == "":
+		return nil
+	case !planTaskRE().MatchString(f.planTask):
+		return fmt.Errorf("--plan-task %q must match %s", f.planTask, planTaskRE())
+	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "":
+		return errors.New("--plan-task names one task: not with --batch, --live or --loop (a batch line carries plan_task)")
+	}
+	return nil
+}
+
+// planTaskKey carries a single ask's --plan-task to askPrepare, which stamps it on the new dispatch record.
+type planTaskKey struct{}
+
+func withPlanTask(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, planTaskKey{}, id)
+}
+
+func planTaskOf(ctx context.Context) string {
+	id, _ := ctx.Value(planTaskKey{}).(string)
+	return id
+}
+
+// stampPlanTask puts ctx's --plan-task on a new dispatch record; a --job child's record already holds it.
+func stampPlanTask(ctx context.Context, jobRec, rec *agent.Record) {
+	if id := planTaskOf(ctx); id != "" && jobRec == nil {
+		rec.PlanTask = id
+	}
 }
