@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/paths"
@@ -54,6 +55,15 @@ func opencodeRulesOn(cfg map[string]any) {
 	if len(core) > 0 {
 		cfg["instructions"] = core
 	}
+}
+
+// opencodeSkillsOn pins the skill roots, the project's included: an inline config replaces the overlay's list.
+func opencodeSkillsOn(cfg map[string]any, h *agent.Headless) {
+	dir, _ := os.Getwd()
+	if h != nil && h.WorkDir != "" {
+		dir = h.WorkDir
+	}
+	cfg["skills"] = map[string]any{"paths": agentconfig.OpencodeSkillRoots(dir)}
 }
 
 // opencodeCommands projects commands/*.md as opencode `command`s; those allowing Claude's Agent tool are skipped.

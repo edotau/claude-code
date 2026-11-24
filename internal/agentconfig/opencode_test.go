@@ -83,12 +83,13 @@ func TestApplyOpencodeTableModelsKeepsUnparsableTemplate(t *testing.T) {
 
 // Each skill is reachable by one root: the config dir's own, then only the ~/.agents/skills entries it lacks.
 func TestOpencodeSkillRootsListEachSkillOnce(t *testing.T) {
-	cfgDir, home := t.TempDir(), t.TempDir()
+	cfgDir, home, work := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	own, shared := filepath.Join(cfgDir, "skills"), filepath.Join(home, ".agents", "skills")
-	for _, d := range []string{filepath.Join(own, "dup"), shared, filepath.Join(shared, "only"), filepath.Join(shared, "b-only")} {
+	proj := filepath.Join(work, ".claude", "skills")
+	for _, d := range []string{filepath.Join(own, "dup"), filepath.Join(own, ".hid"), shared, filepath.Join(shared, "only"), filepath.Join(shared, "b-only"), filepath.Join(shared, "broken"), proj} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -102,9 +103,15 @@ func TestOpencodeSkillRootsListEachSkillOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := []string{own, filepath.Join(shared, "b-only"), filepath.Join(shared, "only")}
-	got := opencodeSkillRoots()
-	if !slices.Equal(got, want) {
+	if err := os.Symlink(filepath.Join(own, "gone"), filepath.Join(own, "broken")); err != nil {
+		t.Log("symlinks unavailable, broken entry skipped:", err)
+		_ = os.Remove(filepath.Join(shared, "broken"))
+	}
+	want := []string{own, filepath.Join(own, ".hid"), filepath.Join(shared, "b-only"), filepath.Join(shared, "broken"), filepath.Join(shared, "only"), proj}
+	if _, err := os.Lstat(filepath.Join(shared, "broken")); err != nil {
+		want = slices.Delete(want, 3, 4)
+	}
+	if got := OpencodeSkillRoots(work); !slices.Equal(got, want) {
 		t.Errorf("roots = %v, want %v", got, want)
 	}
 }

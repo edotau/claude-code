@@ -185,6 +185,9 @@ func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	if cfg["small_model"] != nil {
 		t.Errorf("small_model = %v with no model pinned, want unset", cfg["small_model"])
 	}
+	if sk, _ := cfg["skills"].(map[string]any); len(sk["paths"].([]string)) == 0 {
+		t.Errorf("skills = %v, want the pinned roots", cfg["skills"])
+	}
 	pinned := map[string]any{"model": "harness-dev-claude/databricks-claude-opus-5-5"}
 	opencodeHarnessWith(nil, "")(pinned)
 	if pinned["small_model"] != pinned["model"] {

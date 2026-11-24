@@ -133,6 +133,7 @@ func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 			cfg["small_model"] = m
 		}
 		opencodeRulesOn(cfg)
+		opencodeSkillsOn(cfg, h)
 		opencodeCommandsOn(cfg)
 		if h != nil && !h.Tools {
 			opencodeToolsOff(cfg)

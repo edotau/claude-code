@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/assets"
@@ -40,7 +41,7 @@ func applyOpencodeTableModels(cfgBody []byte, models func() (string, string, boo
 	if json.Unmarshal(cfgBody, &doc) != nil {
 		return cfgBody
 	}
-	doc["skills"] = map[string]any{"paths": opencodeSkillRoots()}
+	doc["skills"] = map[string]any{"paths": OpencodeSkillRoots("")}
 	if mainModel, smallModel, ok := models(); ok {
 		doc["model"], doc["small_model"] = mainModel, smallModel
 	}
@@ -51,26 +52,54 @@ func applyOpencodeTableModels(cfgBody []byte, models func() (string, string, boo
 	return out
 }
 
-// opencodeSkillRoots lists each skill under one root: <config>/skills, then ~/.agents/skills entries it lacks.
-func opencodeSkillRoots() []string {
-	own := filepath.Join(paths.ConfigDir(), "skills")
-	roots := []string{own}
+// OpencodeSkillRoots lists each skill under one root (opencode loads a doubled skill racily): global, then project.
+func OpencodeSkillRoots(workDir string) []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return roots
+		if u, uerr := user.Current(); uerr == nil {
+			home = u.HomeDir
+		}
 	}
-	shared := filepath.Join(home, ".agents", "skills")
+	roots := skillRootPair(filepath.Join(paths.ConfigDir(), "skills"), filepath.Join(home, ".agents", "skills"))
+	for dir := workDir; workDir != "" && dir != home && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		own := filepath.Join(dir, ".claude", "skills")
+		if fi, err := os.Stat(own); err == nil && fi.IsDir() {
+			roots = append(roots, skillRootPair(own, filepath.Join(dir, ".agents", "skills"))...)
+		}
+	}
+	return roots
+}
+
+// skillRootPair is own, its hidden subdirs (a root's scan skips them), and each shared dir entry not already under own.
+func skillRootPair(own, shared string) []string {
+	roots := []string{own}
+	ownReal := map[string]bool{}
+	ownEntries, _ := os.ReadDir(own)
+	for _, e := range ownEntries {
+		if real, err := filepath.EvalSymlinks(filepath.Join(own, e.Name())); err == nil {
+			ownReal[real] = true
+		}
+		if e.Name()[0] == '.' && e.IsDir() {
+			roots = append(roots, filepath.Join(own, e.Name()))
+		}
+	}
 	entries, _ := os.ReadDir(shared)
 	for _, e := range entries {
-		dir := filepath.Join(shared, e.Name())
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() || e.Name()[0] == '.' {
-			continue
-		}
-		if _, err := os.Lstat(filepath.Join(own, e.Name())); err != nil {
+		if dir := filepath.Join(shared, e.Name()); sharedSkillIsNew(dir, own, ownReal) {
 			roots = append(roots, dir)
 		}
 	}
 	return roots
+}
+
+// sharedSkillIsNew reports a usable shared dir whose real path and name own lacks.
+func sharedSkillIsNew(dir, own string, ownReal map[string]bool) bool {
+	real, err := filepath.EvalSymlinks(dir)
+	if fi, serr := os.Stat(dir); err != nil || serr != nil || !fi.IsDir() || ownReal[real] {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(own, filepath.Base(dir)))
+	return err != nil
 }
 
 // encodeOverlayJSON renders doc as the overlay files' two-space JSON (trailing newline) without HTML escaping.
