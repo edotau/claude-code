@@ -8,10 +8,10 @@ naming convention. Root: `~/worktrees/<repo>/<slug>`. Part 2 is for non-harness 
 
 ### The merge rule (from `internal/worktree/merge.go`)
 
-Promotion is **fast-forward only**: `Preflight` pins both OIDs and simulates with `git merge-tree`,
+Landing commits nothing on the live branch: `Preflight` pins both OIDs and simulates with `git merge-tree`,
 `integrateTarget` rebases the lane onto the pinned target **inside the worktree** and runs the verify gate there,
-`promote` runs `git merge --ff-only` on the main checkout and refuses any OID other than the one just verified. Never
-a `--no-ff` merge commit on the live branch, never a real conflicting merge there. A rebase conflict aborts the rebase,
+`promote` applies the lane's net diff uncommitted to the main checkout and refuses any OID other than the one just
+verified. Never a merge commit or fast-forward on the live branch. A rebase conflict aborts the rebase,
 leaves the lane as it was and exits 3, unless `--resolve-agent <agent>` hands it to an agent inside the worktree.
 
 ### create
@@ -40,8 +40,8 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    alone no longer blocks: the apply rebases the lane and exits 3 when the conflict is real (step 2).
    A dirty target is refused (exit 3, nothing changed) only when its uncommitted paths overlap files the land
    touches; the issue names who claims each one.
-2. **Apply:** `claude-code worktree land "$SLUG"` (default **Land on local (Recommended)**: uncommitted changes in
-   your checkout, you commit; `--merge` is **Merge into working branch**: a committed fast-forward).
+2. **Apply:** `claude-code worktree land "$SLUG"` (lands on local: uncommitted changes in your checkout, you
+   commit).
    `--verify "<cmd>"` overrides auto-detection (Makefile test / go.mod / pyproject / package.json / Cargo.toml);
    `--no-verify` is the only unverified path; no gate found refuses before integrating.
    Makefile test target plus `go.mod` runs the scoped gate: `go build ./... && go vet ./...`, then `go test` on
@@ -51,16 +51,14 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    non-markdown, non-Go file keeps the full detected gate (`make test` here), as `--full-verify` does; the full
    `make audit` stays the pre-push gate. Preflight re-runs; a failing gate stops with the worktree untouched; success
    applies the lane's diff to the live tree uncommitted and, unless `--no-clean`, removes the worktree and keeps its
-   branch (`clean` deletes it once its diff is in `HEAD`); `--merge` instead promotes, ticks the active plan
-   (`claude-code plan tick --range <old>..<new>`) and cleans as `clean` would. A refused promote (target moved,
-   worktree HEAD changed since the verified integration, not a fast-forward) prints `retry:` and changes nothing:
-   re-run step 1. A failure after the land leaves it landed (ledger problems only warn).
+   branch (`clean` deletes it once its diff is in `HEAD`); no plan ticks fire until you commit. A refused promote
+   (target moved, worktree HEAD changed since the verified integration, not a fast-forward) prints `retry:` and
+   changes nothing: re-run step 1. A failure after the land leaves it landed (ledger problems only warn).
    An apply run (no `--dry-run`, no `--resolve-agent`) whose
    rebase conflicts aborts it, leaves the lane as it was, names the files, exits 3 and queues a notice for the
    lane's owning session; the preview does not.
-3. **Report:** the `landed <lane>: N files uncommitted in <dir>; branch <b> kept` line (`--merge`: `promoted: <old> ->
-   <new> on <target>`), `verify: passed (<source>)`, and `removed: <path>` (or the "worktree left on disk" line with
-   `--no-clean`).
+3. **Report:** the `landed <lane>: N files uncommitted in <dir>; branch <b> kept` line,
+   `verify: passed (<source>)`, and `removed: <path>` (or the "worktree left on disk" line with `--no-clean`).
 
 **Rebase conflict (exit 3):** `claude-code worktree land --resolve-agent codex "$SLUG"` materializes it in the
 worktree and runs the agent once on the conflicted paths only (no `git add`/`commit`); the controller then checks

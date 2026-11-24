@@ -34,7 +34,7 @@ func applyLaneDiff(ctx context.Context, main, from, to string) error {
 		return nil
 	}
 	if gitlinkPatch.Match(patch) {
-		return fmt.Errorf("the lane changes a submodule, which cannot land uncommitted; use --merge: %w", ErrLandRefused)
+		return fmt.Errorf("the lane changes a submodule, which cannot land uncommitted: %w", ErrLandRefused)
 	}
 	if err := refuseHiddenEdits(ctx, main, from, to); err != nil {
 		return err

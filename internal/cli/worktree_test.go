@@ -366,7 +366,6 @@ type worktreeMergeCase struct {
 	out      []string // stdout must contain each
 	notOut   []string // stdout must contain none
 	stderr   string
-	promoted bool // main fast-forwards to the worktree's head; otherwise main never moves
 	landed   bool // g.txt holds the lane's content uncommitted in main
 	dirty    bool // main has its own untracked g.txt first; it must stay byte-identical
 	kept     bool // the worktree is still on disk afterwards
@@ -377,22 +376,22 @@ var featureEdit = [2]string{"g.txt", "feature only\n"}
 var worktreeMergeCases = []worktreeMergeCase{
 	{name: "dry-run shows the clean plan", commit: featureEdit, args: []string{"--dry-run"}, ok: true,
 		out: []string{"clean"}, kept: true},
-	{name: "no-verify promotes, auto-cleans, marks unverified", commit: featureEdit, args: []string{"--no-verify", "--merge"},
-		ok: true, out: []string{"promoted", "unverified"}, promoted: true},
+	{name: "the retired --merge flag is an unknown flag", commit: featureEdit, args: []string{"--no-verify", "--merge"},
+		exit: 2, stderr: "merge", kept: true},
 	{name: "no-verify lands uncommitted, removes the worktree, keeps the branch", commit: featureEdit,
 		args: []string{"--no-verify"}, ok: true, out: []string{"landed feature: 1 files uncommitted", "branch worktree-feature kept"},
 		landed: true},
 	{name: "a dirty landed path refuses and changes nothing", commit: featureEdit, dirty: true,
 		args: []string{"--no-verify"}, exit: 3, stderr: "g.txt dirty in the live tree", kept: true},
 	{name: "no-clean leaves the worktree, resolve-agent unused on a clean plan", commit: featureEdit,
-		args: []string{"--no-verify", "--no-clean", "--merge", "--resolve-agent", "claude"}, ok: true,
-		out: []string{"promoted"}, promoted: true, kept: true},
+		args: []string{"--no-verify", "--no-clean", "--resolve-agent", "claude"}, ok: true,
+		out: []string{"landed feature"}, landed: true, kept: true},
 	{name: "explicit verify overrides detection and runs inside the worktree", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
-		args: []string{"--merge", "--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
-		out: []string{"verify: passed (flag)", "promoted"}, promoted: true},
+		args: []string{"--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
+		out: []string{"verify: passed (flag)", "landed feature"}},
 	{name: "pipefail fails a failing first stage", commit: featureEdit, args: []string{"--verify", "false | cat"},
-		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
-	{name: "no detectable gate refuses", commit: featureEdit, notOut: []string{"integrated", "promoted"},
+		notOut: []string{"landed"}, stderr: "verify failed", kept: true},
+	{name: "no detectable gate refuses", commit: featureEdit, notOut: []string{"integrated", "landed"},
 		stderr: "no verification gate found", kept: true},
 	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true},
 	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true},
@@ -423,7 +422,7 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 	if tc.conflict {
 		mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	}
-	mainBefore, source := cliHeadOf(t, repo), cliHeadOf(t, wt)
+	mainBefore := cliHeadOf(t, repo)
 	if tc.dirty {
 		if err := os.WriteFile(filepath.Join(repo, "g.txt"), []byte("mine\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -438,14 +437,14 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 		t.Fatalf("worktree %q: code=%d stdout=%q stderr=%q, want ok=%v naming %q", args, code, out, errb, tc.ok, tc.stderr)
 	}
 	requireStdout(t, out, tc.out, tc.notOut)
-	requireMainState(t, repo, wt, tc, map[bool]string{false: mainBefore, true: source}[tc.promoted])
+	requireMainState(t, repo, wt, tc, mainBefore)
 }
 
 // requireMainState checks main's HEAD, its g.txt (landed or the owner's own) and whether the worktree remains.
 func requireMainState(t *testing.T, repo, wt string, tc worktreeMergeCase, wantHead string) {
 	t.Helper()
 	if cliHeadOf(t, repo) != wantHead {
-		t.Errorf("main HEAD = %s, want %s (promoted=%v)", cliHeadOf(t, repo), wantHead, tc.promoted)
+		t.Errorf("main HEAD = %s, want unmoved %s", cliHeadOf(t, repo), wantHead)
 	}
 	got, _ := os.ReadFile(filepath.Join(repo, "g.txt"))
 	if tc.landed && string(got) != "feature only\n" || tc.dirty && string(got) != "mine\n" {

@@ -360,14 +360,6 @@ func ledgerSessionAt(path string) string {
 	return ledgerField(openSection(string(text)), "Session")
 }
 
-// listedSession reuses this notification's porcelain identity instead of resolving each listed lane again.
-func listedSession(repo *Repo, path string) string {
-	if !repo.holds(filepath.Dir(path)) {
-		return ""
-	}
-	return ledgerSessionAt(ledgerPath(repo.Main, filepath.Base(path), time.Time{}))
-}
-
 func ledgerName(name string) error {
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\r\n") {
 		return fmt.Errorf("worktree ledger name %q is not usable", name)

@@ -29,7 +29,7 @@ func (diskContracts) Update(id string, fn func(contract.Contract) (contract.Cont
 // openContractStore is the one place the real store is plugged in.
 var openContractStore = func() contractStore { return diskContracts{} }
 
-// recordCloseTerms records tick (and landed after a merge) on each verified contract match accepts, then closes it.
+// recordCloseTerms records tick (and landed) on each verified contract match accepts, then closes it.
 func recordCloseTerms(match func(contract.Contract) bool, landed string, warn io.Writer) {
 	st := openContractStore()
 	if st == nil {
