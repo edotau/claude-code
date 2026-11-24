@@ -116,7 +116,21 @@ func modelEntry(p *providers.Provider, wire, label, w string) map[string]any {
 	} else if w == providers.ProtocolOpenAI {
 		e["maxTokens"] = chatMaxTokens
 	}
+	if c := costFor(p, wire); c != nil {
+		e["cost"] = c
+	}
 	return e
+}
+
+// costFor is Pi's per-model cost (USD per million tokens) from p's options.prices; nil when the model has no price.
+func costFor(p *providers.Provider, wire string) map[string]any {
+	key := models.ModelKey(wire)
+	for id, pr := range p.Options.Prices {
+		if models.ModelKey(id) == key {
+			return map[string]any{"input": pr.Input, "output": pr.Output, "cacheRead": pr.CacheRead, "cacheWrite": pr.CacheWrite}
+		}
+	}
+	return nil
 }
 
 type menuItem struct{ wire, label, w string }

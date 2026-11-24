@@ -138,6 +138,35 @@ func checkLaunchedWindow(t *testing.T, p *providers.Provider, full Bases, out pi
 	}
 }
 
+func TestBuildConfigWritesCostOnlyForPricedModels(t *testing.T) {
+	p := testProvider(t)
+	p.Options.Prices = map[string]providers.Price{"claude-sonnet-5-5": {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}}
+	full := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
+	mj, _, _, err := BuildConfig(p, p, full, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Providers map[string]struct {
+			Models []struct {
+				ID   string             `json:"id"`
+				Cost map[string]float64 `json:"cost"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(mj, &out); err != nil {
+		t.Fatal(err)
+	}
+	if c := out.Providers["dbx-claude"].Models[0].Cost; c["input"] != 3 || c["output"] != 15 || c["cacheRead"] != 0.3 || c["cacheWrite"] != 3.75 {
+		t.Errorf("priced model cost = %v", c)
+	}
+	for _, m := range out.Providers["dbx-chat"].Models {
+		if m.Cost != nil {
+			t.Errorf("unpriced %s got cost %v", m.ID, m.Cost)
+		}
+	}
+}
+
 func TestBuildConfigRoutelessWire(t *testing.T) {
 	p := testProvider(t)
 	mj, _, menu, err := BuildConfig(p, p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "", 0)
