@@ -39,7 +39,7 @@ cd {{sh .Workdir}}
 go vet {{sh .Package}}
 {{.IdentityCommand}}
 {{.Verify}}
-rtk git diff --no-ext-diff --no-textconv HEAD
+{{if not .CodeMode}}rtk {{end}}git diff --no-ext-diff --no-textconv HEAD
 ```
 
 Check successful and failing inputs, errors, side effects, and cancellation against the parent, not just timing.
@@ -52,8 +52,8 @@ Inspect the entire lane diff for ownership and unchanged benchmarks. Run Skill(s
 - Report compile errors in unowned files; do not fix them. Do not add tests or modify existing tests in this fix lane.
 - Never wipe or rewrite the dispatch environment, print credentials, use sudo, or delete outside scratch directories.
 - Never use foreground sleep; use background work and its completion notification.
-- Shell output uses rtk; use rtk read for files and rtk bypass when exact bytes matter. go vet stays bare.
-- Run scoped checks only, never the full suite. Fix leaves use Databricks with the harness's R6 model mix.
+{{if not .CodeMode}}- Shell output uses rtk; use rtk read for files and rtk bypass when exact bytes matter. go vet stays bare.
+{{end}}- Run scoped checks only, never the full suite. Fix leaves use Databricks with the harness's R6 model mix.
 - Hand back uncommitted. D1 reserves commits for the driver in lanes only; never commit on main or merge a lane.
 - Do not record a KEEP or advance rolling.txt; the driver owns decisions and baseline promotion after merge.
 

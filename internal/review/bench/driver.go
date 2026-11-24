@@ -397,7 +397,7 @@ func (d *driver) fixLeaf(ctx context.Context, c *candidate) error {
 		OwnedLine: owned, Verify: rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), Benchmark: "the benchmarks",
 		Package: pkg, Workdir: c.lane, Cause: c.What, Numbers: numbers, BeforeFile: c.before,
 		BenchCommand:    rtkwrap.ForModel(ctx, "go test -run '^$' -bench . -benchmem -count 8 "+pkg, c.lane),
-		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
+		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane), CodeMode: rtkwrap.CodeMode(),
 	})
 	if err != nil {
 		return err
@@ -537,7 +537,7 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 		OwnedLine: owned, Verify: rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), Benchmark: "the benchmarks",
 		Package: pkg, Workdir: c.lane, Numbers: strings.Join(c.res.Decision.Rows, "\n"), BeforeFile: c.res.Before,
 		AfterFile: c.res.After, Diff: "```diff\n" + diff + "\n```",
-		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
+		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane), CodeMode: rtkwrap.CodeMode(),
 	})
 	if err != nil {
 		return d.hold(c, "prepare review brief: "+err.Error())

@@ -11,11 +11,13 @@ import (
 type BenchFixInput struct {
 	OwnedLine, Verify, Benchmark, Package, Workdir, Cause string
 	Numbers, BeforeFile, BenchCommand, IdentityCommand    string
+	CodeMode                                              bool // set: print bare commands, no rtk
 }
 
 type BenchReviewInput struct {
 	OwnedLine, Verify, Benchmark, Package, Workdir, Numbers string
 	BeforeFile, AfterFile, Diff, IdentityCommand            string
+	CodeMode                                                bool // set: print bare commands, no rtk
 }
 
 type AutofixFinding struct {

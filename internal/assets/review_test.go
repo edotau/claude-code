@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,26 @@ func TestReviewTextParity(t *testing.T) {
 	} {
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(tc.text))); got != tc.hash {
 			t.Errorf("%s: sha256 %s, want %s", tc.name, got, tc.hash)
+		}
+	}
+}
+
+func TestBenchBriefsCodeMode(t *testing.T) {
+	fix, review := BenchFixInput{Workdir: "/w", Package: "./p"}, BenchReviewInput{Workdir: "/w", Package: "./p"}
+	for _, code := range []bool{false, true} {
+		fix.CodeMode, review.CodeMode = code, code
+		f, err := BenchFixBrief(fix)
+		r, err2 := BenchReviewBrief(review)
+		if err != nil || err2 != nil {
+			t.Fatal(err, err2)
+		}
+		for _, out := range []string{f, r} {
+			if got := strings.Contains(out, "rtk"); got == code {
+				t.Errorf("CodeMode=%v: rtk present=%v", code, got)
+			}
+			if !strings.Contains(out, "git diff --no-ext-diff") {
+				t.Errorf("CodeMode=%v: diff line missing", code)
+			}
 		}
 	}
 }
