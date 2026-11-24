@@ -323,16 +323,19 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
-	slug, dir := laneTarget(live, hits[0])
+	slug, dir := laneTarget(live, hits[0], in.SessionID)
 	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir, "<slug>", slug).Replace(assets.HookClaimLaneHint())
 	return core.Result{Context: what + "; " + hint}
 }
 
-// laneTarget is the lane slug a change to file suggests (its base name) and that lane's directory under root.
-func laneTarget(root, file string) (slug, dir string) {
+// laneTarget is a lane slug unique to the session (file base name plus session id) and that lane's directory.
+func laneTarget(root, file, session string) (slug, dir string) {
 	slug = "edit" // a staged hit can name a git command, not a path
 	if filepath.IsAbs(file) {
 		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
+	}
+	if id := paths.Slug(session, "", 8, ""); id != "" {
+		slug += "-" + id
 	}
 	return slug, filepath.Join(paths.LaneRoot(root), slug)
 }
@@ -354,7 +357,7 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
 			continue
 		}
-		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0])
+		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID)
 		return core.Result{Context: fmt.Sprintf("lanes mode: %d tracked file(s) of %s change in its main checkout; "+
 			"a lane keeps it clean: claude-code worktree create %s", len(hits), root, slug)}
 	}
