@@ -142,8 +142,15 @@ func FailUnreadable(id string) error {
 		return err
 	}
 	return paths.WithFileLock(p, func() error {
-		if _, err := load(p); err == nil || errors.Is(err, os.ErrNotExist) {
-			return nil // readable or absent: nothing to replace
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err // a read error may be transient: never replace on it
+		}
+		if _, err := load(p); err == nil {
+			return nil // readable: nothing to replace
 		}
 		scope := Scope{Unit: "unreadable " + id, Kind: KindTask, Own: []string{"-"}}
 		c, ps := Open(scope, Party{Role: RoleOwner, Agent: "unknown"}, LimitsFor(KindTask, RoleOwner, Limits{}), Facts{})
@@ -156,11 +163,7 @@ func FailUnreadable(id string) error {
 		if err != nil {
 			return err
 		}
-		raw, err := os.ReadFile(p)
-		if err == nil {
-			err = paths.AtomicWrite(p+".corrupt", raw, 0o600)
-		}
-		if err != nil {
+		if err := paths.AtomicWrite(p+".corrupt", raw, 0o600); err != nil {
 			return fmt.Errorf("contract %q: keep the unreadable file: %w", id, err)
 		}
 		return write(p, c)

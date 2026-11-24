@@ -855,8 +855,8 @@ func planTaskCheck(f *askFlags) error {
 		return nil
 	case !planTaskRE().MatchString(f.planTask):
 		return fmt.Errorf("--plan-task %q must match %s", f.planTask, planTaskRE())
-	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "":
-		return errors.New("--plan-task names one task: not with --batch, --live or --loop (a batch line carries plan_task)")
+	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "" || f.waves != "":
+		return errors.New("--plan-task names one task: not with --batch, --live, --loop or --waves (a batch line carries plan_task)")
 	case f.job != "":
 		return errors.New("--plan-task stamps a new dispatch: not with --job (the record already carries it)")
 	}

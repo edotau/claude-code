@@ -558,7 +558,7 @@ func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr err
 	if err != nil {
 		return contractReturn{End: endDied}
 	}
-	r := contractReturn{End: runEndOf(rec, res, runErr), Verify: res.Verify, Handback: res.Handback, Report: rec.Report}
+	r := contractReturn{End: runEndOf(res, runErr), Verify: res.Verify, Handback: res.Handback, Report: rec.Report}
 	if res.Handback != nil {
 		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
 	}
@@ -578,7 +578,7 @@ func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr err
 }
 
 // settleGateTimeout bounds the settle gate so a 9m30s run plus the gate stays under the 10m Bash cap.
-const settleGateTimeout = 30 * time.Second
+const settleGateTimeout = 15 * time.Second
 
 // gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
 func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {
@@ -645,7 +645,7 @@ func spentTokens(u *wire.Usage) int {
 }
 
 // runEndOf is how the held run ended: a cancel, a finished ok run, else a died owner.
-func runEndOf(rec agent.Record, res wire.Result, runErr error) runEnd {
+func runEndOf(res wire.Result, runErr error) runEnd {
 	switch {
 	case agent.CutoffOf(runErr) == agent.CutoffDeadline:
 		return endDeadline

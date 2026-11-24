@@ -108,7 +108,7 @@ func TestContractRefusalsAndDeadlineEnd(t *testing.T) {
 	if err := planTaskCheck(&askFlags{planTask: "Phase 1", job: "j-1"}); err == nil {
 		t.Fatal("--plan-task with --job accepted")
 	}
-	if got := runEndOf(agent.Record{}, wire.Result{}, context.DeadlineExceeded); got != endDeadline {
+	if got := runEndOf(wire.Result{}, context.DeadlineExceeded); got != endDeadline {
 		t.Fatalf("runEndOf = %q", got)
 	}
 }
