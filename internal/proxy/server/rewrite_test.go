@@ -638,3 +638,24 @@ func TestBuiltinSonnetSwap(t *testing.T) {
 		})
 	}
 }
+
+// The ids Claude Code sends by itself reach their Databricks endpoint, with no slot env needed.
+func TestClaudeCodeOwnIDsReachDatabricksEndpoints(t *testing.T) {
+	up := newRawUp(t, okRaw)
+	t.Setenv("DEV_TOKEN", "dev-workspace-token")
+	srv := setupRouter(t, clientTokenOverlay(up.URL), nil)
+	for _, c := range []struct{ sent, want string }{
+		{"claude-haiku-5-5", "databricks-claude-haiku-5-5"}, {"claude-haiku-5-5-20261001", "databricks-claude-haiku-5-5"},
+		{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5"}, {"claude-sonnet-5-5[1m]", "databricks-claude-sonnet-5-5"},
+		{"claude-opus-5-5", "databricks-claude-opus-5-5"}, {"claude-opus-5-5[1m]", "databricks-claude-opus-5-5"},
+		{"opus", "databricks-claude-opus-5-5"}, {"sonnet", "databricks-claude-sonnet-5-5"}, {"haiku", "databricks-claude-haiku-5-5"},
+	} {
+		before := len(up.got())
+		resp := post(t, srv.URL+"/p/dev/v1/messages", `{"model":"`+c.sent+`","max_tokens":5}`, nil)
+		body(t, resp)
+		got := up.got()
+		if resp.StatusCode != http.StatusOK || len(got) != before+1 || !strings.Contains(got[before].body, `"model":"`+c.want+`"`) {
+			t.Errorf("%s: status %d, upstream %d requests, want model %s (last body %v)", c.sent, resp.StatusCode, len(got)-before, c.want, got)
+		}
+	}
+}

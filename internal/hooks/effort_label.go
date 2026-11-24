@@ -293,8 +293,10 @@ func (r *dispatchRun) fableNote(route agentpkg.ModelRoute, label string) string 
 
 // opusPin is the profile's Opus id as the proxy's refusal names it: the session pin, else the wire spelling.
 func opusPin(reg *providers.Registry, p *providers.Provider) string {
-	if sel, err := providers.Select(reg, p.Name); err == nil && sel.ClientModel(models.Opus) != "" {
-		return sel.ClientModel(models.Opus)
+	if sel, err := providers.Select(reg, p.Name); err == nil {
+		if c, _, ok := models.Resolve(sel.ClientModel(models.Opus)); ok && models.FamilyOf(c) == models.Opus {
+			return sel.ClientModel(models.Opus)
+		}
 	}
 	return p.WireModel(models.Opus)
 }

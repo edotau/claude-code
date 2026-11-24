@@ -421,25 +421,18 @@ func configDirEnvIsDefault() bool {
 	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
 }
 
-// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every alias the selection resolved.
+// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per alias, except on Databricks (the proxy maps its ids).
 func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
-	for _, alias := range models.AliasNames {
-		if m := sel.ClientModel(alias); m != "" && !fableSlotMismatch(sel, alias, m) {
-			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
+	if sel.Provider.SpellingRule() != "databricks-serving" {
+		for _, alias := range models.AliasNames {
+			if m := sel.ClientModel(alias); m != "" {
+				plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
+			}
 		}
 	}
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
 	}
-}
-
-// fableSlotMismatch: Databricks serves no Fable, so a non-Fable id in its slot (an all-slot pin) stays unset.
-func fableSlotMismatch(sel providers.Selection, alias, m string) bool {
-	if alias != models.Fable || sel.Provider.SpellingRule() != "databricks-serving" {
-		return false
-	}
-	c, _, ok := models.Resolve(m)
-	return !ok || models.FamilyOf(c) != models.Fable
 }
 
 func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) {

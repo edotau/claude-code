@@ -902,16 +902,21 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 	}
 }
 
-// Databricks serves no Fable: the alias stays unset so the proxy refuses it (R8), never maps it.
-func TestFableAliasEnvOnDatabricks(t *testing.T) {
+// Databricks keeps Claude Code's own /model lineup: no slot env, so a Fable request reaches the proxy's refusal (R8).
+func TestAliasEnvOnDatabricks(t *testing.T) {
 	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "databricks-claude-opus-5-5"}}},
 		"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "claude-opus-4-6", "fable": "claude-fable-5-2"}}}}}`)
-	for _, c := range []struct{ profile, want string }{
-		{"dbx", ""},
-		{"gw", "claude-fable-5-2"},
+	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-opus-5-5")
+	for _, c := range []struct {
+		profile string
+		want    map[string]string
+	}{
+		{"dbx", map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "", "ANTHROPIC_DEFAULT_FABLE_MODEL": "", "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL": "", "CLAUDE_CODE_AUTO_MODE_MODEL": "databricks-claude-opus-5-5"}},
+		{"gw", map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-5"}}, // unchanged
 	} {
 		sel, err := providers.Select(mustRegistry(t), c.profile)
 		if err != nil {
@@ -919,24 +924,11 @@ func TestFableAliasEnvOnDatabricks(t *testing.T) {
 		}
 		plan := agent.Plan{Set: map[string]string{}}
 		setModelAliasEnv(&plan, sel)
-		if got := plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"]; got != c.want {
-			t.Errorf("%s: ANTHROPIC_DEFAULT_FABLE_MODEL = %q, want %q", c.profile, got, c.want)
+		for k, want := range c.want {
+			if got := plan.Set[k]; got != want {
+				t.Errorf("%s: %s = %q, want %q", c.profile, k, got, want)
+			}
 		}
-	}
-}
-
-// An all-slot Opus pin never fills the Databricks Fable slot.
-func TestFableSlotIgnoresAllSlotPinOnDatabricks(t *testing.T) {
-	hermetic(t, armDBX)
-	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-opus-5-5")
-	sel, err := providers.Select(mustRegistry(t), "dev")
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := agent.Plan{Set: map[string]string{}}
-	setModelAliasEnv(&plan, sel)
-	if got, ok := plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"]; ok {
-		t.Errorf("ANTHROPIC_DEFAULT_FABLE_MODEL = %q, want unset", got)
 	}
 }
 

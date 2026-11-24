@@ -206,6 +206,10 @@ func TestLabelNamesOnlyTheModelThatRuns(t *testing.T) {
 	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") || !strings.Contains(n, "databricks-claude-opus-5-5") {
 		t.Errorf("fableNote on dev = %q, want the refusal and the Opus id", n)
 	}
+	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-sonnet-5-5")
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); strings.Contains(n, "sonnet") {
+		t.Errorf("fableNote with a Sonnet all-slot pin = %q, want the Opus id", n)
+	}
 	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-opus-5-5"); n != "" {
 		t.Errorf("fableNote for Opus = %q, want none", n)
 	}
