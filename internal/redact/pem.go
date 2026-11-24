@@ -2,6 +2,7 @@ package redact
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 )
 
@@ -25,11 +26,20 @@ func AfterOrphanPEM(s string, open bool) string {
 	return ""
 }
 
-// PEMOpenAfterDrop is whether the first drop bytes of b end inside a PEM block; open is the state before the drop.
+var pemKeyBegin = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`)
+
+// pemLook is how far past a cut a marker may reach and still count: the longest key BEGIN label.
+const pemLook = 40
+
+// PEMOpenAfterDrop is whether the first drop bytes of b end inside a private-key block; open is the state before.
 func PEMOpenAfterDrop(b []byte, drop int, open bool) bool {
-	seen := b[:drop+len(PEMBegin)-1] // a marker split by the cut still counts
-	if bi, e := bytes.LastIndex(seen, []byte(PEMBegin)), bytes.LastIndex(seen, []byte(PEMEnd)); bi != e {
-		return bi > e // neither marker in drop: the state from earlier drops stands
+	seen := b[:min(len(b), drop+pemLook)] // a marker split by the cut still counts
+	begin := -1
+	if all := pemKeyBegin.FindAllIndex(seen, -1); len(all) > 0 {
+		begin = all[len(all)-1][0]
+	}
+	if end := bytes.LastIndex(seen, []byte(PEMEnd)); begin != end {
+		return begin > end // neither marker in drop: the state from earlier drops stands
 	}
 	return open
 }
