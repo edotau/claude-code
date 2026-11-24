@@ -698,10 +698,11 @@ func (r *askRun) askState() *askState {
 // request is batchBase plus the single-task fields.
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
+	f.verify = cmp.Or(f.verify, takeCarryVerify()) // before batchBase snapshots the env, so no descendant inherits it
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
-	o.AutoArm, o.Verify = r.auto != "", cmp.Or(f.verify, takeCarryVerify())
+	o.AutoArm, o.Verify = r.auto != "", f.verify
 	return o
 }
 
