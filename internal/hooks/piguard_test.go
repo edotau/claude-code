@@ -72,3 +72,21 @@ func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
 		t.Errorf("empty module list: %q, want a block", got)
 	}
 }
+
+func TestPiActionArgvIsBuiltByGo(t *testing.T) {
+	got, err := piActionArgv("gate", map[string]any{"scope": []any{"internal/pi", "cmd"}})
+	if want := "worktree gate --run --format json --scope internal/pi,cmd"; err != nil || strings.Join(got, " ") != want {
+		t.Errorf("argv = %v, %v", got, err)
+	}
+	for _, in := range []map[string]any{{"scope": []any{"../x"}}, {"scope": []any{"/etc"}}, {"scope": []any{"a b"}}, {"x": 1}} {
+		if _, err := piActionArgv("gate", in); err == nil {
+			t.Errorf("gate %v: want a usage error", in)
+		}
+	}
+	if v := piGuard(t, "handback", map[string]any{"status": "DONE"}); !v.Allow || v.Run != nil {
+		t.Errorf("handback = %+v", v)
+	}
+	if v := piGuard(t, "handback", map[string]any{"nope": 1}); v.Allow || v.Block != "" || v.Usage == "" {
+		t.Errorf("unknown handback key = %+v", v)
+	}
+}

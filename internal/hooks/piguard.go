@@ -3,9 +3,12 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -26,11 +29,13 @@ type piCall struct {
 	SessionID string         `json:"session_id"`
 }
 
-// piVerdict is the whole reply: Block (a reason) blocks, only Allow runs the tool, on Path when it names one.
+// piVerdict is the whole reply: Block blocks, only Allow runs the tool (on Path or Run); Usage is a tool error.
 type piVerdict struct {
-	Allow bool   `json:"allow,omitempty"`
-	Block string `json:"block,omitempty"`
-	Path  string `json:"path,omitempty"`
+	Allow bool     `json:"allow,omitempty"`
+	Block string   `json:"block,omitempty"`
+	Path  string   `json:"path,omitempty"`
+	Run   []string `json:"run,omitempty"`
+	Usage string   `json:"usage,omitempty"`
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -62,6 +67,9 @@ func dropHookControlEnv() {
 
 // judgePi normalizes the call, builds the hook payload from canonical fields only, and runs Pi's PreToolUse modules.
 func judgePi(c piCall) piVerdict {
+	if isPiAction(c.Tool) {
+		return judgePiAction(c)
+	}
 	tool, ok := piTools[c.Tool]
 	if !ok {
 		return piBlock("tool " + c.Tool + " is not mapped") // unknown and package tools are never allowed
@@ -267,4 +275,80 @@ func resolvePiPath(raw, cwd string) (path, why string) {
 		return "", "the resolved path holds a non-ASCII space Pi would rewrite" // Pi's own pass must be a no-op on it
 	}
 	return p, ""
+}
+
+// piHandbackKeys and piGateKeys are the typed arguments of the two runner actions.
+var (
+	piHandbackKeys = []string{"status", "summary", "unfixed"}
+	piGateKeys     = []string{"scope"}
+	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
+)
+
+// isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
+func isPiAction(tool string) bool { return tool == "gate" || tool == "handback" }
+
+// piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
+func piActionArgv(tool string, input map[string]any) ([]string, error) {
+	keys := piGateKeys
+	if tool == "handback" {
+		keys = piHandbackKeys
+	}
+	for k := range input {
+		if !slices.Contains(keys, k) {
+			return nil, fmt.Errorf("%s: unknown argument %q (allowed: %s)", tool, k, strings.Join(keys, ", "))
+		}
+	}
+	if tool == "handback" {
+		return nil, nil
+	}
+	argv := []string{"worktree", "gate", "--run", "--format", "json"}
+	scope, err := piGateScope(input["scope"])
+	if err != nil {
+		return nil, err
+	}
+	if scope == "" {
+		return argv, nil
+	}
+	return append(argv, "--scope", scope), nil
+}
+
+// piGateScope is the comma-joined scope dirs; each must be a clean relative directory.
+func piGateScope(list any) (string, error) {
+	if list == nil {
+		return "", nil
+	}
+	items, ok := list.([]any)
+	if !ok {
+		return "", errors.New("gate: scope must be an array of directories")
+	}
+	var scope []string
+	for _, it := range items {
+		s, _ := it.(string)
+		if !filepath.IsLocal(s) || !piScopeEntry.MatchString(s) {
+			return "", fmt.Errorf("gate: scope entry %q is not a clean relative directory", s)
+		}
+		scope = append(scope, s)
+	}
+	return strings.Join(scope, ","), nil
+}
+
+// judgePiAction judges a runner action: a gate is judged as the bash line it will run, a handback runs nothing.
+func judgePiAction(c piCall) piVerdict {
+	argv, err := piActionArgv(c.Tool, c.Input)
+	if err != nil {
+		return piVerdict{Usage: err.Error()}
+	}
+	if argv == nil {
+		return piVerdict{Allow: true}
+	}
+	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "claude-code " + strings.Join(argv, " ")}, "cwd": c.CWD,
+		"session_id": c.SessionID, "harness_agent": "pi"})
+	if err != nil {
+		return piBlock("payload: " + err.Error())
+	}
+	if reason := piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload); reason != "" {
+		return piVerdict{Block: reason}
+	}
+	return piVerdict{Allow: true, Run: argv}
 }

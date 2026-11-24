@@ -253,7 +253,7 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 }
 
 // guardTools are the tools the guard registers on a --tools run.
-const guardTools = "read,bash,edit,write,grep,find,ls"
+const guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
 func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {

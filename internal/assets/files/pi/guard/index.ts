@@ -21,14 +21,17 @@ function hookEnv(): Record<string, string> {
 }
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string } {
+function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; usage?: string } {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
       env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
-    return v.allow === true ? { path: typeof v.path === "string" ? v.path : "" } : stuck("unrecognized verdict")
+    if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
+    if (v.allow !== true) return stuck("unrecognized verdict")
+    const run = Array.isArray(v.run) && v.run.every((a: any) => typeof a === "string") ? v.run : undefined
+    return { path: typeof v.path === "string" ? v.path : "", run }
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
@@ -47,6 +50,37 @@ function guarded(name: string, def: any) {
   } }
 }
 
+// ACTIONS are plain JSON Schema tools: the model picks the action and typed arguments, Go builds the argv.
+const ACTIONS: Record<string, any> = {
+  gate: { label: "Gate", executionMode: "sequential",
+    promptSnippet: "gate: run the repo's build, vet and test gate (use it instead of typing go test in bash)",
+    description: "Run the repo's scoped build, vet and test gate; returns {gate,exit,changed,failures}",
+    parameters: { type: "object", additionalProperties: false,
+      properties: { scope: { type: "array", items: { type: "string" }, description: "dirs to limit the gate to" } } } },
+  handback: { label: "Hand back", promptSnippet: "handback: report the task's outcome; call it once, last",
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
+    description: "Finish: report the outcome of the task. Call once, last.",
+    parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
+      properties: { status: { enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
+        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } } } } },
+}
+
+// action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
+function action(name: string) {
+  return { name, ...ACTIONS[name], async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+    const cwd = String(ctx?.cwd || process.cwd())
+    const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
+    if (v.block) throw new Error(v.block)
+    if (v.usage) throw new Error(name + ": " + v.usage)
+    let text = "recorded"
+    if (v.run) {
+      try { text = execFileSync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 }) }
+      catch (err: any) { text = String(err.stdout || "") + String(err.stderr || "") + "exit " + (err.status ?? err.code) } // a red gate is a result
+    }
+    return { content: [{ type: "text", text }], details: {} }
+  } }
+}
+
 export default function (pi: any) {
   // fail closed: a Pi this guard was not checked against may normalize or validate differently; throwing aborts the run
   if ((pkg as any).VERSION !== VERIFIED_PI) throw new Error("pi guard: Pi " + (pkg as any).VERSION + " is not the verified " + VERIFIED_PI)
@@ -54,6 +88,7 @@ export default function (pi: any) {
   const file = process.env.HARNESS_PI_GUARD_NONCE_FILE, nonce = process.env.HARNESS_PI_GUARD_NONCE
   if (!names.length || !file || !nonce) throw new Error("pi guard: tool or nonce env is not set") // cannot prove it loaded: abort
   for (const name of names) {
+    if (ACTIONS[name]) { pi.registerTool(action(name)); continue }
     const make = (pkg as any)[FACTORIES[name] ?? ""]
     if (typeof make !== "function") throw new Error("pi guard: no tool factory for " + name)
     pi.registerTool(guarded(name, make(process.cwd())))
