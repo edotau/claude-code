@@ -17,9 +17,10 @@ import (
 const CodemodeEnv = "CODEMODE"
 
 // CodeMode reports whether this process runs inside a code-mode agent run: off and empty are false.
-func CodeMode() bool { return codemodeOn(os.Getenv(CodemodeEnv)) }
+func CodeMode() bool { return CodemodeOn(os.Getenv(CodemodeEnv)) }
 
-func codemodeOn(v string) bool {
+// CodemodeOn reports whether a CODEMODE value turns code mode on: on, only, 1 or true.
+func CodemodeOn(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "on", "only", "1", "true":
 		return true
@@ -95,7 +96,7 @@ func Launch(env []string, codemode string, notice io.Writer) []string {
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
 	out = append(out, "PATH="+dir+string(os.PathListSeparator)+path, CodemodeEnv+"="+codemode)
 	file := filepath.Join(dir, bashEnvName)
-	if codemodeOn(codemode) {
+	if CodemodeOn(codemode) {
 		return withoutBashEnv(out, file)
 	}
 	return withBashEnv(out, file)

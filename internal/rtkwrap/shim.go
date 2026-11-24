@@ -52,7 +52,7 @@ type call struct {
 
 // gate is the Pi tool-shell command c runs within and "" to wrap it, else the reason code that keeps c raw.
 func (c call) gate() (cmd, reason string) {
-	if codemodeOn(c.codemode) {
+	if CodemodeOn(c.codemode) {
 		return "", "codemode"
 	}
 	if !c.pipe {

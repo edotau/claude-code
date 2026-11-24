@@ -1,7 +1,6 @@
 package pi
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,15 +30,12 @@ const (
 // CodemodeModes are the --codemode values: Pi's codemode.mode setting.
 var CodemodeModes = []string{"off", "on", "only"}
 
-// CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
-const CodemodeEnv = "CODEMODE"
-
-// ResolveCodemode is the typed --codemode (a typed off stays off), else CODEMODE under --tools; other settings are "".
+// ResolveCodemode is the typed --codemode (a typed off stays off), else the vault CODEMODE under --tools, else "".
 func ResolveCodemode(typed string, tools bool) (string, error) {
 	if typed != "" || !tools {
 		return typed, nil
 	}
-	mode := strings.ToLower(strings.TrimSpace(cmp.Or(os.Getenv(CodemodeEnv), providers.CustomEnv()[CodemodeEnv])))
+	mode := strings.ToLower(strings.TrimSpace(providers.CustomEnv()[rtkwrap.CodemodeEnv]))
 	if mode == "off" || !slices.Contains(CodemodeModes, mode) {
 		return "", nil
 	}
@@ -47,7 +43,7 @@ func ResolveCodemode(typed string, tools bool) (string, error) {
 }
 
 // codemodeOn reports whether a request's Codemode turns code mode on: "" and a typed "off" do not.
-func codemodeOn(mode string) bool { return mode != "" && mode != "off" }
+func codemodeOn(mode string) bool { return rtkwrap.CodemodeOn(mode) }
 
 // Experiment is the trial a run of req carries: code mode, else rtk wrapping wherever its bash tool runs shimmed.
 func (piEngine) Experiment(req agent.RunOptions) string {
@@ -83,11 +79,14 @@ func lastEnv(env []string, name string) string {
 
 // checkCodemode refuses a code mode Pi would not run as asked: an unknown mode or no tools.
 func checkCodemode(req agent.RunOptions, _ []string) error {
-	if !codemodeOn(req.Codemode) {
+	if req.Codemode == "" {
 		return nil
 	}
 	if !slices.Contains(CodemodeModes, req.Codemode) {
 		return fmt.Errorf("pi: --codemode %q is not one of %s", req.Codemode, strings.Join(CodemodeModes, "|"))
+	}
+	if !codemodeOn(req.Codemode) {
+		return nil
 	}
 	if !req.Tools {
 		return errors.New("pi: --codemode needs --tools: its scripts call the guarded tools")
