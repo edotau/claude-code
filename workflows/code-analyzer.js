@@ -228,8 +228,8 @@ function analyzerGateRules() {
 
 /** @param {{ CD: *, SHARED_TREE: *, dryRun: *, json: *, label: * }} input */
 function analyzerRecordReportBrief({ CD, SHARED_TREE, dryRun, json, label }) {
-  return SHARED_TREE + ' Record this and nothing else. First run `date +%H%M%S` as its own command. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
-    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + '-<that time> --file <that file> --format json </dev/null` ' +
+  return SHARED_TREE + ' Record this and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
+    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
     'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents ask --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json
 }
 

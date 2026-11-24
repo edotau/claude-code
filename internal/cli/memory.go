@@ -61,7 +61,7 @@ var memoryPlumbing = map[string][2]string{
 	"search":  {"<terms>", "rank blocks for terms, with scores"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
-	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/"},
+	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
 }
