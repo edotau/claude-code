@@ -541,7 +541,7 @@ var hookLockWait = time.Second
 
 // Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.
 func Mirror(in *core.Input, stderr io.Writer) int {
-	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); paths.Within(p, filepath.Join(paths.ConfigDir(), "plans")) {
+	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); paths.InsideDir(p, filepath.Join(paths.ConfigDir(), "plans")) {
 		plans.RecordBorn(p) // a dated plan written by the tool itself; drafts get theirs in writePlan
 	}
 	path, content, ok := mirrorSource(in)

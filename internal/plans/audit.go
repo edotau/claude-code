@@ -394,9 +394,9 @@ func planSnapshot(plan string) string {
 	return "-"
 }
 
-// predates: the commit was authored before the plan was written or the plan sits on top of it, so it delivers no task.
+// predates: the commit was authored at or before the plan was written, or sits under its snapshot: it delivers no task.
 func (r *reach) predates(born int64, c auditCommit, snapshot int) bool {
-	return c.at < born || snapshot >= 0 && r.index(c.sha) >= snapshot
+	return c.at <= born || snapshot >= 0 && r.index(c.sha) >= snapshot
 }
 
 // ownedSubject ticks t from the first landed commit since the plan was written whose subject and files match.

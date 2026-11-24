@@ -695,8 +695,12 @@ func RecordDest(draftBase, dest string) error {
 
 // writePlan is the package's one write site (the schemas registry keys on it): atomic replace keeping dest's mode.
 func writePlan(dest string, data []byte, mode os.FileMode) error {
-	planBorn(dest, true) // before the replace resets the file's birth time
-	return paths.AtomicWrite(dest, data, mode)
+	born := planBorn(dest, false) // read before the replace moves the mtime, pinned only once the write lands
+	if err := paths.AtomicWrite(dest, data, mode); err != nil {
+		return err
+	}
+	pinBorn(paths.CanonDeep(dest), born)
+	return nil
 }
 
 func commitMessage(root string, c Commit) (string, error) {
