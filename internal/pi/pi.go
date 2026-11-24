@@ -297,8 +297,18 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	for _, f := range req.Attach { // Pi reads a leading-@ positional itself, so no size cap or smuggled prompt text applies
 		p.Argv = append(p.Argv, "@"+f)
 	}
+	if viaStdin(p.Prompt) {
+		p.Argv = append(p.Argv, stdinTask)
+		return
+	}
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
 }
+
+// stdinTask is the argv message of a prompt too big for one argument; Pi prepends the piped prompt to it.
+const stdinTask = "Follow the instructions in the piped input."
+
+// viaStdin reports whether prompt rides Pi's stdin, which has no size cap, instead of one argv element.
+func viaStdin(prompt string) bool { return len(prompt) > agent.MaxPromptBytes }
 
 // webHint tells a tools run to search the web through the Tavily CLI: Pi has no web tool and runs with --no-mcp.
 func webHint(tools bool) string {
@@ -362,7 +372,11 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 
 // childCmd is Pi's process; fail closed: no source (inherited, vault, overlay, --env) may hand it a HARNESS_HOOK_* switch.
 func childCmd(ctx context.Context, bin string, p agent.CLIPrep, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer) {
-	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	stdin := ""
+	if viaStdin(p.Prompt) {
+		stdin = p.Prompt
+	}
+	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, stdin, req.KeepEnv, true)
 	cmd.Env = withoutHookControl(cmd.Env)
 	proc.TreeCancel(cmd, stopGrace) // Pi's bash runs in its own group: a group kill alone leaves it running
 	return cmd, tail
