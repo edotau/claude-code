@@ -199,9 +199,10 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
 1. **Queue:** the [Dispatch table](#dispatch-table) holds the blocked tasks; dispatch one the moment its blocker
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
-   reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
-   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit
-   follow `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
+   reads the diff, not the manager) → a fix leaf for each finding (its review loop stops at 3 rounds, then the
+   manager evaluates and continues) → the manager re-runs the scoped gate and commits named files
+   (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit follow
+   `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
 3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking,
    within the owner's named priority (R25).
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,

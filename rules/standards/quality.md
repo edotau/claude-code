@@ -76,9 +76,10 @@ within the named priority (R25).
 
 **Review loop (R28):** every code change gets an other-family review; findings are fixed and the diff reviewed
 again until a review returns no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better). Only then does it merge
-and get its completion report. Every dispatched code task carries this goal (`agents ask` adds it to every brief
-that can write code; a read-only review reports findings instead). Fixes dispatch automatically and are not
-announced; blockers and owner decisions are still raised.
+and get its completion report. A leaf runs at most 3 rounds, then hands back the last review verbatim; the main
+session separates real findings from noise, fixes or redirects, and reports only when finished. Every dispatched
+code task carries this goal (`agents ask` adds it to every brief that can write code; a read-only review reports
+findings instead). Fixes dispatch automatically and are not announced; blockers and owner decisions are still raised.
 
 **Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small,
 else by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or

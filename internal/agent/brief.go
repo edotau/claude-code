@@ -33,9 +33,10 @@ type BriefInput struct {
 
 // ReviewLoopRule is the standing rule every code-writing dispatch carries.
 const ReviewLoopRule = `Review loop (standing rule): after your change, get it reviewed for bugs; fix the findings and review again.
-Do not stop until a review comes back with no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better); hand back
-only then, with the last review's result. A test your change breaks: fix it now if small (repair the test only when
-the test is wrong; never delete or skip it); if large, hand back naming it for a test-repair leaf.`
+Aim for a review with no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better), in at most 3 review rounds;
+if the bar is not met, hand back with the last review verbatim for the main session to evaluate.
+A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip
+it); if large, hand back naming it for a test-repair leaf.`
 
 // reviewLoopBlock is what WithReviewLoop appends; a replayed prompt drops it so each run decides again.
 const reviewLoopBlock = "\n\n" + ReviewLoopRule + "\n"
