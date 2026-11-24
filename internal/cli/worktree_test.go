@@ -783,37 +783,15 @@ func TestRecordCloseTerms(t *testing.T) {
 	hosttest.In(t, repo, "commit", "-qm", "chore: base")
 	head := hosttest.In(t, repo, "rev-parse", "HEAD")
 	hosttest.WriteRel(t, plans.Home(repo), "2026-01-01-x.md", "## Tasks\n- [x] Phase 1.1 — do it (verify: true) ("+head[:7]+")\n")
-	plan := plans.Home(repo) + "/2026-01-01-x.md"
-
-	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.txt"},
-		PlanTask: "Phase 1.1", Plan: plan, Lane: "l1"},
-		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: 1000, Leaves: 1},
-		contract.Facts{Lane: true, PlanTask: true})
-	if len(ps) > 0 {
-		t.Fatal(ps)
-	}
-	for _, term := range []contract.Term{contract.TermLane} {
-		c, _ = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo})
-	}
-	c, _ = c.Start("d1")
-	for _, term := range []contract.Term{contract.TermGate, contract.TermTests, contract.TermHandback, contract.TermReport} {
-		c, _ = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo})
-	}
-	c, err := c.Verify(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.Handback = &contract.Result{Status: contract.StatusDone, Tests: contract.TestsExecuted, Method: contract.MethodSolo}
-	if err := contract.Save(c); err != nil {
-		t.Fatal(err)
-	}
+	saveVerifiedLaneContract(t, plans.Home(repo)+"/2026-01-01-x.md")
 
 	var warn strings.Builder
-	recordCloseTerms(onLane("other"), head, &warn)
+	recordCloseTerms(onLane("other", plans.Home(repo)), head, &warn)
+	recordCloseTerms(forTasks("", plans.Home(repo), plans.Home(repo)+"/2026-01-02-y.md", []string{"Phase 1.1"}), "", &warn)
 	if got, _ := contract.Load("d1"); got.State() != contract.StateVerified {
-		t.Fatalf("another lane's merge changed the contract: %s", got.State())
+		t.Fatalf("another lane or plan changed the contract: %s", got.State())
 	}
-	recordCloseTerms(onLane("l1"), head, &warn)
+	recordCloseTerms(onLane("l1", plans.Home(repo)), head, &warn)
 	got, err := contract.Load("d1")
 	if err != nil || warn.Len() > 0 || got.State() != contract.StateClosed || len(got.Unmet()) != 0 {
 		t.Fatalf("err %v, warn %q, state %s, unmet %v", err, warn.String(), got.State(), got.Unmet())
@@ -822,5 +800,30 @@ func TestRecordCloseTerms(t *testing.T) {
 		if r.By != contract.ByGo || !strings.HasPrefix(head, r.Evidence) {
 			t.Errorf("record %+v, want evidence from %s", r, head)
 		}
+	}
+}
+
+// saveVerifiedLaneContract stores contract d1 on lane l1 for plan's Phase 1.1, verified and holding its hand-back.
+func saveVerifiedLaneContract(t *testing.T, plan string) {
+	t.Helper()
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.txt"},
+		PlanTask: "Phase 1.1", Plan: plan, Lane: "l1"},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: 1000, Leaves: 1},
+		contract.Facts{Lane: true, PlanTask: true})
+	if len(ps) > 0 {
+		t.Fatal(ps)
+	}
+	pass := func(terms ...contract.Term) {
+		for _, term := range terms {
+			c, _ = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo})
+		}
+	}
+	pass(contract.TermLane)
+	c, _ = c.Start("d1")
+	pass(contract.TermGate, contract.TermTests, contract.TermHandback, contract.TermReport)
+	c, err := c.Verify(nil)
+	c.Handback = &contract.Result{Status: contract.StatusDone, Tests: contract.TestsExecuted, Method: contract.MethodSolo}
+	if err != nil || contract.Save(c) != nil {
+		t.Fatal(err)
 	}
 }

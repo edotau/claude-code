@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -99,14 +101,21 @@ func tickSha(c contract.Contract) string {
 	return ""
 }
 
-// onLane matches contracts held by the named lane.
-func onLane(name string) func(contract.Contract) bool {
-	return func(c contract.Contract) bool { return name != "" && c.Scope.Lane == name }
+// inRepo is true for a contract whose plan lives in home (a repo's plans dir); one with no plan names no repo.
+func inRepo(c contract.Contract, home string) bool {
+	return c.Scope.Plan == "" || paths.SamePath(filepath.Dir(c.Scope.Plan), home)
 }
 
-// forTasks matches contracts of a lane's commit: its lane, or a named plan task.
-func forTasks(lane string, tasks []string) func(contract.Contract) bool {
+// onLane matches the repo's contracts held by the named lane.
+func onLane(name, home string) func(contract.Contract) bool {
+	return func(c contract.Contract) bool { return name != "" && c.Scope.Lane == name && inRepo(c, home) }
+}
+
+// forTasks matches a commit's contracts: its lane's, or the named tasks' in the named plan ("": any plan of the repo).
+func forTasks(lane, home, plan string, tasks []string) func(contract.Contract) bool {
 	return func(c contract.Contract) bool {
-		return onLane(lane)(c) || c.Scope.PlanTask != "" && slices.Contains(tasks, c.Scope.PlanTask)
+		named := c.Scope.PlanTask != "" && slices.Contains(tasks, c.Scope.PlanTask) &&
+			(plan == "" && inRepo(c, home) || plan != "" && paths.SamePath(plan, c.Scope.Plan))
+		return named || onLane(lane, home)(c)
 	}
 }
