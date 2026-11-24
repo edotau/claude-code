@@ -607,6 +607,7 @@ type RunOptions struct {
 	Agent                                               string             `json:"-"`
 	Agents                                              map[string]*Schema `json:"-"`
 	Fallback                                            string             `json:"-"`
+	FallbackTyped                                       bool               `json:"-"` // --fallback was typed, not the env default
 	Account                                             string             `json:"-"` // the overlay account key: a GitHub login or profile
 	CellModel                                           bool               `json:"-"`
 	Typed1M                                             bool               `json:"-"`                     // the caller typed [1m]; a cell's bare model still runs at 1M where it can

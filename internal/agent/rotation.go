@@ -167,7 +167,8 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
 	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
 	cells, scope := modeCells(reg, ov.ProviderMode, role, session)
-	ready, rows, skipped := readyCells(reg, o.Agent, cells, session, now)
+	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
+	ready, rows, skipped := scan.ready(cells)
 	head := "rotation: role " + string(role)
 	if scope != "" {
 		head += ", " + scope
@@ -194,8 +195,7 @@ func untypedClaude(ctx context.Context, o RunOptions) bool {
 	if !VaultAgentIsClaude(o.Agent) || slices.ContainsFunc(named, func(s string) bool { return s != "" }) {
 		return false
 	}
-	// ask fills the env default first: a none that differs from it was typed; one equal to it cannot be told apart
-	typedNone := o.Fallback == router.FallbackNone && router.DefaultFallback() != router.FallbackNone
+	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
 	if o.AutoModel || o.Direct || !o.Route.IsZero() || typedNone {
 		return false
 	}
@@ -241,18 +241,32 @@ func modeCells(reg *providers.Registry, modes map[string]string, role router.Rol
 	return cells, "exclusive " + strings.Join(off, ", ") + " kept out"
 }
 
-// readyCells keeps the cells with a ready serving row (the session's first), mapping each to it; the rest say why.
-func readyCells(reg *providers.Registry, agentName string, cells []router.RoleCell, session string, now time.Time) (
-	ready []router.RoleCell, rows map[string]string, skipped []string) {
-	st, rows := router.LoadState(), map[string]string{}
+// cellScan judges role cells for one dispatch: each cell's serving row (the session's first) or why none serves.
+type cellScan struct {
+	ctx     context.Context
+	reg     *providers.Registry
+	agent   string
+	session string
+	now     time.Time
+	st      router.State
+	preflt  map[string]string // a Databricks row's launch preflight refusal, checked once per row
+}
+
+// ready keeps the cells with a ready serving row, mapping each to it; the rest say why.
+func (s cellScan) ready(cells []router.RoleCell) (ready []router.RoleCell, rows map[string]string, skipped []string) {
+	rows = map[string]string{}
 	for _, c := range cells {
-		names := router.RoleRows(reg, c.Provider)
-		if i := slices.Index(names, session); i > 0 {
-			names = append([]string{session}, slices.Delete(slices.Clone(names), i, i+1)...)
+		names := router.RoleRows(s.reg, c.Provider)
+		if i := slices.Index(names, s.session); i > 0 {
+			names = append([]string{s.session}, slices.Delete(slices.Clone(names), i, i+1)...)
 		}
 		var why []string
 		for _, name := range names {
-			if reason := rowNotReady(reg.Row(name), st, agentName, c.Model, now); reason != "" {
+			reason := rowNotReady(s.reg.Row(name), s.st, s.agent, c.Model, s.now)
+			if reason == "" { // the preflight probes only a row the cheap checks pass
+				reason = s.workspaceWhy(name)
+			}
+			if reason != "" {
 				why = append(why, name+" "+reason)
 				continue
 			}
@@ -266,6 +280,25 @@ func readyCells(reg *providers.Registry, agentName string, cells []router.RoleCe
 		ready = append(ready, c)
 	}
 	return ready, rows, skipped
+}
+
+// workspaceWhy is row's launch preflight refusal when it is a Databricks workspace: the explicit route's own check.
+func (s cellScan) workspaceWhy(row string) string {
+	p := s.reg.Row(row)
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return ""
+	}
+	if why, ok := s.preflt[row]; ok {
+		return why
+	}
+	why := ""
+	if resolved, err := agentconfig.CommandProvider(s.ctx, p); err != nil {
+		why = "has an invalid tokenCommand overlay"
+	} else if fs := launchWorkspaceFindings(s.ctx, s.agent, resolved, s.st, s.now, nil); len(fs) > 0 {
+		why = "fails preflight: " + fs[0].Detail
+	}
+	s.preflt[row] = why
+	return why
 }
 
 // rowNotReady is why p cannot run alias's Claude model for agent now: credential, login, tier, then rowHeld.
