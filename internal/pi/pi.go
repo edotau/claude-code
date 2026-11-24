@@ -291,7 +291,7 @@ func isOwnerRun(ctx context.Context) bool {
 		return false
 	}
 	rec, err := agent.LoadRecord(id)
-	return err == nil && rec.Parent == ""
+	return err == nil && rec.Depth == 0
 }
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.

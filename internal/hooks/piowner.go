@@ -85,10 +85,17 @@ func piOwnWithin(list any, scope []string) ([]string, error) {
 }
 
 func piInScope(file string, scope []string) bool {
-	f := filepath.ToSlash(filepath.Clean(file))
+	abs := func(p string) string { // Abs only fails without a cwd; the cleaned path then compares as typed
+		a, err := filepath.Abs(p)
+		if err != nil {
+			a = filepath.Clean(p)
+		}
+		return filepath.ToSlash(a)
+	}
+	f := abs(file)
 	return slices.ContainsFunc(scope, func(o string) bool {
-		o = filepath.ToSlash(filepath.Clean(o))
-		return f == o || (o == "." && filepath.IsLocal(file)) || strings.HasPrefix(f, o+"/")
+		o = abs(o)
+		return f == o || strings.HasPrefix(f, strings.TrimSuffix(o, "/")+"/")
 	})
 }
 
