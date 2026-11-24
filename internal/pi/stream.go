@@ -89,12 +89,52 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
 	if err != nil {
-		res.Answer = t.text()
+		res.Answer = t.answerText()
 		return res, err
 	}
 	err = t.finish(false)
-	res.Answer = t.text()
+	res.Answer = t.answerText()
 	return res, err
+}
+
+// handback is the typed `handback` tool call's arguments; the schema lives in the guard extension's ACTIONS.
+type handback struct {
+	Status  string   `json:"status"`
+	Summary string   `json:"summary"`
+	Unfixed []string `json:"unfixed"`
+}
+
+// handbackStatuses is the schema's status enum: the verdict words.
+var handbackStatuses = []string{"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"}
+
+// parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
+func parseHandback(args json.RawMessage) (h handback, ok bool) {
+	if json.Unmarshal(args, &h) != nil || !slices.Contains(handbackStatuses, h.Status) {
+		return handback{}, false
+	}
+	return h, true
+}
+
+// block is the verdict line, the summary and the single UNFIXED line, built from the typed fields.
+func (h handback) block() string {
+	unfixed := "none"
+	if items := slices.DeleteFunc(slices.Clone(h.Unfixed), func(s string) bool { return strings.TrimSpace(s) == "" }); len(items) > 0 {
+		unfixed = strings.Join(items, "; ")
+	}
+	head := h.Status
+	if s := strings.TrimSpace(h.Summary); s != "" {
+		head += ": " + s
+	}
+	return head + "\nUNFIXED: " + unfixed
+}
+
+// answerText is the final text, then the typed handback block last, so its status and UNFIXED line decide.
+func (t *piTurn) answerText() string {
+	text := t.text()
+	if t.handback == nil {
+		return text
+	}
+	return strings.TrimSpace(text + "\n\n" + t.handback.block())
 }
 
 // piTurn is parseEvents' state across one run's events.
@@ -109,8 +149,10 @@ type piTurn struct {
 	stop         string          // the last assistant message's stop reason; only the last one decides the run
 	errMsg       string          // and its error message
 	assistant    bool
-	open         map[string]string // running tool calls, id to write path
-	inflight     piUsage           // the last non-zero usage of the message still streaming; zero mid-turn means unknown
+	open         map[string]string   // running tool calls, id to write path
+	calls        map[string]handback // handback calls awaiting their result, by tool call id
+	handback     *handback           // the last handback call that succeeded
+	inflight     piUsage             // the last non-zero usage of the message still streaming; zero mid-turn means unknown
 	usageAt      time.Time
 	progressed   bool
 	finished     bool
@@ -166,6 +208,7 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.lg.Emit("tool", ev.ToolName)
 		t.progressed = true
 		t.open[ev.ToolCallID] = ev.writePath()
+		t.noteHandback(ev)
 		use := wire.ToolEvent(ev.ToolName, ev.ToolCallID)
 		use.Text = ev.argSummary()
 		if sofar := t.sofar(); sofar != (wire.Usage{}) {
@@ -225,6 +268,19 @@ func phaseEvent(ev piEvent) wire.Event {
 	return out
 }
 
+// noteHandback keeps a well-formed handback call until its result says it ran.
+func (t *piTurn) noteHandback(ev piEvent) {
+	if ev.ToolName != "handback" {
+		return
+	}
+	if h, ok := parseHandback(ev.Args); ok {
+		if t.calls == nil {
+			t.calls = map[string]handback{}
+		}
+		t.calls[ev.ToolCallID] = h
+	}
+}
+
 func (t *piTurn) toolEnd(ev piEvent) error {
 	t.flushLog()
 	path := cmp.Or(t.open[ev.ToolCallID], ev.writePath())
@@ -234,6 +290,12 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 		status = "error"
 	} else if path != "" {
 		t.res.Written = append(t.res.Written, path)
+	}
+	if h, ok := t.calls[ev.ToolCallID]; ok {
+		delete(t.calls, ev.ToolCallID)
+		if !ev.IsError {
+			t.handback = &h
+		}
 	}
 	t.lg.Emit("tool", ev.ToolName+": "+status)
 	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID},

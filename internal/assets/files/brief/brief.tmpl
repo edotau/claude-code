@@ -47,3 +47,7 @@ Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.
+{{if .Handback}}Finish by calling the `handback` tool once, last, with `status` (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED),
+`summary` (that final answer) and `unfixed` (what you could not fix, empty if none): the harness builds the verdict
+and the `UNFIXED:` line from those fields.
+{{end}}

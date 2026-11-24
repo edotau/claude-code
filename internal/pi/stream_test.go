@@ -402,3 +402,18 @@ func TestParseEventsPhaseMarksAreNotReplayProgress(t *testing.T) {
 		t.Fatalf("progressed %v events %+v", rs.Progressed, evs)
 	}
 }
+
+func TestParseEventsHandbackIsTheAnswer(t *testing.T) {
+	call := `{"type":"tool_execution_start","toolCallId":"h1","toolName":"handback","args":{"status":"DONE_WITH_CONCERNS","summary":"edited a","unfixed":["x","y"]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h1","toolName":"handback","result":{"content":[{"type":"text","text":"recorded"}]},"isError":false}` + "\n"
+	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"final words"}}` + "\n"
+	res, _, _, err := parseFixture(t, text+call+msgEnd("stop", "")+settled)
+	want := "final words\n\nDONE_WITH_CONCERNS: edited a\nUNFIXED: x; y"
+	if err != nil || res.Answer != want {
+		t.Fatalf("answer %q err %v, want %q", res.Answer, err, want)
+	}
+	bad := strings.Replace(call, "DONE_WITH_CONCERNS", "MAYBE", 1)
+	if res, _, _, _ = parseFixture(t, text+bad+msgEnd("stop", "")+settled); res.Answer != "final words" {
+		t.Fatalf("a call outside the enum changed the answer: %q", res.Answer)
+	}
+}
