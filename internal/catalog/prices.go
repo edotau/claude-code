@@ -139,15 +139,23 @@ var FetchSnapshot = func(ctx context.Context) ([]byte, error) {
 }
 
 type snapRates struct {
-	Input      float64 `json:"input"`
-	Output     float64 `json:"output"`
-	CacheRead  float64 `json:"cache_read"`
-	CacheWrite float64 `json:"cache_write"`
+	Input      *float64 `json:"input"`
+	Output     *float64 `json:"output"`
+	CacheRead  *float64 `json:"cache_read"`
+	CacheWrite *float64 `json:"cache_write"`
 }
 
-func (r snapRates) ok() bool {
-	return !slices.ContainsFunc([]float64{r.Input, r.Output, r.CacheRead, r.CacheWrite},
-		func(x float64) bool { return x < 0 || x > maxSnapRate || math.IsNaN(x) })
+// vals is input, output, cache read, cache write (a missing cache rate is 0); listed needs input and output present.
+func (r snapRates) vals() (v [4]float64, listed, ok bool) {
+	for i, p := range []*float64{r.Input, r.Output, r.CacheRead, r.CacheWrite} {
+		if p == nil {
+			continue
+		}
+		if v[i] = *p; v[i] < 0 || v[i] > maxSnapRate || math.IsNaN(v[i]) {
+			return v, false, false
+		}
+	}
+	return v, r.Input != nil && r.Output != nil, true
 }
 
 type snapTier struct {
@@ -184,11 +192,14 @@ func (m snapModel) row() (ModelPrice, error) {
 	if m.Cost == nil {
 		return out, nil
 	}
-	r := m.Cost.snapRates
-	if !r.ok() {
+	v, listed, ok := m.Cost.vals()
+	if !ok {
 		return ModelPrice{}, errors.New("price negative or absurd")
 	}
-	out.Priced, out.Input, out.Output, out.CacheRead, out.CacheWrite = true, r.Input, r.Output, r.CacheRead, r.CacheWrite
+	if !listed {
+		return out, nil
+	}
+	out.Priced, out.Input, out.Output, out.CacheRead, out.CacheWrite = true, v[0], v[1], v[2], v[3]
 	var err error
 	out.Tiers, err = contextTiers(m.Cost.Tiers)
 	return out, err
@@ -200,10 +211,11 @@ func contextTiers(in []snapTier) ([]TierPrice, error) {
 		if t.Tier.Type != "context" {
 			continue
 		}
-		if t.Tier.Size <= 0 || !tokensOK(t.Tier.Size) || !t.ok() {
-			return nil, errors.New("tier negative or absurd")
+		v, listed, ok := t.vals()
+		if t.Tier.Size <= 0 || !tokensOK(t.Tier.Size) || !ok || !listed {
+			return nil, errors.New("tier incomplete, negative or absurd")
 		}
-		out = append(out, TierPrice{t.Tier.Size, t.Input, t.Output, t.CacheRead, t.CacheWrite})
+		out = append(out, TierPrice{t.Tier.Size, v[0], v[1], v[2], v[3]})
 	}
 	return out, nil
 }
@@ -240,7 +252,9 @@ func FoldSnapshot(raw []byte, ownerPriced map[string]bool, now time.Time) (Price
 			f.add(name+"/"+id, id, provs[name].Models[id])
 		}
 	}
-	f.rep.Models = len(f.out.Models)
+	if f.rep.Models = len(f.out.Models); f.rep.Models == 0 {
+		return Prices{}, f.rep, errors.New("not a models.dev snapshot: no usable model rows")
+	}
 	return f.out, f.rep, nil
 }
 
@@ -252,12 +266,12 @@ func snapIDOK(id string) bool {
 func (f *snapFold) reject(label, why string) { f.rep.Rejected = append(f.rep.Rejected, label+": "+why) }
 
 func (f *snapFold) add(label, id string, raw json.RawMessage) {
-	var m snapModel
+	var m *snapModel
 	if !snapIDOK(id) {
 		f.reject(label, "bad model id")
 		return
 	}
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
 		f.reject(label, "unreadable row")
 		return
 	}

@@ -31,7 +31,7 @@ func TestFoldSnapshot(t *testing.T) {
 	if !opus.Priced || opus.Input != 4 || opus.Context != 1000000 || opus.MaxOutput != 128000 {
 		t.Errorf("opus = %+v, want the anthropic row (the databricks duplicate loses)", opus)
 	}
-	if rep.Models != 4 || rep.Priced != 3 || rep.Limits != 4 || rep.Deprecated != 1 {
+	if rep.Models != 5 || rep.Priced != 3 || rep.Limits != 5 || rep.Deprecated != 1 {
 		t.Errorf("report = %+v", rep)
 	}
 }
@@ -50,8 +50,8 @@ func TestFoldSnapshotTiersAndStatus(t *testing.T) {
 // Rejections name their row and never abort the fold.
 func TestFoldSnapshotRejects(t *testing.T) {
 	_, rep := fixtureFold(t, nil)
-	if len(rep.Rejected) != 4 {
-		t.Fatalf("rejected = %v, want negative-price, absurd-price, bad-limit, bad-shape", rep.Rejected)
+	if len(rep.Rejected) != 5 {
+		t.Fatalf("rejected = %v, want negative-price, absurd-price, bad-limit, bad-shape, null-row", rep.Rejected)
 	}
 	for _, r := range rep.Rejected {
 		if !strings.HasPrefix(r, "other/") {
@@ -75,8 +75,10 @@ func TestFoldSnapshotOwnerWins(t *testing.T) {
 // Fetch failure and a non-snapshot body error out; prices.json round-trips and goes stale after the window.
 func TestPricesFileAndFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, _, err := FoldSnapshot([]byte(`[1]`), nil, pricesT0); err == nil {
-		t.Error("array body accepted as a snapshot")
+	for _, body := range []string{`[1]`, `{"error":{}}`, `{"p":{"models":{"m":null}}}`} {
+		if _, _, err := FoldSnapshot([]byte(body), nil, pricesT0); err == nil {
+			t.Errorf("%s accepted as a snapshot", body)
+		}
 	}
 	if _, err := FetchSnapshot(t.Context()); err == nil {
 		t.Error("fetch should be off under go test")

@@ -69,7 +69,12 @@ func foldPrices(now time.Time, dry bool) *catalog.PriceReport {
 		fmt.Fprintf(os.Stderr, "models learn: price snapshot unavailable (%v); prices.json unchanged\n", err)
 		return nil
 	}
-	next, rep, err := catalog.FoldSnapshot(raw, ownerPriced(), now)
+	owner, err := ownerPriced()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); prices.json unchanged\n", err)
+		return nil
+	}
+	next, rep, err := catalog.FoldSnapshot(raw, owner, now)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: price snapshot ignored (%v); prices.json unchanged\n", err)
 		return nil
@@ -87,10 +92,10 @@ func foldPrices(now time.Time, dry bool) *catalog.PriceReport {
 }
 
 // ownerPriced is the model keys a Databricks profile prices by hand (options.prices).
-func ownerPriced() map[string]bool {
+func ownerPriced() (map[string]bool, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	out := map[string]bool{}
 	for _, name := range providers.DatabricksProfiles(reg) {
@@ -100,7 +105,7 @@ func ownerPriced() map[string]bool {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // foldFit folds the dispatch records into fit.json (unless dry) and returns the new table.

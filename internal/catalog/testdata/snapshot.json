@@ -14,6 +14,8 @@
     "negative-price": {"cost": {"input": -1, "output": 1}},
     "absurd-price": {"cost": {"input": 1, "output": 9999999999}},
     "bad-limit": {"limit": {"context": -5}},
-    "bad-shape": "nope"
+    "bad-shape": "nope",
+    "null-row": null,
+    "empty-cost": {"cost": {"input": null}, "limit": {"context": 4000}}
   }}
 }
