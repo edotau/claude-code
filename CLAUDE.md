@@ -70,9 +70,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    **Before the first dispatch of a multi-part request, write the DISPATCH TABLE** (task → owned files → blocked-by →
    agent) and dispatch every unblocked row in one message; redo it on every hand-back and new user message, merging
    new asks into it, not handling them in arrival order (`skills/subagent-workflows/SKILL.md` → Dispatch table; R18).
-   **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
-   listing it. Verify every returned diff, gate and deletion. Briefs, relay rules and recovery:
-   `skills/subagent-workflows/SKILL.md`;
+   **A bug or issue you notice is fixed right away, without asking, within the owner's named priority (R25):**
+   dispatch its fix leaf at once instead of listing it. Verify every returned diff, gate and deletion.
+   Briefs, relay rules and recovery: `skills/subagent-workflows/SKILL.md`;
    pipeline: `rules/workflows/master-workflow.md`.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.

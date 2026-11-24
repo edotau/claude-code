@@ -209,7 +209,8 @@ guardrails live in `settings.json`'s `permissions` block (`internal/settings/tem
 Rules for every new or changed hook. Measure with `claude-code doctor` (p95 per module) before and after.
 
 1. **Loosen only** — a hook never adds a permission error or restriction; allowing more, or new non-blocking output, is
-   fine. A new `Blocks` hook needs the owner's yes (R13).
+   fine. A new `Blocks` hook needs the owner's yes (R13). A blocked leaf is flag-first: a hook loosens only for a
+   recurring false positive (`skills/subagent-workflows/SKILL.md` → Error handling).
 2. **Auto-fix first** — correct a deterministic problem (`updatedInput`, a fixer, a CLI apply); deny or exit 2 only when
    code cannot decide.
 3. **Narrowest matcher** — `hookspec.go` `Matcher` is the filter; `*` spawns a process per event.

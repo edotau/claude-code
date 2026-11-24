@@ -336,7 +336,7 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
 | Timeout | Keep partial results, cancel the rest |
 | A leaf touched a file it didn't own | Report it; revert only a hunk its own diff proves it made (a file dirty at dispatch is the owner's or a peer's); re-dispatch with `Owns:` sharpened |
-| Permission wall on a leaf | Re-dispatch with the narrowest `--permissions` allow rule (the owner's standing choice; a per-dispatch flag, never a settings change, R13) naming the denied path or command; main does a harmless blocked step itself; loosen a hook only for a recurring false positive on the caller's own work, as its own task |
+| Permission wall on a leaf | Flag first: a leaf's legitimate work blocked by a guard is re-dispatched with the narrowest `--permissions` allow rule (the owner's standing choice; a per-dispatch flag, never a settings change, R13) naming the denied path or command; main does a harmless blocked step itself; loosen a hook only for a recurring false positive on the caller's own work, as its own task |
 | External agent unavailable (credential or route missing, e.g. no M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
 | Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
 
