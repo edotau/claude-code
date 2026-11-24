@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
@@ -56,6 +59,30 @@ func TestOpenContractObservesLaneAndProxy(t *testing.T) {
 	}
 }
 
+// TestStartAndSettleAsk: startAsk opens a working contract; settleHeld with no gate and no hand-back fails it on term.
+func TestStartAndSettleAsk(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	o := &contractOpen{
+		Scope:  contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner:  contract.Party{Role: contract.RoleOwner, Agent: "pi"},
+		Limits: contract.Limits{Depth: 1, Leaves: 1}}
+	ctx := withContract(context.Background(), o)
+	rec := agent.Record{ID: "d-9", Status: wire.StatusOK, Time: time.Now()}
+	if err := startAsk(ctx, nil, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := contract.Load("d-9"); err != nil || c.State() != contract.StateWorking {
+		t.Fatalf("after start: %v, %v; want working", c.State(), err)
+	}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	settleHeld(ctx, &agent.Prepared{Record: rec}, wire.Result{Status: wire.StatusOK}, nil)
+	if c, err := contract.Load("d-9"); err != nil || c.State() != contract.StateFailed || c.Failed != contract.ReasonTerm {
+		t.Fatalf("after settle: %v %q, %v; want failed term", c.State(), c.Failed, err)
+	}
+}
+
 // TestSettleContractFailsOnRedGate: a red gate fails the saved contract (reason term); the rest pass.
 func TestSettleContractFailsOnRedGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -71,5 +98,17 @@ func TestSettleContractFailsOnRedGate(t *testing.T) {
 	if got.State() != contract.StateFailed || got.Failed != contract.ReasonTerm ||
 		!reflect.DeepEqual(got.Unmet(), []contract.Term{contract.TermGate}) {
 		t.Fatalf("state %s failed %q unmet %v; want failed, term, [gate]", got.State(), got.Failed, got.Unmet())
+	}
+}
+
+func TestContractRefusalsAndDeadlineEnd(t *testing.T) {
+	if err := contractHostCheck(&askFlags{contract: &contractOpen{}, host: "box"}); err == nil {
+		t.Fatal("contract with --host accepted")
+	}
+	if err := planTaskCheck(&askFlags{planTask: "Phase 1", job: "j-1"}); err == nil {
+		t.Fatal("--plan-task with --job accepted")
+	}
+	if got := runEndOf(wire.Result{}, context.DeadlineExceeded); got != endDeadline {
+		t.Fatalf("runEndOf = %q", got)
 	}
 }

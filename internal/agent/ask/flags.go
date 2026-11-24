@@ -46,6 +46,8 @@ type askFlags struct {
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
 	spec, verify                                                                                                                                                                       string
+	contract                                                                                                                                                                           *contractOpen
+	planTask                                                                                                                                                                           string
 	dryRun                                                                                                                                                                             bool
 	loop                                                                                                                                                                               bool
 	waves                                                                                                                                                                              string
@@ -80,6 +82,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
+	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the record's plan_task and a spec brief's Task: line")
 	fs.StringVar(&f.tier, "tier", "", "task tier: "+strings.Join(agent.TierNames(), "|")+"; heads the brief with a Tier: line, sized under --model auto")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
@@ -113,7 +116,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.StringVar(&f.codemode, "codemode", "", "pi: "+strings.Join(pi.CodemodeModes, "|")+"; off overrides PI_CODEMODE; on/only need --tools")
-	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (15m default with --tools)")
+	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
@@ -437,9 +440,11 @@ type askState struct {
 	modelTyped   *bool   // --model typed on this command line or in the --job/--retry record
 	timeoutTyped *bool   // --timeout typed on this command line or in the --job/--retry record
 	lead         *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	// the --job/--retry record's request: its rotation and fallback-default marks
+	replayed *agent.RunOptions
 }
 
-// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
+// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 9m30s.
 func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
 	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
 		return agent.DefaultToolsTimeout
@@ -461,7 +466,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	}
 	s.Apply(r, os.Stderr)
 	*s.modelTyped, *s.timeoutTyped = r.Request.ModelTyped, r.Request.TimeoutTyped
-	*s.lead = r.Request.Lead // the detached child leads with the profile the parent resolved
+	*s.lead, *s.replayed = r.Request.Lead, r.Request // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
 	return &r, 0, false
 }
@@ -478,7 +483,7 @@ func loadAskRetry(_ context.Context, fs *flag.FlagSet, args []string, retry, for
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
 	*s.modelTyped, *s.timeoutTyped = rec.Request.ModelTyped, rec.Request.TimeoutTyped
-	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
+	*s.lead, *s.replayed = rec.Request.Lead, rec.Request // the routed lead is not a flag: the replay leads with it
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
@@ -841,4 +846,49 @@ func (r *askRun) recoverRetry() (int, bool) {
 	r.prompt = p
 	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
 	return 0, false
+}
+
+// planTaskCheck refuses a --plan-task that is not a plan id, or on a run that dispatches more than one task.
+func planTaskCheck(f *askFlags) error {
+	switch {
+	case f.planTask == "":
+		return nil
+	case !planTaskRE().MatchString(f.planTask):
+		return fmt.Errorf("--plan-task %q must match %s", f.planTask, planTaskRE())
+	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "" || f.waves != "":
+		return errors.New("--plan-task names one task: not with --batch, --live, --loop or --waves (a batch line carries plan_task)")
+	case f.job != "":
+		return errors.New("--plan-task stamps a new dispatch: not with --job (the record already carries it)")
+	}
+	return nil
+}
+
+// contractHostCheck refuses a spec contract on --host: its lane, gate and proxy terms are observed on this machine.
+func contractHostCheck(f *askFlags) error {
+	if f.contract != nil && f.host != "" {
+		return errors.New("spec key contract cannot run with --host: its terms are observed on this machine")
+	}
+	return nil
+}
+
+// planTaskKey carries a single ask's --plan-task to askPrepare, which stamps it on the new dispatch record.
+type planTaskKey struct{}
+
+func withPlanTask(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, planTaskKey{}, id)
+}
+
+func planTaskOf(ctx context.Context) string {
+	id, _ := ctx.Value(planTaskKey{}).(string)
+	return id
+}
+
+// stampPlanTask puts ctx's --plan-task on a new dispatch record; a --job child's record already holds it.
+func stampPlanTask(ctx context.Context, jobRec, rec *agent.Record) {
+	if id := planTaskOf(ctx); id != "" && jobRec == nil {
+		rec.PlanTask = id
+	}
 }

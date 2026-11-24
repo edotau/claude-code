@@ -43,16 +43,32 @@ const PromptKey = "prompt"
 
 // Task is the spec's execution contract: keys with no flag, rendered into the brief and run by the harness.
 type Task struct {
-	Own    []string `json:"own"`
-	Report string   `json:"report"`
-	Verify string   `json:"verify"`
+	Own      []string  `json:"own"`
+	Report   string    `json:"report"`
+	Verify   string    `json:"verify"`
+	Contract *Contract `json:"contract"`
+}
+
+// Contract is the spec's contract key: the unit, its size and optional limits; Go derives every other field.
+type Contract struct {
+	Unit   string         `json:"unit"`
+	Kind   string         `json:"kind"`
+	Limits ContractLimits `json:"limits"`
+}
+
+// ContractLimits overrides the kind's default budget; zero keeps the default.
+type ContractLimits struct {
+	Tokens int `json:"tokens"`
+	Leaves int `json:"leaves"`
 }
 
 // Set reports whether any contract key was given.
-func (t Task) Set() bool { return t.Own != nil || t.Report != "" || t.Verify != "" }
+func (t Task) Set() bool {
+	return t.Own != nil || t.Report != "" || t.Verify != "" || t.Contract != nil
+}
 
 // TaskKeys are the spec keys Argv reads into Task instead of argv.
-var TaskKeys = []string{"own", "report", "verify"}
+var TaskKeys = []string{"own", "report", "verify", "contract"}
 
 // FromFlagSet builds the schema from fs, skipping internal flags and --spec itself.
 func FromFlagSet(fs *flag.FlagSet, o Opts) Schema {
@@ -173,6 +189,12 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 		if !ok {
 			continue
 		}
+		if k == "contract" {
+			if t.Contract, err = contractOf(v); err != nil {
+				return Task{}, err
+			}
+			continue
+		}
 		dst, want := any(&t.Report), "a string"
 		switch k {
 		case "own":
@@ -185,6 +207,21 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 		}
 	}
 	return t, nil
+}
+
+// contractOf decodes the contract key strictly: an unknown field is a typo, never ignored.
+func contractOf(v json.RawMessage) (*Contract, error) {
+	const want = "spec contract: want {\"unit\": \"...\", \"kind\": \"...\", \"limits\": {\"tokens\": N, \"leaves\": N}}"
+	if string(v) == "null" {
+		return nil, errors.New(want)
+	}
+	var c Contract
+	dec := json.NewDecoder(bytes.NewReader(v))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return nil, fmt.Errorf("%s: %v", want, err)
+	}
+	return &c, nil
 }
 
 // CheckKeys refuses the first key (sorted) neither in s nor in extra, naming the nearest valid key.

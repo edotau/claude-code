@@ -104,7 +104,7 @@ var agentsPage = helptext.Page{
 		{"status", "dispatch state: status [<id>] [--agent A] [--all]"},
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
-		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
+		{"wait", "block until dispatches finish: wait <id>... [--timeout 9m30s]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"serve", "daemon that queues background jobs per pool; --start|--stop"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
@@ -548,7 +548,7 @@ func cmdAgentsWaves(args []string) int {
 // cmdAgentsWait is `agents wait <id>...`: one row per settled dispatch; exit 1 on error or lost, 4 on timeout.
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
-	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
+	timeout := fs.Duration("timeout", waitDefaultTimeout, "give up on unfinished dispatches after this long (under the 10m Bash cap)")
 	progress := fs.Bool("progress", false, "print a stderr line each time a job's activity changes")
 	format := helptext.FormatFlag(fs)
 	ids, err := helptext.ParseArgs(fs, args)
@@ -581,10 +581,17 @@ func cmdAgentsWait(args []string) int {
 	return agent.WaitExit(rows)
 }
 
+// waitDefaultTimeout keeps one wait call under the 600000 ms Bash cap.
+const waitDefaultTimeout = 570 * time.Second
+
 // printResumeHints prints each unfinished or failed wait row's resume line on stderr.
 func printResumeHints(rows []agent.WaitResult) {
 	for _, r := range rows {
 		if r.State == agent.WaitDone {
+			continue
+		}
+		if r.State == agent.WaitTimeout {
+			fmt.Fprintf(os.Stderr, "%s: still running, re-run `claude-code agents result -f %s`\n", r.ID, r.ID)
 			continue
 		}
 		if rec, err := agent.LoadRecord(r.ID); err == nil && agent.ResumeHint(rec) != "" {

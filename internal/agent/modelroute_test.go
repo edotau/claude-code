@@ -298,7 +298,7 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(14*time.Minute).Unix())
+	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(9*time.Minute).Unix())
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}

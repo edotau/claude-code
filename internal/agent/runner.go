@@ -39,16 +39,24 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
-	model := cmp.Or(res.Model, lastHopModel(res), res.Invoked, rec.Request.Model)
+	model, kind := ranTarget(rec, res)
+	res.Type = cmp.Or(string(models.AgentType(kind, model, codeMode)), res.Asked, res.Agent)
+	if rec.Agent == agentid.Pi && engine == agentid.Pi && res.Type != agentid.Pi {
+		res.Runner = engine // a pi ask outside code mode shows the model's type, carried by pi
+	}
+	return res
+}
+
+// ranTarget is the model that ran and its route's provider kind; "" for the auto model.
+func ranTarget(rec Record, res wire.Result) (model, kind string) {
+	model = cmp.Or(res.Model, lastHopModel(res), res.Invoked, rec.Request.Model)
 	if model == AutoModel {
 		model = ""
 	}
-	kind := ranRoute(res).Provider
 	if len(res.Hops) == 0 {
-		kind = rec.Route.Provider // no hop ran: the launch route is all there is
+		return model, rec.Route.Provider // no hop ran: the launch route is all there is
 	}
-	res.Type = cmp.Or(string(models.AgentType(kind, model, codeMode)), res.Asked, res.Agent)
-	return res
+	return model, ranRoute(res).Provider
 }
 
 // RowLabel is r's label on every row: its agent type, else the answering agent, with the runner after it.

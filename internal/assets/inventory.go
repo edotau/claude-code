@@ -50,6 +50,7 @@ var inventory = []struct {
 	{"files/workflows/prompts/engineer.js", "js", "WorkflowEngineerPromptsSource", func() []byte { return []byte(WorkflowEngineerPromptsSource()) }},
 	{"files/workflows/prompts/evaluator.js", "js", "WorkflowEvaluatorPromptsSource", func() []byte { return []byte(WorkflowEvaluatorPromptsSource()) }},
 	{"files/workflows/prompts/workers.js", "js", "WorkflowWorkersPromptsSource", func() []byte { return []byte(WorkflowWorkersPromptsSource()) }},
+	{"files/workflows/prompts/preflight.js", "js", "WorkflowPreflightPromptsSource", func() []byte { return []byte(WorkflowPreflightPromptsSource()) }},
 	{"files/workflows/prompts/looper.js", "js", "WorkflowLooperPromptsSource", func() []byte { return []byte(WorkflowLooperPromptsSource()) }},
 	{"files/workflows/skeletons/note.js", "js", "WorkflowSkeletonNote", func() []byte { return []byte(WorkflowSkeletonNote()) }},
 	{"files/workflows/skeletons/pipeline.js.tmpl", "js", "WorkflowPipelineSkeleton", func() []byte { return []byte(WorkflowPipelineSkeleton("{{.Name}}")) }},

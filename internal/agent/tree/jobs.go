@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -148,18 +149,23 @@ func (d Dispatch) since(now time.Time) string {
 	return age
 }
 
-// jobCells are a dispatch row after its marker: agent, model · route, ↑in, ↓out, since its last event, elapsed.
+// jobCells are a dispatch row after its marker: agent, model, "· provider", profile, ↑in, ↓out, since, elapsed.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
-	name := wire.RunLabel(dispatchType(d), d.Runner)
+	typ, runner := dispatchType(d), d.Runner
+	if runner == "" && d.Status == statusRunning && d.recType == "" && d.Agent == agentid.Pi && typ != agentid.Pi {
+		runner = agentid.Pi // a running pi ask has no record type yet: the model's type, carried by pi
+	}
+	name := wire.RunLabel(typ, runner)
 	if d.Fallback != "" && d.Runner == "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}
-	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.routeText()
+	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix)
+	provider, profile := d.routeParts()
 	up, down := d.tokenCells()
 	if d.queued != "" {
 		up, down = queueText(d, now, pools), ""
 	}
-	return []string{name, model, up, down, d.since(now), durationText(d.Duration)}
+	return []string{name, model, "· " + provider, profile, up, down, d.since(now), durationText(d.Duration)}
 }
 
 // queueText is "queued 1m10s (pool databricks:qa 2/4)"; the count is left out when the daemon does not answer.
@@ -239,7 +245,13 @@ func dispatchExpansion(d Dispatch) []string {
 
 // routeText is "<provider>·<profile>", or what is known of the two, else where().
 func (d Dispatch) routeText() string {
-	provider, profile := d.Provider, d.launch
+	provider, profile := d.routeParts()
+	return strings.Trim(provider+"·"+profile, "·")
+}
+
+// routeParts are the provider and profile a row names; where() fills the provider when neither is known.
+func (d Dispatch) routeParts() (provider, profile string) {
+	provider, profile = d.Provider, d.launch
 	if head, _, _ := strings.Cut(d.Route, ":"); head != "" {
 		provider, profile = head, cmp.Or(profileOf(d.Route), profile)
 	} else if reg, err := providers.LoadShared(); err == nil { // a profile-only record: its registry row names the provider
@@ -251,9 +263,9 @@ func (d Dispatch) routeText() string {
 		profile = ""
 	}
 	if provider == "" && profile == "" {
-		return d.where()
+		return d.where(), ""
 	}
-	return strings.Trim(provider+"·"+profile, "·")
+	return provider, profile
 }
 
 // profileOf is the profile of a "provider:profile" route, "" when it names only a provider.

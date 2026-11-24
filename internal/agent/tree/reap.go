@@ -151,19 +151,19 @@ func reapContracts(dryRun bool, out, errw io.Writer) (int, int) {
 const percent = 100
 
 // contractNote is the one-line state of the contract id owns, "" when it owns none.
-func contractNote(id string, usage *wire.Usage) string {
+func contractNote(id string) string {
 	c, err := contract.Load(id)
 	if err != nil {
 		return ""
 	}
+	spent := wire.SpentBy(c)
 	parts := []string{"contract " + string(c.State()), "owner " + c.Owner.Agent,
-		fmt.Sprintf("leaves %d/%d", len(c.Children), c.Limits.Leaves)}
+		fmt.Sprintf("leaves %d/%d", spent.Leaves, c.Limits.Leaves)}
 	if c.Scope.Lane != "" {
 		parts = append(parts, "lane "+c.Scope.Lane)
 	}
-	if usage != nil && c.Limits.Tokens > 0 {
-		used := usage.InputTokens + usage.CacheCreationTokens + usage.CacheReadTokens + usage.OutputTokens
-		parts = append(parts, fmt.Sprintf("%d%% budget", used*percent/c.Limits.Tokens))
+	if spent.Tokens > 0 && c.Limits.Tokens > 0 {
+		parts = append(parts, fmt.Sprintf("%d%% budget", spent.Tokens*percent/c.Limits.Tokens))
 	}
 	if un := c.Unmet(); len(un) > 0 {
 		parts = append(parts, "unmet "+strings.Join(termNames(un), ","))
@@ -421,7 +421,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		live := rec.Activity.Usage // a running record has only the 2 s activity snapshot
 		usage = &live
 	}
-	task = strings.TrimSpace(contractNote(rec.ID, usage) + " " + task)
+	task = strings.TrimSpace(contractNote(rec.ID) + " " + task)
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec), recType: rec.Type,

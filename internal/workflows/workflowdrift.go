@@ -75,6 +75,7 @@ var helperBlocks = sync.OnceValue(func() []helperBlock {
 		promptBlock("engineer", assets.WorkflowEngineerPromptsSource()),
 		promptBlock("evaluator", assets.WorkflowEvaluatorPromptsSource()),
 		promptBlock("workers", assets.WorkflowWorkersPromptsSource()),
+		promptBlock("preflight", assets.WorkflowPreflightPromptsSource()),
 		promptBlock("looper", assets.WorkflowLooperPromptsSource()),
 	}
 })

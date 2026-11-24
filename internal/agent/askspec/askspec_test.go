@@ -30,6 +30,16 @@ func TestArgvNearestKey(t *testing.T) {
 	}
 }
 
+func TestArgvContractKey(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"own":["a.go"],"contract":{"unit":"func x","kind":"function"}}`))
+	if err != nil || task.Contract == nil || task.Contract.Unit != "func x" || !task.Set() {
+		t.Fatalf("task = %+v err %v", task, err)
+	}
+	if _, _, _, err := testSchema().Argv([]byte(`{"contract":{"unit":"x","knd":"f"}}`)); err == nil {
+		t.Fatal("unknown contract field accepted")
+	}
+}
+
 func TestArgvTaskKeys(t *testing.T) {
 	argv, _, task, err := testSchema().Argv([]byte(`{"own":["a.go"],"report":"r.md","verify":"go vet ./x","model":"m"}`))
 	if want := (Task{Own: []string{"a.go"}, Report: "r.md", Verify: "go vet ./x"}); err != nil ||

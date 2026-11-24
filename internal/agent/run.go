@@ -92,8 +92,9 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return o, nil, Chain{}, clientUsageError{err}
 	}
+	ctx, o, rotated, rerr := rotateRole(ctx, o)
 	r, err := Lookup(o.Agent)
-	if err != nil {
+	if err = cmp.Or(rerr, err); err != nil {
 		return o, nil, Chain{}, err
 	}
 	if o.Host != "" {
@@ -102,6 +103,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 		}
 	}
 	ch, err := c.route(ctx, r, o)
+	ch = rotated.onto(ch)
 	if err == nil {
 		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
 			err = clientUsageError{perr}
@@ -162,6 +164,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	if o.Fallback == "" && !slices.Contains(router.FallbackModes, fallback) {
 		return o, clientUsageError{fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, raw, strings.Join(router.FallbackModes, "|"))}
 	}
+	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone
@@ -546,7 +549,7 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 }
 
 // DefaultToolsTimeout is the per-attempt deadline of a tools run without an explicit timeout.
-const DefaultToolsTimeout = 15 * time.Minute
+const DefaultToolsTimeout = 9*time.Minute + 30*time.Second
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type repickBudgetKey struct{}
@@ -627,6 +630,11 @@ type RunOptions struct {
 	Route route.Route `json:"route,omitzero"`
 	// CellRoute is the registry row a router-pinned ladder cell runs on; it outranks Provider. Per hop, never stored.
 	CellRoute route.Route `json:"-"`
+
+	// FallbackDefaulted: Fallback is ask's env default, not typed; any other none (a flag, code, an old record) holds.
+	FallbackDefaulted bool `json:"fallback_defaulted,omitempty"`
+	// Rotated: Lead and Model are a role rotation's pick, so a --job or --retry replay leads with them again.
+	Rotated bool `json:"rotated,omitempty"`
 }
 
 // EffectiveRoute is Route when set, else built from the legacy Provider, Account and the cell's row.

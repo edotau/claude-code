@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/redact"
 )
@@ -486,6 +487,19 @@ func TestBashTimeoutComposesWithRewrite(t *testing.T) {
 	} {
 		if got, _ := BashTimeoutMs(cmd); got != want {
 			t.Errorf("%q: got %d want %d", cmd, got, want)
+		}
+	}
+}
+
+func TestHandbackVerdictReadsTypedStatus(t *testing.T) {
+	for h, want := range map[string]wire.Handback{
+		"none":          {Status: "DONE", Summary: "s"},
+		"BLOCKED":       {Status: "BLOCKED", Summary: "s"},
+		"x; y":          {Status: "DONE", Unfixed: []string{"x", "y"}},
+		"NEEDS_CONTEXT": {Status: "NEEDS_CONTEXT", Unfixed: []string{"none."}},
+	} {
+		if got := handbackVerdict(&want); got != h {
+			t.Errorf("handbackVerdict(%+v) = %q, want %q", want, got, h)
 		}
 	}
 }

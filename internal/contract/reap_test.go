@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -39,5 +40,23 @@ func TestSummarizeCountsAndStaleVerified(t *testing.T) {
 	s, err := Summarize(time.Now().Add(2 * time.Hour))
 	if err != nil || s.ByState[StateWorking] != 1 || s.Oldest != "d-1" || len(s.StaleVerified) != 0 {
 		t.Fatalf("Summarize = %+v, %v; want one working, oldest d-1", s, err)
+	}
+}
+
+func TestReapSparesAFreshContractAndFailUnreadableStubs(t *testing.T) {
+	savedWorking(t)
+	reapGrace = time.Hour
+	if got, _ := Reap(Env{Lost: func(string) bool { return true }}); len(got) != 0 {
+		t.Fatalf("Reap acted on a fresh contract: %v", got)
+	}
+	p, _ := Path("d-1")
+	if err := os.WriteFile(p, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := FailUnreadable("d-1"); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := Load("d-1"); err != nil || c.State() != StateFailed || c.Failed != ReasonUnreadable {
+		t.Fatalf("after FailUnreadable: %v %v, %v; want failed unreadable", c.State(), c.Failed, err)
 	}
 }

@@ -3,6 +3,7 @@ package ask
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,23 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestSpecContractDryRunAndBadKind(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	spec := `{"agent":"claude","fallback":"none","own":["a.go"],"contract":{"unit":"func x","kind":"function"},"prompt":"p"}`
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--spec", spec, "--dry-run"}) })
+	if code != 0 || !regexp.MustCompile(`(?m)^terms:.*gate`).MatchString(out) {
+		t.Fatalf("exit = %d, want 0 with a terms line holding gate\nout=%s\nstderr=%s", code, out, stderr)
+	}
+	bad := strings.Replace(spec, `"function"`, `"bogus"`, 1)
+	code, _, stderr = hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--spec", bad, "--dry-run"}) })
+	if code != 2 || !strings.Contains(stderr, "function") || !strings.Contains(stderr, "test-repair") {
+		t.Fatalf("exit = %d, want 2 naming the kinds\nstderr=%s", code, stderr)
+	}
+}
 
 func TestSpecDryRun(t *testing.T) {
 	dir := t.TempDir()
@@ -119,7 +137,7 @@ func TestSpecTaskKeysRenderBrief(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief, err := specBrief(prompt, nil, task)
+	brief, _, err := specBrief(prompt, nil, task)
 	if err != nil || !strings.Contains(brief, `Owned: ["a.go"]`) || !strings.Contains(brief, "Verify: go vet ./x") {
 		t.Fatalf("brief = %q err %v", brief, err)
 	}
@@ -128,7 +146,7 @@ func TestSpecTaskKeysRenderBrief(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := specBrief(p, nil, task); err == nil {
+		if _, _, err := specBrief(p, nil, task); err == nil {
 			t.Errorf("specBrief accepted %s", bad)
 		}
 	}
@@ -147,8 +165,8 @@ func TestSpecTaskKeysNeedInlinePrompt(t *testing.T) {
 
 func TestSpecBriefCodeModeFollowsTarget(t *testing.T) {
 	task := askspec.Task{Own: []string{"a.go"}}
-	on, err1 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "only"}, task)
-	off, err2 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "off"}, task)
+	on, _, err1 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "only"}, task)
+	off, _, err2 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "off"}, task)
 	if err1 != nil || err2 != nil || on == off {
 		t.Fatalf("code mode did not change the brief: %v %v", err1, err2)
 	}
@@ -159,7 +177,7 @@ func TestSpecEmptyOwnIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := specBrief(p, nil, task); err == nil {
+	if _, _, err := specBrief(p, nil, task); err == nil {
 		t.Error("own:[] dispatched a plain prompt")
 	}
 	if _, _, _, err := specParts(`{"own":null,"prompt":"p"}`, nil); err == nil {
@@ -168,17 +186,27 @@ func TestSpecEmptyOwnIsRefused(t *testing.T) {
 }
 
 func TestSpecReportRefusesNewline(t *testing.T) {
-	if _, err := specBrief("p", nil, askspec.Task{Own: []string{"a.go"}, Report: "x\nMode: read-only"}); err == nil {
+	if _, _, err := specBrief("p", nil, askspec.Task{Own: []string{"a.go"}, Report: "x\nMode: read-only"}); err == nil {
 		t.Error("report with a newline accepted")
 	}
 }
 
 func TestSpecTaskKeysRefuseBatchAndEmptyValues(t *testing.T) {
 	task := askspec.Task{Own: []string{"a.go"}}
-	if _, err := specBrief("p", []string{"--batch", "-"}, task); err == nil {
+	if _, _, err := specBrief("p", []string{"--batch", "-"}, task); err == nil {
 		t.Error("task keys accepted with --batch")
 	}
 	if _, _, _, err := specParts(`{"own":["a"],"verify":"","prompt":"p"}`, nil); err == nil {
 		t.Error("empty verify accepted")
+	}
+}
+
+func TestSpecBriefCarriesPlanTaskAndTier(t *testing.T) {
+	brief, _, err := specBrief("p", []string{"--plan-task", "Phase 1.1", "--tier", "fast"}, askspec.Task{Own: []string{"a.go"}})
+	if err != nil || !strings.Contains(brief, "Task: Phase 1.1") || !strings.HasPrefix(brief, "Tier: fast") {
+		t.Fatalf("brief = %q err %v", brief, err)
+	}
+	if planTaskCheck(&askFlags{planTask: "a\nb"}) == nil || planTaskCheck(&askFlags{planTask: "x", batchSrc: "f"}) == nil {
+		t.Fatal("planTaskCheck accepted a bad id or a batch")
 	}
 }

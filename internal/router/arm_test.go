@@ -366,3 +366,29 @@ func TestRankWorkspacesFreshBeforeLoadAndHostTie(t *testing.T) {
 		})
 	}
 }
+
+// Stamped role picks cycle every cell once per round, so 24 picks over 8 cells give each exactly 3; a peek stamps none.
+func TestPickRoleCellEven(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cells := RoleCells(RoleFleet, []ClaudeProvider{
+		{Name: "anthropic", Models: []string{"haiku", "sonnet", "opus", "fable"}},
+		{Name: "databricks-dev", Models: []string{"haiku", "sonnet", "opus"}},
+		{Name: "databricks-qa", Models: []string{"haiku", "sonnet", "opus"}},
+		{Name: "databricks-prod", Models: []string{"haiku", "sonnet", "opus"}},
+	})
+	now := time.Now()
+	if a, _ := PickRoleCell(RoleFleet, cells, false, now); a != cells[0] {
+		t.Fatalf("cold peek = %v, want %v", a, cells[0])
+	}
+	counts := map[RoleCell]int{}
+	for range 24 {
+		c, err := PickRoleCell(RoleFleet, cells, true, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[c]++
+	}
+	if len(cells) != 8 || len(counts) != 8 || slices.ContainsFunc(slices.Collect(maps.Values(counts)), func(n int) bool { return n != 3 }) {
+		t.Fatalf("counts over %d cells = %v, want 3 each", len(cells), counts)
+	}
+}

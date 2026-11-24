@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/bench"
 )
@@ -138,6 +139,30 @@ func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error 
 		return err
 	} else if issue != nil {
 		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
+	}
+	return laneLiveCheck(plan.WorktreePath)
+}
+
+// laneLiveCheck refuses while a dispatch job or a process has its cwd in the lane.
+func laneLiveCheck(lane string) error {
+	self := ancestry(os.Getpid())
+	rec, ok, err := agent.LiveJobIn(lane, self)
+	if err != nil {
+		return fmt.Errorf("promote: read dispatch records: %w", err)
+	}
+	if ok {
+		return errors.New("promote: leaf or job not finished: job " + rec.ID + " is live in the lane")
+	}
+	in := liveLister()
+	if in == nil {
+		return nil
+	}
+	p, err := foreignProc(in, paths.CanonDeep(lane), self)
+	if err != nil {
+		return err
+	}
+	if p != nil {
+		return fmt.Errorf("promote: leaf or job not finished: pid %d (%s) is live in the lane", p.PID, p.Comm)
 	}
 	return nil
 }

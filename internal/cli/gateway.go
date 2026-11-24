@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -248,10 +249,34 @@ func proxyStatus(ctx context.Context, format string) int {
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	if !ps.Running {
+	problems, err := printProxyTeams(format)
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	if !ps.Running || problems > 0 {
 		return 1
 	}
 	return 0
+}
+
+// printProxyTeams prints the team rows and `problem` lines (problems alone, to stderr, in JSON mode).
+func printProxyTeams(format string) (problems int, err error) {
+	lines, ps := doctor.ProxyTeams()
+	if format == helptext.JSON {
+		lines = nil
+	}
+	for _, p := range ps {
+		lines = append(lines, "problem  "+p.String())
+	}
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	text := strings.Join(lines, "\n") + "\n"
+	if format == helptext.JSON {
+		_, err = fmt.Fprint(os.Stderr, text)
+		return len(ps), err
+	}
+	return len(ps), stdoutf("", "%s", text)
 }
 
 // gatewayPage is bare `gateway`: the route pick and why, then the proxy status; never dispatches.

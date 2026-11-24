@@ -81,6 +81,8 @@ type askRun struct {
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
+	// a --job/--retry record's request, for its rotation and fallback-default marks
+	replayed    agent.RunOptions
 	carryVerify string // the verify a carrying parent passed, taken once at start
 }
 
@@ -134,7 +136,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
+	r := &askRun{ctx: withContract(withPlanTask(ctx, f.planTask), f.contract), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
@@ -286,7 +288,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), tierCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -578,7 +580,13 @@ func (r *askRun) batchBase() agent.RunOptions {
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}
+}
+
+// fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.
+func (r *askRun) fallbackDefaulted() bool {
+	untyped := r.fs != nil && !helptext.Explicit(r.fs, "fallback")
+	return untyped && (r.f.retry == "" && r.f.job == "" || r.replayed.FallbackDefaulted)
 }
 
 // resumeModel keeps a resumed session's model and row; a typed --model wins, a replay keeps the record's own route.
@@ -694,7 +702,7 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Verify: &f.verify,
-		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
+		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed}
 }
 
 // request is batchBase plus the single-task fields.
@@ -718,15 +726,22 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	return rc
 }
 
+// overlayedReq applies the resolved overlay to req and checks the agent can run it.
+func overlayedReq(ctx context.Context, req agent.RunOptions, doc agentconfig.Overlay, env, keepEnv []string, name string,
+	background bool) (agent.RunOptions, error) {
+	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	if err != nil {
+		return req, err
+	}
+	req = req.ApplyOverlay(ctx, ov)
+	return req, agent.CheckCapabilities(name, req)
+}
+
 // askPrepare is askPrepareAndRun's body.
 func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
 	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
-	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	req, err := overlayedReq(ctx, req, doc, env, keepEnv, name, background)
 	if err != nil {
-		return failAskCode(format, name, err, 2)
-	}
-	req = req.ApplyOverlay(ctx, ov)
-	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
 	}
 	cl := newClient()
@@ -749,17 +764,17 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		return failAsk(format, name, err)
 	}
 	finishRecover(ctx, prepared.Record.ID)
+	if err := startAsk(ctx, jobRec, &prepared.Record); err != nil {
+		return failAsk(format, name, err)
+	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
-		if saveErr != nil { // the --job child loads this record; without it the job never starts
-			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
-		}
-		return askSpawn(ctx, fs, prepared, native, format, name)
+		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
 	}
-	if run != nil {
-		return run.run(ctx, cl, prepared, req)
+	if code, unsaved := unsavedHeld(ctx, prepared.Record, format, saveErr); unsaved {
+		return code
 	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
+	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
 }
 
 // takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.

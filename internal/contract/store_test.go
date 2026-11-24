@@ -12,6 +12,9 @@ var gatePass = TermRecord{Term: TermGate, Verdict: VerdictPass, By: ByGo, Eviden
 func savedWorking(t *testing.T) Contract {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	grace := reapGrace
+	reapGrace = 0
+	t.Cleanup(func() { reapGrace = grace })
 	c, err := opened(t, RoleOwner, 1, 2).Start("d-1")
 	if err == nil {
 		err = Save(c)

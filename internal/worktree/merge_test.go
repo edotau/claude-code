@@ -672,3 +672,17 @@ func TestLaneMergeCLILanesOwnInboxAndKeptLaneHears(t *testing.T) {
 		t.Fatalf("kept lane b: want a notice for c's merge, got %+v %v", kept, err)
 	}
 }
+
+func TestLaneLiveCheckRefusesLiveProcess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := processesIn
+	t.Cleanup(func() { processesIn = old })
+	processesIn = func(string) ([]Proc, error) { return []Proc{{PID: 1 << 30, Comm: "sleep"}}, nil }
+	if err := laneLiveCheck(t.TempDir()); err == nil || !strings.Contains(err.Error(), "leaf or job not finished") {
+		t.Fatalf("want refusal, got %v", err)
+	}
+	processesIn = func(string) ([]Proc, error) { return nil, nil }
+	if err := laneLiveCheck(t.TempDir()); err != nil {
+		t.Fatalf("want nil, got %v", err)
+	}
+}

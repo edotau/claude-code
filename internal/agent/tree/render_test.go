@@ -670,7 +670,7 @@ func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
 			if textutil.DisplayWidth(ln) > w {
 				t.Errorf("width %d: line %q too wide", w, ln)
 			}
-			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · databricks·dev") {
+			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · databricks  dev") {
 				t.Errorf("width %d: elapsed or model · profile missing in %q", w, ln)
 			}
 		}

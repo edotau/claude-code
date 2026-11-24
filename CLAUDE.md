@@ -57,8 +57,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch with the Agent tool.** On the Databricks arm (R20), choose `subagent_type` from `claude`,
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
-   offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work agents
-   run carried (see `skills/subagent-workflows/SKILL.md` → Carried dispatch);
+   offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work
+   agents are the types `codex`, `copilot`, `gemini`, `opencode` (each relays its baked `agents ask --agent <type>`)
+   and `pi` (code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` → Carried dispatch);
    description starts `<model>:` followed by a space (`web-fetch` takes none),
    printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
    files;

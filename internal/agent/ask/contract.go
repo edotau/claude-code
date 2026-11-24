@@ -1,16 +1,26 @@
 package ask
 
 import (
+	"cmp"
+	"context"
 	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -33,6 +43,7 @@ const (
 	endFinished  runEnd = "finished"
 	endDied      runEnd = "died"
 	endCancelled runEnd = "cancelled"
+	endDeadline  runEnd = "deadline"
 )
 
 // contractReturn is the typed data ask holds after the owner's last turn; nothing in it is model prose.
@@ -106,12 +117,12 @@ func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Cont
 	if err != nil {
 		return c, err
 	}
-	if why, failed := failReason(c, r.End); failed {
+	if why, failed := failReason(c, r.End, r.Spent); failed {
 		return failWith(c, why, hb, r.Spent)
 	}
 	v, err := c.Verify(r.Children)
 	if err != nil {
-		return failWith(c, contract.ReasonTerm, hb, r.Spent)
+		return failWith(c, c.FailReason(r.Spent), hb, r.Spent)
 	}
 	res := result(v, hb, r.Spent)
 	if hasCloseTerms(v) {
@@ -198,17 +209,19 @@ func handbackMiss(h *wire.Handback) string {
 }
 
 // failReason is why c fails now: the run did not finish, or an open or return term it holds has no pass.
-func failReason(c contract.Contract, end runEnd) (contract.Reason, bool) {
+func failReason(c contract.Contract, end runEnd, spent contract.Spent) (contract.Reason, bool) {
 	switch end {
 	case endFinished:
 	case endCancelled:
 		return contract.ReasonCancelled, true
+	case endDeadline:
+		return contract.ReasonDeadline, true
 	default:
 		return contract.ReasonOwnerDead, true
 	}
 	for _, t := range c.Unmet() {
 		if s := contract.StageOf(t); s == contract.StageOpen || s == contract.StageReturn {
-			return contract.ReasonTerm, true
+			return c.FailReason(spent), true
 		}
 	}
 	return "", false
@@ -306,4 +319,355 @@ func fileIn(dir, p string) bool {
 	}
 	fi, err := os.Lstat(p)
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// contractKey carries the spec's checked contract on the run's ctx to askPrepare, which opens it per dispatch id.
+type contractKey struct{}
+
+func withContract(ctx context.Context, o *contractOpen) context.Context {
+	if o == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, contractKey{}, o)
+}
+
+func askContractOf(ctx context.Context) *contractOpen {
+	o, _ := ctx.Value(contractKey{}).(*contractOpen)
+	return o
+}
+
+// terms is the checklist TermsFor chose; nil without a contract.
+func (o *contractOpen) terms() []contract.Term {
+	if o == nil {
+		return nil
+	}
+	return contract.TermsFor(o.Facts)
+}
+
+// newContractOpen is the spec's contract key as a typed open; contract.Open's problems are returned as one error.
+func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
+	dir, err := filepath.Abs(cmp.Or(bf.workdir, "."))
+	if err != nil {
+		return nil, err
+	}
+	kind, lane, plan := contract.Kind(t.Contract.Kind), laneOf(dir), planOf(dir, bf.planTask)
+	if bf.planTask != "" && plan == "" {
+		fmt.Fprintf(os.Stderr, "ask: contract: plan task %q is in no single open plan of this repo: no tick term\n", bf.planTask)
+	}
+	lim := t.Contract.Limits
+	o := &contractOpen{
+		Scope: contract.Scope{Unit: t.Contract.Unit, Kind: kind, Own: t.Own, PlanTask: bf.planTask, Plan: plan,
+			Lane: lane, Verify: t.Verify},
+		Owner:  contract.Party{Role: contract.RoleOwner, Agent: bf.name, Tier: bf.tier},
+		Limits: contract.LimitsFor(kind, contract.RoleOwner, contract.Limits{Tokens: lim.Tokens, Leaves: lim.Leaves}),
+		// Fleet only when the spec asks for leaves: a solo owner owes no leaves term.
+		Facts: contract.Facts{Lane: lane != "", PlanTask: plan != "", Fleet: lim.Leaves > 0,
+			TestStep: strings.Contains(t.Verify, "go test"), TestRepair: kind == contract.KindTestRepair},
+		Dir: dir}
+	if _, ps := contract.Open(o.Scope, o.Owner, o.Limits, o.Facts); len(ps) > 0 {
+		return nil, problemsErr(ps)
+	}
+	return o, nil
+}
+
+// problemsErr is ps as one spec error; nil for none.
+func problemsErr(ps []contract.Problem) error {
+	if len(ps) == 0 {
+		return nil
+	}
+	s := make([]string, len(ps))
+	for i, p := range ps {
+		s[i] = p.String()
+	}
+	return fmt.Errorf("spec contract: %s", strings.Join(s, "; "))
+}
+
+// laneOf is the lane dir sits in: its first path element under the repo's worktree root, else "".
+func laneOf(dir string) string {
+	repo, err := worktree.ResolveRepo(dir)
+	if err != nil {
+		return ""
+	}
+	d := paths.Canon(dir)
+	for _, root := range []string{repo.Root, repo.Legacy} {
+		if root == "" {
+			continue
+		}
+		if rel, ok := paths.RelWithin(root, d); ok && rel != "." {
+			return strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
+		}
+	}
+	return ""
+}
+
+// planOf is the one dated plan of dir's repo holding id as an open task, else "".
+func planOf(dir, id string) string {
+	if id == "" {
+		return ""
+	}
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		return ""
+	}
+	found := plans.TaskPlans(plans.Home(top), plans.MirrorDests(), id, func(t plans.Task) bool { return !t.Dropped && !t.Done })
+	if len(found) != 1 {
+		return ""
+	}
+	return found[0]
+}
+
+// contractBlock is the owner's brief block: scope, the terms Go records, and the limits, all read from the contract.
+func contractBlock(o *contractOpen) string {
+	lines := []string{fmt.Sprintf("Unit: %s (%s)", o.Scope.Unit, o.Scope.Kind)}
+	if o.Scope.Plan != "" {
+		lines = append(lines, fmt.Sprintf("Plan task: %s (%s)", o.Scope.PlanTask, o.Scope.Plan))
+	}
+	if o.Scope.Lane != "" {
+		lines = append(lines, "Lane: "+o.Scope.Lane)
+	}
+	lines = append(lines, "Terms Go records: "+joinTerms(o.terms()),
+		fmt.Sprintf("Limits: tokens %d, leaves %d, depth %d", o.Limits.Tokens, o.Limits.Leaves, o.Limits.Depth),
+		"Go checks every term itself; hand back with the handback tool (status, tests, method).")
+	return "\n\n## Contract\n\n" + strings.Join(lines, "\n")
+}
+
+// startAsk stamps the plan task and opens the spec's contract on a new dispatch record before it is saved.
+func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
+	stampPlanTask(ctx, jobRec, rec)
+	o := askContractOf(ctx)
+	if o == nil || jobRec != nil { // a --job child's contract was opened by its parent
+		return nil
+	}
+	open := *o
+	open.Dispatch = rec.ID
+	_, ps, err := openContract(open)
+	if len(ps) > 0 || err != nil {
+		return fmt.Errorf("open contract: %w", errors.Join(problemsErr(ps), err))
+	}
+	return nil
+}
+
+// unsavedHeld fails a foreground dispatch whose record never saved while it holds a contract; the reaper would take it.
+func unsavedHeld(ctx context.Context, rec agent.Record, format string, saveErr error) (int, bool) {
+	if saveErr == nil || askContractOf(ctx) == nil {
+		return 0, false
+	}
+	got, err := abandonContract(rec.ID, contract.ReasonOwnerDead)
+	reportSettled(rec.ID, got, err)
+	return failAsk(format, rec.Agent, fmt.Errorf("save dispatch record: %w", saveErr)), true
+}
+
+// spawnHeld detaches a background dispatch; a job that never started fails the contract opened for it.
+func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native bool, format, name string,
+	saveErr error) int {
+	var code int
+	if saveErr != nil { // the --job child loads this record; without it the job never starts
+		code = failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
+	} else {
+		code = askSpawn(ctx, fs, p, native, format, name)
+	}
+	if code != 0 && askContractOf(ctx) != nil {
+		if rec, err := agent.LoadRecord(p.Record.ID); err != nil || !rec.Alive() { // a started job settles its own
+			got, err := abandonContract(p.Record.ID, contract.ReasonOwnerDead)
+			reportSettled(p.Record.ID, got, err)
+		}
+	}
+	return code
+}
+
+// runSettled runs a prepared foreground dispatch or --job child; one holding a contract settles it in the run.
+func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions, run *armRetry,
+	isJob bool, format, save string, out io.Writer) int {
+	if !holdsContract(p.Record.ID) {
+		if run != nil {
+			return run.run(ctx, cl, p, req)
+		}
+		return runAskAndReport(ctx, cl, p, isJob, format, save, out)
+	}
+	defer abandonOnPanic(p.Record.ID)
+	if run != nil {
+		return run.run(ctx, cl, p, req) // the arm retry calls settleHeld before it concludes the record
+	}
+	return runHeld(ctx, cl, p, isJob, format, save, out)
+}
+
+// holdsContract reports whether dispatch id holds a working contract; most asks have no contract file at all.
+func holdsContract(id string) bool {
+	c, err := contract.Load(id)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: %v\n", id, err)
+		if ferr := contract.FailUnreadable(id); ferr != nil { // else it would sit open forever
+			fmt.Fprintf(os.Stderr, "ask: contract %s: fail unreadable: %v\n", id, ferr)
+		}
+	}
+	return err == nil && c.State() == contract.StateWorking
+}
+
+// runHeld is runAskAndReport with the record held running until the contract settles, so no reaper takes it.
+func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob bool, format, save string, out io.Writer) int {
+	opts := jobOpts(isJob, format, out)
+	attempt := opts
+	attempt.Hold = true
+	held := &resultHold{Sink: sinkTo(sinkOut(out, format, save), format, p.Record.ID)}
+	res, err := cl.Exec(ctx, p, held, attempt)
+	settleHeld(ctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
+	opts.Notify = cl.Notify
+	err = p.Record.Conclude(res, err, opts)
+	if format == agent.FormatStreamJSON {
+		(&armRetry{}).emitFinal(held, p, res, err)
+	}
+	return reportAsk(out, format, save, p, res, err)
+}
+
+// abandonOnPanic fails id's contract when the run panics, then re-panics; deferred directly so recover works.
+func abandonOnPanic(id string) {
+	if p := recover(); p != nil {
+		got, err := abandonContract(id, contract.ReasonOwnerDead)
+		reportSettled(id, got, err)
+		panic(p)
+	}
+}
+
+// settleHeld settles the working contract p's dispatch holds from its held result; a cancelled ctx fails it instead.
+func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr error) {
+	id := p.Record.ID
+	if !holdsContract(id) {
+		return
+	}
+	var got contract.Contract
+	var err error
+	if ctx.Err() == nil {
+		ret := returnOf(ctx, p.Record, res, runErr)
+		if ctx.Err() == nil { // a cancel during the settle gate is a cancel, not an unmet gate
+			got, err = settleContract(id, ret)
+			reportSettled(id, got, err)
+			return
+		}
+	}
+	why := contract.ReasonCancelled
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		why = contract.ReasonDeadline
+	}
+	got, err = abandonContract(id, why)
+	reportSettled(id, got, err)
+}
+
+// returnOf is what Go observed of rec's held run: its end, verify and hand-back, the filed report, spend and the gate.
+func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr error) contractReturn {
+	c, err := contract.Load(rec.ID)
+	if err != nil {
+		return contractReturn{End: endDied}
+	}
+	r := contractReturn{End: runEndOf(res, runErr), Verify: res.Verify, Handback: res.Handback, Report: rec.Report}
+	if res.Handback != nil {
+		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
+	}
+	if saved, err := agent.LoadRecord(rec.ID); err == nil { // `memory report --job` files the path on the saved record
+		r.Report = cmp.Or(saved.Report, r.Report)
+	}
+	for _, ch := range c.Children {
+		if cc, err := contract.Load(ch); err == nil {
+			r.Children = append(r.Children, cc)
+		}
+	}
+	r.Spent = contract.SpentOf(c, subtreeUses(rec.ID, spentTokens(&res.Usage)))
+	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
+		r.Gate = gateOf(ctx, dir, c.Scope.Own)
+	}
+	return r
+}
+
+// settleGateTimeout bounds the settle gate so a 9m30s run plus the gate stays under the 10m Bash cap.
+const settleGateTimeout = 15 * time.Second
+
+// gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
+func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {
+	ctx, cancel := context.WithTimeout(ctx, settleGateTimeout)
+	defer cancel()
+	g, err := worktree.RunScopedGate(ctx, dir, gateScope(dir, own), false)
+	if g.Gate == "" {
+		return nil
+	}
+	if err != nil && g.Exit != nil && *g.Exit == 0 {
+		*g.Exit = 1
+	}
+	return &g
+}
+
+// gateScope is own as the directories the scoped gate takes: an owned file stands for its package directory.
+func gateScope(dir string, own []string) []string {
+	var out []string
+	for _, p := range own {
+		full := p
+		if !filepath.IsAbs(p) {
+			full = filepath.Join(dir, p)
+		}
+		if fi, err := os.Stat(full); err != nil || !fi.IsDir() {
+			p = filepath.Dir(p)
+		}
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// subtreeUses is every dispatch record started at or after root (none earlier descends from it); root's own is held.
+func subtreeUses(root string, rootTokens int) []contract.Use {
+	stamp, _, _ := strings.Cut(root, "-") // a dispatch id starts with its start stamp, so names sort by start
+	ents, _ := os.ReadDir(paths.DispatchDir())
+	out := []contract.Use{{ID: root, Tokens: rootTokens}}
+	for _, e := range slices.Backward(ents) {
+		if e.Name() < stamp {
+			break
+		}
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || id == root {
+			continue
+		}
+		if r, err := agent.LoadRecord(id); err == nil {
+			u := r.Usage
+			if u == nil && r.Activity != nil {
+				u = &r.Activity.Usage
+			}
+			out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: spentTokens(u)})
+		}
+	}
+	return out
+}
+
+// spentTokens counts every input and output token a budget charges, cache reads included (the budget's own sum).
+func spentTokens(u *wire.Usage) int {
+	if u == nil {
+		return 0
+	}
+	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
+}
+
+// runEndOf is how the held run ended: a cancel, a finished ok run, else a died owner.
+func runEndOf(res wire.Result, runErr error) runEnd {
+	switch {
+	case agent.CutoffOf(runErr) == agent.CutoffDeadline:
+		return endDeadline
+	case agent.CutoffOf(runErr) == agent.CutoffCancelled || errors.Is(runErr, context.Canceled):
+		return endCancelled
+	case res.Status == wire.StatusOK && runErr == nil:
+		return endFinished
+	}
+	return endDied
+}
+
+func reportSettled(id string, c contract.Contract, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: settle: %v\n", id, err)
+		return
+	}
+	line := fmt.Sprintf("ask: contract %s %s", id, c.State())
+	if c.Failed != "" {
+		line += fmt.Sprintf(" (%s)", c.Failed)
+	}
+	if u := c.Unmet(); len(u) > 0 {
+		line += " · unmet " + joinTerms(u)
+	}
+	fmt.Fprintln(os.Stderr, line)
 }

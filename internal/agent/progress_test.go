@@ -147,11 +147,11 @@ func TestProgressOfActivitySeen(t *testing.T) {
 func TestContractText(t *testing.T) {
 	c := contract.Contract{Terms: []contract.Term{"a", "b", "c"}, Children: []string{"x", "y"}, Limits: contract.Limits{Tokens: 1000, Leaves: 6},
 		Records: []contract.TermRecord{{Term: "a", Verdict: contract.VerdictPass}, {Term: "a", Verdict: contract.VerdictPass}, {Term: "b", Verdict: contract.VerdictFail}}}
-	if got, want := contractText(c, 410), "terms 1/3 · leaves 2/6 · 41% budget"; got != want {
+	if got, want := contractText(c, contract.Spent{Tokens: 410, Leaves: 2}), "terms 1/3 · leaves 2/6 · 41% budget"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 	c.Limits = contract.Limits{}
-	if got := contractText(c, 410); got != "terms 1/3" {
+	if got := contractText(c, contract.Spent{Tokens: 410}); got != "terms 1/3" {
 		t.Fatalf("got %q", got)
 	}
 }

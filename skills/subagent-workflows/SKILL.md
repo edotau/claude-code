@@ -39,6 +39,8 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type> --provider databricks` its file bakes, waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
+| `pi` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
@@ -57,8 +59,10 @@ root machine's pins and per-call flags select external execution; never overwrit
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
 task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
-model for review, audits and self-tested edits. No external agent has a relay subagent; codex handles cross-family
-review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
+model for review, audits and self-tested edits. To run one as an Agent leaf instead, pick its type (`codex`,
+`copilot`, `gemini`, `opencode`, `agents/<type>.md`): it runs the typed Databricks ask its file bakes, and its own
+CLI on its own login stays reachable here (`claude-code <agent> …`, overlay `{"runner":"own"}`). Codex handles
+cross-family review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
 codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
@@ -348,11 +352,12 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, Pi first by default; external work agents run carried, Pi as a plain
-  ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
-  `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
-  no leaf sits waiting on a shell. External agents run via carried asks (`claude-code agents ask --carry --agent <a>`);
-  a long ask started from a leaf puts `--background` on the command: the stop gate holds the leaf until the job ends
+  the Agent tool with a harness type (`claude`, Pi first by default; external work agents as their own type
+  or carried, Pi as a plain ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the
+  main session itself with `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m`
+  and `agents result <id>`: no leaf sits waiting on a shell. External agents run via carried asks
+  (`claude-code agents ask --carry --agent <a>`); a long ask started from a leaf puts `--background` on the command:
+  the stop gate holds the leaf until the job ends
   (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
   `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt; with
   none it passes unattributed, never refused),

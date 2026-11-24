@@ -165,7 +165,7 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
 		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
 		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
-			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path 'a' --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path a --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
 		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}
@@ -486,5 +486,21 @@ func TestRunScopedGateCarriesIDs(t *testing.T) {
 	}
 	if len(r.Failures) == 0 || r.Failures[0].DiagnosticID == "" {
 		t.Fatalf("failure without a diagnostic id: %+v", r.Failures)
+	}
+}
+
+// The lint verb is a typed argv: a path with a space stays one word, and the base is the only expandable word.
+func TestLintVerbArgv(t *testing.T) {
+	got := lintVerb([]string{"a", "b c"})
+	want := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint", "--base", lintBase, "--path", "a", "--path", "b c"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lintVerb = %q, want %q", got, want)
+	}
+	paths := []string{lintBase, "-x", "a;b $(c)"}
+	script := `claude-code() { printf '<%s>' "$@"; }; ` + lintLine(lintVerb(paths))
+	out, err := exec.Command("bash", "-c", script).Output()
+	wantOut := "<agents><diff><--check><--gates><lint><--base><HEAD><--path><" + lintBase + "><--path><-x><--path><a;b $(c)>"
+	if err != nil || string(out) != wantOut {
+		t.Fatalf("rendered line ran as %q (err %v), want %q", out, err, wantOut)
 	}
 }

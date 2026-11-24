@@ -4,17 +4,21 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 type profileUse struct {
-	at   time.Time
-	host string
+	at     time.Time
+	host   string
+	marked time.Time // when the on-disk marker was last written
 }
 
 const (
@@ -52,21 +56,63 @@ func newKeepalive() keepalive {
 	}
 }
 
+// markerDir holds one empty file per used profile, so a restarted or other daemon sees the use.
+func markerDir() string { return filepath.Join(paths.StateDir(), "proxy", "used") }
+
 // touch records when and through which egress host a request used the named profiles.
 func (r *Router) touch(ctx context.Context, names ...string) {
-	use := profileUse{at: r.now(), host: egress.HostContext(ctx)}
+	now := r.now()
+	host := egress.HostContext(ctx)
+	var stale []string
+	r.mu.Lock()
+	for _, n := range names {
+		use := profileUse{at: now, host: host, marked: r.used[n].marked}
+		if now.Sub(use.marked) >= time.Minute {
+			stale = append(stale, n)
+		}
+		r.used[n] = use
+	}
+	r.mu.Unlock()
+	written := writeMarkers(stale, now)
+	if len(written) == 0 {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, n := range names {
+	for _, n := range written { // a failed write stays due, so the next request retries it
+		use := r.used[n]
+		use.marked = now
 		r.used[n] = use
 	}
 }
 
-// recentlyUsed is the sorted profiles used within keepaliveWindow; older entries are dropped.
+// writeMarkers stamps each plain-named profile's marker file with now and returns the ones written.
+func writeMarkers(names []string, now time.Time) []string {
+	if len(names) == 0 || os.MkdirAll(markerDir(), 0o700) != nil {
+		return nil
+	}
+	var written []string
+	for _, n := range names {
+		if n == "" || n != filepath.Base(n) || n == "." || n == ".." {
+			continue
+		}
+		path := filepath.Join(markerDir(), n)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			continue
+		}
+		_ = f.Close()
+		if os.Chtimes(path, now, now) == nil {
+			written = append(written, n)
+		}
+	}
+	return written
+}
+
+// recentlyUsed is the sorted profiles used within keepaliveWindow, in memory or by marker; older ones are dropped.
 func (r *Router) recentlyUsed() []string {
 	cutoff := r.now().Add(-keepaliveWindow)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	var names []string
 	for n, use := range r.used {
 		if use.at.Before(cutoff) {
@@ -75,7 +121,34 @@ func (r *Router) recentlyUsed() []string {
 		}
 		names = append(names, n)
 	}
+	r.mu.Unlock()
+	names = append(names, markedNames(cutoff)...)
 	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// markedNames lists marker files not older than cutoff and deletes the older ones.
+func markedNames(cutoff time.Time) []string {
+	dir := markerDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			path := filepath.Join(dir, e.Name())
+			if again, err := os.Stat(path); err == nil && again.ModTime().Before(cutoff) { // a peer may have renewed it
+				_ = os.Remove(path)
+			}
+			continue
+		}
+		names = append(names, e.Name())
+	}
 	return names
 }
 

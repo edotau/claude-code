@@ -220,7 +220,7 @@ var scanAgentProcs func() ([]procCwd, error)
 func filterProcs(all []procCwd, dir string) []Proc {
 	var procs []Proc
 	for _, p := range all {
-		if !paths.Within(p.Cwd, dir) {
+		if !paths.Within(paths.FoldCase(p.Cwd), paths.FoldCase(dir)) {
 			continue
 		}
 		if p.Comm == "" && commName != nil {

@@ -39,6 +39,11 @@ func WorkflowEvaluatorPromptsSource() string {
 // WorkflowWorkersPromptsSource returns the canonical workflow source.
 func WorkflowWorkersPromptsSource() string { return string(read("files/workflows/prompts/workers.js")) }
 
+// WorkflowPreflightPromptsSource returns the canonical workflow source.
+func WorkflowPreflightPromptsSource() string {
+	return string(read("files/workflows/prompts/preflight.js"))
+}
+
 // WorkflowLooperPromptsSource returns the canonical workflow source.
 func WorkflowLooperPromptsSource() string { return string(read("files/workflows/prompts/looper.js")) }
 
