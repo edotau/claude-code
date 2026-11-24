@@ -277,7 +277,8 @@ func scopeAlive(sc proxy.Scope) bool {
 	if err != nil || start != sc.Start {
 		return false
 	}
-	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sc.Port)), 200*time.Millisecond)
+	d := net.Dialer{Timeout: 200 * time.Millisecond}
+	c, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sc.Port)))
 	if err != nil {
 		return false
 	}
