@@ -146,9 +146,9 @@ func mintFenced(ctx context.Context, req SessionRequest) (string, error) {
 // replaceStaleDaemon swaps a daemon running another build for this one; in-flight streams drain as in --force.
 func replaceStaleDaemon(ctx context.Context) error {
 	// the swap outlives a cancelled mint: a daemon stopped and never respawned would strand every dispatch
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceBudget)
 	defer cancel()
-	return paths.WithFileLock(filepath.Join(paths.StateDir(), "router.replace"), func() error {
+	return paths.WithFileLockWithin(filepath.Join(paths.StateDir(), "router.replace"), replaceBudget, func() error {
 		st, ok := Running(ctx)
 		if !ok || !Stale(st) { // down, or a peer already replaced it: the retry starts or meets the new daemon
 			return nil
@@ -157,6 +157,9 @@ func replaceStaleDaemon(ctx context.Context) error {
 		return err
 	})
 }
+
+// replaceBudget bounds both the wait for a peer's swap and the swap itself.
+const replaceBudget = 30 * time.Second
 
 // restartDaemon is the replacement seam of replaceStaleDaemon.
 var restartDaemon = restart
