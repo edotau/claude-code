@@ -524,6 +524,21 @@ func reopenAt(planPath, taskID, at string) error {
 	})
 }
 
+// StrikeReasons are the reasons a strike by id may give.
+var StrikeReasons = []string{"superseded", "duplicate", "obsolete", "out_of_scope"}
+
+// StrikeWith strikes taskID with an enum reason and a decision:|commit:|note: cite, written in the audited form.
+func StrikeWith(planPath, taskID, reason, evidence string) error {
+	if !slices.Contains(StrikeReasons, reason) {
+		return fmt.Errorf("plans: --reason %q is not one of %s", reason, strings.Join(StrikeReasons, ", "))
+	}
+	m := citeRe().FindStringSubmatch(evidence)
+	if m == nil || m[0] != evidence || len(strings.Fields(evidence)) != 1 || m[1] == "commit" && !shaHex().MatchString(m[2]) {
+		return fmt.Errorf("plans: --evidence %q is not decision:<id>, commit:<sha> or note:<path>", evidence)
+	}
+	return Strike(planPath, taskID, reason+" — evidence: "+evidence)
+}
+
 // strikeWidth is the column cap of a struck task's lines.
 const strikeWidth = 120
 

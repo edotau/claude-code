@@ -435,3 +435,20 @@ func gitTaskValues(t *testing.T, git, message string) []string {
 	}
 	return values
 }
+
+func TestStrikeWith(t *testing.T) {
+	plan := filepath.Join(t.TempDir(), "2026-11-24-x.md")
+	writeFile(t, plan, "- [ ] 1.1 Task\n")
+	for _, c := range [][2]string{{"bogus", "note:a.md"}, {"obsolete", "junk"}, {"obsolete", "note:a.md x"}, {"obsolete", "note:a\u00a0b"}, {"obsolete", "commit:nothex"}} {
+		if StrikeWith(plan, "1.1", c[0], c[1]) == nil {
+			t.Errorf("StrikeWith(%q, %q) = nil, want error", c[0], c[1])
+		}
+	}
+	if err := StrikeWith(plan, "1.1", "obsolete", "note:a.md"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(plan)
+	if !strings.Contains(string(b), "superseded: obsolete — evidence: note:a.md") {
+		t.Errorf("plan = %q", b)
+	}
+}

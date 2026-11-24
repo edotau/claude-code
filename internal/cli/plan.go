@@ -325,6 +325,8 @@ func cmdPlanTask(args []string) int {
 	strike := fs.String("strike", "", "strike the task as superseded, with this reason")
 	sha := fs.String("sha", "", "with --done: the commit to record")
 	plan := fs.String("plan", "", "plan file (default: the one plan holding the id)")
+	reason := fs.String("reason", "", "strike with this reason: "+strings.Join(plans.StrikeReasons, "|")+" (needs --evidence)")
+	evidence := fs.String("evidence", "", "with --reason: the cite, decision:<id>, commit:<sha> or note:<path>")
 	id := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		id, args = args[0], args[1:]
@@ -335,14 +337,9 @@ func cmdPlanTask(args []string) int {
 	if id == "" && fs.NArg() == 1 {
 		id = fs.Arg(0)
 	}
-	modes := 0
-	for _, on := range []bool{*done, *reopen, *strike != ""} {
-		if on {
-			modes++
-		}
-	}
-	if id == "" || modes != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
-		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why>")
+	byID := *reason != "" || *evidence != ""
+	if id == "" || taskModes(*done, *reopen, *strike != "", byID) != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
+		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why> or --reason with --evidence")
 	}
 	path, err := taskPlan(id, *plan, *reopen)
 	if err != nil {
@@ -356,6 +353,8 @@ func cmdPlanTask(args []string) int {
 		err = plans.MarkDone(path, id, *sha)
 	case *reopen:
 		err = reopenTask(path, id)
+	case byID:
+		err = plans.StrikeWith(path, id, *reason, *evidence)
 	default:
 		err = plans.Strike(path, id, *strike)
 	}
@@ -364,6 +363,11 @@ func cmdPlanTask(args []string) int {
 	}
 	fmt.Printf("plans: %s updated in %s\n", id, filepath.Base(path))
 	return 0
+}
+
+// taskModes counts the chosen plan task actions.
+func taskModes(on ...bool) int {
+	return len(slices.DeleteFunc(on, func(b bool) bool { return !b }))
 }
 
 // reopenTask reopens id, marking the trunk of the plan's own repo, whatever the cwd.
@@ -395,7 +399,11 @@ func taskPlan(id, plan string, ticked bool) (string, error) {
 	})
 	switch len(found) {
 	case 0:
-		return "", fmt.Errorf("no plan of this repo has a matching task %q", id)
+		var ids []string
+		for _, o := range plans.OpenTasks(top) {
+			ids = append(ids, o.ID)
+		}
+		return "", fmt.Errorf("no plan of this repo has a matching task %q; open ids: %s", id, strings.Join(ids, ", "))
 	case 1:
 		return found[0], nil
 	}
@@ -415,6 +423,6 @@ func planSpec() *helptext.Node {
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
 			{Name: "all", IsBool: true}, {Name: "archive", IsBool: true},
 			{Name: "verify", IsBool: true}, {Name: "sha"}, {Name: "task"}, {Name: "session"}, helptext.CompletionFormatFlag()}},
-		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}}},
+		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}, {Name: "reason"}, {Name: "evidence"}}},
 	}}
 }
