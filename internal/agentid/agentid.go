@@ -123,7 +123,7 @@ var roster = []struct {
 	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()}},
 	{OpenCode, RouteFacts{SubLadder: true, Discovery: true, CodeMode: CodeModeRow{Var: "OPENCODE_EXPERIMENTAL_CODE_MODE"}}},
 	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, CodeMode: CodeModeRow{Extension: true, Only: true},
-nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
+		nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
 }
 
 func facts(name string) RouteFacts {
