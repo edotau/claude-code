@@ -255,9 +255,9 @@ func PreviewRouterBase(ctx context.Context) string {
 
 // previewScopedBase is the router base a scoped dispatch would walk to, stamped so the preview env shows its proxy.
 func previewScopedBase(ctx context.Context) string {
-	if scoped, _ := ctx.Value(scopedProxyKey{}).(bool); scoped {
+	if agent, _ := ctx.Value(scopedProxyKey{}).(string); agent != "" {
 		preview := func(ctx context.Context) (string, error) { return PreviewRouterBase(ctx), nil }
-		if c, base, _, err := chooseRoute(ctx, routeCands(ctx), preview); err == nil {
+		if c, base, _, err := chooseRoute(ctx, agent, routeCands(ctx), nil, preview); err == nil {
 			if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" {
 				routeMu.Lock()
 				chosenByID[id] = c.label()

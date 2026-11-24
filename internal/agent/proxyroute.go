@@ -233,6 +233,10 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 	if id != "" {
+		if len(lastRouteByID) >= maxRouteMemo { // bound a long-lived host: a finished dispatch never asks again
+			clear(lastRouteByID)
+			clear(failedByID)
+		}
 		chosenByID[id], lastRouteByID[id] = c.label(), c.label()
 	}
 	if c.team.Host == proxyteam.HostDaemon {
@@ -248,6 +252,8 @@ var failedByID = map[string]map[string]bool{}
 
 // lastRouteByID is each dispatch's latest chosen route; unlike chosenByID, the run's cleanup never clears it.
 var lastRouteByID = map[string]string{}
+
+const maxRouteMemo = 256
 
 func failedRoutes(id string) map[string]bool {
 	routeMu.Lock()
@@ -288,8 +294,8 @@ func knownProxyAddr(hostport string) bool {
 	if localProxyBase(proxy.Base(n)) {
 		return true
 	}
-	st, ok := proxy.Running(context.Background())
-	return ok && st.Port == n
+	st, err := proxy.ReadState() // the recorded daemon port, whether or not it still answers
+	return err == nil && st.Port == n
 }
 
 // localProxyBase reports whether routerBase (maybe with a /d/ or /via/ suffix) is a registered scope proxy.
