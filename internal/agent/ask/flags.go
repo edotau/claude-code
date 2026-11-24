@@ -116,7 +116,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.StringVar(&f.codemode, "codemode", "", "pi: "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools")
+	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
 	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -170,18 +170,36 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// validateCodemode checks --codemode (only pi has one); it's typed, else CODEMODE under --tools.
-func validateCodemode(mode, ag string, tools bool) (string, error) {
+// directRoute reports whether provider and profile name no gateway: unset or Anthropic's own.
+func directRoute(provider, profile string) bool {
+	return (provider == "" || provider == "anthropic") && (profile == "" || profile == "anthropic")
+}
+
+// validateCodemode checks --codemode against the agent's code-mode row; pi's falls back to CODEMODE under --tools.
+func validateCodemode(mode, ag string, tools, direct bool) (string, error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
-	if ag != agentid.Pi {
-		if mode != "" && mode != "off" {
-			return "", fmt.Errorf("--codemode applies to pi only; %s has no codemode tool", ag)
-		}
+	if ag == agentid.Pi {
+		return pi.ResolveCodemode(mode, tools)
+	}
+	if mode == "" || mode == "off" {
 		return "", nil
 	}
-	return pi.ResolveCodemode(mode, tools)
+	return mode, checkCodemodeRow(agentid.Routing(ag).CodeMode, mode, ag, direct)
+}
+
+// checkCodemodeRow refuses a mode the agent's row cannot give on this route.
+func checkCodemodeRow(row agentid.CodeModeRow, mode, ag string, direct bool) error {
+	switch {
+	case !row.Has():
+		return fmt.Errorf("--codemode applies to %s only; %s has no code mode", strings.Join(agentid.CodeModeAgents(), ", "), ag)
+	case mode == "only" && !row.Only:
+		return fmt.Errorf("--codemode only: %s has no script-only mode", ag)
+	case row.DirectOnly && !direct:
+		return fmt.Errorf("--codemode on: %s code mode is only on the Anthropic API, not through a cloud provider or a gateway", ag)
+	}
+	return nil
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.

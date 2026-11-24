@@ -344,7 +344,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools); err != nil {
+	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile)); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {

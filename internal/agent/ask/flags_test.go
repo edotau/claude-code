@@ -660,3 +660,26 @@ func TestRecoverClaimReleasedOnlyByHolder(t *testing.T) {
 		t.Fatalf("claim leaked after release: %v", err)
 	}
 }
+
+func TestValidateCodemodeTable(t *testing.T) {
+	cases := []struct {
+		mode, ag string
+		direct   bool
+		want     string
+		wantErr  bool
+	}{
+		{"on", "claude", true, "on", false},
+		{"on", "claude", false, "", true},
+		{"only", "claude", true, "", true},
+		{"on", "opencode", false, "on", false},
+		{"only", "opencode", false, "", true},
+		{"on", "codex", true, "", true},
+		{"off", "codex", true, "", false},
+	}
+	for _, c := range cases {
+		got, err := validateCodemode(c.mode, c.ag, true, c.direct)
+		if (err != nil) != c.wantErr || (err == nil && got != c.want) {
+			t.Errorf("validateCodemode(%q, %q, direct=%v) = %q, %v", c.mode, c.ag, c.direct, got, err)
+		}
+	}
+}
