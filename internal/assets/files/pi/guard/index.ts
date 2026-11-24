@@ -176,7 +176,7 @@ function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<
     const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step, unset), detached: process.platform !== "win32",
       windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
     let out = ""
-    const add = (s: string) => { out = masked(out + s).slice(-4 * ERR_CHARS) } // mask before the cut: no key fragment
+    const add = (s: string) => { out = keepTail(masked(out + s)) }
     child.stdout.setEncoding("utf8").on("data", add).on("error", () => {}) // a pipe error must not crash Pi mid-settle
     child.stderr.setEncoding("utf8").on("data", add).on("error", () => {})
     const timer = setTimeout(() => { killTree(child); resolve({ code: -1, out, timedOut: true }) }, Math.max(1, ms))
@@ -190,6 +190,13 @@ function killTree(child: any) {
   if (process.platform === "win32") stopTree(child)
   else try { process.kill(-child.pid, "SIGKILL") } catch { child.kill("SIGKILL") }
   child.stdout?.destroy(); child.stderr?.destroy(); child.unref() // an escaped grandchild must not keep Pi alive
+}
+
+// keepTail is s's last whole lines within 4 * ERR_CHARS: a cut never leaves a secret fragment Go's redaction misses.
+function keepTail(s: string): string {
+  if (s.length <= 4 * ERR_CHARS) return s
+  const t = s.slice(-4 * ERR_CHARS)
+  return t.slice(t.indexOf("\n") + 1) // no newline in the tail: the whole partial line goes
 }
 
 // masked is s with the proxy token's value cut out, should a step print its inherited env.
@@ -221,13 +228,13 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
 // failureText is the fixing turn's message, its output redacted by Go; fail closed: unredacted output never goes out.
 function failureText(line: string, r: StepResult, cwd: string, sid: string): string {
   const red = judge("verify_output", { text: r.out }, cwd, sid)
-  if (red.text === undefined) {
+  if (red.block || red.usage) {
     process.stderr.write("pi guard: verify before settle skipped: output not redacted (" + (red.block || red.usage) + ")\n")
     return ""
   }
   const what = r.timedOut ? "timed out after " + VERIFY_MS / 1000 + " s" : "failed (exit " + r.code + ")"
   return "The run's verify check " + what + ". Fix the cause without changing the check, then finish.\n$ " + line + "\n" +
-    red.text.slice(-ERR_CHARS)
+    (red.text ?? "").slice(-ERR_CHARS) // already redacted, so this cut is safe; an allow with no text is empty output
 }
 
 // verifyBeforeSettle gives a failing --verify one fixing turn per run; the post-run verify is still the record.
