@@ -36,12 +36,33 @@ func applyLaneDiff(ctx context.Context, main, from, to string) error {
 	if gitlinkPatch.Match(patch) {
 		return fmt.Errorf("the lane changes a submodule, which cannot land uncommitted; use --merge: %w", ErrLandRefused)
 	}
+	if err := refuseHiddenEdits(ctx, main, from, to); err != nil {
+		return err
+	}
 	if out, err := gitApply(ctx, main, patch, "--check"); err != nil {
 		return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, out, ErrLandRefused)
 	}
 	if out, err := gitApply(context.WithoutCancel(ctx), main, patch); err != nil {
 		return fmt.Errorf("git apply in %s failed after a clean --check, so the live tree may be partly changed "+
 			"(the lane and its branch are intact; compare with `git status`): %s: %w", main, out, err)
+	}
+	return nil
+}
+
+// refuseHiddenEdits refuses a landed path marked assume-unchanged or skip-worktree: git status cannot show its edits.
+func refuseHiddenEdits(ctx context.Context, main, from, to string) error {
+	files, err := laneFiles(ctx, main, from, to)
+	if err != nil || len(files) == 0 {
+		return err
+	}
+	out, err := runGit(ctx, main, nil, append([]string{"--literal-pathspecs", "ls-files", "-v", "-z", "--"}, files...)...)
+	if err != nil {
+		return fmt.Errorf("git ls-files in %s: %w", main, err)
+	}
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if tag, path, ok := strings.Cut(rec, " "); ok && !strings.Contains("HMRCK", tag) {
+			return fmt.Errorf("%s is marked assume-unchanged or skip-worktree in the live tree; nothing changed: %w", path, ErrLandRefused)
+		}
 	}
 	return nil
 }
