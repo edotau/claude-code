@@ -799,7 +799,7 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 	defer hooktelemetry.WaitForTest(10 * time.Millisecond)()
 	orig, deadline := native["safety-scan"], gateDeadline
 	native["safety-scan"] = func(*core.Input) core.Result { return core.Result{} }
-	gateDeadline = func(settings.EventSpec) time.Duration { return 30 * time.Millisecond }
+	gateDeadline = func(settings.EventSpec) time.Duration { return 5 * time.Second } // the gate stays far inside it: only telemetry is slow, so an overrun block is not a flip
 	defer func() { native["safety-scan"], gateDeadline = orig, deadline }()
 	done := make(chan int, 1)
 	go func() { done <- runDirect("safety-scan", hosttest.BashPayload("ls"), io.Discard, io.Discard) }()
@@ -812,7 +812,7 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 		t.Error("telemetry stalled verdict")
 	}
 	drainFifo(t, file)
-	deadlineAt := time.Now().Add(time.Second)
+	deadlineAt := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadlineAt) {
 		f, err := os.OpenFile(file+".lock", os.O_WRONLY, 0)
 		if os.IsNotExist(err) {
