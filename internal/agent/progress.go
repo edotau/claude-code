@@ -29,6 +29,7 @@ const (
 // Progress is what the harness can tell about a running dispatch right now; Tools < 0 means unknown.
 type Progress struct {
 	Agent, Model, Doing string
+	Label               string // the type label RowLabel gives the run; Agent stays the engine the limits key on
 	Elapsed, Quiet      time.Duration
 	Tools               int
 	In, Out             int64 // live tokens so far (input incl. cache, output); 0 0: none reported
@@ -85,7 +86,7 @@ func progressLimits(agent string) (quiet, hung time.Duration, ok bool) {
 // ProgressOf reads r's own dispatch files (never the directory) at now; a missing file drops its field.
 func ProgressOf(r Record, now time.Time) Progress {
 	agent := cmp.Or(r.RanAs, r.Agent)
-	p := Progress{Agent: agent, Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, route.Join(r.Route.Provider, r.Route.Profile)),
+	p := Progress{Agent: agent, Label: RowLabel(r), Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, route.Join(r.Route.Provider, r.Route.Profile)),
 		Elapsed: max(now.Sub(r.Time), 0), Tools: -1}
 	p.quietAt, p.hungAt, p.Stream = progressLimits(agent)
 	last, _ := LastSignal(r)
@@ -275,7 +276,7 @@ func (p Progress) signal() (text string, hung bool) {
 
 // Line is the one-line label, at most width columns; the doing field is clipped first, unknown fields dropped.
 func (p Progress) Line(width int) string {
-	return p.render(width, p.Agent, p.Model, progressDur(p.Elapsed))
+	return p.render(width, cmp.Or(p.Label, p.Agent), p.Model, progressDur(p.Elapsed))
 }
 
 // Fragment is Line without agent, model and elapsed, for a row that already shows them.

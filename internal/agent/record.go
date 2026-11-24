@@ -60,6 +60,8 @@ type Record struct {
 	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
 	Provider       string      `json:"provider,omitempty"`
+	Type           string      `json:"type,omitempty"`           // the agent type of the model that ran (models.AgentType)
+	Runner         string      `json:"runner,omitempty"`         // "pi" when the pi runner carried Agent's run; "" when Agent ran itself
 	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
 	Invoked        string      `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
 	Reported       string      `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
@@ -597,7 +599,7 @@ func (r Record) LogLine() string {
 	if r.Cutoff != "" {
 		tools += " [" + r.Cutoff + "]"
 	}
-	agentCol := r.Agent
+	agentCol := RowLabel(r)
 	if r.Fallback != "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
@@ -633,6 +635,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
 	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
+	r.Type, r.Runner = res.Type, res.Runner
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
 	}
@@ -1088,6 +1091,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 	}
 	tl := &tally{Sink: sink, live: startActivity(rec.ID)}
 	res, err = run(ctx, tl)
+	res = stampRunner(*rec, res)
 	tl.live.close()
 	rec.ToolStats = tl.toolStats()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)

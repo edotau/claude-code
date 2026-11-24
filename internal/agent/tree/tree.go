@@ -86,6 +86,7 @@ type Dispatch struct {
 	Model          string `json:"model,omitempty"`
 	Status         string `json:"status"` // running|ok|error, mirroring agent.Record
 	Duration       string `json:"duration,omitempty"`
+	Runner         string `json:"runner,omitempty"` // "pi" when the pi runner carried the asked agent's run
 	Fallback       string `json:"fallback,omitempty"`
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly

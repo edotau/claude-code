@@ -466,7 +466,7 @@ func pollOnce(id string) string {
 
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
 var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
+	return regexp.MustCompile(`ask: ran on [\w.-]+(?: via [\w.-]+)? · |"ran_on":\s*"ran on [\w.-]+(?: via [\w.-]+)? · `)
 })
 
 // ownIDRe matches a whole line naming an ask's own job: the `--background` launch line, the exit line, a bare id.
