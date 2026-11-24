@@ -161,6 +161,8 @@ func patchAdditions(edits []textutil.FileEdit, cwd string) []addition {
 		switch e.Kind {
 		case textutil.PatchUpdate:
 			source, known = path, existingLines(path)
+		case textutil.PatchAdd:
+			known = existingLines(path)
 		case textutil.PatchMove:
 			known = existingLines(source)
 		}
@@ -186,7 +188,14 @@ func singleFileAdditions(path string, ti map[string]any) []addition {
 	if s := strField(ti, "content"); s != "" {
 		out = append(out, addition{path, s, existingLines(path)})
 	}
-	if s := strField(ti, "new_source"); s != "" {
+	if parts, ok := ti["new_source"].([]any); ok { // a source-line array
+		var sb strings.Builder
+		for _, p := range parts {
+			s, _ := p.(string)
+			sb.WriteString(strings.TrimSuffix(s, "\n") + "\n")
+		}
+		out = append(out, addition{path, sb.String(), existingText(path)})
+	} else if s := strField(ti, "new_source"); s != "" {
 		out = append(out, addition{path, s, existingText(path)})
 	}
 	pairs, _ := ti["edits"].([]any)
