@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
@@ -32,6 +33,22 @@ func TestStampRunnerSurvivesWorkspaceRepick(t *testing.T) {
 	hops[0].Agent = "claude"
 	if got := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "pi", Fallback: "claude", Hops: hops}); got.Runner != "" {
 		t.Fatalf("a real fallback to pi is no runner: %q", got.Runner)
+	}
+}
+
+func TestFinishNamesTheRunnerAsRanAs(t *testing.T) {
+	rec := Record{Agent: "claude"}
+	res := stampRunner(rec, wire.Result{Agent: "pi", Status: wire.StatusOK, Model: "claude-sonnet-5-5", Hops: []wire.Hop{{Agent: "pi"}}})
+	rec.Finish(res, nil, 0)
+	if rec.RanAs != "pi" || rec.Runner != "pi" || rec.Type != "claude" || rec.Fallback != "" {
+		t.Fatalf("ran_as %q runner %q type %q fallback %q", rec.RanAs, rec.Runner, rec.Type, rec.Fallback)
+	}
+}
+
+func TestLongCompactionIsNotHung(t *testing.T) {
+	p := Progress{Stream: true, Phase: phaseCompacting, Quiet: 8 * time.Minute, hungAt: 5 * time.Minute, quietAt: 2 * time.Minute}
+	if text, hung := p.signal(); hung || !strings.HasPrefix(text, "compacting") {
+		t.Fatalf("signal %q hung %v", text, hung)
 	}
 }
 

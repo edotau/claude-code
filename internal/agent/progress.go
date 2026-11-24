@@ -242,9 +242,9 @@ func (p Progress) toolDur() string {
 	return "tool " + progressDur(time.Duration(p.ToolMs)*time.Millisecond)
 }
 
-// inPhase is true while a compaction runs, or a retry's announced wait has not yet passed in silence.
+// inPhase is true while a compaction runs (up to the tools timeout), or a retry's announced wait has not passed.
 func (p Progress) inPhase() bool {
-	return p.Phase == phaseCompacting || p.Phase == phaseRetrying && p.Quiet <= p.RetryIn
+	return p.Phase == phaseCompacting && p.Quiet < DefaultToolsTimeout || p.Phase == phaseRetrying && p.Quiet <= p.RetryIn
 }
 
 // phaseText is "compacting 12s" (time quiet) or "retrying 4s" (the exact wait Pi announced).
@@ -264,10 +264,10 @@ func (p Progress) signal() (text string, hung bool) {
 		return "no live signal from " + p.Agent, false
 	case !p.Stream:
 		return "last event " + progressDur(p.Quiet) + " ago", false
-	case p.Quiet >= p.hungAt:
-		return "⚠ no event " + progressDur(p.Quiet), true
 	case p.inPhase():
 		return p.phaseText(), false
+	case p.Quiet >= p.hungAt:
+		return "⚠ no event " + progressDur(p.Quiet), true
 	case p.Quiet >= p.quietAt:
 		return "quiet " + progressDur(p.Quiet), false
 	}

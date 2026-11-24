@@ -17,6 +17,13 @@ func engineOf(res wire.Result) string {
 	return res.Agent
 }
 
+func lastHopModel(res wire.Result) string {
+	if n := len(res.Hops); n > 0 {
+		return res.Hops[n-1].Model
+	}
+	return ""
+}
+
 // onlyPiHops: no hop ran as another agent, so Pi carried the request even across a workspace re-pick.
 func onlyPiHops(res wire.Result) bool {
 	return !slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return h.Agent != agentid.Pi })
@@ -29,7 +36,7 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
-	model := cmp.Or(res.Model, rec.Request.Model)
+	model := cmp.Or(res.Model, lastHopModel(res), res.Invoked, rec.Request.Model)
 	if model == AutoModel {
 		model = ""
 	}

@@ -458,6 +458,8 @@ func checkResumable(rec agent.Record) error {
 		return fmt.Errorf("dispatch %s is still running and is not a live session (claude-code agents wait %s, then send)", rec.ID, rec.ID)
 	case rec.SessionID == "":
 		return fmt.Errorf("dispatch %s recorded no session id, so there is nothing to resume", rec.ID)
+	case agent.RunnerOf(rec) != "":
+		return fmt.Errorf("dispatch %s ran on %s for %s; its session is %s's and cannot be resumed as %s", rec.ID, rec.RanAs, rec.Agent, rec.RanAs, rec.Agent)
 	case rec.RanAs != "" && rec.RanAs != rec.Agent:
 		return fmt.Errorf("dispatch %s ran on %s as a fallback for %s; that session cannot be resumed as %s", rec.ID, rec.RanAs, rec.Agent, rec.Agent)
 	}

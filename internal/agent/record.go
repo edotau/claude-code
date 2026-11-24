@@ -636,7 +636,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	r.Type, r.Runner = res.Type, res.Runner
-	if res.Fallback != "" {
+	if res.Fallback != "" || res.Agent != "" && res.Agent != r.Agent { // a fallback, or a runner executed the ask
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
@@ -1015,7 +1015,7 @@ func SessionModel(session string) (profile, model string) {
 			return true
 		}
 		model = m
-		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it); the record's row
+		if r.RanAs == "" || r.RanAs == r.Fallback || r.Runner != "" { // ran on the asked agent (Fallback names it); the record's row
 			profile = r.Provider
 		}
 		return false
