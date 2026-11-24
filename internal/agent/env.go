@@ -63,7 +63,9 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		env = append(slices.DeleteFunc(env, func(e string) bool {
 			return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
 		}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
-		env = withDispatchProxy(env, id)
+		if !slices.ContainsFunc(s.Extra, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
+			env = withDispatchProxy(env, id) // a typed --env value wins
+		}
 	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
