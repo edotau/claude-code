@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/vault"
@@ -17,30 +16,45 @@ import (
 // ProxyTeamsKey is the vault Overlay entry holding the team overlay document.
 const ProxyTeamsKey = "proxy-teams"
 
-// loadTeams loads the team config; an unreadable vault is a problem and skips Load so last-good stays intact.
-func loadTeams() (proxyteam.Config, []proxyteam.Problem) {
-	var overlay []byte
-	err := vault.View(func(t *vault.Tx) error {
-		if s, ok := t.Get(vault.Overlay, ProxyTeamsKey); ok {
-			overlay = []byte(s)
+const vaultBusyNote = "vault busy, last-good config in force"
+
+// readOverlay reads the team overlay from the vault, retrying once (a busy vault is usually transient).
+func readOverlay() (overlay []byte, err error) {
+	for range 2 {
+		overlay = nil
+		err = vault.View(func(t *vault.Tx) error {
+			if s, ok := t.Get(vault.Overlay, ProxyTeamsKey); ok {
+				overlay = []byte(s)
+			}
+			return nil
+		})
+		if err == nil {
+			break
 		}
-		return nil
-	})
-	if err != nil {
-		def, ps := proxyteam.Parse(assets.ProxyTeams(), nil)
-		return def, append(ps, proxyteam.Problem{Field: "overlay", Detail: "vault unreadable: " + err.Error()})
 	}
-	return proxyteam.Load(overlay)
+	return overlay, err
+}
+
+// loadTeams skips Load when the vault stays unreadable (busy, not a problem) so last-good stays intact.
+func loadTeams() (cfg proxyteam.Config, problems []proxyteam.Problem, busy bool) {
+	overlay, err := readOverlay()
+	if err != nil {
+		return proxyteam.Config{}, nil, true
+	}
+	cfg, problems = proxyteam.Load(overlay)
+	return cfg, problems, false
 }
 
 // ProxyTeams loads the team config and describes it: which config is in force, then one line per team.
 func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
-	cfg, problems := loadTeams()
+	cfg, problems, busy := loadTeams()
 	switch {
+	case busy:
+		return []string{"teams: " + vaultBusyNote}, nil
 	case len(problems) == 0:
 		lines = append(lines, "teams: merged config")
 	default:
-		lines = append(lines, "teams: fallback in force (last good config, else the embedded default)")
+		lines = append(lines, "teams: problems found, fallback config in force (last good, else the embedded default)")
 	}
 	for _, t := range cfg.Teams {
 		var parts []string
@@ -54,7 +68,10 @@ func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
 
 // proxyTeamsStatus summarizes the team config for the doctor row.
 func proxyTeamsStatus() (detail string, bad bool) {
-	cfg, problems := loadTeams()
+	cfg, problems, busy := loadTeams()
+	if busy {
+		return vaultBusyNote, false
+	}
 	if len(problems) > 0 {
 		parts := make([]string, len(problems))
 		for i, p := range problems {

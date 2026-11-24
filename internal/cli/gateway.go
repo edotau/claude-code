@@ -249,21 +249,34 @@ func proxyStatus(ctx context.Context, format string) int {
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	lines, problems := doctor.ProxyTeams()
-	out := os.Stdout
-	if format == helptext.JSON {
-		out, lines = os.Stderr, nil
+	problems, err := printProxyTeams(format)
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
 	}
-	for _, l := range lines {
-		fmt.Fprintln(out, l)
-	}
-	for _, p := range problems {
-		fmt.Fprintln(out, "problem  "+p.String())
-	}
-	if !ps.Running || len(problems) > 0 {
+	if !ps.Running || problems > 0 {
 		return 1
 	}
 	return 0
+}
+
+// printProxyTeams prints the team rows and `problem` lines (problems alone, to stderr, in JSON mode).
+func printProxyTeams(format string) (problems int, err error) {
+	lines, ps := doctor.ProxyTeams()
+	if format == helptext.JSON {
+		lines = nil
+	}
+	for _, p := range ps {
+		lines = append(lines, "problem  "+p.String())
+	}
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	text := strings.Join(lines, "\n") + "\n"
+	if format == helptext.JSON {
+		_, err = fmt.Fprint(os.Stderr, text)
+		return len(ps), err
+	}
+	return len(ps), stdoutf("", "%s", text)
 }
 
 // gatewayPage is bare `gateway`: the route pick and why, then the proxy status; never dispatches.
