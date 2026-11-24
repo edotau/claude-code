@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -345,5 +346,41 @@ func TestSessionRefusalNamesItsCause(t *testing.T) {
 				checkRefusal(t, g, &log, path, tok, tc.want)
 			}
 		})
+	}
+}
+
+// A token the previous build stored works until its process exits; a write keeps it, then drops it once gone.
+func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
+	g := newSessionRig(t)
+	tok := proxy.SessionTokenPrefix + strings.Repeat("ab", 32)
+	hash := textutil.SHA256Hex([]byte(tok))
+	v2 := `{"schema":2,"sessions":[{"hash":"` + hash + `","profiles":["dev"],"pid":4242,"start":"100",` +
+		`"expires":"2001-01-01T00:00:00Z"}]}`
+	if err := os.MkdirAll(filepath.Dir(proxy.SessionsFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proxy.SessionsFile(), []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
+		t.Fatal("a stored old-format token was refused while its process lives")
+	}
+	if c, _ := g.call(t, "/p/other/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
+		t.Fatal("an old-format token was accepted outside its profiles")
+	}
+	if err := g.r.sessions.revoke(g.mint(t, "dev")); err != nil { // a write must merge, not erase, the old entry
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
+		t.Fatal("a revocation write erased a live old-format entry")
+	}
+	g.setStart("999")
+	g.advance(sessionVerify)
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
+		t.Fatal("an old-format token outlived its process")
+	}
+	g.r.sessions.count()
+	if raw, _ := os.ReadFile(proxy.SessionsFile()); strings.Contains(string(raw), hash) {
+		t.Fatal("an exited old-format entry was kept on disk")
 	}
 }

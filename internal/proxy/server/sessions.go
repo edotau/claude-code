@@ -38,24 +38,28 @@ type revokedSession struct {
 }
 
 type sessionState struct {
-	Schema  int              `json:"schema"`
-	Revoked []revokedSession `json:"revoked"`
+	Schema   int              `json:"schema"`
+	Revoked  []revokedSession `json:"revoked"`
+	Sessions []legacySession  `json:"sessions,omitempty"` // the previous build's live tokens (legacysessions.go)
 }
 
 // sessionStore verifies signed tokens; its one persisted state is the revocation list, merged on every write.
 type sessionStore struct {
-	mu        sync.Mutex
-	secret    string
-	seen      map[string]*seenSession // token hash -> last verified binding
-	revoked   map[string]time.Time    // token hash -> the token's expiry
-	read      os.FileInfo             // the revocation file version last folded in
-	file      string
-	now       func() time.Time
-	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
+	mu         sync.Mutex
+	secret     string
+	seen       map[string]*seenSession  // token hash -> last verified binding
+	revoked    map[string]time.Time     // token hash -> the token's expiry
+	legacy     map[string]legacySession // token hash -> the previous build's stored binding
+	legacyDead map[string]bool          // legacy hashes whose process was seen gone, dropped on the next write
+	read       os.FileInfo              // the revocation file version last folded in
+	file       string
+	now        func() time.Time
+	procStart  func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
 
 func newSessionStore(secret string, now func() time.Time) *sessionStore {
 	s := &sessionStore{secret: secret, seen: map[string]*seenSession{}, revoked: map[string]time.Time{},
+		legacy: map[string]legacySession{}, legacyDead: map[string]bool{},
 		file: proxy.SessionsFile(), now: now, procStart: proc.StartTime}
 	s.mu.Lock()
 	s.reloadLocked()
@@ -80,44 +84,46 @@ func (s *sessionStore) reloadLocked() {
 		fi.Size() == s.read.Size()) {
 		return
 	}
-	if got, err := readRevoked(s.file, s.now()); err == nil { // a failed read retries on the next request
+	if got, legacy, err := readSessions(s.file, s.now()); err == nil { // a failed read retries on the next request
 		maps.Copy(s.revoked, got)
+		s.setLegacyLocked(legacy)
 		s.read = fi
 	}
 }
 
-// readRevoked is the file's unexpired revocations: none when absent, an error when present but unreadable.
-func readRevoked(file string, now time.Time) (map[string]time.Time, error) {
+// readSessions is the file's unexpired revocations and legacy entries: none when absent, an error when unreadable.
+func readSessions(file string, now time.Time) (map[string]time.Time, []legacySession, error) {
 	out := map[string]time.Time{}
 	raw, err := os.ReadFile(file)
 	if errors.Is(err, os.ErrNotExist) {
-		return out, nil
+		return out, nil, nil
 	}
 	var state sessionState
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := schemas.Decode(routerSessionsFormat, raw, &state); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, r := range state.Revoked {
 		if now.Before(r.Expires) {
 			out[r.Hash] = r.Expires
 		}
 	}
-	return out, nil
+	return out, state.Sessions, nil
 }
 
 // saveLocked merges memory with the file under its lock, so two daemons on one config never lose a revocation.
 func (s *sessionStore) saveLocked() error {
 	return paths.WithFileLock(s.file, func() error {
 		now := s.now()
-		onDisk, err := readRevoked(s.file, now)
+		onDisk, legacy, err := readSessions(s.file, now)
 		if err != nil { // never overwrite a list this daemon cannot read: it may hold another daemon's revocations
 			return fmt.Errorf("read %s: %w", s.file, err)
 		}
 		maps.Copy(s.revoked, onDisk)
-		state := sessionState{Schema: routerSessionsFormat.Version, Revoked: []revokedSession{}}
+		state := sessionState{Schema: routerSessionsFormat.Version, Revoked: []revokedSession{},
+			Sessions: s.keptLegacyLocked(legacy)}
 		for h, exp := range s.revoked {
 			if now.Before(exp) {
 				state.Revoked = append(state.Revoked, revokedSession{Hash: h, Expires: exp})
@@ -157,14 +163,18 @@ func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
 
 // revoke denies tok on every daemon of this config; an unsigned token needs no entry.
 func (s *sessionStore) revoke(tok string) error {
-	c, err := proxy.ParseSessionToken(s.secret, tok)
-	if err != nil {
+	var expires time.Time
+	if c, err := proxy.ParseSessionToken(s.secret, tok); err == nil {
+		expires = time.Unix(c.Expires, 0)
+	} else if _, ok := s.legacyClaims(tok); ok {
+		expires = s.now().Add(proxy.SessionTokenTTL) // its entry is dropped on this write; the mark outlives any copy
+	} else {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := textutil.SHA256Hex([]byte(tok))
-	s.revoked[hash] = time.Unix(c.Expires, 0)
+	s.revoked[hash] = expires
 	delete(s.seen, hash)
 	return s.saveLocked()
 }
@@ -186,14 +196,11 @@ const (
 
 // check is "" when tok serves profile now, else why not; a passed liveness probe is trusted for sessionVerify.
 func (s *sessionStore) check(tok, profile string) string {
-	c, err := proxy.ParseSessionToken(s.secret, tok)
-	if err != nil {
-		return err.Error()
+	c, why := s.verify(tok)
+	if why != "" {
+		return why
 	}
 	now, hash := s.now(), textutil.SHA256Hex([]byte(tok))
-	if proxy.SessionWindowErr(c, now) != nil {
-		return whyExpired
-	}
 	if !slices.Contains(c.Profiles, profile) {
 		return "session token is not scoped to this route (" + strings.Join(c.Profiles, ",") + " only)"
 	}
@@ -217,6 +224,21 @@ func (s *sessionStore) check(tok, profile string) string {
 		s.noteSeenLocked(hash, c, now)
 	}
 	return ""
+}
+
+// verify is tok's claims when signed and inside its window, or a stored legacy binding; else why not.
+func (s *sessionStore) verify(tok string) (proxy.SessionClaims, string) {
+	if c, ok := s.legacyClaims(tok); ok {
+		return c, ""
+	}
+	c, err := proxy.ParseSessionToken(s.secret, tok)
+	if err != nil {
+		return c, err.Error()
+	}
+	if proxy.SessionWindowErr(c, s.now()) != nil {
+		return c, whyExpired
+	}
+	return c, ""
 }
 
 // stateLocked reloads revocations and reports whether hash is revoked and its liveness check still trusted.
@@ -271,6 +293,9 @@ func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
 	if !strings.HasPrefix(tok, proxy.SessionTokenPrefix) {
 		return proxy.SessionClaims{}, false
 	}
+	if c, ok := s.legacyClaims(tok); ok {
+		return c, true
+	}
 	c, err := proxy.ParseSessionToken(s.secret, tok)
 	return c, err == nil
 }
@@ -289,6 +314,7 @@ func (s *sessionStore) failoverProvider(tok string) string {
 
 // count is the tokens this daemon accepted whose process still lives; it is shown, never consulted for auth.
 func (s *sessionStore) count() int {
+	s.pruneLegacy()
 	s.mu.Lock()
 	probe := maps.Clone(s.seen)
 	s.mu.Unlock()
@@ -340,14 +366,14 @@ var routerSessionsFormat = schemas.Register(schemas.Format{
 	Name: "router-sessions", Owner: "internal/proxy", Kind: schemas.Record, Version: 3,
 	Glob:    proxy.SessionsFile,
 	New:     func() any { return new(sessionState) },
-	Keep:    "revoked session token hashes until each token's expiry; tokens themselves are signed, never stored",
+	Keep:    "revoked token hashes until expiry; the previous build's live token hashes until their process exits",
 	Migrate: migrateSessions,
 })
 
-// migrateSessions stamps v0; from v1 on it drops the stored token list, which signed tokens no longer need.
+// migrateSessions stamps v0, drops v1's single-profile list, and keeps v2's list as the legacy bridge.
 func migrateSessions(from int, raw []byte) ([]byte, error) {
-	if from == 0 {
-		return schemas.SameShape(from, raw)
+	if from == 1 {
+		return json.Marshal(sessionState{Schema: from + 1, Revoked: []revokedSession{}})
 	}
-	return json.Marshal(sessionState{Schema: from + 1, Revoked: []revokedSession{}})
+	return schemas.SameShape(from, raw)
 }

@@ -43,6 +43,7 @@ paths:
   a key derived from the router secret, so every daemon of the config accepts them. The proxy's own refusal is a 401
   with `X-Claude-Code-Proxy-Refusal: session-refused`; `resolve --proxy` re-mints a refused armed token, a headless run
   re-mints once, and neither marks the provider. Rotating `CLAUDE_CODE_ROUTER_SECRET` refuses every live token once.
+  A token the previous (stored-token) build minted stays valid until its process exits, while `sessions.json` lists it.
 
 ## Routing precedence
 
