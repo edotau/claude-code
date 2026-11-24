@@ -102,6 +102,27 @@ func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 	return id, nil
 }
 
+// rememberDecisionOnce files fact in decisionLog.md unless a title already matches, the check and write under one lock.
+func rememberDecisionOnce(fact string, now time.Time) (string, error) {
+	fact = strings.Join(strings.Fields(fact), " ")
+	if fact == "" {
+		return "", errors.New("empty fact")
+	}
+	if err := EnsureBank(""); err != nil {
+		return "", err
+	}
+	var id string
+	err := withFlatLock(BankLockWait, func() error {
+		if filedDecisions()(fact) {
+			return nil
+		}
+		var werr error
+		id, werr = rememberLocked("decisionLog.md", "project", fact, "", now)
+		return werr
+	})
+	return id, err
+}
+
 // rememberLocked is RememberSupersedes' write under the bank lock; every touched bank file rolls back on error.
 func rememberLocked(file, kind, fact, old string, now time.Time) (string, error) {
 	if old != "" { // a peer may have replaced it since the check before the lock

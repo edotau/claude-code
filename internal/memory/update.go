@@ -320,10 +320,12 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 
 // tagBlock files the session's tags (historical: DECISION only): typed events, then transcript tags they do not repeat.
 func tagBlock(transcript, session string, historical bool) string {
+	filed := filedDecisions() // dropped before any cap, so filed decisions never push a pending tag out
+	isFiled := func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) }
 	var legacy []tag
 	if f, err := os.Open(transcript); err == nil {
 		defer f.Close()
-		legacy, _ = extractTags(f)
+		legacy, _ = extractTagsExcept(f, isFiled)
 	}
 	if session == "" { // no id on the request: the transcript's stem is the session id for Claude transcripts
 		session = strings.TrimSuffix(filepath.Base(transcript), ".jsonl")
@@ -333,9 +335,7 @@ func tagBlock(transcript, session string, historical bool) string {
 		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
 		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
-	filed := filedDecisions() // before the cap, so filed decisions never push a pending tag out
-	isFiled := func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) }
-	tags := mergeTags(slices.DeleteFunc(typed, isFiled), slices.DeleteFunc(legacy, isFiled))
+	tags := mergeTags(slices.DeleteFunc(typed, isFiled), legacy)
 	if len(tags) == 0 {
 		return ""
 	}
@@ -371,14 +371,14 @@ func normTitle(s string) string {
 func fileDecisionEvents(session string, now time.Time) error {
 	var errs []error
 	for _, e := range ReadTagEvents(session) {
-		if e.Event != "decision" || filedDecisions()(e.Text) {
+		if e.Event != "decision" {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, e.At)
 		if err != nil {
 			at = now
 		}
-		if _, err := Remember("project", e.Text, at); err != nil {
+		if _, err := rememberDecisionOnce(e.Text, at); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -612,11 +612,17 @@ const (
 var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 
 // extractTags returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT text blocks only.
-func extractTags(r io.Reader) ([]tag, error) {
+func extractTags(r io.Reader) ([]tag, error) { return extractTagsExcept(r, nil) }
+
+// extractTagsExcept is extractTags minus the tags skip names, dropped before the cap so they never evict a pending one.
+func extractTagsExcept(r io.Reader, skip func(tag) bool) ([]tag, error) {
 	var tags []tag
 	seen := map[string]bool{}
 	err := transcript.EachLine(r, func(line []byte) {
 		for _, t := range tagsFromLine(line) {
+			if skip != nil && skip(t) {
+				continue
+			}
 			key := t.Kind + "\x00" + t.Text
 			if !seen[key] {
 				seen[key] = true

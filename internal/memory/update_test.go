@@ -812,3 +812,21 @@ func TestFiledDecisionsMatchesWholeTitleAndStruckEntries(t *testing.T) {
 		t.Fatalf("filed(use A, use AB, use C) = %v %v %v, want false true true", filed("use A"), filed("use AB"), filed("use C"))
 	}
 }
+
+// TestTagBlockFiledDecisionsNeverEvictAPendingBug: decisions already in the log leave before the legacy cap.
+func TestTagBlockFiledDecisionsNeverEvictAPendingBug(t *testing.T) {
+	tempConfig(t)
+	var log, text strings.Builder
+	log.WriteString("# Decision Log\n\n")
+	text.WriteString(`BUG: pending\n`)
+	for i := range tagMaxCount + 1 {
+		log.WriteString("## 2026-11-20 — d" + strconv.Itoa(i) + "\n\n")
+		text.WriteString("DECISION: d" + strconv.Itoa(i) + `\n`)
+	}
+	write(t, Path("decisionLog.md"), log.String())
+	path := filepath.Join(t.TempDir(), "s6.jsonl")
+	write(t, path, `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"`+text.String()+`"}]}}`)
+	if got := tagBlock(path, "s6", false); !strings.Contains(got, "BUG: pending") || strings.Contains(got, "DECISION") {
+		t.Fatalf("tagBlock = %q, want the pending BUG and no filed decision", got)
+	}
+}
