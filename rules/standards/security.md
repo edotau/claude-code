@@ -11,8 +11,10 @@ Harness credentials: CLAUDE.md hard rule 2.
    string; parameterized queries.
 3. **Dependencies** — standard library first; minimal, pinned, audited. A Pi package's extension code runs unsandboxed
    in Pi with your privileges and the guard does not judge it: approve a package only after reading its code.
-4. **Production is read-only from a session** — never `exec`/shell into a live pod or decode a cluster secret; read
-   logs and status, copy artifacts out (`kubectl cp`/`oc cp`), change production only through its deploy pipeline.
+4. **Production changes go through the deploy pipeline** — a main session asks before `kubectl|oc exec|delete`
+   or `oc rsh` against a production cluster (`safety-scan`, `rules/harness/hooks.md`); a dispatched leaf may run
+   them with a note, since `agentBashAllow` lifts that ask. Read logs and status, copy artifacts out
+   (`kubectl cp`/`oc cp`), never decode a cluster secret, and keep production changes in the deploy pipeline.
 5. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt
    (`network websearch --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
    proxy rotation) — a block means ask for an API or permission.

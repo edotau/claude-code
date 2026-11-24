@@ -19,7 +19,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
 | R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask` |
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
-| R11 make | `quality.md`; leaves: `rtk make lint`, `agents diff --check`; no fmt, audit, install | `safety-scan` for main and undispatched agents; leaves pass `agentBashAllow` except the floor and deny rows |
+| R11 make | `quality.md`; a leaf runs `rtk make lint`, `agents diff --check`, and the reserved targets (audit, install, fmt, build, verify, bootstrap, adopt) or a fixing `lint-<kind>` in the harness tree, each with an `agentBashAllow` note (`hooks.md`); `make lint` and dry runs pass without one | `safety-scan` for main and undispatched agents; leaves pass `agentBashAllow` except the floor and deny rows |
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
 | R13 Guard walls | `--secret`, `vault get --key --secret`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` for main (unless a settings allow covers it); leaves pass `agentBashAllow` except the floor and deny rows |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |

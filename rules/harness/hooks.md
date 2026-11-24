@@ -170,8 +170,10 @@ match turns these rules off.
 - `claude-code … --secret` (prints a credential) on any verb: main session only; a leaf gets credentials at launch and
   reports the vault name it needs. `[--host|--remote h] vault get --key --secret` (the master key) asks in main too;
   redacted forms (no `--secret`) are open to all.
-- `kubectl|oc exec|delete` (`oc rsh`) on production (detection: hook-details → safety-scan): asks in main, refused in a
-  leaf.
+- `kubectl|oc exec|delete` and `oc rsh` against production, or an unknown context (detection: hook-details →
+  safety-scan): asks in main; in a leaf the block is lifted to allow with a note by `agentBashAllow` (step 5
+  above), so a leaf runs it with that note. Production changes still go through the deploy pipeline
+  (`rules/standards/security.md` #4).
 - `make|gmake audit|install|fmt|build|verify|bootstrap|adopt` and a fixing `lint-<kind>` in the harness tree (install
   targets also in its linked worktrees): a leaf-only rule, so the main session runs them with no hook block; in a leaf
   the block is lifted to allow with a note by `agentBashAllow` (step 5 above), so a leaf runs it with that note. A
