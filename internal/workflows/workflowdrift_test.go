@@ -275,6 +275,7 @@ async function check(args, sequence, texts, stable) {
       fixes++; prompt=p; assert(!p.includes('run the whole gate'));
       return {status:'done',files:['x.go'],summary:'claim'};
     }
+    if (/:state$/.test(o.label)) return {dispatch_id:'d', ran_on:'ran on local · gateway', status:'ok', candidates:[{agent:'claude', state:'ok'}]};
     calls++;
     const exit = sequence.shift();
     const hash = '0'.repeat(39) + (stable ? 0 : calls);
@@ -302,7 +303,7 @@ async function check(args, sequence, texts, stable) {
     if (o.phase !== 'Measure') return {gate:'true',exit:0,changed:[],failures:[]};
     const peer = {path:'peer.go',added:1+8*snaps,deleted:0}, mine = {path:'x.go',added:2,deleted:0};
     const files = snaps++ ? [mine, peer] : [peer];
-    return {dispatch_id:'d', ran_on:'ran on local · diff', status:'ok', hops:[{agent:'local'}], answer: JSON.stringify({files, outside:['peer.go']})};
+    return {dispatch_id:'d', ran_on:'ran on local · diff', status:'ok', files, outside:['peer.go']};
   }, async jobs => Promise.all(jobs.map(f=>f())), ()=>{}, ()=>{});
   assert.deepEqual(m.lines.stages.flatMap(r=>r.files),['x.go'], 'peer.go must not be measured: '+JSON.stringify(m.lines.stages));
 })().catch(e => {console.error(e); process.exitCode=1});`

@@ -215,18 +215,20 @@ const ST_PROPOSE = ' Every other test worth adding (a regression test for a bug 
   ' Any test you write must run in milliseconds: no sleep, real network, vault, daemon or spawned binary; each under complexity 10.'
 // the numstat reader is always a local cheap leaf: an external relay adds a hop and a second self-report
 const ST_MEASURER = { agent: 'claude', ext: false, model: 'haiku', effort: 'low', type: {}, task: (p) => p, schema: (s) => s, done: (_l, r) => r }
-const ST_ENV = { type: 'object', required: ['dispatch_id', 'ran_on', 'status', 'answer'], properties: { hops: { type: 'array', items: { type: 'object' } },
-  ...Object.fromEntries(['dispatch_id', 'ran_on', 'status', 'answer'].map((k) => [k, { type: 'string' }])) } }
-// stAction: a typed no-model `agents ask` line run by a leaf (stLoopCheck: no gate command -> Go runs it); the parsed envelope answer, null when absent/unparsable.
-async function stAction(ctx, label, ph, spec) {
+const ST_GW = { candidates: { type: 'array', items: { type: 'object', properties: { agent: { type: 'string' }, state: { type: 'string' } } } },
+  skipped: { type: 'array', items: { type: 'object', properties: { agent: { type: 'string' }, gate: { type: 'string' } } } } }
+const stClaudeState = (w) => { const f = (k) => ((w && w[k]) || []).find((c) => c.agent === 'claude') || {}; return f('candidates').state || f('skipped').gate || 'unknown' }
+// stAction: a typed no-model `agents ask --spec` line run by a leaf; the envelope trio and `fields` of its answer.
+async function stAction(ctx, label, ph, spec, fields) {
   const line = 'claude-code agents ask --format json --spec ' + stShq(JSON.stringify({ ...spec, workdir: ctx.cwd || '.', format: 'json' })) + ' </dev/null'
-  const e = await stageAsk(ctx, ST_MEASURER, label, ph, ctx.cd + 'Run exactly this one line (a nonzero exit is expected for a red gate; set the ' +
-    "Bash timeout to 600000 ms) and nothing else: " + line + " — return the envelope's dispatch_id, ran_on, status, answer and hops verbatim.", ST_ENV)
-  try { return e ? JSON.parse(e.answer) : null } catch (_) { return null }
+  const str = { type: 'string' }, schema = { type: 'object', required: ['dispatch_id', 'ran_on', 'status'], properties: { dispatch_id: str, ran_on: str, status: str, ...fields } }
+  return stageAsk(ctx, ST_MEASURER, label, ph, ctx.cd + 'Run exactly this one line (a nonzero exit is expected for a red gate; set the Bash timeout to 600000 ms) ' +
+    "and nothing else: " + line + " — return the envelope's dispatch_id, ran_on and status, and from its answer JSON only the schema's other fields verbatim (omit any it lacks).", schema)
 }
 // stSnap: observed counts from agents diff for files under paths (its `outside` peer files dropped); null on failure.
 async function stSnap(ctx, label, paths) {
-  const r = await stAction(ctx, 'numstat:' + label, 'Measure', { action: 'diff', own: paths })
+  const r = await stAction(ctx, 'numstat:' + label, 'Measure', { action: 'diff', own: paths }, { outside: ST_LIST,
+    files: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } } } } })
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -290,21 +292,19 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
 // stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
-  return stAction(ctx, 'detect', 'Detect', { action: 'scope', own: scope }).then((d) => ({ gate: (d && d.gate) || '', source: (d && d.source) || 'none' }))
+  return stAction(ctx, 'detect', 'Detect', { action: 'scope', own: scope }, { gate: { type: 'string' }, source: { type: 'string' } }).then((d) => ({ gate: (d && d.gate) || '', source: (d && d.source) || 'none' }))
 }
 const stShq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'"
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
-  if (cmd) return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. Gate command: ' + cmd + '. Run it exactly once with pipefail; capture the real exit code. ' +
+  const g = cmd ? await stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. Gate command: ' + cmd + '. Run it exactly once with pipefail; capture the real exit code. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). Return gate, exit (null only if ' +
-    'execution is impossible), changed, failures [{file,line,text}] from command output, repo-relative; keep errors without locations too. ' +
-    (ctx.claudeState ? 'Account state is ' + ctx.claudeState :
-      'Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet` and return candidates[0].state or unknown as state.'), ST_CHECK)
-  const g = await stAction(ctx, label, 'Gate', { action: 'gate', own: paths, timeout: '10m' })
-  const w = !g || ctx.claudeState ? null : await stAction(ctx, label + ':state', 'Gate', { action: 'gateway', agent: 'claude', model: 'sonnet' })
-  return g && { ...g, state: ctx.claudeState || ((((w && w.candidates) || []).find((c) => c.agent === 'claude')) || {}).state || 'unknown' }
+    'execution is impossible), changed, failures [{file,line,text}] from command output, repo-relative; keep errors without locations too.', ST_CHECK)
+    : await stAction(ctx, label, 'Gate', { action: 'gate', own: paths, timeout: '10m' }, ST_CHECK.properties)
+  const w = !g || ctx.claudeState ? null : await stAction(ctx, label + ':state', 'Gate', { action: 'gateway', agent: 'claude', model: 'sonnet' }, ST_GW)
+  return g && { ...g, state: ctx.claudeState || stClaudeState(w) }
 }
 // stStamps maps each `changed` entry to its path; the value keeps the entry and Go's change_id when ids align with it.
 const stStamps = (changed, ids) => new Map(changed.map((s, i) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), { s, id: Array.isArray(ids) && ids.length === changed.length ? ids[i] : '' }]))
