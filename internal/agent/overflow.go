@@ -20,7 +20,7 @@ import (
 )
 
 // overflowTokens reads N from the proxy's "prompt is too long: N tokens > M maximum" (a text pattern: no typed class).
-var overflowTokens = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\d+) tokens > \d+ maximum`) })
+var overflowTokens = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(\d{1,9}) tokens > \d+ maximum`) })
 
 // overflowFit is the headroom a re-pick keeps over the refused prompt, in tenths (11 = 1.1 x).
 const overflowFit = 11
