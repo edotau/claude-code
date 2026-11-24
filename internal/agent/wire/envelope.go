@@ -262,6 +262,9 @@ func RanOn(res Result) string {
 	if res.Runner != "" && res.Asked != "" && res.Asked != typ {
 		line += " · asked " + res.Asked
 	}
+	if res.Transport != nil && res.Transport.Proxy != "" {
+		line += " · proxy " + res.Transport.Proxy
+	}
 	return line
 }
 
@@ -433,11 +436,12 @@ type Hop struct {
 
 // Transport is a run's stream health: attempts, retries the agent recovered from, and how steady the stream was.
 type Transport struct {
-	Attempts      int   `json:"attempts"`                 // tries the outer retry loop made
-	Retries       int   `json:"retries,omitempty"`        // api_retry events Claude recovered from
-	RetryStatuses []int `json:"retry_statuses,omitempty"` // their HTTP status; 0 = no response
-	FirstEventMs  int64 `json:"first_event_ms,omitempty"` // start → first stream_event
-	MaxGapMs      int64 `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
+	Attempts      int    `json:"attempts"`                 // tries the outer retry loop made
+	Retries       int    `json:"retries,omitempty"`        // api_retry events Claude recovered from
+	RetryStatuses []int  `json:"retry_statuses,omitempty"` // their HTTP status; 0 = no response
+	FirstEventMs  int64  `json:"first_event_ms,omitempty"` // start → first stream_event
+	MaxGapMs      int64  `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
+	Proxy         string `json:"proxy,omitempty"`          // the proxy route label the dispatch ran through
 }
 
 // Result.Status values.

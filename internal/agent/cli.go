@@ -399,7 +399,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
-	res.Transport = idle.stampFirst(res.Transport)
+	res.Transport = stampProxy(idle.stampFirst(res.Transport), ChosenProxy(id))
 	return streamResult(ctx, name, res, perr, werr, opts, tail)
 }
 
@@ -458,6 +458,19 @@ type idleReader struct {
 	last  int64 // unix nanos of the last read, atomic
 	start time.Time
 	first atomic.Int64 // ms from start to the first byte read, plus 1 so 0 means none
+}
+
+// stampProxy returns t with Proxy set to the chosen route label; t unchanged when label is empty.
+func stampProxy(t *wire.Transport, label string) *wire.Transport {
+	if label == "" {
+		return t
+	}
+	out := wire.Transport{}
+	if t != nil {
+		out = *t
+	}
+	out.Proxy = label
+	return &out
 }
 
 // stampFirst sets t.FirstEventMs from the first byte read when the parser left it unset.
