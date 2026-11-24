@@ -61,7 +61,7 @@ func (c Contract) guard(op string, from ...State) error {
 func Open(scope Scope, owner Party, lim Limits, f Facts) (Contract, []Problem) {
 	c := Contract{Schema: SchemaVersion, Scope: scope, Owner: owner, Terms: TermsFor(f), Limits: lim,
 		Executed: NeedsExecutedTests(f) || scope.Kind == KindTestRepair}.clone()
-	if ps := Validate(c); len(ps) > 0 {
+	if ps := append(Validate(c), factProblems(scope, f)...); len(ps) > 0 {
 		return Contract{}, ps
 	}
 	c.state = StateOpened

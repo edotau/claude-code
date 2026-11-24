@@ -26,10 +26,15 @@ func Dir() string { return filepath.Join(paths.StateDir(), "contract") }
 
 // Path is id's state file; an id that is not one plain file name is refused.
 func Path(id string) (string, error) {
-	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\:`) {
+	if !plainName(id) {
 		return "", fmt.Errorf("contract: id %q is not a plain file name", id)
 	}
 	return filepath.Join(Dir(), id+".json"), nil
+}
+
+// plainName reports whether s is one non-empty path element on every OS.
+func plainName(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, `/\:`)
 }
 
 // Load reads id's contract; the decode validates it.
@@ -53,13 +58,18 @@ func load(p string) (Contract, error) {
 	return c, nil
 }
 
-// Save writes c atomically, 0600, under its lock; a contract with no id or a validation problem is refused.
+// Save writes a new contract atomically, 0600, under its lock; it refuses a saved id (Update changes one).
 func Save(c Contract) error {
 	p, err := Path(c.ID)
 	if err != nil {
 		return err
 	}
-	return paths.WithFileLock(p, func() error { return write(p, c) })
+	return paths.WithFileLock(p, func() error {
+		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
+			return errors.Join(fmt.Errorf("contract %q: already saved", c.ID), err)
+		}
+		return write(p, c)
+	})
 }
 
 func write(p string, c Contract) error {

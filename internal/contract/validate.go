@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 )
 
@@ -169,6 +170,12 @@ func validateScope(s Scope, add func(string, string, ...any)) {
 	}
 	if slices.Contains(s.Own, "") {
 		add("scope.own", "holds an empty path")
+	}
+	if s.Plan != "" && !filepath.IsAbs(s.Plan) {
+		add("scope.plan", "%q is not an absolute path", s.Plan)
+	}
+	if s.Lane != "" && !plainName(s.Lane) {
+		add("scope.lane", "%q is not a plain lane name", s.Lane)
 	}
 }
 

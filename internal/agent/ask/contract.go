@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"time"
@@ -84,7 +85,7 @@ func openContract(o contractOpen) (contract.Contract, []contract.Problem, error)
 func openRecords(c contract.Contract, o contractOpen, now time.Time) []contract.TermRecord {
 	var out []contract.TermRecord
 	if slices.Contains(c.Terms, contract.TermLane) {
-		out = append(out, observed(contract.TermLane, isLane(o.Dir), o.Dir, missAbsent, now))
+		out = append(out, observed(contract.TermLane, isLane(o.Dir, c.Scope.Lane), o.Dir, missAbsent, now))
 	}
 	if slices.Contains(c.Terms, contract.TermProxy) {
 		out = append(out, observed(contract.TermProxy, fileExists(o.ProxyScope), o.ProxyScope, missAbsent, now))
@@ -148,21 +149,23 @@ func gateRecord(g *worktree.GateRun, now time.Time) contract.TermRecord {
 	return observed(contract.TermGate, *g.Exit == 0, exitEvidence(*g.Exit), exitEvidence(*g.Exit), now)
 }
 
-// testsRecord passes on an executed verify run by Go, or the owner's judged verdict where no executed run is needed.
+// testsRecord fails on any red verify run; else an executed run passes it, or the judged verdict where none is needed.
 func testsRecord(c contract.Contract, v *wire.VerifyResult, hb *handback, now time.Time) contract.TermRecord {
-	needRun := c.Executed || (hb != nil && hb.Tests == contract.TestsExecuted)
-	switch {
-	case needRun && v == nil:
-		return failed(contract.TermTests, missUnexecuted, now)
-	case needRun && v.Reason != "":
-		return failed(contract.TermTests, v.Reason, now)
-	case needRun:
+	needRun := c.Executed || hb.claims(contract.TestsExecuted)
+	if v != nil && v.Reason == "" && (v.Exit != 0 || needRun) {
 		return observed(contract.TermTests, v.Exit == 0, exitEvidence(v.Exit), exitEvidence(v.Exit), now)
-	case hb != nil && hb.Tests == contract.TestsJudged:
+	}
+	if !needRun && hb.claims(contract.TestsJudged) {
 		return contract.TermRecord{Term: contract.TermTests, Verdict: contract.VerdictPass, By: contract.ByOwner, At: now}
+	}
+	if v != nil && v.Reason != "" {
+		return failed(contract.TermTests, v.Reason, now)
 	}
 	return failed(contract.TermTests, missUnexecuted, now)
 }
+
+// claims reports whether hb is a typed hand-back whose tests value is t.
+func (hb *handback) claims(t contract.Tests) bool { return hb != nil && hb.Tests == t }
 
 // decodeHandback reads the structured hand-back; nil unless it is the typed shape with every enum known.
 func decodeHandback(raw json.RawMessage) *handback {
@@ -186,7 +189,7 @@ func handbackMiss(raw json.RawMessage) string {
 	return missUntyped
 }
 
-// failReason is why c fails now: the run did not finish, or a return term it holds has no pass.
+// failReason is why c fails now: the run did not finish, or an open or return term it holds has no pass.
 func failReason(c contract.Contract, end runEnd) (contract.Reason, bool) {
 	switch end {
 	case endFinished:
@@ -196,7 +199,7 @@ func failReason(c contract.Contract, end runEnd) (contract.Reason, bool) {
 		return contract.ReasonOwnerDead, true
 	}
 	for _, t := range c.Unmet() {
-		if contract.StageOf(t) == contract.StageReturn {
+		if s := contract.StageOf(t); s == contract.StageOpen || s == contract.StageReturn {
 			return contract.ReasonTerm, true
 		}
 	}
@@ -259,9 +262,9 @@ func failed(t contract.Term, miss string, now time.Time) contract.TermRecord {
 
 func exitEvidence(code int) string { return "exit " + strconv.Itoa(code) }
 
-// isLane reports whether dir sits inside one of its repo's worktree lanes.
-func isLane(dir string) bool {
-	if dir == "" {
+// isLane reports whether dir sits inside the repo's worktree lane named name.
+func isLane(dir, name string) bool {
+	if dir == "" || name == "" {
 		return false
 	}
 	repo, err := worktree.ResolveRepo(dir)
@@ -270,17 +273,18 @@ func isLane(dir string) bool {
 	}
 	d := paths.Canon(dir)
 	for _, root := range []string{repo.Root, repo.Legacy} {
-		if rel, ok := paths.RelWithin(root, d); root != "" && ok && rel != "." {
+		if _, ok := paths.RelWithin(filepath.Join(root, name), d); root != "" && ok {
 			return true
 		}
 	}
 	return false
 }
 
+// fileExists reports whether p is a regular file.
 func fileExists(p string) bool {
 	if p == "" {
 		return false
 	}
-	_, err := os.Stat(p)
-	return err == nil
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }

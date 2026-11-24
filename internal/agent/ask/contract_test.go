@@ -17,7 +17,7 @@ func openSaved(t *testing.T, f contract.Facts, dir, scope string) contract.Contr
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	c, ps, err := openContract(contractOpen{
-		Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}, Lane: "l"},
 		Owner: contract.Party{Role: contract.RoleOwner, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1},
 		Facts: f, Dispatch: "d-1", Dir: dir, ProxyScope: scope})
 	if len(ps) > 0 || err != nil {

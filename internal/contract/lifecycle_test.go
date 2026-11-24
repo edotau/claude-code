@@ -13,7 +13,7 @@ var allFacts = Facts{Lane: true, ScopedProxy: true, PlanTask: true, Fleet: true}
 
 func opened(t *testing.T, role Role, depth, leaves int) Contract {
 	t.Helper()
-	c, ps := Open(Scope{Unit: "func x", Kind: KindFunction, Own: []string{"a.go"}},
+	c, ps := Open(Scope{Unit: "func x", Kind: KindFunction, Own: []string{"a.go"}, PlanTask: "1.1", Plan: "/p.md", Lane: "l"},
 		Party{Role: role, Agent: "pi"}, Limits{Depth: depth, Tokens: 400_000, Leaves: leaves}, allFacts)
 	if len(ps) > 0 {
 		t.Fatalf("Open: %v", ps)

@@ -187,6 +187,8 @@ type Scope struct {
 	Kind     Kind     `json:"kind"`
 	Own      []string `json:"own"`
 	PlanTask string   `json:"plan_task,omitempty"`
+	Plan     string   `json:"plan,omitempty"` // the plan file's absolute path, with PlanTask
+	Lane     string   `json:"lane,omitempty"` // the lane name `claude-code worktree list` prints
 	Verify   string   `json:"verify,omitempty"`
 }
 
@@ -260,6 +262,18 @@ func TermsFor(f Facts) []Term {
 	return out
 }
 
+// factProblems are what f needs of scope at open: a lane names its lane, a plan task names its task and plan.
+func factProblems(scope Scope, f Facts) []Problem {
+	var ps []Problem
+	if f.Lane && scope.Lane == "" {
+		ps = append(ps, Problem{"scope.lane", "empty: a lane contract names its lane"})
+	}
+	if f.PlanTask && (scope.PlanTask == "" || scope.Plan == "") {
+		ps = append(ps, Problem{"scope.plan", "a plan-task contract names its plan_task and plan"})
+	}
+	return ps
+}
+
 // NeedsExecutedTests reports whether only an executed run can pass the tests term.
 func NeedsExecutedTests(f Facts) bool { return f.TestStep || f.TestRepair }
 
@@ -299,7 +313,7 @@ func (c Contract) Fields() []Field {
 	return []Field{
 		{"id", c.ID}, {"parent", c.Parent}, {"state", string(c.state)}, {"failed", string(c.Failed)},
 		{"unit", c.Scope.Unit}, {"kind", string(c.Scope.Kind)}, {"own", strings.Join(c.Scope.Own, ",")},
-		{"plan_task", c.Scope.PlanTask}, {"verify", c.Scope.Verify},
+		{"plan_task", c.Scope.PlanTask}, {"plan", c.Scope.Plan}, {"lane", c.Scope.Lane}, {"verify", c.Scope.Verify},
 		{"role", string(c.Owner.Role)}, {"agent", c.Owner.Agent}, {"tier", c.Owner.Tier}, {"runner", c.Owner.Runner},
 		{"terms", strings.Join(terms, ",")}, {"unmet", strconv.Itoa(len(c.Unmet()))},
 		{"depth", strconv.Itoa(c.Limits.Depth)}, {"tokens", strconv.Itoa(c.Limits.Tokens)},
