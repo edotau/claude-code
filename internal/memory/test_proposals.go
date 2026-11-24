@@ -19,6 +19,9 @@ import (
 // maxTestProposals caps techdebt/tests.jsonl; the oldest lines fall off first.
 const maxTestProposals = 40
 
+// watermarkSlack re-reads the last minutes of reports (a rename keeps its mtime); the dedupe makes that harmless.
+const watermarkSlack = 5 * time.Minute
+
 // TestProposal is one test an agent proposed but did not write.
 type TestProposal struct {
 	Pkg     string `json:"pkg"`
@@ -28,7 +31,7 @@ type TestProposal struct {
 	Source  string `json:"source,omitempty"`
 }
 
-var fenceRE = regexp.MustCompile("^(`{3,})[ \t]*([A-Za-z_]*)[ \t]*$")
+var fenceRE = regexp.MustCompile("^(`{3,})[ \t]*([^`\\s]*)[^`]*$")
 
 // proposalBlocks returns the body lines of each top-level proposed_tests fence; a fence nested in another is skipped.
 func proposalBlocks(report string) (blocks [][]string) {
@@ -36,6 +39,7 @@ func proposalBlocks(report string) (blocks [][]string) {
 	var isProposal bool
 	var cur []string
 	for line := range strings.SplitSeq(report, "\n") {
+		line = strings.TrimRight(line, "\r")
 		m := fenceRE.FindStringSubmatch(line)
 		switch {
 		case open == "" && m != nil:
@@ -217,5 +221,5 @@ func ingestTestProposals(out io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(proposalWatermarkFile()), 0o700); err != nil {
 		return err
 	}
-	return paths.AtomicWrite(proposalWatermarkFile(), []byte(cutoff.Format(time.RFC3339Nano)+"\n"), 0o600)
+	return paths.AtomicWrite(proposalWatermarkFile(), []byte(cutoff.Add(-watermarkSlack).Format(time.RFC3339Nano)+"\n"), 0o600)
 }

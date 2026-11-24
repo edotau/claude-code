@@ -93,4 +93,8 @@ func TestProposalFenceNestedIsSkipped(t *testing.T) {
 	if got, err := ParseTestProposals(nested, "s"); err != nil || len(got) != 0 {
 		t.Fatalf("nested fence ingested: %v, %v", got, err)
 	}
+	other := "```c++\nint x;\n```\r\n```proposed_tests\r\n{\"pkg\":\"a\",\"case\":\"c\",\"reason\":\"r\"}\r\n```\r\n"
+	if got, err := ParseTestProposals(other, "s"); err != nil || len(got) != 1 {
+		t.Fatalf("after a c++ fence with CRLF: %v, %v", got, err)
+	}
 }

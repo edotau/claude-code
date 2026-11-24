@@ -148,7 +148,7 @@ func dreamDue(now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	names, err := newReports(proposalWatermark())
+	names, err := newReports(proposalWatermark().Add(watermarkSlack))
 	return newestMtime().After(stamp) || len(names) > 0 || err != nil
 }
 
