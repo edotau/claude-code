@@ -47,6 +47,7 @@ func Serve(ctx context.Context, port int) error {
 	defer drainStateWrites(r) // in-flight state writes finish before the process exits, within a short bound
 	stopRefresh, err := acquireRefresh(ctx)
 	if err != nil {
+		_ = ln.Close()
 		return err
 	}
 	defer stopRefresh()

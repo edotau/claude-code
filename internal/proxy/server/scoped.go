@@ -106,6 +106,10 @@ func releaseRefresh() {
 	refresh.draining = d
 	refresh.Unlock()
 	stop()
+	// stop closed the process-wide exchange admission; a cancelled life re-admits it, refreshing in line
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = providers.BackgroundRefresh(cctx)
 	refresh.Lock()
 	refresh.draining = nil
 	refresh.Unlock()

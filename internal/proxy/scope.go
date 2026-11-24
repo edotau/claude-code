@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,6 +75,18 @@ func checkScopeParts(team, id string) error {
 	return nil
 }
 
+// scopeBlocked is non-nil when the record may belong to a live proxy; a missing or corrupt one does not block.
+func scopeBlocked(team, id string) error {
+	cur, err := ReadScope(team, id)
+	switch {
+	case err == nil && scopeLive(cur):
+		return fmt.Errorf("proxy scope: %s@%s is already served by pid %d", team, id, cur.PID)
+	case errors.Is(err, schemas.ErrNewer), errors.Is(err, fs.ErrPermission):
+		return err // unreadable is not dead: a newer build or another user may own it
+	}
+	return nil
+}
+
 // WriteScope publishes sc and returns a cleanup that removes the file only while it is still this record.
 func WriteScope(sc Scope) (func(), error) {
 	if err := checkScopeParts(sc.Team, sc.ID); err != nil {
@@ -86,8 +99,8 @@ func WriteScope(sc Scope) (func(), error) {
 	}
 	file := scopeFile(sc.Team, sc.ID)
 	err = paths.WithFileLock(file, func() error {
-		if cur, rerr := ReadScope(sc.Team, sc.ID); rerr == nil && scopeLive(cur) {
-			return fmt.Errorf("proxy scope: %s@%s is already served by pid %d", sc.Team, sc.ID, cur.PID)
+		if err := scopeBlocked(sc.Team, sc.ID); err != nil {
+			return err
 		}
 		return paths.AtomicWrite(file, data, 0o600)
 	})
