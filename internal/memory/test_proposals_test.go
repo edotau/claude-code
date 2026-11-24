@@ -64,10 +64,33 @@ func TestIngestTestProposalsFromScratchReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	ingestTestProposals(time.Time{}, &out)
-	ingestTestProposals(time.Time{}, &out)
+	for range 2 {
+		if err := ingestTestProposals(&out); err != nil {
+			t.Fatal(err)
+		}
+	}
 	b, _ := os.ReadFile(testProposalsFile())
 	if strings.Count(string(b), "\n") != 1 || !strings.Contains(string(b), `"source":"reports/x.md"`) {
 		t.Fatalf("list = %q, out %q", b, out.String())
+	}
+	// a report written after the watermark (as during settlement) is picked up by the next ingest
+	late := strings.Replace(body, `"case":"c"`, `"case":"late"`, 1)
+	if err := os.WriteFile(paths.MemorySub("reports", "y.md"), []byte(late), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Second)
+	_ = os.Chtimes(paths.MemorySub("reports", "y.md"), future, future)
+	if err := ingestTestProposals(&out); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ = os.ReadFile(testProposalsFile()); !strings.Contains(string(b), `"case":"late"`) {
+		t.Fatalf("late report not ingested: %q", b)
+	}
+}
+
+func TestProposalFenceNestedIsSkipped(t *testing.T) {
+	nested := "````markdown\n```proposed_tests\n{\"pkg\":\"a\",\"case\":\"c\",\"reason\":\"r\"}\n```\n````\n"
+	if got, err := ParseTestProposals(nested, "s"); err != nil || len(got) != 0 {
+		t.Fatalf("nested fence ingested: %v, %v", got, err)
 	}
 }

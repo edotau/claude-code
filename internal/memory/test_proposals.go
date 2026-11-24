@@ -28,7 +28,29 @@ type TestProposal struct {
 	Source  string `json:"source,omitempty"`
 }
 
-var proposedFenceRE = regexp.MustCompile("(?ms)^```proposed_tests[ \t]*\n(.*?)\n```[ \t]*$")
+var fenceRE = regexp.MustCompile("^(`{3,})[ \t]*([A-Za-z_]*)[ \t]*$")
+
+// proposalBlocks returns the body lines of each top-level proposed_tests fence; a fence nested in another is skipped.
+func proposalBlocks(report string) (blocks [][]string) {
+	var open string
+	var isProposal bool
+	var cur []string
+	for line := range strings.SplitSeq(report, "\n") {
+		m := fenceRE.FindStringSubmatch(line)
+		switch {
+		case open == "" && m != nil:
+			open, isProposal, cur = m[1], m[2] == "proposed_tests", nil
+		case open != "" && m != nil && m[2] == "" && len(m[1]) >= len(open):
+			if isProposal {
+				blocks = append(blocks, cur)
+			}
+			open = ""
+		case open != "":
+			cur = append(cur, line)
+		}
+	}
+	return blocks
+}
 
 func (p TestProposal) key() string {
 	return strings.TrimSpace(p.Pkg) + "\x00" + strings.TrimSpace(p.Case)
@@ -52,8 +74,8 @@ func parseProposalLine(line string) (TestProposal, error) {
 
 // ParseTestProposals reads the ```proposed_tests fence of a report: one JSON object per line, source filled in.
 func ParseTestProposals(report, source string) (out []TestProposal, bad error) {
-	for _, m := range proposedFenceRE.FindAllStringSubmatch(report, -1) {
-		for line := range strings.SplitSeq(m[1], "\n") {
+	for _, block := range proposalBlocks(report) {
+		for _, line := range block {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
@@ -154,9 +176,22 @@ func newReports(since time.Time) ([]string, error) {
 	return names, nil
 }
 
-// ingestTestProposals keeps the valid proposals of reports newer than since; a read or write failure is returned.
-func ingestTestProposals(since time.Time, out io.Writer) error {
-	names, err := newReports(since)
+func proposalWatermarkFile() string { return paths.MemorySub("techdebt", "tests.watermark") }
+
+// proposalWatermark is the newest report time already ingested; zero when none (every report is new).
+func proposalWatermark() time.Time {
+	b, err := os.ReadFile(proposalWatermarkFile())
+	if err != nil {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(b)))
+	return t
+}
+
+// ingestTestProposals keeps new reports' proposals, then moves the watermark to the pre-scan cutoff.
+func ingestTestProposals(out io.Writer) error {
+	cutoff := time.Now()
+	names, err := newReports(proposalWatermark())
 	if err != nil {
 		return err
 	}
@@ -172,12 +207,15 @@ func ingestTestProposals(since time.Time, out io.Writer) error {
 		}
 		found = append(found, got...)
 	}
-	if len(found) == 0 {
-		return nil
-	}
-	n, err := AppendTestProposals(testProposalsFile(), found)
-	if err == nil {
+	if len(found) > 0 {
+		n, err := AppendTestProposals(testProposalsFile(), found)
+		if err != nil {
+			return err
+		}
 		fmt.Fprintf(out, "memory dream: %d proposed test(s) kept\n", n)
 	}
-	return err
+	if err := os.MkdirAll(filepath.Dir(proposalWatermarkFile()), 0o700); err != nil {
+		return err
+	}
+	return paths.AtomicWrite(proposalWatermarkFile(), []byte(cutoff.Format(time.RFC3339Nano)+"\n"), 0o600)
 }
