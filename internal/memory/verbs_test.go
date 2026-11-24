@@ -114,7 +114,7 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{paths.MemorySub("reports", "2026-11-08-rev-000000.md"), paths.MemorySub("reports", "2026-11-08-decisions.md")}
+		want := []string{paths.MemorySub("reports", "2026-11-08-rev.md"), paths.MemorySub("reports", "2026-11-08-decisions.md")}
 		if !slices.Equal(got, want) {
 			t.Fatalf("appendReport = %v, want %v", got, want)
 		}

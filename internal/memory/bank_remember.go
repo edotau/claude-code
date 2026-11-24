@@ -327,7 +327,7 @@ var labelUnsafe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`[^A-Za-z0-9._-]`)
 })
 
-// appendReport appends in's report to reports/<date>-<label>-<HHMMSS>.md and its decisions to <date>-decisions.md.
+// appendReport writes in's report to a new reports/<date>-<label>[-N].md, its decisions to <date>-decisions.md.
 func appendReport(label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")
@@ -339,7 +339,6 @@ func appendReport(label string, in ReportInput) ([]string, error) {
 	if strings.EqualFold(label, "decisions") { // would collide with the <date>-decisions.md file
 		return nil, errors.New("--label decisions is reserved")
 	}
-	label += "-" + now().Format("150405") // Go owns the uniqueness; callers pass a plain name
 	var out []string
 	err := withFlatLock(BankLockWait, func() error {
 		var err error
@@ -349,13 +348,31 @@ func appendReport(label string, in ReportInput) ([]string, error) {
 	return out, err
 }
 
+// freeReportPath is reports/<stem>.md, or <stem>-N.md for the first N from 2 that does not exist yet.
+func freeReportPath(stem string) (string, error) {
+	path := paths.MemorySub("reports", stem+".md")
+	for n := 2; ; n++ {
+		_, err := os.Lstat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return path, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		path = paths.MemorySub("reports", fmt.Sprintf("%s-%d.md", stem, n))
+	}
+}
+
 // appendReportLocked is appendReport's body; the caller holds the bank lock.
 func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o700); err != nil {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath := paths.MemorySub("reports", day+"-"+label+".md")
+	reportPath, err := freeReportPath(day + "-" + label)
+	if err != nil {
+		return nil, err
+	}
 	decisionsPath := paths.MemorySub("reports", day+"-decisions.md")
 	report, err := snapshotFile(reportPath)
 	if err != nil {

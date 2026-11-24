@@ -228,10 +228,11 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
 			runBank(t, func(t *testing.T) {
-				report := paths.MemorySub("reports", "2026-11-08-review-120000.md")
+				report := paths.MemorySub("reports", "2026-11-08-review.md")
 				decisions := paths.MemorySub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
 					write(t, report, previous)
+					report = paths.MemorySub("reports", "2026-11-08-review-2.md") // a taken name gets a suffix
 				}
 				if err := os.MkdirAll(decisions, 0o700); err != nil {
 					t.Fatal(err)
@@ -241,7 +242,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				if err == nil || len(got) != 0 {
 					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", got, err)
 				}
-				assertReportRolledBack(t, report, previous)
+				assertReportRolledBack(t, report, "")
 				if err := os.Remove(decisions); err != nil {
 					t.Fatal(err)
 				}
