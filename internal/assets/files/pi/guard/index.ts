@@ -29,7 +29,8 @@ const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => ty
 const isStep = (s: any): boolean => strArray(s?.env) && strArray(s?.argv) && s.argv.length > 0
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; steps?: Step[]; unset?: string[]; usage?: string } {
+type Verdict = { block?: string; path?: string; run?: string[]; steps?: Step[]; unset?: string[]; usage?: string; notice?: string }
+function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
@@ -38,13 +39,18 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
     if (v.allow !== true) return stuck("unrecognized verdict")
-    const run = strArray(v.run) ? v.run : undefined
-    const steps = Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined
     if (v.unset !== undefined && !strArray(v.unset)) return stuck("malformed unset") // fail closed: never run with it
-    return { path: typeof v.path === "string" ? v.path : "", run, steps, unset: v.unset ?? [] }
+    return allowVerdict(v)
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
+}
+
+// allowVerdict keeps only the well-typed fields of an allow; a malformed run or steps is dropped, so nothing runs.
+function allowVerdict(v: any): Verdict {
+  return { path: typeof v.path === "string" ? v.path : "", run: strArray(v.run) ? v.run : undefined,
+    steps: Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined, unset: v.unset ?? [],
+    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined }
 }
 
 // running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
@@ -83,11 +89,17 @@ function guardedRun(name: string, def: any) {
     const sid = String(ctx?.sessionManager?.getSessionId?.() ?? "")
     const v = judge(name, params, String(ctx?.cwd || process.cwd()), sid)
     if (v.block) throw new Error(v.block)
-    if (name === "bash") return def.execute(id, params, signal, onUpdate, ctx)
+    if (name === "bash") return withNotice(await def.execute(id, params, signal, onUpdate, ctx), v.notice)
     // fail closed: Pi's read tries other spellings of a missing file (NFD, curly quote); a missing path is never read
     if (name === "read" && !existsSync(v.path!)) throw new Error("File not found: " + v.path)
-    return def.execute(id, { ...params, path: v.path }, signal, onUpdate, ctx)
+    return withNotice(await def.execute(id, { ...params, path: v.path }, signal, onUpdate, ctx), v.notice)
   } }
+}
+
+// withNotice appends the judge's notice (the contract budget line) to a tool result as one more text part.
+function withNotice(res: any, notice?: string): any {
+  if (!notice || !Array.isArray(res?.content)) return res
+  return { ...res, content: [...res.content, { type: "text", text: notice }] }
 }
 
 // ACTIONS are plain JSON Schema tools: the model picks the action and typed arguments, Go builds the argv.
@@ -126,8 +138,9 @@ function action(name: string) {
       if (bad) throw new Error("handback: " + bad + "; call it again with every field")
       if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
     }
-    const text = await tracked(id, async () => (v.run ? await runAction(name, v.run, cwd, signal) : "recorded"))
-    return { content: [{ type: "text", text }], details: {} }
+    if (!v.run) return { content: [{ type: "text", text: v.notice ?? "recorded" }], details: {} }
+    const text = await tracked(id, () => runAction(name, v.run!, cwd, signal))
+    return withNotice({ content: [{ type: "text", text }], details: {} }, v.notice)
   } }
 }
 
@@ -194,7 +207,8 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
   for (const s of v.steps) {
     let r: { code: number; out: string }
     try { r = await runStep(s, v.unset ?? [], cwd, deadline - Date.now()) } catch (err: any) { // a fixing turn cannot help either
-      process.stderr.write("pi guard: verify before settle not run: " + s.argv[0] + " " + (err?.message ?? err) + "\n")
+      const why = err?.code === "ENOENT" ? "cannot launch " + s.argv[0] + " (not on PATH)" : s.argv[0] + ": " + (err?.message ?? err)
+      process.stderr.write("pi guard: verify before settle skipped: " + why + "\n")
       return ""
     }
     if (r.code !== 0) {

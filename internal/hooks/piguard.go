@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -41,6 +42,14 @@ type piVerdict struct {
 	Run    []string `json:"run,omitempty"`
 	Usage  string   `json:"usage,omitempty"`
 	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
+	Steps  []piStep `json:"steps,omitempty"`
+	Unset  []string `json:"unset,omitempty"` // credential names verify steps never get, as the post-run verify scrubs
+}
+
+// piStep is one argv the guard runs for a verify line, with its GOOS/GOARCH/CGO_ENABLED assignments.
+type piStep struct {
+	Env  []string `json:"env"`
+	Argv []string `json:"argv"`
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -158,6 +167,9 @@ func (r budgetRecord) tokens() int {
 
 // judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
 func judgePiCall(c piCall) piVerdict {
+	if c.Tool == "verify" {
+		return judgePiVerify(c)
+	}
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
 	}
@@ -432,14 +444,42 @@ func judgePiAction(c piCall) piVerdict {
 	if argv == nil {
 		return piVerdict{Allow: true}
 	}
-	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "claude-code " + strings.Join(argv, " ")}, "cwd": c.CWD,
-		"session_id": c.SessionID, "harness_agent": "pi"})
-	if err != nil {
-		return piBlock("payload: " + err.Error())
-	}
-	if reason := piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload); reason != "" {
+	if reason := piBashBlock(c, "claude-code "+strings.Join(argv, " ")); reason != "" {
 		return piVerdict{Block: reason}
 	}
 	return piVerdict{Allow: true, Run: argv}
+}
+
+// piBashBlock runs Pi's Bash PreToolUse modules on command; "" allows.
+func piBashBlock(c piCall, command string) string {
+	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": command}, "cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
+	if err != nil {
+		return "pi guard: payload: " + err.Error() + "; blocked"
+	}
+	return piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload)
+}
+
+// judgePiVerify rebuilds the run's verify line as argv steps and judges each as the bash line it is.
+func judgePiVerify(c piCall) piVerdict {
+	line, _ := c.Input["verify"].(string)
+	if len(c.Input) != 1 || line == "" {
+		return piVerdict{Usage: "verify: the only argument is a non-empty verify line"}
+	}
+	steps, err := plans.VerifyArgv(line)
+	if err == nil {
+		err = plans.VerifyShape(line)
+	}
+	if err != nil {
+		return piVerdict{Usage: "verify: " + err.Error()}
+	}
+	out := make([]piStep, len(steps))
+	for i, s := range steps {
+		if reason := piBashBlock(c, strings.Join(append(slices.Clone(s.Env), s.Argv...), " ")); reason != "" {
+			return piVerdict{Block: reason}
+		}
+		out[i] = piStep{Env: append([]string{}, s.Env...), Argv: s.Argv}
+	}
+	_, unset := proc.ScrubAgentCredentials(os.Environ(), nil, "") // the judge's env is the steps' env
+	return piVerdict{Allow: true, Steps: out, Unset: unset}
 }

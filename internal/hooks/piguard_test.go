@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,20 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 	runPiGuard(strings.NewReader("not json"), &out, &bytes.Buffer{})
 	if strings.Contains(out.String(), `"allow"`) || !strings.Contains(out.String(), "blocked") {
 		t.Errorf("reply = %s", out.String())
+	}
+}
+
+func TestPiGuardVerifySteps(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "x")
+	v := piGuard(t, "verify", map[string]any{"verify": "GOOS=linux go build ./internal/pi && go vet ./internal/pi"})
+	if !v.Allow || len(v.Steps) != 2 || strings.Join(v.Steps[0].Env, " ") != "GOOS=linux" ||
+		strings.Join(v.Steps[1].Argv, " ") != "go vet ./internal/pi" || !slices.Contains(v.Unset, "OPENAI_API_KEY") {
+		t.Errorf("verdict = %+v", v)
+	}
+	for _, bad := range []map[string]any{{"verify": "go vet ./x; rm -rf ."}, {"verify": "rm -rf ."}, {"verify": ""}, {"verify": "go vet ./x", "y": 1}} {
+		if v := piGuard(t, "verify", bad); v.Allow || v.Usage == "" {
+			t.Errorf("%v: verdict = %+v, want a usage error", bad, v)
+		}
 	}
 }
 
