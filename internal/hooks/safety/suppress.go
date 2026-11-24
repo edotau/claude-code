@@ -22,21 +22,46 @@ import (
 var suppressPatterns = []string{
 	`#\s*noqa\b`, `#\s*ruff:\s*noqa\b`, `#\s*type:\s*ignore\b`, `#\s*pyright:\s*ignore\b`,
 	`#\s*mypy:\s*ignore-errors\b`, `#\s*pylint:\s*(disable|skip-file)\b`, `#\s*shellcheck\s+disable\b`,
-	`//\s*nolint(nextline)?\b`, `eslint-disable\b`, `@ts-(ignore|nocheck|expect-error)\b`, `#!?\[\s*allow\s*\(`,
+	`//\s*nolint(nextline)?\b`, `(//|/\*|#)\s*eslint-disable\b`, `(//|/\*)\s*@ts-(ignore|nocheck|expect-error)\b`,
+	`#!?\[\s*allow\s*\(`,
 }
 
 var suppressMarkers = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)` + strings.Join(suppressPatterns, "|"))
 })
 
-// markerIn is the first marker on l outside a double-quoted string, as [start, end] ("" text when none).
+// markerIn is the first marker on l outside a string literal, as [start, end] (nil when none); one forward pass.
 func markerIn(l string) []int {
+	var quote byte
+	pos := 0
 	for _, m := range suppressMarkers().FindAllStringIndex(l, -1) {
-		if strings.Count(l[:m[0]], `"`)%2 == 0 {
+		var comment bool
+		quote, comment, pos = scanCode(l, pos, m[0], quote)
+		if quote == 0 || comment {
 			return m
 		}
 	}
 	return nil
+}
+
+// scanCode walks l[from:to] from string state quote: the state at the end, a comment start, where it stopped.
+func scanCode(l string, from, to int, quote byte) (byte, bool, int) {
+	i := from
+	for ; i < to; i++ {
+		c := l[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		} else if strings.ContainsRune("\"'`", rune(c)) {
+			quote = c
+		} else if c == '#' || strings.HasPrefix(l[i:], "//") || strings.HasPrefix(l[i:], "/*") {
+			return 0, true, i
+		}
+	}
+	return quote, false, i
 }
 
 // suppressDocExts are prose files where a marker is text, not a comment.
@@ -110,31 +135,39 @@ func suppressReason(lines []string, i, end int) string {
 // addedTexts are the texts a file-edit call writes, from apply_patch bodies or a single-file tool's arguments.
 func addedTexts(in *core.Input) []addition {
 	edits := in.EditedPaths()
-	var out []addition
-	for _, e := range edits {
-		if e.Body == "" {
-			continue
-		}
-		path, known := paths.AnchorPath(e.Path, in.CWD), func(string) bool { return false }
-		if e.Kind == textutil.PatchUpdate {
-			known = existingLines(path)
-		}
-		out = append(out, addition{path, e.Body, known})
-	}
+	out := patchAdditions(edits, in.CWD)
 	ti := in.ToolInput()
 	if len(out) > 0 || ti == nil {
 		return out
 	}
-	path := ""
+	path := strField(ti, "notebook_path")
 	if len(edits) > 0 {
 		path = edits[0].Path
-	} else if nb := strField(ti, "notebook_path"); nb != "" {
-		path = paths.AnchorPath(nb, in.CWD)
 	}
 	if path == "" {
 		return nil
 	}
-	return singleFileAdditions(path, ti)
+	return singleFileAdditions(paths.AnchorPath(path, in.CWD), ti)
+}
+
+// patchAdditions are the apply_patch bodies; an update's lines, and those of a rename from it, may already exist.
+func patchAdditions(edits []textutil.FileEdit, cwd string) []addition {
+	var out []addition
+	source := "" // the last updated file: a following Move to renames it
+	for _, e := range edits {
+		path := paths.AnchorPath(e.Path, cwd)
+		known := func(string) bool { return false }
+		switch e.Kind {
+		case textutil.PatchUpdate:
+			source, known = path, existingLines(path)
+		case textutil.PatchMove:
+			known = existingLines(source)
+		}
+		if e.Body != "" {
+			out = append(out, addition{path, e.Body, known})
+		}
+	}
+	return out
 }
 
 func strField(m map[string]any, keys ...string) string {
