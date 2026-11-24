@@ -72,7 +72,7 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	return o, rest, modelSpecUsage(o.Model, err)
 }
 
-// modelSpecUsage is err, else model's <profile>:<model> refusal (typed or --overlay), a prefix refusal as usage (exit 2).
+// modelSpecUsage is err, else model's <profile>:<model> refusal (typed or --overlay); a prefix one is usage (exit 2).
 func modelSpecUsage(model string, err error) error {
 	if err == nil {
 		err = providers.CheckModelShared(model)
@@ -302,7 +302,7 @@ func (o *LaunchOptions) foldOverlay() error {
 		return err
 	}
 	o.Overlay = string(doc)
-	if r := ov.Route(); o.Provider == "" && !r.IsZero() { // the route comes whole from one source: a typed --profile wins it all
+	if r := ov.Route(); o.Provider == "" && !r.IsZero() { // route comes whole from one source; typed --profile wins
 		o.foldRoute(r, ov.Model)
 	}
 	o.Model = cmp.Or(o.Model, ov.Model)

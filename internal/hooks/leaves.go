@@ -81,7 +81,7 @@ func Effort(in *core.Input) core.Result {
 	return core.WithStderr(res, docs.ClaimPlanTask(in, claim.ID, plan))
 }
 
-// sessionCap reads the billing account and limits on two goroutines; both only read caches, and recall's session id is "".
+// sessionCap reads billing account and limits on two goroutines; both only read caches; recall's session id is "".
 func sessionCap(ctx context.Context) (string, inflight.Limits) {
 	var account string
 	done := make(chan struct{})
@@ -415,8 +415,7 @@ func heldSecretArg(w string) bool {
 
 var heldEnvRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`) })
 
-// heldInfo is a held reason's lead (the running plan task, else the job id, with agent and age) and the id prefix
-// its body still needs: "" when the lead names the id.
+// heldInfo is a held reason's lead (plan task, else job id, agent, age) and its id prefix, "" if the lead names it.
 func heldInfo(cwd string, lr leafRead, rec agent.Record) (lead, idPrefix string) {
 	what, idPrefix := "Job "+rec.ID, ""
 	if t, ok := docs.BriefTask(cwd, lr.scan.brief, recordPlanTask(append([]agent.Record{rec}, lr.recs...))); ok {
@@ -724,7 +723,7 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
 	}
-	if !denied && (s.reviewCalls[it.ToolUseID] || s.askCalls[it.ToolUseID] && it.IsError) { // the vendor ran even if the exit was not 0
+	if !denied && (s.reviewCalls[it.ToolUseID] || s.askCalls[it.ToolUseID] && it.IsError) { // ran even if exit != 0
 		s.ranOn = s.ranOn || ranOnPattern().MatchString(text) && boundReceipt(text)
 	}
 	if p, ok := s.polls[it.ToolUseID]; ok {

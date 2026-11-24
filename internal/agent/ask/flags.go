@@ -233,8 +233,7 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// validateCodemode checks --codemode against the resolved agent (only pi has a codemode tool) and returns the mode
-// to run: the typed one, else pi's PI_CODEMODE setting under --tools, never --read-only.
+// validateCodemode checks --codemode (only pi has one); it's typed, else PI_CODEMODE under --tools, never --read-only.
 func validateCodemode(mode, ag string, tools, readOnly bool) (string, error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
@@ -591,7 +590,7 @@ func keepReason(typedModel, noFallback bool, ran string) string {
 	return ""
 }
 
-// moveOffCutoff sends a retry of a cut-off run to claude when nothing was typed to pin the route, else says how to move.
+// moveOffCutoff sends a cut-off run's retry to claude when nothing typed pins the route, else says how to move.
 func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) {
 	ran := cmp.Or(rec.RanAs, rec.Agent)
 	if !rec.CutOff() || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent
@@ -757,8 +756,7 @@ func absDebugFile(p string) string {
 	return p
 }
 
-// flagRoute is the route the typed --profile / --provider name, whole: --profile R takes R's own registry provider,
-// never the session's; --provider P is {P, auto} for the pool, else P's only row. Zero when neither names one.
+// flagRoute (zero if none): --profile R takes R's provider, not the session's; --provider P: pool {P, auto} or its row.
 func flagRoute(f *askFlags) route.Route {
 	reg, err := providers.Load()
 	if err != nil {

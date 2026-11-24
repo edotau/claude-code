@@ -77,7 +77,7 @@ func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headle
 	if agent.IsDirect(ctx) { // --direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
 	}
-	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: the router fixes agy's requests for Databricks
+	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: router fixes agy's Databricks requests
 }
 
 func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
@@ -344,7 +344,7 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--json-schema", r.OutputSchema)
 	}
 	if r.Tools {
-		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
+		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside workspace
 		for _, d := range agent.WritableRoots(r.Cwd) {
 			argv = append(argv, "--add-dir", d)
 		}
