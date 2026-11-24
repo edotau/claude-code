@@ -91,3 +91,11 @@ func TestPlanRepickPolicyRefusalKeepsTypedAsk(t *testing.T) {
 		t.Fatalf("plan = %+v, want the typed model kept", plan)
 	}
 }
+
+// The refusal text survives an auto ask's tried-picks prefix.
+func TestPolicyWrapSurvivesTriedPicks(t *testing.T) {
+	err := triedPicks([]string{"a", "b"}, policyWrap(errPolicy, "policy refusal twice"))
+	if !strings.Contains(err.Error(), "policy refusal twice") || !retry.IsPolicyRefusal(err) {
+		t.Fatalf("err = %v, want the refusal text kept", err)
+	}
+}

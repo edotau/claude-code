@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -179,7 +180,7 @@ func (r repickPlan) refuse(err error) error {
 	if r.prefusal == "" {
 		return r.overflowPlan.refuse(err)
 	}
-	return fmt.Errorf("policy refusal, %s: %w", r.prefusal, err) // wraps err itself so errors.Is still finds it
+	return policyWrap(err, "policy refusal, "+r.prefusal)
 }
 
 // record adds the re-pick's reason and families to the refused hop h.
@@ -217,7 +218,18 @@ func refusedTwice(ctx context.Context, hops []wire.Hop, err error) error {
 	if first == "" || !retry.IsPolicyRefusal(err) {
 		return err
 	}
-	return fmt.Errorf("policy refusal twice (one re-pick only), first: %s, then: %w", strings.TrimPrefix(first, policyNote), err)
+	return policyWrap(err, "policy refusal twice (one re-pick only), first: "+strings.TrimPrefix(first, policyNote)+", then")
+}
+
+// policyWrap is err led by msg, inside a copy's Err for a retry.Error so prefixErr keeps it; errors.Is finds err.
+func policyWrap(err error, msg string) error {
+	e, ok := errors.AsType[*retry.Error](err)
+	if !ok {
+		return fmt.Errorf("%s: %w", msg, err)
+	}
+	out := *e
+	out.Err = fmt.Errorf("%s: %w", msg, err)
+	return &out
 }
 
 // keepsCell: an auto re-pick stays an auto cell; a policy pick is a concrete model.

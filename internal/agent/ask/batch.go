@@ -291,6 +291,10 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 		req.Lead = ""
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
+	if ov.Runner != "" && req.Values[route.OverlayVar] == "" { // an explicit runner on the line, seen by the re-pick guards
+		req.Values = req.Values.Merge(nil)
+		req.Values[route.OverlayVar] = `{"runner":"` + ov.Runner + `"}`
+	}
 	return nil
 }
 
