@@ -213,7 +213,8 @@ func memorySpec() *helptext.Node {
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n"), helptext.Plain("candidate"),
-			helptext.BoolFlag("approve"), helptext.Plain("enforced")}},
+			helptext.BoolFlag("approve"), helptext.Plain("enforced"),
+			helptext.Plain("propose")}},
 		"promote": {Flags: []helptext.Flag{
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
@@ -526,6 +527,7 @@ func cmdMemoryReview(args []string) int {
 	candidate := fs.String("candidate", "", "show a feedback candidate and its launch line")
 	approve := fs.Bool("approve", false, "with --candidate: the owner said yes; dream skips it")
 	enforced := fs.String("enforced", "", "with --candidate: close it with a main commit sha or file:line")
+	propose := fs.String("propose", "", "append one feedback candidate, a JSON record without status")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
@@ -539,7 +541,8 @@ func cmdMemoryReview(args []string) int {
 		return 0
 	}
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief,
-		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced})
+		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced,
+		Propose: *propose})
 	if err != nil {
 		return helptext.Fail("memory review: %v", err)
 	}

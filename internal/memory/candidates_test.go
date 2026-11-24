@@ -70,3 +70,26 @@ func TestCandidateTargetNeverReachesShell(t *testing.T) {
 		t.Errorf("plain target: gate %q", g)
 	}
 }
+
+func TestCandidatePropose(t *testing.T) {
+	isolatedConfig(t)
+	write(t, filepath.Join(paths.MemoryStoreDir(), "feedback", "feedback-a.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "notes", "note-c.md"), "x\n")
+	if err := EnsureBank(""); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, _ := strings.Cut(candidateRows, "\n")
+	var out strings.Builder
+	if err := proposeCandidate(&out, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := proposeCandidate(&out, rec); err == nil {
+		t.Error("a duplicate id was appended")
+	}
+	if err := proposeCandidate(&out, strings.Replace(rec, `"fc-a"`, `"fc-z","status":"approved"`, 1)); err == nil {
+		t.Error("a proposal with a status was accepted")
+	}
+	if p := candidateProblems(); len(p) != 0 || openCandidatesNotice() != "1 open feedback candidate" {
+		t.Errorf("problems %v, notice %q", p, openCandidatesNotice())
+	}
+}
