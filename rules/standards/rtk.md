@@ -1,8 +1,9 @@
 # rtk — Compact Shell Output
 
 **Every Bash call whose output a model reads is written in its `rtk` form.** `rtk rewrite '<cmd>'` prints that form
-(empty output: run the command as typed). In auto mode the `rtk-rewrite` hook only hints (a rewrite stalls it), so
-the prefix is written by the caller, never left to the hook (CLAUDE.md guideline 6).
+(empty output: run the command as typed). The `rtk-rewrite` hook enforces it: in auto mode it **blocks** a call that
+has an rtk form with `rtk: run it as: <form>` (a rewrite stalls auto mode), elsewhere it rewrites in place, so write
+the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, and so does every Pi code-mode run.
 
 - **Prefixed:** `git` (except `git grep`), `gh`, `go`, `grep`, `rg`, `find`, `ls`, `tree`, `diff`, `make`, `docker`,
   `kubectl`, `oc`, `curl`, `wc`, `ps`, `du`, `df`, `stat`, `jq`, `ssh`, `golangci-lint`; the usual

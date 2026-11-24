@@ -86,9 +86,10 @@ strings; a one-word or f-string literal still does.
 
 ## rtk-rewrite
 
-Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed output; for Claude never a permission
-decision) and runs the pinned `bin/rtk` (else PATH). codex and opencode (plugin, after the guards allow) run `rtk hook
-<agent>` instead, only under `RTK_WRAP=on` (`debug` is off here) and never with `HARNESS_PI_CODEMODE` set; the rewrite
+Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed output) and runs the pinned `bin/rtk`
+(else PATH); for Claude in place with no permission decision, or in auto mode a block naming the form when that form
+passes the hook itself. codex and opencode (plugin, after the guards allow) run `rtk hook
+<agent>` instead, never with `HARNESS_PI_CODEMODE` set; the rewrite
 is offered only when every Bash PreToolUse gate the agent runs (`safety-scan`, `permission-gate`, `docs-placement`,
 `worktree-claim-check`; an unknown one stops it) allows both the raw and the rewritten command, any error runs the
 command as typed, and copilot and agy are not hooked (agy judges its own rules on the rewritten text). On codex a

@@ -44,7 +44,6 @@ const (
 type call struct {
 	name           string
 	args           []string
-	mode           string
 	codemode       string // CodemodeEnv: Pi's scripts run, so nothing wraps
 	pipe           bool   // stdout is a pipe or socket, never a TTY, file or device
 	pid, ppid, sid int
@@ -53,9 +52,6 @@ type call struct {
 
 // gate is the Pi tool-shell command c runs within and "" to wrap it, else the reason code that keeps c raw.
 func (c call) gate() (cmd, reason string) {
-	if c.mode != "on" && c.mode != "debug" {
-		return "", "off"
-	}
 	if c.codemode != "" {
 		return "", "codemode"
 	}
@@ -227,11 +223,11 @@ func Main(args []string) int {
 // wrapWith is the rtk to exec for this call, or "" when it runs raw; the decision is logged first.
 func wrapWith(name string, args, dirs []string, self os.FileInfo, env []string) string {
 	cwd, _ := os.Getwd()
-	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), codemode: os.Getenv(CodemodeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
+	c := call{name: name, args: args, codemode: os.Getenv(CodemodeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
 	rtk := rtkBinary(dirs, self)
 	reason := c.wraps(rtk, env)
-	logDecision(c.mode, name, reason, args)
-	if reason != "" || c.mode == "debug" {
+	logDecision(name, reason, args)
+	if reason != "" {
 		return ""
 	}
 	return rtk
@@ -333,9 +329,7 @@ func rtkMain(args []string) int {
 	}
 	if strip {
 		cmd, _ := resolve(dirs, name, self)
-		if os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on" {
-			logVerdict(filepath.Base(name), "stripped", "", rest)
-		}
+		logVerdict(filepath.Base(name), "stripped", "", rest)
 		if cmd == "" {
 			fmt.Fprintf(os.Stderr, "rtkwrap: %s: not found on PATH outside the shim dir\n", name)
 			return exitNoExec
@@ -344,7 +338,7 @@ func rtkMain(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtkwrap: %s: %v\n", name, err)
 		return exitNoExec
 	}
-	if os.Getenv(CodemodeEnv) != "" && (os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on") {
+	if os.Getenv(CodemodeEnv) != "" {
 		logVerdict(rtkName, "raw", "rtk-verb", args[1:])
 	}
 	if real == "" {

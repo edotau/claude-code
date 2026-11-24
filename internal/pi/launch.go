@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -48,22 +49,17 @@ func ResolveCodemode(typed string, tools bool) (string, error) {
 // codemodeOn reports whether a request's Codemode turns code mode on: "" and a typed "off" do not.
 func codemodeOn(mode string) bool { return mode != "" && mode != "off" }
 
-// Experiment is the trial a run of req carries, from the same RTK_WRAP sources Wire reads.
+// Experiment is the trial a run of req carries: code mode, else rtk wrapping wherever its bash tool runs shimmed.
 func (piEngine) Experiment(req agent.RunOptions) string {
-	return experiment(req.Codemode, RTKMode())
+	return experiment(req.Codemode, req.Tools && slices.Contains(guardTools(req), "bash"))
 }
 
-// RTKMode is the raw RTK_WRAP value a launch carries: the environment first, then the vault's custom env.
-func RTKMode() string {
-	return cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])
-}
-
-// experiment is the one trial a run carries; code mode wins over RTK_WRAP=on, whose shim never wraps under it.
-func experiment(codemode, rtk string) string {
+// experiment is the one trial a run carries; the shims never wrap under code mode, nor on Windows (no shims).
+func experiment(codemode string, bash bool) string {
 	switch {
 	case codemodeOn(codemode):
 		return "codemode"
-	case strings.EqualFold(strings.TrimSpace(rtk), "on"):
+	case bash && runtime.GOOS != "windows":
 		return "rtk-wrap"
 	}
 	return "none"
@@ -71,7 +67,7 @@ func experiment(codemode, rtk string) string {
 
 // codemodeLaunchEnv is env exporting the effective code mode to Pi and putting the shim dir on PATH for it.
 func codemodeLaunchEnv(env []string, mode string) []string {
-	return rtkwrap.Launch(env, RTKMode(), mode, agent.NoticeOut)
+	return rtkwrap.Launch(env, mode, agent.NoticeOut)
 }
 
 // lastEnv is the value the child gets for name: the last entry of env.

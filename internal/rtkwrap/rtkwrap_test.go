@@ -54,18 +54,16 @@ func TestLaunchSetsBashEnvOnlyWhenWrapping(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Dir(Binary()), 0o755))
 	must(t, os.WriteFile(Binary(), []byte("#!/bin/sh\n"), 0o755))
 	file := filepath.Join(Dir(), bashEnvName)
-	env := Launch([]string{"BASH_ENV=/u/rc"}, "on", "", io.Discard)
+	env := Launch([]string{"BASH_ENV=/u/rc"}, "", io.Discard)
 	if !slices.Contains(env, "BASH_ENV="+file) || !slices.Contains(env, UserBashEnvVar+"=/u/rc") || slices.Contains(env, "BASH_ENV=/u/rc") {
 		t.Errorf("wrapping: env = %v", env)
 	}
 	if raw, err := os.ReadFile(file); err != nil || !strings.Contains(string(raw), "trap : EXIT") {
 		t.Errorf("%s = %q, %v", file, raw, err)
 	}
-	setsBashEnv := func(kv string) bool { return strings.HasPrefix(kv, "BASH_ENV=") }
-	if env := Launch(nil, "on", "only", io.Discard); slices.ContainsFunc(env, setsBashEnv) {
-		t.Errorf("code mode with RTK_WRAP=on: env sets BASH_ENV: %v", env)
-	}
-	if env := Launch(nil, "off", "on", io.Discard); slices.ContainsFunc(env, setsBashEnv) {
-		t.Errorf("code mode alone: env sets BASH_ENV: %v", env)
+	for _, mode := range []string{"on", "only"} { // code mode after a wrapped launch gets the user's BASH_ENV back
+		if got := Launch(env, mode, io.Discard); !slices.Contains(got, "BASH_ENV=/u/rc") || slices.Contains(got, "BASH_ENV="+file) {
+			t.Errorf("code mode %s: env = %v", mode, got)
+		}
 	}
 }

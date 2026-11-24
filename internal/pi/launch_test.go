@@ -14,12 +14,16 @@ import (
 )
 
 func TestExperimentIsOneTrial(t *testing.T) {
-	for _, c := range []struct{ codemode, rtk, want string }{
-		{"", "", "none"}, {"", "debug", "none"}, {"", " ON ", "rtk-wrap"}, {"on", "", "codemode"}, {"only", "debug", "codemode"},
-		{"on", "on", "codemode"},
+	wrap := map[bool]string{true: "none", false: "rtk-wrap"}[runtime.GOOS == "windows"]
+	for _, c := range []struct {
+		codemode string
+		bash     bool
+		want     string
+	}{
+		{"", false, "none"}, {"off", true, wrap}, {"", true, wrap}, {"on", true, "codemode"}, {"only", false, "codemode"},
 	} {
-		if got := experiment(c.codemode, c.rtk); got != c.want {
-			t.Errorf("experiment(%q, %q) = %q, want %q", c.codemode, c.rtk, got, c.want)
+		if got := experiment(c.codemode, c.bash); got != c.want {
+			t.Errorf("experiment(%q, %v) = %q, want %q", c.codemode, c.bash, got, c.want)
 		}
 	}
 }
@@ -27,21 +31,19 @@ func TestExperimentIsOneTrial(t *testing.T) {
 func TestResolveCodemode(t *testing.T) {
 	vaulttest.Use(t) // an unset env falls through to the vault: never this machine's PI_CODEMODE
 	for name, c := range map[string]struct {
-		typed, setting, rtk, want string
-		tools                     bool
+		typed, setting, want string
+		tools                bool
 	}{
-		"setting":      {"", "only", "", "only", true},
-		"case":         {"", " On ", "", "on", true},
-		"typed wins":   {"on", "only", "on", "on", true},
-		"typed off":    {"off", "on", "", "off", true},
-		"setting off":  {"", "off", "", "", true},
-		"no tools":     {"", "only", "", "", false},
-		"bad value":    {"", "yes", "", "", true},
-		"unset":        {"", "", "", "", true},
-		"with rtkwrap": {"", "only", "on", "only", true},
+		"setting":     {"", "only", "only", true},
+		"case":        {"", " On ", "on", true},
+		"typed wins":  {"on", "only", "on", true},
+		"typed off":   {"off", "on", "off", true},
+		"setting off": {"", "off", "", true},
+		"no tools":    {"", "only", "", false},
+		"bad value":   {"", "yes", "", true},
+		"unset":       {"", "", "", true},
 	} {
 		t.Setenv(CodemodeEnv, c.setting)
-		t.Setenv(rtkwrap.ModeEnv, c.rtk)
 		got, err := ResolveCodemode(c.typed, c.tools)
 		if got != c.want || err != nil {
 			t.Errorf("%s: got %q, %v; want %q", name, got, err, c.want)
@@ -66,8 +68,8 @@ func TestCodemodeOffOverridesVault(t *testing.T) {
 		if err := checkCodemode(agent.RunOptions{Tools: tools, Codemode: got}, nil); err != nil {
 			t.Fatal(err)
 		}
-		if argv := codemodeArgv(got); len(argv) != 0 || experiment(got, "") != "none" {
-			t.Fatalf("off enables codemode: argv=%v, experiment=%q", argv, experiment(got, ""))
+		if argv := codemodeArgv(got); len(argv) != 0 || experiment(got, false) != "none" {
+			t.Fatalf("off enables codemode: argv=%v, experiment=%q", argv, experiment(got, false))
 		}
 	}
 }
@@ -77,13 +79,12 @@ func TestCheckCodemode(t *testing.T) {
 		req agent.RunOptions
 		ok  bool
 	}{
-		"off":          {agent.RunOptions{}, true},
-		"on":           {agent.RunOptions{Tools: true, Codemode: "on"}, true},
-		"bad mode":     {agent.RunOptions{Tools: true, Codemode: "yes"}, false},
-		"no tools":     {agent.RunOptions{Codemode: "only"}, false},
-		"with rtkwrap": {agent.RunOptions{Tools: true, Codemode: "on"}, true},
+		"off":      {agent.RunOptions{}, true},
+		"on":       {agent.RunOptions{Tools: true, Codemode: "on"}, true},
+		"bad mode": {agent.RunOptions{Tools: true, Codemode: "yes"}, false},
+		"no tools": {agent.RunOptions{Codemode: "only"}, false},
 	} {
-		if err := checkCodemode(c.req, []string{"RTK_WRAP=on"}); (err == nil) != c.ok {
+		if err := checkCodemode(c.req, nil); (err == nil) != c.ok {
 			t.Errorf("%s: err = %v, want ok=%v", name, err, c.ok)
 		}
 	}
@@ -94,7 +95,6 @@ func TestCodemodeLaunchEnvExportsMode(t *testing.T) {
 		t.Skip("shims are unix-only")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(rtkwrap.ModeEnv, "on")
 	if err := os.MkdirAll(filepath.Dir(rtkwrap.Binary()), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +105,8 @@ func TestCodemodeLaunchEnvExportsMode(t *testing.T) {
 	if got := lastEnv(env, rtkwrap.CodemodeEnv); got != "only" {
 		t.Errorf("%s = %q, want only", rtkwrap.CodemodeEnv, got)
 	}
-	if got := lastEnv(env, rtkwrap.ModeEnv); got != "on" || !strings.HasPrefix(lastEnv(env, "PATH"), rtkwrap.Dir()) {
-		t.Errorf("RTK_WRAP = %q, PATH = %q", got, lastEnv(env, "PATH"))
-	}
-	t.Setenv(rtkwrap.ModeEnv, "")
-	if got := codemodeLaunchEnv(nil, "on"); lastEnv(got, rtkwrap.ModeEnv) != "" || !strings.HasPrefix(lastEnv(got, "PATH"), rtkwrap.Dir()) {
-		t.Errorf("code mode alone: env lacks the shim dir or sets RTK_WRAP: %v", got)
+	if !strings.HasPrefix(lastEnv(env, "PATH"), rtkwrap.Dir()) || lastEnv(env, "BASH_ENV") != "" {
+		t.Errorf("code mode: PATH = %q, BASH_ENV = %q", lastEnv(env, "PATH"), lastEnv(env, "BASH_ENV"))
 	}
 }
 

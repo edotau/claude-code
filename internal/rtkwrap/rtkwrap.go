@@ -13,9 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ModeEnv switches wrapping: "on" wraps, "debug" only logs what would wrap, anything else is off.
-const ModeEnv = "RTK_WRAP"
-
 // CodemodeEnv is the variable Pi's launch sets to the effective code mode (on|only); the shim never wraps under it.
 const CodemodeEnv = "HARNESS_PI_CODEMODE"
 
@@ -62,22 +59,14 @@ func Ensure(dir, bin string) error {
 	return nil
 }
 
-// LaunchEnv is Launch with no code mode.
-func LaunchEnv(env []string, mode string, notice io.Writer) []string {
-	return Launch(env, mode, "", notice)
-}
-
-// Launch is env with Dir first on PATH when mode is on|debug or codemode is set, RTK_WRAP=<mode> and CodemodeEnv set to
-// codemode (a stale value dropped); a failure notes once, env unchanged.
-func Launch(env []string, mode, codemode string, notice io.Writer) []string {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	wrap := mode == "on" || mode == "debug"
-	if runtime.GOOS == "windows" || !wrap && codemode == "" {
+// Launch puts Dir first on PATH, sets CodemodeEnv and, outside code mode, BASH_ENV; a failure notes, env unchanged.
+func Launch(env []string, codemode string, notice io.Writer) []string {
+	if runtime.GOOS == "windows" {
 		return env
 	}
 	dir := Dir()
 	if err := Ensure(dir, Binary()); err != nil {
-		fmt.Fprintf(notice, "claude-code: %s=%s codemode=%q but the rtk shims are unusable (%v); launching without them\n", ModeEnv, mode, codemode, err)
+		fmt.Fprintf(notice, "claude-code: the rtk shims are unusable (%v); launching without them\n", err)
 		return env
 	}
 	path := os.Getenv("PATH")
@@ -86,23 +75,35 @@ func Launch(env []string, mode, codemode string, notice io.Writer) []string {
 			path = v // the last PATH entry is the one the child gets
 			return true
 		}
-		return wrap && strings.HasPrefix(kv, ModeEnv+"=") || strings.HasPrefix(kv, CodemodeEnv+"=")
+		return strings.HasPrefix(kv, CodemodeEnv+"=")
 	})
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
 	out = append(out, "PATH="+dir+string(os.PathListSeparator)+path, CodemodeEnv+"="+codemode)
-	if !wrap {
-		return out
+	file := filepath.Join(dir, bashEnvName)
+	if codemode != "" {
+		return withoutBashEnv(out, file)
 	}
-	return withMode(out, mode, codemode, dir)
+	return withBashEnv(out, file)
 }
 
-// withMode is env with RTK_WRAP=mode and, outside code mode, the BASH_ENV file from dir.
-func withMode(env []string, mode, codemode, dir string) []string {
-	env = append(env, ModeEnv+"="+mode)
-	if codemode != "" {
+// withoutBashEnv undoes withBashEnv(env, file), inherited or in env: the user's own BASH_ENV (maybe empty) comes back.
+func withoutBashEnv(env []string, file string) []string {
+	bashEnv, user := os.Getenv("BASH_ENV"), os.Getenv(UserBashEnvVar)
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		if v, ok := strings.CutPrefix(kv, "BASH_ENV="); ok {
+			bashEnv = v
+			return true
+		}
+		if v, ok := strings.CutPrefix(kv, UserBashEnvVar+"="); ok {
+			user = v
+			return true
+		}
+		return false
+	})
+	if bashEnv != file {
 		return env
 	}
-	return withBashEnv(env, filepath.Join(dir, bashEnvName))
+	return append(out, "BASH_ENV="+user, UserBashEnvVar+"=") // explicit, so the inherited value never comes back
 }
 
 // withBashEnv is env with BASH_ENV=file, the user's own BASH_ENV kept in UserBashEnvVar for file to source.

@@ -101,17 +101,17 @@ paths:
   another agent's `--session` or `--retry` id does not carry over. There is no swap inside another agent's dispatch.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
-- **pi RTK_WRAP (trial)** — `RTK_WRAP=on|debug` (process or vault env; default off; `debug` only logs and runs
-  every command raw) puts `state/harness/rtkwrap/bin` first on a Pi launch's PATH and, with code mode off, sets
+- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `PI_CODEMODE` resolving to on;
+  `--codemode off` wraps): every Pi launch puts `state/harness/rtkwrap/bin` first on PATH and, with code mode off, sets
   `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing a line's last command, sourcing the user's own
   `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one
   symlink per rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
   Substitutions, env changes, `git commit`, a command piped into another program, `ls -a`/`-A` and the hook's vetoes
   stay raw, and any failure runs the real binary.
-  Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`. Rollback: `RTK_WRAP=off`, or
-  delete `bin/.rtkwrap`. Plan: `/Users/edotau/.claude/plans/2026-11-22-rtk-wrap-and-parallel-rewrite.md`.
-- **RTK_WRAP for the other agents** — the same switch drives `rtk-rewrite` in the codex and opencode hooks: `on`
-  rewrites, anything else (`debug` included) is off; never while `HARNESS_PI_CODEMODE` is set. Copilot is not hooked,
+  Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`; there is no switch (a
+  missing `bin/.rtkwrap` launches unshimmed with a notice). Windows has no shims.
+- **rtk for the other agents** — `rtk-rewrite` in the codex and opencode hooks rewrites every eligible command, never
+  while `HARNESS_PI_CODEMODE` is set. Copilot is not hooked,
   nor agy (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them).
   `claude-code doctor` shows one `rtk hook <agent>` row per hooked agent.
 - **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `PI_CODEMODE=off|on|only` per
@@ -286,19 +286,18 @@ vendor CLI untouched.
    - The child inherits the carrier's permissions, token caps and any route fence (`COWORKER_OVERLAY`) the carrier
      itself inherited; the carrier adds no route of its own (it runs before ask exports one).
    - Every other nested dispatch, a plain `--agent pi` run's included, stays fenced to its parent's route.
-3. **Each shell layer wraps only its own commands.** `RTK_WRAP` stand-ins act in Pi's own tool shell. A carried
+3. **Each shell layer wraps only its own commands.** The rtk stand-ins act in Pi's own tool shell. A carried
    agent's PATH has no shim dir, and the `claude-code agents ask` line between layers is never wrapped.
 4. **Code mode and wrapping.** One gate decides from the environment, with no judgment:
-   - `RTK_WRAP=on` and code mode off → wrap.
+   - Code mode off (unset or `--codemode off`) → wrap.
    - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
      parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
-   - A record names one `experiment`: `rtk-wrap`, `codemode` or `none`; code mode wins when both are set.
+   - A record names one `experiment`: `codemode`, `rtk-wrap` (a bash tool, off Windows) or `none`.
 5. **When to use code mode (`--codemode on|only`, `off` for one call, or `PI_CODEMODE` per machine):** read-heavy
    work that fans out (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not
    single reads or edits: the first runs cost more tokens there.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
-   - `RTK_WRAP`: `debug` for a day, then review `state/harness/rtkwrap/decisions.jsonl` for any would-wrap on
-     program-parsed output, then `on`.
+   - rtk wrapping is on: review `state/harness/rtkwrap/decisions.jsonl` for a wrap on program-parsed output.
    - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
 7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command).
 

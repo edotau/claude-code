@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -49,12 +50,35 @@ func TestRTKSkipsCodex(t *testing.T) {
 	if got, ok := rtkOut(t, strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1)); ok {
 		t.Fatalf("auto-mode command rewritten to %q", got)
 	}
-	auto := RTKRewrite(core.ParseInput(strings.NewReader(strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1))))
-	if auto.UpdatedInput != nil || !strings.Contains(auto.Context, "git log --oneline -20") {
-		t.Fatalf("auto mode = %+v, want a context hint and no rewrite", auto)
-	}
 	if got, ok := rtkOut(t, payload); !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
+	}
+}
+
+// TestRTKAutoModeBlocks: auto mode blocks with the rtk form, which itself passes; a form rtk would change again passes.
+func TestRTKAutoModeBlocks(t *testing.T) {
+	bin := hosttest.FakeRTK(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	auto := func(cmd string) core.Result {
+		in := strings.Replace(hosttest.RTKBashIn(cmd), "{", `{"permission_mode":"auto",`, 1)
+		return RTKRewrite(core.ParseInput(strings.NewReader(in)))
+	}
+	res := auto("git log --oneline -20")
+	if res.Decision != core.Block || !res.Floor || res.UpdatedInput != nil || !strings.Contains(res.Reason, "run it as: "+bin+" git log") {
+		t.Fatalf("auto mode = %+v, want a block naming the rtk form", res)
+	}
+	for _, cmd := range []string{bin + " git log --oneline -20", "go vet ./x"} {
+		if res := auto(cmd); res.Decision != core.Allow {
+			t.Errorf("auto %q = %+v, want a pass", cmd, res)
+		}
+	}
+	t.Setenv("FAKE_RTK_OUT", "cd x && rtk git log") // the pinned form rewrites again: blocking it would loop
+	if res := auto("cd x && git log"); res.Decision != core.Allow {
+		t.Errorf("non-idempotent rewrite = %+v, want a pass", res)
+	}
+	t.Setenv("FAKE_RTK_EXIT", "7") // rtk fails: no block
+	if res := auto("git log --oneline -20"); res.Decision != core.Allow {
+		t.Errorf("failed rtk = %+v, want a pass", res)
 	}
 }
 
@@ -231,7 +255,7 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	script := "#!/bin/sh\nprintf 'rtk ls'\n(i=0; while [ ! -e " + release + " ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done;" +
 		" [ -e " + release + " ] || touch " + expired + ") 2>/dev/null &\nexit 3\n"
 	hosttest.WriteExec(t, hold, script)
-	got := rtkRewritten(hold, "ls")
+	got, _ := rtkRewritten(hold, "ls")
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +671,6 @@ func runRTKAgentCases(t *testing.T, agent string, cases []rtkAgentCase) {
 			t.Setenv(paths.RTKBinaryEnv, bin)
 			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")) // PATH finds the pin: bare rtk
 			t.Setenv("CODEX_HOME", t.TempDir())
-			t.Setenv("RTK_WRAP", "on")
 			t.Setenv("FAKE_RTK_CMD", tc.cmd)
 			for k, v := range tc.env {
 				t.Setenv(k, v)
@@ -662,14 +685,14 @@ func runRTKAgentCases(t *testing.T, agent string, cases []rtkAgentCase) {
 // rtkGuardDenied passes every pre-exec veto but safety-scan's code floor blocks it for every agent.
 const rtkGuardDenied = "git log --oneline -20 && rm -rf /"
 
-// rtkAgentRows are the rows every hooked agent shares: all gates allow, a guard deny, rtk missing, RTK_WRAP unset.
+// rtkAgentRows are the rows every hooked agent shares: all gates allow, a guard deny, rtk missing, Pi code mode.
 func rtkAgentRows() []rtkAgentCase {
 	const cmd = "git log --oneline -20"
 	return []rtkAgentCase{
 		{name: "gates allow", cmd: cmd, want: "rtk " + cmd},
 		{name: "guard deny", cmd: rtkGuardDenied},
 		{name: "rtk missing", cmd: cmd, env: map[string]string{paths.RTKBinaryEnv: "/nonexistent/rtk"}},
-		{name: "wrap unset", cmd: cmd, env: map[string]string{"RTK_WRAP": ""}},
+		{name: "pi code mode", cmd: cmd, env: map[string]string{rtkwrap.CodemodeEnv: "on"}},
 	}
 }
 

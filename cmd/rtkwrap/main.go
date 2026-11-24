@@ -1,4 +1,4 @@
-// Command rtkwrap is the RTK_WRAP shim: each internal/rtkwrap Dir entry links here and argv[0] names the command.
+// Command rtkwrap is Pi's rtk shim: each internal/rtkwrap Dir entry links here and argv[0] names the command.
 package main
 
 import (

@@ -138,7 +138,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
 - **`make fmt` fixes and `make lint` only checks**: a checker that edits files races with parallel agents, so only
   the main session fixes and any agent can lint.
 - **Gates fix what is deterministic where a fix cannot stall the run, and block only when code cannot decide**: a
-  rewrite stalls auto mode, so the rewrite hook is skipped there.
+  rewrite stalls auto mode, so there the rtk hook blocks with the form to run instead.
 - **Tests check behavior through seams and do no DNS lookups** (`internal/nonet`): live calls make tests slow,
   flaky and dependent on credentials.
 - **CI is off; `make audit` on a clean tree is the gate before a push**: it runs the same checks locally at no cost.

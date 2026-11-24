@@ -29,7 +29,7 @@ import (
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func RTKRewrite(in *core.Input) core.Result {
-	if in.ToolName != "" && in.ToolName != "Bash" {
+	if in.ToolName != "" && in.ToolName != "Bash" || in.Invalid != "" {
 		return core.Result{}
 	}
 	if in.Agent() != core.AgentClaude {
@@ -42,11 +42,10 @@ func RTKRewrite(in *core.Input) core.Result {
 	return res
 }
 
-// rtkAgentRewrite offers an external agent rtk's rewrite under RTK_WRAP=on, only when both forms pass the gates.
+// rtkAgentRewrite offers an external agent rtk's rewrite, only when both forms pass the gates.
 func rtkAgentRewrite(in *core.Input) core.Result {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv(rtkwrap.ModeEnv)))
 	agent, bin, cmd := in.Agent(), paths.RTKBinary(), in.ToolCommand()
-	if !rtkAgentEligible(in, mode, bin, cmd) {
+	if !rtkAgentEligible(in, bin, cmd) {
 		return core.Result{}
 	}
 	rewritten := rtkHookCommand(bin, agent, in, cmd)
@@ -69,9 +68,9 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 	return core.Result{UpdatedInput: updated, Verdict: core.VerdictRewrite}
 }
 
-// rtkAgentEligible gates before the rtk exec; debug is off here, as rtkwrap's decision log is not exported.
-func rtkAgentEligible(in *core.Input, mode, bin, cmd string) bool {
-	return mode == "on" && os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
+// rtkAgentEligible gates before the rtk exec; a Pi code-mode run's scripts stay raw.
+func rtkAgentEligible(in *core.Input, bin, cmd string) bool {
+	return os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
 		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
 		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkCodexRuleHit(in, cmd) && !rtkOpencodeEnvHit(in)
 }
@@ -344,29 +343,55 @@ func rtkAgentInput(in *core.Input, pinned string) map[string]any {
 	return updated
 }
 
-// rtkRewrite is RTKRewrite for a Claude Bash call.
+// rtkRewrite is RTKRewrite for a Claude Bash call: rewritten in place, or in auto mode blocked with its rtk form.
 func rtkRewrite(in *core.Input) core.Result {
-	bin := paths.RTKBinary()
-	if bin == "" {
-		return core.Result{}
-	}
-	cmd := in.ToolCommand()
-	if !rtkMayRewrite(cmd) || rtkVetoed(cmd, in.CWD, bin) {
-		return core.Result{}
-	}
-	rewritten := rtkRewritten(bin, cmd)
-	if rewritten == "" {
-		return core.Result{}
-	}
-	// auto mode's classifier gives no verdict on a hook-changed input, so hint the rtk form instead of rewriting
+	bin, cmd := paths.RTKBinary(), in.ToolCommand()
+	// auto mode's classifier gives no verdict on a hook-changed input, so the model reruns the rtk form itself
 	if in.Nested("permission_mode") == "auto" {
-		return core.Result{Context: "rtk: write the next call as: " + rewritten}
+		return rtkAutoBlock(bin, in.CWD, cmd)
 	}
-
+	f := rtkPinnedForm(bin, in.CWD, cmd)
 	// updatedInput REPLACES the whole tool_input, so every original key (description, timeout…) must be echoed back.
 	updated := in.CloneToolInput()
-	if updated == nil {
+	if f.cmd == "" || updated == nil {
 		return core.Result{}
+	}
+	updated["command"] = f.cmd
+	return core.Result{Context: rtkNotes(in.SessionID, f.word, f.found, bin, f.onPath), UpdatedInput: updated}
+}
+
+// rtkAutoBlock blocks cmd with its rtk form, only when that form passes; an env-altered or unsure command passes.
+func rtkAutoBlock(bin, cwd, cmd string) core.Result {
+	if rtkwrap.EnvAltered(cmd) {
+		return core.Result{}
+	}
+	f := rtkPinnedForm(bin, cwd, cmd)
+	if f.cmd == "" {
+		return core.Result{}
+	}
+	// a form the hook would block again, or one rtk could not judge, passes: the block never loops
+	if again := rtkPinnedForm(bin, cwd, f.cmd); again.cmd != "" || again.failed {
+		return core.Result{}
+	}
+	return core.Result{Decision: core.Block, Floor: true,
+		Reason: fmt.Sprintf("rtk: run it as: %s (exact bytes: %s bypass <cmd>)", f.cmd, f.word)}
+}
+
+// rtkForm is a command's rtk form with its command word, and where PATH's rtk is; cmd "" means it runs as typed.
+type rtkForm struct {
+	cmd, word, found string
+	onPath           bool
+	failed           bool // rtk rewrite errored or timed out, so cmd "" is no verdict
+}
+
+// rtkPinnedForm is `rtk rewrite`'s form of cmd with every rtk pinned to bin; empty on a veto, no change or any error.
+func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
+	if bin == "" || !rtkMayRewrite(cmd) || rtkVetoed(cmd, cwd, bin) {
+		return rtkForm{}
+	}
+	rewritten, answered := rtkRewritten(bin, cmd)
+	if rewritten == "" {
+		return rtkForm{failed: !answered}
 	}
 	found, onPath := paths.RTKOnPath(bin)
 	word := textutil.QuoteSH(bin) // the command moves PATH or HOME, so bare rtk or "$HOME/…" could run another rtk
@@ -375,11 +400,9 @@ func rtkRewrite(in *core.Input) core.Result {
 	}
 	pinned := rtkAbsolute(rewritten, word)
 	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) { // rtk put a bare rtk where PATH may not find it
-		return core.Result{}
+		return rtkForm{}
 	}
-	updated["command"] = pinned
-
-	return core.Result{Context: rtkNotes(in.SessionID, word, found, bin, onPath), UpdatedInput: updated}
+	return rtkForm{cmd: pinned, word: word, found: found, onPath: onPath}
 }
 
 // rtkRewriteWords are the words rtk rewrite acts on; TestRTKRewriteWordsMatchRTK fails when rtk outgrows them.
@@ -426,8 +449,8 @@ func rtkShadowNotice(found, bin string) string {
 	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
 }
 
-// rtkRewritten is `rtk rewrite`'s replacement for cmd (exit 0 or 3, changed stdout); anything else is "" (unchanged).
-func rtkRewritten(bin, cmd string) string {
+// rtkRewritten is `rtk rewrite`'s changed output for cmd (exit 0 or 3), else ""; answered: rtk exited 0, 1 or 3.
+func rtkRewritten(bin, cmd string) (string, bool) {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
 	c := exec.CommandContext(ctx, bin, "rewrite", cmd)
@@ -435,13 +458,13 @@ func rtkRewritten(bin, cmd string) string {
 	out, err := c.Output()
 	var ee *exec.ExitError
 	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 3) {
-		return ""
+		return "", ee != nil && ee.ExitCode() == 1 && ctx.Err() == nil // 1: nothing to rewrite
 	}
 	got := strings.TrimSpace(string(out))
 	if got == cmd {
-		return ""
+		return "", true
 	}
-	return got
+	return got, true
 }
 
 // rtkCommandWord matches a bare `rtk` at command position (line start, or after `&&`, `||`, `;`, `|`, `(`, backtick).

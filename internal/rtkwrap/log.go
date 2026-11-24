@@ -14,7 +14,7 @@ import (
 // logCap is the size at which the log rotates to LogFile()+".1".
 const logCap = 16 << 20
 
-// LogFile is the trial's decision log: one JSON line per shim call; argv values and non-flag words are never kept.
+// LogFile is the shims' decision log: one JSON line per shim call; argv values and non-flag words are never kept.
 func LogFile() string {
 	return filepath.Join(paths.StateDir(), "rtkwrap", "decisions.jsonl")
 }
@@ -49,14 +49,11 @@ func logFlags(args []string) []string {
 	return flags
 }
 
-// logDecision appends one line best effort; reason "" means the call wraps (debug: would-wrap, on: wrapped).
-func logDecision(mode, name, reason string, args []string) {
-	if mode != "on" && mode != "debug" {
-		return
-	}
+// logDecision appends one line best effort; reason "" means the call wraps.
+func logDecision(name, reason string, args []string) {
 	verdict := "raw"
 	if reason == "" {
-		verdict = map[string]string{"on": "wrapped", "debug": "would-wrap"}[mode]
+		verdict = "wrapped"
 	}
 	logVerdict(name, verdict, reason, args)
 }

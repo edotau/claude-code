@@ -27,13 +27,13 @@ func TestWrapDecision(t *testing.T) {
 	tree := map[int]string{10: "pi", 20: "bash", 30: "bash", 40: "make", 50: "bash"}
 	parents := map[int]int{20: 10, 30: 20, 40: 20, 50: 10}
 	forked := func(name string, args ...string) call { // a child the tool shell (pid 20, session leader) forked
-		return call{name: name, args: args, mode: "on", pipe: true, pid: 99, ppid: 20, sid: 20, cwd: cwd}
+		return call{name: name, args: args, pipe: true, pid: 99, ppid: 20, sid: 20, cwd: cwd}
 	}
 	execd := func(name string, args ...string) call { // `bash -c` exec'd: the shim is the session leader under Pi
-		return call{name: name, args: args, mode: "on", pipe: true, pid: 20, ppid: 10, sid: 20, cwd: cwd}
+		return call{name: name, args: args, pipe: true, pid: 20, ppid: 10, sid: 20, cwd: cwd}
 	}
-	off, tty, script := forked("git", "status"), forked("git", "status"), forked("git", "status")
-	off.mode, tty.pipe, script.codemode = "", false, "only"
+	tty, script := forked("git", "status"), forked("git", "status")
+	tty.pipe, script.codemode = false, "only"
 	footer := execd("git", "status")
 	footer.sid = 5 // Pi's own git (footer, packages): not a detached tool shell
 	sub, recipe := forked("git", "status"), forked("git", "status")
@@ -48,7 +48,6 @@ func TestWrapDecision(t *testing.T) {
 	}{
 		{"forked chain", forked("git", "status"), "git status; ls", true},
 		{"exec'd tail: line unseen", execd("git", "status", "--short"), "", false},
-		{"off", off, "git status", false},
 		{"code mode", script, "git status", false},
 		{"stdout not a pipe", tty, "git status", false},
 		{"pi's own git", footer, "", false},
@@ -160,7 +159,7 @@ func TestWrapsVerified(t *testing.T) {
 	} {
 		rtkRewrite = func(string, string, []string) string { return tc.rewritten }
 		stubTree(t, map[int]string{10: "pi", 20: "bash"}, map[int]int{20: 10}, tc.line)
-		c := call{name: tc.name, args: tc.args, mode: "on", pipe: true, pid: 99, ppid: 20, sid: 20, cwd: cwd}
+		c := call{name: tc.name, args: tc.args, pipe: true, pid: 99, ppid: 20, sid: 20, cwd: cwd}
 		if reason := c.wraps("rtk", nil); (reason == "") != tc.want {
 			t.Errorf("%s: wraps reason = %q, want wrap %v", tc.label, reason, tc.want)
 		}
@@ -169,7 +168,6 @@ func TestWrapsVerified(t *testing.T) {
 
 func TestRtkBypassLogsBasename(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(ModeEnv, "on")
 	t.Setenv(CodemodeEnv, "only")
 	name := filepath.Join(t.TempDir(), "private", "missing-tool")
 	if code := rtkMain([]string{"rtk", "bypass", name}); code != exitNoExec {
@@ -182,14 +180,13 @@ func TestRtkBypassLogsBasename(t *testing.T) {
 	}
 }
 
-func TestDebugModeLogsNoArgv(t *testing.T) {
+func TestDecisionLogKeepsNoArgv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(ModeEnv, "debug")
 	if got := wrapWith("git", []string{"log", "--grep=hunter2", "-1", "secretarg"}, nil, nil, nil); got != "" {
-		t.Errorf("debug wrapWith = %q, want raw exec", got)
+		t.Errorf("wrapWith outside a Pi tool shell = %q, want raw exec", got)
 	}
-	logDecision("debug", "ls", "", nil)
-	logDecision("on", "ls", "rtk-declined", nil)
+	logDecision("ls", "", nil)
+	logDecision("ls", "rtk-declined", nil)
 	b, err := os.ReadFile(LogFile())
 	must(t, err)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
@@ -199,7 +196,7 @@ func TestDebugModeLogsNoArgv(t *testing.T) {
 	if !strings.Contains(lines[0], `"flags":["--grep","-1"],"argc":4`) {
 		t.Errorf("line 0 = %s, want flag names and argc only", lines[0])
 	}
-	for i, want := range []string{`"name":"git","verdict":"raw"`, `"verdict":"would-wrap"`, `"verdict":"raw","reason":"rtk-declined"`} {
+	for i, want := range []string{`"name":"git","verdict":"raw"`, `"verdict":"wrapped"`, `"verdict":"raw","reason":"rtk-declined"`} {
 		if !strings.Contains(lines[i], want) {
 			t.Errorf("line %d = %s, want %s", i, lines[i], want)
 		}
