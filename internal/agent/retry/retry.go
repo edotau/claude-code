@@ -53,6 +53,9 @@ type Error struct {
 	Terminal   bool          // a state check refused the attempt: retrying cannot help
 	Waited     time.Duration // wall time Do spent on attempts and waits before giving up
 	Connect    bool          // failed before any response (dial, TLS, tunnel), not an HTTP status: Do tries the other egress path
+
+	// ProxyRefused: this attempt's KindAuth came from the loopback proxy refusing its own session token, never an account.
+	ProxyRefused bool
 }
 
 // Fatal is a terminal, never-retried failure of agent wrapping err.

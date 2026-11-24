@@ -112,6 +112,21 @@ func TestSessionTokenExpiresAtItsTTL(t *testing.T) {
 	}
 }
 
+// A revocation file that exists but cannot be decoded refuses every token until it reads again.
+func TestUnreadableRevocationFileFailsClosed(t *testing.T) {
+	g := newSessionRig(t)
+	tok := g.mint(t, "dev")
+	if err := os.MkdirAll(filepath.Dir(proxy.RevokedFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proxy.RevokedFile(), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
+		t.Fatal("a token was accepted while the revocation list was unreadable")
+	}
+}
+
 func TestSessionTokenDiesWithReusedPidAndOnRevoke(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
@@ -349,7 +364,7 @@ func TestSessionRefusalNamesItsCause(t *testing.T) {
 	}
 }
 
-// A token the previous build stored works until its process exits; a write keeps it, then drops it once gone.
+// A token the previous build stored works until its process exits; the bridge never writes the old file.
 func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	g := newSessionRig(t)
 	tok := proxy.SessionTokenPrefix + strings.Repeat("ab", 32)
@@ -383,8 +398,8 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 		t.Fatal("an old-format token outlived its process")
 	}
 	g.r.sessions.count()
-	if raw, _ := os.ReadFile(proxy.SessionsFile()); strings.Contains(string(raw), hash) {
-		t.Fatal("an exited old-format entry was kept on disk")
+	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
+		t.Fatal("the bridge rewrote sessions.json, which the previous build still writes without a lock")
 	}
 }
 

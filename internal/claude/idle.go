@@ -71,7 +71,7 @@ func (w *idleWatch) ceilingHit(err error) bool {
 // rejectedErr is the auth-kind failure of a login the API refused; AuthReason makes the fallback chain mark the account.
 func (w *idleWatch) rejectedErr() error {
 	if agent.ProxySessionRefused(w.row) { // the loopback proxy refused its own session token: no account is at fault
-		return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Status: w.status, Err: fmt.Errorf(
+		return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Status: w.status, ProxyRefused: true, Err: fmt.Errorf(
 			"claude: the proxy refused the session token (%s) after %d retries; the next launch mints a fresh one",
 			proxy.RefusalSession, w.retries)}
 	}

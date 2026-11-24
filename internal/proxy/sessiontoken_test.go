@@ -28,6 +28,25 @@ func TestSessionTokenSignParseAndRefusals(t *testing.T) {
 	}
 }
 
+// One MAC spelling (a revoked hash holds), a one-year life, and one config dir per token.
+func TestSessionTokenOneSpellingOneYearOneConfig(t *testing.T) {
+	const oneYear = 365 * 24 * time.Hour // a passthrough header is never renewed
+	tok, err := SignSessionToken("s1", SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseSessionToken("s1", tok[:len(tok)-4]+"\r\n"+tok[len(tok)-4:]); err == nil {
+		t.Error("a second spelling of the same MAC (CR/LF inside) parsed")
+	}
+	if SessionTokenTTL != oneYear {
+		t.Errorf("SessionTokenTTL = %v, want %v", SessionTokenTTL, oneYear)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := ParseSessionToken("s1", tok); !errors.Is(err, ErrSessionSignature) {
+		t.Errorf("another config dir with the same secret = %v, want ErrSessionSignature", err)
+	}
+}
+
 func TestCheckSessionTokenExpiryAndPid(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	tok, err := SignSessionToken("s1", SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7"}, now)

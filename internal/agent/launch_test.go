@@ -531,3 +531,16 @@ func TestProxySessionRefusalNeverMarksAndRemintsOnce(t *testing.T) {
 		t.Fatalf("an unverifiable token let a mark through: %+v", calls)
 	}
 }
+
+// An attempt that saw the proxy's own refusal records it as a typed field, and that field alone stops the mark.
+func TestProxyRefusalRecordedOnTheAttempt(t *testing.T) {
+	var calls []markCall
+	prevMark := markAuth
+	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
+	t.Cleanup(func() { markAuth = prevMark })
+	attempt := &retry.Error{Kind: retry.KindAuth, AuthReason: "login rejected", Err: errors.New("401")}
+	markProxyRefusal(context.Background(), attempt, errors.New("401 "+proxy.RefusalSession))
+	if noteAuth(Dispatch{Account: "databricks·dev"}, attempt); !attempt.ProxyRefused || len(calls) != 0 {
+		t.Fatalf("ProxyRefused %v, marks %+v", attempt.ProxyRefused, calls)
+	}
+}

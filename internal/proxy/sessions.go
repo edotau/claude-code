@@ -48,13 +48,19 @@ func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int
 	return out.Token, nil
 }
 
-// RevokeSessionToken drops token at the daemon; nil when revoked or no daemon runs (no state, dead pid, refused port).
+// revokeGapWait outlasts a replacement's respawn gap (~55 ms, max ~110 ms measured); a var as a test seam.
+var revokeGapWait = 2 * time.Second
+
+// RevokeSessionToken drops token at the daemon, waiting out a respawn gap; ErrNotRunning when none came up.
 func RevokeSessionToken(ctx context.Context, token string) error {
-	err := postSession(ctx, false, SessionRevokePath, SessionRequest{Token: token}, nil)
-	if errors.Is(err, ErrNotRunning) {
-		return nil
+	deadline := time.Now().Add(revokeGapWait)
+	for {
+		err := postSession(ctx, false, SessionRevokePath, SessionRequest{Token: token}, nil)
+		if !errors.Is(err, ErrNotRunning) || !time.Now().Before(deadline) || ctx.Err() != nil {
+			return err
+		}
+		time.Sleep(revokeGapWait / 20)
 	}
-	return err
 }
 
 func postSession(ctx context.Context, start bool, path string, body SessionRequest, out *SessionResponse) error {

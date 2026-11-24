@@ -42,7 +42,7 @@ type revokedState struct {
 	Revoked []revokedSession `json:"revoked"`
 }
 
-// sessionStore verifies signed tokens; it persists only revocations (merged per write) and the legacy bridge.
+// sessionStore verifies signed tokens; it persists only revocations (merged per write); the legacy bridge reads.
 type sessionStore struct {
 	mu         sync.Mutex
 	secret     string
@@ -50,9 +50,10 @@ type sessionStore struct {
 	revoked    map[string]time.Time     // token hash -> the token's expiry
 	unsaved    bool                     // the last revocation write failed: count retries it
 	read       os.FileInfo              // the revocation file version last folded in
+	revokedErr error                    // the revocation file exists but could not be read: fail closed
 	file       string                   // revoked.json
 	legacy     map[string]legacySession // token hash -> the previous build's stored binding
-	legacyDead map[string]bool          // legacy hashes whose process was seen gone, dropped on the next write
+	legacyDead map[string]bool          // legacy hashes whose process was seen gone, refused from then on
 	legacyRead os.FileInfo              // the sessions.json version last folded in
 	legacyFile string                   // sessions.json, the previous build's file
 	now        func() time.Time
@@ -90,10 +91,19 @@ func (s *sessionStore) reloadLocked() {
 	maps.DeleteFunc(s.revoked, func(_ string, exp time.Time) bool { return !now.Before(exp) })
 	s.reloadLegacyLocked()
 	fi, err := os.Stat(s.file)
-	if err != nil || sameVersion(s.read, fi) {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		s.revokedErr = nil
+		return
+	case err != nil:
+		s.revokedErr = err
+		return
+	case sameVersion(s.read, fi):
 		return
 	}
-	if got, err := readRevoked(s.file, now); err == nil { // a failed read retries on the next request
+	got, err := readRevoked(s.file, now) // a failed read refuses every token and retries on the next request
+	s.revokedErr = err
+	if err == nil {
 		maps.Copy(s.revoked, got)
 		s.read = fi
 	}
@@ -186,9 +196,6 @@ func (s *sessionStore) revoke(tok string) error {
 	hash := textutil.SHA256Hex([]byte(tok))
 	s.revoked[hash] = expires
 	delete(s.seen, hash)
-	if legacy {
-		_ = s.saveLegacyLocked() // the revocation already refuses it; this only tidies sessions.json
-	}
 	return s.saveLocked()
 }
 
@@ -205,6 +212,8 @@ const (
 	whyExited  = "the process the session token was bound to has exited"
 	whyRevoked = "session token was revoked"
 	whyUnknown = "the session token's process could not be verified"
+
+	whyUnreadable = "the revocation list could not be read"
 )
 
 // check is "" when tok serves profile now, else why not; a passed liveness probe is trusted for sessionVerify.
@@ -219,9 +228,13 @@ func (s *sessionStore) check(tok, profile string) string {
 	}
 	s.mu.Lock()
 	revoked, fresh := s.stateLocked(hash, now)
+	unreadable := s.revokedErr != nil
 	s.mu.Unlock()
 	if revoked {
 		return whyRevoked
+	}
+	if unreadable {
+		return whyUnreadable
 	}
 	if !fresh {
 		if why := s.probe(c); why != "" {

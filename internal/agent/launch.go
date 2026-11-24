@@ -408,6 +408,18 @@ func proxyRefusal(account string, err error) bool {
 	return strings.Contains(err.Error(), proxy.RefusalSession) || ProxySessionRefused(accountProfile(account))
 }
 
+// markProxyRefusal records on a failed auth attempt, as it ends, whether the proxy refused its own session token.
+func markProxyRefusal(ctx context.Context, e *retry.Error, err error) {
+	if e == nil || !e.IsAuth() || e.ProxyRefused {
+		return
+	}
+	account := ""
+	if h := retry.Held(ctx); h != nil {
+		account = h.Account
+	}
+	e.ProxyRefused = proxyRefusal(account, err)
+}
+
 // accountProfile is <p> of a "<provider>·<p>" account, "" (any profile) for any other account shape.
 func accountProfile(account string) string {
 	_, p, _ := strings.Cut(account, "·")

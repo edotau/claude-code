@@ -959,7 +959,7 @@ func condemnAuth(e *retry.Error, recoverErr error) {
 // noteAuth marks the account for an upstream rejection; the proxy refusing its own session token never marks it.
 func noteAuth(disp Dispatch, err error) {
 	var e *retry.Error
-	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" || proxyRefusal(disp.Account, err) {
+	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" || e.ProxyRefused || proxyRefusal(disp.Account, err) {
 		return
 	}
 	warnHold(disp.Account, markAuth(disp.Account, e.AuthReason))

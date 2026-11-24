@@ -273,8 +273,12 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 			}
 			pid = remint
 			if c, ok := authenticClaims(tok); ok { // keep the launch's own scope and failover, never the registry's
-				return remintClaims(c, pid)
+				return remintExact(c.Profiles, c.Failover, pid)
 			}
+			if profile == "" { // unverifiable claims (rotated secret, old format): only the route's profile is known
+				return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
+			}
+			return remintExact([]string{profile}, "", pid) // confinement never widens
 		}
 		tok, err := scopedProxyToken(profile, refresh, pid)
 		if err != nil {
@@ -302,9 +306,9 @@ var (
 	authenticClaims           = proxy.AuthenticClaims
 )
 
-// remintClaims re-mints a refused armed token for pid with the same profiles and failover group.
-func remintClaims(c proxy.SessionClaims, pid int) (string, error) {
-	tok, err := resolveProxyTokenFailover(context.Background(), c.Profiles, pid, c.Failover)
+// remintExact re-mints a refused armed token for pid with exactly profiles and failover, never a wider set.
+func remintExact(profiles []string, failover string, pid int) (string, error) {
+	tok, err := resolveProxyTokenFailover(context.Background(), profiles, pid, failover)
 	if err != nil {
 		return "", fmt.Errorf("resolve --proxy: %w", err)
 	}

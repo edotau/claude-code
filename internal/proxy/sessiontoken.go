@@ -54,21 +54,23 @@ var (
 // keyMemo holds the last derived key: every request parses its token, and the secret rarely changes.
 var keyMemo struct {
 	sync.Mutex
-	secret string
-	key    []byte
+	secret, config string
+	key            []byte
 }
 
+// sessionKey binds the MAC key to this config dir too, so a copied vault secret never shares tokens across configs.
 func sessionKey(secret string) ([]byte, error) {
+	config := ConfigID()
 	keyMemo.Lock()
 	defer keyMemo.Unlock()
-	if keyMemo.key != nil && keyMemo.secret == secret {
+	if keyMemo.key != nil && keyMemo.secret == secret && keyMemo.config == config {
 		return keyMemo.key, nil
 	}
-	key, err := hkdf.Key(sha256.New, []byte(secret), nil, sessionKeyLabel, sha256.Size)
+	key, err := hkdf.Key(sha256.New, []byte(secret), nil, sessionKeyLabel+" "+config, sha256.Size)
 	if err != nil {
 		return nil, err
 	}
-	keyMemo.secret, keyMemo.key = secret, key
+	keyMemo.secret, keyMemo.config, keyMemo.key = secret, config, key
 	return key, nil
 }
 
@@ -133,8 +135,9 @@ func splitSessionToken(tok string) (payload string, mac []byte, ok bool) {
 	if !pf || !found || len(tok) > maxSessionToken {
 		return "", nil, false
 	}
-	mac, err := base64.RawURLEncoding.Strict().DecodeString(sig) // one spelling per MAC, so a revoked hash holds
-	return payload, mac, err == nil
+	mac, err := base64.RawURLEncoding.Strict().DecodeString(sig)
+	// One spelling per MAC, so a revoked hash holds: Strict still skips CR/LF, so re-encode and compare.
+	return payload, mac, err == nil && base64.RawURLEncoding.EncodeToString(mac) == sig
 }
 
 func decodeClaims(payload string) (SessionClaims, bool) {

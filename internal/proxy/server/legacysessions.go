@@ -4,13 +4,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -21,7 +18,7 @@ import (
 
 const (
 	legacyTTL     = 7 * 24 * time.Hour // the previous build's idle lifetime, renewed per accepted request
-	legacyPersist = time.Hour          // a slid expiry is written once it leads the saved one by this much
+	legacyPersist = time.Hour          // the previous build wrote a slid expiry once it led the saved one by this much
 )
 
 // legacySession is a token the previous build minted (cct_ + 64 hex), stored by hash; none is ever minted again.
@@ -32,10 +29,9 @@ type legacySession struct {
 	PID              int       `json:"pid"`
 	Start            string    `json:"start"`
 	Expires          time.Time `json:"expires"`
-	saved            time.Time // the expiry last written to disk
 }
 
-// legacyState is the previous build's sessions.json, kept in its format so that build still reads it.
+// legacyState is the previous build's sessions.json, read only: that build may still write it without a lock.
 type legacyState struct {
 	Schema   int             `json:"schema"`
 	Sessions []legacySession `json:"sessions"`
@@ -58,16 +54,11 @@ func (s *sessionStore) legacyClaims(tok string) (proxy.SessionClaims, string, bo
 	return proxy.SessionClaims{Profiles: e.Profiles, Failover: e.FailoverProvider, PID: e.PID, Start: e.Start}, hash, true
 }
 
-// slideLegacyLocked renews an accepted old-format entry as the previous build did; a no-op for any other hash.
+// slideLegacyLocked renews an accepted old-format entry in memory as the previous build did; a no-op for other hashes.
 func (s *sessionStore) slideLegacyLocked(hash string, now time.Time) {
-	e, ok := s.legacy[hash]
-	if !ok {
-		return
-	}
-	e.Expires = now.Add(legacyTTL)
-	s.legacy[hash] = e
-	if e.Expires.Sub(e.saved) >= legacyPersist {
-		_ = s.saveLegacyLocked() // a failed write retries on the next accepted request
+	if e, ok := s.legacy[hash]; ok {
+		e.Expires = now.Add(legacyTTL)
+		s.legacy[hash] = e
 	}
 }
 
@@ -78,19 +69,17 @@ func (s *sessionStore) reloadLegacyLocked() {
 		return
 	}
 	if onDisk, err := readLegacy(s.legacyFile); err == nil {
-		s.legacy = s.mergeLegacyLocked(onDisk, false)
-		s.legacyRead = fi
+		s.legacy, s.legacyRead = s.liveLegacyLocked(onDisk), fi
 	}
 }
 
-// mergeLegacyLocked is onDisk's live entries at the later of both expiries; drop also leaves out revoked and gone.
-func (s *sessionStore) mergeLegacyLocked(onDisk []legacySession, drop bool) map[string]legacySession {
+// liveLegacyLocked is onDisk's well-formed, unexpired entries, each at the later of its saved and in-memory expiry.
+func (s *sessionStore) liveLegacyLocked(onDisk []legacySession) map[string]legacySession {
 	now, out := s.now(), map[string]legacySession{}
 	for _, e := range onDisk {
-		if !validProfiles(e.Profiles) || e.PID <= 0 || e.Start == "" || (drop && s.droppedLegacyLocked(e.Hash)) {
+		if !validProfiles(e.Profiles) || e.PID <= 0 || e.Start == "" {
 			continue
 		}
-		e.saved = e.Expires
 		if mem, ok := s.legacy[e.Hash]; ok && mem.Expires.After(e.Expires) {
 			e.Expires = mem.Expires
 		}
@@ -99,11 +88,6 @@ func (s *sessionStore) mergeLegacyLocked(onDisk []legacySession, drop bool) map[
 		}
 	}
 	return out
-}
-
-func (s *sessionStore) droppedLegacyLocked(hash string) bool {
-	_, revoked := s.revoked[hash]
-	return revoked || s.legacyDead[hash]
 }
 
 // readLegacy is sessions.json's entries: none when absent, an error when present but unreadable.
@@ -119,42 +103,7 @@ func readLegacy(file string) ([]legacySession, error) {
 	return st.Sessions, err
 }
 
-// saveLegacyLocked rewrites sessions.json under its lock, slides kept; memory changes only once the write lands.
-func (s *sessionStore) saveLegacyLocked() error {
-	return paths.WithFileLock(s.legacyFile, func() error {
-		onDisk, err := readLegacy(s.legacyFile)
-		if err != nil { // never overwrite entries this daemon cannot read
-			return fmt.Errorf("read %s: %w", s.legacyFile, err)
-		}
-		if len(onDisk) == 0 {
-			return nil // nothing to bridge, and no reason to create the file
-		}
-		kept := s.mergeLegacyLocked(onDisk, true)
-		st := legacyState{Schema: routerSessionsFormat.Version, Sessions: []legacySession{}}
-		for _, e := range kept {
-			st.Sessions = append(st.Sessions, e)
-		}
-		sort.Slice(st.Sessions, func(i, j int) bool { return st.Sessions[i].Hash < st.Sessions[j].Hash })
-		raw, err := json.Marshal(st)
-		if err == nil {
-			err = paths.AtomicWrite(s.legacyFile, raw, 0o600)
-		}
-		if err != nil {
-			return err
-		}
-		for h, e := range kept {
-			e.saved = e.Expires
-			kept[h] = e
-		}
-		s.legacy, s.legacyDead = kept, map[string]bool{}
-		if fi, err := os.Stat(s.legacyFile); err == nil {
-			s.legacyRead = fi
-		}
-		return nil
-	})
-}
-
-// pruneLegacy drops stored old-format entries whose process exited; probes run without mu.
+// pruneLegacy marks old-format entries whose process exited; probes run without mu.
 func (s *sessionStore) pruneLegacy() {
 	s.mu.Lock()
 	entries := make([]legacySession, 0, len(s.legacy))
@@ -162,28 +111,20 @@ func (s *sessionStore) pruneLegacy() {
 		entries = append(entries, e)
 	}
 	s.mu.Unlock()
-	dead := []string{}
 	for _, e := range entries {
 		if start, err := s.procStart(e.PID); errors.Is(err, proc.ErrNoProcess) || (err == nil && start != e.Start) {
-			dead = append(dead, e.Hash)
+			s.mu.Lock()
+			s.legacyDead[e.Hash] = true
+			s.mu.Unlock()
 		}
 	}
-	if len(dead) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, h := range dead {
-		s.legacyDead[h] = true
-	}
-	_ = s.saveLegacyLocked() // a failed write keeps legacyDead and retries on the next count
 }
 
 var routerSessionsFormat = schemas.Register(schemas.Format{
 	Name: "router-sessions", Owner: "internal/proxy", Kind: schemas.Record, Version: 2,
 	Glob:    proxy.SessionsFile,
 	New:     func() any { return new(legacyState) },
-	Keep:    "the previous build's session token hashes, bridged until each process exits; never written new",
+	Keep:    "the previous build's session token hashes, bridged until each process exits; read only, never written",
 	Migrate: migrateSessions,
 })
 

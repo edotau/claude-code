@@ -22,10 +22,13 @@ func TestRevokeSessionTokenPropagatesStateReadFailure(t *testing.T) {
 				writeProxyFixture(t, filepath.Join(stateFile(), "not-a-state-file"), "occupied")
 			}
 			_, readErr := ReadState()
+			old := revokeGapWait
+			revokeGapWait = 0
+			t.Cleanup(func() { revokeGapWait = old })
 			err := RevokeSessionToken(context.Background(), "session-to-revoke")
-			if kind == "missing" {
-				if err != nil {
-					t.Fatalf("missing state: revoke = %v, want nil", err)
+			if kind == "missing" { // no daemon came up within the gap wait: the revoke reports it was not recorded
+				if !errors.Is(err, ErrNotRunning) {
+					t.Fatalf("missing state: revoke = %v, want ErrNotRunning", err)
 				}
 				return
 			}

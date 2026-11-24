@@ -484,6 +484,7 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 	s.res = out
 	s.started = s.started || !out.NotStarted
 	e := retry.Classify(r.Name(), err, cw.Progressed)
+	markProxyRefusal(ctx, e, err)
 	if e != nil && e.Progressed && errors.Is(e, context.DeadlineExceeded) && strings.TrimSpace(s.res.Answer) == "" {
 		s.res.Answer = cw.Streamed() // a deadline cut keeps the text streamed so far
 	}

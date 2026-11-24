@@ -758,19 +758,37 @@ func testProfile(t *testing.T) string {
 	return sel.Provider.Name
 }
 
-// An armed token the proxies would refuse is replaced by a fresh one scoped to the launch's own /p/<profile> route.
+// A refused armed token is re-minted with exactly its signed scope and failover, else only its /p/<profile> route.
 func TestResolveProxyRemintsARefusedArmedToken(t *testing.T) {
 	cliScratch(t)
-	orig := resolveProxyToken
-	t.Cleanup(func() { resolveProxyToken = orig })
+	origF, origA := resolveProxyTokenFailover, authenticClaims
+	t.Cleanup(func() { resolveProxyTokenFailover, authenticClaims = origF, origA })
 	var scope []string
-	resolveProxyToken = func(_ context.Context, s []string, _ int) (string, error) { scope = s; return "cct_FRESH", nil }
+	var failover string
+	resolveProxyTokenFailover = func(_ context.Context, s []string, _ int, f string) (string, error) {
+		scope, failover = s, f
+		return "cct_FRESH", nil
+	}
 	stubSessionInvalid(t, errors.New("session token expired"))
 	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/"+testProfile(t))
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
-	if got := strings.TrimSpace(out); code != 0 || got != "cct_FRESH" || !slices.Contains(scope, testProfile(t)) {
-		t.Fatalf("exit %d, fresh token printed = %v, scope %v", code, got == "cct_FRESH", scope)
+	signed := proxy.SessionClaims{Profiles: []string{"a", "b"}, Failover: "fo"}
+	for _, tc := range []struct {
+		name      string
+		claims    *proxy.SessionClaims
+		wantScope []string
+		wantFO    string
+	}{{"signed", &signed, []string{"a", "b"}, "fo"}, {"unverifiable", nil, []string{testProfile(t)}, ""}} {
+		authenticClaims = func(string) (proxy.SessionClaims, bool) {
+			if tc.claims == nil {
+				return proxy.SessionClaims{}, false
+			}
+			return *tc.claims, true
+		}
+		code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
+		if got := strings.TrimSpace(out); code != 0 || got != "cct_FRESH" || !slices.Equal(scope, tc.wantScope) || failover != tc.wantFO {
+			t.Fatalf("%s: exit %d, fresh = %v, scope %v failover %q", tc.name, code, got == "cct_FRESH", scope, failover)
+		}
 	}
 }
 
