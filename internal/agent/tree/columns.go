@@ -273,7 +273,10 @@ func dispatchBudget(rows []row, w []int, level, width int) (cur []int, keptIn bo
 	}
 	grow(colModel)
 	grow(colAgent)
-	whole(colProv, nat[colProv])
+	rem++ // colSep gives the model-to-provider gap one cell, not two
+	if whole(colProv, nat[colProv]); cur[colProv] == 0 {
+		rem--
+	}
 	whole(colProf, nat[colProf])
 	whole(colSince, nat[colSince])
 	whole(spanFrom, plainSpanWidth(rows, level))

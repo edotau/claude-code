@@ -123,3 +123,12 @@ func TestJobRowsTypeLabelsAndAlignedRoute(t *testing.T) {
 		t.Errorf("route columns not aligned:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+// A row whose single-space model separator makes it exactly the terminal width keeps its profile cell.
+func TestJobRowExactWidthKeepsProfile(t *testing.T) {
+	var l layout
+	l.add(levelJob, "●", "pi", "gpt-6-sol", "· databricks", "dev", "", "", "", "9s", "")
+	if got := l.lines(40, "")[0]; !strings.Contains(got, "dev") || !strings.HasSuffix(got, "9s") {
+		t.Errorf("row = %q, want profile and elapsed at width 40", got)
+	}
+}
