@@ -726,15 +726,22 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	return rc
 }
 
+// overlayedReq applies the resolved overlay to req and checks the agent can run it.
+func overlayedReq(ctx context.Context, req agent.RunOptions, doc agentconfig.Overlay, env, keepEnv []string, name string,
+	background bool) (agent.RunOptions, error) {
+	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	if err != nil {
+		return req, err
+	}
+	req = req.ApplyOverlay(ctx, ov)
+	return req, agent.CheckCapabilities(name, req)
+}
+
 // askPrepare is askPrepareAndRun's body.
 func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
 	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
-	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	req, err := overlayedReq(ctx, req, doc, env, keepEnv, name, background)
 	if err != nil {
-		return failAskCode(format, name, err, 2)
-	}
-	req = req.ApplyOverlay(ctx, ov)
-	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
 	}
 	cl := newClient()
@@ -763,6 +770,9 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
+	}
+	if code, unsaved := unsavedHeld(ctx, prepared.Record, format, saveErr); unsaved {
+		return code
 	}
 	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
 }

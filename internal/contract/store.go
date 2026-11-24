@@ -156,8 +156,12 @@ func FailUnreadable(id string) error {
 		if err != nil {
 			return err
 		}
-		if raw, rerr := os.ReadFile(p); rerr == nil {
-			_ = paths.AtomicWrite(p+".corrupt", raw, 0o600)
+		raw, err := os.ReadFile(p)
+		if err == nil {
+			err = paths.AtomicWrite(p+".corrupt", raw, 0o600)
+		}
+		if err != nil {
+			return fmt.Errorf("contract %q: keep the unreadable file: %w", id, err)
 		}
 		return write(p, c)
 	})

@@ -447,6 +447,16 @@ func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	return nil
 }
 
+// unsavedHeld fails a foreground dispatch whose record never saved while it holds a contract; the reaper would take it.
+func unsavedHeld(ctx context.Context, rec agent.Record, format string, saveErr error) (int, bool) {
+	if saveErr == nil || askContractOf(ctx) == nil {
+		return 0, false
+	}
+	got, err := abandonContract(rec.ID, contract.ReasonOwnerDead)
+	reportSettled(rec.ID, got, err)
+	return failAsk(format, rec.Agent, fmt.Errorf("save dispatch record: %w", saveErr)), true
+}
+
 // spawnHeld detaches a background dispatch; a job that never started fails the contract opened for it.
 func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native bool, format, name string,
 	saveErr error) int {
@@ -534,7 +544,11 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 			return
 		}
 	}
-	got, err = abandonContract(id, contract.ReasonCancelled)
+	why := contract.ReasonCancelled
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		why = contract.ReasonDeadline
+	}
+	got, err = abandonContract(id, why)
 	reportSettled(id, got, err)
 }
 
