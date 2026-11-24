@@ -11,11 +11,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -60,17 +62,20 @@ const actionOutCap = 1 << 20
 
 // capBuffer keeps the first actionOutCap bytes and notes the cut.
 type capBuffer struct {
-	bytes.Buffer
+	b   bytes.Buffer // named, so exec's io.Copy cannot reach bytes.Buffer.ReadFrom around the cap
 	cut bool
 }
 
+func (b *capBuffer) Bytes() []byte  { return b.b.Bytes() }
+func (b *capBuffer) String() string { return b.b.String() }
+
 func (b *capBuffer) Write(p []byte) (int, error) {
-	if room := actionOutCap - b.Len(); len(p) > room {
-		b.Buffer.Write(p[:max(room, 0)])
+	if room := actionOutCap - b.b.Len(); len(p) > room {
+		b.b.Write(p[:max(room, 0)])
 		b.cut = true
 		return len(p), nil
 	}
-	return b.Buffer.Write(p)
+	return b.b.Write(p)
 }
 
 // actionRefusal names the run-shaping flag an action cannot honor, else "".
@@ -80,6 +85,8 @@ func actionRefusal(f *askFlags) string {
 		return "--dry-run"
 	case f.host != "", f.batchSrc != "", f.live, f.loop, f.background, f.carry, f.waves != "", f.retry != "", f.job != "":
 		return "--host, --batch, --live, --loop, --background, --carry, --waves, --retry and --job"
+	case f.tier != "" || f.effort != "" || f.overlay != "" || f.session != "":
+		return "--tier, --effort, --overlay and --session"
 	case f.verify != "" || f.outputSchema != "" || f.planTask != "" || f.save != "":
 		return "--verify, --output-schema, --plan-task and --save"
 	case f.format != helptext.JSON && f.format != helptext.Text:
@@ -97,6 +104,9 @@ func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer
 	if helptext.Explicit(fs, "agent") {
 		agentName = f.name
 	}
+	if f.action == "diff" && slices.ContainsFunc(f.actionOwn, func(p string) bool { return strings.Contains(p, ",") }) {
+		return failAskCode(f.format, localAgent, errors.New("spec own: a path with a comma cannot go to agents diff --path"), 2)
+	}
 	argv := actionArgv(f.action, f.actionOwn, agentName, f.model)
 	exe, err := os.Executable()
 	if err != nil {
@@ -110,9 +120,15 @@ func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer
 		}
 		return failAskCode(f.format, localAgent, err, code)
 	}
+	if err := rec.Save(); err != nil { // running, with this pid: a long action stays visible and counted
+		return failAskCode(f.format, localAgent, err, 1)
+	}
 	begin := time.Now()
 	buf, runErr := runActionChild(ctx, f, exe, argv)
 	runErr = errors.Join(runErr, finishAction(&rec, buf, runErr, time.Since(begin)))
+	if runErr != nil {
+		rec.Status = wire.StatusError
+	}
 	res := wire.Result{DispatchID: rec.ID, Agent: localAgent, Status: rec.Status, Answer: buf.String(),
 		DurationMs: rec.DurationMs, Hops: []wire.Hop{{Agent: localAgent}}}
 	env := wire.NewEnvelope(res, runErr, rec.ID)
@@ -121,6 +137,9 @@ func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer
 		err = writeEnvelope(out, env)
 	} else {
 		_, err = io.WriteString(out, res.Answer)
+		if runErr != nil {
+			fmt.Fprintln(os.Stderr, "ask: action:", runErr)
+		}
 	}
 	if err != nil || runErr != nil {
 		return 1
@@ -138,6 +157,8 @@ func runActionChild(ctx context.Context, f *askFlags, exe string, argv []string)
 	buf, stderr := &capBuffer{}, &capBuffer{}
 	cmd := exec.CommandContext(ctx, exe, argv...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = f.workdir, buf, stderr
+	proc.TreeCancel(cmd, 0) // a timeout kills go test and other descendants too
+	cmd.WaitDelay = proc.ExecWaitDelay
 	err := cmd.Run()
 	stdout := bytes.Clone(buf.Bytes())
 	buf.cut = buf.cut || stderr.cut
@@ -176,7 +197,7 @@ func finishAction(rec *agent.Record, buf *capBuffer, runErr error, took time.Dur
 		}
 	}
 	if buf.cut {
-		buf.WriteString("\n[output cut at 1 MiB]\n")
+		buf.b.WriteString("\n[output cut at 1 MiB]\n")
 	}
 	var logErr, saveErr error
 	if err := os.WriteFile(rec.LogPath(), buf.Bytes(), 0o600); err != nil {
