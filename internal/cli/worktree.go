@@ -28,7 +28,7 @@ var worktreePage = helptext.Page{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
 		{"land", "verified land on local, uncommitted; --dry-run, --resume"},
-		{"clean", "remove a merged worktree or landed branch (--force, --dry-run)"},
+		{"clean", "remove a landed worktree or its kept branch (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
 		{"gate", "print (or --run) the verify gate for --dir (--scope, --lint-check)"},
