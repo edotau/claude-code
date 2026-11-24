@@ -1,0 +1,1 @@
+{ "name": "codemode", "version": "0.1.0", "description": "/codemode on|off|status: turns code mode (raw Bash output, no rtk rewrite) on or off for this session" }
