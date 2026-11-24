@@ -220,10 +220,15 @@ func untypedClaude(ctx context.Context, o RunOptions) bool {
 
 // fenced reports a run held to one route: an inherited arm or provider fence, a typed --fallback none or --as.
 func fenced(ctx context.Context, o RunOptions) bool {
-	confined, _ := router.ConfinedContext(ctx)
 	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
 	identity := o.Identity != "" && o.Identity != providers.IdentityAuto
-	return router.ArmProfileContext(ctx) != "" || confined != "" || typedNone || identity
+	return confinedRoute(ctx) || typedNone || identity
+}
+
+// confinedRoute reports an inherited databricks:<p> arm or provider fence on ctx.
+func confinedRoute(ctx context.Context) bool {
+	confined, _ := router.ConfinedContext(ctx)
+	return router.ArmProfileContext(ctx) != "" || confined != ""
 }
 
 // overlayRoutes reports an overlay that names where the dispatch runs; providerMode, effort and runner do not.
@@ -299,25 +304,32 @@ func (s modeScope) rows(reg *providers.Registry) []string {
 
 // replayRotation re-leads a replayed rotation (--job, --retry, background): a recorded lead plus an untyped tier alias.
 func replayRotation(ctx context.Context, o RunOptions) context.Context {
-	if o.Lead == "" || o.ModelTyped || !slices.Contains(models.AliasNames, o.Model) || !VaultAgentIsClaude(o.Agent) || fenced(ctx, o) {
+	// a recorded one-hop mode or identity replays on the recorded lead itself; only a confinement stops the re-lead
+	replay := o.Lead != "" && !o.ModelTyped && slices.Contains(models.AliasNames, o.Model) && VaultAgentIsClaude(o.Agent)
+	if !replay || confinedRoute(ctx) {
 		return ctx
 	}
 	reg, err := providers.LoadShared()
-	if err != nil {
+	ov, oerr := agentconfig.LoadOverlayContext(ctx, "", nil) // kept-out rows come from today's overlay
+	if err != nil || oerr != nil || overlayRoutes(ov) {
 		return ctx
 	}
-	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // kept-out rows come from today's overlay
 	_, scope := modeCells(reg, ov.ProviderMode, router.RoleFleet, o.Lead)
-	if scope.stay { // the lead sits on an exclusive provider: every other Claude provider is out
-		start := scope.off[0]
-		scope.off = nil
-		for _, p := range router.ClaudeProviders(reg) {
-			if p.Name != start {
-				scope.off = append(scope.off, p.Name)
-			}
+	return router.WithRotatedLead(ctx, router.RotatedLead{Row: o.Lead, Drop: scope.keptOut(reg)})
+}
+
+// keptOut is the rows no hop may use: the kept-out providers', or under a stay every other Claude provider's.
+func (s modeScope) keptOut(reg *providers.Registry) []string {
+	if !s.stay {
+		return s.rows(reg)
+	}
+	var others modeScope
+	for _, p := range router.ClaudeProviders(reg) {
+		if p.Name != s.off[0] {
+			others.off = append(others.off, p.Name)
 		}
 	}
-	return router.WithRotatedLead(ctx, router.RotatedLead{Row: o.Lead, Drop: scope.rows(reg)})
+	return others.rows(reg)
 }
 
 // cellScan judges role cells for one dispatch: each cell's serving row (the session's first) or why none serves.
