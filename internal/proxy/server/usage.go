@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -171,23 +174,156 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 		return
 	}
 	session := in.Header.Get("X-Claude-Code-Session-Id")
-	requested, _ := in.Context().Value(askedKey{}).(string)
+	m, _ := in.Context().Value(metaKey{}).(*reqMeta)
+	requested := m.plainModel()
 	if !swapped(requested, model) {
 		requested = ""
 	}
 	tokenledger.Append(tokenledger.Entry{
 		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,
+		AskedModel: m.askedModel(), Call: string(m.callKind()), Route: m.routeIfDiffers(p.Name),
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
 		CacheWrite: u.cacheWrite, CacheWrite1h: u.cacheWrite1h,
 	})
 }
 
-// askedKey carries the model id the client asked for, before any rewrite, to the ledger write.
-type askedKey struct{}
+// callKind is the typed shape of a request, decided from its path and, for messages, the body fields already parsed.
+type callKind string
 
-func withAsked(in *http.Request, id string) *http.Request {
-	return in.WithContext(context.WithValue(in.Context(), askedKey{}, id))
+const (
+	callMessages    callKind = "messages"
+	callProbe       callKind = "messages_probe" // a messages call with no tools and max_tokens <= probeMaxTokens
+	callCountTokens callKind = "count_tokens"
+	callResponses   callKind = "responses"
+	callChat        callKind = "chat"
+	callGemini      callKind = "gemini"
+	callOther       callKind = "other"
+)
+
+// probeMaxTokens bounds a classifier-style call: Claude Code's auto-mode stage 1 asks for 64 tokens and sends no tools.
+const probeMaxTokens = 64
+
+// maxModelToken caps the client-supplied model string kept in the ledger and log.
+const maxModelToken = 128
+
+// reqMeta is what one request tells the ledger and log beyond its mapped model; the proxy sets it once per request.
+type reqMeta struct {
+	route string   // the /p/<profile> the client asked for
+	asked string   // the body's model string, sanitized and capped
+	plain string   // the asked model without a [1m] marker, for the swap check
+	call  callKind // the request kind
+}
+
+type metaKey struct{}
+
+func withMeta(in *http.Request, m *reqMeta) *http.Request {
+	return in.WithContext(context.WithValue(in.Context(), metaKey{}, m))
+}
+
+func (m *reqMeta) plainModel() string {
+	if m == nil {
+		return ""
+	}
+	return m.plain
+}
+
+func (m *reqMeta) askedModel() string {
+	if m == nil {
+		return ""
+	}
+	return m.asked
+}
+
+func (m *reqMeta) callKind() callKind {
+	if m == nil {
+		return ""
+	}
+	return m.call
+}
+
+// routeIfDiffers is the asked /p/<profile> only when another profile served the request.
+func (m *reqMeta) routeIfDiffers(served string) string {
+	if m == nil || m.route == served {
+		return ""
+	}
+	return m.route
+}
+
+// noteBody records the body's model string and, for a messages call, whether the body shows a classifier-style probe.
+func (m *reqMeta) noteBody(model string, top map[string]json.RawMessage) {
+	m.asked = modelToken(model)
+	if m.call == callMessages && isProbe(top) {
+		m.call = callProbe
+	}
+}
+
+// isProbe reports a body with no tools and a positive max_tokens of at most probeMaxTokens.
+func isProbe(top map[string]json.RawMessage) bool {
+	switch string(bytes.TrimSpace(top["tools"])) {
+	case "", "null", "[]":
+	default:
+		return false
+	}
+	n, err := strconv.Atoi(string(bytes.TrimSpace(top["max_tokens"])))
+	return err == nil && n > 0 && n <= probeMaxTokens
+}
+
+// diag is the log tokens for the request: asked_model, call, and route when another profile served it.
+func (m *reqMeta) diag(served string) string {
+	if m == nil {
+		return ""
+	}
+	s := ""
+	if m.asked != "" {
+		s = " asked_model=" + m.asked
+	}
+	if m.call != "" {
+		s += " call=" + string(m.call)
+	}
+	if r := m.routeIfDiffers(served); r != "" {
+		s += " route=" + r
+	}
+	return s
+}
+
+// modelToken drops control, space and non-printable runes from client input and caps it at maxModelToken bytes.
+func modelToken(s string) string {
+	clean := len(s) <= maxModelToken
+	for _, c := range s {
+		if !unicode.IsPrint(c) || unicode.IsSpace(c) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	for _, c := range s {
+		if b.Len()+utf8.RuneLen(c) > maxModelToken {
+			break
+		}
+		if unicode.IsPrint(c) && !unicode.IsSpace(c) {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}
+
+// passthroughCall is the call kind of a passthrough request from its dialect and path.
+func passthroughCall(dialect, path string) callKind {
+	switch dialect {
+	case providers.ProtocolResponses:
+		return callResponses
+	case providers.ProtocolGemini:
+		return callGemini
+	case providers.ProtocolOpenAI:
+		if isChatCompletion(dialect, path) {
+			return callChat
+		}
+	}
+	return callOther
 }
 
 // swapped reports that served is a different model from asked; spellings of one model (prefix, [1m], alias) are not.

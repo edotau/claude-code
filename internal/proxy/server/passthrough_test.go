@@ -1142,7 +1142,7 @@ func BenchmarkFixPassthroughBody(b *testing.B) {
 	b.SetBytes(int64(len(body)))
 	b.ReportAllocs()
 	for b.Loop() {
-		out, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
+		out, _, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
 		if err != nil || bytes.Equal(out, body) || !strings.HasPrefix(m, models.DatabricksPrefix) {
 			b.Fatal(err, m)
 		}

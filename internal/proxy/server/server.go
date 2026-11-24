@@ -122,14 +122,15 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	start := r.now()
-	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
-	provider, model, attempts := r.route(sw, req, session, count)
-	kind := ""
+	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w),
+		meta: &reqMeta{route: modelToken(session), call: callMessages}}
 	if count {
-		kind = " kind=count_tokens"
+		sw.meta.call = callCountTokens
 	}
+	provider, model, attempts := r.route(sw, req, session, count)
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond), kind+reqDiag(sw.asked, model), viaDiag(req), dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
+		time.Since(start).Round(time.Millisecond), reqDiag(sw.meta.plain, model)+sw.meta.diag(provider), viaDiag(req),
+		dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
 	sw.abortIfBroken()
 }
 
@@ -210,6 +211,10 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	}
 	decoded := decodeProxyBody(body)
 	model := decoded.model
+	if w.meta == nil {
+		w.meta = &reqMeta{route: modelToken(session), call: callMessages}
+	}
+	w.meta.noteBody(model, decoded.top)
 	if model == "" {
 		writeError(w, http.StatusBadRequest, "proxy: request body must be JSON with a model")
 		return session, "-", 0
@@ -224,7 +229,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return session, model, 0
 	}
 	clientModel := models.Strip1M(plain) // the ledger keeps the plain id; the row is the target's
-	w.asked, in = clientModel, withAsked(in, clientModel)
+	w.meta.plain, in = clientModel, withMeta(in, w.meta)
 	clientAuth := in.Header.Get("Authorization") != "" ||
 		r.oauthToken() != "" // the sealed token authenticates passthrough
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
