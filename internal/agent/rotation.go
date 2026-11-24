@@ -157,7 +157,8 @@ func (n roleNote) onto(c Chain) Chain {
 // rotateRole runs an untyped Claude dispatch on its role's least-recently-picked ready cell; the note says so.
 func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions, roleNote, error) {
 	if !untypedClaude(ctx, o) {
-		return replayRotation(ctx, o), o, roleNote{}, nil
+		ctx, o = replayRotation(ctx, o)
+		return ctx, o, roleNote{}, nil
 	}
 	reg, err := providers.LoadShared()
 	if err != nil {
@@ -303,33 +304,19 @@ func (s modeScope) rows(reg *providers.Registry) []string {
 }
 
 // replayRotation re-leads a replayed rotation (--job, --retry, background) whose record marks it Rotated.
-func replayRotation(ctx context.Context, o RunOptions) context.Context {
+func replayRotation(ctx context.Context, o RunOptions) (context.Context, RunOptions) {
 	// a recorded one-hop mode or identity replays on the recorded lead itself; only a confinement stops the re-lead
-	replay := o.Rotated && o.Lead != "" && !o.ModelTyped && VaultAgentIsClaude(o.Agent)
+	replay := o.Rotated && o.Lead != "" && o.Provider == "" && !o.ModelTyped && VaultAgentIsClaude(o.Agent)
 	if !replay || confinedRoute(ctx) {
-		return ctx
+		return ctx, o
 	}
 	reg, err := providers.LoadShared()
-	ov, oerr := agentconfig.LoadOverlayContext(ctx, "", nil) // kept-out rows come from today's overlay
+	ov, oerr := agentconfig.LoadOverlayContext(ctx, "", nil) // today's providerMode bounds the replay, as at the pick
 	if err != nil || oerr != nil || overlayRoutes(ov) {
-		return ctx
+		return ctx, o
 	}
 	_, scope := modeCells(reg, ov.ProviderMode, router.RoleFleet, o.Lead)
-	return router.WithRotatedLead(ctx, router.RotatedLead{Row: o.Lead, Drop: scope.keptOut(reg)})
-}
-
-// keptOut is the rows no hop may use: the kept-out providers', or under a stay every other Claude provider's.
-func (s modeScope) keptOut(reg *providers.Registry) []string {
-	if !s.stay {
-		return s.rows(reg)
-	}
-	var others modeScope
-	for _, p := range router.ClaudeProviders(reg) {
-		if p.Name != s.off[0] {
-			others.off = append(others.off, p.Name)
-		}
-	}
-	return others.rows(reg)
+	return placeRotation(ctx, reg, o, o.Lead, scope)
 }
 
 // cellScan judges role cells for one dispatch: each cell's serving row (the session's first) or why none serves.
