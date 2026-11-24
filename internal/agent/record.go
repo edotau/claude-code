@@ -600,7 +600,7 @@ func (r Record) LogLine() string {
 		tools += " [" + r.Cutoff + "]"
 	}
 	agentCol := RowLabel(r)
-	if r.Fallback != "" {
+	if r.Fallback != "" && RunnerOf(r) == "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
 	elapsed := r.Elapsed()

@@ -169,6 +169,9 @@ func settleDead(cur agent.Record) (agent.Record, string) {
 func envelopeResult(env wire.Envelope) wire.Result {
 	res := wire.Result{Agent: env.Agent, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
 		SessionID: env.SessionID, FallbackReason: env.FallbackReason, Type: env.Type, Runner: env.Runner}
+	if env.Runner != "" { // the envelope's agent is the asked one; the runner is who executed
+		res.Agent, res.Asked = env.Runner, env.Agent
+	}
 	if env.Fallback != nil {
 		res.Fallback = *env.Fallback
 	}
@@ -349,7 +352,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	}
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
-		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec),
+		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec), recType: rec.Type,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
 		carry: rec.Request.Carry, codeMode: answeredInCodeMode(rec), routeKind: cmp.Or(rec.RanRoute.Provider, rec.Route.Provider), takeover: rec.TakeoverOf != "", launch: launchLabel(rec),

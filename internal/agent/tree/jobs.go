@@ -150,7 +150,7 @@ func (d Dispatch) since(now time.Time) string {
 // jobCells are a dispatch row after its marker: agent, model · route, ↑in, ↓out, since its last event, elapsed.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
 	name := wire.RunLabel(dispatchType(d), d.Runner)
-	if d.Fallback != "" {
+	if d.Fallback != "" && d.Runner == "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}
 	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where()

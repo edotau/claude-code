@@ -111,6 +111,7 @@ type Dispatch struct {
 	started   time.Time // dispatch start; a matching session must be updated at or after it
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 
+	recType   string    // the type the record stored (models.AgentType at the run's end); "" while running
 	codeMode  bool      // the answering run had pi codemode on or only: the row shows pi
 	routeKind string    // the route's provider kind (rec.Provider can be a profile name)
 	carry     bool      // the outer record of a carried dispatch: its row folds in the child doing the work
@@ -457,6 +458,9 @@ func namedDispatches(sub Subagent) []Dispatch {
 
 // dispatchType is the type of the model the run used (models.AgentType); the asked agent when the id names none.
 func dispatchType(d Dispatch) string {
+	if d.recType != "" {
+		return d.recType
+	}
 	if d.Model == agent.AutoModel {
 		return d.Agent
 	}
