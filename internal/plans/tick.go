@@ -695,6 +695,7 @@ func RecordDest(draftBase, dest string) error {
 
 // writePlan is the package's one write site (the schemas registry keys on it): atomic replace keeping dest's mode.
 func writePlan(dest string, data []byte, mode os.FileMode) error {
+	planBorn(dest, true) // before the replace resets the file's birth time
 	return paths.AtomicWrite(dest, data, mode)
 }
 

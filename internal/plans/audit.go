@@ -264,8 +264,9 @@ func auditPlans(home string, all bool) (dated []datedPlan, since string, err err
 }
 
 type auditCommit struct {
-	sha, day, subject, message string
-	words, files               []string // files sorted
+	sha, subject, message string
+	at                    int64    // author time, unix seconds
+	words, files          []string // files sorted
 }
 
 // subjectCommits lists local and remote trunk commits since a date with message and changed files, in one pass.
@@ -279,7 +280,7 @@ func (a *auditRun) subjectCommits(since string) ([]auditCommit, error) {
 
 // gitCommits runs a git log or show and parses each commit's sha, day, subject, message and sorted files.
 func (a *auditRun) gitCommits(args ...string) ([]auditCommit, error) {
-	args = append(args, "--no-renames", "-z", "--name-only", "--format=%x01%H%x00%cs%x00%s%x00%B%x00", "--")
+	args = append(args, "--no-renames", "-z", "--name-only", "--format=%x01%H%x00%at%x00%s%x00%B%x00", "--")
 	out, err := proc.RunGitInherit(a.ctx, a.root, args...)
 	if err != nil {
 		return nil, err
@@ -290,7 +291,8 @@ func (a *auditRun) gitCommits(args ...string) ([]auditCommit, error) {
 		if len(parts) < 4 {
 			continue
 		}
-		c := auditCommit{sha: parts[0], day: parts[1], subject: parts[2], message: parts[3], words: auditWords(parts[2])}
+		at, _ := strconv.ParseInt(parts[1], 10, 64)
+		c := auditCommit{sha: parts[0], at: at, subject: parts[2], message: parts[3], words: auditWords(parts[2])}
 		if len(parts) == 5 {
 			for f := range strings.SplitSeq(parts[4], "\x00") {
 				if f = strings.TrimLeft(f, "\n"); f != "" { // -z puts a newline between the message and the file list
@@ -392,17 +394,17 @@ func planSnapshot(plan string) string {
 	return "-"
 }
 
-// predates: the commit is older than the plan's day or the plan was written on top of it, so it delivers no task.
-func (r *reach) predates(plan string, c auditCommit, snapshot int) bool {
-	return c.day < filepath.Base(plan)[:10] || snapshot >= 0 && r.index(c.sha) >= snapshot
+// predates: the commit was authored before the plan was written or the plan sits on top of it, so it delivers no task.
+func (r *reach) predates(born int64, c auditCommit, snapshot int) bool {
+	return c.at < born || snapshot >= 0 && r.index(c.sha) >= snapshot
 }
 
-// ownedSubject ticks t from the first landed commit since the plan's day whose subject overlaps and files cover owns:.
+// ownedSubject ticks t from the first landed commit since the plan was written whose subject and files match.
 func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) error {
 	words, owns, candidate := auditWords(t.Title), auditOwns(*t), ""
-	snapshot := a.landed.index(planSnapshot(plan))
+	snapshot, born := a.landed.index(planSnapshot(plan)), planBorn(plan, !a.dry).Unix()
 	for _, c := range history {
-		if a.landed.predates(plan, c, snapshot) || !auditOverlap(words, c.words) {
+		if a.landed.predates(born, c, snapshot) || !auditOverlap(words, c.words) {
 			continue
 		}
 		if len(taskTrailerValues(c.message)) > 0 && !namesTask(c.message, plan, t.ID) {
