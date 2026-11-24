@@ -88,7 +88,7 @@ func piInScope(file string, scope []string) bool {
 	f := filepath.ToSlash(filepath.Clean(file))
 	return slices.ContainsFunc(scope, func(o string) bool {
 		o = filepath.ToSlash(filepath.Clean(o))
-		return f == o || strings.HasPrefix(f, o+"/")
+		return f == o || (o == "." && filepath.IsLocal(file)) || strings.HasPrefix(f, o+"/")
 	})
 }
 

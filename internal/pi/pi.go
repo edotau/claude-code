@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -278,7 +279,15 @@ func guardToolsFor(env []string) string {
 func isOwnerRun(ctx context.Context) bool {
 	id := proc.Value(ctx, proc.DispatchIDEnv)
 	c, err := contract.Load(id)
-	if err != nil || c.Owner.Role != contract.RoleOwner {
+	if err != nil { // a re-assigned holder runs under a new id: find the open contract that names it
+		open, _ := contract.Pending()
+		i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) })
+		if i < 0 {
+			return false
+		}
+		c = open[i]
+	}
+	if c.Owner.Role != contract.RoleOwner {
 		return false
 	}
 	rec, err := agent.LoadRecord(id)
