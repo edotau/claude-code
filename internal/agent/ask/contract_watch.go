@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -20,6 +21,8 @@ var (
 	leavesPoll  = 3 * time.Second
 	leavesGrace = 10 * time.Second
 )
+
+const resendTimeout = time.Minute
 
 // watchLeaves watches owner contract id's leaves while its run lasts; the returned func stops the watch.
 func watchLeaves(ctx context.Context, id string) func() {
@@ -44,7 +47,7 @@ func watchLeaves(ctx context.Context, id string) func() {
 }
 
 // watchOnce re-sends each lost leaf of owner once, to a new holder; a second death fails it owner-dead.
-func watchOnce(ctx context.Context, owner string, send func(ctx context.Context, holder string) (string, error)) {
+func watchOnce(ctx context.Context, owner string, send func(context.Context, contract.Contract) (string, error)) {
 	c, err := contract.Load(owner)
 	if err != nil {
 		return
@@ -59,13 +62,16 @@ func watchOnce(ctx context.Context, owner string, send func(ctx context.Context,
 }
 
 // resendLeaf hands lost leaf k to a fresh dispatch once; a leaf already re-sent, or one that cannot be, fails.
-func resendLeaf(ctx context.Context, k contract.Contract, send func(context.Context, string) (string, error)) {
+func resendLeaf(ctx context.Context, k contract.Contract, send func(context.Context, contract.Contract) (string, error)) {
 	holder := k.Holders[len(k.Holders)-1]
 	if len(k.Holders) > 1 {
 		failLeaf(k.ID, holder)
 		return
 	}
-	next, err := send(ctx, holder)
+	next, err := send(ctx, k)
+	if won, ok := agent.ResumedAs(holder); err != nil && ok { // the watchdog resumed it first: follow its dispatch
+		next, err = won, nil
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: leaf %s: re-send: %v\n", k.ID, err)
 		failLeaf(k.ID, holder)
@@ -101,6 +107,9 @@ func leafLost(k contract.Contract) bool {
 	if err != nil {
 		return errors.Is(err, agent.ErrNoRecord) && contractAge(k.ID) > leavesGrace
 	}
+	if rec.Status == wire.StatusOK { // it finished: a failed settle is not a death, and a re-run would repeat its edits
+		return false
+	}
 	return (rec.Status != "running" || !rec.Alive()) && time.Since(rec.Time) > leavesGrace
 }
 
@@ -116,8 +125,12 @@ func contractAge(id string) time.Duration {
 	return time.Since(fi.ModTime())
 }
 
+// resendEnv names the contract a re-sent dispatch takes over; heldID reads it, so no scan races the watch's re-assign.
+const resendEnv = "HARNESS_RESEND_CONTRACT"
+
 // resend runs `agents ask --retry <holder> --recover` under the holder's parent and returns the new dispatch id.
-func resend(ctx context.Context, holder string) (string, error) {
+func resend(ctx context.Context, k contract.Contract) (string, error) {
+	holder := k.Holders[len(k.Holders)-1]
 	rec, err := agent.LoadRecord(holder)
 	if err != nil {
 		return "", err
@@ -126,8 +139,11 @@ func resend(ctx context.Context, holder string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Not cancelled with the watch: a retry cut off after its job spawned would leave a child nobody settles.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resendTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, self, "agents", "ask", "--retry", holder, "--recover", "--background", "--format", "json")
-	cmd.Env = append(os.Environ(), proc.DispatchIDEnv+"="+rec.Parent)
+	cmd.Env = append(os.Environ(), proc.DispatchIDEnv+"="+rec.Parent, resendEnv+"="+k.ID)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

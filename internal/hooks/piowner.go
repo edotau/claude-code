@@ -103,6 +103,15 @@ func piInScope(file string, scope []string, cwd string) bool {
 	})
 }
 
+// ownsDispatch reports whether id is a dispatch of owner c: its id, a holder, or an earlier retry that resolves to c.
+func ownsDispatch(c contract.Contract, id string) bool {
+	if id == c.ID || id == os.Getenv(proc.DispatchIDEnv) || slices.Contains(c.Holders, id) {
+		return true
+	}
+	h, ok := heldContract(id)
+	return ok && h.ID == c.ID
+}
+
 // piCheckArgv builds `agents status <id> --format json` for a dispatch whose record names this owner as parent.
 func piCheckArgv(input map[string]any) ([]string, error) {
 	c, err := piOwner()
@@ -111,8 +120,7 @@ func piCheckArgv(input map[string]any) ([]string, error) {
 	}
 	id := strOf(input["id"])
 	rec, err := agent.LoadRecord(id)
-	own := append([]string{c.ID, os.Getenv(proc.DispatchIDEnv)}, c.Holders...) // a retried owner's id is in no list
-	if err != nil || rec.Parent == "" || !slices.Contains(own, rec.Parent) {
+	if err != nil || rec.Parent == "" || !ownsDispatch(c, rec.Parent) {
 		return nil, fmt.Errorf("check: %q is not a dispatch of this owner", id)
 	}
 	return []string{"agents", "status", rec.ID, "--format", "json"}, nil

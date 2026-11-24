@@ -61,7 +61,7 @@ func TestWatchOnceResendsOnceThenFails(t *testing.T) {
 	if err := next.Save(); err != nil {
 		t.Fatal(err)
 	}
-	send := func(context.Context, string) (string, error) { return "d-4", nil }
+	send := func(context.Context, contract.Contract) (string, error) { return "d-4", nil }
 	watchOnce(context.Background(), "d-1", send)
 	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || k.State() != contract.StateWorking {
 		t.Fatalf("after first loss: holders %v state %s, want re-assigned and working", k.Holders, k.State())
@@ -69,5 +69,26 @@ func TestWatchOnceResendsOnceThenFails(t *testing.T) {
 	watchOnce(context.Background(), "d-1", send)
 	if k, _ := contract.Load("d-2"); k.State() != contract.StateFailed || k.Failed != contract.ReasonOwnerDead {
 		t.Fatalf("after second loss: %s %q, want failed owner-dead", k.State(), k.Failed)
+	}
+}
+
+// TestHeldIDTakesOverResentContract: a re-sent dispatch named by the resend env takes the leaf's contract itself.
+func TestHeldIDTakesOverResentContract(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := startFleet(t, "", "d-1", contract.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := startFleet(t, "d-1", "d-2", contract.RoleFleet); err != nil {
+		t.Fatal(err)
+	}
+	if got := heldID(agent.Record{ID: "d-5"}); got != "" {
+		t.Fatalf("without the env heldID = %q, want none", got)
+	}
+	t.Setenv(resendEnv, "d-2")
+	if got := heldID(agent.Record{ID: "d-5"}); got != "d-2" {
+		t.Fatalf("heldID = %q, want d-2", got)
+	}
+	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || k.Holders[1] != "d-5" {
+		t.Fatalf("holders = %v, want d-2 then d-5", k.Holders)
 	}
 }

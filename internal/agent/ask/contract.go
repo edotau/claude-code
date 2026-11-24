@@ -474,8 +474,11 @@ func joinFleet(parent, child string) error {
 	if parent == "" {
 		return nil
 	}
-	if _, err := contract.Update(parent, func(c contract.Contract) (contract.Contract, error) { return c.AddChild(child) }); err != nil {
-		_, _ = abandonContract(child, contract.ReasonLimit)
+	add := func(c contract.Contract) (contract.Contract, error) { return c.AddChild(child) }
+	if _, err := contract.Update(parent, add); err != nil {
+		if _, aerr := abandonContract(child, contract.ReasonLimit); aerr != nil {
+			fmt.Fprintf(os.Stderr, "ask: contract %s: abandon after refusal: %v\n", child, aerr)
+		}
 		return fmt.Errorf("dispatch refused: %w", err)
 	}
 	return nil
@@ -532,17 +535,20 @@ func heldID(rec agent.Record) string {
 	if holdsContract(rec.ID) {
 		return rec.ID
 	}
-	if rec.Parent == "" { // only a dispatched child can be a re-send: skip the scan for every other ask
+	cid := os.Getenv(resendEnv)
+	if cid == "" {
 		return ""
 	}
-	open, _ := contract.Pending()
-	i := slices.IndexFunc(open, func(c contract.Contract) bool {
-		return c.State() == contract.StateWorking && c.Holders[len(c.Holders)-1] == rec.ID
+	c, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
+		if c.State() != contract.StateWorking || c.Holders[len(c.Holders)-1] == rec.ID {
+			return c, nil
+		}
+		return c.Reassign(rec.ID) // the watch re-sent this dispatch: take the contract over before the run starts
 	})
-	if i < 0 {
+	if err != nil || c.State() != contract.StateWorking || c.Holders[len(c.Holders)-1] != rec.ID {
 		return ""
 	}
-	return open[i].ID
+	return cid
 }
 
 // holdsContract reports whether dispatch id holds a working contract; most asks have no contract file at all.
@@ -624,7 +630,11 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 			r.Children = append(r.Children, cc)
 		}
 	}
-	r.Spent = contract.SpentOf(c, subtreeUses(rec.ID, spentTokens(&res.Usage)))
+	uses := subtreeUses(rec.ID, spentTokens(&res.Usage))
+	if len(c.Holders) > 1 { // a re-sent leaf is charged for the dead attempt too
+		uses = append(uses, subtreeUses(c.Holders[0], 0)...)
+	}
+	r.Spent = contract.SpentOf(c, uses)
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
 	}

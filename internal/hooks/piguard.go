@@ -108,10 +108,9 @@ func piBudget() (leaves, tokens bool) {
 
 // heldContract is the open contract id holds: its own, else one it took over by a re-assign.
 func heldContract(id string) (contract.Contract, bool) {
-	for range 4 { // a retry of a retry: follow the resumed markers back to the dispatch that holds the contract
-		if id == "" {
-			break
-		}
+	var seen []string
+	for id != "" && !slices.Contains(seen, id) && len(seen) < 64 { // follow the resumed markers back to the holder
+		seen = append(seen, id)
 		c, err := contract.Load(id)
 		if errors.Is(err, fs.ErrNotExist) {
 			open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
