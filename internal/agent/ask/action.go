@@ -95,48 +95,69 @@ func actionRefusal(f *askFlags) string {
 	return ""
 }
 
+// actionCheck is the usage error for an action the harness cannot run as asked, else nil.
+func actionCheck(f *askFlags) error {
+	if why := actionRefusal(f); why != "" {
+		return fmt.Errorf("spec action runs no model: not with %s", why)
+	}
+	if f.action == "diff" && slices.ContainsFunc(f.actionOwn, func(p string) bool { return strings.Contains(p, ",") }) {
+		return errors.New("spec own: a path with a comma cannot go to agents diff --path")
+	}
+	return nil
+}
+
+// claimAction is the saved running record of an action, or the exit code of its refusal.
+func claimAction(ctx context.Context, f *askFlags) (agent.Record, int) {
+	rec, err := agent.ClaimAskRecord(ctx, localAgent, agent.RunOptions{Agent: localAgent, Prompt: "action " + f.action, WorkDir: f.workdir}, f.workdir, false)
+	if err == nil {
+		err = rec.Save() // running, with this pid: a long action stays visible and counted
+	}
+	if err == nil {
+		return rec, 0
+	}
+	if _, usage := errors.AsType[*agent.UsageError](err); usage {
+		return rec, failAskCode(f.format, localAgent, err, 2)
+	}
+	return rec, failAskCode(f.format, localAgent, err, 1)
+}
+
 // runAction runs the spec's action in a plain child with no model and reports it as a dispatch on "local".
 func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer) int {
-	if why := actionRefusal(f); why != "" {
-		return failAskCode(f.format, localAgent, fmt.Errorf("spec action runs no model: not with %s", why), 2)
+	if err := actionCheck(f); err != nil {
+		return failAskCode(f.format, localAgent, err, 2)
 	}
 	agentName := ""
 	if helptext.Explicit(fs, "agent") {
 		agentName = f.name
 	}
-	if f.action == "diff" && slices.ContainsFunc(f.actionOwn, func(p string) bool { return strings.Contains(p, ",") }) {
-		return failAskCode(f.format, localAgent, errors.New("spec own: a path with a comma cannot go to agents diff --path"), 2)
-	}
-	argv := actionArgv(f.action, f.actionOwn, agentName, f.model)
 	exe, err := os.Executable()
 	if err != nil {
 		return failAskCode(f.format, localAgent, err, 1)
 	}
-	rec, err := agent.ClaimAskRecord(ctx, localAgent, agent.RunOptions{Agent: localAgent, Prompt: "action " + f.action, WorkDir: f.workdir}, f.workdir, false)
-	if err != nil {
-		code := 1
-		if _, usage := errors.AsType[*agent.UsageError](err); usage {
-			code = 2
-		}
-		return failAskCode(f.format, localAgent, err, code)
-	}
-	if err := rec.Save(); err != nil { // running, with this pid: a long action stays visible and counted
-		return failAskCode(f.format, localAgent, err, 1)
+	rec, code := claimAction(ctx, f)
+	if code != 0 {
+		return code
 	}
 	begin := time.Now()
-	buf, runErr := runActionChild(ctx, f, exe, argv)
+	buf, runErr := runActionChild(ctx, f, exe, actionArgv(f.action, f.actionOwn, agentName, f.model))
 	runErr = errors.Join(runErr, finishAction(&rec, buf, runErr, time.Since(begin)))
+	return reportAction(out, f, rec, buf.String(), runErr)
+}
+
+// reportAction prints the envelope (json) or the output, and returns the exit code.
+func reportAction(out io.Writer, f *askFlags, rec agent.Record, answer string, runErr error) int {
 	if runErr != nil {
 		rec.Status = wire.StatusError
 	}
-	res := wire.Result{DispatchID: rec.ID, Agent: localAgent, Status: rec.Status, Answer: buf.String(),
+	res := wire.Result{DispatchID: rec.ID, Agent: localAgent, Status: rec.Status, Answer: answer,
 		DurationMs: rec.DurationMs, Hops: []wire.Hop{{Agent: localAgent}}}
 	env := wire.NewEnvelope(res, runErr, rec.ID)
 	env.RanOn, env.Route = "ran on "+localAgent+" · "+f.action, &rec.RanRoute
+	var err error
 	if f.format == helptext.JSON {
 		err = writeEnvelope(out, env)
 	} else {
-		_, err = io.WriteString(out, res.Answer)
+		_, err = io.WriteString(out, answer)
 		if runErr != nil {
 			fmt.Fprintln(os.Stderr, "ask: action:", runErr)
 		}
