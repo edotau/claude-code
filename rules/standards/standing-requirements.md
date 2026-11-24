@@ -12,7 +12,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R3 Techdebt | Lives in `~/.claude/memory/techdebt/<area>.md`, one file per area | prose (until memory knows it) |
 | R4 Plans audit | Before `memory update` and in `dream`: audit plans under 7 days old | `memory update` after unlock (deterministic audit); `dream` plan phase, re-checked in Go |
 | R4 Boilerplate | Plan before today: tick process steps if built on `origin/main`, strike if all build tasks struck, else report | `plan tick --audit` |
-| R5 Verify returns | CLAUDE.md guideline 3, plus re-run one claim and the whole suite before a commit | prose |
+| R5 Verify returns | CLAUDE.md guideline 3, plus re-run one claim before a commit; package tests run at sign-off (R32) | prose |
 | R5 Cheap authors | Haiku, Kimi, fell-back relay: full read plus higher-tier, other-family review | prose |
 | R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family; count the resolved model's family, not the CLI (a Pi-first leaf counts as its model's family): a rotated leaf counts as the other-family third only when its model is not Claude; R5 review still applies; real work rotates through every external agent by vendor strength, GPT legs default to the sol model (by alias); model by job: `skills/subagent-workflows/SKILL.md` → Leaf types | prose |
 | R7 Databricks | Prefer `--provider databricks` over a fixed `--profile`; if named, rotate | `agents ask --provider` |
