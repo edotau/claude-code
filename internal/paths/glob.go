@@ -28,6 +28,14 @@ func GlobMatch(pattern, p string) bool {
 	return re != nil && re.MatchString(p)
 }
 
+// globEscape marks the next rune of a pattern as literal (EscapeGlob); a backslash is no escape (CleanGlob: "/").
+const globEscape = '\x01'
+
+// EscapeGlob makes s match itself literally inside a GlobMatch pattern.
+func EscapeGlob(s string) string {
+	return strings.NewReplacer("*", string(globEscape)+"*", "?", string(globEscape)+"?").Replace(s)
+}
+
 func CleanGlob(s string) string {
 	s = strings.ReplaceAll(s, "**", "\x00")
 	s = path.Clean(strings.ReplaceAll(s, "\\", "/"))
@@ -48,6 +56,10 @@ func globRegexp(g string) string {
 			b.WriteString("[^/]*")
 		case c == '?':
 			b.WriteString("[^/]")
+		case c == globEscape && i+1 < len(g): // the next rune is literal
+			_, size := utf8.DecodeRuneInString(g[i+1:])
+			b.WriteString(regexp.QuoteMeta(g[i+1 : i+1+size]))
+			i += size
 		default: // copy one whole rune: string(byte) would turn UTF-8 bytes into Latin-1 characters
 			_, size := utf8.DecodeRuneInString(g[i:])
 			b.WriteString(regexp.QuoteMeta(g[i : i+size]))

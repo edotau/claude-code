@@ -792,6 +792,77 @@ func TestSettingsDenyGlobCanonicalized(t *testing.T) {
 	}
 }
 
+// canonRoot is a scratch dir outside the temp dirs Edit may always write, with the config dir pointed at a fresh one.
+func canonRoot(t *testing.T) (cfg, root string) {
+	t.Helper()
+	cfg = t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir, err := os.MkdirTemp(".", "canon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg, paths.Real(abs)
+}
+
+// readDecision is the scan decision for a pi Read of file under the settings deny rows.
+func readDecision(t *testing.T, cfg, deny, file string) core.Decision {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"permissions":{"deny":[`+deny+`]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Read", "harness_agent": "pi",
+		"cwd": "/tmp", "tool_input": map[string]string{"file_path": file}})
+	return scanPayload(bytes.NewReader(payload)).Decision
+}
+
+// A symlink target holding glob characters stays literal in the resolved twin: alias -> a*b must not cover axb.
+func TestSettingsDenyTwinEscapesResolvedTarget(t *testing.T) {
+	cfg, root := canonRoot(t)
+	for _, d := range []string{"a*b", "axb"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "a*b"), alias); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	deny := `"Read(/` + alias + `/**)"`
+	for file, want := range map[string]core.Decision{
+		filepath.Join(alias, "f"): core.Block, filepath.Join(root, "a*b", "f"): core.Block, filepath.Join(root, "axb", "f"): core.Allow,
+	} {
+		if got := readDecision(t, cfg, deny, file); got != want {
+			t.Errorf("read of %s: %v, want %v", file, got, want)
+		}
+	}
+}
+
+// A second symlink under a wildcard is judged in both spellings: as typed and as the disk spells it.
+func TestSettingsDenyWildcardSecondSymlink(t *testing.T) {
+	cfg, root := canonRoot(t)
+	for _, d := range []string{"real", "elsewhere"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{"alias": "real", "real/link2": "../elsewhere"} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	deny := `"Read(/` + filepath.Join(root, "alias") + `/*/secret)"`
+	for _, file := range []string{filepath.Join(root, "alias", "link2", "secret"), filepath.Join(root, "real", "link2", "secret")} {
+		if got := readDecision(t, cfg, deny, file); got != core.Block {
+			t.Errorf("read of %s: %v, want block", file, got)
+		}
+	}
+}
+
 // The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
 func TestCitedHardRule3Exists(t *testing.T) {
 	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))

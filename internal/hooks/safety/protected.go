@@ -20,7 +20,8 @@ func protectedEdit(in *core.Input) core.Result {
 	if !editTools[strings.ToLower(in.CanonicalTool())] {
 		return protectedTool(in)
 	}
-	globs := foldedGlobs(livePolicy().editDeny, in.CWD)
+	p := livePolicy()
+	globs := foldedGlobs(p.editDeny, in.CWD, p.twin)
 	for _, form := range editPaths(in) { // pathForms already hold the symlink-resolved spelling
 		f := paths.ExpandHome(form)
 		if !filepath.IsAbs(f) {
@@ -42,7 +43,7 @@ func protectedTool(in *core.Input) core.Result {
 	tool := permission.CanonicalTool(in.CanonicalTool())
 	p := livePolicy()
 	if pathTools[tool] {
-		return protectedRead(in, tool, p.pathDeny)
+		return protectedRead(in, tool, p)
 	}
 	var rules []permission.Rule
 	for _, r := range p.toolDeny {
@@ -82,9 +83,9 @@ func toolArg(in *core.Input, tool string) (arg, problem string) {
 }
 
 // protectedRead judges a Read, Grep or Glob call's own path against the tool's anchored deny globs.
-func protectedRead(in *core.Input, tool string, rows []pathRule) core.Result {
+func protectedRead(in *core.Input, tool string, p policy) core.Result {
 	var raw []string
-	for _, r := range rows {
+	for _, r := range p.pathDeny {
 		if r.tool == tool {
 			raw = append(raw, r.glob)
 		}
@@ -96,7 +97,7 @@ func protectedRead(in *core.Input, tool string, rows []pathRule) core.Result {
 	if problem != "" {
 		return toolBlock(in, problem, tool)
 	}
-	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD))
+	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD, p.twin))
 	if hit != "" {
 		return toolBlock(in, "matches a settings.json deny rule", tool+" "+hit)
 	}

@@ -24,6 +24,7 @@ type policy struct {
 	editDeny []string
 	pathDeny []pathRule        // Read, Grep and Glob rows, raw globs
 	toolDeny []permission.Rule // every other tool: WebFetch, WebSearch, MCP…
+	twin     map[string]string // raw absolute glob -> its folded symlink-resolved glob, when that differs
 }
 
 // pathRule is a Read, Grep or Glob row with its raw glob (ParseRule's ~ expansion loses the anchor).
@@ -128,7 +129,38 @@ func parsePolicy(deny []string) policy {
 			p.toolDeny = append(p.toolDeny, r)
 		}
 	}
+	p.twin = canonTwins(p)
 	return p
+}
+
+// canonTwins resolves each absolute path glob's symlinks once, at parse time.
+func canonTwins(p policy) map[string]string {
+	twin := map[string]string{}
+	raw := slices.Clone(p.editDeny)
+	for _, r := range p.pathDeny {
+		raw = append(raw, r.glob)
+	}
+	for _, g := range raw {
+		if a := anchorGlob(g, ""); filepath.IsAbs(a) {
+			if c := canonGlob(a); c != a {
+				twin[g] = c
+			}
+		}
+	}
+	return twin
+}
+
+// canonGlob is anchored glob a with its literal directory prefix resolved and escaped; wildcards stay wildcards.
+func canonGlob(a string) string {
+	prefix, rest := a, ""
+	if i := strings.IndexAny(a, "*?"); i >= 0 {
+		j := strings.LastIndexByte(a[:i], '/')
+		prefix, rest = a[:max(j, 0)], a[max(j, 0):]
+	}
+	if prefix == "" {
+		return a
+	}
+	return paths.FoldCase(paths.CleanGlob(paths.EscapeGlob(paths.CanonDeep(prefix)) + rest))
 }
 
 // editGlob is the raw path glob of an Edit/Write row, else "" (raw arg: ParseRule's ~ expansion loses the anchor).
@@ -191,7 +223,7 @@ func anchorGlob(g, cwd string) string {
 }
 
 // foldedGlobs are raw globs anchored at cwd, case-folded, each beside its symlink-resolved form; unanchorable drop.
-func foldedGlobs(raw []string, cwd string) []string {
+func foldedGlobs(raw []string, cwd string, twin map[string]string) []string {
 	var out []string
 	for _, g := range raw {
 		a := anchorGlob(g, cwd)
@@ -199,10 +231,12 @@ func foldedGlobs(raw []string, cwd string) []string {
 			continue
 		}
 		out = append(out, a)
-		if filepath.IsAbs(a) {
-			if c := paths.FoldCase(paths.CleanGlob(paths.CanonDeep(a))); c != a {
-				out = append(out, c)
-			}
+		c, ok := twin[g]
+		if !ok && filepath.IsAbs(a) && a != anchorGlob(g, "") { // cwd-relative: resolved per call
+			c, ok = canonGlob(a), true
+		}
+		if ok && c != a {
+			out = append(out, c)
 		}
 	}
 	return out

@@ -97,6 +97,7 @@ func baselineParsePolicy(l settings.PermissionLists) policy {
 			p.toolDeny = append(p.toolDeny, r)
 		}
 	}
+	p.twin = canonTwins(p)
 	return p
 }
 
@@ -152,7 +153,7 @@ func TestParsePolicyEditRows(t *testing.T) {
 }
 
 func TestRelativeEditGlobAnchorsAtCwd(t *testing.T) {
-	if got := foldedGlobs([]string{".env"}, "/w/app"); len(got) != 1 {
+	if got := foldedGlobs([]string{".env"}, "/w/app", nil); len(got) != 1 {
 		t.Errorf("foldedGlobs(.env) = %q, want one cwd-anchored glob", got)
 	}
 	if n := globNeedle(".env", "/home/u/"); n != ".env" {
@@ -181,7 +182,8 @@ func TestSudoDeniedOnlyForWholeSudoRows(t *testing.T) {
 }
 
 func TestBareEditDenyMatchesEveryPath(t *testing.T) {
-	globs := foldedGlobs(parsePolicy([]string{"Edit"}).editDeny, "/w")
+	pol := parsePolicy([]string{"Edit"})
+	globs := foldedGlobs(pol.editDeny, "/w", pol.twin)
 	if !matchesProtected("/anywhere/deep/file.txt", globs) {
 		t.Errorf("bare Edit deny globs %q miss an arbitrary path", globs)
 	}
