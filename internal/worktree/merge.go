@@ -288,6 +288,9 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 		fmt.Fprintf(req.Err, "worktree merge: warning: bench pending: %v\n", err)
 	}
 	notifyLanes(ctx, repo, req, plan, promoted)
+	if err := Dequeue(plan.WorktreePath); err != nil {
+		fmt.Fprintf(req.Err, "worktree merge: warning: merge queue: %v\n", err)
+	}
 	if line := StartAudit(repo.Main, promoted.AfterOID); line != "" {
 		fmt.Fprintln(req.Out, line)
 	}

@@ -1006,7 +1006,22 @@ func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunR
 		err = rerr
 	}
 	r.finishSave(res, err, took, o.Notify)
+	startLaneMerge(r)
 	return err
+}
+
+// LaneMergeJobArg starts the lane-merge worker (internal/hooks/lanemerge.go) for a finished job's id.
+const LaneMergeJobArg = "--internal-lane-merge-job"
+
+// startLaneMerge hands a background job that changed files to the lane-merge worker; it judges the lane itself.
+func startLaneMerge(r *Record) {
+	wrote := r.Wrote != nil && len(*r.Wrote) > 0 || r.TreeChanged != nil && len(*r.TreeChanged) > 0
+	if !r.Background || r.Tree == "" || !wrote {
+		return
+	}
+	if self, err := paths.SelfBinary(); err == nil {
+		proc.SpawnDetached(self, []string{LaneMergeJobArg, r.ID}, paths.StateDir(), nil)
+	}
 }
 
 // runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id.

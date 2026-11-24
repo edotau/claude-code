@@ -4,6 +4,7 @@ internal/worktree/commit.go:undoAdd	unversioned: git index: saved bytes renamed 
 internal/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close
 internal/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree ledger log line and task fill
 internal/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger open
+internal/worktree/mergequeue.go:editQueueWithin	merge-queue
 internal/worktree/operation.go:SaveOperation	worktree-merge-op
 internal/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/worktree/sessions.go:Append	notices

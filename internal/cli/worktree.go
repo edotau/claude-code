@@ -148,6 +148,9 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	}
 	for _, e := range entries {
 		printEntry(e)
+		if q, ok := worktree.QueuedFor(repo.Main, e.Path); ok {
+			fmt.Printf("  queued:  %s; next: %s\n", strings.TrimSuffix(q.Reason+": "+q.Detail, ": "), q.Next)
+		}
 	}
 	return listExit(entries)
 }
