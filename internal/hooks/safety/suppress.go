@@ -3,6 +3,7 @@
 package safety
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,19 +13,31 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // suppressPatterns is the one typed table of markers (case-insensitive); each is a regexp, never a literal marker.
 var suppressPatterns = []string{
-	`#\s*noqa\b`, `#\s*ruff:\s*noqa`, `#\s*type:\s*ignore`, `#\s*pyright:\s*ignore`, `#\s*mypy:\s*ignore-errors`,
-	`#\s*pylint:\s*(disable|skip-file)`, `#\s*shellcheck\s+disable`, `//\s*nolint`, `eslint-disable`,
-	`@ts-(ignore|nocheck|expect-error)`, `#!?\[allow\(`,
+	`#\s*noqa\b`, `#\s*ruff:\s*noqa\b`, `#\s*type:\s*ignore\b`, `#\s*pyright:\s*ignore\b`,
+	`#\s*mypy:\s*ignore-errors\b`, `#\s*pylint:\s*(disable|skip-file)\b`, `#\s*shellcheck\s+disable\b`,
+	`//\s*nolint(nextline)?\b`, `eslint-disable\b`, `@ts-(ignore|nocheck|expect-error)\b`, `#!?\[\s*allow\s*\(`,
 }
 
 var suppressMarkers = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)` + strings.Join(suppressPatterns, "|"))
 })
+
+// markerIn is the first marker on l outside a double-quoted string, as [start, end] ("" text when none).
+func markerIn(l string) []int {
+	for _, m := range suppressMarkers().FindAllStringIndex(l, -1) {
+		if strings.Count(l[:m[0]], `"`)%2 == 0 {
+			return m
+		}
+	}
+	return nil
+}
 
 // suppressDocExts are prose files where a marker is text, not a comment.
 var suppressDocExts = map[string]bool{".md": true, ".mdx": true}
@@ -48,7 +61,7 @@ func suppressVerdict(in *core.Input) core.Result {
 		}
 		lines := strings.Split(a.text, "\n")
 		for i, l := range lines {
-			m := suppressMarkers().FindStringIndex(l)
+			m := markerIn(l)
 			if m == nil || a.known(strings.TrimSpace(l)) {
 				continue
 			}
@@ -99,14 +112,29 @@ func addedTexts(in *core.Input) []addition {
 	edits := in.EditedPaths()
 	var out []addition
 	for _, e := range edits {
-		if e.Body != "" {
-			out = append(out, addition{e.Path, e.Body, func(string) bool { return false }})
+		if e.Body == "" {
+			continue
 		}
+		path, known := paths.AnchorPath(e.Path, in.CWD), func(string) bool { return false }
+		if e.Kind == textutil.PatchUpdate {
+			known = existingLines(path)
+		}
+		out = append(out, addition{path, e.Body, known})
 	}
-	if ti := in.ToolInput(); len(out) == 0 && len(edits) > 0 && ti != nil {
-		return singleFileAdditions(edits[0].Path, ti)
+	ti := in.ToolInput()
+	if len(out) > 0 || ti == nil {
+		return out
 	}
-	return out
+	path := ""
+	if len(edits) > 0 {
+		path = edits[0].Path
+	} else if nb := strField(ti, "notebook_path"); nb != "" {
+		path = paths.AnchorPath(nb, in.CWD)
+	}
+	if path == "" {
+		return nil
+	}
+	return singleFileAdditions(path, ti)
 }
 
 func strField(m map[string]any, keys ...string) string {
@@ -131,7 +159,8 @@ func singleFileAdditions(path string, ti map[string]any) []addition {
 	for _, p := range append(pairs, ti) {
 		m, _ := p.(map[string]any)
 		if s := strField(m, "new_string", "newString"); s != "" {
-			out = append(out, addition{path, s, lineSet(strField(m, "old_string", "oldString"))})
+			old, file := lineSet(strField(m, "old_string", "oldString")), existingLines(path)
+			out = append(out, addition{path, s, func(l string) bool { return old(l) || file(l) }})
 		}
 	}
 	return out
@@ -157,15 +186,30 @@ func existingLines(path string) func(string) bool {
 	}
 }
 
-// existingText is a notebook's raw JSON, where a cell line sits inside a quoted string.
+// existingText is the set of source lines across a notebook's cells (source is a string or a list of strings).
 func existingText(path string) func(string) bool {
-	var raw string
-	var read bool
+	var known func(string) bool
 	return func(l string) bool {
-		if !read {
+		if known == nil {
+			var nb struct {
+				Cells []struct {
+					Source json.RawMessage `json:"source"`
+				} `json:"cells"`
+			}
 			b, _ := os.ReadFile(path)
-			raw, read = string(b), true
+			_ = json.Unmarshal(b, &nb) // a missing or broken notebook has no known lines
+			var sb strings.Builder
+			for _, c := range nb.Cells {
+				var one string
+				var many []string
+				if json.Unmarshal(c.Source, &one) == nil {
+					sb.WriteString(one + "\n")
+				} else if json.Unmarshal(c.Source, &many) == nil {
+					sb.WriteString(strings.Join(many, "") + "\n")
+				}
+			}
+			known = lineSet(sb.String())
 		}
-		return strings.Contains(raw, l)
+		return known(l)
 	}
 }

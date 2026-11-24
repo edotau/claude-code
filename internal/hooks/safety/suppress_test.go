@@ -37,6 +37,10 @@ func TestSuppressVerdictTable(t *testing.T) {
 			"content": "f() //nolint:errcheck\n"}, "a1", core.Block, "a.go:1"},
 		{"write over file keeps marker", "Write", map[string]any{"file_path": old, "content": "a = 1  # noqa: E501\nb = 2\n"},
 			"a1", core.Allow, ""},
+		{"marker in a string passes", "Write", map[string]any{"file_path": filepath.Join(dir, "s.py"),
+			"content": "m = \"# noqa\"\nn = 1  // nolinting\n"}, "a1", core.Allow, ""},
+		{"notebook_path blocks", "NotebookEdit", map[string]any{"notebook_path": filepath.Join(dir, "n.ipynb"),
+			"new_source": "x = 1  # type: ignore"}, "a1", core.Block, "n.ipynb:1"},
 		{"markdown prose passes", "Write", map[string]any{"file_path": filepath.Join(dir, "n.md"),
 			"content": "use # noqa sparingly\n"}, "a1", core.Allow, ""},
 	}
