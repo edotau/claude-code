@@ -173,8 +173,11 @@ match turns these rules off.
 - `kubectl|oc exec|delete` (`oc rsh`) on production (detection: hook-details → safety-scan): asks in main, refused in a
   leaf.
 - `make|gmake audit|install|fmt|build|verify|bootstrap|adopt` and a fixing `lint-<kind>` in the harness tree (install
-  targets also in its linked worktrees): refused in a leaf (run `claude-code agents diff --check --path <files>` or
-  `claude-code agents fix --path <files>`); `make lint` and a dry run (`-n`, `-q`) pass.
+  targets also in its linked worktrees): a leaf-only rule, so the main session runs them with no hook block; in a leaf
+  the block is lifted to allow with a note by `agentBashAllow` (step 5 above), so a leaf runs it with that note. A
+  leaf's own check is `claude-code agents diff --check --path <files>` or `claude-code agents fix --path <files>`.
+  `make lint` passes without a note, and so does a dry run (`-n`, `-q`) unless it also names another makefile or
+  evaluated text (`-f`, `-E`, `$(shell`).
 - A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment in text that reaches a shell, `eval`, `source`, an
   interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs),
   an interpreter's env write (`os.environ[...]=`, `putenv`, `process.env`, `ENV[]=`, `$ENV{}=`, names built from

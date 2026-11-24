@@ -52,8 +52,10 @@ All dispatched by the manager, never by Plan itself:
 
 ## Procedure
 
-Bash is read-only, enforced by `safety-scan` (`permission.ReadOnlyShell`): only `rg`, `git log/show/diff`, `ls`,
-`go list`, `--help` and `--dry-run` commands, plus `claude-code memory search`, `claude-code network websearch`,
+Write and Edit pass only under `~/.claude/plans/` (`docs-placement`, rule `plan-agent-write`); Bash passes only the
+shared read-only shell (`permission.ReadOnlyShell`, or a read-only command with `cd <absolute path>` segments;
+`safety-scan`): `rg`, `git log/show/diff`, `ls`, `go list`, `--help`, `git clean` with a dry-run flag, and
+`claude-code agents sync --check|--dry-run`, plus `claude-code memory search`, `claude-code network websearch`,
 `claude-code plan assumptions` and `claude-code plan goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
 Steps 0–3 with these planning mechanics:
 
