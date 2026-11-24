@@ -71,9 +71,10 @@ fenced block). Each line of the block is one JSON object with exactly these fiel
 
 ## Phase 5c: Test proposals
 
-Collect the tests agents proposed but did not write ("Proposed tests", "proposals" in `reports/`, `handoffs/` and
-`sessionHistory.md`) into `techdebt/tests.md`: one line each (package, case, what it guards, source report), newest
-first, at most 40 lines. Drop a line once a test covers that behavior or the feature is gone. The owner picks from it.
+Go keeps the proposed-test list (`techdebt/tests.jsonl`: deduped on package plus case, newest first, capped at 40);
+do not write it. Reports carry proposals as a ```proposed_tests fence of JSON lines
+`{"pkg","case","reason","runtime"}` and Go appends them. For a proposal found only as prose in `reports/`,
+`handoffs/` or `sessionHistory.md`, list it in your report in that same fence. The owner picks from the list.
 
 ## Phase 5d: Plans audit
 
