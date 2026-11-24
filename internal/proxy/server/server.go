@@ -644,6 +644,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 	})
 }
 
+// sendWithAuth replays a rejected credential once re-minted: recovery, not a retry, so x-should-retry never gates it.
 func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	do func(string) (*http.Response, error)) (*http.Response, error) {
 	ctx := in.Context()

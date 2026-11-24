@@ -40,8 +40,38 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
   }
 }
 
-// guarded is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+// running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
+const running = new Set<string>()
+
+// The contract package's enums (contract.TestsValues, contract.Methods); a Go test pins these spellings.
+const HANDBACK_TESTS = ["judged", "executed", "unknown"]
+const HANDBACK_METHODS = ["solo", "fleet"]
+
+// handbackError names the first missing or wrong handback field, or "" when the call is complete.
+function handbackError(p: any): string {
+  if (!["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"].includes(p?.status)) return "status must be DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED"
+  if (typeof p.summary !== "string" || !p.summary.trim()) return "summary must be a non-empty string"
+  if (!Array.isArray(p.unfixed) || p.unfixed.some((s: any) => typeof s !== "string")) return "unfixed must be an array of strings (empty if none)"
+  return enumError("tests", p.tests, HANDBACK_TESTS) || enumError("method", p.method, HANDBACK_METHODS)
+}
+
+// enumError is "" for an omitted or listed value, else the retry text naming the field.
+function enumError(field: string, v: any, allowed: string[]): string {
+  return v === undefined || allowed.includes(v) ? "" : field + " must be one of " + allowed.join(", ") + " (or omitted)"
+}
+
+async function tracked<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  running.add(id)
+  try { return await fn() } finally { running.delete(id) }
+}
+
 function guarded(name: string, def: any) {
+  const inner = guardedRun(name, def)
+  return { ...inner, execute: (id: string, ...rest: any[]) => tracked(id, () => inner.execute(id, ...(rest as [any, any, any, any]))) }
+}
+
+// guardedRun is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+function guardedRun(name: string, def: any) {
   return { ...def, async execute(id: string, params: any, signal: any, onUpdate: any, ctx: any) {
     const sid = String(ctx?.sessionManager?.getSessionId?.() ?? "")
     const v = judge(name, params, String(ctx?.cwd || process.cwd()), sid)
@@ -60,12 +90,13 @@ const ACTIONS: Record<string, any> = {
     description: "Run the repo's scoped build, vet and test gate; returns {gate,exit,changed,failures}",
     parameters: { type: "object", additionalProperties: false,
       properties: { scope: { type: "array", items: { type: "string" }, description: "dirs to limit the gate to" } } } },
-  handback: { label: "Hand back", promptSnippet: "handback: report the task's outcome; call it once, last",
+  handback: { label: "Hand back", executionMode: "sequential", promptSnippet: "handback: report the task's outcome; call it once, last",
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     description: "Finish: report the outcome of the task. Call once, last.",
     parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
       properties: { status: { enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
-        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } } } } },
+        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } },
+        tests: { enum: HANDBACK_TESTS }, method: { enum: HANDBACK_METHODS } } } },
 }
 
 // stopTree ends the action's process tree: taskkill /T on Windows, SIGTERM (the gate reaps its tree) elsewhere.
@@ -77,13 +108,18 @@ function stopTree(child: any) {
 
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
 function action(name: string) {
-  return { name, ...ACTIONS[name], async execute(_id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
+  return { name, ...ACTIONS[name], async execute(id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
     const cwd = String(ctx?.cwd || process.cwd())
     const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
     if (v.block) throw new Error(v.block)
     if (v.usage) throw new Error(name + ": " + v.usage)
     if (signal?.aborted) throw new Error(name + ": cancelled")
-    const text = v.run ? await runAction(name, v.run, cwd, signal) : "recorded"
+    if (name === "handback") { // a usage error of this tool, not a guard block: the model retries it last
+      const bad = handbackError(params)
+      if (bad) throw new Error("handback: " + bad + "; call it again with every field")
+      if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
+    }
+    const text = await tracked(id, async () => (v.run ? await runAction(name, v.run, cwd, signal) : "recorded"))
     return { content: [{ type: "text", text }], details: {} }
   } }
 }

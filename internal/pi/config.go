@@ -233,7 +233,7 @@ func render(p *providers.Provider, bases Bases, byWire map[string][]map[string]a
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	sj, err := json.MarshalIndent(map[string]any{"defaultProvider": menu[def], "defaultModel": def, "packages": []string{}}, "", " ")
+	sj, err := json.MarshalIndent(map[string]any{"defaultProvider": menu[def], "defaultModel": def, "packages": []string{}, "cacheWarming": "off"}, "", " ")
 	if err != nil {
 		return nil, nil, nil, err
 	}

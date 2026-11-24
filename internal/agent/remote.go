@@ -156,7 +156,7 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 	res := wire.Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
 		SessionID: env.SessionID, Answer: env.Answer, DurationMs: env.DurationMs, Dropped: append(dropped, env.Dropped...),
 		SchemaUnchecked: env.SchemaUnchecked, Emulated: env.Emulated, FallbackReason: env.FallbackReason, Requested: env.Requested, RequestedRoute: env.RequestedRoute, RequestedWhy: env.RequestedWhy, Handoff: env.Handoff,
-		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured}
+		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured, Handback: env.Handback}
 	if env.Usage != nil {
 		res.Usage = *env.Usage
 	}

@@ -93,6 +93,7 @@ var settingLimits = map[string]obj{
 	"tokenCommand":  {"minItems": 1},
 	"budgetUSD":     {"exclusiveMinimum": 0},
 	"budgetCredits": {"minimum": 30},
+	"providerMode":  {"additionalProperties": obj{"enum": router.ProviderModes}},
 }
 
 // routeKeyEnums are the routeKeys whose value is a closed list; the lists come from the validators' own sources.

@@ -279,7 +279,7 @@ func resolvePiPath(raw, cwd string) (path, why string) {
 
 // piHandbackKeys and piGateKeys are the typed arguments of the two runner actions.
 var (
-	piHandbackKeys = []string{"status", "summary", "unfixed"}
+	piHandbackKeys = []string{"status", "summary", "unfixed", "tests", "method"}
 	piGateKeys     = []string{"scope"}
 	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
 )

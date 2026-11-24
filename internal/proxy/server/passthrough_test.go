@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	_ "github.com/edotau/claude-code/internal/codex" // register the rows whose suffixes are checked
 	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -1204,5 +1205,16 @@ func TestPassthroughOverflowLeavesOthersAlone(t *testing.T) {
 				t.Fatalf("altered: %d %q", resp.StatusCode, got)
 			}
 		})
+	}
+}
+
+func TestPassthroughRetryableHonoursShouldRetry(t *testing.T) {
+	in := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	if !passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryUnset) ||
+		!passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryYes) {
+		t.Error("a 429 without a false hint keeps failing over")
+	}
+	if passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryNo) {
+		t.Error("x-should-retry: false must end the failover")
 	}
 }

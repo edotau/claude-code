@@ -43,6 +43,7 @@ type Overlay struct {
 	Effort        string            `json:"effort,omitempty"`
 	Fallback      string            `json:"fallback,omitempty"`
 	Runner        string            `json:"runner,omitempty"`
+	ProviderMode  map[string]string `json:"providerMode,omitempty"`
 	Set           map[string]string `json:"set,omitempty"`
 	Unset         []string          `json:"unset,omitempty"`
 	Keep          []string          `json:"keep,omitempty"`
@@ -354,7 +355,8 @@ func (o Overlay) Empty() bool {
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
-	if o.TokenCommand != nil || o.CodexNetwork || o.Cloud || o.BudgetUSD != nil || o.BudgetCredits != nil {
+	if o.TokenCommand != nil || o.CodexNetwork || o.Cloud || o.BudgetUSD != nil || o.BudgetCredits != nil ||
+		len(o.ProviderMode) > 0 {
 		return true
 	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
@@ -416,7 +418,7 @@ func (o Overlay) validate(src overlaySrc) error {
 	if len(o.Files) > 0 { // present at all: [] and null too
 		return errors.New("files: not supported yet")
 	}
-	if err := o.checkRouting(); err != nil {
+	if err := cmp.Or(o.checkRouting(), o.checkProviderMode()); err != nil {
 		return err
 	}
 	keep, err := o.checkKeep(src)
@@ -427,6 +429,30 @@ func (o Overlay) validate(src overlaySrc) error {
 		return err
 	}
 	return o.checkUnset(src, keep)
+}
+
+// checkProviderMode wants each key a Claude provider of the registry (when it loads) and each value a mode.
+func (o Overlay) checkProviderMode() error {
+	if len(o.ProviderMode) == 0 {
+		return nil
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return errors.New("providerMode: the provider registry does not load, so its providers cannot be checked")
+	}
+	var names []string
+	for _, p := range router.ClaudeProviders(reg) {
+		names = append(names, p.Name)
+	}
+	for _, name := range slices.Sorted(maps.Keys(o.ProviderMode)) {
+		if !slices.Contains(names, name) {
+			return errors.New("providerMode: unknown provider (" + strings.Join(names, "|") + ")")
+		}
+		if _, err := router.ParseProviderMode(o.ProviderMode[name]); err != nil || o.ProviderMode[name] == "" {
+			return errors.New("providerMode: " + router.ProviderModeError{}.Error()) // empty is no mode: the schema agrees
+		}
+	}
+	return nil
 }
 
 // ErrRemoteWithHost refuses remote on a run that goes to a host.

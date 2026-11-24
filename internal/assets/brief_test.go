@@ -3,6 +3,7 @@ package assets
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,31 @@ func TestBriefBodyMatchesOldRender(t *testing.T) {
 		got := BriefBody(BriefFrame{Agent: "a", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
 			t.Errorf("rtk=%v brief hash %s, want %s", rtk, sum, want)
+		}
+	}
+}
+
+// Only a pi brief tells the model to finish with the typed handback call; the pi text is pinned by hash.
+func TestBriefBodyPiHandback(t *testing.T) {
+	in := BriefFrame{Agent: "pi", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: true}
+	got := BriefBody(in)
+	if !strings.Contains(got, "calling the `handback` tool once, last") {
+		t.Fatal("pi brief lacks the handback instruction")
+	}
+	in.Agent = "codex"
+	if strings.Contains(BriefBody(in), "handback") {
+		t.Fatal("another agent's brief names handback")
+	}
+}
+
+func TestBriefBodyPiMatchesHash(t *testing.T) {
+	for rtk, want := range map[bool]string{
+		true:  "b58ca0467cf027ac7c6cc860e218914907238a553a6992936e9b7dbfb550bd74",
+		false: "d7f956d04bafc6c042757887241cf8fe7f927e54551e870cb07d998c22acc384",
+	} {
+		got := BriefBody(BriefFrame{Agent: "pi", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
+		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
+			t.Errorf("rtk=%v pi brief hash %s, want %s", rtk, sum, want)
 		}
 	}
 }

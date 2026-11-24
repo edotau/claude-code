@@ -196,6 +196,7 @@ var inventory = []struct {
 	{"files/setup/tmux.conf", "conf", "TmuxConf", TmuxConf},
 	{"files/ui/vscode/keybindings.template.json", "jsonc", "VSCodeKeybindingsTemplate", VSCodeKeybindingsTemplate},
 	{"files/ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
+	{"files/pi/system-prompt.txt", "txt", "PiSystemPrompt", func() []byte { return read("files/pi/system-prompt.txt") }},
 	{"files/pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
 	{"files/hooks/claim-how-to.tmpl", "tmpl", "HookClaimHowTo", func() []byte { return read("files/hooks/claim-how-to.tmpl") }},
 	{"files/hooks/claim-stage-hint.tmpl", "tmpl", "HookClaimStageHint", func() []byte { return read("files/hooks/claim-stage-hint.tmpl") }},

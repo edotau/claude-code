@@ -56,6 +56,64 @@ type Error struct {
 
 	// ProxyRefused: this attempt's KindAuth came from the loopback proxy refusing its own session token, never an account.
 	ProxyRefused bool
+	// PolicyRefusal: the vendor declined the content; the same model never retries and no account is marked.
+	PolicyRefusal bool
+	// ShouldRetry is the upstream's x-should-retry verdict; ShouldRetryNo ends the retries of this request.
+	ShouldRetry ShouldRetry
+}
+
+// ShouldRetry is the typed x-should-retry response header: absent, true or false.
+type ShouldRetry int
+
+const (
+	ShouldRetryUnset ShouldRetry = iota
+	ShouldRetryYes
+	ShouldRetryNo
+)
+
+// ParseShouldRetry reads the x-should-retry header value; anything but true or false is unset.
+func ParseShouldRetry(v string) ShouldRetry {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true":
+		return ShouldRetryYes
+	case "false":
+		return ShouldRetryNo
+	}
+	return ShouldRetryUnset
+}
+
+// policyCodes are the typed error codes a vendor sends when it declines the content.
+var policyCodes = []string{"content_filter", "content_moderation", "responsibleaipolicyviolation", "refusal"}
+
+// policyTextRE is the last resort for a vendor with no typed code: one phrase per pattern, listed in the commit.
+var policyTextRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`content[ _-]?(?:policy|filter|moderation)|safety (?:system|filter|polic)|` +
+		`responsible ?ai|violates (?:our|the) (?:usage|content) polic`)
+})
+
+// IsPolicyRefusal is true when err is a vendor policy refusal: typed on a classified Error, else code or text.
+func IsPolicyRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := errors.AsType[*Error](err); ok && e.PolicyRefusal {
+		return true
+	}
+	return policyRefusal(err)
+}
+
+// policyRefusal reads a typed ErrorCode(); text patterns apply only to an untyped status or a 400/422 refusal status.
+func policyRefusal(err error) bool {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) && slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode())) {
+		return true
+	}
+	var st interface{ StatusCode() int }
+	if errors.As(err, &st) && st.StatusCode() != 0 &&
+		st.StatusCode() != http.StatusBadRequest && st.StatusCode() != http.StatusUnprocessableEntity {
+		return false
+	}
+	return policyTextRE().MatchString(strings.ToLower(err.Error()))
 }
 
 // Fatal is a terminal, never-retried failure of agent wrapping err.
@@ -106,7 +164,7 @@ func (e *Error) AttemptMessage() string {
 
 // retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) retryable() bool {
-	return !e.Progressed && !e.Terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
+	return !e.Progressed && !e.Terminal && !e.PolicyRefusal && e.ShouldRetry != ShouldRetryNo && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
 // kindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
@@ -169,6 +227,18 @@ func Classify(agent string, err error, progressed bool) *Error {
 	var ra interface{ RetryAfter() time.Duration }
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		e.RetryAfter = ra.RetryAfter()
+	}
+	return e.typedHints(err)
+}
+
+// typedHints sets the upstream's x-should-retry verdict and the policy-refusal class, which is never an account fault.
+func (e *Error) typedHints(err error) *Error {
+	var sr interface{ ShouldRetry() ShouldRetry }
+	if errors.As(err, &sr) {
+		e.ShouldRetry = sr.ShouldRetry()
+	}
+	if policyRefusal(err) {
+		e.PolicyRefusal, e.Kind, e.RetryAfter = true, KindFatal, 0
 	}
 	return e
 }

@@ -270,14 +270,16 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(disp, lreq, res)
-		next := retryModel(ctx, disp, lreq, ran, err)
+		plan := planOverflow(disp, lreq, res, ran, err)
+		next := cmp.Or(plan.model, retryModel(ctx, disp, lreq, ran, err))
 		if next == "" {
+			err = plan.refuse(err)
 			break
 		}
-		hops = append(hops, hopOf(disp, lreq, res, err))
+		hops = append(hops, plan.record(hopOf(disp, lreq, res, err)))
 		tried = append(tried, ran)
 		if notify != nil {
-			notify(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err)))
+			notify(plan.say(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err))))
 		}
 		first := err
 		lreq = repickTo(lreq, next, auto)
@@ -331,13 +333,7 @@ func triedPicks(picks []string, err error) error {
 	if err == nil || len(picks) < 2 {
 		return err
 	}
-	e, ok := errors.AsType[*retry.Error](err)
-	if !ok {
-		return fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), err)
-	}
-	out := *e
-	out.Err = fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), cmp.Or(e.Err, error(e)))
-	return &out
+	return prefixErr(err, "auto picks tried: "+strings.Join(picks, ", "))
 }
 
 // ranModel resolves auto picks and per-model quota cells; other requests keep the model asked.

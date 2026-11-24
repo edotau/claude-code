@@ -1,5 +1,7 @@
 package assets
 
+import "strings"
+
 // ScienceConfig is the generic claude-science config shipped in the binary.
 func ScienceConfig() []byte { return read("files/claude/science.toml") }
 
@@ -22,6 +24,9 @@ func VSCodeKeybindingsTemplate() []byte { return read("files/ui/vscode/keybindin
 func VSCodeMachineSettingsTemplate() []byte {
 	return read("files/ui/vscode/machine-settings.template.json")
 }
+
+// PiSystemPrompt is the short harness system prompt of a Pi tools run.
+func PiSystemPrompt() string { return strings.TrimSpace(string(read("files/pi/system-prompt.txt"))) }
 
 // PiGuardSource is the Pi guard extension, with __BIN__, __PI_VERSION__ and __BUDGET_MS__ placeholders.
 func PiGuardSource() string { return string(read("files/pi/guard/index.ts")) }
