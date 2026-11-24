@@ -22,11 +22,8 @@ const (
 	levelCount
 )
 
-// jobCols are a dispatch row's columns: marker, agent, description, since (lost, quiet, queued), elapsed · ↓tokens.
-var jobCols = []col{{}, {max: 18, clip: true}, {flex: true, max: 60}, {right: true, shed: true}, {right: true}}
-
-// minFlex is the narrowest a flex column is clipped to before it is hidden.
-const minFlex = 6
+// jobCols are a dispatch row's columns: marker, agent, model · route, ↑in, ↓out, since last signal, elapsed.
+var jobCols = []col{{}, {max: 18}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true}}
 
 // spanFrom is the first of the two token columns a queued row's span covers.
 const spanFrom = 3
@@ -37,9 +34,6 @@ type col struct {
 	max      int  // widest the column may grow on a terminal; 0 = unlimited
 	optional bool // dropped for the whole level when keeping it would leave the text under minText
 	fit      bool // a model id: whole unless the text would fall under minFitText, then clipped with an ellipsis
-	shed     bool // hidden once the flex column is gone and the row still overflows
-	clip     bool // clipped with an ellipsis, to minFitWidth at most, when the row still overflows
-	flex     bool // takes the room the other columns leave, clipped with an ellipsis, so later columns end the row
 }
 
 // levelCols holds the fixed columns per level; the cells of a row are these columns, then the text.
@@ -117,7 +111,13 @@ func (l *layout) lines(width int, paint string) []string {
 	widths := levelWidths(rows)
 	dropOptional(widths, width)
 	fitModels(rows, widths, width)
-	flexCols(rows, widths, width)
+	if width > 0 {
+		for level := range levelCols {
+			if noText[level] {
+				fitDispatch(rows, widths, level, width)
+			}
+		}
+	}
 	out := make([]string, len(rows))
 	for i, r := range rows {
 		ws := widths[r.level]
@@ -143,7 +143,7 @@ func (l *layout) capped(width int) []row {
 	out := l.rows
 	for i, r := range out {
 		for c, k := range levelCols[r.level] {
-			if k.max > 0 && (width > 0 || k.flex) {
+			if width > 0 && k.max > 0 {
 				out[i].cells[c] = textutil.TruncateCells(r.cells[c], k.max, "…")
 			}
 		}
@@ -198,12 +198,11 @@ func fitModels(rows []row, ws [levelCount][]int, width int) {
 		return
 	}
 	for level, cols := range levelCols {
-		room := minFitText
-		if noText[level] { // the row ends at its last column, whose trailing gap is trimmed
-			room = -len(gap)
+		if noText[level] {
+			continue
 		}
 		for c, k := range cols {
-			over := room - (width - prefixWidth(ws[level], levelIndent[level]))
+			over := minFitText - (width - prefixWidth(ws[level], levelIndent[level]))
 			if !k.fit || ws[level][c] == 0 || over <= 0 {
 				continue
 			}
@@ -217,71 +216,132 @@ func fitModels(rows []row, ws [levelCount][]int, width int) {
 	}
 }
 
-// flexCols clips each level's flex column to the room left on the row; too little room hides it.
-func flexCols(rows []row, ws [levelCount][]int, width int) {
-	if width <= 0 {
+// Dispatch columns by index: the marker and elapsed stay whole, the rest share what is left.
+const (
+	colAgent = 1
+	colModel = 2
+	colSince = 5
+	minAgent = 2
+)
+
+// fitDispatch fits a text-less level to width, clipping the cells and zeroing the widths the budget drops.
+func fitDispatch(rows []row, ws [levelCount][]int, level, width int) {
+	w := ws[level]
+	if fixedOver(ws, level, width) <= 0 {
 		return
 	}
-	for level, cols := range levelCols {
-		for c, k := range cols {
-			natural := ws[level][c]
-			if !k.flex || natural == 0 {
-				continue
-			}
-			ws[level][c] = 0
-			room := width - prefixWidth(ws[level], levelIndent[level]) - len(gap)
-			w := min(natural, room)
-			if w < min(minFlex, natural) {
-				w = 0
-			}
-			ws[level][c] = w
-			for i, r := range rows {
-				if r.level == level {
-					rows[i].cells[c] = textutil.TruncateCells(r.cells[c], max(w, 1), "…")
-				}
-			}
-		}
-		shedOverflow(rows, ws, level, width)
-	}
-}
-
-// shedOverflow drops a level's shed column, then clips its clip column, while its fixed columns exceed width.
-func shedOverflow(rows []row, ws [levelCount][]int, level, width int) {
-	if !noText[level] {
-		return
-	}
-	for c, k := range levelCols[level] {
-		if k.shed && !hasSpan(rows, level) && fixedOver(ws, level, width) > 0 {
-			ws[level][c] = 0 // a queued row's span lives in this column, so it stays
-		}
-	}
-	clipOverflow(rows, ws, level, width)
-}
-
-// clipOverflow clips a level's clip column by what its fixed columns still run past width.
-func clipOverflow(rows []row, ws [levelCount][]int, level, width int) {
-	for c, k := range levelCols[level] {
-		o := fixedOver(ws, level, width)
-		if !k.clip || o <= 0 || ws[level][c] == 0 {
+	cur, keptIn := dispatchBudget(rows, w, level, width)
+	for i, r := range rows {
+		if r.level != level {
 			continue
 		}
-		ws[level][c] = max(ws[level][c]-o, min(2, ws[level][c])) // down to "x…" so the tail fits
-		for i, r := range rows {
-			if r.level == level {
-				rows[i].cells[c] = textutil.TruncateCells(r.cells[c], ws[level][c], "…")
-			}
+		rows[i].cells[colAgent] = textutil.TruncateCells(r.cells[colAgent], cur[colAgent], "…")
+		rows[i].cells[colModel] = textutil.TruncateCells(r.cells[colModel], cur[colModel], "…")
+		if !keptIn && !r.span {
+			rows[i].cells[spanFrom], rows[i].cells[spanFrom+1] = "", ""
 		}
 	}
+	copy(w, cur)
+	truncSpan(rows, w, level)
+}
+
+// dispatchBudget spends width right to left: marker, elapsed, minimal agent and model, then the rest by priority.
+func dispatchBudget(rows []row, w []int, level, width int) (cur []int, keptIn bool) {
+	last := len(w) - 1
+	nat := slices.Clone(w)
+	cur = make([]int, len(w))
+	cur[0], cur[last] = nat[0], nat[last]
+	cur[colAgent], cur[colModel] = min(nat[colAgent], minAgent), min(nat[colModel], minFitWidth)
+	rem := width - levelIndent[level] + len(gap)
+	for _, n := range cur {
+		if n > 0 {
+			rem -= n + len(gap)
+		}
+	}
+	grow := func(c int) {
+		add := max(min(nat[c]-cur[c], rem), 0)
+		cur[c] += add
+		rem -= add
+	}
+	whole := func(c, n int) {
+		if n > 0 && rem >= n+len(gap) {
+			cur[c] = n
+			rem -= n + len(gap)
+		}
+	}
+	grow(colModel)
+	grow(colAgent)
+	whole(colSince, nat[colSince])
+	whole(spanFrom, plainSpanWidth(rows, level))
+	if cur[spanFrom] > 0 {
+		whole(spanFrom+1, nat[spanFrom+1])
+	}
+	keptIn = cur[spanFrom] > 0
+	cur[spanFrom] = queueWidth(cur, spanWidth(rows, level), rem, keptIn)
+	return cur, keptIn
+}
+
+// queueWidth is the first token column's width once the queue text claims what is left; ↑in dropped needs 2 cells.
+func queueWidth(cur []int, span, rem int, keptIn bool) int {
+	if span == 0 {
+		return cur[spanFrom]
+	}
+	have := cur[spanFrom]
+	if cur[spanFrom+1] > 0 {
+		have += len(gap) + cur[spanFrom+1]
+	}
+	if have == 0 {
+		rem -= len(gap)
+	}
+	got := cur[spanFrom] + max(min(span-have, rem), 0)
+	if !keptIn && got < minAgent {
+		return 0
+	}
+	return got
+}
+
+// spanWidth is the widest span cell of level, the queue text a span row wants in the token columns.
+func spanWidth(rows []row, level int) int {
+	n := 0
+	for _, r := range rows {
+		if r.level == level && r.span {
+			n = max(n, textutil.DisplayWidth(r.cells[spanFrom]))
+		}
+	}
+	return n
+}
+
+// truncSpan cuts the level's first token cells to their column, a span row's to both token columns.
+func truncSpan(rows []row, w []int, level int) {
+	size := w[spanFrom]
+	if w[spanFrom+1] > 0 {
+		size += len(gap) + w[spanFrom+1]
+	}
+	for i, r := range rows {
+		if r.level == level {
+			cellWidth := w[spanFrom]
+			if r.span {
+				cellWidth = size
+			}
+			rows[i].cells[spanFrom] = textutil.TruncateCells(r.cells[spanFrom], cellWidth, "…")
+		}
+	}
+}
+
+// plainSpanWidth is what the level's non-span rows need of the first token column.
+func plainSpanWidth(rows []row, level int) int {
+	natural := 0
+	for _, r := range rows {
+		if r.level == level && !r.span {
+			natural = max(natural, textutil.DisplayWidth(r.cells[spanFrom]))
+		}
+	}
+	return natural
 }
 
 // fixedOver is how many cells a text-less level's fixed columns run past width.
 func fixedOver(ws [levelCount][]int, level, width int) int {
 	return prefixWidth(ws[level], levelIndent[level]) - len(gap) - width
-}
-
-// hasSpan reports whether any row of level is a span row.
-func hasSpan(rows []row, level int) bool {
-	return slices.ContainsFunc(rows, func(r row) bool { return r.level == level && r.span })
 }
 
 // prefixWidth is the columns the indent and the visible fixed columns take, each followed by a gap.

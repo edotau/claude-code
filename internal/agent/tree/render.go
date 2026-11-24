@@ -46,7 +46,7 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
-	c := rowCtx{now: now}
+	c := rowCtx{now: now, detail: tree.detail}
 	c.home, _ = os.UserHomeDir()
 	var l layout
 	repo := ""
@@ -215,6 +215,11 @@ func addSubagent(l *layout, n Node, c *rowCtx) {
 	for _, r := range nodeRows(n.Children) {
 		addJobRow(l, levelDispatch, append([]string{subNest(*sub) + r.guide + "↳"}, jobCells(r.Dispatch, c.now, nil)...),
 			r.Dispatch, false)
+		if c.detail {
+			for _, line := range dispatchExpansion(r.Dispatch) {
+				l.free(10, line)
+			}
+		}
 		addHeld(l, 10, r.Files, r.Note)
 	}
 }
@@ -420,14 +425,6 @@ func (d Dispatch) tokens() int64 {
 		return 0
 	}
 	return int64(d.Usage.InputTokens + d.Usage.CacheCreationTokens + d.Usage.CacheReadTokens + d.Usage.OutputTokens)
-}
-
-// joinText is a and b around sep, or just the one that is not empty.
-func joinText(a, sep, b string) string {
-	if a == "" || b == "" {
-		return a + b
-	}
-	return a + sep + b
 }
 
 // nestDispatches orders ds so each child follows its parent; a parent outside ds, or a cycle, leaves a root.

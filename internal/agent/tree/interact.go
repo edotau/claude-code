@@ -1,4 +1,4 @@
-// interact.go is the `agents dashboard` terminal loop: raw keys, periodic reload, Enter opens a job's live output.
+// interact.go is the `agents dashboard` loop: raw keys, periodic reload, Enter expands a row, o opens a job pane.
 
 package tree
 
@@ -31,6 +31,7 @@ const (
 	keyLeft
 	keyRight
 	keyEnter
+	keyOpen
 	keyEsc
 	keyQuit
 	keyCancel
@@ -55,7 +56,7 @@ var keySeqs = []struct {
 	k   key
 }{{"\x1b[A", keyUp}, {"\x1bOA", keyUp}, {"\x1b[B", keyDown}, {"\x1bOB", keyDown},
 	{"\x1b[C", keyRight}, {"\x1bOC", keyRight}, {"\x1b[D", keyLeft}, {"\x1bOD", keyLeft},
-	{"k", keyUp}, {"j", keyDown}, {"l", keyRight}, {"h", keyLeft}, {"\r", keyEnter}, {"\n", keyEnter}, {"q", keyQuit},
+	{"k", keyUp}, {"j", keyDown}, {"l", keyRight}, {"h", keyLeft}, {"\r", keyEnter}, {"\n", keyEnter}, {"o", keyOpen}, {"q", keyQuit},
 	{"c", keyCancel}, {"y", keyCopy}, {"r", keyResult}, {"Y", keyConfirm}}
 
 // decodeKeys maps raw terminal bytes to keys: keySeqs, then a lone Esc; any other sequence or byte is keyOther.
@@ -213,10 +214,10 @@ func (d *dashboard) reloadDue() error {
 	return nil
 }
 
-// onKey opens the selected dispatch's pane on Enter with no cancel armed, else applies the key and performs its effect.
+// onKey opens the selected dispatch's pane on o with no cancel armed, else applies the key and performs its effect.
 func (d *dashboard) onKey(k key) {
 	vis := visible(d.nodes, d.st.open)
-	if k == keyEnter && d.st.pending == "" && d.st.sel < len(vis) {
+	if k == keyOpen && d.st.pending == "" && d.st.sel < len(vis) {
 		switch n := vis[d.st.sel]; {
 		case n.Kind == KindDispatch:
 			d.showJob(actionTarget(n)) // a folded row opens its carrier, as `agents tree` lists it

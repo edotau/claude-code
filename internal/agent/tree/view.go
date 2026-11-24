@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"cmp"
 	"maps"
 	"os"
 	"slices"
@@ -14,7 +15,7 @@ import (
 )
 
 // dashFooter is the key hint under the dashboard's rows.
-const dashFooter = "↑/↓ move · →/← open/close · enter job · c cancel · y copy id · r result · q quit"
+const dashFooter = "↑↓ move · ←→ fold · enter expand · o open · c cancel · y id · r result · q quit"
 
 // footerRows are the lines under the rows: the status line (blank when unset) and dashFooter.
 const footerRows = 2
@@ -30,6 +31,7 @@ const maxLineWidth = 80
 // dashState is the dashboard between frames; every transition returns a new state.
 type dashState struct {
 	open          map[string]bool // explicit expand state by nodeKey; an unset root is open, anything else closed
+	expanded      map[string]bool // nodeKeys of the dispatch and subagent rows whose detail lines show
 	sel           int             // index of the selection in the visible rows
 	selID         string          // nodeKey of the selection, kept across reloads
 	top           int             // first visible row in the viewport
@@ -38,6 +40,14 @@ type dashState struct {
 	pending       string // job id an unconfirmed cancel names
 	status        string // the last action's line, shown above the footer
 	header        *headerStatus
+}
+
+// expandKey names a row's expansion: a dispatch by its own id, which a carrier keeps when its worker takes over.
+func expandKey(n Node) string {
+	if n.Kind == KindDispatch && n.Dispatch != nil {
+		return string(n.Kind) + ":" + n.Dispatch.ID
+	}
+	return nodeKey(n)
 }
 
 // nodeKey names a node across reloads; kinds keep a session and a dispatch with one id apart.
@@ -122,8 +132,28 @@ func onKey(s dashState, k key, nodes []Node) (dashState, effect) {
 		s.pending, e = onAction(s.pending, a, vis[s.sel])
 		return s, e
 	}
+	if k == keyEnter && detailed(vis[s.sel]) {
+		key := expandKey(vis[s.sel])
+		s.expanded = withOpen(s.expanded, key, !s.expanded[key])
+		return s, e
+	}
 	s = move(s, k, vis)
 	return clamp(s, visible(nodes, s.open)), e
+}
+
+// detailed reports whether n can show detail lines under its row.
+func detailed(n Node) bool {
+	return n.Kind == KindDispatch && n.Dispatch != nil || n.Kind == KindSubagent && n.Subagent != nil
+}
+
+// expansion is the lines under an expanded row: the task or description, then the identity line.
+func expansion(n Node) []string {
+	if n.Kind == KindSubagent {
+		s := *n.Subagent
+		return []string{"└─ " + textutil.OneLine(s.Description),
+			"   " + cmp.Or(s.Type, "subagent") + " · " + strings.TrimPrefix(subModel(s), databricksPrefix)}
+	}
+	return dispatchExpansion(*n.Dispatch)
 }
 
 // move applies k to the selection s.sel of the non-empty vis; right on an open node steps into it, left to the parent.
@@ -192,6 +222,7 @@ type rowCtx struct {
 	home, cwd string
 	open      map[string]bool
 	inSession bool
+	detail    bool // printed --detail: expansion lines under each dispatch row
 	sub       Node // the nearest subagent row above, whose dispatches nest under it
 }
 
@@ -209,14 +240,26 @@ func dashLines(s dashState, nodes []Node, now time.Time, paint string) []string 
 	home, _ := os.UserHomeDir()
 	c := rowCtx{now: now, home: home, open: s.open}
 	l := layout{active: true}
+	starts := make([]int, len(vis)+1)
 	for i, n := range vis {
 		if n.Depth == 0 {
 			c.cwd, c.inSession = "", n.Kind == KindSession
 		}
+		starts[i] = len(l.rows)
 		addNode(&l, n, &c, i == s.sel)
+		if s.expanded[expandKey(n)] && detailed(n) {
+			indent := l.rows[len(l.rows)-1].indent + textutil.DisplayWidth(l.rows[len(l.rows)-1].cells[0]) + len(gap)
+			for _, line := range expansion(n) {
+				l.free(indent, line)
+			}
+		}
 	}
+	starts[len(vis)] = len(l.rows)
 	lines := l.lines(width, paint)
-	top := min(s.top, len(lines))
+	top := min(starts[min(s.top, len(vis))], len(lines))
+	if end := starts[min(s.sel+1, len(vis))]; end > top+viewRows(s) {
+		top = min(end-viewRows(s), starts[s.sel]) // the selection's detail lines show when they fit, its row always
+	}
 	lines = lines[top:min(top+viewRows(s), len(lines))]
 	foot := ansi.Style(paint != "", ansi.Dim, textutil.TruncateCells(dashFooter, width, "…"))
 	return append(append(head, lines...), textutil.TruncateCells(s.status, width, "…"), foot)

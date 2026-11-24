@@ -124,7 +124,7 @@ var agentsSubPages = map[string][3]string{
 		"(plus gemini's and copilot's own skills dirs). Also re-renders each agent's native hook and config files " +
 		"(codex, opencode, gemini, copilot); --check reports a stale one."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
-		"--detail adds idle, stale and finished work in the --days window. Subagent columns: marker, agent, model, " +
+		"--detail adds idle, stale and finished work in the --days window, and each dispatch's task and id line. Subagent columns: marker, agent, model, " +
 		"↑tokens in, ↓tokens out, Σ subtree total, age, idle; piped output is unclipped, a terminal clips rows to 80 columns. " +
 		"--files adds each leaf's still-dirty files (claims ledger, or a dispatch's run), its latest undelivered note, and the dirty files no live leaf holds.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
@@ -317,7 +317,7 @@ func cmdAgentsTree(args []string) int {
 	fs := agentsFlags("tree")
 	days := fs.Int("days", 1, "last N days; ignored with --session")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	detail := fs.Bool("detail", false, "also show idle, stale and finished work")
+	detail := fs.Bool("detail", false, "also show idle, stale, finished work; dispatch task and id")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	files := fs.Bool("files", false, "show each leaf's dirty files and note, and the free files")

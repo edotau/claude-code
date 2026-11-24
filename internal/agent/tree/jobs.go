@@ -121,38 +121,43 @@ func (d Dispatch) where() string {
 	return cmp.Or(pinned.Profile, pinned.Provider, "own login")
 }
 
-// tokenCells are the "↑in" (input and cache) and "↓out" cells; "↑-" "↓-" until the record carries usage.
+// tokenCells are the "↑in" (input and cache) and "↓out" cells; both blank until the record carries usage.
 func (d Dispatch) tokenCells() (up, down string) {
 	u := d.Usage
 	if u == nil {
-		return "↑-", "↓ -"
+		return "", ""
 	}
 	in := int64(u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens)
-	return "↑" + textutil.CompactCount(in), "↓ " + textutil.CompactCount(int64(u.OutputTokens))
+	return "↑" + textutil.CompactCount(in), "↓" + textutil.CompactCount(int64(u.OutputTokens))
 }
 
-// jobCells are a dispatch row after its marker: agent, description, since (lost, quiet or queued), elapsed · ↓tokens.
+// since is the last-signal age: "lost", "⚠<age>" when quiet, the plain age otherwise, "" with no signal.
+func (d Dispatch) since(now time.Time) string {
+	if d.Status == "lost" {
+		return "lost"
+	}
+	if d.LastSignal.IsZero() {
+		return ""
+	}
+	age := shortDuration(now.Sub(d.LastSignal))
+	if d.Quiet {
+		return "⚠" + age
+	}
+	return age
+}
+
+// jobCells are a dispatch row after its marker: agent, model · route, ↑in, ↓out, since its last event, elapsed.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
 	name := d.Agent
 	if d.Fallback != "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}
-	desc := textutil.OneLine(d.Task)
+	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where()
+	up, down := d.tokenCells()
 	if d.queued != "" {
-		return []string{name, desc, queueText(d, now, pools), ""}
+		up, down = queueText(d, now, pools), ""
 	}
-	since := ""
-	if d.Status == "lost" {
-		since = "lost"
-	} else if d.Quiet && !d.LastSignal.IsZero() {
-		since = "⚠" + shortDuration(now.Sub(d.LastSignal))
-	}
-	_, down := d.tokenCells()
-	tail := down
-	if t := durationText(d.Duration); t != "" {
-		tail = t + " · " + down
-	}
-	return []string{name, desc, since, tail}
+	return []string{name, model, up, down, d.since(now), durationText(d.Duration)}
 }
 
 // queueText is "queued 1m10s (pool databricks:qa 2/4)"; the count is left out when the daemon does not answer.
@@ -201,7 +206,7 @@ func poolsFor(rows []nested) map[string]serve.PoolRow {
 	return nil
 }
 
-// addJobs adds the machine-wide dispatch job nodes under a "dispatches" header, one row each; detail adds id and task.
+// addJobs adds the machine-wide dispatch job nodes under a "dispatches" header, one row each; detail adds the lines.
 func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 	l.sep()
 	l.free(0, "dispatches")
@@ -212,25 +217,53 @@ func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 		cells[0] = n.guide + cells[0]
 		addJobRow(l, levelJob, append([]string{jobMarker(n.Dispatch)}, cells...), n.Dispatch, false)
 		if detail {
-			l.free(5, joinText(n.ID, "  ", textutil.OneLine(n.Task)))
-			l.free(5, jobDetail(n.Dispatch, now))
+			for _, line := range dispatchExpansion(n.Dispatch) {
+				l.free(5, line)
+			}
 		}
 		addHeld(l, 5, n.Files, n.Note)
 	}
 }
 
-// jobDetail is the "<model> · <route> · ↑<in> · <last signal>" line the default row leaves out.
-func jobDetail(d Dispatch, now time.Time) string {
-	up, _ := d.tokenCells()
-	s := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where() + " · " + up
-	if d.LastSignal.IsZero() {
-		return s
+// dispatchExpansion is the two lines under an expanded dispatch row: its task, then status, route, model and id.
+func dispatchExpansion(d Dispatch) []string {
+	detail := []string{d.state()}
+	if d.Fallback != "" {
+		detail = append(detail, strings.TrimSpace(d.Fallback+"→"+d.Agent+" ⚠ "+d.FallbackReason))
 	}
-	age := shortDuration(now.Sub(d.LastSignal))
-	if d.Status == "lost" {
-		age = "lost"
-	} else if d.Quiet {
-		age = "⚠" + age
+	detail = append(detail, d.routeText(), strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix), "id "+d.ID)
+	return []string{"└─ " + textutil.OneLine(d.Task), "   " + strings.Join(detail, " · ")}
+}
+
+// routeText is "<provider>·<profile>", or what is known of the two, else where().
+func (d Dispatch) routeText() string {
+	provider, profile := d.Provider, d.launch
+	if head, _, _ := strings.Cut(d.Route, ":"); head != "" {
+		provider, profile = head, cmp.Or(profileOf(d.Route), profile)
+	} else if reg, err := providers.LoadShared(); err == nil { // a profile-only record: its registry row names the provider
+		if row := reg.Providers[cmp.Or(profile, provider)]; row != nil {
+			provider, profile = row.Provider, cmp.Or(profile, provider)
+		}
 	}
-	return s + " · " + age
+	if profile == provider {
+		profile = ""
+	}
+	if provider == "" && profile == "" {
+		return d.where()
+	}
+	return strings.Trim(provider+"·"+profile, "·")
+}
+
+// profileOf is the profile of a "provider:profile" route, "" when it names only a provider.
+func profileOf(r string) string {
+	_, profile, _ := strings.Cut(r, ":")
+	return profile
+}
+
+// state is the job's status word, "queued" while it waits on a pool.
+func (d Dispatch) state() string {
+	if d.queued != "" {
+		return "queued"
+	}
+	return d.Status
 }

@@ -39,3 +39,49 @@ func TestModelBudgetClipsPathologicalIDLast(t *testing.T) {
 		t.Errorf("model did not yield eight task columns: %q", line)
 	}
 }
+
+func TestDispatchBudgetKeepsElapsedAndModel(t *testing.T) {
+	for _, width := range []int{34, 40, 50, 60, 80, 120} {
+		for _, queued := range []bool{false, true} {
+			for _, tokens := range []bool{false, true} {
+				checkDispatchRows(t, width, queued, tokens)
+			}
+		}
+	}
+}
+
+func checkDispatchRows(t *testing.T, width int, queued, tokens bool) {
+	t.Helper()
+	nested := strings.Repeat(" ", 7) + "│ ↳" // 10 cells need 37 columns; 34 gets a shallower marker
+	if width < 37 {
+		nested = "│ ↳"
+	}
+	in, out := "", ""
+	if tokens {
+		in, out = "↑12.4k", "↓3.1k"
+	}
+	var l layout
+	l.add(levelDispatch, nested, "codex-reviewer-long", "gpt-6-astra · qa", in, out, "12s", "2m43s", "")
+	l.add(levelDispatch, "↳", "pi", "databricks-claude-sonnet-5-5 · dev", in, out, "1s", "9s", "")
+	if queued {
+		l.add(levelDispatch, "↳", "pi", "gpt-6-astra · qa", "queued 12s (pool: 3 waiting on qa)", "", "", "14s", "")
+		l.spanLast(true, false)
+	}
+	wantEnd := []string{"2m43s", "9s", "14s"}
+	wantModel := []string{"gpt-6-a", "databri", "gpt-6-a"}
+	for i, line := range l.lines(width, "") {
+		if textutil.DisplayWidth(line) > width || !strings.HasSuffix(line, wantEnd[i]) || !strings.Contains(line, wantModel[i]) {
+			t.Errorf("w%d q%v t%v row %d: want whole elapsed, model >= 8 cells, <= width: %q", width, queued, tokens, i, line)
+		}
+	}
+}
+
+func TestDispatchBudgetJustifiesColumns(t *testing.T) {
+	var l layout
+	l.add(levelDispatch, "↳", "pi", "gpt-6-astra · qa", "↑1k", "↓2k", "1s", "9s", "")
+	l.add(levelDispatch, "↳", "codex", "claude-sonnet-5-5 · dev", "↑12.4k", "↓3.1k", "10s", "2m43s", "")
+	lines := l.lines(60, "")
+	if i, j := strings.Index(lines[0], "9s"), strings.Index(lines[1], "2m43s"); i != j+3 {
+		t.Errorf("elapsed not right-justified: %q", lines)
+	}
+}

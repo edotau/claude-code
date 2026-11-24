@@ -20,7 +20,7 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "", "", "2m43s · ↓ 9.1k"}
+	want := []string{"codex", "gpt-6-astra · dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
@@ -64,7 +64,7 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 	ds := []Dispatch{
 		{ID: "a", Agent: "codex", Model: "databricks-gpt-6-astra", Status: statusRunning, Duration: "2m43s", launch: "dev",
 			Usage: use, LastSignal: now.Add(-7 * time.Second)},
-		{ID: "b", Agent: "opencode", Model: "databricks-claude-sonnet-5-5-a-very-long-model-id", Status: statusRunning,
+		{ID: "b", Agent: "opencode", Model: "databricks-claude-sonnet-5-5-long-id", Status: statusRunning,
 			Duration: "1h2m", launch: "qa", Usage: use, LastSignal: now.Add(-time.Second)},
 		{ID: "c", Agent: "gemini", Model: "gemini-4-argon", Status: statusRunning, Duration: "9s", launch: "prod",
 			queued: "databricks:prod", queuedAt: now.Add(-70 * time.Second)},
@@ -72,7 +72,7 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 	var b strings.Builder
 	renderTree(&b, &Tree{Dispatches: ds}, now, 80, "")
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")[1:]
-	if len(lines) != 3 || !strings.HasPrefix(lines[2], "  ○  gemini") || !strings.Contains(lines[2], "queued 1m10s (pool databricks:prod)") {
+	if len(lines) != 3 || !strings.HasPrefix(lines[2], "  ○  gemini") || !strings.Contains(lines[2], "queued 1m10s") {
 		t.Fatalf("rows:\n%s", strings.Join(lines, "\n"))
 	}
 	for _, line := range lines {
@@ -81,8 +81,8 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 		}
 	}
 	assertAligned(t, 80, "job", lines[:2], []int{0, 1}, nil)
-	if !strings.HasSuffix(lines[0], "2m43s · ↓ 14k") || !strings.HasSuffix(lines[1], "1h2m · ↓ 14k") {
-		t.Errorf("rows = %q, want elapsed · ↓ tokens at the end", lines[:2])
+	if !strings.HasSuffix(lines[0], "2m43s") || !strings.HasSuffix(lines[1], "1h2m") || !strings.Contains(lines[0], "↑2.3M  ↓14k") {
+		t.Errorf("rows = %q, want tokens then since and elapsed", lines[:2])
 	}
 	ends := func(line string) int { return textutil.DisplayWidth(line) }
 	if ends(lines[0]) != ends(lines[1]) {

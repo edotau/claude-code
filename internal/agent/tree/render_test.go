@@ -74,7 +74,7 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 				t.Errorf("piped line %d is clipped: %q", i, line)
 			}
 			switch {
-			case strings.Contains(line, "· ↓"):
+			case strings.Contains(line, "· own login"):
 				dispatches = append(dispatches, line)
 			case strings.Contains(line, "↑"):
 				subagents = append(subagents, line)
@@ -188,12 +188,12 @@ func TestRenderNestsDispatches(t *testing.T) {
 	}
 	// legacy first, then the chain given grandchild-first: the children must still follow their parents
 	lines := render(0, legacy, chain[2], chain[1], chain[0])
-	for i, want := range []string{"codex  old task", "claude", "└─ codex", "   └─ opencode"} {
+	for i, want := range []string{"codex", "claude", "└─ codex", "   └─ opencode"} {
 		if i+1 >= len(lines) || !strings.Contains(strings.Join(strings.Fields(lines[i+1]), "  "), strings.Join(strings.Fields(want), "  ")) {
 			t.Fatalf("row %d want %q in %q", i, want, strings.Join(lines, "\n"))
 		}
 	}
-	for i, want := range []string{"↓ 500", "↓ 8k", "↓ 6k"} {
+	for i, want := range []string{"↓500", "↓8k", "↓6k"} {
 		if got := strings.Join(strings.Fields(lines[i+2]), " "); !strings.Contains(got, want) || strings.Contains(got, "Σ") {
 			t.Errorf("row %q: want tokens %q", got, want)
 		}
@@ -618,34 +618,6 @@ func TestJobMarkerColourOnOff(t *testing.T) {
 	}
 }
 
-// A long description is clipped with an ellipsis so the row fits, and the elapsed and tokens stay at its end.
-func TestJobDescriptionTruncates(t *testing.T) {
-	d := Dispatch{ID: "a", Agent: "pi", Status: statusFinished, Duration: "41s", Task: strings.Repeat("long task ", 20),
-		Usage: &wire.Usage{OutputTokens: 76000}}
-	var b strings.Builder
-	renderTree(&b, &Tree{Dispatches: []Dispatch{d}}, time.Now(), 60, "")
-	row := strings.Split(b.String(), "\n")[1]
-	if textutil.DisplayWidth(row) > 60 || !strings.Contains(row, "…") || !strings.HasSuffix(row, "41s · ↓ 76k") {
-		t.Errorf("row = %q, want a clipped description and the tail kept", row)
-	}
-}
-
-// Piped output (width 0) caps the description column, so elapsed stays near the row's other cells.
-func TestJobDescriptionCapUnclipped(t *testing.T) {
-	long := Dispatch{ID: "a", Agent: "pi", Status: statusFinished, Duration: "41s", Task: strings.Repeat("long task ", 40)}
-	short := Dispatch{ID: "b", Agent: "pi", Status: statusFinished, Duration: "1s", Task: "short"}
-	var b strings.Builder
-	renderTree(&b, &Tree{Dispatches: []Dispatch{long, short}}, time.Now(), 0, "")
-	for _, row := range strings.Split(strings.TrimSpace(b.String()), "\n")[1:] {
-		if w := textutil.DisplayWidth(row); w > 100 {
-			t.Errorf("unclipped row is %d columns wide: %q", w, row)
-		}
-	}
-	if !strings.Contains(b.String(), "…") {
-		t.Errorf("long description not ellipsised:\n%s", b.String())
-	}
-}
-
 func TestOkDispatchMarkerAndTint(t *testing.T) {
 	d := Dispatch{Status: "ok"}
 	if got := jobMarker(d); got != "✓" {
@@ -656,17 +628,18 @@ func TestOkDispatchMarkerAndTint(t *testing.T) {
 	}
 }
 
-func TestJobRowNarrowWidthsKeepTail(t *testing.T) {
-	d := Dispatch{Agent: "codex-long-agent-name", Task: "refactor the parser", Status: statusRunning, Duration: "2m43s", Quiet: true, LastSignal: time.Now().Add(-time.Minute)}
-	for _, w := range []int{20, 40, 80, 200} {
+func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
+	d := Dispatch{Agent: "codex-long-agent-name", Model: "gpt-6-astra", launch: "dev", Status: statusRunning, Duration: "2m43s",
+		Usage: &wire.Usage{OutputTokens: 9100}, Quiet: true, LastSignal: time.Now().Add(-time.Minute)}
+	for _, w := range []int{40, 80, 200} {
 		var l layout
 		addJobRow(&l, levelJob, append([]string{jobMarker(d)}, jobCells(d, time.Now(), nil)...), d, false)
 		for _, ln := range l.lines(w, "") {
 			if textutil.DisplayWidth(ln) > w {
 				t.Errorf("width %d: line %q too wide", w, ln)
 			}
-			if !strings.Contains(ln, "2m43s") || !strings.Contains(ln, "↓") {
-				t.Errorf("width %d: tail missing in %q", w, ln)
+			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · dev") {
+				t.Errorf("width %d: elapsed or model · profile missing in %q", w, ln)
 			}
 		}
 	}
