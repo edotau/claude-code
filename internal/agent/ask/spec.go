@@ -158,11 +158,11 @@ func parseAsk(verb string, args []string) (*flag.FlagSet, *askFlags, []string, [
 		retargetPage(fs, verb)
 	}
 	pos, code, done := parseAskArgs(fs, args)
-	if !done && f.waves != "" && verb == "" {
-		return fs, f, args, pos, Waves(args), true
-	}
 	if !done && f.spec != "" {
 		fs, f, args, pos, code, done = reparseSpec(f, verb, args, pos)
+	}
+	if !done && f.waves != "" && verb == "" && f.action == "" { // an action's own refusal names --waves
+		return fs, f, args, pos, Waves(args), true
 	}
 	if done {
 		return fs, f, args, pos, code, true
