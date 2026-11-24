@@ -3,7 +3,8 @@
 **Every Bash call whose output a model reads is written in its `rtk` form.** `rtk rewrite '<cmd>'` prints that form
 (empty output: run the command as typed). The `rtk-rewrite` hook enforces it: in every mode, auto included, it
 rewrites the call in place (no permission decision, so auto mode's classifier still judges it), so write
-the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, and so does every Pi code-mode run.
+the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, and so does every code-mode run
+(`HARNESS_CODEMODE`, below).
 
 - **Prefixed:** `git` (except `git grep`), `gh`, `go`, `grep`, `rg`, `find`, `ls`, `tree`, `diff`, `make`, `docker`,
   `kubectl`, `oc`, `curl`, `wc`, `ps`, `du`, `df`, `stat`, `jq`, `ssh`, `golangci-lint`; the usual
@@ -20,8 +21,19 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
   `rtk bypass <cmd>`; `rtk grep` groups and truncates matches.
 - **Code search:** tracked files first: `git grep -n` (25 ms here) or `rtk rg -n` (27 ms), symbols with
   `claude-code agents find`; `rtk grep -rn` walks every file (126–150 ms), so keep it for ignored or untracked paths.
-- **Never in program code:** Go `exec`, Makefile recipes, hook commands, CI and scripts whose output a program parses
-  run the bare tool; rtk changes the output format.
+- **Program code:** output a program parses (exit code, JSON, file list, bytes) stays bare in Go `exec`, Makefile
+  recipes, hook commands, CI and scripts; rtk changes the output format. Harness Go code whose output a model reads
+  calls `rtkwrap.ForModel` (`internal/rtkwrap/form.go`), never a hard-coded `rtk`: it returns the rtk form, or the
+  bare command in code mode, with no rtk binary, or on a veto.
+- **Code mode, the one exception:** `HARNESS_CODEMODE` is set by every code-mode launcher (Pi `--codemode`). While it
+  is set nothing is rewritten to rtk: not the hook, not the shims, not `rtkwrap.ForModel`.
+- **Config:** `make install` renders rtk's `config.toml` with `exclude_commands` for `go vet`, `go test -v` and
+  `go test -list`, and telemetry off.
+- **Per agent:** claude, codex and opencode rewrite through the `rtk-rewrite` hook; copilot through its SDK shell
+  tool; pi through the `rtkwrap` PATH shims; agy (gemini) cannot rewrite, so it only gets the awareness text below.
+  `claude-code doctor` shows one rtk row per agent.
+- **Awareness (agy, rendered into its GEMINI.md):** prefix external programs with `rtk`, leave shell builtins bare,
+  use `rtk bypass <cmd>` for exact output and `rtk recall <hash>` for elided output, and skip rtk in code mode.
 - **Docs, skills, agents, commands and brief templates:** a command block an agent will run is written in its rtk form;
   `README.md` steps for a human stay bare.
 - **No `No hook installed` banner:** every agent launch and harness rtk call sets `RTK_SUPPRESS_HOOK_WARNING=1` and

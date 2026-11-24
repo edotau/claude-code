@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // Given host tools present or missing, When doctor renders them, Then a missing optional one is ⚠ and a required one ✗.
@@ -53,6 +57,112 @@ func TestCheckToolHealthListsDeps(t *testing.T) {
 	for _, s := range all {
 		if _, ok := rows["dep "+s.Name]; !ok {
 			t.Errorf("doctor has no row for %s", s.Name)
+		}
+	}
+}
+
+func TestRTKHookRows(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(rtkwrap.CodemodeEnv, "")
+	t.Setenv("PATH", t.TempDir())
+	if got := rtkAgentRow("gemini"); !got.OK || got.Detail != "awareness text only" {
+		t.Errorf("Gemini without rtk binary = %+v", got)
+	}
+	installDoctorRTKPin(t)
+	want := map[string]string{
+		"rtk hook claude":   "warn rtk-rewrite hook not installed",
+		"rtk hook codex":    "warn rtk-rewrite hook not installed",
+		"rtk hook copilot":  "rewrite (SDK tool)",
+		"rtk hook gemini":   "awareness text only",
+		"rtk hook opencode": "rewrite (hook)",
+		"rtk hook pi":       "warn shims not installed",
+		"rtk PATH":          "warn rtk not on PATH (pinned binary may still work)",
+	}
+	rows := rtkHookRows()
+	if len(rows) != len(want) {
+		t.Fatalf("rtk rows = %+v, want %d rows", rows, len(want))
+	}
+	for _, row := range rows {
+		if row.Detail != want[row.Name] {
+			t.Errorf("%s = %q, want %q", row.Name, row.Detail, want[row.Name])
+		}
+	}
+
+	t.Setenv(rtkwrap.CodemodeEnv, "on")
+	for _, row := range rtkHookRows() {
+		if row.Name != "rtk PATH" && row.Detail != "off in code mode (HARNESS_CODEMODE)" {
+			t.Errorf("%s in code mode = %q", row.Name, row.Detail)
+		}
+	}
+}
+
+func TestRTKHookRowsInstalledHooks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv(rtkwrap.CodemodeEnv, "")
+	installDoctorRTKPin(t)
+	claude := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"` +
+		settings.DispatcherCommand(settings.EventPreToolUse) + `"}]}]}}`
+	if err := os.WriteFile(settings.SettingsFile(), []byte(claude), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "rtk-rewrite"}).Command()
+	codex := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"` +
+		settings.AgentEnv + `=codex ` + command + `"}]}]}}`
+	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json"), []byte(codex), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := rtkAgentRow("claude"); !got.OK || got.Detail != "rewrite (hook)" {
+		t.Errorf("installed Claude hook = %+v", got)
+	}
+	if got := rtkAgentRow("codex"); got.OK || got.Detail != "warn rtk-rewrite hook not installed" {
+		t.Errorf("untrusted Codex hook = %+v", got)
+	}
+}
+
+func installDoctorRTKPin(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.RTKPinned(), []byte("rtk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRTKHookRowsInstalledPiShims(t *testing.T) {
+	installDoctorPiShims(t)
+	installDoctorRTKPin(t)
+	if got := rtkHookRows()[5]; !got.OK || got.Detail != "shims" {
+		t.Errorf("installed Pi shim = %+v", got)
+	}
+	if err := os.Remove(filepath.Join(rtkwrap.Dir(), "git")); err != nil {
+		t.Fatal(err)
+	}
+	if got := rtkHookRows()[5]; got.OK {
+		t.Errorf("incomplete Pi shims = %+v", got)
+	}
+}
+
+func installDoctorPiShims(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(rtkwrap.CodemodeEnv, "")
+	if err := os.MkdirAll(rtkwrap.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rtkwrap.Binary(), []byte("shim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rtkwrap.Dir(), ".bash_env"), []byte("trap : EXIT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range append([]string{"rtk"}, rtkwrap.Names...) {
+		if err := os.Symlink(rtkwrap.Binary(), filepath.Join(rtkwrap.Dir(), name)); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

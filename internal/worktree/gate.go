@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -443,7 +444,7 @@ func hasRuffTable(toml string) bool {
 
 // runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
 func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr io.Writer) error {
-	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
+	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+rtkwrap.ForModel(ctx, cmdStr, workDir))
 	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

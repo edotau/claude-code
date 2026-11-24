@@ -51,6 +51,9 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	installClipboardProxy(w, dryRun)
 	installClipBridge(w, target, dryRun)
 	seedTmuxConf(w, dryRun)
+	if err := installRTKConfig(w, dryRun); err != nil {
+		return err
+	}
 	if err := linkUserBins(w, target, dryRun); err != nil {
 		return err
 	}
@@ -80,6 +83,9 @@ func installCompact(w io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(w, installLine(target, commit))
+	if err := installRTKConfig(w, false); err != nil {
+		return err
+	}
 	agentsCompactLine(w)
 	extras := extrasCompact(w)
 	defer func() {

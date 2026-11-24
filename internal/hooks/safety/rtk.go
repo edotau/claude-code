@@ -54,7 +54,7 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 	_, onPath := paths.RTKOnPath(bin)
 	word := rtkWord(bin, os.Getenv("HOME"), onPath)
 	pinned := rtkAbsolute(rewritten, word)
-	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) {
+	if word != "rtk" && rtkwrap.BareCount(pinned) > rtkwrap.BareCount(cmd) {
 		return core.Result{}
 	}
 	if judged := rtkWithCommand(in, pinned); judged == nil || !rtkGatesAllow(judged) || rtkCodexFilesDiffer(in, cmd, pinned) {
@@ -67,9 +67,9 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 	return core.Result{UpdatedInput: updated, Verdict: core.VerdictRewrite}
 }
 
-// rtkAgentEligible gates before the rtk exec; a Pi code-mode run's scripts stay raw.
+// rtkAgentEligible gates before the rtk exec; a code-mode run's scripts stay raw.
 func rtkAgentEligible(in *core.Input, bin, cmd string) bool {
-	return os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
+	return !rtkwrap.CodeMode() && bin != "" &&
 		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
 		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkOpencodeEnvHit(in)
 }
@@ -325,6 +325,9 @@ func rtkAgentInput(in *core.Input, pinned string) map[string]any {
 
 // rtkRewrite is RTKRewrite for a Claude Bash call: rewritten in place in every mode.
 func rtkRewrite(in *core.Input) core.Result {
+	if rtkwrap.CodeMode() {
+		return core.Result{}
+	}
 	// no permissionDecision is set, so auto mode's classifier still judges the rewritten call
 	bin := paths.RTKBinary()
 	f := rtkPinnedForm(bin, in.CWD, in.ToolCommand())
@@ -358,7 +361,7 @@ func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
 		word = rtkWord(bin, os.Getenv("HOME"), onPath)
 	}
 	pinned := rtkAbsolute(rewritten, word)
-	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) { // rtk put a bare rtk where PATH may not find it
+	if word != "rtk" && rtkwrap.BareCount(pinned) > rtkwrap.BareCount(cmd) { // rtk put a bare rtk where PATH may not find it
 		return rtkForm{}
 	}
 	return rtkForm{cmd: pinned, word: word, found: found, onPath: onPath}
@@ -431,13 +434,6 @@ func rtkRewritten(bin, cmd string) string {
 var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
 })
-
-// rtkBareWord matches `rtk` as a whole word not inside a path (after NAME=val, a wrapper word, or in a -c string).
-var rtkBareWord = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|[^\w./-])rtk($|[^\w.-])`)
-})
-
-func rtkBareCount(cmd string) int { return len(rtkBareWord().FindAllStringIndex(cmd, -1)) }
 
 // rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
 func rtkAbsolute(cmd, word string) string {

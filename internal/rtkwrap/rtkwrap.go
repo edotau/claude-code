@@ -13,8 +13,11 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CodemodeEnv is the variable Pi's launch sets to the effective code mode (on|only); the shim never wraps under it.
-const CodemodeEnv = "HARNESS_PI_CODEMODE"
+// CodemodeEnv is set by every code-mode launcher (Pi: on|only); no shim, hook or ForModel adds rtk under it.
+const CodemodeEnv = "HARNESS_CODEMODE"
+
+// CodeMode reports whether this process runs inside a code-mode agent run.
+func CodeMode() bool { return os.Getenv(CodemodeEnv) != "" }
 
 // Names are the shimmed commands: rtk_rewrite_words entries that are real command heads (TestNamesAreRTKWords).
 var Names = []string{"curl", "df", "diff", "docker", "du", "find", "gh", "git", "go", "golangci-lint", "grep", "jq",
@@ -61,6 +64,11 @@ func Ensure(dir, bin string) error {
 
 // Launch puts Dir first on PATH, sets CodemodeEnv and, outside code mode, BASH_ENV; a failure notes, env unchanged.
 func Launch(env []string, codemode string, notice io.Writer) []string {
+	if codemode != "" { // set even when the shims are unusable: the hook and ForModel read it too
+		env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+			return strings.HasPrefix(kv, CodemodeEnv+"=")
+		}), CodemodeEnv+"="+codemode)
+	}
 	if runtime.GOOS == "windows" {
 		return env
 	}

@@ -51,9 +51,9 @@ All dispatched by the manager, never by Plan itself:
 
 ## Procedure
 
-Useful commands: `rg`, `git log/show/diff`, `ls`, `go list`, `--help`, `claude-code agents sync --check|--dry-run`,
-`claude-code memory search`, `claude-code network websearch`, `claude-code plan assumptions` and
-`claude-code plan goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
+Useful commands: `rtk rg`, `rtk git log/show/diff`, `rtk ls`, `rtk go list`, `--help`,
+`claude-code agents sync --check|--dry-run`, `claude-code memory search`, `claude-code network websearch`,
+`claude-code plan assumptions` and `claude-code plan goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
 Steps 0–3 with these planning mechanics:
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes one plan

@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -286,18 +288,143 @@ func rtkVersionStatus(ctx context.Context) (bool, string) {
 	return true, "rtk " + v
 }
 
-// rtkHookRows is one row per external agent whose hooks list rtk-rewrite, which rewrites whenever rtk is installed.
+// rtkHookRows reports how rtk reaches each agent, including code mode and missing PATH binaries.
 func rtkHookRows() []check {
-	detail := "on"
-	if paths.RTKBinary() == "" {
-		detail = "rtk binary not found, rewrite skipped"
+	rows := make([]check, 0, 7)
+	for _, a := range []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"} {
+		rows = append(rows, rtkAgentRow(a))
 	}
-	var rows []check
-	for _, a := range []string{"codex", "copilot", "gemini", "opencode"} {
-		specs := slices.Concat(settings.SpecsFor(a, "native"), settings.SpecsFor(a, "plugin"))
-		if slices.ContainsFunc(specs, func(s settings.EventSpec) bool { return s.Name == "rtk-rewrite" }) {
-			rows = append(rows, check{Name: "rtk hook " + a, OK: true, Detail: detail})
-		}
+	if _, err := exec.LookPath("rtk"); err != nil {
+		rows = append(rows, check{Name: "rtk PATH", Detail: "warn rtk not on PATH (pinned binary may still work)"})
 	}
 	return rows
+}
+
+func rtkAgentRow(a string) check {
+	row := check{Name: "rtk hook " + a, OK: true}
+	switch {
+	case rtkwrap.CodeMode():
+		row.Detail = "off in code mode (HARNESS_CODEMODE)"
+	case a == "gemini":
+		row.Detail = "awareness text only"
+	case paths.RTKBinary() == "":
+		row.OK, row.Detail = false, "warn rtk binary not installed"
+	case a == "copilot":
+		row.Detail = "rewrite (SDK tool)"
+	case a == "pi":
+		row.Detail = "shims"
+		if !piShimsInstalled() {
+			row.OK, row.Detail = false, "warn shims not installed"
+		}
+	default:
+		specs := slices.Concat(settings.SpecsFor(a, "native"), settings.SpecsFor(a, "plugin"))
+		row.Detail = "rewrite (hook)"
+		if !slices.ContainsFunc(specs, func(s settings.EventSpec) bool { return s.Name == "rtk-rewrite" }) || !rtkHookInstalled(a) {
+			row.OK, row.Detail = false, "warn rtk-rewrite hook not installed"
+		}
+	}
+	return row
+}
+
+func rtkHookInstalled(a string) bool {
+	if a == "opencode" { // the plugin is generated and injected at launch, not installed in a global config
+		return true
+	}
+	file := settings.SettingsFile()
+	command := settings.DispatcherCommand(settings.EventPreToolUse)
+	if a == "codex" {
+		home, err := paths.CodexHome()
+		if err != nil {
+			return false
+		}
+		file = filepath.Join(home, "hooks.json")
+		command = (settings.EventSpec{Event: settings.EventPreToolUse, Name: "rtk-rewrite"}).Command()
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return false
+	}
+	var config struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if json.Unmarshal(b, &config) != nil {
+		return false
+	}
+	for gi, group := range config.Hooks[settings.EventPreToolUse] {
+		if group.RunsGate(a, command, "Bash") && (a != "codex" || codexRTKTrusted(file, gi, group)) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexRTKTrusted(file string, gi int, group settings.MatcherGroup) bool {
+	config, err := os.ReadFile(filepath.Join(filepath.Dir(file), "config.toml"))
+	if err != nil {
+		return false
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(file))
+	if err != nil {
+		return false
+	}
+	for hi, hook := range group.Hooks {
+		if !strings.Contains(hook.Command, "rtk-rewrite") {
+			continue
+		}
+		handler := map[string]any{"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async}
+		if hook.StatusMessage != "" {
+			handler["statusMessage"] = hook.StatusMessage
+		}
+		identity := map[string]any{"event_name": "pre_tool_use", "hooks": []any{handler}}
+		if group.Matcher != "" {
+			identity["matcher"] = group.Matcher
+		}
+		canonical, err := textutil.MarshalNoEscape(identity)
+		if err != nil {
+			return false
+		}
+		key := fmt.Sprintf("%s:pre_tool_use:%d:%d", filepath.Join(parent, filepath.Base(file)), gi, hi)
+		if codexTrustValue(config, key) == "sha256:"+textutil.SHA256Hex(canonical) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexTrustValue(config []byte, key string) string {
+	header := fmt.Sprintf("[hooks.state.%q]", key)
+	for section := range strings.SplitSeq(string(config), "\n[") {
+		if !strings.HasPrefix(strings.TrimSpace(section), strings.TrimPrefix(header, "[")) &&
+			!strings.HasPrefix(strings.TrimSpace(section), header) {
+			continue
+		}
+		for line := range strings.SplitSeq(section, "\n") {
+			name, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if ok && strings.TrimSpace(name) == "trusted_hash" {
+				return strings.Trim(strings.TrimSpace(value), `"`)
+			}
+		}
+	}
+	return ""
+}
+
+func piShimsInstalled() bool {
+	bin := rtkwrap.Binary()
+	if paths.ExecutableRealPath(bin) == "" {
+		return false
+	}
+	file, err := os.Open(filepath.Join(rtkwrap.Dir(), ".bash_env"))
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	for _, name := range append(slices.Clone(rtkwrap.Names), "rtk") {
+		if target, err := os.Readlink(filepath.Join(rtkwrap.Dir(), name)); err != nil || target != bin {
+			return false
+		}
+	}
+	return true
 }

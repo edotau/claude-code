@@ -19,9 +19,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/inspect"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.
@@ -464,7 +464,7 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 }
 
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, "bash", "-c", paths.RTKRewrite(ctx, script))
+	cmd := exec.CommandContext(ctx, "bash", "-c", rtkwrap.ForModel(ctx, script, dir))
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), env...), out, out
 	return runGroup(ctx, cmd)
 }
@@ -476,7 +476,8 @@ func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Wr
 		return -1, err
 	}
 	for _, s := range steps {
-		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
+		argv := rtkwrap.ArgvForModel(ctx, s.Argv, dir)
+		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, slices.Concat(os.Environ(), env, s.Env), out, out
 		if code, err := runGroup(ctx, cmd); code != 0 || err != nil {
 			return code, err

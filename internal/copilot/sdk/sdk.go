@@ -181,6 +181,7 @@ func buildSessionConfig(o Options) *copilot.SessionConfig {
 	}
 	cfg.SystemMessage = systemMessage(o)
 	cfg.HookDirectories = hookDirectories(o)
+	cfg.Hooks = &copilot.SessionHooks{OnPreToolUse: rtkPreToolUse}
 	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
 	// sent once through the system prompt instead of being discovered twice
 	if o.InlineInstructions != "" {
@@ -250,7 +251,7 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 		SessionLimits: c.SessionLimits, Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
 		SkillDirectories: c.SkillDirectories, AgentDirectories: c.AgentDirectories, Providers: c.Providers, Models: c.Models,
 		AvailableTools: c.AvailableTools, ExcludedTools: c.ExcludedTools, SkipCustomInstructions: c.SkipCustomInstructions,
-		OrganizationCustomInstructions: c.OrganizationCustomInstructions,
+		OrganizationCustomInstructions: c.OrganizationCustomInstructions, Hooks: c.Hooks,
 	}
 }
 

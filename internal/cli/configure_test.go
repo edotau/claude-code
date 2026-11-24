@@ -336,6 +336,11 @@ func TestContractLayout(t *testing.T) {
 					t.Fatal("Desktop formats must remain externally owned and kept")
 				}
 				return
+			case "rtk-config": // rtk owns its config dir; the harness renders the file but never sweeps it
+				if f.Owner != "internal/setup" || f.Kind != schemas.Derived || f.Clean != "" {
+					t.Fatal("rtk-config must stay a derived, externally placed file the harness never cleans")
+				}
+				return
 			}
 			rel := relGlob(dir, f)
 			if rel == outside {

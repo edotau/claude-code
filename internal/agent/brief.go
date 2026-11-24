@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 // BriefInput supplies the authored task and the leaf's execution contract.
@@ -113,7 +114,8 @@ func RenderBrief(input BriefInput) (string, error) {
 	data := struct {
 		BriefInput
 		OwnedLine, ReportsDir string
-	}{input, string(owned), paths.MemorySubDir("reports")}
+		Codemode              bool // HARNESS_CODEMODE: the brief's rtk line drops out
+	}{input, string(owned), paths.MemorySubDir("reports"), rtkwrap.CodeMode()}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}

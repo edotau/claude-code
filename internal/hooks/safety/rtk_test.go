@@ -713,3 +713,11 @@ func TestClaudePrintRun(t *testing.T) {
 		}
 	}
 }
+
+func TestRTKClaudeSkipsCodeMode(t *testing.T) {
+	hosttest.FakeRTK(t)
+	t.Setenv(rtkwrap.CodemodeEnv, "1")
+	if got, ok := rtkOut(t, hosttest.RTKBashIn("git log --oneline -20")); ok {
+		t.Fatalf("code mode rewrote to %q", got)
+	}
+}

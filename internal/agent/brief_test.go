@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 func TestBriefParseOwned(t *testing.T) {
@@ -168,5 +170,20 @@ func assertBriefPaths(t *testing.T, paths <-chan string, allocations int) {
 	}
 	if len(seen) != allocations {
 		t.Fatalf("got %d paths", len(seen))
+	}
+}
+
+func TestBriefDropsRTKLineInCodeMode(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	input := BriefInput{Task: "t", Owned: []string{"/tmp/a.go"}, Verify: "go test ./x"}
+	for mode, want := range map[string]bool{"": true, "on": false} {
+		t.Setenv(rtkwrap.CodemodeEnv, mode)
+		brief, err := RenderBrief(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(brief, "goes through rtk"); got != want {
+			t.Errorf("code mode %q: rtk line present = %v, want %v", mode, got, want)
+		}
 	}
 }
