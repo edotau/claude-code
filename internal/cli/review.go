@@ -104,8 +104,7 @@ func cmdWorkflow(args []string) int {
 		return 0
 	}
 	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
-	if slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) && len(args) > 1 &&
-		(args[0] == "skeleton" || len(args) == 2) && helptext.WantsHelp(helpArgs(args)) {
+	if workflowWantsHelp(args) {
 		workflowSubPage(args[0]).Fprint(os.Stdout)
 		return 0
 	}
@@ -118,6 +117,14 @@ func cmdWorkflow(args []string) int {
 		return runWorkflowVerb("sync", args[1:], workflows.RunWorkflowSync)
 	}
 	return unknownSub("workflow", args[0], workflowPage)
+}
+
+// workflowWantsHelp: skeleton takes -h after its pattern, lint and sync only as their sole argument.
+func workflowWantsHelp(args []string) bool {
+	if !slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) || len(args) < 2 || (args[0] != "skeleton" && len(args) > 2) {
+		return false
+	}
+	return helptext.WantsHelp(helpArgs(args))
 }
 
 // helpArgs is where a workflow sub-verb's -h may sit: skeleton takes it after its pattern, lint only first.
