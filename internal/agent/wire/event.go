@@ -29,6 +29,7 @@ const (
 	EventError      = "error"
 	EventTakeover   = "takeover"
 	EventQueued     = "queued"
+	EventThinking   = "thinking" // a one-line summary of a reasoning block
 )
 
 // ToolRef names the tool a tool_use or tool_result event is about.
@@ -226,6 +227,24 @@ func EmitError(lg StreamLog, sink Sink, msg string) error {
 // ToolEvent is a tool_use event for the named tool.
 func ToolEvent(name, id string) Event {
 	return Event{Type: EventToolUse, Tool: &ToolRef{Name: name, ID: id}}
+}
+
+// summaryCap bounds a tool argument, result or thinking summary, in runes.
+const summaryCap = 120
+
+// Summary is s on one redacted line of at most summaryCap runes, for a tool argument or thinking text.
+func Summary(s string) string {
+	return textutil.Truncate(textutil.OneLine(maskText(s)), summaryCap)
+}
+
+// FirstLine is the first non-blank line of s as a Summary, for a tool result.
+func FirstLine(s string) string {
+	for line := range strings.Lines(s) {
+		if strings.TrimSpace(line) != "" {
+			return Summary(line)
+		}
+	}
+	return ""
 }
 
 // ResultEvent is the closing event of a dispatch: the full envelope plus its headline fields.

@@ -23,6 +23,7 @@ type piEvent struct {
 	ToolCallID string          `json:"toolCallId"`
 	ToolName   string          `json:"toolName"`
 	Args       json.RawMessage `json:"args"`
+	Result     json.RawMessage `json:"result"`
 	IsError    bool            `json:"isError"`
 	// auto_retry_start
 	Attempt      int    `json:"attempt"`
@@ -38,8 +39,9 @@ type piEvent struct {
 		Content      json.RawMessage `json:"content"`
 	} `json:"message"`
 	Update *struct {
-		Type  string          `json:"type"`
-		Delta json.RawMessage `json:"delta"`
+		Type    string          `json:"type"`
+		Delta   json.RawMessage `json:"delta"`
+		Content json.RawMessage `json:"content"` // thinking_end: the whole block
 	} `json:"assistantMessageEvent"`
 }
 
@@ -72,8 +74,9 @@ type piTurn struct {
 	answer       []string // one entry per assistant message that spoke
 	cur          strings.Builder
 	logLine      strings.Builder
-	stop         string // the last assistant message's stop reason; only the last one decides the run
-	errMsg       string // and its error message
+	think        strings.Builder // thinking deltas since the last thinking_end
+	stop         string          // the last assistant message's stop reason; only the last one decides the run
+	errMsg       string          // and its error message
 	assistant    bool
 	open         map[string]string // running tool calls, id to write path
 	progressed   bool
@@ -130,7 +133,9 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.lg.Emit("tool", ev.ToolName)
 		t.progressed = true
 		t.open[ev.ToolCallID] = ev.writePath()
-		return t.sink.Emit(wire.ToolEvent(ev.ToolName, ev.ToolCallID))
+		use := wire.ToolEvent(ev.ToolName, ev.ToolCallID)
+		use.Text = ev.argSummary()
+		return t.sink.Emit(use)
 	case "tool_execution_end":
 		return t.toolEnd(ev)
 	case "auto_retry_start":
@@ -160,7 +165,43 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 		t.res.Written = append(t.res.Written, path)
 	}
 	t.lg.Emit("tool", ev.ToolName+": "+status)
-	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID}, Status: status})
+	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID},
+		Status: status, Text: ev.resultLine()})
+}
+
+// argSummary is the tool call's primary argument (command, pattern or path), else its compact args, on one line.
+func (ev piEvent) argSummary() string {
+	var a map[string]any
+	if json.Unmarshal(ev.Args, &a) != nil {
+		return ""
+	}
+	for _, k := range []string{"command", "pattern", "path", "file_path", "query", "url"} {
+		if v, ok := a[k].(string); ok && v != "" {
+			return wire.Summary(v)
+		}
+	}
+	if len(a) == 0 {
+		return ""
+	}
+	return wire.Summary(string(ev.Args))
+}
+
+// resultLine is the first line of the tool result's text; a failed call's text is its error.
+func (ev piEvent) resultLine() string {
+	var r struct {
+		Content []struct{ Text string }
+	}
+	if json.Unmarshal(ev.Result, &r) != nil {
+		var s string
+		_ = json.Unmarshal(ev.Result, &s)
+		return wire.FirstLine(s)
+	}
+	for _, c := range r.Content {
+		if line := wire.FirstLine(c.Text); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func (ev piEvent) writePath() string {
@@ -193,6 +234,9 @@ func deltaText(raw json.RawMessage) (string, error) {
 
 // delta streams assistant text; a later message's first chunk starts a new turn.
 func (t *piTurn) delta(ev piEvent) error {
+	if ev.Update != nil && strings.HasPrefix(ev.Update.Type, "thinking_") {
+		return t.thinking(ev.Update.Type, ev.Update.Delta, ev.Update.Content)
+	}
 	if ev.Update == nil || ev.Update.Type != "text_delta" || len(ev.Update.Delta) == 0 {
 		return nil
 	}
@@ -208,6 +252,26 @@ func (t *piTurn) delta(ev piEvent) error {
 	t.progressed = true
 	t.logDelta(d)
 	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: d, Sep: sep})
+}
+
+// thinking gathers a reasoning block's deltas and emits it as one summary line at thinking_end.
+func (t *piTurn) thinking(kind string, delta, content json.RawMessage) error {
+	switch kind {
+	case "thinking_delta":
+		if d, err := deltaText(delta); err == nil {
+			t.think.WriteString(d)
+		}
+	case "thinking_end":
+		var whole string
+		if json.Unmarshal(content, &whole) != nil || strings.TrimSpace(whole) == "" {
+			whole = t.think.String()
+		}
+		t.think.Reset()
+		if line := wire.Summary(whole); line != "" {
+			return t.sink.Emit(wire.Event{Type: wire.EventThinking, Text: line})
+		}
+	}
+	return nil
 }
 
 // logDelta keeps token boundaries out of the log without delaying foreground text events.
