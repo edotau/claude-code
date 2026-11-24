@@ -842,6 +842,39 @@ func TestSettingsDenyTwinEscapesResolvedTarget(t *testing.T) {
 	}
 }
 
+// The directory a symlinked deny glob resolves to is covered itself, whatever glob characters or markers it holds.
+func TestSettingsDenyTwinRootAndMarkerNames(t *testing.T) {
+	for _, name := range []string{"a*b", "a\x01b"} {
+		t.Run(strings.ReplaceAll(name, "\x01", "x01"), func(t *testing.T) {
+			cfg, root := canonRoot(t)
+			if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			other := strings.NewReplacer("*", "x", "\x01", "").Replace(name)
+			if err := os.MkdirAll(filepath.Join(root, other), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(root, "alias")
+			if err := os.Symlink(filepath.Join(root, name), alias); err != nil {
+				t.Skip("symlinks unavailable:", err)
+			}
+			deny := `"Grep(/` + alias + `/**)","Read(/` + alias + `/**)"`
+			for file, want := range map[string]core.Decision{
+				filepath.Join(root, name): core.Block, filepath.Join(root, name, "f"): core.Block, filepath.Join(root, other, "f"): core.Allow,
+			} {
+				if got := readDecision(t, cfg, deny, file); got != want {
+					t.Errorf("read of %q: %v, want %v", file, got, want)
+				}
+				payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Grep", "harness_agent": "pi",
+					"cwd": "/tmp", "tool_input": map[string]string{"path": file, "pattern": "x"}})
+				if got := scanPayload(bytes.NewReader(payload)).Decision; got != want {
+					t.Errorf("grep of %q: %v, want %v", file, got, want)
+				}
+			}
+		})
+	}
+}
+
 // A second symlink under a wildcard is judged in both spellings: as typed and as the disk spells it.
 func TestSettingsDenyWildcardSecondSymlink(t *testing.T) {
 	cfg, root := canonRoot(t)
