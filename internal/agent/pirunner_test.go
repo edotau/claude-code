@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -45,10 +46,17 @@ func TestLedByNoHops(t *testing.T) {
 // The inner line of a --carry runs the carried agent's own CLI; Pi keeps the takeover.
 func TestPiRunnerBarredForCarriedChild(t *testing.T) {
 	setConfigDir(t)
-	rec := NewRecord("codex", RunOptions{Carry: true, Prompt: "the task"}, time.Now())
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
+	now := time.Now()
+	record := func(i int, carry bool, status string, pid int) Record {
+		r := NewRecord("codex", RunOptions{Carry: carry, Prompt: "the task"}, now.Add(time.Duration(i)*time.Second))
+		r.Status, r.PID = status, pid
+		r.PIDStart, _ = proc.StartTime(pid)
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+		return r
 	}
+	rec := record(0, true, "running", os.Getppid()) // the carrier is this test's parent process
 	ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: rec.ID})
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); !strings.Contains(why, "carried") {
 		t.Fatalf("carried codex child: barred = %q, want the carried reason", why)
@@ -56,15 +64,9 @@ func TestPiRunnerBarredForCarriedChild(t *testing.T) {
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "gemini"}); why != "" {
 		t.Fatalf("another agent under a codex carrier is barred: %q", why)
 	}
-	done := NewRecord("codex", RunOptions{Carry: true, Prompt: "the task"}, time.Now())
-	done.Status = "ok"
-	plain := NewRecord("codex", RunOptions{Prompt: "the task"}, time.Now())
-	for _, r := range []Record{done, plain} {
-		if err := r.Save(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, id := range []string{done.ID, plain.ID, "../" + rec.ID} {
+	done, plain := record(1, true, "ok", os.Getppid()), record(2, false, "running", os.Getppid())
+	noPID := record(3, true, "running", 0)
+	for _, id := range []string{done.ID, plain.ID, noPID.ID, "../" + rec.ID} {
 		ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: id})
 		if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
 			t.Fatalf("parent %q is no live carrier, yet barred: %q", id, why)
