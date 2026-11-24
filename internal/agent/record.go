@@ -959,8 +959,7 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status); nearest: %s",
-			id, len(match), strings.Join(nearestIDs(names, id), ", "))
+		return Record{}, noMatch(id, names, len(match))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
 }

@@ -111,58 +111,33 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-// ContractEnv wires contract.Reap to the dispatch records and the merge queue.
+// ContractEnv wires contract.Reap to the dispatch records; Successor stays nil: re-assign is task 11.2's.
 func ContractEnv() contract.Env {
 	return contract.Env{Lost: holderLost, Queue: queueFailedLane}
 }
 
-// holderLost: the dispatch's record is lost, errored with a vanished process, or still running with a dead one.
+// holderLost: the holder's record is pruned, or no longer running while its contract is working (owner gone unsettled).
 func holderLost(id string) bool {
 	rec, err := agent.LoadRecord(id)
 	if err != nil {
-		return false
+		return errors.Is(err, agent.ErrNoRecord)
 	}
-	return rec.Status == "lost" || rec.Status == "error" && strings.HasPrefix(rec.Error, agent.LostError) ||
-		rec.Status == "running" && !rec.Alive()
+	return rec.Status != "running" || !rec.Alive()
 }
 
-// queueFailedLane queues a failed contract's kept lane marked failed; a lane that is gone has nothing to queue.
+// queueFailedLane queues a failed contract's kept lane marked failed; without the holder's repo there is none to queue.
 func queueFailedLane(c contract.Contract) error {
 	rec, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
+	if errors.Is(err, agent.ErrNoRecord) || err == nil && rec.Repo == "" {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if rec.Repo == "" {
-		return nil
-	}
-	lane, err := laneDir(rec.Repo, c.Scope.Lane)
-	if err != nil || lane == "" {
-		return err
-	}
+	lane := filepath.Join(worktree.Root(rec.Repo), c.Scope.Lane)
 	return worktree.Enqueue(worktree.QueuedLane{Lane: lane, Repo: rec.Repo, Task: c.Scope.PlanTask,
 		Reason: "contract failed: owner-dead", Detail: "contract " + c.ID + ": the owner's process is gone; lane kept",
 		Next: "claude-code worktree merge " + c.Scope.Lane + " after reviewing it, or worktree clean " + c.Scope.Lane})
-}
-
-// laneDir is lane's directory under repo's worktree root or legacy root, "" when neither has it.
-func laneDir(repo, lane string) (string, error) {
-	roots := []string{worktree.Root(repo)}
-	if r, err := worktree.ResolveRepo(repo); err == nil {
-		roots = append(roots, r.Root, r.Legacy)
-	}
-	for _, root := range roots {
-		if root == "" {
-			continue
-		}
-		fi, err := os.Stat(filepath.Join(root, lane))
-		switch {
-		case err == nil && fi.IsDir():
-			return filepath.Join(root, lane), nil
-		case err != nil && !errors.Is(err, fs.ErrNotExist):
-			return "", err
-		}
-	}
-	return "", nil
 }
 
 // reapContracts fails or re-assigns the contracts of lost owners; a dry run only lists them.
