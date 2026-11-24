@@ -143,12 +143,12 @@ func taskTitle(req CommitRequest) string {
 	return ""
 }
 
-// titleText drops the leading "<id> — " and the trailing " — owns: ..." a plan task line carries around its words.
+// titleText drops the leading "<id> — " and every " — attr: ..." after the words of a plan task line.
 func titleText(title, id string) string {
 	if head, rest, ok := strings.Cut(title, " — "); ok && strings.Contains(head, id) {
 		title = rest
 	}
-	title, _, _ = strings.Cut(title, " — owns:")
+	title, _, _ = strings.Cut(title, " — ")
 	return strings.TrimSpace(title)
 }
 

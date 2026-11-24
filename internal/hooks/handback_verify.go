@@ -47,7 +47,7 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	}
 	id := cmp.Or(task.ID, task.Title)
 	files := dirtyOwned(dirty, plans.OwnedPaths(task))
-	commit := commitLine(lane, id, planPath, files)
+	commit := commitLine(lane, id, planPath, files, dirty)
 	if lane == "" && len(files) == 0 { // no lane and no owned edit in the checkout: nothing shows where the leaf worked
 		return []string{"verify " + id + ": lane not resolved; not run", commit}
 	}
@@ -62,7 +62,7 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 }
 
 // commitLine is the commit command, run from the lane when the leaf worked in one.
-func commitLine(lane, id, planPath string, files []string) string {
+func commitLine(lane, id, planPath string, files, dirty []string) string {
 	cd := ""
 	if lane != "" {
 		cd = "cd " + textutil.ShellQuote(lane) + " && "
@@ -70,9 +70,12 @@ func commitLine(lane, id, planPath string, files []string) string {
 	ids := make([]string, len(files))
 	for i, f := range files {
 		ids[i] = worktree.FileID(f)
+		if slices.Contains(dirty, ids[i]) { // a dirty file literally named that id would win over this one
+			ids[i] = textutil.ShellQuote(f)
+		}
 	}
 	return "commit+tick: " + cd + "claude-code worktree commit --task '" + id + "' --plan " + planPath +
-		` --type <feat|fix|docs|refactor|test|chore>` + strings.Join(append([]string{""}, ids...), " ")
+		` --type "<feat|fix|docs|refactor|test|chore>"` + strings.Join(append([]string{""}, ids...), " ")
 }
 
 // leafCheckout is the lane the leaf worked in when it belongs to top's repo; "" when none resolves.
