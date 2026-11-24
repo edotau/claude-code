@@ -173,11 +173,19 @@ func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRe
 	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s %s(%s). %s", info, idPrefix, how, pollOnce(rec.ID))}
 }
 
+// handbackVerdict is the unfixed verdict of a typed hand-back.
+func handbackVerdict(h *wire.Handback) string { return laneVerdict(h.Footer()) }
+
 // endedNote is a finished job's ran-on line and result.
 func endedNote(rec agent.Record, how, output string) receipt {
 	body := jobResult(&rec, output)
-	if line := rec.ResultEnvelope(io.Discard).RanOn; line != "" {
-		return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body}
+	env := rec.ResultEnvelope(io.Discard)
+	if line := env.RanOn; line != "" {
+		note := fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line)
+		if env.Handback != nil {
+			note += fmt.Sprintf(" handback: %s, unfixed: %s", env.Handback.Status, handbackVerdict(env.Handback))
+		}
+		return receipt{note, body}
 	}
 	return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body}
 }
