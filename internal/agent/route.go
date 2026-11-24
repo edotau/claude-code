@@ -50,13 +50,20 @@ func runnerLabel(d Dispatch) string {
 	return dispatchLabel(d.Agent)
 }
 
-// explicitStop reports hop i ending the chain on an explicit backend; a pi runner lead hands on to the agent's CLI.
-func (c Chain) explicitStop(i int, req RunOptions) bool {
-	return i == 0 && explicitBackend(req) && c.Dispatches[0].runFor == ""
+// explicitStop reports hop i ending the chain on an explicit backend; pi runner hops hand on to the agent's CLI.
+func (c Chain) explicitStop(i int, req RunOptions) bool { return c.leads(i) && explicitBackend(req) }
+
+// runners counts the pi runner hops that lead c.
+func (c Chain) runners() int {
+	n := 0
+	for n < len(c.Dispatches) && c.Dispatches[n].runFor != "" {
+		n++
+	}
+	return n
 }
 
-// leads reports hop i as the requested one: the first, or the agent's own CLI right after a pi runner lead.
-func (c Chain) leads(i int) bool { return i == 0 || i == 1 && c.Dispatches[0].runFor != "" }
+// leads reports hop i as the requested one: the first, or the agent's own CLI right after the pi runner hops.
+func (c Chain) leads(i int) bool { return i == c.runners() }
 
 // runnerRefused reports the pi runner hop failing before any work: the asked agent's CLI runs the same model next.
 func runnerRefused(prev Dispatch, res wire.Result, err error) bool {
@@ -68,9 +75,10 @@ func (s *fallbackState) modelGone() bool {
 	return typedModelGone(s.req, s.err) && !runnerRefused(s.prevDispatch, s.res, s.err)
 }
 
-// dropRunner removes a pi runner lead the request needs the agent's own CLI for, saying why.
+// dropRunner removes the pi runner hops when the request needs the agent's own CLI, saying why.
 func dropRunner(c Chain, req RunOptions, notify func(string)) Chain {
-	if len(c.Dispatches) < 2 || c.Dispatches[0].runFor == "" {
+	n := c.runners()
+	if n == 0 { // never every hop: ledBy keeps the agent's own CLI after them
 		return c
 	}
 	why := runnerLoses(c.Dispatches[0].Agent.Caps(), req)
@@ -80,7 +88,7 @@ func dropRunner(c Chain, req RunOptions, notify func(string)) Chain {
 	if notify != nil {
 		notify(c.Want + ": pi runner skipped: " + why + "; runs on " + c.Want + "'s own CLI")
 	}
-	c.Dispatches = c.Dispatches[1:]
+	c.Dispatches = c.Dispatches[n:]
 	return c
 }
 
@@ -550,44 +558,92 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 	if err != nil { // a build without the pi driver
 		return c
 	}
-	disp, why := piRunnerHop(ctx, reg, q, lead, typed)
+	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
 	if why != "" {
 		return c.noted(q.Agent + ": pi runner skipped: " + why)
 	}
-	disp.Agent = pi
-	return c.ledBy(disp, q.Fallback == router.FallbackNone)
+	for _, s := range skips { // a sibling workspace the validation refused: recorded, never run
+		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
+	}
+	return c.ledBy(hops)
 }
 
-// ledBy is c with d as its first hop; alone (a typed runner pi under --fallback none) runs d only.
-func (c Chain) ledBy(d Dispatch, alone bool) Chain {
-	if alone {
-		c.Dispatches = nil
-	}
-	c.Dispatches = append([]Dispatch{d}, c.Dispatches...)
+// ledBy is c with hops ahead of its own, so the agent's own CLI always follows the pi runner hops.
+func (c Chain) ledBy(hops []Dispatch) Chain {
+	c.Dispatches = append(slices.Clone(hops), c.Dispatches...)
 	if c.Preflight != nil {
 		pf := *c.Preflight
-		pf.Chosen, c.Preflight = hopTarget(d), &pf
+		pf.Chosen, c.Preflight = hopTarget(hops[0]), &pf
 	}
 	return c
 }
 
-// piRunnerHop is the pi runner hop (Agent unset) on lead's profile and model, or why not; the one source to swap.
-func piRunnerHop(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, typed bool) (Dispatch, string) {
-	switch {
-	case q.Fallback == router.FallbackNone && !typed:
-		return Dispatch{}, "--fallback none keeps the one hop it names"
-	case q.Resumed:
-		return Dispatch{}, "a resumed session stays on its own CLI"
-	case q.Native:
-		return Dispatch{}, "--native runs the agent's own config"
+// piRunnerHops is the pi hops router.Chain orders from lead's profile and model, each validated; why when none run.
+func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, pi Engine) ([]Dispatch, []string, string) {
+	if why := piRunnerBarred(q); why != "" {
+		return nil, nil, why
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
-	model, why := piRunnerModel(ctx, reg, q, lead, profile)
+	model, why := piRunnerModel(ctx, reg, q, lead, profile) // the head is validated here: a rejected head runs no sibling
 	if why != "" {
-		return Dispatch{}, why
+		return nil, nil, why
 	}
-	return Dispatch{Model: model, Route: rowRoute(reg, profile), Account: lead.Account, Billing: lead.Billing,
-		runFor: q.Agent, otherRoute: lead.otherRoute, swap: lead.swap, routerChose: lead.routerChose, rung: lead.rung}, ""
+	tb, err := router.Load()
+	if err != nil {
+		return nil, nil, err.Error()
+	}
+	fb := q.Fallback
+	if lead.unroutedDispatch { // an explicit backend (--profile, a pin) never moves workspace
+		fb = router.FallbackNone
+	}
+	var hops []Dispatch
+	var skips []string
+	for _, h := range tb.Chain(reg, router.ChainReq{Agent: agentid.Pi, Profile: profile, Model: model, Alias: q.AliasHint,
+		Fallback: fb, Asked: q.Agent, TypedModel: q.Model != ""}) {
+		if h.Agent != agentid.Pi || h.OffArm { // the agent's own CLI hops stay today's chain, after these
+			continue
+		}
+		d, why := piHop(reg, h, lead, profile)
+		if why != "" {
+			skips = append(skips, why)
+			continue
+		}
+		d.Agent, d.runFor = pi, q.Agent
+		hops = append(hops, d)
+	}
+	return hops, skips, ""
+}
+
+// piRunnerBarred is why q keeps the agent's own CLI whatever the model: one named hop, a resumed session, --native.
+func piRunnerBarred(q RouteReq) string {
+	switch {
+	case q.Fallback == router.FallbackNone:
+		return "--fallback none keeps the one hop it names"
+	case q.Resumed:
+		return "a resumed session stays on its own CLI"
+	case q.Native:
+		return "--native runs the agent's own config"
+	}
+	return ""
+}
+
+// piHop is the pi runner dispatch for chain hop h once ProfileServes passes; the head keeps lead's route flags.
+func piHop(reg *providers.Registry, h router.ChainHop, lead Dispatch, head string) (Dispatch, string) {
+	p := reg.Row(h.Profile)
+	if p == nil {
+		return Dispatch{}, "pi (" + h.Profile + "): not a registry row"
+	}
+	wire, why := ProfileServes(agentid.Pi, p, h.Model)
+	if why != "" {
+		return Dispatch{}, "pi (" + h.Profile + "): " + why
+	}
+	d := Dispatch{Model: wire, Effort: lead.Effort, Route: rowRoute(reg, h.Profile), Account: h.Account,
+		Billing: router.DefaultBilling(p), otherRoute: true}
+	if h.Profile == head {
+		d.Account, d.Billing = lead.Account, lead.Billing
+		d.otherRoute, d.swap, d.routerChose, d.rung = lead.otherRoute, lead.swap, lead.routerChose, lead.rung
+	}
+	return d, ""
 }
 
 // piRunnerModel is the model q.Agent resolves on profile (the resolver gateway resolve uses) when Pi's menu has it.
