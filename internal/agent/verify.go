@@ -83,8 +83,8 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 // verifyTail is the last verifyTailMax bytes of the window, masked before the cut so no secret leaves a suffix.
 func verifyTail(t *tailBuf) string {
 	s := strings.ToValidUTF8(string(t.b), "")
-	if t.cut { // the window starts mid-output: its first two words may be a secret's end and its marker
-		s = dropWords(afterOrphanPEM(s), 2)
+	if t.cut { // the window starts mid-output
+		s = dropFirstLine(afterOrphanPEM(s))
 	}
 	masked := maskShapes(s)
 	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
@@ -102,18 +102,10 @@ func afterOrphanPEM(s string) string {
 	return ""
 }
 
-// dropWords is s without its first n whitespace-delimited words, keeping the whitespace after them.
-func dropWords(s string, n int) string {
-	const space = " \t\r\n"
-	for ; n > 0; n-- {
-		s = strings.TrimLeft(s, space)
-		i := strings.IndexAny(s, space)
-		if i < 0 {
-			return ""
-		}
-		s = s[i:]
-	}
-	return s
+// dropFirstLine is s past its first newline: the cut window's first line may be a secret's tail without its marker.
+func dropFirstLine(s string) string {
+	_, rest, _ := strings.Cut(s, "\n")
+	return rest
 }
 
 // maskShapes masks credential-shaped runs, then vault values, in s.

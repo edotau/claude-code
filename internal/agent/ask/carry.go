@@ -514,7 +514,9 @@ func takeCarryVerify(ctx context.Context) (context.Context, string) {
 	v := os.Getenv(carryVerifyEnv)
 	_ = proc.Unsetenv(carryVerifyEnv)
 	if values, ok := proc.ValuesFromContext(ctx); ok { // a snapshot owns the run's env: it, not the process, answers
-		v = values[carryVerifyEnv]
+		if snap, found := values[carryVerifyEnv]; found {
+			v = snap
+		}
 		delete(values, carryVerifyEnv)
 		ctx = proc.WithValues(ctx, values)
 	}

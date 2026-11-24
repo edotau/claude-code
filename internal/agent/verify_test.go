@@ -41,7 +41,7 @@ func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
 
 func TestVerifyTailDropsAPEMBodyWhoseBeginWasCut(t *testing.T) {
 	body := strings.Repeat("Zq9Xw2Lm7KaB3dE5gH7jQ1wE4rT6yU8iO0pAsDfGhJk", 3)
-	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n-----END PRIVATE KEY-----\none two after\n"), cut: true}
+	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n-----END PRIVATE KEY-----\nafter\n"), cut: true}
 	if tail := verifyTail(tb); strings.Contains(tail, body[:30]) || !strings.Contains(tail, "after") {
 		t.Errorf("tail = %q, want the orphaned key body dropped and later output kept", tail)
 	}
