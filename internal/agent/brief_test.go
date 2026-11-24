@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -201,5 +202,19 @@ func TestBriefCodeModeFollowsTarget(t *testing.T) {
 				t.Errorf("session %q target %v: rtk line present = %v", session, target, got)
 			}
 		}
+	}
+}
+
+func TestBriefTypedTierAndPlanTask(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	brief, err := RenderBrief(BriefInput{Task: "fix it", Owned: []string{"a.go"}, PlanTask: "Next N7", Tier: "fast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alias, _ := TaskTier(brief); alias != models.Haiku || !strings.Contains(brief, "\nTask: Next N7") {
+		t.Fatalf("tier or task line missing: %q", brief)
+	}
+	if _, err := RenderBrief(BriefInput{Task: "t", Owned: []string{"a.go"}, Tier: "huge"}); err == nil {
+		t.Fatal("unknown tier accepted")
 	}
 }
