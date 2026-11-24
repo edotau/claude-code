@@ -71,12 +71,14 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree land <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
   importers; all concurrent) and applies its net diff to the live working tree, uncommitted and unstaged. A landed
-  path already dirty in the live tree, or a failed apply, changes nothing, keeps the lane and exits 3 naming the
-  paths (a change you did not make is never overwritten). A clean land removes the worktree, keeps the branch
-  (the only committed copy until you commit) and prints `landed <lane>: N files uncommitted in <dir>; branch <b>
-  kept` plus the diff stat. `worktree clean <lane>` deletes the kept branch once its diff is in `HEAD`. Plan ticks
-  fire when you commit with `Task:` trailers or run `plan task --done`, not at landing. The full `rtk make audit`
-  runs detached on a snapshot of the lane's rebased head (`HEAD` plus the landed diff), reported on your next prompt.
+  path already dirty in the live tree, or a patch that does not check, changes nothing, keeps the lane and exits 3
+  naming the paths (a write failure after a clean check exits 1, may be partial, and keeps the lane; a change you
+  did not make is never overwritten). A clean land removes the worktree, keeps the branch (the only committed copy
+  until you commit; a detached lane keeps its worktree) and prints `landed <lane>: N files uncommitted in <dir>;
+  branch <b> kept` plus the diff stat. `worktree clean <lane>` deletes the kept branch once its diff is in `HEAD`.
+  Plan ticks fire when you commit with `Task:` trailers or run `plan task --done`, not at landing. The full
+  `rtk make audit` runs detached on a snapshot of the lane's rebased head (`HEAD` plus the landed diff), reported on
+  your next prompt.
   A rebase conflict exits 3 too, the lane stays as it was and the files are named: fix it in the lane, then re-run.
   Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
 - **Land on completion (every fan-out worktree, any `HARNESS_WORKTREE` value):** the moment a task's leaf hands back

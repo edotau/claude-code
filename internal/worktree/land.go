@@ -26,7 +26,7 @@ var gitlinkPatch = regexp.MustCompile(`(?m)^(?:index \S+ ` + gitlinkMode + `|(?:
 // applyLaneDiff applies the net diff from..to unstaged: --check first, then an apply a cancel cannot cut short.
 func applyLaneDiff(ctx context.Context, main, from, to string) error {
 	patch, err := runGit(ctx, main, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none",
-		"--src-prefix=a/", "--dst-prefix=b/", "--no-relative", from, to, "--")
+		"--src-prefix=a/", "--dst-prefix=b/", "--no-relative", "--no-color", "--submodule=short", from, to, "--")
 	if err != nil {
 		return fmt.Errorf("git diff %s..%s: %w", ShortOID(from), ShortOID(to), err)
 	}
@@ -111,6 +111,10 @@ func removeLanded(repo *Repo, name, dest string, log io.Writer, closing LedgerCl
 	}
 	if _, reason := cleanBusyReason(dest, "", nil); reason != "" {
 		result.Reason = reason
+		return result, nil
+	}
+	if result.Branch == "" {
+		result.Reason = "detached lane: no branch would keep its commits, worktree kept"
 		return result, nil
 	}
 	return removeMerged(repo, name, dest, Entry{Head: headOf(dest), keepBranch: true}, result, log, closing), nil

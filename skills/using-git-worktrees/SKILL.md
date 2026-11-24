@@ -86,7 +86,8 @@ What `land` does, in order:
   Makefile gate). With no detectable gate the land is refused unless `--no-verify`.
 - Applies the lane's net diff to the live working tree, uncommitted and unstaged (new, deleted and renamed files
   included); if `main` moved meanwhile it refuses and says to re-run. A landed path already dirty in the live tree, or
-  a failed apply, changes nothing, keeps the lane and exits 3 naming the paths.
+  a patch that does not check, changes nothing, keeps the lane and exits 3 naming the paths (a write failure after a
+  clean check exits 1 and may be partial; the lane stays).
 - Removes the lane's worktree and prints `landed <lane>: N files uncommitted in <dir>; branch <b> kept` plus the diff
   stat; the branch is the only committed copy until you commit, and `worktree clean <lane>` deletes it once its diff is
   in `HEAD`. No plan ticks fire at landing: they tick when you commit with `Task:` trailers or run `plan task --done`.
