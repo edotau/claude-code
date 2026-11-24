@@ -279,7 +279,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	res, err := runRecorded(ctx, &p.Record, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
 			res, err := p.remote.Run(ctx, p.Opts, sink)
-			return p.verified(ctx, res, err), err
+			return p.verified(ctx, res, err, d.Notify), err
 		}
 		wrote := func() (*[]string, *[]string) { return nil, nil } // a toolless run observes nothing
 		if !p.Opts.NoTools {
@@ -289,7 +289,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
 		dropSharedWrites(&p.Record)
 		p.Record.Wrote = mergeWritten(p.Record.Wrote, res.Written, p.Opts.WorkDir)
-		return p.verified(ctx, res, err), err
+		return p.verified(ctx, res, err, d.Notify), err
 	})
 	res.DispatchID = p.Record.ID
 	return res, err

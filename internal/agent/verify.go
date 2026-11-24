@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,21 +22,28 @@ const (
 )
 
 // verified adds the verify result to an answered run before its result event; a failed verify keeps res.Status (D3).
-func (p *Prepared) verified(ctx context.Context, res wire.Result, err error) wire.Result {
+func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, notify func(string)) wire.Result {
 	cmd := p.Opts.Verify
 	if cmd == "" || err != nil || res.Status != wire.StatusOK || res.Verify != nil {
 		return res
 	}
 	if p.remote != nil { // the work is on another host's tree: running here would check the wrong files
 		res.Verify = &wire.VerifyResult{Command: redact.Text(cmd), Exit: -1, Reason: wire.VerifyNotRunRemote}
-		return res
+	} else {
+		env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+			name, _, _ := strings.Cut(kv, "=")
+			return slices.Contains(p.Opts.Unset, name)
+		})
+		res.Verify = runVerify(ctx, p.Opts.WorkDir, cmd, append(env, p.Opts.Env...))
 	}
-	res.Verify = runVerify(ctx, p.Opts.WorkDir, cmd)
+	if notify != nil {
+		notify(fmt.Sprintf("verify: exit %d %s (%s)", res.Verify.Exit, res.Verify.Reason, res.Verify.Command))
+	}
 	return res
 }
 
-// runVerify runs each && step of verify as argv in workdir, stopping at the first failure.
-func runVerify(ctx context.Context, workdir, verify string) *wire.VerifyResult {
+// runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.
+func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.VerifyResult {
 	start := time.Now()
 	vr := &wire.VerifyResult{Command: redact.Text(verify)}
 	steps, err := plans.VerifyArgv(verify)
@@ -52,7 +61,7 @@ func runVerify(ctx context.Context, workdir, verify string) *wire.VerifyResult {
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
 		cmd.WaitDelay = proc.ExecWaitDelay
-		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(os.Environ(), s.Env...), out, out
+		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(slices.Clone(env), s.Env...), out, out
 		if err := cmd.Run(); err != nil {
 			vr.Exit = exitCode(err, out)
 			break
