@@ -114,23 +114,30 @@ var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "gemi
 // dashed is a model id with its dots spelled as dashes, the harness's own spelling.
 func dashed(id string) string { return strings.ReplaceAll(id, ".", "-") }
 
-// ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
-func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
-	id = strings.TrimPrefix(id, provider+"-")
-	want := dashed(id)
-	find := func(prov string) (ModelPrice, bool) {
-		for _, rid := range slices.Sorted(maps.Keys(p.Providers[prov])) {
-			if got := dashed(rid); got == want || got == prov+"-"+want {
-				return p.Providers[prov][rid], true
+// find is prov's row for the first of ids: an exact id wins over one that differs only in dots or dashes.
+func (p Prices) find(prov string, ids ...string) (ModelPrice, bool) {
+	rows := p.Providers[prov]
+	for _, id := range ids {
+		if row, ok := rows[id]; ok {
+			return row, true
+		}
+		for _, rid := range slices.Sorted(maps.Keys(rows)) {
+			if dashed(rid) == dashed(id) {
+				return rows[rid], true
 			}
 		}
-		return ModelPrice{}, false
 	}
-	if row, ok := find(provider); ok {
+	return ModelPrice{}, false
+}
+
+// ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
+func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
+	bare := strings.TrimPrefix(id, provider+"-")
+	if row, ok := p.find(provider, id, provider+"-"+bare, bare); ok {
 		return row, true
 	}
 	for prefix, vendor := range vendorOf {
-		if row, ok := find(vendor); ok && strings.HasPrefix(id, prefix) {
+		if row, ok := p.find(vendor, bare); ok && strings.HasPrefix(bare, prefix) {
 			return row, true
 		}
 	}
