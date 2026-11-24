@@ -1,12 +1,13 @@
 package assets
 
 import (
-	"bytes"
 	"encoding/json"
+	"io/fs"
+	"path"
 	"slices"
 	"strings"
 	"sync"
-	"text/template"
+	"text/template/parse"
 )
 
 type MemoryUpdateInput struct{ Worker, Procedure, Historical, Digest, Git, Tags string }
@@ -38,37 +39,40 @@ func MemoryReviewProcedure() string { return memoryProcedure(read("files/memory/
 func MemoryUpdateProcedure() string { return memoryProcedure(read("files/memory/prompts/update.md")) }
 
 func MemoryUpdateWorker(bank string) string {
-	return renderMemory("update-opening.tmpl", struct{ Bank string }{bank})
+	return renderMemory("update-opening.tmpl", tmplFields{"Bank": bank})
 }
 
 func MemoryDreamWorker(bank string) string {
-	return renderMemory("dream-opening.tmpl", struct{ Bank string }{bank})
+	return renderMemory("dream-opening.tmpl", tmplFields{"Bank": bank})
 }
 
 func MemoryLegacyUpdateWorker(bank, home string) string {
-	return renderMemory("legacy-update-opening.tmpl", struct{ Bank, Home string }{bank, home})
+	return renderMemory("legacy-update-opening.tmpl", tmplFields{"Bank": bank, "Home": home})
 }
 
 func MemoryLegacyDreamWorker(bank, home string) string {
-	return renderMemory("legacy-dream-opening.tmpl", struct{ Bank, Home string }{bank, home})
+	return renderMemory("legacy-dream-opening.tmpl", tmplFields{"Bank": bank, "Home": home})
 }
 
 func MemoryHistoricalRule() string { return string(read("files/memory/prompts/historical.txt")) }
 
 func MemoryUpdatePrompt(in MemoryUpdateInput) string {
-	return renderMemory("update-worker.tmpl", in)
+	return renderMemory("update-worker.tmpl", tmplFields{
+		"Worker": in.Worker, "Procedure": in.Procedure, "Historical": in.Historical,
+		"Digest": in.Digest, "Git": in.Git, "Tags": in.Tags,
+	})
 }
 
 func MemoryTranscriptPointer(path string) string {
-	return renderMemory("transcript-pointer.tmpl", struct{ Path string }{path})
+	return renderMemory("transcript-pointer.tmpl", tmplFields{"Path": path})
 }
 
 func MemorySessionDigest(path, body string) string {
-	return renderMemory("session-digest.tmpl", struct{ Path, Body string }{path, body})
+	return renderMemory("session-digest.tmpl", tmplFields{"Path": path, "Body": body})
 }
 
 func MemoryGitActivity(commits, files string) string {
-	return renderMemory("git-activity.tmpl", struct{ Commits, Files string }{commits, files})
+	return renderMemory("git-activity.tmpl", tmplFields{"Commits": commits, "Files": files})
 }
 
 func MemorySessionTags(lines []string) string {
@@ -76,7 +80,7 @@ func MemorySessionTags(lines []string) string {
 }
 
 func MemoryDreamPrompt(worker, changed, procedure string) string {
-	return renderMemory("dream-worker.tmpl", struct{ Worker, Changed, Procedure string }{worker, changed, procedure})
+	return renderMemory("dream-worker.tmpl", tmplFields{"Worker": worker, "Changed": changed, "Procedure": procedure})
 }
 
 func MemoryDreamUnchanged() string { return string(read("files/memory/prompts/dream-unchanged.txt")) }
@@ -102,14 +106,11 @@ func MemoryBlockBegin() string {
 }
 
 func MemoryBankHead(folders, router string) string {
-	return renderMemory("bank-head.tmpl", struct{ Folders, Router string }{folders, router})
+	return renderMemory("bank-head.tmpl", tmplFields{"Folders": folders, "Router": router})
 }
 
 func MemoryMoreEntries(count int, router string) string {
-	return renderMemory("more-entries.tmpl", struct {
-		Count  int
-		Router string
-	}{count, router})
+	return renderMemory("more-entries.tmpl", tmplFields{"Count": count, "Router": router})
 }
 
 func MemoryUnresolvedEntries(count int) string {
@@ -117,11 +118,11 @@ func MemoryUnresolvedEntries(count int) string {
 }
 
 func MemoryCatalogHeader(date string) string {
-	return renderMemory("catalog-header.tmpl", struct{ Date string }{date})
+	return renderMemory("catalog-header.tmpl", tmplFields{"Date": date})
 }
 
 func MemoryCatalogBank(hook, date string) string {
-	return renderMemory("catalog-bank.tmpl", struct{ Hook, Date string }{hook, date})
+	return renderMemory("catalog-bank.tmpl", tmplFields{"Hook": hook, "Date": date})
 }
 
 func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/home-index.txt")) }
@@ -149,10 +150,7 @@ func MemoryFolderRoles() [][2]string {
 func MemoryLayoutHeading() string { return string(read("files/memory/prompts/layout.txt")) }
 
 func MemoryLayoutRow(folder, role string, count int) string {
-	return renderMemory("layout-row.tmpl", struct {
-		Folder, Role string
-		Count        int
-	}{folder, role, count})
+	return renderMemory("layout-row.tmpl", tmplFields{"Folder": folder, "Role": role, "Count": count})
 }
 
 func MemoryNativeHeading() string { return string(read("files/memory/prompts/native.txt")) }
@@ -166,10 +164,7 @@ func MemoryNativeUnparsed(count int) string {
 }
 
 func MemoryRecallLine(file, text string, label bool) string {
-	return renderMemory("recall-line.tmpl", struct {
-		File, Text string
-		Label      bool
-	}{file, text, label})
+	return renderMemory("recall-line.tmpl", tmplFields{"File": file, "Text": text, "Label": label})
 }
 
 func MemoryRecallHeader(expand bool) string {
@@ -189,7 +184,7 @@ func MemoryPreviousSession(id string) string {
 }
 
 func MemoryUpdateRecovery(id, status, log string) string {
-	return renderMemory("update-recovery.tmpl", struct{ ID, Status, Log string }{id, status, log})
+	return renderMemory("update-recovery.tmpl", tmplFields{"ID": id, "Status": status, "Log": log})
 }
 
 func MemoryScaffoldNote(dir string) string {
@@ -209,19 +204,27 @@ func MemoryNativeContext(index string) string {
 }
 
 func TranscriptHandoff(cwd, transcript, note string) string {
-	return renderMemory("transcript-handoff.tmpl", struct{ CWD, Transcript, Note string }{cwd, transcript, note})
+	return renderMemory("transcript-handoff.tmpl", tmplFields{"CWD": cwd, "Transcript": transcript, "Note": note})
 }
 
-var memoryTemplates = sync.OnceValue(func() *template.Template {
-	return template.Must(template.New("").Option("missingkey=error").ParseFS(files, "files/memory/prompts/*.tmpl"))
+var memoryTemplates = sync.OnceValue(func() map[string]*parse.ListNode {
+	names, err := fs.Glob(files, "files/memory/prompts/*.tmpl")
+	if err != nil {
+		panic("assets: memory templates: " + err.Error())
+	}
+	roots := make(map[string]*parse.ListNode, len(names))
+	for _, name := range names {
+		roots[path.Base(name)] = parseTemplate(path.Base(name), read(name))
+	}
+	return roots
 })
 
 func renderMemory(name string, input any) string {
-	var out bytes.Buffer
-	if err := memoryTemplates().ExecuteTemplate(&out, name, input); err != nil {
-		panic("assets: " + name + ": " + err.Error())
+	root, ok := memoryTemplates()[name]
+	if !ok {
+		panic("assets: no memory template " + name)
 	}
-	return out.String()
+	return renderTemplate(name, root, input)
 }
 
 func memoryProcedure(body []byte) string {

@@ -1,17 +1,16 @@
 package assets
 
 import (
-	"bytes"
 	"strings"
 	"sync"
-	"text/template"
+	"text/template/parse"
 )
 
 var workflowNameEscaper = strings.NewReplacer(`\`, `\\`, "'", `\'`, "\n", `\n`, "\r", `\r`)
 
 type workflowSkeleton struct {
 	once   sync.Once
-	parsed *template.Template
+	parsed *parse.ListNode
 }
 
 var pipelineSkeleton, parallelSkeleton, evaluatorSkeleton, orchestratorSkeleton workflowSkeleton
@@ -67,12 +66,6 @@ func WorkflowOrchestratorSkeleton(name string) string {
 }
 
 func (s *workflowSkeleton) render(name string, source func() []byte) string {
-	s.once.Do(func() {
-		s.parsed = template.Must(template.New("workflow").Option("missingkey=error").Parse(string(source())))
-	})
-	var out bytes.Buffer
-	if err := s.parsed.Execute(&out, struct{ Name string }{workflowNameEscaper.Replace(name)}); err != nil {
-		panic("assets: workflow skeleton: " + err.Error())
-	}
-	return out.String()
+	s.once.Do(func() { s.parsed = parseTemplate("workflow", source()) })
+	return renderTemplate("workflow", s.parsed, tmplFields{"Name": workflowNameEscaper.Replace(name)})
 }

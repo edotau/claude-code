@@ -3,8 +3,27 @@ package assets
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
+	"text/template"
 )
+
+func TestWorkflowSkeletonMatchesTextTemplate(t *testing.T) {
+	name := "a'b\\c\nd"
+	for file, render := range map[string]func(string) string{
+		"pipeline": WorkflowPipelineSkeleton, "parallel": WorkflowParallelSkeleton,
+		"evaluator": WorkflowEvaluatorSkeleton, "orchestrator": WorkflowOrchestratorSkeleton,
+	} {
+		ref := template.Must(template.New("").Parse(string(read("files/workflows/skeletons/" + file + ".js.tmpl"))))
+		var want strings.Builder
+		if err := ref.Execute(&want, struct{ Name string }{workflowNameEscaper.Replace(name)}); err != nil {
+			t.Fatal(err)
+		}
+		if got := render(name); got != want.String() {
+			t.Errorf("%s skeleton differs from text/template output", file)
+		}
+	}
+}
 
 func TestWorkflowBlockBytes(t *testing.T) {
 	for _, tc := range []struct {
