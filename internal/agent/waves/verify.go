@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.
@@ -463,11 +464,7 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 	return GateResult{Exit: exit, Tail: tail.lines(), Saved: in.OutPath}, err
 }
 
-// needsShell is true for a step bash must run: a builtin, an assignment prefix, or an rtk off PATH (bash pins it).
-func needsShell(s plans.VerifyStep) bool {
-	_, err := exec.LookPath(s.Argv[0])
-	return err != nil && !strings.Contains(s.Argv[0], "/")
-}
+func needsShell(s plans.VerifyStep) bool { return worktree.NeedsShell(s.Argv[0]) }
 
 // gateBash runs a shell-free script as argv steps (verifyArgv); only a line with shell syntax goes to `bash -c`.
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
