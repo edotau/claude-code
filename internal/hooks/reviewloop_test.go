@@ -103,6 +103,7 @@ func TestReviewDecide(t *testing.T) {
 		{"fixture question", []string{user, transcriptAsk("Which fixture should the example use?", "")}, false, false},
 		{"tilde fence", []string{user, text("~~~\nWant me to fix it?\n~~~\nDONE.")}, false, false},
 		{"indented code", []string{user, text("Example:\n    Want me to fix it?\nDONE.")}, false, false},
+		{"question after indented code", []string{user, text("Example:\n    go test ./x\nWant me to fix the LOW findings?")}, true, false},
 		{"multiline quote", []string{user, text("He said \"ok.\nWant me to fix it?\" done.")}, false, false},
 		{"unrelated result", []string{user, askID, otherUse, otherResult}, false, true},
 		{"option description", []string{user, transcriptAsk("Which editor should I open?", "Quick fixes")}, false, false},

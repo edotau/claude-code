@@ -74,7 +74,7 @@ func responseStrings(v any, out []string) []string {
 var (
 	askTopic = regexp.MustCompile(`(?i)\b(?:fix(?:es|ed|ing)?|findings?|reviews?)\b`)
 	askFix   = regexp.MustCompile(`(?i)\b(?:want me to|should i|shall i|would you like me to|do you want me to) fix\b`)
-	quoted   = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|(?m:^(?: {4}|\\t).*$)|(?m:^\\s*>.*$)|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"]*\"|(?:^|[\\s(])'[^'\\n]*'")
+	quoted   = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|(?m:^(?: {4}|\\t)[^\\n]*$)|(?m:^[ \\t]*>[^\\n]*$)|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"]*\"|(?:^|[\\s(])'[^'\\n]*'")
 )
 
 const decideReason = "Decide and act: the owner's standing rule is that decisions are made now, not asked (R28)"
