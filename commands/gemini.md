@@ -3,7 +3,7 @@ description: "Send a task to the gemini agent on its own pin, here or on --host 
 argument-hint: "[--host <host>] [--profile <p>] [--model <m>] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label gemini *), Bash(claude-code agents brief --path gemini), Read, Write,
-  Bash(claude-code agents ask --spec *), Bash(claude-code agents result -f *)
+  Bash(claude-code agents ask --agent gemini --spec *), Bash(claude-code agents result -f *)
 ---
 
 # /gemini
@@ -20,12 +20,12 @@ Otherwise:
 3. Run `claude-code agents label gemini [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).
 4. Run `claude-code agents brief --path gemini` again and Write the spec there, one JSON object with no prompt
-   (the task stays in the first file, any size): `{"agent":"gemini","tools":true,"carry":true,"background":true}`
+   (the task stays in the first file, any size): `{"tools":true,"carry":true,"background":true}`
    plus `"profile"` and `"model"` when given. With `--host`, add `"host":"<host>"` and leave out `carry` and
    `background`.
 5. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
-   `claude-code agents ask --spec <spec path> - < <task path>`. With `--host`, relay the foreground result directly and
-   skip step 6; allow the call to wait for completion.
+   `claude-code agents ask --agent gemini --spec <spec path> - < <task path>`. With `--host`, relay the foreground
+   result directly and skip step 6; allow the call to wait for completion.
 6. For a local ask, read the id from its `job <id> started` line, then wait with ONE
    `claude-code agents result -f <id>`.
 
