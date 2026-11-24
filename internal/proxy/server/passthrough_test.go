@@ -732,9 +732,11 @@ func TestPassthroughMetersChatUsage(t *testing.T) {
 				t.Fatalf("status %d body %q, want relayed unchanged", resp.StatusCode, b)
 			}
 			got := ledgerSettled(t, 1)
-			if len(got) != 1 || got[0].Profile != "pt" || got[0].Model != "m" || got[0].Input != 11 ||
-				got[0].Output != 4 || got[0].AskedModel != "m" || got[0].Call != "chat" || got[0].Route != "" {
-				t.Fatalf("ledger = %+v, want pt/m 11 in 4 out, asked_model m, call chat", got)
+			if len(got) != 1 || got[0].Profile != "pt" || got[0].Model != "m" || got[0].Input != 11 || got[0].Output != 4 {
+				t.Fatalf("ledger = %+v, want pt/m 11 in 4 out", got)
+			}
+			if e := got[0]; e.AskedModel != "m" || e.Call != "chat" || e.Route != "" {
+				t.Fatalf("ledger = %+v, want asked_model m, call chat, no route", e)
 			}
 		})
 	}
