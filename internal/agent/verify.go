@@ -84,10 +84,22 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 func verifyTail(t *tailBuf) string {
 	s := strings.ToValidUTF8(string(t.b), "")
 	if t.cut { // the window starts mid-output: its first two words may be a secret's end and its marker
-		s = dropWords(s, 2)
+		s = dropWords(afterOrphanPEM(s), 2)
 	}
 	masked := maskShapes(s)
 	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
+}
+
+// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut window lost.
+func afterOrphanPEM(s string) string {
+	end := strings.Index(s, "-----END ")
+	if end < 0 || strings.Contains(s[:end], "-----BEGIN ") {
+		return s
+	}
+	if nl := strings.IndexByte(s[end:], '\n'); nl >= 0 {
+		return s[end+nl:]
+	}
+	return ""
 }
 
 // dropWords is s without its first n whitespace-delimited words, keeping the whitespace after them.

@@ -309,7 +309,8 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 		f.fallback = router.DefaultFallback()
 	}
 	f.dryRun = true
-	r := &askRun{ctx: agent.PeekContext(ctx), f: f, fs: fs, args: args, pos: pos, out: io.Discard}
+	peek := withValues(agent.PeekContext(ctx), proc.Values{proc.DispatchIDEnv: rec.ID}) // the child's ancestry: it is carried
+	r := &askRun{ctx: peek, f: f, fs: fs, args: args, pos: pos, out: io.Discard}
 	markTyped(fs, f)
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.resolveRecord,
@@ -558,18 +559,26 @@ func carryEnvelope(ctx context.Context, rec, final agent.Record, found bool, cod
 		return wire.NewEnvelope(res, fmt.Errorf(noRecordFmt, code), rec.ID)
 	}
 	env, read := final.SavedEnvelope()
-	if !read { // no clean result event: the child may have run verify already, so the parent never reruns it
+	if !read { // no clean result event: rebuilt from the record
 		env = final.ResultEnvelope(io.Discard)
 	}
 	env.DispatchID, env.DurationMs = rec.ID, took.Milliseconds()
-	if read && parentVerifies(rec, env) {
-		env.Verify = agent.VerifyRun(ctx, rec.Request, rec.Host != "") // the child never took it: once, here
+	if parentVerifies(rec, env) {
+		env.Verify = carryVerify(ctx, rec, read)
 		fmt.Fprintln(os.Stderr, "ask:", env.Verify.Line())
 	}
 	if env.Agent != rec.Agent && env.Fallback == nil {
 		env.Fallback, env.FallbackReason = &rec.Agent, cmp.Or(env.FallbackReason, "pi takeover of "+final.TakeoverOf)
 	}
 	return env
+}
+
+// carryVerify runs the verify here once when the child's clean result held none, else marks it unread: never twice.
+func carryVerify(ctx context.Context, rec agent.Record, read bool) *wire.VerifyResult {
+	if !read {
+		return &wire.VerifyResult{Command: rec.Request.Verify, Exit: -1, Reason: wire.VerifyNotRunUnread}
+	}
+	return agent.VerifyRun(ctx, rec.Request, rec.Host != "")
 }
 
 // parentVerifies is true for an answered run whose spec verify its child's clean result did not carry.

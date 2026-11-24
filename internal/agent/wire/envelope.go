@@ -160,6 +160,8 @@ func (v VerifyResult) Line() string {
 const (
 	VerifyNotRunRemote = "remote_workdir"
 	VerifyNotRunShape  = "shape"
+	// VerifyNotRunUnread is a carried child's result event that could not be read: it may have run verify itself.
+	VerifyNotRunUnread = "child_result_unread"
 )
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
