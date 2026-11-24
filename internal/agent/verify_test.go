@@ -41,13 +41,18 @@ func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
 
 func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 	line := strings.Repeat("Zq9Xw2Lm7KaB3dE5", 4)
-	tb := &tailBuf{b: []byte("mid-line " + line[:20] + "\n" + strings.Repeat(line+"\n", 5) + line[:20]), cut: true}
+	tb := &tailBuf{b: []byte("mid-line " + line[:20] + "\n" + strings.Repeat(line+"\n", 5) + line[:5]), cut: true}
 	if tail := verifyTail(tb); tail != "" {
 		t.Errorf("tail = %q, want empty for a window of base64 body lines", tail)
 	}
 	tb = &tailBuf{b: []byte("x\n" + line + "\n" + line + "\nok: build passed\n" + line + "\n"), cut: true}
 	if tail := verifyTail(tb); !strings.HasPrefix(tail, "ok: build passed") {
 		t.Errorf("tail = %q, want leading body lines dropped and ordinary output kept", tail)
+	}
+	hash := strings.Repeat("0123456789abcdef", 4)
+	tb = &tailBuf{b: []byte("x\n" + hash + "\nok\n"), cut: true}
+	if tail := verifyTail(tb); !strings.Contains(tail, hash) {
+		t.Errorf("tail = %q, want a hash line kept", tail)
 	}
 }
 
