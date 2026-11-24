@@ -83,14 +83,16 @@ func GateRefused(cmd string) error {
 
 // ParseWaves reads checklist ownership with Parse, then adds wave metadata and phase bodies.
 func ParseWaves(file string) (WavePlan, error) {
-	base, err := Parse(file)
-	if err != nil {
-		return WavePlan{}, err
-	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		return WavePlan{}, err
+		return WavePlan{Path: file}, err
 	}
+	return parseWavesBytes(file, raw)
+}
+
+// parseWavesBytes is ParseWaves over the plan text raw, read from file.
+func parseWavesBytes(file string, raw []byte) (WavePlan, error) {
+	base := parseBytes(file, raw)
 	p := WavePlan{Path: file}
 	lines := strings.Split(string(raw), "\n")
 	gate, bodies := phaseDetails(lines)
@@ -634,16 +636,58 @@ func AddTask(planPath string, t WaveTask) error {
 	}
 	return editPlan(planPath, func(text string) (string, error) {
 		p := parseBytes(planPath, []byte(text))
-		if _, ok := findTask(p, t.ID); ok || len(p.Tasks) == 0 {
-			return "", fmt.Errorf("plans: task %q already exists or %s has no task list", t.ID, planPath)
+		if _, ok := findTask(p, t.ID); ok {
+			return "", fmt.Errorf("plans: task %q already exists in %s", t.ID, planPath)
 		}
 		for _, b := range t.BlockedBy {
 			if _, ok := findTask(p, b); !ok {
 				return "", fmt.Errorf("plans: blocked-by %q names no task in %s", b, planPath)
 			}
 		}
-		lines := strings.Split(text, "\n")
-		at := slices.MaxFunc(p.Tasks, func(a, b Task) int { return a.End - b.End }).End + 1
-		return strings.Join(slices.Insert(lines, at, TaskLine(t)), "\n"), nil
+		at, err := tasksEnd(strings.Split(text, "\n"), p)
+		if err != nil {
+			return "", err
+		}
+		out := strings.Join(slices.Insert(strings.Split(text, "\n"), at, TaskLine(t)), "\n")
+		return out, checkRendered(planPath, out, t, len(p.Tasks))
 	})
+}
+
+// tasksEnd is the line after the last task inside the "## Tasks" section.
+func tasksEnd(lines []string, p Plan) (int, error) {
+	start, stop := -1, len(lines)
+	for i, l := range lines {
+		switch {
+		case strings.TrimSpace(l) == "## Tasks":
+			start = i
+		case start >= 0 && strings.HasPrefix(l, "## "):
+			stop = min(stop, i)
+		}
+	}
+	end := -1
+	for _, t := range p.Tasks {
+		if t.Start > start && t.End < stop {
+			end = max(end, t.End)
+		}
+	}
+	if start < 0 || end < 0 {
+		return 0, errors.New("plans: the plan has no task under a \"## Tasks\" heading")
+	}
+	return end + 1, nil
+}
+
+// checkRendered refuses text where the new line does not parse back as t, or a Phase task the wave parser rejects.
+func checkRendered(planPath, text string, t WaveTask, before int) error {
+	np := parseBytes(planPath, []byte(text))
+	got, ok := findTask(np, t.ID)
+	if !ok || got.ID != "" && got.ID != t.ID || len(np.Tasks) != before+1 || !slices.Equal(got.Owns, t.Owns) {
+		return fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
+	}
+	if !waveID().MatchString(t.ID) {
+		return nil
+	}
+	if _, err := parseWavesBytes(planPath, []byte(text)); err != nil {
+		return fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+	}
+	return nil
 }
