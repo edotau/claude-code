@@ -6,17 +6,17 @@ const stRel = (ctx, f) => String(f || '').replace(ctx.cwd ? ctx.cwd + '/' : /^$/
 const stDir = (f) => String(f).split('/').slice(0, -1).join('/') || '.'
 // stDiff: the brief's diff command, in the spelling copilot's shell allows; it names untracked new files too.
 const stDiff = (ps) => '`git diff --no-ext-diff --no-textconv -- ' + ps.join(' ') + '` plus every new (`??`) file `git status --porcelain -- ' + ps.join(' ') + '` lists'
-// sameBug: one bug when two findings share a file and sit within ST_NEAR lines or name the same symbol.
-const sameBug = (ctx, g, f) => stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
+// sameBug: one bug on the same Go diagnostic_id, else same file within ST_NEAR lines or the same symbol.
+const sameBug = (ctx, g, f) => g.diagnostic_id && f.diagnostic_id ? g.diagnostic_id === f.diagnostic_id : stRel(ctx, g.file) === stRel(ctx, f.file) && (Math.abs((g.line || 0) - (f.line || 0)) <= ST_NEAR || (!!g.symbol && g.symbol === f.symbol))
 const lowBudget = () => typeof budget !== 'undefined' && !!budget && !!budget.total && budget.remaining() < 150000
 // stCost: a cost finding (perf, runtime, complexity, test-quality) has a cited cost and a safe fix, no scenario.
 const stCost = (f) => !!f.kind && f.kind !== 'bug'
 const ST_LIST = { type: 'array', items: { type: 'string' } }
 const ST_WORK = { type: 'object', properties: { status: { type: 'string', enum: ['done', 'partial', 'blocked'] }, files: ST_LIST, summary: { type: 'string' }, callers: { type: 'string' }, leftUndone: ST_LIST }, required: ['status', 'files', 'summary'] }
-const ST_FAILURES = { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, text: { type: 'string' } }, required: ['file', 'line', 'text'] } }
-const ST_CHECK = { type: 'object', properties: { gate: { type: 'string' }, state: { type: 'string' }, exit: { type: ['integer', 'null'] }, changed: ST_LIST, failures: ST_FAILURES }, required: ['gate', 'exit', 'changed', 'failures'] }
+const ST_FAILURES = { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, text: { type: 'string' }, diagnostic_id: { type: 'string' } }, required: ['file', 'line', 'text'] } }
+const ST_CHECK = { type: 'object', properties: { gate: { type: 'string' }, state: { type: 'string' }, exit: { type: ['integer', 'null'] }, changed: ST_LIST, change_ids: ST_LIST, failures: ST_FAILURES }, required: ['gate', 'exit', 'changed', 'failures'] }
 const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LIST, deltaLines: { type: 'integer' }, status: { type: 'string', enum: ['done', 'clean', 'partial', 'blocked'] } }, required: ['applied', 'flagged', 'deltaLines', 'status'] }
-const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
+const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, diagnostic_id: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
 const ST_DETECT = { type: 'object', additionalProperties: false, required: ['gate', 'source'],
   properties: { gate: { type: 'string', description: 'exact command, empty when nothing matches' }, source: { type: 'string' } } }
 // Measured run state: numstat rows, proposed tests, over-budget fixes, seam needs, gate results in order.
@@ -112,7 +112,7 @@ const stCheckSteps = (ctx, paths, cmd) => cmd ?
   '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
   'Return gate, exit (null only if execution is impossible), changed, failures [{file,line,text}] from command output. Keep failing paths repo-relative; retain errors without source locations too. ' :
   'Run exactly: claude-code worktree gate --run --dir ' + stShq(ctx.cwd || '.') + ' --scope ' + stShq(paths.join(',')) +
-  ' --format json </dev/null — Go runs the scoped gate once and observes the exit, changed hashes and failures: return its gate, exit, changed and failures fields verbatim, never your own reading of the output. '
+  ' --format json </dev/null — Go runs the scoped gate once and observes the exit, changed hashes and failures: return its gate, exit, changed, change_ids and failures (with each diagnostic_id) fields verbatim, never your own reading of the output. '
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const state = ctx.claudeState ? 'Account state is ' + ctx.claudeState :
@@ -120,15 +120,20 @@ async function stLoopCheck(ctx, o, gate, label) {
   return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. ' +
     stCheckSteps(ctx, paths, Array.isArray(gate) ? gate.join(' && ') : gate) + state, ST_CHECK)
 }
-// stStamps maps each `changed` entry to its path; the entry (path + content hash) differs when the content does.
-const stStamps = (changed) => new Map(changed.map((s) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), s]))
+// stStamps maps each `changed` entry to its path; the value keeps the entry and Go's change_id when ids align with it.
+const stStamps = (changed, ids) => new Map(changed.map((s, i) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), { s, id: Array.isArray(ids) && ids.length === changed.length ? ids[i] : '' }]))
+// stSameStamp: equal change_ids when both sides have one, else equal entries.
+const stSameStamp = (a, b) => !!a && !!b && (a.id && b.id ? a.id === b.id : a.s === b.s)
 const stFailureKey = (f) => f.file + ':' + f.text.split('\n')[0].replace(/\b\d+(?:\.\d+)?(?:ms|s)\b/g, '').replace(/(?:\/private)?\/(?:tmp|var\/folders)\/[^ :]+/g, '<tmp>').trim()
-const stOwned = (o, file) => !!file && !file.split('/').includes('..') && !file.startsWith('/') && (o.files.length ? o.files.includes(file) : o.scope.some((p) => p === '.' || file === p || file.startsWith(p + '/')))
+// stSameFailure: equal diagnostic_ids when both failures have one, else equal file and first text line.
+const stSameFailure = (f, g) => f.diagnostic_id && g.diagnostic_id ? f.diagnostic_id === g.diagnostic_id : stFailureKey(f) === stFailureKey(g)
+// stOwned: a failure carrying a diagnostic_id must be one Go reported in this loop (o.ids); the path check always applies.
+const stOwned = (o, file, id) => (!id || !!o.ids && o.ids.has(id)) && !!file && !file.split('/').includes('..') && !file.startsWith('/') && (o.files.length ? o.files.includes(file) : o.scope.some((p) => p === '.' || file === p || file.startsWith(p + '/')))
 function stLoopGroups(ctx, o, failures) {
   const groups = new Map()
   for (const f of failures) {
     const file = stRel(ctx, f.file)
-    if (!stOwned(o, file)) continue
+    if (!stOwned(o, file, f.diagnostic_id)) continue
     const key = file.endsWith('.go') ? stDir(file) : file
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push({ ...f, file })
@@ -154,7 +159,7 @@ const stGateCmd = (o) => o.gate || (o.gates ? Object.entries(o.gates).filter(([e
 // stRunnable: the check read an exit code from a gate that ran (126 and 127 mean it could not).
 const stRunnable = (c) => !!c && Number.isInteger(c.exit) && ![126, 127].includes(c.exit)
 const stCheckOk = (r) => !!r && Array.isArray(r.changed) && Array.isArray(r.failures) && r.failures.every((f) => !!f && typeof f.file === 'string' && typeof f.text === 'string')
-const stMoved = (prev, now, base) => base ? [] : [...new Set([...now.keys(), ...(prev || new Map()).keys()])].filter((k) => !prev || prev.get(k) !== now.get(k))
+const stMoved = (prev, now, base) => base ? [] : [...new Set([...now.keys(), ...(prev || new Map()).keys()])].filter((k) => !prev || !stSameStamp(prev.get(k), now.get(k)))
 const stFirstExit = (o, c) => !stRunnable(c) ? 'error' : c.exit === 0 ? 'green' : o.max === 0 ? 'red' : 'capped'
 const stNextExit = (c, fixed, removed) => !stRunnable(c) ? 'error' : c.exit === 0 ? 'green' : !fixed ? 'error' : !c.changed.length || !removed ? 'stalled' : 'capped'
 // stWithState: adopt the first check's account state; the model mapping follows the latest check (L.cur).
@@ -165,7 +170,9 @@ async function stLoopObserve(ctx, o, L, base) {
   L.gateRuns++
   if (!stCheckOk(r)) return null
   L.gate = L.gate || r.gate
-  const now = stStamps(r.changed), moved = stMoved(L.stamps, now, base)
+  o.ids = o.ids || new Set()
+  for (const f of r.failures) if (f.diagnostic_id) o.ids.add(f.diagnostic_id)
+  const now = stStamps(r.changed, r.change_ids), moved = stMoved(L.stamps, now, base)
   L.stamps = now
   for (const f of moved) L.changed.add(f)
   return { ...r, changed: moved }
@@ -174,13 +181,17 @@ async function stLoopRound(ctx, o, L, before, i) {
   const groups = stLoopGroups(ctx, o, before.failures)
   const fixed = await stLoopFix(ctx, o, groups, i)
   const cur = await stLoopObserve(ctx, o, L)
-  const removed = cur && before.failures.some((f) => !cur.failures.some((g) => stFailureKey(f) === stFailureKey(g)))
+  const removed = cur && before.failures.some((f) => !cur.failures.some((g) => stSameFailure(f, g)))
   const entry = { iteration: i, exitBefore: before.exit, exitAfter: cur ? cur.exit : null, failuresBefore: before.failures.length,
     failuresAfter: cur ? cur.failures.length : 0, changed: cur ? cur.changed : [], groups: groups.map(([f]) => f) }
   return { cur, entry, exit: stNextExit(cur, fixed, removed) }
 }
 const stLoopOpts = (o) => ({ ...o, scope: o.scope || [], files: o.files || [] })
-const stLoopStart = (ctx, o, L, cap) => o.trust && o.known && o.known.length && cap ? { exit: 1, changed: [], failures: o.known } : stLoopObserve(ctx, o, L, true)
+function stLoopStart(ctx, o, L, cap) {
+  if (!(o.trust && o.known && o.known.length && cap)) return stLoopObserve(ctx, o, L, true)
+  o.ids = new Set([...(o.ids || []), ...o.known.map((f) => f.diagnostic_id).filter(Boolean)])
+  return { exit: 1, changed: [], failures: o.known }
+}
 // stageLoop preserves {scope, gate, max, check, fix}; only observed checks determine exit and residual.
 async function stageLoop(ctx, o) {
   o = stLoopOpts(o)
