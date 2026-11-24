@@ -108,12 +108,13 @@ func piSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, lead D
 		return nil, nil, err.Error()
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
+	drop := router.RotatedLeadOf(ctx).Drop // rows of providers a rotation kept out: no hop runs there
 	var hops []Dispatch
 	var skips []string
 	for _, h := range tb.Chain(reg, router.ChainReq{Agent: agentid.Pi, Profile: profile, Model: model, Alias: q.AliasHint,
 		Fallback: q.Fallback, Asked: q.Agent, TypedModel: q.Model != ""}) {
-		if h.Agent != agentid.Pi || h.OffArm || h.Profile == profile { // the head and the agent's own CLI hops
-			continue
+		if h.Agent != agentid.Pi || h.OffArm || h.Profile == profile || slices.Contains(drop, h.Profile) {
+			continue // the head, the agent's own CLI hops and kept-out rows
 		}
 		d, why := piHop(reg, h, lead.Effort)
 		if why != "" {

@@ -305,11 +305,10 @@ func modeCells(reg *providers.Registry, modes map[string]string, role router.Rol
 	return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return exclusive(c.Provider) }), scope
 }
 
-// placeRotation leads o with row as a rotated lead minus kept-out rows; a pi sibling hop risk pins row explicitly.
+// placeRotation leads o with row as a rotated lead minus kept-out rows, which the pi runner's sibling hops skip too.
 func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, row string, scope modeScope) (context.Context, RunOptions) {
 	drop := scope.rows(reg)
-	workspace := func(r string) bool { p := reg.Row(r); return p != nil && p.Preset == providers.PresetDatabricks }
-	if scope.stay || slices.ContainsFunc(drop, workspace) {
+	if scope.stay {
 		o.Provider, o.Lead, o.Rotated = row, "", true // Lead outranks Provider, so the pin needs it empty
 		return ctx, o
 	}

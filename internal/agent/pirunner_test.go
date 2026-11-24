@@ -100,3 +100,25 @@ func TestPiRunnerAskedForRosterAgents(t *testing.T) {
 		}
 	}
 }
+
+// A rotation's kept-out rows get no sibling pi hop, hop or skip.
+func TestPiSiblingsSkipRotationDrop(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
+	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
+	open := proc.WithValues(context.Background(), proc.Values{})
+	sibs, skips, _ := piSiblings(open, reg, q, lead, q.Model)
+	if len(sibs)+len(skips) == 0 {
+		t.Fatal("fixture: an unrotated ask considers no sibling workspace")
+	}
+	var drop []string
+	for name := range reg.Providers {
+		if name != "dev" {
+			drop = append(drop, name)
+		}
+	}
+	ctx := router.WithRotatedLead(open, router.RotatedLead{Row: "dev", Drop: drop})
+	if sibs, skips, why := piSiblings(ctx, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
+		t.Fatalf("kept-out rows still planned pi hops: hops %v, skips %v, why %q", sibs, skips, why)
+	}
+}
