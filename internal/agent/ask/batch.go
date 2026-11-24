@@ -212,7 +212,7 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 // lineRequest is base with the line's prompt, route, model and tools over it, plus the agent it selects.
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
-	prompt, err := lineBrief(tl, agentName, base.Tools)
+	prompt, err := lineBrief(tl, agentName, base)
 	if err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
@@ -237,12 +237,15 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 }
 
 // lineBrief is the line's prompt, wrapped as a leaf brief when it sets own, report or verify.
-func lineBrief(tl batchLine, agentName string, baseTools bool) (string, error) {
+func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, error) {
 	var argv []string
 	if agentName != "" {
 		argv = append(argv, "--agent", agentName)
 	}
-	if tools := cmp.Or(tl.Tools, &baseTools); *tools {
+	if base.Codemode != "" {
+		argv = append(argv, "--codemode", base.Codemode)
+	}
+	if tools := cmp.Or(tl.Tools, &base.Tools); *tools {
 		argv = append(argv, "--tools")
 	}
 	return specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
