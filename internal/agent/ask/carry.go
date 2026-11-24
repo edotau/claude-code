@@ -498,10 +498,11 @@ func overlayCaps(ctx context.Context, value string) ([]string, error) {
 func carryEnv(ctx context.Context, rec agent.Record) []string {
 	_, values := agent.RunValues(ctx, nil)
 	values = values.Merge(proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)})
+	var keep []string // the carried ask child takes the verify once; every agent it launches scrubs it
 	if rec.Request.Verify != "" {
-		values = values.Merge(proc.Values{carryVerifyEnv: rec.Request.Verify})
+		values, keep = values.Merge(proc.Values{carryVerifyEnv: rec.Request.Verify}), []string{carryVerifyEnv}
 	}
-	return agent.EnvSpec{Mode: agent.EnvClaude, Keep: []string{carryVerifyEnv}}.Environ(proc.WithValues(ctx, values))
+	return agent.EnvSpec{Mode: agent.EnvClaude, Keep: keep}.Environ(proc.WithValues(ctx, values))
 }
 
 // carryVerifyEnv hands a carried child the spec's verify (ask has no flag for it); the child takes it once.
@@ -511,8 +512,8 @@ const carryVerifyEnv = "HARNESS_CARRY_VERIFY"
 func takeCarryVerify(ctx context.Context) (context.Context, string) {
 	v := os.Getenv(carryVerifyEnv)
 	_ = proc.Unsetenv(carryVerifyEnv)
-	if values, ok := proc.ValuesFromContext(ctx); ok {
-		v = cmp.Or(v, values[carryVerifyEnv])
+	if values, ok := proc.ValuesFromContext(ctx); ok { // a snapshot owns the run's env: it, not the process, answers
+		v = values[carryVerifyEnv]
 		delete(values, carryVerifyEnv)
 		ctx = proc.WithValues(ctx, values)
 	}

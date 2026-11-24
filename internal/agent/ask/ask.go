@@ -109,6 +109,7 @@ var Reap = func() func() { return func() {} }
 
 // runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
+	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
 	fs, f, args, pos, code, done := parseAsk(verb, args)
 	if done {
 		return code
@@ -133,7 +134,6 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	ctx, carried := takeCarryVerify(ctx) // before any phase snapshots the env, so no descendant inherits it
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
@@ -700,7 +700,9 @@ func (r *askRun) askState() *askState {
 // request is batchBase plus the single-task fields.
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
-	f.verify = cmp.Or(f.verify, r.carryVerify)
+	if f.retry == "" && f.job == "" { // a replayed record keeps its own verify
+		f.verify = cmp.Or(f.verify, r.carryVerify)
+	}
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background

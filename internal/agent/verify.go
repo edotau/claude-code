@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os/exec"
@@ -39,7 +38,8 @@ func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyRe
 	if remote { // the work is on another host's tree: running here would check the wrong files
 		return &wire.VerifyResult{Command: maskShapes(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
 	}
-	env := slices.DeleteFunc(runEnviron(valuesContext(ctx, opts.Values)), func(kv string) bool {
+	ctx = valuesContext(ctx, opts.Values)
+	env := slices.DeleteFunc(runEnviron(ctx), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(opts.Unset, name)
 	})
@@ -89,17 +89,14 @@ func verifyTail(window []byte) string {
 // maskShapes masks credential-shaped runs, then vault values, in s.
 func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
 
-// tailBuf keeps a window of the last output: at least verifyTailMax bytes, dropped only at a whitespace boundary.
+// tailBuf keeps a window of the last output; shapes are masked over the whole window before its front is dropped.
 type tailBuf struct{ b []byte }
 
 func (t *tailBuf) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > 4*verifyTailMax {
-		cut := len(t.b) - 2*verifyTailMax
-		if i := bytes.IndexAny(t.b[cut:], " \t\r\n"); i >= 0 { // a secret has no whitespace: the cut never lands inside one
-			cut += i
-		}
-		t.b = append(t.b[:0], t.b[cut:]...)
+		masked := textutil.RedactSecrets(string(t.b)) // an unfinished secret at the end stays whole for the next pass
+		t.b = []byte(masked[max(0, len(masked)-2*verifyTailMax):])
 	}
 	return len(p), nil
 }
