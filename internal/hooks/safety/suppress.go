@@ -24,7 +24,7 @@ var suppressPatterns = []string{
 	`#\s*mypy:\s*ignore-errors\b`, `#\s*pylint:\s*(disable|skip-file)\b`, `#\s*shellcheck\s+disable\b`,
 	`//\s*nolint(nextline)?\b`, `(//|/\*|#)\s*eslint-disable\b`, `(//|/\*)\s*@ts-(ignore|nocheck|expect-error)\b`,
 	`#!?\[\s*allow\s*\(`, `#\s*pyre-(ignore|fixme)\b`, `(//|#)\s*#?nosec\b`, `(//|#)\s*nosemgrep\b`,
-	`//\s*noinspection\b`, `@SuppressWarnings\(`, `#\s*pragma\s+(warning\s*\(\s*disable\b|.*\bdiagnostic\s+ignored\b)`,
+	`//\s*noinspection\b`, `@SuppressWarnings\(`, `#\s*pragma\s+(warning\s*\(\s*disable\b|(\w+\s+)?diagnostic\s+ignored\b)`,
 }
 
 var suppressMarkers = sync.OnceValue(func() *regexp.Regexp {
@@ -293,6 +293,9 @@ func notebookCodeAdditions(path, body string) ([]addition, bool) {
 			one = strings.Join(many, "")
 		default:
 			return nil, false
+		}
+		if strings.HasPrefix(one, "%%markdown") { // a cell magic renders prose, not code
+			continue
 		}
 		out = append(out, addition{path, one, known})
 	}
