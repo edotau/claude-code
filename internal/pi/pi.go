@@ -31,6 +31,8 @@ const (
 	agentDirEnv = "PI_CODING_AGENT_DIR"
 	// guardToolsEnv names the tools the guard registers; there is no powershell: the guard maps no such tool.
 	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
+	// guardVerifyEnv is the run's --verify line, set on every tools run so an inherited one never applies.
+	guardVerifyEnv = "HARNESS_PI_GUARD_VERIFY"
 	// stopGrace is how long Pi gets to kill its own bash groups after SIGTERM before the descendants are killed.
 	stopGrace = 2 * time.Second
 	// packageDirsEnv carries Wire's synced package dirs to After; After strips it, so Pi never sees it.
@@ -268,7 +270,7 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
-			p.Env = append(p.Env, guardToolsEnv+"="+guardTools)
+			p.Env = append(p.Env, guardToolsEnv+"="+guardTools, guardVerifyEnv+"="+req.Verify)
 			if codemodeOn(req.Codemode) {
 				p.Env = append(p.Env, guardCodemodeEnv+"=1")
 				p.Env = codemodeLaunchEnv(p.Env, req.Codemode) // the shim strips rtk prefixes and never wraps

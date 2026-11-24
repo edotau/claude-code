@@ -215,6 +215,17 @@ func TestAfterPutsPromptLast(t *testing.T) {
 	}
 }
 
+func TestAfterPassesVerifyToGuard(t *testing.T) {
+	for _, verify := range []string{"go vet ./internal/pi", ""} { // empty still set: an inherited line never applies
+		env, _ := guardedEnv(t)
+		p := &agent.CLIPrep{Env: env, Prompt: "do it"}
+		piEngine{}.After(p, agent.RunOptions{Tools: true, Verify: verify})
+		if !slices.Contains(p.Env, guardVerifyEnv+"="+verify) {
+			t.Errorf("verify %q: env = %v", verify, p.Env)
+		}
+	}
+}
+
 func TestAfterSystemPrompt(t *testing.T) {
 	env, _ := guardedEnv(t)
 	for name, c := range map[string]struct {

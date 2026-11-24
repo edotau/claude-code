@@ -23,8 +23,13 @@ function hookEnv(): Record<string, string> {
   return env
 }
 
+// Step is one argv Go built from a verify line, with the GOOS/GOARCH/CGO_ENABLED assignments it carries.
+type Step = { env: string[]; argv: string[] }
+const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => typeof s === "string")
+const isStep = (s: any): boolean => strArray(s?.env) && strArray(s?.argv) && s.argv.length > 0
+
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; usage?: string } {
+function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; steps?: Step[]; usage?: string } {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
@@ -33,8 +38,9 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
     if (v.allow !== true) return stuck("unrecognized verdict")
-    const run = Array.isArray(v.run) && v.run.every((a: any) => typeof a === "string") ? v.run : undefined
-    return { path: typeof v.path === "string" ? v.path : "", run }
+    const run = strArray(v.run) ? v.run : undefined
+    const steps = Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined
+    return { path: typeof v.path === "string" ? v.path : "", run, steps }
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
@@ -135,6 +141,42 @@ async function runAction(name: string, run: string[], cwd: string, signal: any):
   finally { signal?.removeEventListener("abort", stop) }
 }
 
+// VERIFY_MS keeps the in-run verify under the harness's 5-minute idle watch; post-run verify covers a slower one.
+const VERIFY_MS = 4 * 60_000
+
+// verifyFailure runs the steps Go built from the run's verify line: the failing output, or "" (passed or not run).
+async function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
+  const v = judge("verify", { verify: line }, cwd, sid)
+  if (v.block || v.usage || !v.steps?.length) {
+    process.stderr.write("pi guard: verify before settle not run: " + (v.block || v.usage || "no steps") + "\n")
+    return ""
+  }
+  const deadline = Date.now() + VERIFY_MS
+  for (const s of v.steps) {
+    const env = { ...hookEnv(), ...Object.fromEntries(s.env.map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)])) }
+    try {
+      await execFileAsync(s.argv[0], s.argv.slice(1), { cwd, env, encoding: "utf8", maxBuffer: 64 << 20, timeout: Math.max(1, deadline - Date.now()) })
+    } catch (err: any) {
+      if (typeof err.code !== "number") return "" // timed out or not launched: a fixing turn cannot help
+      return "The run's verify check failed (exit " + err.code + "). Fix the cause without changing the check, then finish.\n$ " +
+        line + "\n" + String((err.stdout ?? "") + (err.stderr ?? "")).slice(-ERR_CHARS)
+    }
+  }
+  return ""
+}
+
+// verifyBeforeSettle gives a failing --verify one fixing turn per run; the post-run verify is still the record.
+function verifyBeforeSettle(pi: any, line: string) {
+  let tried = false
+  pi.on("agent_before_settle", async (ev: any, ctx: any) => {
+    if (tried || ev?.outcome !== "completed") return undefined
+    tried = true
+    const fail = await verifyFailure(line, String(ctx?.cwd || process.cwd()), String(ctx?.sessionManager?.getSessionId?.() ?? ""))
+    if (!fail) return undefined
+    return { entries: [...(ev.entries ?? []), { type: "custom_message", customType: "harness-verify", content: fail, display: true }], continue: true }
+  })
+}
+
 export default function (pi: any) {
   // fail closed: a Pi this guard was not checked against may normalize or validate differently; throwing aborts the run
   if ((pkg as any).VERSION !== VERIFIED_PI) throw new Error("pi guard: Pi " + (pkg as any).VERSION + " is not the verified " + VERIFIED_PI)
@@ -171,4 +213,6 @@ export default function (pi: any) {
   pi.on("session_start", () => {
     if (names.every(ours) && (!codemode || builtinCodemode())) writeFileSync(file, nonce, { mode: 0o600 })
   })
+  const verify = String(process.env.HARNESS_PI_GUARD_VERIFY ?? "") // empty: no verify set, no handler
+  if (verify) verifyBeforeSettle(pi, verify)
 }
