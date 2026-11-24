@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,7 +57,12 @@ func overflowCands(disp Dispatch, tools bool, account, ran, low string) ([]route
 		floor = n * overflowFit / 10
 	}
 	name := disp.Agent.Name()
-	pool := rotationPool(name, "", p, tools, time.Now())
+	now := time.Now()
+	entry := loadState()[account]
+	served := router.ServedPool(p, slices.Clone(rotationPool(name, "", p, tools, now)), now)
+	pool := slices.DeleteFunc(served, func(m string) bool {
+		return router.HeldUntil(entry, name, m, now) != nil // a quota-held or skipped model stays out
+	})
 	return router.LargerWindow(p, ran, pool, floor, name != agentid.OpenCode), providers.Window(p, ran) // opencode drops [1m]
 }
 

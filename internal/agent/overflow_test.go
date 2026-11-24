@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/router"
@@ -29,6 +30,21 @@ func TestPlanOverflowRepicksByWindow(t *testing.T) {
 	plan = planOverflow(overflowDisp("pi"), overflowCell, wire.Result{}, overflowCell.Model, over)
 	if !strings.HasSuffix(plan.model, "[1m]") || plan.to <= plan.from {
 		t.Fatalf("pi plan = %+v, want the 1M variant first", plan)
+	}
+}
+
+// A quota-held first candidate is skipped for the next larger window.
+func TestPlanOverflowSkipsHeldModel(t *testing.T) {
+	autoFixture(t)
+	disp := overflowDisp("opencode")
+	first := planOverflow(disp, overflowCell, wire.Result{}, overflowCell.Model, errors.New(overflowMsg))
+	now := time.Now()
+	if err := markModelDead(disp.Account, first.model, now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	next := planOverflow(disp, overflowCell, wire.Result{}, overflowCell.Model, errors.New(overflowMsg))
+	if first.model == "" || next.model == "" || next.model == first.model {
+		t.Fatalf("held %q, next %q, want a different model", first.model, next.model)
 	}
 }
 
