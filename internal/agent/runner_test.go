@@ -36,6 +36,17 @@ func TestStampRunnerSurvivesWorkspaceRepick(t *testing.T) {
 	}
 }
 
+func TestStampRunnerPrefersTypedRunFor(t *testing.T) {
+	skipped := wire.Result{Agent: "pi", Fallback: "claude", Hops: []wire.Hop{{Agent: "pi", RunFor: ""}, {Agent: "pi", RunFor: "codex"}}}
+	if got := stampRunner(Record{Agent: "claude"}, skipped); got.Runner != "" {
+		t.Fatalf("pi answering for codex is no runner of claude: %q", got.Runner)
+	}
+	skipped.Hops[1].RunFor = "claude"
+	if got := stampRunner(Record{Agent: "claude"}, skipped); got.Runner != "pi" {
+		t.Fatalf("runner %q", got.Runner)
+	}
+}
+
 func TestFinishNamesTheRunnerAsRanAs(t *testing.T) {
 	rec := Record{Agent: "claude"}
 	res := stampRunner(rec, wire.Result{Agent: "pi", Status: wire.StatusOK, Model: "claude-sonnet-5-5", Hops: []wire.Hop{{Agent: "pi"}}})

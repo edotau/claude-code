@@ -24,15 +24,18 @@ func lastHopModel(res wire.Result) string {
 	return ""
 }
 
-// onlyPiHops: no hop ran as another agent, so Pi carried the request even across a workspace re-pick.
-func onlyPiHops(res wire.Result) bool {
+// carriedFor: Pi ran asked's request, by the answering hop's typed RunFor, else by every hop having run as Pi.
+func carriedFor(res wire.Result, asked string) bool {
+	if n := len(res.Hops); n > 0 && slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return h.RunFor != "" }) {
+		return res.Hops[n-1].RunFor == asked
+	}
 	return !slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return h.Agent != agentid.Pi })
 }
 
 // stampRunner sets the typed Runner, Asked and Type on res: Runner "pi" when Pi ran another agent's request.
 func stampRunner(rec Record, res wire.Result) wire.Result {
 	engine := engineOf(res)
-	if engine == agentid.Pi && rec.Agent != agentid.Pi && onlyPiHops(res) {
+	if engine == agentid.Pi && rec.Agent != agentid.Pi && carriedFor(res, rec.Agent) {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
@@ -48,23 +51,10 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 	return res
 }
 
-// RowLabel is r's label on every row: its agent type, else the asked agent, with the runner after it.
+// RowLabel is r's label on every row: its agent type, else the answering agent, with the runner after it.
 func RowLabel(r Record) string {
-	runner := RunnerOf(r)
-	if r.Type == "" && runner != "" { // an older record: name the model's type, never "pi via pi"
-		kind := cmp.Or(r.RanRoute.Provider, r.Route.Provider)
-		return wire.RunLabel(cmp.Or(string(models.AgentType(kind, cmp.Or(r.Model, r.Request.Model), false)), r.Agent), runner)
-	}
-	return wire.RunLabel(cmp.Or(r.Type, r.RanAs, r.Agent), runner)
+	return wire.RunLabel(cmp.Or(r.Type, r.RanAs, r.Agent), RunnerOf(r))
 }
 
-// RunnerOf is the runner that carried r's run: the recorded one, else Pi read from the attempts of an older record.
-func RunnerOf(r Record) string {
-	if r.Runner != "" || len(r.Attempts) == 0 || r.Agent == agentid.Pi {
-		return r.Runner
-	}
-	if slices.ContainsFunc(r.Attempts, func(h wire.Hop) bool { return h.Agent != agentid.Pi }) {
-		return ""
-	}
-	return agentid.Pi
-}
+// RunnerOf is the runner recorded for r's run; an older record names none and stays unclassified.
+func RunnerOf(r Record) string { return r.Runner }

@@ -384,6 +384,7 @@ type Hop struct {
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Reported  string `json:"reported_model,omitempty"` // Result.Reported of this hop
+	RunFor    string `json:"run_for,omitempty"`        // the asked agent a pi runner hop executes for
 	ErrorKind string `json:"error_kind,omitempty"`
 	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
 	NotStarted bool `json:"not_started,omitempty"`
