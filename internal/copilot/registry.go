@@ -67,7 +67,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: discover %s models: %w", t.Provider.Name, err)
 	}
-	base, err := agent.EnsureRouter(agent.WithScopedProxy(ctx))
+	base, err := agent.EnsureRouter(agent.WithScopedProxy(ctx, "copilot"))
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +478,7 @@ func registrySelection(ctx context.Context, reg *providers.Registry, t providers
 // copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
 func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 	if !dry {
-		return agent.EnsureRouter(agent.WithScopedProxy(ctx))
+		return agent.EnsureRouter(agent.WithScopedProxy(ctx, "copilot"))
 	}
 	if st, ok := runningRouter(ctx); ok {
 		return proxy.ViaBaseContext(ctx, proxy.Base(st.Port)), nil

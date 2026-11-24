@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -27,9 +31,9 @@ func WithProxyGroup(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, proxyGroupKey{}, id)
 }
 
-// WithScopedProxy makes the launcher walk the team route list for this ctx.
-func WithScopedProxy(ctx context.Context) context.Context {
-	return context.WithValue(ctx, scopedProxyKey{}, true)
+// WithScopedProxy makes the launcher walk the team route list for this ctx; agent names it in the route note.
+func WithScopedProxy(ctx context.Context, agent string) context.Context {
+	return context.WithValue(ctx, scopedProxyKey{}, agent)
 }
 
 // routeCand is one team on the route list with its scope (Port 0 when none is known).
@@ -128,13 +132,15 @@ func scopeLive(ctx context.Context, sc proxy.Scope) string {
 	return ""
 }
 
-// chooseRoute returns the first live candidate, its base, and a note when it is not the first.
-func chooseRoute(ctx context.Context, cands []routeCand,
+// chooseRoute returns the first live candidate not in skip, its base, and a note when it is not the first.
+func chooseRoute(ctx context.Context, agent string, cands []routeCand, skip map[string]bool,
 	ensure func(context.Context) (string, error)) (routeCand, string, string, error) {
 	var reasons []string
 	for i, c := range cands {
 		var base, why string
-		if c.team.Host == proxyteam.HostDaemon {
+		if skip[c.label()] {
+			why = "failed mid-run"
+		} else if c.team.Host == proxyteam.HostDaemon {
 			b, err := ensure(ctx)
 			if err != nil {
 				why = err.Error()
@@ -150,8 +156,8 @@ func chooseRoute(ctx context.Context, cands []routeCand,
 		note := ""
 		if i > 0 {
 			first := cands[0].label()
-			note = fmt.Sprintf("ask: proxy: %s unavailable (%s); using %s",
-				first, strings.TrimPrefix(reasons[0], first+": "), c.label())
+			note = fmt.Sprintf("%s: proxy: %s unavailable (%s); using %s",
+				agent, first, strings.TrimPrefix(reasons[0], first+": "), c.label())
 		}
 		return c, base, note, nil
 	}
@@ -170,6 +176,7 @@ func TakeChosenProxy(id string) string {
 	defer routeMu.Unlock()
 	label := chosenByID[id]
 	delete(chosenByID, id)
+	delete(failedByID, id)
 	return label
 }
 
@@ -183,10 +190,16 @@ func forgetChosenProxy(ctx context.Context) {
 
 // ensureProxyRoute finds the proxy base for ctx: the daemon, or the first live scope proxy of a scoped dispatch.
 func ensureProxyRoute(ctx context.Context) (string, error) {
-	if scoped, _ := ctx.Value(scopedProxyKey{}).(bool); !scoped {
+	agent, _ := ctx.Value(scopedProxyKey{}).(string)
+	if agent == "" {
 		return proxy.Ensure(ctx)
 	}
-	c, base, note, err := chooseRoute(ctx, routeCands(ctx), proxy.Ensure)
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	cands := routeCands(ctx)
+	c, base, note, err := chooseRoute(ctx, agent, cands, failedRoutes(id), proxy.Ensure)
+	if err != nil { // every route but the failed ones is dead: the failed ones may have recovered
+		c, base, note, err = chooseRoute(ctx, agent, cands, nil, proxy.Ensure)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +208,7 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 	}
 	routeMu.Lock()
 	defer routeMu.Unlock()
-	if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" {
+	if id != "" {
 		chosenByID[id] = c.label()
 	}
 	if c.team.Host == proxyteam.HostDaemon {
@@ -205,6 +218,50 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 	localBases[base] = true
 	return base, nil
 }
+
+// failedByID holds the route labels that died mid-run for each dispatch; the relaunch's walk skips them.
+var failedByID = map[string]map[string]bool{}
+
+func failedRoutes(id string) map[string]bool {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+	return maps.Clone(failedByID[id])
+}
+
+func init() {
+	retry.KnownProxy = knownProxyAddr
+	retry.OnProxyDown = markRouteFailed
+}
+
+// markRouteFailed records the route ctx's dispatch last chose as dead, so the next walk starts past it.
+func markRouteFailed(ctx context.Context) {
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	routeMu.Lock()
+	defer routeMu.Unlock()
+	label := chosenByID[id]
+	if id == "" || label == "" {
+		return
+	}
+	if failedByID[id] == nil {
+		failedByID[id] = map[string]bool{}
+	}
+	failedByID[id][label] = true
+}
+
+// knownProxyAddr is true for a loopback host:port that is a registered scope proxy or the daemon.
+func knownProxyAddr(hostport string) bool {
+	_, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return false
+	}
+	if localProxyBase(proxy.Base(mustPort(port))) {
+		return true
+	}
+	st, ok := proxy.Running(context.Background())
+	return (ok && strconv.Itoa(st.Port) == port) || port == strconv.Itoa(proxy.DefaultPort)
+}
+
+func mustPort(s string) int { n, _ := strconv.Atoi(s); return n }
 
 // localProxyBase reports whether routerBase (maybe with a /d/ or /via/ suffix) is a registered scope proxy.
 func localProxyBase(routerBase string) bool {

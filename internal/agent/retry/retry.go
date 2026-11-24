@@ -266,23 +266,37 @@ func connectFailure(err error) bool {
 }
 
 var loopbackDownRE = sync.OnceValue(func() *regexp.Regexp {
-	const host = `(?:^|[^\w.-])(?:127\.\d+\.\d+\.\d+|localhost|\[::1\]):\d+\b`
+	const host = `(?:^|[^\w.-])((?:127\.\d+\.\d+\.\d+|localhost|\[::1\]):\d+)\b`
 	const down = `connection (?:refused|reset)|econn(?:refused|reset)|actively refused|forcibly closed`
 	return regexp.MustCompile(host + `[^\n]*(?:` + down + `)|(?:` + down + `)[^\n]*` + host)
 })
 
-// loopbackDown is true when err is a refused or reset connection to a loopback address (a dead local proxy).
+// KnownProxy says whether a loopback host:port is a proxy of this harness; nil accepts every loopback address.
+var KnownProxy func(hostport string) bool
+
+// OnProxyDown is told, with the attempt's ctx, that the dispatch's proxy died, so the relaunch can skip its route.
+var OnProxyDown func(ctx context.Context)
+
+// loopbackDown is true when err is a refused or reset connection to a known loopback proxy address.
 func loopbackDown(err error) bool {
+	addr := ""
 	if op, ok := errors.AsType[*net.OpError](err); ok {
 		a, isTCP := op.Addr.(*net.TCPAddr)
 		if isTCP && !a.IP.IsLoopback() {
 			return false
 		}
 		if isTCP && (errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)) {
-			return true
+			addr = a.String()
 		}
 	}
-	return loopbackDownRE().MatchString(strings.ToLower(err.Error()))
+	if addr == "" {
+		m := loopbackDownRE().FindStringSubmatch(strings.ToLower(err.Error()))
+		if m == nil {
+			return false
+		}
+		addr = m[1] + m[2]
+	}
+	return KnownProxy == nil || KnownProxy(addr)
 }
 
 func classifyText(err error) (Kind, time.Duration) {
@@ -492,6 +506,9 @@ func proxyHop(fn func(context.Context, int) *Error) func(context.Context, int) *
 			return e
 		}
 		spent, e.RetryNow = true, true
+		if OnProxyDown != nil {
+			OnProxyDown(ctx)
+		}
 		e.Err = fmt.Errorf("scoped proxy unreachable, rerouting to the next route: %w", e.Err)
 		return e
 	}

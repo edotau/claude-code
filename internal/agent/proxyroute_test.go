@@ -39,14 +39,19 @@ func TestRouteWalkSkipsDeadFirstRoute(t *testing.T) {
 		{team: proxyteam.Team{Name: "shared", Host: proxyteam.HostDaemon}, scope: proxy.Scope{Team: "shared"}},
 	}
 	ensure := func(context.Context) (string, error) { return "http://127.0.0.1:9", nil }
-	got, base, note, err := chooseRoute(context.Background(), cands, ensure)
+	got, base, note, err := chooseRoute(context.Background(), "pi", cands, nil, ensure)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.team.Name != "shared" || base != "http://127.0.0.1:9" {
 		t.Fatalf("chose %s at %s", got.team.Name, base)
 	}
-	if !strings.HasPrefix(note, "ask: proxy: grp") || !strings.HasSuffix(note, "using shared") {
+	if !strings.HasPrefix(note, "pi: proxy: grp") || !strings.HasSuffix(note, "using shared") {
 		t.Fatalf("note %q", note)
+	}
+	cands[0].scope = proxy.Scope{Team: "grp"}
+	_, _, note, err = chooseRoute(context.Background(), "pi", cands, map[string]bool{"grp": true}, ensure)
+	if err != nil || !strings.Contains(note, "failed mid-run") {
+		t.Fatalf("skipped route: note %q err %v", note, err)
 	}
 }

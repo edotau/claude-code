@@ -229,7 +229,7 @@ func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(boo
 // routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	if s.CLI.ScopedProxy {
-		ctx = WithScopedProxy(ctx)
+		ctx = WithScopedProxy(ctx, s.Name)
 	}
 	rb, key, err := launchRouter(ctx, p.Name)
 	if err != nil {
