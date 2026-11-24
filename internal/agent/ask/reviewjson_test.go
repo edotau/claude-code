@@ -87,3 +87,48 @@ func TestSumReviewDenials(t *testing.T) {
 		t.Fatalf("denials=%+v", a)
 	}
 }
+
+func TestJudgeReportComputesVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		answer, want string
+		mergeable    bool
+		high, medium int
+	}{
+		{"SHIP\n[HIGH] a.go:3 — lost error — return it\n", "FIX REQUIRED", false, 1, 0},
+		{"SHIP\n[MEDIUM] a.go:3 — naming\n- [LOW] b.go:9 — typo\n", "FIX REQUIRED", true, 0, 1},
+		{"FIX REQUIRED\n[HIGH] no line number here\n", "unjudged", false, 0, 0},
+		{"SHIP\n", "SHIP", false, 0, 0},
+		{"looks fine to me", "unjudged", false, 0, 0},
+	} {
+		j := judgeReport(tc.answer)
+		t.Logf("%q -> %s counts=%v mergeable=%v note=%q", tc.answer, j.Computed, j.Counts, j.Mergeable, j.Note())
+		if j.Computed != tc.want || j.Mergeable != tc.mergeable || j.Counts["HIGH"] != tc.high || j.Counts["MEDIUM"] != tc.medium {
+			t.Errorf("%q: %+v", tc.answer, j.reviewVerdict)
+		}
+	}
+	if n := judgeReport("SHIP\n[HIGH] a.go:3 — x\n").Note(); n != "stated SHIP, findings compute FIX REQUIRED" {
+		t.Errorf("note = %q", n)
+	}
+}
+
+func TestStructuredPartKeepsSpacedPathAndMergeableLine(t *testing.T) {
+	env := reviewEnvelope{Answer: "SHIP", Findings: json.RawMessage(`[{"file":"my dir/a.go","line":2,"severity":"CRITICAL","claim":"x"}]`)}
+	if j := envJudged(env); j.Computed != "BLOCK" || withVerdict(env).VerdictNote != "stated SHIP, findings compute BLOCK" {
+		t.Fatalf("structured: %+v", j.reviewVerdict)
+	}
+	m := mergeJudged([]judged{envJudged(env)}, false)
+	if m.Computed != "BLOCK" {
+		t.Fatalf("merged: %+v", m.reviewVerdict)
+	}
+	out := mergeReports(false, []part{{}}, []string{"SHIP\n[LOW] a.go:1 — x\n"})
+	if !strings.HasPrefix(out, "FIX REQUIRED\nmergeable: only MEDIUM/LOW findings, fix on main\n") {
+		t.Fatalf("mergeable line:\n%s", out)
+	}
+}
+
+func TestPartProseKeepsAnswerForEmptyFindings(t *testing.T) {
+	env := reviewEnvelope{Answer: cleanVerdict, Findings: json.RawMessage(`[]`)}
+	if got := partProse(env); got != cleanVerdict || envJudged(env).Computed != "SHIP" {
+		t.Fatalf("prose=%q judged=%+v", got, envJudged(env).reviewVerdict)
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/hooks"
 )
 
 // reviewBudget is the most chars (prompt + diff) one review call carries; codex rejects input over 1,048,576.
@@ -245,53 +247,74 @@ const (
 	noReviewVerdict = "VERDICT: no review completed"
 )
 
-// verdictRank orders the neutral review verdicts, worst highest.
+// verdictRank orders the stated verdicts, worst highest.
 var verdictRank = map[string]int{"SHIP": 1, "FIX REQUIRED": 2, "BLOCK": 3}
 
-// mergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
+// mergeReports folds per-part answers into one report: the verdict computed from all findings, then deduped findings.
 func mergeReports(adversarial bool, parts []part, answers []string) string {
+	return mergeReportsJudged(adversarial, parts, answers, judgeAll(answers))
+}
+
+// mergeReportsJudged is mergeReports with each answer's judgement given, so structured parts keep their own findings.
+func mergeReportsJudged(adversarial bool, parts []part, answers []string, js []judged) string {
 	if adversarial && len(answers) == 0 { // no part answered: nothing was reviewed, so never a clean verdict
 		return noReviewVerdict + "\n"
 	}
 	seen := map[string]bool{}
 	var body strings.Builder
 	short := len(answers) < len(parts) // a part that never answered was not reviewed
-	tally, unreviewed, total := verdictTally{unjudged: short}, short, 0
+	unreviewed, total := short, 0
 	for i, ans := range answers {
 		blank := strings.TrimSpace(ans) == ""
 		unreviewed = unreviewed || blank
 		lines := strings.Split(strings.TrimSpace(ans), "\n")
 		if !adversarial {
-			lines = tally.take(lines)
+			lines = dropVerdict(lines)
 		}
 		total += writePart(&body, parts[i].Header(i+1, len(parts)), lines, blank, seen)
 	}
-	head := mergedVerdict(adversarial, tally.worst, tally.best, tally.unjudged, total, len(parts))
+	head, note := mergedVerdict(adversarial, mergeJudged(js, short), total, len(parts))
 	if adversarial && total == 0 && unreviewed { // a part that returned nothing was not reviewed, so no clean verdict
 		head = noReviewVerdict
 	}
-	return head + "\n" + body.String()
+	return head + "\n" + note + body.String()
 }
 
-// verdictTally is the worst neutral verdict seen so far, and whether a part had none.
-type verdictTally struct {
-	worst    string
-	best     int
-	unjudged bool
+// judgeAll judges each prose answer.
+func judgeAll(answers []string) []judged {
+	js := make([]judged, len(answers))
+	for i, a := range answers {
+		js[i] = judgeReport(a)
+	}
+	return js
 }
 
-// take records the verdict on lines[0] and returns the lines after it; an unknown first line stays a finding.
-func (t *verdictTally) take(lines []string) []string {
-	v := strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))
-	r, ok := verdictRank[v]
-	if !ok {
-		t.unjudged = true
-		return lines
+// mergeJudged reduces the deduped findings of all answers; a missing, blank or unreadable part leaves it unjudged.
+func mergeJudged(js []judged, short bool) judged {
+	m := judged{Unjudged: short}
+	seen := map[hooks.Finding]bool{}
+	for _, j := range js {
+		m.Unjudged = m.Unjudged || j.Unjudged
+		if verdictRank[j.Stated] > verdictRank[m.Stated] {
+			m.Stated = j.Stated
+		}
+		for _, f := range j.Findings {
+			if !seen[f] {
+				seen[f] = true
+				m.Findings = append(m.Findings, f)
+			}
+		}
 	}
-	if r > t.best {
-		t.worst, t.best = v, r
+	m.reviewVerdict = reduceFindings(m.Findings, m.Unjudged)
+	return m
+}
+
+// dropVerdict returns lines without a leading verdict line; any other first line stays a finding.
+func dropVerdict(lines []string) []string {
+	if _, ok := verdictRank[strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))]; ok {
+		return lines[1:]
 	}
-	return lines[1:]
+	return lines
 }
 
 // writePart writes one part's header and deduped findings, or a placeholder; it returns the findings written.
@@ -307,17 +330,21 @@ func writePart(body *strings.Builder, header string, lines []string, blank bool,
 	return n
 }
 
-func mergedVerdict(adversarial bool, worst string, best int, unjudged bool, total, parts int) string {
-	head := worst
+// mergedVerdict is the report's first line and, when the stated verdict was overridden, the line saying so.
+func mergedVerdict(adversarial bool, m judged, total, parts int) (head, note string) {
 	if adversarial {
-		head = cleanVerdict
 		if total > 0 {
-			head = "VERDICT: findings across " + strconv.Itoa(parts) + " parts"
+			return "VERDICT: findings across " + strconv.Itoa(parts) + " parts", ""
 		}
-	} else if head == "" || (unjudged && best < verdictRank["FIX REQUIRED"]) {
-		head = "FIX REQUIRED" // a part without a parseable verdict is never judged SHIP
+		return cleanVerdict, ""
 	}
-	return head
+	if m.Mergeable {
+		note = "mergeable: only MEDIUM/LOW findings, fix on main\n"
+	}
+	if n := m.Note(); n != "" {
+		note += n + "\n"
+	}
+	return m.Computed, note
 }
 
 func appendFindings(body *strings.Builder, lines []string, seen map[string]bool) int {

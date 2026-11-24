@@ -23,27 +23,52 @@ const maxHandbackItems = 12
 
 var (
 	verdictLine = regexp.MustCompile(`(?im)^[\s*_#-]*(?:verdict:?[ \t]*)?[*_]*(SHIP|FIX REQUIRED|BLOCK)[*_.]*[ \t]*$`)
-	findingLine = regexp.MustCompile(`(?im)^[\s*_-]*(?:\d+[.)][ \t]*)?[*_]*\[?(CRITICAL|HIGH)\]?[*_]*[ \t]+\S+:\d+`)
+	findingLine = regexp.MustCompile(`(?im)^[\s*_-]*(?:\d+[.)][ \t]*)?[*_]*\[?(CRITICAL|HIGH|MEDIUM|LOW)\]?[*_]*[ \t]+(\S+?):(\d+)\S*[ \t]*(.*)$`)
 	quotedBlock = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|(?m:^[ \\t]*>[^\\n]*$)")
 )
 
+// Finding is one "[SEVERITY] file:line — text" line of a review report.
+type Finding struct {
+	Severity, File, Text string
+	Line                 int
+}
+
+// ParseFindings is the finding lines of a report outside quoted blocks, severity upper-cased.
+func ParseFindings(report string) []Finding {
+	var out []Finding
+	for _, m := range findingLine.FindAllStringSubmatch(quotedBlock.ReplaceAllString(report, ""), -1) {
+		n, _ := strconv.Atoi(m[3])
+		out = append(out, Finding{strings.ToUpper(m[1]), m[2], strings.TrimSpace(m[4]), n})
+	}
+	return out
+}
+
+// StatedVerdict is the SHIP, FIX REQUIRED or BLOCK a report states outside quoted blocks, else "".
+func StatedVerdict(report string) string {
+	if v := verdictLine.FindStringSubmatch(quotedBlock.ReplaceAllString(report, "")); v != nil {
+		return strings.ToUpper(v[1])
+	}
+	return ""
+}
+
 // verdictMismatch names the verdict a report's findings compute when its stated verdict is milder, else "".
 func verdictMismatch(report string) string {
-	report = quotedBlock.ReplaceAllString(report, "")
-	v := verdictLine.FindStringSubmatch(report)
-	if v == nil {
+	stated := StatedVerdict(report)
+	if stated == "" {
 		return ""
 	}
 	computed := "SHIP"
-	for _, f := range findingLine.FindAllStringSubmatch(report, -1) {
-		if strings.EqualFold(f[1], "CRITICAL") {
+	for _, f := range ParseFindings(report) {
+		if f.Severity == "CRITICAL" {
 			computed = "BLOCK"
 			break
 		}
-		computed = "FIX REQUIRED"
+		if f.Severity == "HIGH" { // the hook flags CRITICAL/HIGH only
+			computed = "FIX REQUIRED"
+		}
 	}
 	rank := map[string]int{"SHIP": 0, "FIX REQUIRED": 1, "BLOCK": 2}
-	if stated := strings.ToUpper(v[1]); rank[stated] < rank[computed] {
+	if rank[stated] < rank[computed] {
 		return "The report states " + stated + " but its CRITICAL/HIGH findings compute " + computed + ". "
 	}
 	return ""

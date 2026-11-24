@@ -2,16 +2,19 @@ package ask
 
 import (
 	"bytes"
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hooks"
 )
 
 //go:embed review-findings.schema.json
@@ -20,6 +23,104 @@ var reviewFindingsSchema string
 type reviewEnvelope struct {
 	wire.Envelope
 	Findings json.RawMessage `json:"findings,omitempty"`
+	reviewVerdict
+}
+
+// reviewVerdict is computed from the findings alone (counts are of distinct findings), never from the stated word.
+type reviewVerdict struct {
+	Computed    string         `json:"computed_verdict,omitempty"` // SHIP | FIX REQUIRED | BLOCK | unjudged
+	Counts      map[string]int `json:"counts,omitempty"`
+	Mergeable   bool           `json:"mergeable,omitempty"`    // only MEDIUM/LOW: fix on main
+	VerdictNote string         `json:"verdict_note,omitempty"` // set when the stated verdict was overruled
+}
+
+// reduceFindings: CRITICAL is BLOCK, HIGH FIX REQUIRED, only MEDIUM/LOW FIX REQUIRED but mergeable, none SHIP.
+func reduceFindings(fs []hooks.Finding, unjudged bool) reviewVerdict {
+	v := reviewVerdict{Computed: "SHIP", Counts: map[string]int{"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}}
+	for _, f := range fs {
+		v.Counts[f.Severity]++
+	}
+	switch c := v.Counts; {
+	case c["CRITICAL"] > 0:
+		v.Computed = "BLOCK"
+	case c["HIGH"] > 0:
+		v.Computed = "FIX REQUIRED"
+	case unjudged:
+		v.Computed = "unjudged" // findings the parser could not read never pass
+	case c["MEDIUM"]+c["LOW"] > 0:
+		v.Computed, v.Mergeable = "FIX REQUIRED", true
+	}
+	return v
+}
+
+// judged is one report's findings, the verdict they compute and the verdict word the model stated.
+type judged struct {
+	reviewVerdict
+	Findings []hooks.Finding
+	Stated   string
+	Unjudged bool
+}
+
+var severityWord = regexp.MustCompile(`(?i)\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b`)
+
+// judgeReport reduces a prose report; findings it cannot parse leave it unjudged, never SHIP.
+func judgeReport(answer string) judged {
+	j := judged{Findings: hooks.ParseFindings(answer), Stated: hooks.StatedVerdict(answer)}
+	if t := strings.TrimSpace(answer); len(j.Findings) == 0 && !strings.Contains(t, cleanVerdict) {
+		j.Unjudged = j.Stated != "SHIP" || severityWord.MatchString(t)
+	}
+	j.reviewVerdict = reduceFindings(j.Findings, j.Unjudged)
+	return j
+}
+
+// Note is the one line saying the computed verdict overrides the stated one, or "" when they agree.
+func (j judged) Note() string {
+	stated := cmp.Or(j.Stated, "none")
+	if stated == j.Computed || (j.Stated == "" && !j.Unjudged) {
+		return ""
+	}
+	return "stated " + stated + ", findings compute " + j.Computed
+}
+
+// reviewNoteLine is the note line closing a text review whose stated verdict the findings overrule.
+func reviewNoteLine(answer string) string {
+	if n := judgeReport(answer).Note(); n != "" {
+		if answer != "" && !strings.HasSuffix(answer, "\n") {
+			n = "\n" + n
+		}
+		return n + "\n"
+	}
+	return ""
+}
+
+// envJudged judges an envelope: its structured findings when it has them, else its prose answer.
+func envJudged(env reviewEnvelope) judged {
+	if len(env.Findings) == 0 {
+		return judgeReport(env.Answer)
+	}
+	var rows []struct {
+		File, Severity, Claim string
+		Line                  int
+	}
+	j := judged{Stated: hooks.StatedVerdict(env.Answer)}
+	if err := json.Unmarshal(env.Findings, &rows); err != nil {
+		j.Unjudged = true
+	}
+	for _, r := range rows {
+		j.Findings = append(j.Findings, hooks.Finding{Severity: r.Severity, File: r.File, Line: r.Line, Text: r.Claim})
+	}
+	j.reviewVerdict = reduceFindings(j.Findings, j.Unjudged)
+	return j
+}
+
+// withVerdict sets the computed verdict on a successful envelope.
+func withVerdict(env reviewEnvelope) reviewEnvelope {
+	if env.Error == nil {
+		j := envJudged(env)
+		env.reviewVerdict = j.reviewVerdict
+		env.VerdictNote = j.Note()
+	}
+	return env
 }
 
 func reviewFormatArgs(name string, args []string, structured bool) []string {
@@ -35,7 +136,14 @@ var reviewAskCmd = cmdTo
 
 func runReviewAsk(name string, args []string, o ReviewOptions) int {
 	if o.Format != "json" {
-		return reviewAskCmd(args, os.Stdout)
+		if o.Adversarial || o.Background {
+			return reviewAskCmd(args, os.Stdout)
+		}
+		answer, rc := captureAnswer(func(out io.Writer) int { return reviewAskCmd(args, out) })
+		if _, err := io.WriteString(os.Stdout, answer+reviewNoteLine(answer)); err != nil {
+			return helpReviewError(err)
+		}
+		return rc
 	}
 	args = reviewFormatArgs(name, args, true)
 	if o.Background {
@@ -49,7 +157,7 @@ func runReviewAsk(name string, args []string, o ReviewOptions) int {
 		}
 		return helpReviewError(err)
 	}
-	if err := agent.WriteJSONLine(os.Stdout, env); err != nil {
+	if err := agent.WriteJSONLine(os.Stdout, withVerdict(env)); err != nil {
 		return helpReviewError(err)
 	}
 	return rc
@@ -116,7 +224,7 @@ func reviewPartAnswer(name string, args []string, o ReviewOptions) (string, wire
 			return "", usage, helpReviewError(err)
 		}
 		out.Reset()
-		if err := agent.WriteJSONLine(&out, parsed); err != nil {
+		if err := agent.WriteJSONLine(&out, withVerdict(parsed)); err != nil {
 			return "", usage, helpReviewError(err)
 		}
 		return out.String(), usage, code
@@ -142,6 +250,7 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 	var usage wire.Usage
 	var denials *wire.Denials
 	prose := make([]string, 0, len(answers))
+	js := make([]judged, 0, len(answers))
 	for _, answer := range answers {
 		var env reviewEnvelope
 		if err := json.Unmarshal([]byte(answer), &env); err != nil {
@@ -158,7 +267,8 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 			rows = append(rows, findings...)
 		}
 		denials = sumReviewDenials(denials, env.Denials)
-		prose = append(prose, env.Answer)
+		prose = append(prose, partProse(env))
+		js = append(js, envJudged(env))
 		merged = env
 	}
 	if len(rows) > 0 || len(merged.Findings) > 0 {
@@ -169,9 +279,23 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 		}
 	}
 	merged.Structured, merged.Denials = nil, denials
-	merged.Answer = mergeReports(o.Adversarial, parts, prose)
+	merged.Answer = mergeReportsJudged(o.Adversarial, parts, prose, js)
+	m := mergeJudged(js, len(answers) < len(parts))
+	merged.reviewVerdict, merged.VerdictNote = m.reviewVerdict, m.Note()
 	merged.Usage = &usage
 	return agent.WriteJSONLine(os.Stdout, merged)
+}
+
+// partProse is a part's answer; a structured part is rendered as finding lines so the merge reads them too.
+func partProse(env reviewEnvelope) string {
+	if len(env.Findings) == 0 {
+		return env.Answer
+	}
+	var b strings.Builder
+	for _, f := range envJudged(env).Findings {
+		fmt.Fprintf(&b, "[%s] %s:%d — %s\n", f.Severity, f.File, f.Line, f.Text)
+	}
+	return cmp.Or(b.String(), env.Answer) // an empty findings array keeps the model's own answer
 }
 
 // sumReviewDenials adds b's count to a and keeps the first three labels overall.
