@@ -179,6 +179,8 @@ var inventory = []struct {
 	{"files/safety/sudo-hint.txt", "txt", "SafetySudoHint", func() []byte { return read("files/safety/sudo-hint.txt") }},
 	{"files/safety/protected-what.txt", "txt", "SafetyProtectedWhat", func() []byte { return read("files/safety/protected-what.txt") }},
 	{"files/safety/protected-hint.txt", "txt", "SafetyProtectedHint", func() []byte { return read("files/safety/protected-hint.txt") }},
+	{"files/safety/instruction-what.txt", "txt", "SafetyInstructionWhat", func() []byte { return read("files/safety/instruction-what.txt") }},
+	{"files/safety/instruction-hint.txt", "txt", "SafetyInstructionHint", func() []byte { return read("files/safety/instruction-hint.txt") }},
 	{"files/safety/interpreter-what.txt", "txt", "SafetyInterpreterWhat", func() []byte { return read("files/safety/interpreter-what.txt") }},
 	{"files/safety/interpreter-hint.txt", "txt", "SafetyInterpreterHint", func() []byte { return read("files/safety/interpreter-hint.txt") }},
 	{"files/safety/path-unresolved.txt", "txt", "SafetyPathUnresolved", func() []byte { return read("files/safety/path-unresolved.txt") }},

@@ -40,6 +40,10 @@ func SafetyProtectedWhat() string { return string(read("files/safety/protected-w
 
 func SafetyProtectedHint() string { return string(read("files/safety/protected-hint.txt")) }
 
+func SafetyInstructionWhat() string { return string(read("files/safety/instruction-what.txt")) }
+
+func SafetyInstructionHint() string { return string(read("files/safety/instruction-hint.txt")) }
+
 func SafetyInterpreterWhat() string { return string(read("files/safety/interpreter-what.txt")) }
 
 func SafetyInterpreterHint() string { return string(read("files/safety/interpreter-hint.txt")) }

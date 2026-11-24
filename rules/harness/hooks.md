@@ -60,7 +60,7 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 
 | Agent · surface | Modules | Mode |
 | --- | --- | --- |
-| claude · native | every group that isn't agent-only | **block** (`safety-scan` asks only on an interpreter script that may write a protected path); post/prompt hooks inject context |
+| claude · native | every group that isn't agent-only; each harness launch's `--settings` adds `web` and `safety-claude-edit` | **block** (`safety-scan` asks on an interpreter script that may write a protected path; a subagent's `CLAUDE.md` write blocks); post/prompt hooks inject context |
 | codex · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
 | copilot · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`; PostToolUse `worktree-claim`; sessionStart `memory-start`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** |
 | gemini (agy) · native | `safety-scan`, `docs-placement`, `worktree-claim-check` (no `rtk-rewrite`: agy judges its own rules on the rewritten text); PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
@@ -92,7 +92,7 @@ cannot reproduce are blocked. Both the typed and the on-disk spelling are judged
 
 Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-details.md` under the hook's heading.
 
-`safety-scan` has two rules and applies them to every agent, leaves included. It checks each Bash call in order:
+`safety-scan` has three rules and applies them to every agent, leaves included. It checks each Bash call in order:
 
 1. Attribution: an AI-attribution footer (`Co-Authored-By: Claude`, `Generated with Claude Code` and the like) in a
    commit, merge or tag message, or in a PR title or body, blocks (`CLAUDE.md` hard rule 3). The PR forms are
@@ -102,14 +102,21 @@ Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-
    other file) blocks; `sudo` follows `Bash(sudo:*)`. A write to a path an `Edit(...)` deny glob covers blocks too,
    whether by redirect, `cp`/`mv`/`rm` or an interpreter script (`//` absolute, `~/`, `/` = `~/.claude/`, `**/`,
    relative = cwd); an interpreter script that only may write one asks.
+3. CLAUDE.md: main session only (owner, 2026-11-24). A subagent (payload `agent_id`, or `HARNESS_DISPATCH_ID` set)
+   that writes, moves, links or removes a file named `CLAUDE.md` (any directory, or a symlink to one; case-folded
+   where the filesystem folds case) is blocked and told to hand the change back to the main session with the exact
+   path and edit. A user-started Pi has no dispatch id, so it is the main session. Shapes: edit tools, `apply_patch`
+   (tool or shell), redirect (a `$NAME` target the command assigns the file), `tee`, `sed -i`, `perl -i`,
+   `cp`/`mv`/`install` (`-t DIR`), `ln` (source or link), `rm` and `git checkout|restore|rm|mv|clean`. Claude's edit
+   tools reach the rule through every harness launch's `--settings` layer (group `safety-claude-edit`).
 
-Claude asks; an agent without ask gets a block. A leaf gets no exception from either rule.
+Claude asks; an agent without ask gets a block. A leaf gets no exception from any rule.
 Commands are matched as invocations, not as data text. Blocks name the allowed route and the owner's `!`;
 `claude-code doctor --audit` logs no command text.
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety-scan` ¶ | PreToolUse (Bash) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path |
+| `safety-scan` ¶ | PreToolUse (Bash; Claude Write\|Edit\|MultiEdit via `--settings`) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path; block a subagent's `CLAUDE.md` write (main session only) |
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place in every mode (auto included) with no permission decision, so auto mode's classifier still judges it; codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note; redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
 | `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Gates the type (`coworker:<agent>` → `<agent>`), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput` |

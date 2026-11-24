@@ -23,10 +23,12 @@ func isAskLessEdit(in *core.Input) bool {
 	return in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") && !core.SupportsAsk(in.Agent())
 }
 
-// Scan denies a call a settings.json deny rule matches and an AI-attribution footer; nothing else is checked.
+// Scan denies a settings.json deny match and an AI-attribution footer, and gates a subagent's instruction-file write.
 func Scan(in *core.Input) core.Result {
-	if isAskLessEdit(in) {
-		return protectedEdit(in)
+	if isAskLessEdit(in) { // a protected path's block names its own rule, ahead of the instruction-file one
+		if r := protectedEdit(in); r.Decision != core.Allow {
+			return r
+		}
 	}
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	d, msg, detail := commandVerdict(in, cmd)
@@ -49,8 +51,20 @@ func Verdict(in *core.Input) core.Decision {
 	return d
 }
 
-// commandVerdict judges cmd: an attribution footer first, then the settings deny rules.
+// commandVerdict is the stricter of the shell verdict and the instruction-file verdict.
 func commandVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+	d, msg, detail := shellVerdict(in, cmd)
+	if d == core.Block {
+		return d, msg, detail
+	}
+	if id, imsg, idetail := instructionVerdict(in, cmd); id > d {
+		return id, imsg, idetail
+	}
+	return d, msg, detail
+}
+
+// shellVerdict judges cmd: an attribution footer first, then the settings deny rules.
+func shellVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") || cmd == "" {
 		return core.Allow, "", ""
 	}

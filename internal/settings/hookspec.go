@@ -132,6 +132,10 @@ var Registry = []Group{
 	{Name: "safety-edit", Gate: true, AgentOnly: true, Events: []EventSpec{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Write|Edit|Read|Grep|Glob|WebFetch|WebSearch", Budget: 5 * sec, Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode", "pi"}},
 	}},
+	// Claude's edit tools reach safety-scan for the instruction-file rule through every launch's --settings layer.
+	{Name: "safety-claude-edit", Gate: true, AgentOnly: true, Events: []EventSpec{
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "MultiEdit|Write|Edit", Budget: 5 * sec, Blocks: true, AlwaysOn: true},
+	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten through rtk (Claude, Codex, OpenCode; agy judges rules post-rewrite).
 		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, Agents: []string{"codex"}, Plugin: []string{"opencode"}},

@@ -19,6 +19,8 @@ Task:
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
 - Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
+- CLAUDE.md: main session only (`safety-scan` blocks a leaf's write). Hand the change back to the main session (or
+  message it) with the exact file path and the edit to make.
 - Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 - A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.

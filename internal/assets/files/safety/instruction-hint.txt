@@ -1,0 +1,1 @@
+Hand the change back to the main session (or message it) with the exact file path and the edit to make; only the main session writes CLAUDE.md.

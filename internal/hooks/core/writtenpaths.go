@@ -107,6 +107,11 @@ func RemovedPaths(cmd, cwd string) []string {
 	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, func(_, _, rest []string) []string { return removalTargets(rest) })
 }
 
+// SegmentTargets is every absolute path pick names in a segment's unwrapped words, into `bash -c` bodies.
+func SegmentTargets(cmd, cwd string, pick func(rest []string) []string) []string {
+	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, func(_, _, rest []string) []string { return pick(rest) })
+}
+
 // writeTargets are a segment's redirect targets plus the files its command word writes.
 func writeTargets(redirects, toks, rest []string) []string {
 	return append(append(redirectTargets(toks), redirects...), commandTargets(rest)...)
@@ -248,11 +253,8 @@ func inPlaceFiles(args []string, scriptFlags string) []string {
 			inPlace = inPlace || strings.HasPrefix(a, "--in-place")
 		case a == "" || a == "-":
 		case a[0] == '-':
-			ip, takesScript := clusterFlags(a, scriptFlags)
-			inPlace = inPlace || ip
-			if takesScript {
-				script, i = true, i+1
-			}
+			ip, sc, skip := clusterFlags(a, scriptFlags)
+			inPlace, script, i = inPlace || ip, script || sc, i+skip
 		case !script:
 			script = true // the first operand is the script (sed) or program file (perl)
 		default:
@@ -265,15 +267,20 @@ func inPlaceFiles(args []string, scriptFlags string) []string {
 	return files
 }
 
-// clusterFlags reads a short-flag cluster: whether it holds -i (the rest is its suffix) and a script flag.
-func clusterFlags(a, scriptFlags string) (inPlace, takesScript bool) {
-	for _, c := range a[1:] {
-		if c == 'i' {
-			return true, takesScript
+// clusterFlags reads a short-flag cluster: -i (rest is its suffix) or a script flag; skip is 1 if its value is next.
+func clusterFlags(a, scriptFlags string) (inPlace, script bool, skip int) {
+	for k, c := range a[1:] {
+		switch {
+		case c == 'i':
+			return true, false, 0
+		case strings.ContainsRune(scriptFlags, c): // `-pe's/a/b/'` carries its script; only a trailing -e takes the next word
+			if k == len(a)-2 {
+				skip = 1
+			}
+			return false, true, skip
 		}
-		takesScript = takesScript || strings.ContainsRune(scriptFlags, c)
 	}
-	return false, takesScript
+	return false, false, 0
 }
 
 // destinations is the `-t DIR` value, else the last operand of cp/mv/install (under it per source if a directory).

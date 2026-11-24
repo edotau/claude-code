@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,21 +25,28 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 		doc["remoteControlAtStartup"] = false // Remote Control needs the claude.ai login; Databricks has none
 		doc["disableRemoteControl"] = true
 	}
-	doc["hooks"] = webTavilyHooks()
+	doc["hooks"] = launchHooks()
 	return doc, nil
 }
 
-// webTavilyHooks is the PostToolUse entry that answers WebFetch and WebSearch through Tavily.
-func webTavilyHooks() map[string]any {
+// launchGroups are the AgentOnly groups every Claude launch carries: Tavily web answers, the instruction-file gate.
+var launchGroups = []string{"web", "safety-claude-edit"}
+
+// launchHooks is each launch group's entries, by event.
+func launchHooks() map[string]any {
+	out := map[string]any{}
 	for _, g := range Registry {
+		if !slices.Contains(launchGroups, g.Name) {
+			continue
+		}
 		for _, s := range g.Events {
-			if s.Name == "web-tavily" {
-				return map[string]any{s.Event: []any{map[string]any{"matcher": s.Matcher, "hooks": []any{map[string]any{
-					"type": "command", "timeout": s.Seconds(), "command": s.Command()}}}}}
-			}
+			entry := map[string]any{"matcher": s.Matcher, "hooks": []any{map[string]any{
+				"type": "command", "timeout": s.Seconds(), "command": s.Command()}}}
+			prev, _ := out[s.Event].([]any)
+			out[s.Event] = append(prev, entry)
 		}
 	}
-	return nil
+	return out
 }
 
 // userSettings reads the user and cwd project settings files; a key any of them sets is never filled.
