@@ -51,7 +51,7 @@ Omit standard language or framework behavior.
 
 ## Rules
 
-Edit bank files with Edit/Write only; Bash is read-only except `memory remember --supersedes`: no `printf >>`,
+Edit bank files with Edit/Write only; Bash is read-only except `memory remember` (with or without `--supersedes`): no `printf >>`,
 heredocs or Python writes.
 
 Your context is fresh: the transcript digest is your only account of the session. Never invent a summary it

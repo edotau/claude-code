@@ -346,13 +346,16 @@ func tagBlock(transcript, session string, historical bool) string {
 	return assets.MemorySessionTags(lines)
 }
 
-// filedDecisions reports whether a decision's text already heads an entry in decisionLog.md.
+// filedDecisions reports whether a decision's text already heads an entry in decisionLog.md or its archive.
 func filedDecisions() func(text string) bool {
-	b, _ := readFile(Path("decisionLog.md"))
+	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), "archive"), "decisionLog*.md")...)
 	titles := map[string]bool{} // a struck (superseded) title still counts: replaying must not revive it
-	for ln := range strings.SplitSeq(string(b), "\n") {
-		if _, title, ok := strings.Cut(ln, " — "); ok && strings.HasPrefix(ln, "## ") {
-			titles[normTitle(title)] = true
+	for _, p := range logs {
+		b, _ := readFile(p)
+		for ln := range strings.SplitSeq(string(b), "\n") {
+			if _, title, ok := strings.Cut(ln, " — "); ok && strings.HasPrefix(ln, "## ") {
+				titles[normTitle(title)] = true
+			}
 		}
 	}
 	return func(text string) bool { return titles[normTitle(text)] }
