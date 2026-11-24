@@ -56,7 +56,7 @@ type TierPrice struct {
 	CacheWrite float64 `json:"cache_write,omitempty"`
 }
 
-// ModelPrice is a snapshot row in USD per million tokens; Priced is false when an owner price or none covers it.
+// ModelPrice is a snapshot row in USD per million tokens; Priced is false when the snapshot lists no price.
 type ModelPrice struct {
 	Priced     bool        `json:"priced,omitempty"`
 	Input      float64     `json:"input,omitempty"`
@@ -82,13 +82,19 @@ type PriceReport struct {
 	Priced     int      `json:"priced"`
 	Limits     int      `json:"limits"`
 	Deprecated int      `json:"deprecated"`
-	OwnerKept  int      `json:"owner_kept"` // owner-set prices the snapshot left alone
+	OwnerKept  int      `json:"owner_kept"` // snapshot prices an owner-set price outranks
 	Rejected   []string `json:"rejected,omitempty"`
 }
 
 // Deprecated reports whether the snapshot marks id deprecated; the model stays usable.
 func (p Prices) Deprecated(id string) bool {
 	return p.Models[models.ModelKey(id)].Status == "deprecated"
+}
+
+// Rate is id's snapshot price; a reader uses it only where the owner's options.prices names no price for id.
+func (p Prices) Rate(id string) (ModelPrice, bool) {
+	row, ok := p.Models[models.ModelKey(id)]
+	return row, ok && row.Priced
 }
 
 // Fresh reports whether the table was fetched within the refresh window of now.
@@ -237,7 +243,7 @@ type snapFold struct {
 	owner map[string]bool
 }
 
-// FoldSnapshot decodes raw; an owner key loses its snapshot price; a bad row is rejected; prev rows persist.
+// FoldSnapshot decodes raw; a bad row is rejected; prev rows persist; ownerPriced only feeds the OwnerKept count.
 func FoldSnapshot(raw []byte, ownerPriced map[string]bool, prev Prices, now time.Time) (Prices, PriceReport, error) {
 	var provs map[string]struct {
 		Models map[string]json.RawMessage `json:"models"`
@@ -305,14 +311,10 @@ func fillGaps(a, b ModelPrice) ModelPrice {
 	return a
 }
 
-// dropOwnerPrices removes the price of every model an owner priced, new and retained rows alike.
-func (f *snapFold) dropOwnerPrices() {
+// countOwnerPrices counts the snapshot prices options.prices outranks; the file keeps them for other profiles.
+func (f *snapFold) countOwnerPrices() {
 	for k := range f.owner {
-		if row, ok := f.out.Models[k]; ok && row.Priced {
-			row.Priced, row.Input, row.Output, row.CacheRead, row.CacheWrite, row.Tiers = false, 0, 0, 0, 0, nil
-			f.out.Models[k] = row
-			f.rep.OwnerKept++
-		}
+		f.rep.OwnerKept += btoi(f.out.Models[k].Priced)
 	}
 }
 
@@ -323,7 +325,7 @@ func (f *snapFold) finish(prev Prices) {
 		}
 		f.out.Models[k] = v
 	}
-	f.dropOwnerPrices()
+	f.countOwnerPrices()
 	f.rep.Models = len(f.out.Models)
 	for _, row := range f.out.Models {
 		f.rep.Priced += btoi(row.Priced)

@@ -60,15 +60,15 @@ func TestFoldSnapshotRejects(t *testing.T) {
 	}
 }
 
-// An owner price is never replaced: the snapshot keeps the limits and drops its price.
-func TestFoldSnapshotOwnerWins(t *testing.T) {
+// An owner-priced model is counted; the file keeps the snapshot price for profiles without an override.
+func TestFoldSnapshotCountsOwnerPrices(t *testing.T) {
 	key := models.ModelKey("databricks-claude-opus-5-5")
 	p, rep := fixtureFold(t, map[string]bool{key: true})
-	if got := p.Models[key]; got.Priced || got.Input != 0 || got.Context != 1000000 {
-		t.Errorf("owner-priced row = %+v, want no price and limits kept", got)
+	if got, ok := p.Rate("claude-opus-5-5"); !ok || got.Input != 4 {
+		t.Errorf("rate = %+v, %v, want the snapshot price kept", got, ok)
 	}
-	if rep.OwnerKept != 1 || rep.Priced != 2 {
-		t.Errorf("report = %+v, want one owner price kept", rep)
+	if rep.OwnerKept != 1 || rep.Priced != 3 {
+		t.Errorf("report = %+v, want one owner-outranked price", rep)
 	}
 }
 
@@ -88,8 +88,8 @@ func TestFoldSnapshotFillsAndKeeps(t *testing.T) {
 	}
 }
 
-// An empty refreshed row keeps its old price, and an owner price added later strips even a retained row.
-func TestFoldSnapshotRefreshKeepsAndOwnerStrips(t *testing.T) {
+// An empty refreshed row keeps its old price, and a retained row's owner-outranked price is counted.
+func TestFoldSnapshotRefreshKeepsAndCounts(t *testing.T) {
 	prev := Prices{Models: map[string]ModelPrice{"m-1": {Priced: true, Input: 3, Context: 7}, "gone": {Priced: true, Input: 7}}}
 	p, rep, err := FoldSnapshot([]byte(`{"a":{"models":{"m-1":{}}}}`), map[string]bool{"gone": true}, prev, pricesT0)
 	if err != nil {
@@ -98,8 +98,8 @@ func TestFoldSnapshotRefreshKeepsAndOwnerStrips(t *testing.T) {
 	if m := p.Models["m-1"]; !m.Priced || m.Input != 3 || m.Context != 7 {
 		t.Errorf("m-1 = %+v, want the old price and limit kept", m)
 	}
-	if g := p.Models["gone"]; g.Priced || g.Input != 0 || rep.OwnerKept != 1 {
-		t.Errorf("gone = %+v, owner kept %d, want the retained price stripped", g, rep.OwnerKept)
+	if _, ok := p.Rate("gone"); !ok || rep.OwnerKept != 1 {
+		t.Errorf("gone priced = %v, owner kept %d, want the retained price kept and counted", ok, rep.OwnerKept)
 	}
 }
 
