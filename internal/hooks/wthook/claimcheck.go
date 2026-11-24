@@ -339,7 +339,8 @@ func laneTarget(root, file, worker string) (create, dir string) {
 	}
 	sum := sha256.Sum256([]byte(worker))
 	slug += "-" + hex.EncodeToString(sum[:4])
-	return "cd " + strconv.Quote(root) + " && claude-code worktree create " + slug, filepath.Join(paths.LaneRoot(root), slug)
+	quoted := "'" + strings.ReplaceAll(root, "'", "'\\''") + "'" // single quotes keep $() and backticks inert
+	return "cd " + quoted + " && claude-code worktree create " + slug, filepath.Join(paths.LaneRoot(root), slug)
 }
 
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
