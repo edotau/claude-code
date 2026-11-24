@@ -31,14 +31,19 @@ func pruneDispatches(dir string, keep ...string) {
 	}
 }
 
-// removeRecord deletes one dispatch record and its files under its lock; false means another holder has the lock.
+// removeRecord deletes one dispatch record and its files under its lock; false means it was held or revived.
 func removeRecord(dir, name string) bool {
+	removed := false
 	// best-effort: a lock that cannot be opened skips this record, as a held one does
 	ran, _ := paths.TryFileLock(filepath.Join(dir, name+".lock"), 0, func() error {
+		if activeRecord(filepath.Join(dir, name)) { // a claim or update may land between the caller's check and the lock
+			return nil
+		}
 		removeRecordFiles(dir, name)
+		removed = true
 		return nil
 	})
-	return ran
+	return ran && removed
 }
 
 // removeRecordFiles deletes the record's files; its .lock goes last, while the caller still holds it.
