@@ -5,11 +5,13 @@ package tree
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -214,9 +216,15 @@ func (d *dashboard) reloadDue() error {
 // onKey opens the selected dispatch's pane on Enter with no cancel armed, else applies the key and performs its effect.
 func (d *dashboard) onKey(k key) {
 	vis := visible(d.nodes, d.st.open)
-	if k == keyEnter && d.st.pending == "" && d.st.sel < len(vis) && vis[d.st.sel].Kind == KindDispatch {
-		d.showJob(actionTarget(vis[d.st.sel])) // a folded row opens its carrier, as `agents tree` lists it
-		return
+	if k == keyEnter && d.st.pending == "" && d.st.sel < len(vis) {
+		switch n := vis[d.st.sel]; {
+		case n.Kind == KindDispatch:
+			d.showJob(actionTarget(n)) // a folded row opens its carrier, as `agents tree` lists it
+			return
+		case n.Kind == KindSubagent && n.Subagent != nil:
+			d.showSubagent(*n.Subagent)
+			return
+		}
 	}
 	var e effect
 	d.st, e = onKey(d.st, k, d.nodes)
@@ -244,9 +252,26 @@ func (d *dashboard) showJob(id string) {
 		d.st.status = actionLine(fmt.Sprintf("open %s: %v", id, err))
 		return
 	}
-	feeds := &paneFeeds{ev: openPane(d.ctx, rec)}
+	d.runPane(rec, jobHeader(d.tree, id, rec), &paneFeeds{ev: openPane(d.ctx, rec), rawFn: paneLog}, newPaneSet())
+}
+
+// showSubagent follows one subagent's transcript in the detail pane, as showJob does a dispatch, until Esc or q.
+func (d *dashboard) showSubagent(sub Subagent) {
+	path := transcriptPath(d.claudeDir, sub.ID)
+	if path == "" {
+		d.st.status = actionLine("open " + sub.ID + ": no transcript found")
+		return
+	}
+	s := newPaneSet()
+	s.ev.noLog = true
+	head := subagentHeader(sub, transcriptStart(path), time.Now())
+	d.runPane(agent.Record{}, head, &paneFeeds{ev: openFeed(d.ctx, agent.Record{}, transcriptStream(path))}, s)
+}
+
+// runPane draws the pane's frames until Esc or q, closing feeds on the way out.
+func (d *dashboard) runPane(rec agent.Record, head []string, feeds *paneFeeds, s paneSet) {
 	defer feeds.close()
-	s, head := newPaneSet(), jobHeader(d.tree, id, rec)
+	var err error
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -301,6 +326,58 @@ func jobHeader(tr *Tree, id string, rec agent.Record) []string {
 		head = append(head, "about  "+paneText(desc))
 	}
 	return head
+}
+
+// subagentHeader is the subagent pane's top: type, model, description, time since start and tokens.
+func subagentHeader(sub Subagent, start, now time.Time) []string {
+	end := sub.Updated
+	if sub.Status == statusRunning || end.IsZero() {
+		end = now
+	}
+	head := []string{
+		"agent  " + cmp.Or(sub.Type, "subagent"),
+		"model  " + strings.TrimPrefix(subModel(sub), databricksPrefix),
+		"about  " + paneText(sub.Description),
+	}
+	if !start.IsZero() {
+		head = append(head, "time   "+shortDuration(end.Sub(start))+" · "+sub.Status)
+	}
+	return append(head, "tokens ↑ "+textutil.CompactCount(sub.Tokens.In)+" · ↓ "+textutil.CompactCount(sub.Tokens.Out))
+}
+
+// transcriptPath finds subagent id's agent-<id>.jsonl under a session or a workflow run; "" when absent or id unsafe.
+func transcriptPath(claudeDir, id string) string {
+	if !plainSessionID(id) {
+		return ""
+	}
+	for _, pat := range []string{"*/*/subagents/agent-" + id + ".jsonl", "*/*/subagents/workflows/*/agent-" + id + ".jsonl"} {
+		if m, _ := filepath.Glob(filepath.Join(claudeDir, "projects", pat)); len(m) > 0 {
+			return m[0]
+		}
+	}
+	return ""
+}
+
+// transcriptStart is the first timestamp in the transcript's opening lines; zero when none shows.
+func transcriptStart(path string) time.Time {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}
+	}
+	defer f.Close()
+	sc := newLineScanner(f)
+	for range 30 {
+		if !sc.Scan() {
+			break
+		}
+		var rec struct {
+			Timestamp string `json:"timestamp"`
+		}
+		if json.Unmarshal(sc.Bytes(), &rec) == nil && rec.Timestamp != "" {
+			return parseRFC3339(rec.Timestamp)
+		}
+	}
+	return time.Time{}
 }
 
 // descriptionOf is the description of the subagent that launched dispatch id; "" when no subagent row did.

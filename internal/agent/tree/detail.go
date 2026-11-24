@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
@@ -59,19 +61,37 @@ func paneEventLine(ev wire.Event, width int) (string, bool) {
 	if ev.Via != "" {
 		parts = append(parts, viaTag(ev))
 	}
-	if ev.Type != wire.EventText {
-		parts = append(parts, ev.Type)
-	}
-	if ev.Tool != nil && ev.Tool.Name != "" {
-		parts = append(parts, ev.Tool.Name)
-	}
-	if ev.Status != "" {
-		parts = append(parts, ev.Status)
-	}
-	if ev.Text != "" {
-		parts = append(parts, ev.Text)
-	}
+	parts = append(parts, eventParts(ev)...)
 	return textutil.TruncateCells(paneText(strings.Join(parts, " ")), min(max(width, 0), maxLineWidth), "…"), true
+}
+
+// eventParts is an event's words: a tool call or result with a mark, thinking dim-marked, else type, tool, status, text.
+func eventParts(ev wire.Event) []string {
+	var parts []string
+	name := ""
+	if ev.Tool != nil {
+		name = ev.Tool.Name
+	}
+	switch ev.Type {
+	case wire.EventToolUse:
+		parts = append(parts, "▸", name)
+	case wire.EventToolResult:
+		mark, status := "✓", ev.Status
+		switch status {
+		case "error":
+			mark = "✗"
+		case "completed":
+			status = ""
+		}
+		parts = append(parts, mark, name, status)
+	case eventThinking:
+		parts = append(parts, "∴")
+	case wire.EventText:
+	default:
+		parts = append(parts, ev.Type, name, ev.Status)
+	}
+	parts = append(parts, ev.Text)
+	return slices.DeleteFunc(parts, func(p string) bool { return p == "" })
 }
 
 // viaTag names whose event a carrier forwarded: the child's agent and its id's clock (ids share their date prefix).
@@ -100,6 +120,9 @@ type paneState struct {
 	follow, live bool
 	rows         int
 	raw          bool
+	noLog        bool   // the job has no raw log to toggle to
+	open         bool   // the last line is a text line that the next text delta continues
+	openText     string // the raw text of that line
 }
 
 // paneSet is both views of one job: the events and the raw log each keep their own scroll and follow state.
@@ -146,15 +169,42 @@ func paneOnLine(s paneState, line []byte) paneState {
 	if json.Unmarshal(line, &ev) != nil {
 		return paneClamp(s)
 	}
+	if ev.Type == wire.EventText && ev.Via == "" {
+		return paneOnText(s, ev)
+	}
 	text, ok := paneEventLine(ev, maxLineWidth)
 	if !ok {
 		return paneClamp(s)
 	}
+	s.open = false
 	s = paneAppend(s, text)
 	if ev.Type == wire.EventResult {
 		s.live = false
 	}
 	return s
+}
+
+// paneOnText joins text deltas into lines: a newline or a new turn ends the open line, so Pi's token stream reads whole.
+func paneOnText(s paneState, ev wire.Event) paneState {
+	if ev.Sep {
+		s.open = false
+	}
+	for i, part := range strings.Split(ev.Text, "\n") {
+		if i > 0 {
+			s.open = false
+		}
+		switch {
+		case s.open:
+			if len(s.openText) < 4*maxLineWidth {
+				s.openText += part
+			}
+			s.lines[len(s.lines)-1] = textutil.TruncateCells(paneText(s.openText), maxLineWidth, "…")
+		case strings.TrimSpace(part) != "":
+			s.open, s.openText = true, part
+			s = paneAppend(s, textutil.TruncateCells(paneText(part), maxLineWidth, "…"))
+		}
+	}
+	return paneClamp(s)
 }
 
 func paneAppend(s paneState, text string) paneState {
@@ -235,7 +285,159 @@ func paneLines(s paneState, head []string, width, height int) []string {
 		state, hint = state+" · log", "l events"
 	}
 	foot := state + " · ↑/↓ scroll · " + hint + " · " + jobFooter
+	if s.noLog {
+		foot = state + " · ↑/↓ scroll · " + jobFooter
+	}
 	return append(lines, textutil.TruncateCells(foot, width, "…"))
+}
+
+// eventThinking is the pane's own event type for a transcript's thinking block; the wire has none.
+const eventThinking = "thinking"
+
+// transcriptPoll is how often a subagent's transcript is read again for new lines.
+const transcriptPoll = 300 * time.Millisecond
+
+// transcriptStream tails a subagent transcript as wire event lines until its sidecar says finished or ctx ends.
+func transcriptStream(path string) streamFunc {
+	return func(ctx context.Context, _ agent.Record, w io.Writer) error {
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		r, enc, names := bufio.NewReaderSize(f, 64<<10), json.NewEncoder(w), map[string]string{}
+		var partial []byte
+		for {
+			settled := transcriptFinished(path) // read before the drain, so the last lines are never missed
+			for {
+				chunk, err := r.ReadBytes('\n')
+				partial = append(partial, chunk...)
+				if err != nil {
+					break
+				}
+				for _, ev := range transcriptEvents(partial, names) {
+					if err := enc.Encode(ev); err != nil {
+						return err
+					}
+				}
+				partial = partial[:0]
+			}
+			if settled {
+				return enc.Encode(wire.Event{Type: wire.EventResult, Status: "finished"})
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(transcriptPoll):
+			}
+		}
+	}
+}
+
+func transcriptFinished(path string) bool {
+	raw, err := os.ReadFile(metaPath(path))
+	if err != nil {
+		return false
+	}
+	m, _ := parseMeta(raw)
+	return m.Finished
+}
+
+// transcriptLine is the record subset the pane summarises; content is a string or an array of blocks.
+type transcriptLine struct {
+	Type    string `json:"type"`
+	Message struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+type transcriptBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
+	Name      string          `json:"name"`
+	ID        string          `json:"id"`
+	Input     json.RawMessage `json:"input"`
+	ToolUseID string          `json:"tool_use_id"`
+	IsError   bool            `json:"is_error"`
+	Content   json.RawMessage `json:"content"`
+}
+
+// transcriptEvents turns one transcript record into pane events; names maps tool_use ids to tool names for results.
+func transcriptEvents(raw []byte, names map[string]string) []wire.Event {
+	var rec transcriptLine
+	if len(raw) > paneLineBytes || json.Unmarshal(raw, &rec) != nil || (rec.Type != "assistant" && rec.Type != "user") {
+		return nil
+	}
+	var blocks []transcriptBlock
+	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+		return nil // a user turn's plain string is the brief, not progress
+	}
+	home, _ := os.UserHomeDir()
+	var out []wire.Event
+	for _, b := range blocks {
+		if ev, ok := blockEvent(b, names, home); ok {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func blockEvent(b transcriptBlock, names map[string]string, home string) (wire.Event, bool) {
+	switch b.Type {
+	case "text":
+		return wire.Event{Type: wire.EventText, Text: firstLine(b.Text) + "\n"}, true
+	case "thinking":
+		line := firstLine(b.Thinking)
+		return wire.Event{Type: eventThinking, Text: line}, line != ""
+	case "tool_use":
+		names[b.ID] = b.Name
+		arg := cmp.Or(toolArg(b.Input), inputField(b.Input, "description"), inputField(b.Input, "query"))
+		return wire.Event{Type: wire.EventToolUse, Tool: &wire.ToolRef{Name: b.Name, ID: b.ID},
+			Text: stripPaths(arg, home, "")}, true
+	case "tool_result":
+		ev := wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: names[b.ToolUseID], ID: b.ToolUseID},
+			Text: firstLine(blockText(b.Content))}
+		if b.IsError {
+			ev.Status = "error"
+		}
+		return ev, true
+	}
+	return wire.Event{}, false
+}
+
+func inputField(input json.RawMessage, key string) string {
+	var m map[string]any
+	if json.Unmarshal(input, &m) != nil {
+		return ""
+	}
+	s, _ := m[key].(string)
+	return s
+}
+
+// blockText is a tool result's text: its string content, or the text parts of a block array.
+func blockText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct{ Text string }
+	_ = json.Unmarshal(raw, &parts)
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text + "\n")
+	}
+	return b.String()
+}
+
+// firstLine is the first non-blank line of s, trimmed.
+func firstLine(s string) string {
+	for line := range strings.SplitSeq(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // Oversized event lines are dropped whole so an unfinished tool dump cannot grow the reader without bound.
@@ -336,13 +538,19 @@ func (p *paneFeed) close() {
 }
 
 // paneFeeds are the pane's readers; the raw log's starts the first time that view opens and never restarts.
-type paneFeeds struct{ ev, raw *paneFeed }
+type paneFeeds struct {
+	ev, raw *paneFeed
+	rawFn   streamFunc // the raw view's stream; nil for a job with no log
+}
 
 // onKey applies a key to the views and starts the raw reader when the log view is first shown.
 func (f *paneFeeds) onKey(ctx context.Context, rec agent.Record, ps paneSet, k key) paneSet {
+	if k == keyRight && f.rawFn == nil {
+		return ps
+	}
 	ps = paneSetKey(ps, k)
 	if ps.onRaw && f.raw == nil {
-		f.raw = openFeed(ctx, rec, paneLog)
+		f.raw = openFeed(ctx, rec, f.rawFn)
 	}
 	return ps
 }
