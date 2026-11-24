@@ -68,12 +68,7 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 			p.Left = append(p.Left, s.Path)
 		}
 	}
-	if w := coverageWarning(collected); w != "" {
-		p.Notes = append(p.Notes, w)
-	}
-	if collected.Omitted > 0 {
-		p.Notes = append(p.Notes, fmt.Sprintf("pack: path inventory over %d KB; listed %d paths, left %d out", budget/1024, len(collected.Skipped), collected.Omitted))
-	}
+	p.Notes = append(p.Notes, coverageNotes(collected, budget)...)
 	if len(dropped) > 0 {
 		p.Notes = append(p.Notes, fmt.Sprintf("pack: prompt over %d KB; left out whole files: %s", budget/1024, strings.Join(dropped, ", ")))
 	}
@@ -154,6 +149,17 @@ func fit(task func(Context) string, ctx Context, limit int) (string, Context, []
 		}
 		ctx.Included, ctx.Skipped = inc, skipped
 	}
+}
+
+// coverageNotes is the coverage warning plus, when the inventory was trimmed, what it dropped.
+func coverageNotes(c Context, budget int) (notes []string) {
+	if w := coverageWarning(c); w != "" {
+		notes = append(notes, w)
+	}
+	if c.Omitted > 0 {
+		notes = append(notes, fmt.Sprintf("pack: path inventory over %d KB; listed %d paths, left %d out", budget/1024, len(c.Skipped), c.Omitted))
+	}
+	return notes
 }
 
 // trimSkipped cuts trailing skipped paths from the inventory, about excess bytes of them, and counts them in Omitted.
