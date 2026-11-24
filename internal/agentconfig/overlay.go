@@ -432,18 +432,23 @@ func (o Overlay) validate(src overlaySrc) error {
 
 // checkProviderMode wants each key a Claude provider of the registry (when it loads) and each value a mode.
 func (o Overlay) checkProviderMode() error {
+	if len(o.ProviderMode) == 0 {
+		return nil
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return errors.New("providerMode: the provider registry does not load, so its providers cannot be checked")
+	}
 	var names []string
-	if reg, err := providers.LoadShared(); err == nil {
-		for _, p := range router.ClaudeProviders(reg) {
-			names = append(names, p.Name)
-		}
+	for _, p := range router.ClaudeProviders(reg) {
+		names = append(names, p.Name)
 	}
 	for _, name := range slices.Sorted(maps.Keys(o.ProviderMode)) {
-		if len(names) > 0 && !slices.Contains(names, name) {
+		if !slices.Contains(names, name) {
 			return errors.New("providerMode: unknown provider (" + strings.Join(names, "|") + ")")
 		}
-		if _, err := router.ParseProviderMode(o.ProviderMode[name]); err != nil {
-			return errors.New("providerMode: " + err.Error())
+		if _, err := router.ParseProviderMode(o.ProviderMode[name]); err != nil || o.ProviderMode[name] == "" {
+			return errors.New("providerMode: " + router.ProviderModeError{}.Error()) // empty is no mode: the schema agrees
 		}
 	}
 	return nil

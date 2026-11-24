@@ -300,7 +300,10 @@ func TestOverlayProviderMode(t *testing.T) {
 	if _, err := parseOverlay([]byte(`{"providerMode":{"anthropic":"exclusive"}}`)); err != nil {
 		t.Errorf("valid providerMode refused: %v", err)
 	}
-	for _, doc := range []string{`{"providerMode":{"anthropic":"bogus"}}`, `{"providerMode":{"nowhere":"rotate"}}`} {
+	docs := []string{
+		`{"providerMode":{"anthropic":"bogus"}}`, `{"providerMode":{"nowhere":"rotate"}}`, `{"providerMode":{"anthropic":""}}`,
+	}
+	for _, doc := range docs {
 		if _, err := parseOverlay([]byte(doc)); err == nil || !strings.HasPrefix(err.Error(), "providerMode: ") {
 			t.Errorf("%s: want a providerMode error, got %v", doc, err)
 		}
