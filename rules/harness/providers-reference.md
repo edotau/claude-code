@@ -13,9 +13,9 @@ short commands and precedence are in `providers.md`.
 
 ## Providers
 
-Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay (rows added by `configure github`
-and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes it). Each
-entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see [Naming](#naming).
+Built-ins live in `internal/assets/files/providers/defaults.json`. The vault's provider overlay (rows added by
+`configure github` and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes
+it). Each entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see [Naming](#naming).
 
 ```jsonc
 "providers": {
@@ -175,10 +175,10 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats session profile beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
-bucket" is the exception: an alias's ordered Databricks list in `internal/router/table.json`), leg (→ dispatch),
-family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its name),
-first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire is
-`serving` (`ai-gateway` is refused).
+bucket" is the exception: an alias's ordered Databricks list in `internal/assets/files/router/table.json`), leg (→
+dispatch), family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its
+name), first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire
+is `serving` (`ai-gateway` is refused).
 
 | Surface | Form | Example |
 | --- | --- | --- |

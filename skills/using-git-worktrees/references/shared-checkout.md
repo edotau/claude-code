@@ -39,8 +39,8 @@ refusal names the session or leaf claiming each overlapping file.
 ## Registry files: the orchestrator owns them
 
 Files every lane appends to (`internal/schemas/testdata/registry.golden`,
-`internal/settings/hookspec.go`, `internal/providers/defaults.json`, `internal/hooks/dispatch.go`'s handler map,
-`rules/harness/hooks.md`) are never in a leaf's `owns:`. The leaf's report carries its entry as a fenced block
+`internal/settings/hookspec.go`, `internal/assets/files/providers/defaults.json`, `internal/hooks/dispatch.go`'s handler
+map, `rules/harness/hooks.md`) are never in a leaf's `owns:`. The leaf's report carries its entry as a fenced block
 (file, anchor line, exact text); main applies every lane's entries in one commit after the leaves land. A leaf that
 must compile against a new entry first gets its own linked worktree (`claude-code worktree create <slug>`). A new file
 writer is the exception: one row in `internal/schemas/testdata/writers/<pkg>.txt`, owned by its package. Under

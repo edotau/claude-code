@@ -7,9 +7,9 @@ cheaper or wider; integration and final checks stay Claude's.
 
 Agent roles and the relay contract: `../SKILL.md` → Leaf types. Use the root machine's pins; pass an explicit route
 or model only when the task calls for one. Do not pin `dev`, `qa`, `prod` or a personal login based on historical
-measurements. Aliases come from `internal/providers/defaults.json` and the vault overlay, resolved by
-`internal/models`; `internal/router/table.json` holds price/account rows and the Databricks tier buckets (the
-models an alias picks on a workspace; `rules/harness/providers.md` → Model selection).
+measurements. Aliases come from `internal/assets/files/providers/defaults.json` and the vault overlay, resolved by
+`internal/models`; `internal/assets/files/router/table.json` holds price/account rows and the Databricks tier buckets
+(the models an alias picks on a workspace; `rules/harness/providers.md` → Model selection).
 
 A dispatch runs one task. `gemini` needs tools for file reads or search; use it for research. An
 OpenCode run may write outside its intended workdir: verify the actual tree and owned files.

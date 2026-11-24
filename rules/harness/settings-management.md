@@ -20,7 +20,7 @@ paths:
 
 ## Where settings come from
 
-- A fresh install (file missing) seeds it from `internal/settings/template.json` plus the hook chain in
+- A fresh install (file missing) seeds it from `internal/assets/files/settings/template.json` plus the hook chain in
   `internal/settings/hookspec.go`. `make install` never writes an existing file; its only audit is validity.
 - `claude-code install` refuses when `bin/.hookd` is missing; build both binaries with `make compile` first.
 - `bin/.build-stamp` is shared by both binaries; a mismatch makes `.hookd` hand over to `bin/claude-code`.
@@ -42,8 +42,9 @@ paths:
   ```
 
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.
-- Confirm a new field's name and shape against the schema (`internal/settings/claude-code-settings.schema.json`,
-  from <https://www.schemastore.org/claude-code-settings.json>) first.
+- Confirm a new field's name and shape against the schema
+  (`internal/assets/files/settings/claude-code-settings.schema.json`, from
+  <https://www.schemastore.org/claude-code-settings.json>) first.
 - No guard blocks edits to vendor CLI configs (`~/.copilot/settings.json`, `~/.codex/config.toml`, …); edit them only
   when the task needs it, never as a drive-by.
 - Propose new `permissions.allow` rules as a table and wait for the owner's pick before editing

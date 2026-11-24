@@ -154,7 +154,20 @@ func HookDiverged(branch, up string, ahead, behind int, rewritten bool) string {
 	})
 }
 
-func AgyToolLessPreamble() string { return string(read("files/agent/agy-toolless.txt")) }
+func HookClaimHowTo() string { return renderHook("claim-how-to.tmpl", nil) }
+
+func HookClaimStageHint() string { return renderHook("claim-stage-hint.tmpl", nil) }
+
+func HookClaimCommitHint() string { return string(read("files/hooks/claim-commit-hint.txt")) }
+
+func HookClaimBareHint() string { return string(read("files/hooks/claim-bare-hint.txt")) }
+
+func HookClaimNestHint() string { return string(read("files/hooks/claim-nest-hint.txt")) }
+
+func HookClaimLaneHint() string { return string(read("files/hooks/claim-lane-hint.txt")) }
+
+// The file stores one trailing newline (git diff --check); the preamble ends with a blank line.
+func AgyToolLessPreamble() string { return string(read("files/agent/agy-toolless.txt")) + "\n" }
 
 func PiStdinTask() string { return string(read("files/agent/stdin-task.txt")) }
 
@@ -167,7 +180,8 @@ func AttachFile(quotedPath, content string) string {
 
 func AttachRef(path string) string { return renderAgent("attach-ref.tmpl", path) }
 
-func PlanTasksHead() string { return string(read("files/agent/plan-tasks-head.txt")) }
+// The file stores one trailing newline (git diff --check); the head ends with a blank line.
+func PlanTasksHead() string { return string(read("files/agent/plan-tasks-head.txt")) + "\n" }
 
 func PlanTasksEmpty() string { return string(read("files/agent/plan-tasks-empty.txt")) }
 

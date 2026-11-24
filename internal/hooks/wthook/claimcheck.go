@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -322,7 +323,7 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
-	hint := "a lane keeps it clean: claude-code worktree create <slug>, then edit under ~/worktrees/<repo>/<slug>"
+	hint := assets.HookClaimLaneHint()
 	return core.Result{Context: what + "; " + hint}
 }
 
@@ -556,7 +557,7 @@ func (v claimView) editCheck(p string) core.Result {
 		}
 	}
 	if len(lines) > 0 && firstSighting(v.in.SessionID, howToMark) {
-		lines[0] += howTo
+		lines[0] += assets.HookClaimHowTo()
 	}
 	for i := range lines {
 		lines[i] += "."
@@ -566,13 +567,6 @@ func (v claimView) editCheck(p string) core.Result {
 
 // howToMark is the seen-store key of the session's first advisory, which alone carries howTo.
 const howToMark = "advisory-howto"
-
-// howTo is the advice appended to a session's first advisory.
-const howTo = "; edit only your own hunks and stage just those (" + ownHunks + "), or hand the change to its owner"
-
-// ownHunks is the non-interactive way to stage part of a file; `git add -p` waits on a prompt no hook shell answers.
-const ownHunks = "save `git diff <path>` to a patch file outside the repo, delete the hunks that are not yours, " +
-	"then `git apply --cached <patch>`"
 
 // cleanMark prefixes a seen-store line recording that a path was clean (path, then unix time, tab-separated).
 const cleanMark = "clean\t"
@@ -713,7 +707,7 @@ func bareVerbResult(in *core.Input, res core.Result) core.Result {
 		d = core.Block
 	}
 	what := "worktree commit with no files takes this session's claimed edits, which cannot be told from other agents' here"
-	hint := "commit only your own files: claude-code worktree commit -m <msg> <files> (or git commit -- <your files>)"
+	hint := assets.HookClaimBareHint()
 	res.Decision, res.Reason = d, core.SafetyMessage(in, d, what, "", hint)
 	return res
 }
@@ -777,7 +771,7 @@ func (v claimView) uninspectableVerdict(target string, hiddenCd bool) core.Resul
 		d = core.Block
 	}
 	return core.Result{Decision: d, Reason: core.SafetyMessage(v.in, d, "command nests too deep to check what it stages", "",
-		"unwrap the nested bash -c/eval and run the git add/commit directly")}
+		assets.HookClaimNestHint())}
 }
 
 // stageVerdict checks one git invocation's staged set against the claims.
@@ -864,9 +858,9 @@ func stageResult(in *core.Input, top, verb string, taken []string, n stageCount)
 	}
 	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
 		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
-	hint := "stage only your hunks: " + ownHunks + "; or leave the file and tell its owner"
+	hint := assets.HookClaimStageHint()
 	if verb == "commit" {
-		hint = "commit only your own files: claude-code worktree commit -m <msg> <files> (or git commit -- <your files>; a bare commit takes everything staged)"
+		hint = assets.HookClaimCommitHint()
 	}
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
 }

@@ -1,0 +1,1 @@
+a lane keeps it clean: claude-code worktree create <slug>, then edit under ~/worktrees/<repo>/<slug>

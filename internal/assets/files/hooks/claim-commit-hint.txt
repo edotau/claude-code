@@ -1,0 +1,1 @@
+commit only your own files: claude-code worktree commit -m <msg> <files> (or git commit -- <your files>; a bare commit takes everything staged)

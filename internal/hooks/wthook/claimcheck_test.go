@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -949,7 +950,7 @@ func TestClaimCheckHowToOncePerSession(t *testing.T) {
 			t.Errorf("%s advisory %q lacks its file, holder or time", c.name, c.got)
 		}
 	}
-	if !strings.Contains(first, howTo) || strings.Contains(second, "stage just those") || !strings.Contains(other, howTo) {
+	if !strings.Contains(first, assets.HookClaimHowTo()) || strings.Contains(second, "stage just those") || !strings.Contains(other, assets.HookClaimHowTo()) {
 		t.Errorf("how-to placement wrong:\nfirst  %q\nsecond %q\nnew    %q", first, second, other)
 	}
 }

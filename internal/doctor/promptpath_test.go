@@ -1,12 +1,14 @@
 package doctor
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -184,5 +186,25 @@ func BenchmarkPromptPathStatic(b *testing.B) {
 		skills(root)
 		workflows(root)
 		agents(root)
+	}
+}
+
+func TestPromptsListPrintsOneRowPerText(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	code := Run([]string{"--prompts", "--list"})
+	os.Stdout = saved
+	w.Close()
+	out, _ := io.ReadAll(r)
+	rows := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if code != 0 || len(rows) != len(assets.Inventory()) || !strings.Contains(rows[0], "files/catalog/ranks.json") {
+		t.Fatalf("exit %d, %d rows, first %q", code, len(rows), rows[0])
+	}
+	if Run([]string{"--list"}) != 2 {
+		t.Error("--list without --prompts should be a usage error")
 	}
 }

@@ -1,13 +1,16 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/paths"
@@ -23,10 +26,10 @@ var doctorChecks = func(ctx context.Context) ([]check, bool) {
 }
 
 type doctorOpts struct {
-	format                                                    *string
-	auditMode, scan, gitScan, refresh, all, fix, prompts, mcp bool
-	days, since                                               int
-	rev                                                       string
+	format                                                          *string
+	auditMode, scan, gitScan, refresh, all, fix, prompts, list, mcp bool
+	days, since                                                     int
+	rev                                                             string
 }
 
 var doctorPage = helptext.Page{
@@ -38,7 +41,7 @@ var doctorPage = helptext.Page{
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
 		"and exit 1 on any finding. --secrets --fix masks idle transcript stores in place; paths restrict this pass. --mcp prints every MCP server's live health, cross-scope drift " +
 		"and inline secrets; exits 1 on a failed server, an inline secret or an unreadable config. " +
-		"--prompts audits the instruction path. The mode flags cannot be combined.",
+		"--prompts audits the instruction path; with --list it lists every embedded prompt text. The mode flags cannot be combined.",
 }
 
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
@@ -54,6 +57,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.all, "secrets", false, "--scan, --git, vault and transcript checks; worst exit wins")
 	fs.BoolVar(&o.fix, "fix", false, "with --secrets: mask idle transcript files in place")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
+	fs.BoolVar(&o.list, "list", false, "with --prompts: list every embedded prompt text")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
 	return fs, o
 }
@@ -85,7 +89,7 @@ func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
 		on         bool
 	}{
 		{"days", "--audit or --secrets", o.auditMode || o.all}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
-		{"fix", "--secrets", o.all},
+		{"fix", "--secrets", o.all}, {"list", "--prompts", o.prompts},
 	} {
 		if helptext.Explicit(fs, f.name) && !f.on {
 			return fmt.Sprintf("--%s only applies with %s; add it or drop --%s", f.name, f.mode, f.name), true
@@ -158,12 +162,31 @@ func printChecks(o *doctorOpts, checks []check, ok bool) int {
 }
 
 func runPrompts(o *doctorOpts) int {
+	if o.list {
+		return listPrompts(o)
+	}
 	checks := promptPath(paths.ConfigDir())
 	ok := true
 	for _, c := range checks {
 		ok = ok && c.OK
 	}
 	return printChecks(o, checks, ok)
+}
+
+// listPrompts prints one row per embedded text: path, family, accessor, template fields, bytes.
+func listPrompts(o *doctorOpts) int {
+	rows := assets.Inventory()
+	if *o.format == helptext.JSON {
+		return helptext.WriteJSONOrFail("doctor", rows)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", r.Path, r.Family, r.Accessor, cmp.Or(strings.Join(r.Fields, ","), "-"), r.Size)
+	}
+	if err := tw.Flush(); err != nil {
+		return helptext.Fail("doctor: %v", err)
+	}
+	return 0
 }
 
 // mcpOptions points the MCP scan at the user, project and settings scopes; every path is read-only.
@@ -213,5 +236,5 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.CompletionFormatFlag()}}
 }

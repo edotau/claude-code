@@ -93,7 +93,7 @@ func TestCompletionExact(t *testing.T) {
 		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
 		{"theme flags", []string{"theme", "--"}, []string{"--palettes", "--reset"}},
-		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--mcp",
+		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
 			"--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
 		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},

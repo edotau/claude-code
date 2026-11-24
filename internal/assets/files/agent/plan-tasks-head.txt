@@ -3,4 +3,3 @@
 ## Tasks
 
 Tick `[x]` with the commit id as each item lands; this list is the recovery point if a session, agent or worktree is lost.
-
