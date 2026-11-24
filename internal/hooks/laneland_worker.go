@@ -21,7 +21,7 @@ import (
 // laneJob is one finished run in a lane: who to tell, its UNFIXED verdict, its plan task, and a still-done check.
 type laneJob struct {
 	lane, session, verdict, task string
-	done                         func() bool // the run is still finished; rechecked right before the merge
+	done                         func() bool // the run is still finished; rechecked right before the land
 }
 
 // Bounds of the detached worker; vars so tests run in milliseconds.
@@ -31,17 +31,20 @@ var (
 	laneFinishPoll = 2 * time.Second
 	laneSerialWait = time.Hour // another lane's judgement or promotion runs first, never concurrently
 	laneRetryWait  = 10 * time.Second
-	laneMergeTime  = 45 * time.Minute
-	laneMergeTries = 3
+	laneLandTime   = 45 * time.Minute
+	laneLandTries  = 3
 )
 
 // laneResolveWith settles a rebase conflict in the lane (worktree-git.md → Land on completion).
 const laneResolveWith = "pi"
 
-// laneUnfinished is the verdict of a run that never showed it finished: queue it, never merge it.
+// laneUnfinished is the verdict of a run that never showed it finished: queue it, never land it.
 const laneUnfinished = "unfinished"
 
-func laneStateDir() string { return filepath.Join(paths.StateDir(), "worktree", "lane-merge") }
+func laneStateDir() string {
+	dir := filepath.Join(paths.StateDir(), "worktree")
+	return paths.MoveLegacy(filepath.Join(dir, "lane-merge"), filepath.Join(dir, "lane-land"))
+}
 
 // runLeafLane waits for the leaf to finish (a held stop keeps it working), then judges its lane.
 func runLeafLane(lane, session, transcript string) {
@@ -121,8 +124,8 @@ func runLaneJob(j laneJob) {
 		return nil
 	})
 	if !ran {
-		queueLane(j, worktree.QueuedLane{Lane: j.lane, Reason: "not judged: another lane-merge worker held it",
-			Next: laneMergeCmd(j.lane)})
+		queueLane(j, worktree.QueuedLane{Lane: j.lane, Reason: "not judged: another lane-land worker held it",
+			Next: laneLandCmd(j.lane)})
 	}
 }
 
@@ -144,7 +147,7 @@ func laneVerdictOf(base, lane, own string) string {
 
 func judgeLane(j laneJob, base string) {
 	if !paths.IsDir(j.lane) {
-		laneDone(j, base) // already merged and removed
+		laneDone(j, base) // already landed and removed
 		lateVerdict(j)
 		return
 	}
@@ -160,72 +163,72 @@ func judgeLane(j laneJob, base string) {
 	case hold:
 		queueLane(j, q)
 	default:
-		mergeLane(j, repo, base)
+		landLane(j, repo, base)
 	}
 }
 
-// inspectLane reads the lane's state: empty when it has nothing to merge, hold (with q filled) when it must wait.
+// inspectLane reads the lane's state: empty when it has nothing to land, hold (with q filled) when it must wait.
 func inspectLane(j laneJob, repo *worktree.Repo, base string) (q worktree.QueuedLane, hold, empty bool) {
 	j.verdict = laneVerdictOf(base, j.lane, j.verdict) // re-read: a sibling run may have finished meanwhile
 	q = worktree.QueuedLane{Lane: j.lane, Repo: repo.Main, Task: j.task}
 	entries, err := worktree.List(repo)
 	i := slices.IndexFunc(entries, func(e worktree.Entry) bool { return paths.SamePath(e.Path, j.lane) })
 	if err != nil || i < 0 {
-		q.Reason, q.Next = "lane not listed", laneMergeCmd(j.lane)
+		q.Reason, q.Next = "lane not listed", laneLandCmd(j.lane)
 		return q, true, false
 	}
 	e := entries[i]
 	q.Branch = e.Branch
 	if e.Ahead == 0 && !e.Dirty && len(e.Problems) == 0 && !e.DivergenceUnknown() {
-		return q, false, true // nothing to merge: no commits ahead, nothing uncommitted
+		return q, false, true // nothing to land: no commits ahead, nothing uncommitted
 	}
 	return q, laneHold(j, e, repo, &q), false
 }
 
-// laneHold fills q's reason and next step when the lane must not merge by itself; false lets it merge.
+// laneHold fills q's reason and next step when the lane must not land by itself; false lets it land.
 func laneHold(j laneJob, e worktree.Entry, repo *worktree.Repo, q *worktree.QueuedLane) bool {
 	if verdictHold(j, q) {
 		return true
 	}
-	merge := laneMergeCmd(j.lane)
+	land := laneLandCmd(j.lane)
 	switch {
 	case e.Dirty:
 		files := dirtyPaths(j.lane)
 		q.Reason, q.Detail = "uncommitted work", capText(strings.Join(files, ", "))
 		q.Next = "(cd " + j.lane + " && claude-code worktree commit --task " + cmp.Or(j.task, "<id>") +
-			` -m "<type>: <subject>" ` + strings.Join(files, " ") + ") && " + merge
+			` -m "<type>: <subject>" ` + strings.Join(files, " ") + ") && " + land
 	case len(e.Problems) > 0 || e.Busy != "" || e.DivergenceUnknown():
 		why := cmp.Or(e.Busy, strings.Join(e.Problems, "; "), "divergence unknown")
-		q.Reason, q.Detail, q.Next = "lane busy or unreadable", capText(why), merge+" once it is free"
+		q.Reason, q.Detail, q.Next = "lane busy or unreadable", capText(why), land+" once it is free"
 	default:
 		hit := restrictionFiles(laneChanged(repo, j.lane))
 		if len(hit) == 0 {
 			return false
 		}
 		q.Reason, q.Detail = "adds a restriction, waits for the owner's yes", capText(strings.Join(hit, ", "))
-		q.Next = "after the owner's yes: " + merge
+		q.Next = "after the owner's yes: " + land
 	}
 	return true
 }
 
 // verdictHold holds a lane whose run is not finished or whose report is not a clean `UNFIXED: none`.
 func verdictHold(j laneJob, q *worktree.QueuedLane) bool {
-	merge := laneMergeCmd(j.lane)
+	land := laneLandCmd(j.lane)
 	switch {
 	case j.verdict == laneUnfinished || j.done != nil && !j.done():
-		q.Reason, q.Next = "leaf or job not finished", "once it hands back, "+merge
+		q.Reason, q.Next = "leaf or job not finished", "once it hands back, "+land
 	case j.verdict == "missing":
-		q.Reason, q.Next = "leaf report has no UNFIXED line", "read the report, finish the work in "+j.lane+", then "+merge
+		q.Reason, q.Next = "leaf report has no UNFIXED line", "read the report, finish the work in "+j.lane+", then "+land
 	case j.verdict != "none":
-		q.Reason, q.Detail, q.Next = "unfixed items", capText(j.verdict), "fix them in "+j.lane+", then "+merge
+		q.Reason, q.Detail, q.Next = "unfixed items", capText(j.verdict), "fix them in "+j.lane+", then "+land
 	default:
 		return false
 	}
 	return true
 }
 
-// laneMergeCmd is the merge command for lane; flags go before the name.
-func laneMergeCmd(lane string) string {
+// laneLandCmd is the land command for lane; flags go before the name.
+func laneLandCmd(lane string) string {
 	return "claude-code worktree land --resolve-agent " + laneResolveWith + " " + filepath.Base(lane)
 }
 
@@ -245,7 +248,7 @@ func laneChanged(repo *worktree.Repo, lane string) []string {
 	defer cancel()
 	target, ok, _ := proc.Git(ctx, repo.Main, "symbolic-ref", "--short", "HEAD")
 	if !ok {
-		return []string{"(merge target unknown)"} // fail closed: no auto-merge without the diff
+		return []string{"(land target unknown)"} // fail closed: no auto-land without the diff
 	}
 	files, ok, _ := proc.Git(ctx, lane, "diff", "--name-only", target[0]+"...HEAD")
 	if !ok {
@@ -265,23 +268,26 @@ func restricting(f string) bool {
 		strings.HasPrefix(base, "settings") && strings.HasSuffix(base, ".json") || strings.HasPrefix(f, "(")
 }
 
-// lateVerdict tells the session a run finished unclean after its lane already merged, so it is fixed on main.
+// lateVerdict tells the session a run finished unclean after its lane already landed, so it is fixed on main.
 func lateVerdict(j laneJob) {
 	if j.verdict == "none" || j.session == "" {
 		return
 	}
-	text := "lane " + filepath.Base(j.lane) + " merged before this run's report was judged; it reported: " +
-		capText(j.verdict) + "; fix it on the working branch now"
-	_ = worktree.Append(j.session, worktree.Notice{TS: time.Now().Unix(), Kind: "lane-merge", From: "lane-merge", Text: text})
+	laneNotice(j.session, "lane "+filepath.Base(j.lane)+" landed before this run's report was judged; it reported: "+
+		capText(j.verdict)+"; fix it on the working branch now")
+}
+
+// laneNotice appends a lane-land notice to the session's inbox; a failed append is dropped.
+func laneNotice(session, text string) {
+	_ = worktree.Append(session, worktree.Notice{TS: time.Now().Unix(), Kind: "lane-land", From: "lane-land", Text: text})
 }
 
 // queueLane writes q; a queue it cannot write becomes a notice, so the lane is never silently dropped.
 func queueLane(j laneJob, q worktree.QueuedLane) {
 	q.Lane = j.lane
-	q.Next = cmp.Or(q.Next, laneMergeCmd(j.lane))
+	q.Next = cmp.Or(q.Next, laneLandCmd(j.lane))
 	if err := worktree.Enqueue(q); err != nil && j.session != "" {
-		text := "lane " + filepath.Base(j.lane) + " " + q.Reason + " but the merge queue is unwritable (" + err.Error() +
-			"); next: " + q.Next
-		_ = worktree.Append(j.session, worktree.Notice{TS: time.Now().Unix(), Kind: "lane-merge", From: "lane-merge", Text: text})
+		laneNotice(j.session, "lane "+filepath.Base(j.lane)+" "+q.Reason+" but the land queue is unwritable ("+err.Error()+
+			"); next: "+q.Next)
 	}
 }

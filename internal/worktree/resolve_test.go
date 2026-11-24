@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -14,11 +15,11 @@ import (
 )
 
 // resolveFixtureConflictSetup builds a same-file divergent-edit conflict and returns its one-IssueConflict plan.
-func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *MergePlan) {
+func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *LandPlan) {
 	t.Helper()
 	repo, main, wt = preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
+	landFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	p, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
@@ -100,7 +101,7 @@ func requirePhase(t *testing.T, name, got, want string) {
 	}
 }
 
-func requireIntegrate(t *testing.T, result *MergeResult, wantOID string) {
+func requireIntegrate(t *testing.T, result *LandResult, wantOID string) {
 	t.Helper()
 	if result == nil || result.Phase != "integrate" || result.AfterOID != wantOID {
 		t.Fatalf("result = %+v, want integrate -> %s", result, wantOID)
@@ -109,7 +110,7 @@ func requireIntegrate(t *testing.T, result *MergeResult, wantOID string) {
 
 func resolveFixtureRunGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	mergeFixtureRun(t, dir, args...)
+	landFixtureRun(t, dir, args...)
 }
 
 // A sandboxed agent can't write inside .git: it only edits, finalizeAgentResolution stages and commits.
@@ -133,7 +134,7 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	requirePhase(t, "op", op.Phase, "resolved")
 	requireMergeHead(t, wt, false, "MERGE_HEAD still set after the controller's own commit")
 	requireFileText(t, filepath.Join(wt, "f.txt"), "resolved\n")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // Untracked tooling residue outside the conflicted paths is never staged and never blocks the commit.
@@ -171,14 +172,14 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 	if !strings.HasPrefix(strings.TrimSpace(string(staged)), "??") {
 		t.Fatalf("git status for hook.cache.json = %q, want it still untracked (\"??\"), never staged", staged)
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // Clean still refuses on untracked residue (--untracked-files=all), unlike the resolve commit scope.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, _, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -247,7 +248,7 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 	}
 	requireFileText(t, filepath.Join(wt, "f.txt"), markeredEdit)
 	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up after a markers-remain failure — no automatic cleanup is permitted")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // An agent edit outside the conflicted paths is refused even when the conflict itself was resolved.
@@ -255,7 +256,7 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	// Tracked file: unlike untracked residue, a change to it must be refused.
-	mergeFixtureWrite(t, wt, "tracked.txt", "original\n", "add tracked file")
+	landFixtureWrite(t, wt, "tracked.txt", "original\n", "add tracked file")
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
@@ -287,15 +288,15 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	if !mh {
 		t.Fatal("MERGE_HEAD was cleaned up despite the out-of-scope refusal — no automatic cleanup is permitted")
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // Regression: a clean file auto-merged from the target is not counted as an agent edit outside the conflict.
 func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
-	mergeFixtureWrite(t, main, "n.txt", "new on main\n", "main adds n")
+	landFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
+	landFixtureWrite(t, main, "n.txt", "new on main\n", "main adds n")
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
@@ -344,7 +345,7 @@ func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 	if headOf(wt) != sourceBefore {
 		t.Fatalf("worktree HEAD = %s, want unchanged %s after abort", headOf(wt), sourceBefore)
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // An agent-fabricated commit leaves nothing staged, so the fresh run fails and never promotes it.
@@ -371,7 +372,7 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 	if ok, aerr := isAncestor(context.Background(), wt, plan.TargetOID, headOf(wt)); aerr == nil && ok {
 		t.Fatal("fixture invariant broken: TargetOID must NOT be an ancestor of the stale commit")
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // A self-committing agent fails the fresh run, but --resume revalidates the committed state without re-invoking it.
@@ -411,11 +412,11 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	}
 	requireIntegrate(t, resumeResult, resolvedHead)
 	requirePhase(t, "resumedOp", resumedOp.Phase, "resolved")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // crashedOperation materializes plan's conflict and saves the "resolving" operation a controller crash leaves.
-func crashedOperation(t *testing.T, repo *Repo, wt string, plan *MergePlan) *Operation {
+func crashedOperation(t *testing.T, repo *Repo, wt string, plan *LandPlan) *Operation {
 	t.Helper()
 	materialized, err := materializeConflict(context.Background(), plan)
 	if err != nil {
@@ -472,12 +473,12 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	if loadErr != nil || reloaded.Phase != "resolved" {
 		t.Fatalf("reloaded = %+v, err=%v, want a persisted resolved state", reloaded, loadErr)
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // promote stops with a retry hint when main advances between resolve and promote.
 func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
@@ -499,7 +500,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
-	mergeFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
+	landFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
 	advancedMain := headOf(main)
 
 	promoted, promoteErr := promote(context.Background(), repo, plan)
@@ -521,7 +522,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	plan := &MergePlan{WorktreePath: wt}
+	plan := &LandPlan{WorktreePath: wt}
 	mainBefore := headOf(main)
 
 	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {
@@ -555,7 +556,7 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 		t.Fatal("ResolveWithAgent ran despite the lease being held — the lease refusal must happen before fn runs")
 	}
 	requireMergeHead(t, wt, false, "a conflict was materialized despite the lease refusal")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 // An explicit Codex dispatch that fell back to Claude is reported as a mismatch, not accepted.
@@ -579,7 +580,7 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 	}
 	requirePhase(t, "op", op.Phase, "failed")
 	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up on a fallback mismatch — no automatic cleanup is permitted")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 func TestFinalizeAgentResolutionPropagatesScopeProbeError(t *testing.T) {
@@ -697,5 +698,57 @@ func TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge(t *testing.T) {
 		t.Fatalf("err = %v, want the save failure reported with the merge aborted", err)
 	}
 	requireMergeHead(t, wt, false, "abortMaterialized must run git merge --abort")
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
+}
+
+func TestWithLandLeaseWaitsForHolderThenRuns(t *testing.T) {
+	repo := testRepo(t)
+	leasePath := operationLeasePath(repo.Main, "feature")
+	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// a dead holder's leftover record does not block
+	if err := os.WriteFile(leasePath+".who", []byte("999999\nlane-land hook\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	var got []string
+	record := func(w string) error { got = append(got, w); return nil }
+	if err := WithLandLease(context.Background(), repo, "feature", &log, record); err != nil || got[0] != "" || log.Len() != 0 {
+		t.Fatalf("stale lease: err=%v got=%q log=%q, want an immediate run", err, got, log.String())
+	}
+
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = paths.TryFileLock(leasePath, 2*time.Second, func() error {
+			_ = os.WriteFile(leasePath+".who", []byte("4242\nlane-land hook\n"), 0o600)
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	origSleep := sleepFn
+	sleepFn = func(time.Duration) { close(release); <-done; sleepFn = origSleep }
+	t.Cleanup(func() { sleepFn = origSleep })
+
+	log.Reset()
+	if err := WithLandLease(context.Background(), repo, "feature", &log, record); err != nil || got[1] != "lane-land hook" {
+		t.Fatalf("held lease: err=%v got=%q, want a run after the wait", err, got)
+	}
+	if want := "land feature: waiting for the active land (pid 4242, lane-land hook)\n"; log.String() != want {
+		t.Fatalf("log = %q, want %q", log.String(), want)
+	}
+}
+
+func TestClosedByLandIgnoresHistoricalClose(t *testing.T) {
+	closed := "- Status: closed\n\n## Opened\n\n- Base: x\n\n## Closed\n\n- Via: land\n"
+	reopened := strings.Replace(closed, "closed", "open", 1) + "\n## Opened\n\n- Base: y\n"
+	cleaned := strings.Replace(reopened, "open", "closed", 1) + "\n## Closed\n\n- Via: clean\n"
+	for text, want := range map[string]bool{closed: true, reopened: false, cleaned: false} {
+		if got := closedByLand(text); got != want {
+			t.Errorf("closedByLand(%q) = %v, want %v", text, got, want)
+		}
+	}
 }

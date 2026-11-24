@@ -1,4 +1,4 @@
-// Package worktree is the lifecycle for ~/worktrees/<repo>/<name>: identity, list, create/clean, merge, agent resolve.
+// Package worktree is the lifecycle for ~/worktrees/<repo>/<name>: identity, list, create/clean, land, agent resolve.
 package worktree
 
 import (

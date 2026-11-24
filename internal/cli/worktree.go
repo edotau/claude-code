@@ -344,28 +344,32 @@ func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
 	defer stop()
 
 	var landed string
-	req := worktree.MergeRequest{
+	req := worktree.LandRequest{
 		Name: name, Target: *target, ResolveAgent: *resolveAgent, Verify: *verify,
 		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
-		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
+		Out: os.Stdout, Err: os.Stderr, ShowPlan: printLandPlan, ShowResolved: printResolved,
 		AfterLand: func(head string) { landed = head },
 	}
 	if *dryRun {
-		return mergeDryRun(ctx, repo, req)
+		return landDryRun(ctx, repo, req)
 	}
 
-	code := mergeUnderLease(ctx, repo, req)
+	code := landUnderLease(ctx, repo, req)
 	if landed != "" { // landed even when the clean failed
 		recordCloseTerms(onLane(name, plans.Home(repo.Main)), landed, os.Stderr)
 	}
 	return code
 }
 
-// mergeUnderLease runs mergeLocked holding the lane's lease; a lease failure is exit 1.
-func mergeUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
+// landUnderLease runs mergeLocked holding the lane's lease, waiting for an active land; a lease failure is exit 1.
+func landUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.LandRequest) int {
 	var code int
-	if err := worktree.WithWorktreeLease(repo, req.Name, func() error {
-		code = mergeLocked(ctx, repo, req)
+	if err := worktree.WithLandLease(ctx, repo, req.Name, os.Stdout, func(waitedOn string) error {
+		if waitedOn != "" && worktree.LaneLanded(repo, req.Name) {
+			fmt.Printf("land %s: already landed by %s\n", req.Name, waitedOn)
+			return nil
+		}
+		code = landLocked(ctx, repo, req)
 		return nil
 	}); err != nil {
 		return helptext.Fail("worktree land: %v", err)
@@ -373,8 +377,8 @@ func mergeUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.Merg
 	return code
 }
 
-// mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
-func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
+// landDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
+func landDryRun(ctx context.Context, repo *worktree.Repo, req worktree.LandRequest) int {
 	if req.Resume {
 		if err := worktree.CheckResumable(repo, req.Name); err != nil {
 			return helptext.Fail("worktree land: %v", err)
@@ -394,9 +398,9 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	return 0
 }
 
-// mergeLocked runs worktree.Merge under the lease cmdWorktreeLand holds and prints the outcome.
-func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
-	out, err := worktree.Merge(ctx, repo, req)
+// landLocked runs worktree.Merge under the lease cmdWorktreeLand holds and prints the outcome.
+func landLocked(ctx context.Context, repo *worktree.Repo, req worktree.LandRequest) int {
+	out, err := worktree.Land(ctx, repo, req)
 	if err != nil {
 		helptext.Fail("worktree land: %v", err)
 		if errors.Is(err, worktree.ErrRebaseConflict) || errors.Is(err, worktree.ErrLandRefused) {
@@ -415,8 +419,8 @@ func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	return 0
 }
 
-// printMergePlan renders the pinned OIDs then every Issue; OIDs stay blank when an Issue stopped the plan early.
-func printMergePlan(plan *worktree.MergePlan) {
+// printLandPlan renders the pinned OIDs then every Issue; OIDs stay blank when an Issue stopped the plan early.
+func printLandPlan(plan *worktree.LandPlan) {
 	fmt.Printf("target: %s%s\n", plan.TargetRef, oidSuffix(plan.TargetOID))
 	fmt.Printf("source: %s%s\n", plan.WorktreePath, oidSuffix(plan.SourceOID))
 	if len(plan.Issues) == 0 {
@@ -435,7 +439,7 @@ func printMergePlan(plan *worktree.MergePlan) {
 	}
 }
 
-func printResolved(r *worktree.MergeResult) {
+func printResolved(r *worktree.LandResult) {
 	fmt.Printf("resolved:   %s -> %s\n", worktree.ShortOID(r.BeforeOID), worktree.ShortOID(r.AfterOID))
 }
 

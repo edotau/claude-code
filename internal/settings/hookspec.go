@@ -207,10 +207,10 @@ var Registry = []Group{
 		{Name: "worktree-clean-end", Event: EventSessionEnd, Budget: 10 * sec},
 	}},
 	{Name: "lane", Events: []EventSpec{
-		// A stopped leaf's lane goes to a detached worker: committed, clean and UNFIXED: none merges, else it is queued.
-		{Name: "lane-merge", Event: EventSubagentStop, Budget: 5 * sec},
-		// Every prompt lists this repo's queued lanes with their next command until each merges; never blocks.
-		{Name: "lane-merge-queue", Event: EventUserPromptSubmit, Budget: 5 * sec},
+		// A stopped leaf's lane goes to a detached worker: committed, clean and UNFIXED: none lands, else it is queued.
+		{Name: "lane-land", Event: EventSubagentStop, Budget: 5 * sec},
+		// Every prompt lists this repo's queued lanes with their next command until each lands; never blocks.
+		{Name: "lane-land-queue", Event: EventUserPromptSubmit, Budget: 5 * sec},
 	}},
 	{Name: "secrets", Events: []EventSpec{
 		// A Bash result holding a vault value is replaced before the model and the transcript keep it (Claude only).

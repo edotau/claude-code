@@ -396,6 +396,22 @@ func IsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir
 // FileExists reports whether p exists (any type).
 func FileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
+// MoveLegacy returns cur, first renaming old to it when only old exists; old stays in use if it cannot move.
+func MoveLegacy(old, cur string) string {
+	if FileExists(cur) {
+		return cur
+	}
+	if fi, err := os.Lstat(old); err == nil && fi.IsDir() {
+		_ = os.Rename(old, cur) // a directory rename never replaces a non-empty one
+	} else if os.Link(old, cur) == nil { // a link never replaces an existing file
+		_ = os.Remove(old)
+	}
+	if !FileExists(cur) && FileExists(old) {
+		return old
+	}
+	return cur
+}
+
 // SafeName reports whether name is one safe path component; an unsafe one could escape the root it is joined under.
 func SafeName(name string) bool {
 	return name != "" && name != "." && name != ".." &&

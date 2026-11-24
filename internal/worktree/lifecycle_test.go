@@ -528,9 +528,9 @@ func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 
 // promote entered with an already-cancelled context returns at once without taking the lock or touching repo.Main.
 func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -554,9 +554,9 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 
 // A cancellation after every recheck has passed must still stop promoteLocked before the apply.
 func TestPromoteCancelledAfterChecksStillRefusesLand(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -622,12 +622,12 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 		t.Fatalf("SaveOperation: %v", err)
 	}
 	reloaded := resolveCancelledPoll(t, repo, plan, op, wt)
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 	resolveResumeAfterCancel(t, repo, plan, reloaded, wt)
 }
 
 // resolveCancelledPoll resumes op with a cancelled context, asserts prompt return and preserved state, reloads op.
-func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operation, wt string) *Operation {
+func resolveCancelledPoll(t *testing.T, repo *Repo, plan *LandPlan, op *Operation, wt string) *Operation {
 	t.Helper()
 	// The worktree is still mid-merge, so only the context cancellation can end this call.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -665,14 +665,14 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 }
 
 // resolveResumeAfterCancel resolves the conflict for real and asserts a live --resume finishes the job.
-func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloaded *Operation, wt string) {
+func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *LandPlan, reloaded *Operation, wt string) {
 	t.Helper()
 	// A later --resume with a live context finishes the job once the conflict is really resolved.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved after cancel\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mergeFixtureRun(t, wt, "add", "f.txt")
-	mergeFixtureRun(t, wt, "commit", "--no-edit")
+	landFixtureRun(t, wt, "add", "f.txt")
+	landFixtureRun(t, wt, "commit", "--no-edit")
 
 	resumedOp, resumedResult, resumeErr := resolveWithAgent(context.Background(), repo, plan, "claude", reloaded)
 	if resumeErr != nil {
@@ -690,7 +690,7 @@ func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloade
 func TestCleanRefusesWhileWorktreeLeaseHeld(t *testing.T) {
 	t.Parallel()
 	repo, main, _ := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, main, "h.txt", "main advances past the merged worktree\n", "main advances")
+	landFixtureWrite(t, main, "h.txt", "main advances past the merged worktree\n", "main advances")
 
 	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {
 		t.Fatal(err)

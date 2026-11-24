@@ -35,7 +35,7 @@
 # legacy-layout: usage-ledger
 # legacy-layout: vault
 # legacy-layout: vendor-baseline
-# legacy-layout: worktree-merge-op
+# legacy-layout: worktree-land-op
 agents-tree-scan | cache | 2 | state/harness/cache/agents-tree-scan.json | internal/agent/tree | keep
 agentversion | cache | 1 | state/harness/agentversion.json | internal/agent/tools | keep
 ask-envelope | wire | 1 | - | internal/agent/wire | keep
@@ -53,13 +53,13 @@ desktop-state | record | 1 | <fixed at init> | internal/desktop | keep
 dispatch-cutoffs | cache | 1 | state/harness/agent/cutoffs.json | internal/agent | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent/wire | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
+land-queue | record | 1 | state/harness/worktree/land-queue.json | internal/worktree | keep
 live-request | wire | 1 | - | internal/agent/wire | keep
 login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/providers | keep
 memory-catchup-heads | cache | 1 | state/harness/memory/catchup-heads.json | internal/memory | keep
 memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 memory-sync | cache | 2 | state/harness/memory/sync.json | internal/memory | keep
-merge-queue | record | 1 | state/harness/worktree/merge-queue.json | internal/worktree | keep
 model-prices | cache | 1 | state/harness/router/prices.json | internal/catalog | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
@@ -94,4 +94,4 @@ upstream-latest | cache | 1 | state/harness/doctor/upstream-latest.json | intern
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/tokenledger | keep
 vault | store | 8 | state/vault.db | vault | keep
 vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/agentconfig | keep
-worktree-merge-op | record | 1 | state/harness/worktree-merge-ops/*.json | internal/worktree | keep
+worktree-land-op | record | 1 | state/harness/worktree-land-ops/*.json | internal/worktree | keep

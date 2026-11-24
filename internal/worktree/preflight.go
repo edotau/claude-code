@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Issue codes Preflight (or promote) can add to a MergePlan; IssueConflict is what a resolve agent acts on.
+// Issue codes Preflight (or promote) can add to a LandPlan; IssueConflict is what a resolve agent acts on.
 const (
 	issueDetachedTarget     = "detached-target"
 	issueTargetMismatch     = "target-mismatch"
@@ -34,8 +34,8 @@ type Issue struct {
 	Detail string
 }
 
-// MergePlan is Preflight's pinned, read-only snapshot; a non-empty Issues means Merge must not proceed.
-type MergePlan struct {
+// LandPlan is Preflight's pinned, read-only snapshot; a non-empty Issues means Land must not proceed.
+type LandPlan struct {
 	CommonDir string
 	// main checkout's own git-dir, resolved once by Preflight ("" = look it up)
 	MainGitDir string
@@ -61,7 +61,7 @@ func gitEnv(extra ...string) []string {
 	return env.Merge(proc.ValuesFromEnv(extra)).Env()
 }
 
-// runGit is the one seam over git here and in merge.go, so tests fake failures; extraEnv is appended (nil = none).
+// runGit is the one seam over git here and in land.go, so tests fake failures; extraEnv is appended (nil = none).
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := gitCmd(ctx, append([]string{"-C", dir}, args...)...)
 	cmd.Env = proc.ValuesFromEnv(cmd.Env).Merge(proc.ValuesFromEnv(extraEnv)).Env()
@@ -72,17 +72,17 @@ var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...st
 var gitWaitDelay = 5 * time.Second
 
 // Preflight resolves name, rejects unsafe state, pins both OIDs and simulates the merge; an error = it could not run.
-func Preflight(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
+func Preflight(ctx context.Context, repo *Repo, name, target string) (*LandPlan, error) {
 	return preflight(ctx, repo, name, target, false)
 }
 
 // preflightAfterResolution re-plans after a committed agent resolution, tolerating untracked tooling residue.
-func preflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
+func preflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*LandPlan, error) {
 	return preflight(ctx, repo, name, target, true)
 }
 
-func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*MergePlan, error) {
-	plan, err := newMergePlan(ctx, repo, name, trackedOnlyWorktree)
+func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*LandPlan, error) {
+	plan, err := newLandPlan(ctx, repo, name, trackedOnlyWorktree)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	return plan, nil
 }
 
-func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktree bool) (*MergePlan, error) {
+func newLandPlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktree bool) (*LandPlan, error) {
 	worktreePath, err := resolveWorktree(ctx, repo, name)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 			return nil, err
 		}
 	}
-	plan := &MergePlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
+	plan := &LandPlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
 		AfterResolution: trackedOnlyWorktree}
 	if plan.WorktreeGitDir, _, err = gitDirsOf(ctx, worktreePath); err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 }
 
 // screenCheckouts records an issue for a bad target or dirty/mid-operation checkout; with none, the plan pins HEADs.
-func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
+func screenCheckouts(ctx context.Context, repo *Repo, plan *LandPlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
 	if stop, err := screenTargetBranch(ctx, repo, plan, target); err != nil || stop {
 		return stop, err
 	}
@@ -152,7 +152,7 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 	return false, nil
 }
 
-func screenStates(ctx context.Context, repo *Repo, plan *MergePlan, trackedOnlyWorktree bool) error {
+func screenStates(ctx context.Context, repo *Repo, plan *LandPlan, trackedOnlyWorktree bool) error {
 	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+"..."+plan.SourceOID); err != nil {
 		return err
 	} else if issue != nil {
@@ -167,7 +167,7 @@ func screenStates(ctx context.Context, repo *Repo, plan *MergePlan, trackedOnlyW
 }
 
 // screenTargetBranch records the main checkout's branch on plan; stop is true for a detached or non-target checkout.
-func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target string) (stop bool, err error) {
+func screenTargetBranch(ctx context.Context, repo *Repo, plan *LandPlan, target string) (stop bool, err error) {
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
 		if !errors.Is(err, errDetachedHead) {
@@ -186,7 +186,7 @@ func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target
 }
 
 // simulateIssues adds the unrelated-history, capability or conflict issue the dry-run merge predicts.
-func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
+func simulateIssues(ctx context.Context, repo *Repo, plan *LandPlan) error {
 	unrelated, err := unrelatedHistories(ctx, repo.Main, plan.SourceOID, plan.TargetOID)
 	if err != nil {
 		return err

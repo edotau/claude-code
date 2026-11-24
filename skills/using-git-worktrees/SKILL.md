@@ -76,7 +76,7 @@ claude-code worktree land <slug>                             # rebase in the lan
 claude-code worktree land <slug> --no-clean                  # keep the lane for its next task
 ```
 
-A finished leaf's committed lane lands by itself (`lane-merge` hook); one it cannot land is a `merge queue:` line.
+A finished leaf's committed lane lands by itself (`lane-land` hook); one it cannot land is a `land queue:` line.
 
 What `land` does, in order:
 

@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-func TestLaneMergeVerdict(t *testing.T) {
+func TestLaneLandVerdict(t *testing.T) {
 	for report, want := range map[string]string{
 		"done\nUNFIXED: none":         "none",
 		"done\n**UNFIXED: none.**":    "none",
@@ -25,7 +25,7 @@ func TestLaneMergeVerdict(t *testing.T) {
 	}
 }
 
-func TestLaneMergeLeafReportReadsHandback(t *testing.T) {
+func TestLaneLandLeafReportReadsHandback(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "agent-a.jsonl")
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"SubagentHandback",` +
 		`"input":{"message":"ok\nUNFIXED: none"}}]}}` + "\n"
@@ -37,7 +37,7 @@ func TestLaneMergeLeafReportReadsHandback(t *testing.T) {
 	}
 }
 
-func TestLaneMergeTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
+func TestLaneLandTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "agent-a.jsonl")
 	if err := os.WriteFile(tr, []byte("a\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -54,9 +54,9 @@ func TestLaneMergeTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
 	}
 }
 
-func TestLaneMergeRestrictionFiles(t *testing.T) {
+func TestLaneLandRestrictionFiles(t *testing.T) {
 	got := restrictionFiles([]string{"internal/hooks/safety/safety.go", "internal/settings/hookspec.go",
-		"settings.json", "README.md", "internal/hooks/lanemerge.go", "(diff unreadable)"})
+		"settings.json", "README.md", "internal/hooks/laneland.go", "(diff unreadable)"})
 	want := []string{"internal/hooks/safety/safety.go", "internal/settings/hookspec.go", "settings.json", "(diff unreadable)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("restrictionFiles = %v, want %v", got, want)
@@ -73,7 +73,7 @@ func mustQueue(t *testing.T, q worktree.QueuedLane) {
 }
 
 // Enqueue twice keeps one entry and its first time; Dequeue twice leaves no file.
-func TestLaneMergeQueueIdempotent(t *testing.T) {
+func TestLaneLandQueueIdempotent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	main, lane := t.TempDir(), t.TempDir()
 	mustQueue(t, worktree.QueuedLane{Lane: lane, Repo: main, Reason: "uncommitted work", QueuedAt: firstQueued})
@@ -87,12 +87,12 @@ func TestLaneMergeQueueIdempotent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := os.Stat(worktree.MergeQueueFile()); !os.IsNotExist(err) {
+	if _, err := os.Stat(worktree.LandQueueFile()); !os.IsNotExist(err) {
 		t.Fatalf("queue file after dequeue: %v", err)
 	}
 }
 
-func TestLaneMergeQueueDropsRemovedLane(t *testing.T) {
+func TestLaneLandQueueDropsRemovedLane(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	main, lane := t.TempDir(), t.TempDir()
 	mustQueue(t, worktree.QueuedLane{Lane: lane, Repo: main, Reason: "uncommitted work"})

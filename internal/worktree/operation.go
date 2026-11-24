@@ -35,7 +35,9 @@ type Operation struct {
 }
 
 // operationsDir holds one JSON file per repo+worktree under the harness's existing runtime state dir.
-func operationsDir() string { return filepath.Join(paths.StateDir(), "worktree-merge-ops") }
+func operationsDir() string {
+	return paths.MoveLegacy(filepath.Join(paths.StateDir(), "worktree-merge-ops"), filepath.Join(paths.StateDir(), "worktree-land-ops"))
+}
 
 // operationPath is deterministic from repo+name, so --resume needs no id lookup.
 func operationPath(repoMain, name string) string {
@@ -73,14 +75,14 @@ func loadOperation(repo *Repo, name string) (*Operation, error) {
 	return &op, nil
 }
 
-// operationSchema versions worktree-merge-op.
+// operationSchema versions worktree-land-op.
 const operationSchema = 1
 
 var operationFormat = schemas.Register(schemas.Format{
-	Name: "worktree-merge-op", Owner: "internal/worktree", Kind: schemas.Record, Version: operationSchema,
+	Name: "worktree-land-op", Owner: "internal/worktree", Kind: schemas.Record, Version: operationSchema,
 	Glob:    func() string { return filepath.Join(operationsDir(), "*.json") },
 	New:     func() any { return new(Operation) },
-	Keep:    "resume record for an interrupted agent merge",
+	Keep:    "resume record for an interrupted agent resolve",
 	Migrate: schemas.SameShape,
 })
 

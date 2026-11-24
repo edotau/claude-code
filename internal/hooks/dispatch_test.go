@@ -263,7 +263,7 @@ var pointerBound = map[string]core.Runner{
 	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": reminderWatched,
 	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
-	"worktree-clean-end": wthook.CleanEnd, "lane-merge": LaneMerge, "lane-merge-queue": LaneMergeQueue,
+	"worktree-clean-end": wthook.CleanEnd, "lane-land": LaneLand, "lane-land-queue": LaneLandQueue,
 	"secrets-out": SecretsOut, "secrets-end": SecretsEnd, "web-tavily": WebTavily,
 	"review-handback": ReviewHandback, "review-notified": ReviewHandback, "review-decide": ReviewDecide,
 }
