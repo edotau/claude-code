@@ -903,14 +903,12 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 		t.Fatalf("interrupt(leaderPid) = %v, want nil", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(marker); err == nil {
-			return // the child, a different pid in the same group, observed the SIGINT.
+	// The marker appears the moment the child runs its trap; healthy runs return at once, so the bound is generous.
+	for deadline := time.Now().Add(readyWait); !paths.FileExists(marker); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("child never observed SIGINT: interrupt(leaderPid) did not reach the whole process group")
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("child never observed SIGINT: interrupt(leaderPid) did not reach the whole process group")
 }
 
 // A pid that has already exited (ESRCH) is success, not an error — the caller never needs to special-case it.
