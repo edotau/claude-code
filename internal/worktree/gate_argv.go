@@ -1,9 +1,12 @@
 package worktree
 
 import (
+	"context"
+	"errors"
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -26,12 +29,40 @@ func NeedsShell(word string) bool {
 	return err != nil && !strings.Contains(word, "/")
 }
 
+// fillLintBase replaces lintBaseArg outside single quotes with the quoted base.
+func fillLintBase(s, base string) string {
+	var b strings.Builder
+	quoted := false
+	for i := 0; i < len(s); {
+		switch {
+		case !quoted && strings.HasPrefix(s[i:], lintBaseArg):
+			b.WriteString("--base " + textutil.ShellQuote(base))
+			i += len(lintBaseArg)
+			continue
+		case s[i] == '\'':
+			quoted = !quoted
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// runArgvStep runs one argv step; an exec-format error (a script without a shebang) reruns it under bash as before.
+func runArgvStep(ctx context.Context, argv []string, run func(*exec.Cmd) error) error {
+	err := run(exec.CommandContext(ctx, argv[0], argv[1:]...))
+	if !errors.Is(err, syscall.ENOEXEC) {
+		return err
+	}
+	return run(exec.CommandContext(ctx, "bash", "-c", textutil.ShellJoin(argv)))
+}
+
 // verifySteps is cmdStr's argv steps with the lint base filled in; !ok when the line needs a shell.
 func verifySteps(cmdStr, base string) ([]plans.VerifyStep, bool) {
 	if base == "" {
 		base = "HEAD"
 	}
-	steps, err := plans.VerifyArgv(strings.ReplaceAll(cmdStr, lintBaseArg, "--base "+textutil.ShellQuote(base)))
+	steps, err := plans.VerifyArgv(fillLintBase(cmdStr, base))
 	if err != nil || slices.ContainsFunc(steps, func(s plans.VerifyStep) bool { return s.Argv[0] != "rtk" && NeedsShell(s.Argv[0]) }) {
 		return nil, false
 	}

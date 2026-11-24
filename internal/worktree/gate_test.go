@@ -509,3 +509,19 @@ func TestRunVerifyKeepsBashForBuiltins(t *testing.T) {
 		t.Fatalf("out %q err %v", out.String(), err)
 	}
 }
+
+// The lint base fills only outside single quotes; a shebang-less executable still runs, under bash.
+func TestFillLintBaseAndNoShebang(t *testing.T) {
+	lit := `x '` + lintBaseArg + `' ` + lintBaseArg
+	if got, want := fillLintBase(lit, "abc"), `x '`+lintBaseArg+`' --base 'abc'`; got != want {
+		t.Errorf("fillLintBase = %q, want %q", got, want)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "noshebang"), []byte("echo ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := runVerify(context.Background(), dir, "./noshebang", "", &out, &out); err != nil || out.String() != "ran\n" {
+		t.Fatalf("out %q err %v", out.String(), err)
+	}
+}

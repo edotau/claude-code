@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -22,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -484,13 +486,44 @@ func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Wr
 	}
 	for _, s := range steps {
 		argv := rtkwrap.ArgvForModel(ctx, s.Argv, dir)
+		cmdEnv := slices.Concat(os.Environ(), env, s.Env)
+		run := func(cmd *exec.Cmd) (int, error) {
+			cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, cmdEnv, out, out
+			return runGroup(ctx, cmd)
+		}
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, slices.Concat(os.Environ(), env, s.Env), out, out
-		if code, err := runGroup(ctx, cmd); code != 0 || err != nil {
+		if p := lookPathIn(env, argv[0]); p != "" {
+			cmd.Path, cmd.Err = p, nil
+		}
+		code, err := run(cmd)
+		if errors.Is(err, syscall.ENOEXEC) { // a script without a shebang: bash ran it before
+			code, err = run(exec.CommandContext(ctx, "bash", "-c", textutil.ShellJoin(argv)))
+		}
+		if code != 0 || err != nil {
 			return code, err
 		}
 	}
 	return 0, nil
+}
+
+// lookPathIn is name found on the PATH that env sets, "" when env sets none or name has a slash or is not there.
+func lookPathIn(env []string, name string) string {
+	var list string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			list = v
+		}
+	}
+	if list == "" || strings.Contains(name, "/") {
+		return ""
+	}
+	for _, d := range filepath.SplitList(list) {
+		p := filepath.Join(d, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
 }
 
 // runGroup runs cmd in its own process group, killed whole on cancel, so a child holding the pipes cannot outlive ctx.

@@ -453,8 +453,8 @@ func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr
 	if steps, ok := verifySteps(cmdStr, base); ok {
 		for _, s := range steps {
 			argv := rtkwrap.ArgvForModel(ctx, s.Argv, workDir)
-			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-			if err := runGateCmd(cmd, workDir, slices.Concat(env, s.Env), stdout, stderr); err != nil {
+			run := func(cmd *exec.Cmd) error { return runGateCmd(cmd, workDir, slices.Concat(env, s.Env), stdout, stderr) }
+			if err := runArgvStep(ctx, argv, run); err != nil {
 				return err
 			}
 		}
