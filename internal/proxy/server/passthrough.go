@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
@@ -182,7 +183,11 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	return out, model, geminiChat, err
 }
 
-func passthroughRetryable(in *http.Request, status int) bool {
+// passthroughRetryable: an upstream x-should-retry: false ends the failover; true and absent keep the status rule.
+func passthroughRetryable(in *http.Request, status int, hint retry.ShouldRetry) bool {
+	if hint == retry.ShouldRetryNo {
+		return false
+	}
 	if status == http.StatusTooManyRequests {
 		return true
 	}
@@ -244,12 +249,13 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			return cur.model, "", cur.p.Name
 		}
 		cur.body = body
-		if next, ok := r.after429(&tc, cur, resp); ok {
+		hint := retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry"))
+		if next, ok := r.after429(&tc, cur, resp, hint); ok {
 			_ = resp.Body.Close()
 			cur = next
 			continue
 		}
-		if passthroughRetryable(in, resp.StatusCode) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
+		if passthroughRetryable(in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
 			if next, ok := r.nextHop(in, p, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original); ok {
 				_ = resp.Body.Close()
 				cur = next
@@ -257,7 +263,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			}
 		}
 		defer resp.Body.Close()
-		extra := passthroughDiag(resp, len(cur.body)) + retried
+		extra := passthroughDiag(resp, len(cur.body), hint) + retried
 		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, extra)
 	}
 }
@@ -274,7 +280,8 @@ type passthroughTPM struct {
 }
 
 // after429 cools cur's row on a 429, plus its model on a per-minute-token one, which hops once; ok: cur moved.
-func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Response) (passthroughHop, bool) {
+func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Response,
+	hint retry.ShouldRetry) (passthroughHop, bool) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		return cur, false
 	}
@@ -286,7 +293,7 @@ func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Res
 		return cur, false
 	}
 	r.coolModel(providers.Target{Provider: cur.p, Model: cur.model}, resp)
-	if tc.hopped {
+	if tc.hopped || hint == retry.ShouldRetryNo {
 		return cur, false
 	}
 	return r.tpmPassthroughHop(tc, cur, "429 TPM")
@@ -769,7 +776,7 @@ var passthroughModel = func(body []byte) string {
 }
 
 // passthroughDiag is the log suffix: request id, Retry-After, request bytes and, on an error, its code and message.
-func passthroughDiag(resp *http.Response, reqBytes int) string {
+func passthroughDiag(resp *http.Response, reqBytes int, hint retry.ShouldRetry) string {
 	var b strings.Builder
 	for _, k := range []string{"X-Request-Id", "X-Databricks-Request-Id", "X-Databricks-Requestid", "Request-Id"} {
 		if v := resp.Header.Get(k); v != "" {
@@ -781,6 +788,9 @@ func passthroughDiag(resp *http.Response, reqBytes int) string {
 	if v := resp.Header.Get("Retry-After"); v != "" {
 		b.WriteString(" retry_after=")
 		b.WriteString(agentToken(v))
+	}
+	if hint != retry.ShouldRetryUnset {
+		b.WriteString(" should_retry=" + strconv.FormatBool(hint == retry.ShouldRetryYes))
 	}
 	if reqBytes > 0 {
 		b.WriteString(" bytes=")

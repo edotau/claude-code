@@ -7,7 +7,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -533,5 +536,70 @@ func TestDoLeavesOtherFailuresAndNoTunnelAlone(t *testing.T) {
 	r = newPathRun(t)
 	if e := r.do(t.Context(), func(string) *Error { return connectFail() }); e == nil || r.alternates() != 0 || len(r.calls) != 3 {
 		t.Fatalf("no tunnel host: err=%v calls=%q notes=%q; want plain retries", e, r.calls, r.notes)
+	}
+}
+
+// stubErr is what an HTTP client reports for a non-2xx: status, the typed code and header, and the body text.
+type stubErr struct {
+	code int
+	body string
+	hint ShouldRetry
+	vend string
+}
+
+func (e stubErr) Error() string            { return fmt.Sprintf("HTTP %d: %s", e.code, e.body) }
+func (e stubErr) StatusCode() int          { return e.code }
+func (e stubErr) ShouldRetry() ShouldRetry { return e.hint }
+func (e stubErr) ErrorCode() string        { return e.vend }
+
+func TestPolicyRefusalAndShouldRetryOverStubUpstream(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("X-Should-Retry", r.URL.Query().Get("sr"))
+		if r.URL.Query().Get("sr") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"content_filter"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	attempt := func(query string) *Error {
+		resp, err := http.Get(srv.URL + query)
+		if err != nil {
+			return Classify("x", err, false)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		se := stubErr{code: resp.StatusCode, body: string(b), hint: ParseShouldRetry(resp.Header.Get("X-Should-Retry"))}
+		if resp.StatusCode == http.StatusBadRequest {
+			se.vend = "content_filter" // the typed code a client lifts from the 4xx body
+		}
+		return Classify("x", se, false)
+	}
+	for _, c := range []struct {
+		query string
+		calls int
+		check func(*Error) bool
+	}{
+		{"", 1, func(e *Error) bool { return e.PolicyRefusal && e.Kind == KindFatal && IsPolicyRefusal(e) }},
+		{"?sr=false", 1, func(e *Error) bool { return e.ShouldRetry == ShouldRetryNo && e.Kind == KindTransient }},
+		{"?sr=true", 3, func(e *Error) bool { return e.ShouldRetry == ShouldRetryYes }},
+	} {
+		calls = 0
+		e := Do(context.Background(), fastPolicy(t), func(context.Context, int) *Error { return attempt(c.query) })
+		if calls != c.calls || !c.check(e) {
+			t.Errorf("%q: calls %d (want %d), %+v", c.query, calls, c.calls, e)
+		}
+	}
+}
+
+func TestPolicyRefusalTextFallback(t *testing.T) {
+	if !IsPolicyRefusal(errors.New("blocked: ResponsibleAIPolicyViolation")) || IsPolicyRefusal(statusErr{413}) {
+		t.Error("text fallback must match the policy code and never a 413")
+	}
+	if e := Classify("x", errors.New("429 rate limit: content_filter"), false); e.Kind != KindFatal || !e.PolicyRefusal {
+		t.Errorf("policy beats a rate-limit word: %+v", e)
 	}
 }
