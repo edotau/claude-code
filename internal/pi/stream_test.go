@@ -464,3 +464,17 @@ func TestParseEventsBlockedHandbackNeverReadsClean(t *testing.T) {
 		t.Fatalf("BLOCKED must not read as UNFIXED: none: %q", res.Answer)
 	}
 }
+
+func TestParseEventsLaterToolVoidsHandbackAndErrorKeepsFieldWithoutFooter(t *testing.T) {
+	hb := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":{"status":"DONE","summary":"s","unfixed":[]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
+	later := `{"type":"tool_execution_start","toolCallId":"r","toolName":"read","args":{"path":"a"}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"r","toolName":"read","result":"x","isError":false}` + "\n"
+	if res, _, _, _ := parseFixture(t, hb+later+msgEnd("stop", "")+settled); res.Handback != nil || strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("work after the handback left it standing: %+v %q", res.Handback, res.Answer)
+	}
+	res, _, _, err := parseFixture(t, hb+msgEnd("error", "boom")+settled)
+	if err == nil || res.Handback == nil || strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("errored run: err %v handback %+v answer %q", err, res.Handback, res.Answer)
+	}
+}

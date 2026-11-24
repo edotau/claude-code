@@ -92,11 +92,9 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 		err = t.finish(false)
 	}
 	res.Answer = t.text()
-	if h := res.Handback; h != nil { // the typed call is the source of truth; the footer only renders it
+	if h := res.Handback; h != nil && err == nil { // an errored run keeps the typed field but gets no footer
 		res.Answer = strings.TrimSpace(res.Answer + "\n\n" + h.Footer())
-		if err == nil {
-			err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.Footer(), Sep: true})
-		}
+		err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.Footer(), Sep: true})
 	}
 	return res, err
 }
@@ -251,6 +249,7 @@ func phaseEvent(ev piEvent) wire.Event {
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
 	if ev.ToolName != "handback" {
+		t.res.Handback = nil // a handback is the verdict only when it is the last tool activity
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {

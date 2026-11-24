@@ -42,7 +42,14 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
 
 // running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
 const running = new Set<string>()
-let handedBack = false
+
+// handbackError names the first missing or wrong handback field, or "" when the call is complete.
+function handbackError(p: any): string {
+  if (!["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"].includes(p?.status)) return "status must be DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED"
+  if (typeof p.summary !== "string" || !p.summary.trim()) return "summary must be a non-empty string"
+  if (!Array.isArray(p.unfixed) || p.unfixed.some((s: any) => typeof s !== "string")) return "unfixed must be an array of strings (empty if none)"
+  return ""
+}
 
 async function tracked<T>(id: string, fn: () => Promise<T>): Promise<T> {
   running.add(id)
@@ -98,11 +105,11 @@ function action(name: string) {
     if (v.usage) throw new Error(name + ": " + v.usage)
     if (signal?.aborted) throw new Error(name + ": cancelled")
     if (name === "handback") { // a usage error of this tool, not a guard block: the model retries it last
-      if (handedBack) throw new Error("handback: already handed back; the first successful call is final")
+      const bad = handbackError(params)
+      if (bad) throw new Error("handback: " + bad + "; call it again with every field")
       if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
     }
     const text = await tracked(id, async () => (v.run ? await runAction(name, v.run, cwd, signal) : "recorded"))
-    if (name === "handback") handedBack = true
     return { content: [{ type: "text", text }], details: {} }
   } }
 }

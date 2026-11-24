@@ -152,6 +152,7 @@ func TestHandbackFooterIsCleanOnlyForDoneWithNoItems(t *testing.T) {
 	}{
 		{Handback{"DONE", "s", nil}, "DONE: s\nUNFIXED: none"},
 		{Handback{"DONE", "s", []string{"none"}}, "DONE: s\nUNFIXED: none"},
+		{Handback{"DONE", "s", []string{"x"}}, "DONE: s\nUNFIXED: x"},
 		{Handback{"BLOCKED", "s", []string{"none"}}, "BLOCKED: s\nUNFIXED: BLOCKED"},
 		{Handback{"DONE_WITH_CONCERNS", "s", nil}, "DONE_WITH_CONCERNS: s\nUNFIXED: DONE_WITH_CONCERNS"},
 		{Handback{"NEEDS_CONTEXT", "a\nb", []string{"x\ny", "z"}}, "NEEDS_CONTEXT: a b\nUNFIXED: x y; z"},
