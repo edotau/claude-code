@@ -256,7 +256,7 @@ func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
 		t.Error("carry: want a reason")
 	}
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Opts: RunOptions{DebugFile: "x"}}); why == "" {
-		t.Error("output schema: want a reason")
+		t.Error("debug file: want a reason")
 	}
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
 		t.Errorf("plain ask barred: %q", why)

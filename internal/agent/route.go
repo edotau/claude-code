@@ -525,12 +525,12 @@ type RouteReq struct {
 	Fallback, WorkDir             string
 	Native, Preview               bool
 	AutoModel, Tools              bool
-	FallbackDefaulted             bool   // Fallback is the env default, never typed
-	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
-	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
-	Resumed                       bool   // a resumed session stays on the row that holds it
+	FallbackDefaulted             bool       // Fallback is the env default, never typed
+	Pinned                        bool       // Profile is an explicit backend whatever the fallback (a dispatch's pin)
+	Host                          bool       // Engine runs remotely as one unrouted dispatch (--host)
+	Resumed                       bool       // a resumed session stays on the row that holds it
 	Opts                          RunOptions // the ask's own options: what the pi runner must be able to run
-	Engine                        Engine // the resolved engine an explicit or --host chain runs on
+	Engine                        Engine     // the resolved engine an explicit or --host chain runs on
 	Refresh                       func(context.Context, string) bool
 }
 
