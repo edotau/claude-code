@@ -42,7 +42,8 @@ type armRetry struct {
 	tried                                    []string  // the workspaces asked so far, in order
 	hops                                     []wire.Hop
 	record                                   *agent.Record
-	spent                                    int // tokens every attempt used, for the contract's budget
+	spent                                    int  // tokens every attempt used, for the contract's budget
+	timedOut                                 bool // the whole-dispatch deadline ended the run
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -87,10 +88,11 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	})
 	total := res
 	total.Usage = wire.Usage{InputTokens: a.spent} // the budget counts every attempt, the record only the last
-	if rctx.Err() == nil {
-		rctx = sctx
-	} else if err != nil && errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+	if rctx.Err() == nil || err == nil {
+		rctx = sctx // a run that finished gets the settle gate's time
+	} else if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 		err = fmt.Errorf("dispatch deadline passed: %w (%w)", context.DeadlineExceeded, err) // kind timeout, not fatal
+		a.timedOut = true
 	}
 	settleHeld(rctx, p, total, err) // the record still runs, so no reaper takes the contract meanwhile
 	opts.Notify = cl.Notify
@@ -109,6 +111,7 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 func wholeDeadline(ctx context.Context, req agent.RunOptions) (sctx, rctx context.Context, cancel func()) {
 	end := time.Now().Add(agent.AttemptTimeoutFor(req))
 	sctx, cancelS := context.WithDeadline(ctx, end)
+	end, _ = sctx.Deadline() // an earlier parent deadline wins
 	rctx, cancelR := context.WithDeadline(sctx, end.Add(-min(settleGateTimeout, time.Until(end)/2)))
 	return sctx, rctx, func() { cancelR(); cancelS() }
 }
@@ -130,7 +133,7 @@ func (h *resultHold) Emit(ev wire.Event) error {
 // emitFinal sends the one result event of a stream: the last attempt's own, or the aggregate once the run moved.
 func (a *armRetry) emitFinal(h *resultHold, p *agent.Prepared, res wire.Result, err error) {
 	ev := h.ev
-	if len(a.tried) > 1 || ev == nil {
+	if len(a.tried) > 1 || ev == nil || a.timedOut {
 		env := wire.NewEnvelope(res, err, p.Record.ID)
 		env.RanOn = ranOn(res)
 		e := wire.ResultEvent(env)
@@ -168,7 +171,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 		reserved = next.Repicks > req.Repicks
 		req = next
 		if end, ok := ctx.Deadline(); ok {
-			req.Timeout = time.Until(end) // the last attempt gets what the whole dispatch has left
+			req.Timeout = min(agent.AttemptTimeoutFor(req), time.Until(end)) // the last attempt gets what is left
 		}
 		np, perr := a.prepare(ctx, cl, req, a.record)
 		if perr != nil {
