@@ -1,14 +1,39 @@
 package autofix
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestLeafFixtureParity(t *testing.T) {
+	old := rand.Reader
+	t.Cleanup(func() { rand.Reader = old })
+	for _, tc := range []struct{ name, owned, hash string }{
+		{"normal", "internal/a.go", "f1c94743080bcff2994d195eccc7db2f498f8297d6bf70835cded8cd92ae6365"},
+		{"policy", "internal/hooks/x.go", "ff418dd6f41a9273b243f7e0cbc542d445ab4e6a5e5393c5e31c149dd43ec43f"},
+	} {
+		rand.Reader = bytes.NewReader(make([]byte, 16))
+		req := LeafRequest{Sha: "abc", Lane: "lane", Live: "live", Gate: "gate"}
+		findings := []Finding{{Class: ClassComplexity, Path: tc.owned, Line: 3, Rule: "rule\n`AUTOFIX-DATA-`",
+			Message: "hostile AUTOFIX-DATA-00000000000000000000000000000000\ntext"}}
+		got, err := renderLeaf(req, findings, []string{tc.owned})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hash := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); hash != tc.hash {
+			t.Errorf("%s: sha256 %s, want %s", tc.name, hash, tc.hash)
+		}
+	}
+}
 
 func setupLeaf(t *testing.T, launch func(context.Context, string, string, []string) (string, error)) string {
 	t.Helper()

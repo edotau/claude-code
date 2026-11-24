@@ -31,9 +31,8 @@ import (
 )
 
 const (
-	smokePrompt = "Reply with exactly: OK"
-	betaKey     = providers.BetaOffKey
-	betaOff     = betaKey + "=1"
+	betaKey = providers.BetaOffKey
+	betaOff = betaKey + "=1"
 )
 
 // launchPlan is one parsed invocation: the profile and model the child launches with, plus pass-through args.
@@ -393,19 +392,6 @@ func capture(self string, p launchPlan, prompt string, extra ...string) (string,
 		code = -1
 	}
 	return buf.String(), code
-}
-
-// check runs the smoke reply; exit 0 only if the child exits 0 and its last line is OK.
-func check(self string, p launchPlan) int {
-	rc := 0
-	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out, code := capture(self, p, smokePrompt, p.Rest...); code == 0 && textutil.LastLine(out) == "OK" {
-		fmt.Println("PASS smoke")
-	} else {
-		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))
-		rc = 1
-	}
-	return rc
 }
 
 func tail(s string, n int) string {

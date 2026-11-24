@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,15 +17,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
-
-//go:embed briefs/fix.tmpl
-var leafBrief string
 
 var (
 	// ErrAttempted means the same sha and finding set already had a leaf; the budget is not spent twice.
@@ -200,30 +196,17 @@ func renderLeaf(req LeafRequest, findings []Finding, owned []string) (string, er
 		return "", fmt.Errorf("autofix brief nonce: %w", err)
 	}
 	fence := "AUTOFIX-DATA-" + hex.EncodeToString(nonce)
-	data := make([]Finding, len(findings))
+	data := make([]assets.AutofixFinding, len(findings))
 	for i, f := range findings {
-		data[i] = Finding{Class: f.Class, Path: f.Path, Line: f.Line,
+		data[i] = assets.AutofixFinding{Class: string(f.Class), Path: f.Path, Line: f.Line,
 			Rule: dataLine(f.Rule, fence), Message: dataLine(f.Message, fence)}
-	}
-	tmpl, err := template.New("fix").Option("missingkey=error").Parse(leafBrief)
-	if err != nil {
-		return "", fmt.Errorf("parse autofix brief: %w", err)
 	}
 	policy := slices.ContainsFunc(owned, func(p string) bool { // hook/permission fixes change cost only (R27)
 		p = filepath.ToSlash(p)
 		return strings.HasPrefix(p, "internal/hooks/") || strings.HasPrefix(p, "internal/permission/")
 	})
-	var out bytes.Buffer
-	err = tmpl.Execute(&out, struct {
-		LeafRequest
-		Owned, Fence string
-		Judgment     []Finding
-		Policy       bool
-	}{req, string(encoded), fence, data, policy})
-	if err != nil {
-		return "", fmt.Errorf("render autofix brief: %w", err)
-	}
-	return out.String(), nil
+	return assets.AutofixBrief(assets.AutofixInput{Lane: req.Lane, Sha: req.Sha, Live: req.Live,
+		Gate: req.Gate, Owned: string(encoded), Fence: fence, Judgment: data, Policy: policy})
 }
 
 // dataLine defangs tool text for the data block: one line, no control runes, backticks or fence, capped.

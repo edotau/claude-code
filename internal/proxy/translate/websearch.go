@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 const webSearchName = "web_search"
@@ -48,9 +50,8 @@ func WebSearchOf(body []byte) *WebSearch {
 func webSearchFunction() chatTool {
 	return chatTool{Type: "function", Function: toolDef{
 		Name:        webSearchName,
-		Description: "Search the web for current information; returns result titles, urls and snippets.",
-		Parameters: json.RawMessage(
-			`{"type":"object","properties":{"query":{"type":"string","description":"the search query"}},"required":["query"]}`),
+		Description: assets.ProxySearchDescription(),
+		Parameters:  json.RawMessage(assets.ProxySearchSchema()),
 	}}
 }
 

@@ -25,6 +25,21 @@ var inventory = []struct {
 	read               func() []byte
 }{
 	{"files/catalog/ranks.json", "json", "RankTable", RankTable},
+	{"files/review/autofix/briefs/fix.tmpl", "template", "AutofixBrief", nil},
+	{"files/review/bench/briefs/fix.tmpl", "template", "BenchFixBrief", nil},
+	{"files/review/bench/briefs/review.tmpl", "template", "BenchReviewBrief", nil},
+	{"files/review/bench/no-diff.txt", "text", "BenchNoDiff", func() []byte { return []byte(BenchNoDiff() + "\n") }},
+	{"files/tools/search-description.txt", "text", "WebSearchDescription", func() []byte { return []byte(WebSearchDescription() + "\n") }},
+	{"files/tools/extract-description.txt", "text", "WebExtractDescription", func() []byte { return []byte(WebExtractDescription() + "\n") }},
+	{"files/tools/search-query.txt", "text", "WebSearchQueryDescription", func() []byte { return []byte(WebSearchQueryDescription() + "\n") }},
+	{"files/tools/search-max-results.txt", "text", "WebSearchMaxResultsDescription", func() []byte { return []byte(WebSearchMaxResultsDescription() + "\n") }},
+	{"files/tools/extract-urls.txt", "text", "WebExtractURLsDescription", func() []byte { return []byte(WebExtractURLsDescription() + "\n") }},
+	{"files/tools/proxy-search-description.txt", "text", "ProxySearchDescription", func() []byte { return []byte(ProxySearchDescription() + "\n") }},
+	{"files/tools/proxy-search-schema.json", "json", "ProxySearchSchema", func() []byte { return []byte(ProxySearchSchema() + "\n") }},
+	{"files/tools/databricks-smoke.txt", "text", "DatabricksSmokePrompt", func() []byte { return []byte(DatabricksSmokePrompt() + "\n") }},
+	{"files/tools/databricks-probe.txt", "text", "DatabricksProbePrompt", func() []byte { return []byte(DatabricksProbePrompt() + "\n") }},
+	{"files/tools/databricks-tool.txt", "text", "DatabricksToolDescription", func() []byte { return []byte(DatabricksToolDescription() + "\n") }},
+	{"files/tools/preflight-pong.txt", "text", "PreflightPongPrompt", func() []byte { return []byte(PreflightPongPrompt() + "\n") }},
 	{"files/review/source/retired_words.json", "json", "RetiredWords", RetiredWords},
 	{"files/ui/theme/default_config.json", "json", "ThemeDefaultConfig", ThemeDefaultConfig},
 	{"files/ui/theme/default_palettes.json", "json", "ThemeDefaultPalettes", ThemeDefaultPalettes},
@@ -127,7 +142,7 @@ func TestInventoryOneReaderEach(t *testing.T) {
 			t.Errorf("%s: readers %v, want exactly [%s]", e.path, got, e.reader)
 		}
 		want, err := files.ReadFile(e.path)
-		if err != nil || !bytes.Equal(e.read(), want) {
+		if err != nil || !inventoryBytesMatch(e.read, e.kind, e.reader, want) {
 			t.Errorf("%s: %s() does not return the embedded bytes (%v)", e.path, e.reader, err)
 		}
 		delete(byPath, e.path)
@@ -139,6 +154,9 @@ func TestInventoryOneReaderEach(t *testing.T) {
 
 func TestReadersReturnFreshCopies(t *testing.T) {
 	for _, e := range inventory {
+		if e.read == nil {
+			continue
+		}
 		b := e.read()
 		want := bytes.Clone(b)
 		clear(b)

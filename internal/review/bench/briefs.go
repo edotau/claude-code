@@ -1,56 +1,45 @@
 package bench
 
 import (
-	"bytes"
-	_ "embed"
 	"fmt"
-	"maps"
 	"strings"
-	"text/template"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
-//go:embed briefs/fix.tmpl
-var fixBriefTemplate string
-
-//go:embed briefs/review.tmpl
-var reviewBriefTemplate string
-
-// RenderBrief accepts fix or review; callers supply complete rtk commands and a JSON OwnedLine.
-func RenderBrief(kind string, values map[string]string) (string, error) {
-	var source string
-	switch kind {
-	case "fix":
-		source = fixBriefTemplate
-	case "review":
-		source = reviewBriefTemplate
-	default:
-		return "", fmt.Errorf("unknown bench brief %q", kind)
-	}
-	values = maps.Clone(values)
+func validateBrief(kind string, values map[string]string) error {
 	for key, value := range values {
-		switch {
-		case key == "Diff" && emptyDiff(value):
-			values[key] = noDiff
-		case strings.TrimSpace(value) == "":
-			return "", fmt.Errorf("bench brief %s: empty %s", kind, key)
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("bench brief %s: empty %s", kind, key)
 		}
 	}
-	funcs := template.FuncMap{"sh": func(s string) string {
-		return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
-	}}
-	tmpl, err := template.New(kind).Funcs(funcs).Option("missingkey=error").Parse(source)
-	if err != nil {
-		return "", fmt.Errorf("parse bench brief %s: %w", kind, err)
-	}
-	var out bytes.Buffer
-	if err := tmpl.Execute(&out, values); err != nil {
-		return "", fmt.Errorf("render bench brief %s: %w", kind, err)
-	}
-	return out.String(), nil
+	return nil
 }
 
-// noDiff stands in for a fix that changed nothing, so the review still dispatches and can answer REVERT.
-const noDiff = "(empty diff: the fix changed no file; REVERT unless the lane diff shows otherwise)"
+func renderFixBrief(in assets.BenchFixInput) (string, error) {
+	if err := validateBrief("fix", map[string]string{
+		"OwnedLine": in.OwnedLine, "Verify": in.Verify, "Benchmark": in.Benchmark, "Package": in.Package,
+		"Workdir": in.Workdir, "Cause": in.Cause, "Numbers": in.Numbers, "BeforeFile": in.BeforeFile,
+		"BenchCommand": in.BenchCommand, "IdentityCommand": in.IdentityCommand,
+	}); err != nil {
+		return "", err
+	}
+	return assets.BenchFixBrief(in)
+}
+
+func renderReviewBrief(in assets.BenchReviewInput) (string, error) {
+	if emptyDiff(in.Diff) {
+		in.Diff = assets.BenchNoDiff()
+	}
+	if err := validateBrief("review", map[string]string{
+		"OwnedLine": in.OwnedLine, "Verify": in.Verify, "Benchmark": in.Benchmark, "Package": in.Package,
+		"Workdir": in.Workdir, "Numbers": in.Numbers, "BeforeFile": in.BeforeFile,
+		"AfterFile": in.AfterFile, "Diff": in.Diff, "IdentityCommand": in.IdentityCommand,
+	}); err != nil {
+		return "", err
+	}
+	return assets.BenchReviewBrief(in)
+}
 
 // emptyDiff is true for a blank diff, bare or inside the driver's ```diff fence.
 func emptyDiff(s string) bool {

@@ -1,0 +1,1 @@
+{"type":"object","properties":{"query":{"type":"string","description":"the search query"}},"required":["query"]}

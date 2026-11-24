@@ -1,10 +1,67 @@
 package bench
 
 import (
-	"maps"
+	"crypto/sha256"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
+
+func TestBriefFixtureParity(t *testing.T) {
+	fix := assets.BenchFixInput{Workdir: "/tmp/owner's lane", Package: "./internal/shell", OwnedLine: `["x"]`,
+		Benchmark: "Bench", Cause: "cause", Numbers: "numbers", BeforeFile: "before", BenchCommand: "bench",
+		IdentityCommand: "identity", Verify: "verify"}
+	review := assets.BenchReviewInput{Workdir: fix.Workdir, Package: fix.Package, OwnedLine: fix.OwnedLine,
+		Benchmark: fix.Benchmark, Numbers: fix.Numbers, BeforeFile: fix.BeforeFile, AfterFile: "after",
+		IdentityCommand: fix.IdentityCommand, Verify: fix.Verify, Diff: "- old\n+ new"}
+	got, err := renderFixBrief(fix)
+	checkBriefHash(t, got, err, "b2f3e25aa45acad15bd8960da89d837b6abc451a34183146a9028f0a612927f0")
+	got, err = renderReviewBrief(review)
+	checkBriefHash(t, got, err, "2283e17c3fe8d6aa3f658f75438f4910ce7062e1a6551b2e37be02b1fbf31c48")
+	review.Diff = "```diff\n\n```"
+	got, err = renderReviewBrief(review)
+	checkBriefHash(t, got, err, "4ff7d6f74dc7950f2b57f99b4f910ebaca2284d5a1316fc9442cf784b57cebb3")
+	checkBlankFields(t, fix, review)
+}
+
+func checkBriefHash(t *testing.T, got string, err error, want string) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); hash != want {
+		t.Errorf("sha256 %s, want %s", hash, want)
+	}
+}
+
+func checkBlankFields(t *testing.T, fix assets.BenchFixInput, review assets.BenchReviewInput) {
+	t.Helper()
+	for _, item := range []any{fix, review} {
+		v := reflect.ValueOf(item)
+		for i := range v.NumField() {
+			name := v.Type().Field(i).Name
+			if name == "Diff" {
+				continue
+			}
+			copy := reflect.New(v.Type()).Elem()
+			copy.Set(v)
+			copy.Field(i).SetString(" ")
+			var err error
+			switch value := copy.Interface().(type) {
+			case assets.BenchFixInput:
+				_, err = renderFixBrief(value)
+			case assets.BenchReviewInput:
+				_, err = renderReviewBrief(value)
+			}
+			if err == nil || !strings.Contains(err.Error(), "empty "+name) {
+				t.Errorf("%T blank %s: %v", item, name, err)
+			}
+		}
+	}
+}
 
 func TestRenderBrief(t *testing.T) {
 	values := map[string]string{
@@ -23,9 +80,21 @@ func TestRenderBrief(t *testing.T) {
 		"review": {"Owned: []", "Mode: read-only", "Opus or higher", "## Fix diff", "## Behaviour review",
 			"KEEP or REVERT", "OWNER REVIEW REQUIRED", "a stale cache", "a race", values["Diff"], values["AfterFile"]},
 	}
+	fix := assets.BenchFixInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Cause: values["Cause"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		BenchCommand: values["BenchCommand"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"]}
+	review := assets.BenchReviewInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		AfterFile: values["AfterFile"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"], Diff: values["Diff"]}
 	for kind, required := range sections {
 		t.Run(kind, func(t *testing.T) {
-			got, err := RenderBrief(kind, values)
+			var got string
+			var err error
+			if kind == "fix" {
+				got, err = renderFixBrief(fix)
+			} else {
+				got, err = renderReviewBrief(review)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -35,15 +104,20 @@ func TestRenderBrief(t *testing.T) {
 			checkBriefSections(t, got, required)
 		})
 	}
-	empty := maps.Clone(values)
-	empty["Diff"] = "```diff\n\n```"
-	if got, err := RenderBrief("review", empty); err != nil || !strings.Contains(got, noDiff) {
+	checkBriefErrors(t, review)
+}
+
+func checkBriefErrors(t *testing.T, review assets.BenchReviewInput) {
+	t.Helper()
+	review.Diff = "```diff\n\n```"
+	if got, err := renderReviewBrief(review); err != nil || !strings.Contains(got, assets.BenchNoDiff()) {
 		t.Errorf("empty diff: %v, placeholder missing", err)
 	}
-	for _, kind := range []string{"fix", "review", "unknown"} {
-		if got, err := RenderBrief(kind, nil); err == nil || got != "" {
-			t.Errorf("%s: missing input returned %q, %v", kind, got, err)
-		}
+	if got, err := renderFixBrief(assets.BenchFixInput{}); err == nil || got != "" {
+		t.Errorf("fix: missing input returned %q, %v", got, err)
+	}
+	if got, err := renderReviewBrief(assets.BenchReviewInput{}); err == nil || got != "" {
+		t.Errorf("review: missing input returned %q, %v", got, err)
 	}
 }
 

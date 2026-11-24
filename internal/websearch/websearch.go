@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -30,15 +31,12 @@ const (
 	userAgent              = "claude-code-websearch/" + serverVersion
 	toolName               = "web_search"
 	extractToolName        = "web_extract"
-	extractToolDescription = "Read public web pages as markdown via Tavily; up to 20 URLs; honors robots.txt"
 	// MaxExtractURLs is the maximum number of URLs one extract call accepts.
 	MaxExtractURLs      = 20
 	extractPageCapRunes = 12000 // per-page bound on extract output
-	toolDescription     = "Search the web via Tavily for up-to-date public information, current events, " +
-		"and recent data. Use when the question needs information beyond your training data."
-	tavilyURL        = "https://api.tavily.com/search"
-	tavilyExtractURL = "https://api.tavily.com/extract"
-	requestTimeout   = 20 * time.Second
+	tavilyURL           = "https://api.tavily.com/search"
+	tavilyExtractURL    = "https://api.tavily.com/extract"
+	requestTimeout      = 20 * time.Second
 	// DefaultMaxResults is the default number of search hits returned when maxResults <= 0.
 	DefaultMaxResults = 5
 )
@@ -107,13 +105,13 @@ func toolText(text string) map[string]any {
 func toolDescriptor() map[string]any {
 	return map[string]any{
 		"name":        toolName,
-		"description": toolDescription,
+		"description": assets.WebSearchDescription(),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": "The search query."},
+				"query": map[string]any{"type": "string", "description": assets.WebSearchQueryDescription()},
 				"max_results": map[string]any{"type": "integer",
-					"description": fmt.Sprintf("Max results (default %d).", DefaultMaxResults), "default": DefaultMaxResults},
+					"description": fmt.Sprintf(assets.WebSearchMaxResultsDescription(), DefaultMaxResults), "default": DefaultMaxResults},
 			},
 			"required": []string{"query"},
 		},
@@ -123,12 +121,12 @@ func toolDescriptor() map[string]any {
 func extractDescriptor() map[string]any {
 	return map[string]any{
 		"name":        extractToolName,
-		"description": extractToolDescription,
+		"description": assets.WebExtractDescription(),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"urls": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
-					"minItems": 1, "maxItems": MaxExtractURLs, "description": "Public http(s) page URLs to read."},
+					"minItems": 1, "maxItems": MaxExtractURLs, "description": assets.WebExtractURLsDescription()},
 			},
 			"required": []string{"urls"},
 		},

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/serving"
@@ -189,9 +190,9 @@ func anthropicSearchBody(body []byte, model string) (out []byte, stream bool, er
 		_ = json.Unmarshal(t["name"], &name)
 		_ = json.Unmarshal(t["type"], &typ)
 		if name == "web_search" && strings.HasPrefix(typ, "web_search") {
+			description, _ := json.Marshal(assets.ProxySearchDescription())
 			tools[i] = map[string]json.RawMessage{"name": json.RawMessage(`"web_search"`),
-				"description":  json.RawMessage(`"Search the web for current information; returns result titles, urls and snippets."`),
-				"input_schema": json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"the search query"}},"required":["query"]}`)}
+				"description": description, "input_schema": json.RawMessage(assets.ProxySearchSchema())}
 		}
 	}
 	top["tools"], _ = json.Marshal(tools)

@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
@@ -54,15 +55,13 @@ type CheckOptions struct {
 	ClientRoutes bool // opt in to client-equivalent serving routes and larger bounded probe token budgets
 }
 
-const probePrompt = "Reply with OK."
-
 var pingSchema = map[string]any{"type": "object", "properties": map[string]any{}}
 
 var checkChatTool = map[string]any{"type": "function", "function": map[string]any{
-	"name": "ping", "description": "Return pong.", "parameters": pingSchema,
+	"name": "ping", "description": assets.DatabricksToolDescription(), "parameters": pingSchema,
 }}
 
-var checkResponsesTool = map[string]any{"type": "function", "name": "ping", "description": "Return pong.",
+var checkResponsesTool = map[string]any{"type": "function", "name": "ping", "description": assets.DatabricksToolDescription(),
 	"parameters": pingSchema}
 
 // Probe sends one tiny request per target (bounded concurrency) and returns results in target order.
@@ -234,7 +233,7 @@ func clientProbeBody(model, dialect string, tools bool) map[string]any {
 	if dialect == providers.ProtocolAnthropic {
 		b["max_tokens"] = 32
 		if tools {
-			b["tools"] = []any{map[string]any{"name": "ping", "description": "Return pong.",
+			b["tools"] = []any{map[string]any{"name": "ping", "description": assets.DatabricksToolDescription(),
 				"input_schema": pingSchema}}
 			b["tool_choice"] = map[string]any{"type": "auto"}
 		}
@@ -245,7 +244,7 @@ func clientProbeBody(model, dialect string, tools bool) map[string]any {
 }
 
 func chatBody(tools bool) map[string]any {
-	b := map[string]any{"messages": []map[string]any{{"role": "user", "content": probePrompt}}, "max_tokens": 8}
+	b := map[string]any{"messages": []map[string]any{{"role": "user", "content": assets.DatabricksProbePrompt()}}, "max_tokens": 8}
 	if tools {
 		b["tools"], b["tool_choice"] = []any{checkChatTool}, "auto"
 	}
@@ -253,7 +252,7 @@ func chatBody(tools bool) map[string]any {
 }
 
 func responsesBody(model string, tools bool) map[string]any {
-	b := map[string]any{"model": model, "input": probePrompt, "max_output_tokens": 16}
+	b := map[string]any{"model": model, "input": assets.DatabricksProbePrompt(), "max_output_tokens": 16}
 	if tools {
 		b["tools"] = []any{checkResponsesTool}
 	}

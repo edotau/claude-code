@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -392,11 +393,11 @@ func (d *driver) fixLeaf(ctx context.Context, c *candidate) error {
 		return err
 	}
 	pkg := "./" + c.Pkg
-	brief, err := RenderBrief("fix", map[string]string{
-		"OwnedLine": owned, "Verify": rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), "Benchmark": "the benchmarks",
-		"Package": pkg, "Workdir": c.lane, "Cause": c.What, "Numbers": numbers, "BeforeFile": c.before,
-		"BenchCommand":    rtkwrap.ForModel(ctx, "go test -run '^$' -bench . -benchmem -count 8 "+pkg, c.lane),
-		"IdentityCommand": rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
+	brief, err := renderFixBrief(assets.BenchFixInput{
+		OwnedLine: owned, Verify: rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), Benchmark: "the benchmarks",
+		Package: pkg, Workdir: c.lane, Cause: c.What, Numbers: numbers, BeforeFile: c.before,
+		BenchCommand:    rtkwrap.ForModel(ctx, "go test -run '^$' -bench . -benchmem -count 8 "+pkg, c.lane),
+		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
 	})
 	if err != nil {
 		return err
@@ -532,11 +533,11 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 		return d.hold(c, "prepare review files: "+err.Error())
 	}
 	pkg := "./" + c.Pkg
-	brief, err := RenderBrief("review", map[string]string{
-		"OwnedLine": owned, "Verify": rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), "Benchmark": "the benchmarks",
-		"Package": pkg, "Workdir": c.lane, "Numbers": strings.Join(c.res.Decision.Rows, "\n"), "BeforeFile": c.res.Before,
-		"AfterFile": c.res.After, "Diff": "```diff\n" + diff + "\n```",
-		"IdentityCommand": rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
+	brief, err := renderReviewBrief(assets.BenchReviewInput{
+		OwnedLine: owned, Verify: rtkwrap.ForModel(ctx, "go test "+pkg, c.lane), Benchmark: "the benchmarks",
+		Package: pkg, Workdir: c.lane, Numbers: strings.Join(c.res.Decision.Rows, "\n"), BeforeFile: c.res.Before,
+		AfterFile: c.res.After, Diff: "```diff\n" + diff + "\n```",
+		IdentityCommand: rtkwrap.ForModel(ctx, "go test -count=1 "+pkg, c.lane),
 	})
 	if err != nil {
 		return d.hold(c, "prepare review brief: "+err.Error())

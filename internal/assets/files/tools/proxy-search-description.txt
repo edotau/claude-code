@@ -1,0 +1,1 @@
+Search the web for current information; returns result titles, urls and snippets.

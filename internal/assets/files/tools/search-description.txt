@@ -1,0 +1,1 @@
+Search the web via Tavily for up-to-date public information, current events, and recent data. Use when the question needs information beyond your training data.

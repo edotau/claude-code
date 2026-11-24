@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilotauth"
 	endpoints "github.com/edotau/claude-code/internal/serving"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/parallel"
@@ -149,7 +150,7 @@ func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.En
 	if profile != "" {
 		argv = append(argv, "--profile", profile)
 	}
-	cmd := exec.CommandContext(ctx, bin, append(argv, "--tools=false", "--fallback", "none", "--format", "json", "Reply with the single word: pong")...)
+	cmd := exec.CommandContext(ctx, bin, append(argv, "--tools=false", "--fallback", "none", "--format", "json", assets.PreflightPongPrompt())...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	if v, ok := proc.ValuesFromContext(ctx); ok { // the child sees the run snapshot the prediction read, not the ambient env
