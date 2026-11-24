@@ -308,7 +308,7 @@ func fallbackUnset(ctx context.Context) bool {
 // piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none, pin or model).
 func piChainMode(ctx context.Context, q RouteReq) string {
 	switch {
-	case q.Model != "" || q.AutoModel || q.Resumed || q.Fallback == router.FallbackPin:
+	case q.Model != "" || q.AutoModel || q.Resumed || q.Native || q.Fallback == router.FallbackPin:
 		return ""
 	case q.Fallback == router.FallbackNone && q.FallbackDefaulted && fallbackUnset(ctx):
 		return router.FallbackAgents // nothing set anywhere: pi's own default (other workspaces, then claude on this one)
