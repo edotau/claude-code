@@ -69,6 +69,7 @@ type Record struct {
 	SessionID      string      `json:"session_id,omitempty"`
 	DurationMs     int64       `json:"duration_ms,omitempty"`
 	FirstEventMs   int64       `json:"first_event_ms,omitempty"` // spawn to the first stream event, ms
+	Proxy          string      `json:"proxy,omitempty"`          // the proxy route label the final attempt ran through
 	Fallback       string      `json:"fallback,omitempty"`       // the original agent's name, when it ran instead
 	FallbackReason string      `json:"fallback_reason,omitempty"`
 	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
@@ -641,9 +642,9 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
-	r.FirstEventMs = 0
+	r.FirstEventMs, r.Proxy = 0, ""
 	if res.Transport != nil {
-		r.FirstEventMs = res.Transport.FirstEventMs
+		r.FirstEventMs, r.Proxy = res.Transport.FirstEventMs, res.Transport.Proxy
 	}
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
@@ -1129,6 +1130,9 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	}
 	if rec.Usage != nil {
 		res.Usage = *rec.Usage
+	}
+	if rec.Proxy != "" {
+		res.Transport = &wire.Transport{Attempts: 1, Proxy: rec.Proxy}
 	}
 	if log, err := os.ReadFile(rec.LogPath()); err == nil {
 		res.Answer = string(log)
