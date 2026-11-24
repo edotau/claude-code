@@ -47,16 +47,13 @@ func TestRTKSkipsCodex(t *testing.T) {
 		t.Fatalf("Codex command rewritten to %q", got)
 	}
 	t.Setenv("HARNESS_HOOK_AGENT", "")
-	if got, ok := rtkOut(t, strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1)); ok {
-		t.Fatalf("auto-mode command rewritten to %q", got)
-	}
 	if got, ok := rtkOut(t, payload); !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
 	}
 }
 
-// TestRTKAutoModeBlocks: auto mode blocks with the rtk form, which itself passes; a form rtk would change again passes.
-func TestRTKAutoModeBlocks(t *testing.T) {
+// TestRTKAutoModeRewrites: auto mode rewrites in place with no decision, so the classifier still judges the call.
+func TestRTKAutoModeRewrites(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	auto := func(cmd string) core.Result {
@@ -64,20 +61,16 @@ func TestRTKAutoModeBlocks(t *testing.T) {
 		return RTKRewrite(core.ParseInput(strings.NewReader(in)))
 	}
 	res := auto("git log --oneline -20")
-	if res.Decision != core.Block || !res.Floor || res.UpdatedInput != nil || !strings.Contains(res.Reason, "run it as: "+bin+" git log") {
-		t.Fatalf("auto mode = %+v, want a block naming the rtk form", res)
+	if got, _ := res.UpdatedInput["command"].(string); got != bin+" git log --oneline -20" || res.Decision != core.Allow {
+		t.Fatalf("auto mode = %+v, want the rtk form and no decision", res)
 	}
 	for _, cmd := range []string{bin + " git log --oneline -20", "go vet ./x"} {
-		if res := auto(cmd); res.Decision != core.Allow {
+		if res := auto(cmd); res.UpdatedInput != nil || res.Decision != core.Allow {
 			t.Errorf("auto %q = %+v, want a pass", cmd, res)
 		}
 	}
-	t.Setenv("FAKE_RTK_OUT", "cd x && rtk git log") // the pinned form rewrites again: blocking it would loop
-	if res := auto("cd x && git log"); res.Decision != core.Allow {
-		t.Errorf("non-idempotent rewrite = %+v, want a pass", res)
-	}
-	t.Setenv("FAKE_RTK_EXIT", "7") // rtk fails: no block
-	if res := auto("git log --oneline -20"); res.Decision != core.Allow {
+	t.Setenv("FAKE_RTK_EXIT", "7") // rtk fails: fail open
+	if res := auto("git log --oneline -20"); res.UpdatedInput != nil || res.Decision != core.Allow {
 		t.Errorf("failed rtk = %+v, want a pass", res)
 	}
 }
@@ -255,7 +248,7 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	script := "#!/bin/sh\nprintf 'rtk ls'\n(i=0; while [ ! -e " + release + " ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done;" +
 		" [ -e " + release + " ] || touch " + expired + ") 2>/dev/null &\nexit 3\n"
 	hosttest.WriteExec(t, hold, script)
-	got, _ := rtkRewritten(hold, "ls")
+	got := rtkRewritten(hold, "ls")
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -39,6 +39,8 @@ func VetoRule(cmd, cwd string) string {
 		return "linked-worktree"
 	case rtkGitValueVetoed(cmd):
 		return "value-git"
+	case rtkGitBranchMutates(cmd):
+		return "branch-mutate"
 	case rtkMachineReadableFlag(cmd):
 		return "machine-flag"
 	case rtkGoRaw(cmd):
@@ -133,6 +135,22 @@ func rtkGitValueVetoed(cmd string) bool {
 		}
 		// "" is gitRTKSubcommand's fail-closed answer (unknown option, no subcommand): never wrap what it can't classify.
 		if sub := gitRTKSubcommand(args); sub == "" || rtkValueSubcommands()[sub] {
+			return true
+		}
+	}
+	return false
+}
+
+// rtkGitBranchMutates: rtk prints only `ok` for `git branch -D`, so a delete, move or copy stays raw.
+func rtkGitBranchMutates(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		args := rtkGitArgs(seg)
+		if args == nil || gitRTKSubcommand(args) != "branch" {
+			continue
+		}
+		if slices.ContainsFunc(args[slices.Index(args, "branch")+1:], func(a string) bool {
+			return shortFlag(a, "dDmMcC") || a == "--delete" || a == "--move" || a == "--copy"
+		}) {
 			return true
 		}
 	}

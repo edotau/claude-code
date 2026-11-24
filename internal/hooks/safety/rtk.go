@@ -343,14 +343,11 @@ func rtkAgentInput(in *core.Input, pinned string) map[string]any {
 	return updated
 }
 
-// rtkRewrite is RTKRewrite for a Claude Bash call: rewritten in place, or in auto mode blocked with its rtk form.
+// rtkRewrite is RTKRewrite for a Claude Bash call: rewritten in place in every mode.
 func rtkRewrite(in *core.Input) core.Result {
-	bin, cmd := paths.RTKBinary(), in.ToolCommand()
-	// auto mode's classifier gives no verdict on a hook-changed input, so the model reruns the rtk form itself
-	if in.Nested("permission_mode") == "auto" {
-		return rtkAutoBlock(bin, in.CWD, cmd)
-	}
-	f := rtkPinnedForm(bin, in.CWD, cmd)
+	// no permissionDecision is set, so auto mode's classifier still judges the rewritten call
+	bin := paths.RTKBinary()
+	f := rtkPinnedForm(bin, in.CWD, in.ToolCommand())
 	// updatedInput REPLACES the whole tool_input, so every original key (description, timeout…) must be echoed back.
 	updated := in.CloneToolInput()
 	if f.cmd == "" || updated == nil {
@@ -360,28 +357,10 @@ func rtkRewrite(in *core.Input) core.Result {
 	return core.Result{Context: rtkNotes(in.SessionID, f.word, f.found, bin, f.onPath), UpdatedInput: updated}
 }
 
-// rtkAutoBlock blocks cmd with its rtk form, only when that form passes; an env-altered or unsure command passes.
-func rtkAutoBlock(bin, cwd, cmd string) core.Result {
-	if rtkwrap.EnvAltered(cmd) {
-		return core.Result{}
-	}
-	f := rtkPinnedForm(bin, cwd, cmd)
-	if f.cmd == "" {
-		return core.Result{}
-	}
-	// a form the hook would block again, or one rtk could not judge, passes: the block never loops
-	if again := rtkPinnedForm(bin, cwd, f.cmd); again.cmd != "" || again.failed {
-		return core.Result{}
-	}
-	return core.Result{Decision: core.Block, Floor: true,
-		Reason: fmt.Sprintf("rtk: run it as: %s (exact bytes: %s bypass <cmd>)", f.cmd, f.word)}
-}
-
 // rtkForm is a command's rtk form with its command word, and where PATH's rtk is; cmd "" means it runs as typed.
 type rtkForm struct {
 	cmd, word, found string
 	onPath           bool
-	failed           bool // rtk rewrite errored or timed out, so cmd "" is no verdict
 }
 
 // rtkPinnedForm is `rtk rewrite`'s form of cmd with every rtk pinned to bin; empty on a veto, no change or any error.
@@ -389,9 +368,9 @@ func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
 	if bin == "" || !rtkMayRewrite(cmd) || rtkVetoed(cmd, cwd, bin) {
 		return rtkForm{}
 	}
-	rewritten, answered := rtkRewritten(bin, cmd)
+	rewritten := rtkRewritten(bin, cmd)
 	if rewritten == "" {
-		return rtkForm{failed: !answered}
+		return rtkForm{}
 	}
 	found, onPath := paths.RTKOnPath(bin)
 	word := textutil.QuoteSH(bin) // the command moves PATH or HOME, so bare rtk or "$HOME/…" could run another rtk
@@ -449,8 +428,8 @@ func rtkShadowNotice(found, bin string) string {
 	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
 }
 
-// rtkRewritten is `rtk rewrite`'s changed output for cmd (exit 0 or 3), else ""; answered: rtk exited 0, 1 or 3.
-func rtkRewritten(bin, cmd string) (string, bool) {
+// rtkRewritten is `rtk rewrite`'s changed output for cmd (exit 0 or 3), else "".
+func rtkRewritten(bin, cmd string) string {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
 	c := exec.CommandContext(ctx, bin, "rewrite", "--", cmd)
@@ -459,13 +438,13 @@ func rtkRewritten(bin, cmd string) (string, bool) {
 	out, err := c.Output()
 	var ee *exec.ExitError
 	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 3) {
-		return "", ee != nil && ee.ExitCode() == 1 && ctx.Err() == nil // 1: nothing to rewrite
+		return ""
 	}
 	got := strings.TrimSpace(string(out))
 	if got == cmd {
-		return "", true
+		return ""
 	}
-	return got, true
+	return got
 }
 
 // rtkCommandWord matches a bare `rtk` at command position (line start, or after `&&`, `||`, `;`, `|`, `(`, backtick).

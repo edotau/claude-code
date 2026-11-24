@@ -24,7 +24,7 @@ one, edit both and run `make install` for projections; an existing Claude `setti
 | --- | --- |
 | `safety` | Bash safety gate (block / ask / warn tiers) |
 | `permission` | Agent-only (codex, gemini, opencode): judges each call against the dispatch's permissions |
-| `rtk` | Routes noisy command output through rtk (Claude, codex, opencode); Claude's auto mode blocks with the rtk form |
+| `rtk` | Routes noisy command output through rtk (Claude, codex, opencode); Claude rewrites in place in every mode, auto included |
 | `docs` | Markdown placement; plan template, dated plan copies, plan-task ticks |
 | `dispatch` | Concurrency cap, subagent model fill, memory recall on spawn and every `agents ask` |
 | `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
@@ -117,7 +117,7 @@ logs no command text.
 | --- | --- | --- |
 | `safety-scan` ¶ | PreToolUse (Bash) | Block or ask in the order above |
 | `permission-gate` | PreToolUse (Bash\|Write\|Edit\|Read\|WebFetch\|Glob\|Grep) | **Block** a call outside the dispatch's `Permissions` (5s); `apply_patch` is judged as an Edit per file; agent-only |
-| `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place with no permission decision, or in auto mode a floor **block** `rtk: run it as: <form>`, only when that form passes the hook itself (no loop); codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, env-altered commands and any rtk failure or timeout pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
+| `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place in every mode (auto included) with no permission decision, so auto mode's classifier still judges it; codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
 | `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Gates the type (`coworker:<agent>` → `<agent>`), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput` |
 | dispatch cap | within `dispatch-effort` | **24 in flight per available account** (a profile's `concurrency` overrides), machine-wide `24 × accounts` clamped to **4 × CPUs**; a blocked dispatch claims nothing; infra errors fail open; `doctor` shows `in-flight`. Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type>`); a wrong label is rewritten, never denied; an auto ask's label is a peek |

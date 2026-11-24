@@ -80,8 +80,8 @@ Claude Code reads these source files directly; external CLI projections refresh 
 5. **Reply concisely.** Lead with the result; no preamble, narration or closing recap; short by default, full
    detail when asked; never trade correctness for brevity.
 
-6. **Write each call in its final form** so hooks rewrite nothing (a rewrite stalls auto mode): Bash starts `rtk` for
-   git/go/ls/grep/rg/find/make/docker/ps/du/df/stat/jq/ssh/golangci-lint…
+6. **Write each call in its final form** so the hook rewrites nothing (it does, in place, if you don't):
+   Bash starts `rtk` for git/go/ls/grep/rg/find/make/docker/ps/du/df/stat/jq/ssh/golangci-lint…
    (`cat f` → `rtk read f`; the form `rtk rewrite '<cmd>'` prints; exact output and program code stay bare:
    `rules/standards/rtk.md`); Agent `description` is `<model>: lower-case task`.
 
