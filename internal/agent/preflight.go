@@ -111,8 +111,8 @@ func checkWorkspace(ctx context.Context, p *providers.Provider, st router.State,
 	if !providers.CredentialPresent(p) {
 		out = append(out, Finding{Check: "credential", Profile: p.Name, Detail: "no stored credential for " + p.Name})
 	}
-	if reason, marked := st.AuthMarked(router.AccountOf(p), now); marked {
-		out = append(out, Finding{Check: "auth", Profile: p.Name, Detail: p.Name + " is auth-marked: " + reason})
+	if f, marked := authMarkFinding(ctx, p, st, now); marked {
+		out = append(out, f)
 	}
 	if f, dead := deadLoginFinding(p); dead {
 		out = append(out, f)
@@ -133,10 +133,43 @@ func checkWorkspace(ctx context.Context, p *providers.Provider, st router.State,
 			return []Finding{*f}
 		}
 	}
-	if f := workspaceAuth(p, st, now); f != nil {
+	if f := workspaceAuth(ctx, p); f != nil {
 		out = append(out, *f)
 	}
 	return out
+}
+
+// authMarkFinding is p's live auth mark, lifted once a listing probe accepts the credential (serving 401s re-mark).
+func authMarkFinding(ctx context.Context, p *providers.Provider, st router.State, now time.Time) (Finding, bool) {
+	account := router.AccountOf(p)
+	reason, marked := st.AuthMarked(account, now)
+	if !marked {
+		return Finding{}, false
+	}
+	markAt, fp := st[account].AuthAt, verdictFP(ctx, p)
+	v := st[account].Verified[workspaceKey(p)]
+	verdict := v.Status // a probe since the mark still answers: no new call per preflight while the mark stands
+	if fp == "" || v.CredFP != fp || !v.At.After(markAt) || !v.ValidUntil.After(now) {
+		verdict = probeWorkspace(ctx, p)
+	}
+	cur := loadState()
+	if newer, still := cur.AuthMarked(account, time.Now()); still && !cur[account].AuthAt.Equal(markAt) {
+		reason, verdict = newer, "" // a mark set during the probe stands
+	}
+	if verdict != "ok" {
+		return Finding{Check: "auth", Profile: p.Name, Detail: p.Name + " is auth-marked: " + reason}, true
+	}
+	_ = router.ClearAuth(account) // best-effort: the TTL backstops a missed clear
+	return Finding{}, false
+}
+
+// verdictFP is p's credential fingerprint bound to the caller's --as identity: one identity never answers another.
+func verdictFP(ctx context.Context, p *providers.Provider) string {
+	fp := CredentialFingerprint(p)
+	if id := providers.IdentityFrom(ctx); fp != "" && id != "" {
+		return fp + "|" + id
+	}
+	return fp
 }
 
 // CredentialFingerprint hashes vault set-times; absent metadata or command credentials disable reuse.
@@ -234,16 +267,28 @@ func tokenHint(p *providers.Provider) string {
 	return providers.LoginCommand(p.Name)
 }
 
-func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Finding {
-	fp := CredentialFingerprint(p)
-	account := router.AccountOf(p)
-	key := router.VerdictKey(p.Name, account, "", "")
-	if st.VerifiedOK(account, key, fp, now) {
+// workspaceAuth reads the current state and clock, so a verdict authMarkFinding just stored spares a second probe.
+func workspaceAuth(ctx context.Context, p *providers.Provider) *Finding {
+	if loadState().VerifiedOK(router.AccountOf(p), workspaceKey(p), verdictFP(ctx, p), time.Now()) {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	if probeWorkspace(ctx, p) != "auth" {
+		return nil
+	}
+	return &Finding{Check: "auth", Profile: p.Name, Detail: "credential rejected: run `" + providers.LoginCommand(p.Name) + "`"}
+}
+
+// workspaceKey is the verdict key of p's workspace auth (no model, no effort).
+func workspaceKey(p *providers.Provider) string {
+	return router.VerdictKey(p.Name, router.AccountOf(p), "", "")
+}
+
+// probeWorkspace is one listing probe of p under the caller's identity: "ok", "auth" or "unknown", stored as a verdict.
+func probeWorkspace(ctx context.Context, p *providers.Provider) string {
+	fp := verdictFP(ctx, p)
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	status, _ := providers.ProbeCredential(ctx, p)
+	status, _ := providers.ProbeCredential(probeCtx, p)
 	verdict := "unknown"
 	switch status {
 	case providers.ProbeVerified:
@@ -252,13 +297,11 @@ func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Findi
 		verdict = "auth"
 	}
 	// A refresh during the probe invalidates its result rather than blessing an untested credential.
-	if CredentialFingerprint(p) == fp {
-		router.StoreVerdict(account, key, router.Verdict{CredFP: fp, Status: verdict, Source: "listing", At: time.Now()})
+	if verdictFP(ctx, p) != fp {
+		return "unknown"
 	}
-	if verdict != "auth" {
-		return nil
-	}
-	return &Finding{Check: "auth", Profile: p.Name, Detail: "credential rejected: run `" + providers.LoginCommand(p.Name) + "`"}
+	router.StoreVerdict(router.AccountOf(p), workspaceKey(p), router.Verdict{CredFP: fp, Status: verdict, Source: "listing", At: time.Now()})
+	return verdict
 }
 
 // deadLoginFinding is the failure for a remembered dead user login that no paired service principal covers.

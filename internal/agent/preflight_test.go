@@ -170,7 +170,7 @@ func TestPreflightAuthCacheReprobesFailuresAndRotatedCredentials(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old })
 	check := func(wantFail bool) {
 		t.Helper()
-		f := workspaceAuth(p, router.LoadState(), time.Now())
+		f := workspaceAuth(context.Background(), p)
 		if (f != nil) != wantFail {
 			t.Fatalf("finding = %v, want failure %v", f, wantFail)
 		}
@@ -200,6 +200,40 @@ func TestPreflightAuthCacheReprobesFailuresAndRotatedCredentials(t *testing.T) {
 	check(false)
 	if calls != 4 {
 		t.Fatal("corrupt cache did not fall back to live")
+	}
+}
+
+// A stale auth mark is lifted once the workspace accepts the credential; a still-rejected one keeps refusing.
+func TestPreflightAuthMarkClearsOnVerifiedProbe(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "marked", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://marked.example.com", Auth: providers.Auth{Type: providers.AuthPAT}}
+	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	calls, code := 0, http.StatusUnauthorized
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"endpoints":[]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	account, ctx := router.AccountOf(p), context.Background()
+	if err := router.MarkAuth(account, "login rejected"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = authMarkFinding(ctx, p, router.LoadState(), time.Now())
+	if f, marked := authMarkFinding(ctx, p, router.LoadState(), time.Now()); !marked || f.Check != "auth" || calls != 1 {
+		t.Fatalf("rejected probe: finding %+v marked %v after %d probes, want the auth finding from 1 probe", f, marked, calls)
+	}
+	code = http.StatusOK
+	if err := vault.Store(providers.AuthSecretName(p), "rotated-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	fs := checkWorkspace(ctx, p, router.LoadState(), time.Now(), time.Minute, nil, true)
+	_, marked := router.LoadState().AuthMarked(account, time.Now())
+	if len(fs) != 0 || marked || calls != 2 {
+		t.Fatalf("verified probe: findings %+v, still marked %v, %d probes; want the mark lifted after 2 probes", fs, marked, calls)
 	}
 }
 
