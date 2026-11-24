@@ -43,12 +43,21 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
 // running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
 const running = new Set<string>()
 
+// The contract package's enums (contract.TestsValues, contract.Methods); a Go test pins these spellings.
+const HANDBACK_TESTS = ["judged", "executed", "unknown"]
+const HANDBACK_METHODS = ["solo", "fleet"]
+
 // handbackError names the first missing or wrong handback field, or "" when the call is complete.
 function handbackError(p: any): string {
   if (!["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"].includes(p?.status)) return "status must be DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED"
   if (typeof p.summary !== "string" || !p.summary.trim()) return "summary must be a non-empty string"
   if (!Array.isArray(p.unfixed) || p.unfixed.some((s: any) => typeof s !== "string")) return "unfixed must be an array of strings (empty if none)"
-  return ""
+  return enumError("tests", p.tests, HANDBACK_TESTS) || enumError("method", p.method, HANDBACK_METHODS)
+}
+
+// enumError is "" for an omitted or listed value, else the retry text naming the field.
+function enumError(field: string, v: any, allowed: string[]): string {
+  return v === undefined || allowed.includes(v) ? "" : field + " must be one of " + allowed.join(", ") + " (or omitted)"
 }
 
 async function tracked<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -86,7 +95,8 @@ const ACTIONS: Record<string, any> = {
     description: "Finish: report the outcome of the task. Call once, last.",
     parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
       properties: { status: { enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
-        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } } } } },
+        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } },
+        tests: { enum: HANDBACK_TESTS }, method: { enum: HANDBACK_METHODS } } } },
 }
 
 // stopTree ends the action's process tree: taskkill /T on Windows, SIGTERM (the gate reaps its tree) elsewhere.

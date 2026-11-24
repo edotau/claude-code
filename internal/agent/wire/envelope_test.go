@@ -150,12 +150,12 @@ func TestHandbackFooterIsCleanOnlyForDoneWithNoItems(t *testing.T) {
 		h    Handback
 		want string
 	}{
-		{Handback{"DONE", "s", nil}, "DONE: s\nUNFIXED: none"},
-		{Handback{"DONE", "s", []string{"none"}}, "DONE: s\nUNFIXED: none"},
-		{Handback{"DONE", "s", []string{"x"}}, "DONE: s\nUNFIXED: x"},
-		{Handback{"BLOCKED", "s", []string{"none"}}, "BLOCKED: s\nUNFIXED: BLOCKED"},
-		{Handback{"DONE_WITH_CONCERNS", "s", nil}, "DONE_WITH_CONCERNS: s\nUNFIXED: DONE_WITH_CONCERNS"},
-		{Handback{"NEEDS_CONTEXT", "a\nb", []string{"x\ny", "z"}}, "NEEDS_CONTEXT: a b\nUNFIXED: x y; z"},
+		{Handback{Status: "DONE", Summary: "s"}, "DONE: s\nUNFIXED: none"},
+		{Handback{Status: "DONE", Summary: "s", Unfixed: []string{"none"}}, "DONE: s\nUNFIXED: none"},
+		{Handback{Status: "DONE", Summary: "s", Unfixed: []string{"x"}}, "DONE: s\nUNFIXED: x"},
+		{Handback{Status: "BLOCKED", Summary: "s", Unfixed: []string{"none"}}, "BLOCKED: s\nUNFIXED: BLOCKED"},
+		{Handback{Status: "DONE_WITH_CONCERNS", Summary: "s"}, "DONE_WITH_CONCERNS: s\nUNFIXED: DONE_WITH_CONCERNS"},
+		{Handback{Status: "NEEDS_CONTEXT", Summary: "a\nb", Unfixed: []string{"x\ny", "z"}}, "NEEDS_CONTEXT: a b\nUNFIXED: x y; z"},
 	} {
 		if got := c.h.Footer(); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.h, got, c.want)

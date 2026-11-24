@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 )
 
 // piEvent is one line of `pi --mode json`; only the fields the parser and the driver read are decoded.
@@ -108,12 +109,18 @@ func parseHandback(args json.RawMessage) (h wire.Handback, ok bool) {
 		Status  string    `json:"status"`
 		Summary *string   `json:"summary"`
 		Unfixed *[]string `json:"unfixed"`
+		Tests   string    `json:"tests"`
+		Method  string    `json:"method"`
 	}
 	// sampling is only "preferred" strict, so every required field is checked here
 	if json.Unmarshal(args, &raw) != nil || !slices.Contains(handbackStatuses, raw.Status) || raw.Summary == nil || raw.Unfixed == nil {
 		return wire.Handback{}, false
 	}
-	return wire.Handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed}, true
+	tests, method := contract.Tests(raw.Tests), contract.Method(raw.Method)
+	if (tests != "" && !slices.Contains(contract.TestsValues(), tests)) || (method != "" && !slices.Contains(contract.Methods(), method)) {
+		return wire.Handback{}, false // tests and method are optional, but a stated one is in its enum
+	}
+	return wire.Handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed, Tests: tests, Method: method}, true
 }
 
 // piTurn is parseEvents' state across one run's events.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -107,6 +108,9 @@ type Handback struct {
 	Status  string   `json:"status"` // DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 	Summary string   `json:"summary"`
 	Unfixed []string `json:"unfixed"`
+	// Tests and Method are empty when the worker did not state them (unmet for a contract).
+	Tests  contract.Tests  `json:"tests,omitempty"`
+	Method contract.Method `json:"method,omitempty"`
 }
 
 // Footer is the verdict line and the one UNFIXED line; "UNFIXED: none" only for DONE with no items.

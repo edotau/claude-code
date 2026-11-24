@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 )
 
 type collectSink struct{ evs []wire.Event }
@@ -476,5 +477,43 @@ func TestParseEventsLaterToolVoidsHandbackAndErrorKeepsFieldWithoutFooter(t *tes
 	res, _, _, err := parseFixture(t, hb+msgEnd("error", "boom")+settled)
 	if err == nil || res.Handback == nil || strings.Contains(res.Answer, "UNFIXED") {
 		t.Fatalf("errored run: err %v handback %+v answer %q", err, res.Handback, res.Answer)
+	}
+}
+
+func TestHandbackTestsAndMethodAreTypedAndOptional(t *testing.T) {
+	h, ok := parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],"tests":"executed","method":"fleet"}`))
+	if !ok || h.Tests != contract.TestsExecuted || h.Method != contract.MethodFleet {
+		t.Fatalf("typed fields: %+v ok %v", h, ok)
+	}
+	if h, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[]}`)); !ok || h.Tests != "" || h.Method != "" {
+		t.Fatalf("a hand-back without them: %+v ok %v", h, ok)
+	}
+	for _, bad := range []string{`"tests":"passed"`, `"method":"duo"`} {
+		if _, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],` + bad + `}`)); ok {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}
+
+func TestGuardHandbackEnumsMatchContract(t *testing.T) {
+	g, err := WriteGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(g.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tests, methods []string
+	for _, v := range contract.TestsValues() {
+		tests = append(tests, strconv.Quote(string(v)))
+	}
+	for _, v := range contract.Methods() {
+		methods = append(methods, strconv.Quote(string(v)))
+	}
+	for _, want := range []string{"HANDBACK_TESTS = [" + strings.Join(tests, ", ") + "]", "HANDBACK_METHODS = [" + strings.Join(methods, ", ") + "]"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("guard lacks %s", want)
+		}
 	}
 }
