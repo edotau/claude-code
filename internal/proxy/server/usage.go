@@ -193,7 +193,7 @@ type callKind string
 
 const (
 	callMessages    callKind = "messages"
-	callProbe       callKind = "messages_probe" // a messages call with no tools and max_tokens <= probeMaxTokens
+	callTiny        callKind = "messages_tiny" // a messages call with no tools and max_tokens <= tinyMaxTokens
 	callCountTokens callKind = "count_tokens"
 	callResponses   callKind = "responses"
 	callChat        callKind = "chat"
@@ -201,8 +201,8 @@ const (
 	callOther       callKind = "other"
 )
 
-// probeMaxTokens bounds a classifier-style call: Claude Code's auto-mode stage 1 asks for 64 tokens and sends no tools.
-const probeMaxTokens = 64
+// tinyMaxTokens bounds a tool-less tiny call; Claude Code's auto-mode classifier stage 1 is one, but so can others be.
+const tinyMaxTokens = 64
 
 // maxModelToken caps the client-supplied model string kept in the ledger and log.
 const maxModelToken = 128
@@ -250,23 +250,23 @@ func (m *reqMeta) routeIfDiffers(served string) string {
 	return m.route
 }
 
-// noteBody records the body's model string and, for a messages call, whether the body shows a classifier-style probe.
+// noteBody records the body's model string and, for a messages call, whether the body is tool-less and tiny.
 func (m *reqMeta) noteBody(model string, top map[string]json.RawMessage) {
 	m.asked = modelToken(model)
-	if m.call == callMessages && isProbe(top) {
-		m.call = callProbe
+	if m.call == callMessages && isTiny(top) {
+		m.call = callTiny
 	}
 }
 
-// isProbe reports a body with no tools and a positive max_tokens of at most probeMaxTokens.
-func isProbe(top map[string]json.RawMessage) bool {
+// isTiny reports a body with no tools and a positive max_tokens of at most tinyMaxTokens.
+func isTiny(top map[string]json.RawMessage) bool {
 	switch string(bytes.TrimSpace(top["tools"])) {
 	case "", "null", "[]":
 	default:
 		return false
 	}
 	n, err := strconv.Atoi(string(bytes.TrimSpace(top["max_tokens"])))
-	return err == nil && n > 0 && n <= probeMaxTokens
+	return err == nil && n > 0 && n <= tinyMaxTokens
 }
 
 // diag is the log tokens for the request: asked_model, call, and route when another profile served it.

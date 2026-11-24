@@ -132,6 +132,7 @@ func (r *Router) passthroughRoute(w http.ResponseWriter,
 func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider,
 	route string, path *url.URL, model, dialect string, dbxGemini bool) (string, string, string) {
 	var original []byte
+	sw.meta.route = p.Name // the profile the path resolved to, not its provider·profile label
 	if in.Method == http.MethodPost {
 		var ok bool
 		if original, ok = readBody(sw, in); !ok {

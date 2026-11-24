@@ -185,15 +185,16 @@ func TestPassthroughLedgerRowCarriesLabel(t *testing.T) {
 
 func TestLedgerRecordsAskedModelAndCall(t *testing.T) {
 	url, log := swapRig(t)
-	if resp := post(t, url+"/p/dev/v1/messages", `{"model":"claude-opus-5-5","max_tokens":64}`, nil); resp.StatusCode != 200 {
+	if resp := post(t, url+"/p/databricks%C2%B7dev/v1/messages", `{"model":"claude-opus-5-5","max_tokens":64}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
 	got := waitLedger(t)
-	if len(got) != 1 || got[0].AskedModel != "claude-opus-5-5" || got[0].Call != "messages_probe" || got[0].Route != "" {
-		t.Fatalf("ledger = %+v, want asked_model claude-opus-5-5, call messages_probe, no route", got)
+	if len(got) != 1 || got[0].AskedModel != "claude-opus-5-5" || got[0].Call != "messages_tiny" || got[0].Route != "" {
+		t.Fatalf("ledger = %+v, want asked_model claude-opus-5-5, call messages_tiny, no route", got)
 	}
 	waitLog(log, " 200 ")
-	if out := log.String(); !strings.Contains(out, " asked_model=claude-opus-5-5 call=messages_probe") {
+	if out := log.String(); !strings.Contains(out, " asked_model=claude-opus-5-5 call=messages_tiny") ||
+		strings.Contains(out, " route=") {
 		t.Errorf("log lacks the asked_model and call tokens:\n%s", out)
 	}
 }
@@ -211,8 +212,8 @@ func TestReqMetaTypedKinds(t *testing.T) {
 		{`{"max_tokens":64}`, true}, {`{"max_tokens":64,"tools":[]}`, true}, {`{"max_tokens":65}`, false},
 		{`{"max_tokens":8,"tools":[{"name":"x"}]}`, false}, {`{}`, false},
 	} {
-		if got := isProbe(top(c.body)); got != c.want {
-			t.Errorf("isProbe(%s) = %v, want %v", c.body, got, c.want)
+		if got := isTiny(top(c.body)); got != c.want {
+			t.Errorf("isTiny(%s) = %v, want %v", c.body, got, c.want)
 		}
 	}
 	if got := modelToken("a\x00b\n c" + strings.Repeat("x", 300)); len(got) != maxModelToken || strings.ContainsAny(got, "\x00\n ") {
