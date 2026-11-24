@@ -180,7 +180,7 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 		case "verify":
 			dst = &t.Verify
 		}
-		if json.Unmarshal(v, dst) != nil || string(v) == "null" {
+		if json.Unmarshal(v, dst) != nil || string(v) == "null" || string(v) == `""` {
 			return Task{}, fmt.Errorf("spec %s: want %s", k, want)
 		}
 	}

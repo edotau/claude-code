@@ -172,3 +172,13 @@ func TestSpecReportRefusesNewline(t *testing.T) {
 		t.Error("report with a newline accepted")
 	}
 }
+
+func TestSpecTaskKeysRefuseBatchAndEmptyValues(t *testing.T) {
+	task := askspec.Task{Own: []string{"a.go"}}
+	if _, err := specBrief("p", []string{"--batch", "-"}, task); err == nil {
+		t.Error("task keys accepted with --batch")
+	}
+	if _, _, _, err := specParts(`{"own":["a"],"verify":"","prompt":"p"}`, nil); err == nil {
+		t.Error("empty verify accepted")
+	}
+}
