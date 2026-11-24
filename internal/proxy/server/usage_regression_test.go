@@ -238,3 +238,26 @@ func TestTinyAndGeminiPathModel(t *testing.T) {
 		t.Errorf("geminiPathModel = %q, want gemini-x", got)
 	}
 }
+
+func TestLedgerRecordsAskedRouteAfterFailover(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusServiceUnavailable) })
+	up2 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":4,"output_tokens":1}}`)
+	})
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	log := &lockedBuf{}
+	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), func(r *Router) { r.log = log })
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus","max_tokens":500}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
+	}
+	got := waitLedger(t)
+	if len(got) != 1 || got[0].Profile != "up2" || got[0].Route != "up1" || got[0].AskedModel != "m1-opus" {
+		t.Fatalf("ledger = %+v, want profile up2 with route up1 and asked_model m1-opus", got)
+	}
+	waitLog(log, " 200 ")
+	if out := log.String(); !strings.Contains(out, " route=up1") {
+		t.Errorf("log lacks route=up1:\n%s", out)
+	}
+}
