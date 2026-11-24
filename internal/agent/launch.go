@@ -175,9 +175,9 @@ var (
 	MintSessionWithFailover = proxy.MintScopedTokenWithFailover
 )
 
-// ensureRouter is proxy.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
+// ensureRouter is the proxy base (a route walk for a scoped agent); --remote adds /via/<host>, a dispatch /d/<id>.
 func ensureRouter(ctx context.Context) (string, error) {
-	base, local, err := ensureProxyRoute(ctx)
+	base, err := ensureProxyRoute(ctx)
 	if err != nil {
 		return base, err
 	}
@@ -188,7 +188,7 @@ func ensureRouter(ctx context.Context) (string, error) {
 		base = proxy.ViaBaseContext(ctx, base)
 	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
-	if id == "" || local {
+	if id == "" {
 		return base, nil
 	}
 	return proxy.TaggedBase(ctx, base, id), nil

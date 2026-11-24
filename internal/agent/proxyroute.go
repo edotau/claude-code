@@ -88,6 +88,7 @@ func routeCands(ctx context.Context) []routeCand {
 		rec, _ = LoadRecord(id)
 	}
 	facts := DispatchFacts(rec)
+	facts.Interactive = rec.ID == "" // no dispatch record: a session, not a dispatch
 	if g, _ := ctx.Value(proxyGroupKey{}).(string); g != "" {
 		facts.Group = true
 	}
@@ -132,8 +133,12 @@ func scopeLive(ctx context.Context, sc proxy.Scope) string {
 	if errors.Is(err, proc.ErrNoProcess) || (err == nil && start != sc.Start) {
 		return "process gone"
 	}
-	if err := proxy.Health(ctx, sc.Port); err != nil {
-		return "health: " + err.Error()
+	st, ok := proxy.Holder(ctx, sc.Port)
+	switch {
+	case !ok:
+		return "health: no healthy proxy answers"
+	case st.PID != 0 && st.PID != sc.PID: // another process took the port
+		return "port held by another process"
 	}
 	return ""
 }
@@ -181,15 +186,14 @@ func ChosenProxy(id string) string {
 	return chosenByID[id]
 }
 
-// ensureProxyRoute finds the proxy base for ctx; local is true when it is a scope proxy, not the daemon.
-func ensureProxyRoute(ctx context.Context) (base string, local bool, err error) {
+// ensureProxyRoute finds the proxy base for ctx: the daemon, or the first live scope proxy of a scoped dispatch.
+func ensureProxyRoute(ctx context.Context) (string, error) {
 	if scoped, _ := ctx.Value(scopedProxyKey{}).(bool); !scoped {
-		base, err = proxy.Ensure(ctx)
-		return base, false, err
+		return proxy.Ensure(ctx)
 	}
 	c, base, note, err := chooseRoute(ctx, routeCands(ctx), proxy.Ensure)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	if note != "" {
 		fmt.Fprintln(os.Stderr, note)
@@ -200,10 +204,11 @@ func ensureProxyRoute(ctx context.Context) (base string, local bool, err error) 
 		chosenByID[id] = c.label()
 	}
 	if c.team.Host == proxyteam.HostDaemon {
-		return base, false, nil
+		delete(localBases, base) // a closed scope's port may now be the daemon's
+		return base, nil
 	}
 	localBases[base] = true
-	return base, true, nil
+	return base, nil
 }
 
 // localProxyBase reports whether routerBase (maybe with a /d/ or /via/ suffix) is a registered scope proxy.
