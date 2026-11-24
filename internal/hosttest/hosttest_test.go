@@ -33,19 +33,23 @@ func TestCaptureOutputRestoresStreamsAfterGoexit(t *testing.T) {
 				}
 				os.Stdout, os.Stderr = oldOut, oldErr
 			})
-			testing.RunTests(func(_, _ string) (bool, error) { return true, nil },
-				[]testing.InternalTest{{Name: tc.name, F: func(it *testing.T) {
-					CaptureOutput(it, func() int {
-						tc.stop(it)
-						return 0
-					})
-				}}})
-			if os.Stdout != oldOut {
-				t.Error("CaptureOutput did not restore os.Stdout after " + tc.name)
-			}
-			if os.Stderr != oldErr {
-				t.Error("CaptureOutput did not restore os.Stderr after " + tc.name)
-			}
+			CaptureOutput(t, func() int { // keeps the inner failure out of the go test event stream
+				outOut, outErr := os.Stdout, os.Stderr
+				testing.RunTests(func(_, _ string) (bool, error) { return true, nil },
+					[]testing.InternalTest{{Name: tc.name, F: func(it *testing.T) {
+						CaptureOutput(it, func() int {
+							tc.stop(it)
+							return 0
+						})
+					}}})
+				if os.Stdout != outOut {
+					t.Error("CaptureOutput did not restore os.Stdout after " + tc.name)
+				}
+				if os.Stderr != outErr {
+					t.Error("CaptureOutput did not restore os.Stderr after " + tc.name)
+				}
+				return 0
+			})
 		})
 	}
 }
@@ -73,10 +77,14 @@ func TestOneDocRejectsStrayClosingDelimiter(t *testing.T) {
 		{"{}}", false},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
-			passed := testing.RunTests(func(_, _ string) (bool, error) { return true, nil },
-				[]testing.InternalTest{{Name: "one-doc", F: func(it *testing.T) {
-					OneDoc(it, tc.input)
-				}}})
+			passed := false
+			CaptureOutput(t, func() int { // keeps the inner failure out of the go test event stream
+				passed = testing.RunTests(func(_, _ string) (bool, error) { return true, nil },
+					[]testing.InternalTest{{Name: "one-doc", F: func(it *testing.T) {
+						OneDoc(it, tc.input)
+					}}})
+				return 0
+			})
 			if passed != tc.valid {
 				t.Fatalf("OneDoc(%q) passed = %v, want %v", tc.input, passed, tc.valid)
 			}
