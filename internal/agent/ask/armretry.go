@@ -75,7 +75,9 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	attempt := opts
 	attempt.Hold = true
 	var held *resultHold
-	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
+	sctx, rctx, cancel := wholeDeadline(ctx, req)
+	defer cancel()
+	p, res, err := a.attempts(rctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
 		sink := sinkTo(sinkOut(a.out, a.format, a.save), a.format, p.Record.ID)
 		if a.format == agent.FormatStreamJSON {
 			held = &resultHold{Sink: sink}
@@ -85,7 +87,12 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	})
 	total := res
 	total.Usage = wire.Usage{InputTokens: a.spent} // the budget counts every attempt, the record only the last
-	settleHeld(ctx, p, total, err)                 // the record still runs, so no reaper takes the contract meanwhile
+	if rctx.Err() == nil {
+		rctx = sctx
+	} else if err != nil && errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		err = fmt.Errorf("dispatch deadline passed: %w (%w)", context.DeadlineExceeded, err) // kind timeout, not fatal
+	}
+	settleHeld(rctx, p, total, err) // the record still runs, so no reaper takes the contract meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if held != nil {
@@ -96,6 +103,14 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		return prepareExitCode(prep.err)
 	}
 	return code
+}
+
+// wholeDeadline caps every attempt plus the settle gate at req's timeout: sctx ends there, rctx a gate's time earlier.
+func wholeDeadline(ctx context.Context, req agent.RunOptions) (sctx, rctx context.Context, cancel func()) {
+	end := time.Now().Add(agent.AttemptTimeoutFor(req))
+	sctx, cancelS := context.WithDeadline(ctx, end)
+	rctx, cancelR := context.WithDeadline(sctx, end.Add(-min(settleGateTimeout, time.Until(end)/2)))
+	return sctx, rctx, func() { cancelR(); cancelS() }
 }
 
 // resultHold keeps an attempt's result event back so only the last attempt's reaches the stream.
@@ -152,6 +167,9 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 		}
 		reserved = next.Repicks > req.Repicks
 		req = next
+		if end, ok := ctx.Deadline(); ok {
+			req.Timeout = time.Until(end) // the last attempt gets what the whole dispatch has left
+		}
 		np, perr := a.prepare(ctx, cl, req, a.record)
 		if perr != nil {
 			res.Hops = slices.Clone(a.hops)
