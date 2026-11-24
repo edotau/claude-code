@@ -73,8 +73,8 @@ func (c Contract) Start(dispatch string) (Contract, error) {
 	if err := c.guard("start", StateOpened); err != nil {
 		return c, err
 	}
-	if dispatch == "" {
-		return c, refuse("start", c.state, ErrInput, "empty dispatch id")
+	if dispatch == "" || (c.ID != "" && c.ID != dispatch) {
+		return c, refuse("start", c.state, ErrInput, "dispatch id %q is empty or not the contract's %q", dispatch, c.ID)
 	}
 	n := c.clone()
 	if n.ID == "" {
@@ -244,6 +244,8 @@ func checkResult(c Contract, r Result) string {
 		return fmt.Sprintf("unknown method %q (one of %v)", r.Method, Methods())
 	case r.Spent.Tokens < 0 || r.Spent.Leaves < 0:
 		return fmt.Sprintf("negative spend %+v", r.Spent)
+	case r.Status == StatusDone && len(c.Unmet()) > 0:
+		return fmt.Sprintf("status %q with unmet terms %v", StatusDone, c.Unmet())
 	case r.Tests != "" && r.Tests != c.testsProvenance():
 		return fmt.Sprintf("tests %q, the last tests record says %q", r.Tests, c.testsProvenance())
 	}
