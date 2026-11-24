@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -63,11 +65,12 @@ func verifySteps(cmdStr, base string) ([]plans.VerifyStep, bool) {
 		base = "HEAD"
 	}
 	steps, err := plans.VerifyArgv(fillLintBase(cmdStr, base))
-	if err != nil || slices.ContainsFunc(steps, func(s plans.VerifyStep) bool { return s.Argv[0] != "rtk" && NeedsShell(s.Argv[0]) }) {
+	pin := func(w string) bool { return w == "rtk" && os.Getenv(rtkwrap.CodemodeEnv) == "" } // code mode: the shim strips rtk
+	if err != nil || slices.ContainsFunc(steps, func(s plans.VerifyStep) bool { return !pin(s.Argv[0]) && NeedsShell(s.Argv[0]) }) {
 		return nil, false
 	}
 	for i, s := range steps {
-		if s.Argv[0] == "rtk" { // bash pins an explicit rtk to the configured binary
+		if pin(s.Argv[0]) { // bash pins an explicit rtk to the configured binary
 			steps[i].Argv = append([]string{paths.RTKBinary()}, s.Argv[1:]...)
 		}
 	}

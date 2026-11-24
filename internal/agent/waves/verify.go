@@ -492,7 +492,10 @@ func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Wr
 			return runGroup(ctx, cmd)
 		}
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-		if p := lookPathIn(env, argv[0]); p != "" {
+		if p, set := lookPathIn(env, dir, argv[0]); set {
+			if p == "" {
+				return -1, fmt.Errorf("%s: not found on the gate PATH", argv[0])
+			}
 			cmd.Path, cmd.Err = p, nil
 		}
 		code, err := run(cmd)
@@ -506,24 +509,27 @@ func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Wr
 	return 0, nil
 }
 
-// lookPathIn is name found on the PATH that env sets, "" when env sets none or name has a slash or is not there.
-func lookPathIn(env []string, name string) string {
+// lookPathIn finds name on the PATH env sets (relative entries under dir); set is false when env has no PATH.
+func lookPathIn(env []string, dir, name string) (path string, set bool) {
 	var list string
 	for _, kv := range env {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			list = v
+			list, set = v, true
 		}
 	}
-	if list == "" || strings.Contains(name, "/") {
-		return ""
+	if !set || strings.Contains(name, "/") {
+		return "", false
 	}
 	for _, d := range filepath.SplitList(list) {
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(dir, d)
+		}
 		p := filepath.Join(d, name)
 		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
-			return p
+			return p, true
 		}
 	}
-	return ""
+	return "", true
 }
 
 // runGroup runs cmd in its own process group, killed whole on cancel, so a child holding the pipes cannot outlive ctx.
