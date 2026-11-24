@@ -111,6 +111,12 @@ func Record(id string, r TermRecord) error {
 
 // Pending lists every saved contract not yet closed or failed, by id; an unreadable file is joined into the error.
 func Pending() ([]Contract, error) {
+	all, err := List()
+	return slices.DeleteFunc(all, func(c Contract) bool { return c.State().Terminal() }), err
+}
+
+// List lists every saved contract, by id; an unreadable file is joined into the error.
+func List() ([]Contract, error) {
 	files, err := filepath.Glob(filepath.Join(Dir(), "*.json"))
 	if err != nil {
 		return nil, err
@@ -119,12 +125,11 @@ func Pending() ([]Contract, error) {
 	var errs []error
 	for _, f := range files {
 		c, err := load(f)
-		switch {
-		case err != nil:
+		if err != nil {
 			errs = append(errs, err)
-		case !c.State().Terminal():
-			out = append(out, c)
+			continue
 		}
+		out = append(out, c)
 	}
 	slices.SortFunc(out, func(a, b Contract) int { return strings.Compare(a.ID, b.ID) })
 	return out, errors.Join(errs...)

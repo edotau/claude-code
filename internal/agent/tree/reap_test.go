@@ -435,3 +435,10 @@ func TestReapOrphanOwnTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestContractNoteEmptyForPlainDispatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if got := contractNote("d-none", nil); got != "" {
+		t.Fatalf("contractNote = %q; want empty", got)
+	}
+}

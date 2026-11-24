@@ -18,11 +18,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
@@ -99,13 +101,81 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		code = 1
 	}
 	orphans, orphanCode := reapOrphans(dryRun, verb, out, errw)
-	code = max(code, sockCode, orphanCode)
-	if records+markers+socks+orphans == 0 {
+	contracts, contractCode := reapContracts(dryRun, out, errw)
+	code = max(code, sockCode, orphanCode, contractCode)
+	if records+markers+socks+orphans+contracts == 0 {
 		fmt.Fprintln(out, "agents cancel --lost: nothing to reap")
 		return code
 	}
 	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets, %d orphans\n", verb, records, markers, socks, orphans)
 	return code
+}
+
+// ContractEnv wires contract.Reap to the dispatch records and the merge queue.
+func ContractEnv() contract.Env {
+	return contract.Env{Lost: holderLost, Queue: queueFailedLane}
+}
+
+// holderLost reports whether the dispatch's record is lost, or errored with a vanished process.
+func holderLost(id string) bool {
+	rec, err := agent.LoadRecord(id)
+	return err == nil && (rec.Status == "lost" || rec.Status == "error" && strings.HasPrefix(rec.Error, agent.LostError))
+}
+
+// queueFailedLane queues a failed contract's lane, left in place, marked failed.
+func queueFailedLane(c contract.Contract) error {
+	rec, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
+	if err != nil || rec.Repo == "" {
+		return fmt.Errorf("lane %s not queued: owner record has no repo", c.Scope.Lane)
+	}
+	lane := filepath.Join(worktree.Root(rec.Repo), c.Scope.Lane)
+	return worktree.Enqueue(worktree.QueuedLane{Lane: lane, Repo: rec.Repo, Task: c.Scope.PlanTask,
+		Reason: "contract failed: owner-dead", Detail: "contract " + c.ID + ": the owner's process is gone; lane kept",
+		Next: "claude-code worktree merge " + c.Scope.Lane + " after reviewing it, or worktree clean " + c.Scope.Lane})
+}
+
+// reapContracts fails or re-assigns the contracts of lost owners; a dry run does nothing and reports 0.
+func reapContracts(dryRun bool, out, errw io.Writer) (int, int) {
+	if dryRun {
+		return 0, 0
+	}
+	done, err := contract.Reap(ContractEnv())
+	for _, r := range done {
+		fmt.Fprintf(out, "reaped contract %s %s (holder %s lost)\n", r.ID, r.Action, r.Holder)
+	}
+	if err != nil {
+		fmt.Fprintln(errw, "agents cancel --lost: contracts:", err)
+		return len(done), 1
+	}
+	return len(done), 0
+}
+
+const percent = 100
+
+// contractNote is the one-line state of the contract id owns, "" when it owns none.
+func contractNote(id string, usage *wire.Usage) string {
+	c, err := contract.Load(id)
+	if err != nil {
+		return ""
+	}
+	parts := []string{"contract " + string(c.State()), "owner " + c.Owner.Agent,
+		fmt.Sprintf("leaves %d/%d", len(c.Children), c.Limits.Leaves)}
+	if usage != nil && c.Limits.Tokens > 0 {
+		used := usage.InputTokens + usage.CacheCreationTokens + usage.OutputTokens
+		parts = append(parts, fmt.Sprintf("%d%% budget", used*percent/c.Limits.Tokens))
+	}
+	if un := c.Unmet(); len(un) > 0 {
+		parts = append(parts, "unmet "+strings.Join(termNames(un), ","))
+	}
+	return "[" + strings.Join(parts, " · ") + "]"
+}
+
+func termNames(ts []contract.Term) []string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = string(t)
+	}
+	return out
 }
 
 func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
@@ -350,6 +420,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		live := rec.Activity.Usage // a running record has only the 2 s activity snapshot
 		usage = &live
 	}
+	task = strings.TrimSpace(contractNote(rec.ID, usage) + " " + task)
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec), recType: rec.Type,
