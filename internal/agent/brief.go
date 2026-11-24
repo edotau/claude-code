@@ -116,9 +116,30 @@ func RenderBrief(input BriefInput) (string, error) {
 	if id := strings.TrimSpace(input.PlanTask); id != "" { // after the bare `Task:` so taskHead still reads the subject
 		task = strings.TrimRight(task, "\n") + "\n\nTask: " + id
 	}
+	reports := paths.MemorySubDir("reports")
+	if input.Report == "" {
+		if input.Report, err = reportPath(reports, input.PlanTask); err != nil {
+			return "", err
+		}
+	}
 	body := assets.BriefBody(assets.BriefFrame{Agent: input.Agent, OwnedLine: string(owned), Verify: input.Verify,
-		Report: input.Report, Task: task, ReportsDir: paths.MemorySubDir("reports"), Rtk: !codeMode})
+		Report: input.Report, Task: task, ReportsDir: reports, Rtk: !codeMode})
 	return WithTier(body, input.Tier), nil
+}
+
+var reportSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// reportPath is a unique dated report file under dir, named by the plan task id plus random hex.
+func reportPath(dir, planTask string) (string, error) {
+	var random [4]byte
+	if _, err := io.ReadFull(briefRandom, random[:]); err != nil {
+		return "", fmt.Errorf("report name randomness: %w", err)
+	}
+	slug := strings.Trim(reportSlugRe.ReplaceAllString(strings.ToLower(planTask), "-"), "-")
+	if slug == "" {
+		slug = "leaf"
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, random)), nil
 }
 
 // ParseOwned reads the first Owned: line, accepting rendered JSON or legacy whitespace-separated paths.

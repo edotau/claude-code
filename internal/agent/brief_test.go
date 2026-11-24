@@ -218,3 +218,13 @@ func TestBriefTypedTierAndPlanTask(t *testing.T) {
 		t.Fatal("unknown tier accepted")
 	}
 }
+
+func TestBriefAlwaysBakesReportPath(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := BriefInput{Task: "t", Owned: []string{"a.go"}, PlanTask: "Next N16"}
+	a, errA := RenderBrief(in)
+	b, errB := RenderBrief(in)
+	if errA != nil || errB != nil || a == b || !strings.Contains(a, "\nReport: ") || !strings.Contains(a, "-next-n16-") {
+		t.Fatalf("report path not baked uniquely: %v %v\n%s", errA, errB, a)
+	}
+}
