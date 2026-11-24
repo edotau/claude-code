@@ -95,7 +95,7 @@ func relFiles(dir string, vs []CheckViolation) []CheckViolation {
 		if !filepath.IsAbs(v.File) {
 			continue
 		}
-		if rel, ok := paths.RelWithin(root, paths.CanonDeep(v.File)); ok {
+		if rel, ok := paths.RelWithin(root, filepath.Join(paths.CanonDeep(filepath.Dir(v.File)), filepath.Base(v.File))); ok {
 			out[i].File = rel
 		}
 	}

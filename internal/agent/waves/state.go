@@ -135,8 +135,7 @@ func fingerprintPath(dir, realDir, file string) (string, error) {
 		path = filepath.Join(dir, path)
 	}
 	path = filepath.Clean(path)
-	// the parent resolves, the leaf stays literal: a symlinked directory cannot escape, an owned symlink file may
-	real := filepath.Join(paths.CanonDeep(filepath.Dir(path)), filepath.Base(path))
+	real := paths.CanonDeep(path) // hashing follows links, so the resolved target must stay inside
 	if !paths.Within(real, realDir) && !paths.Within(real, paths.CanonDeep(paths.StateDir())) {
 		return "", fmt.Errorf("fingerprint %s: outside the repo %s and the state dir", path, dir)
 	}
