@@ -228,7 +228,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if agent.IsDryRun(ctx) {
 		rb, tok = agent.PreviewRouterBase(ctx), "<redacted>"
 	} else {
-		if rb, err = agent.EnsureRouter(ctx); err != nil {
+		if rb, err = agent.EnsureRouter(agent.WithScopedProxy(ctx)); err != nil {
 			return nil, nil, fmt.Errorf("gemini: router: %w", err)
 		}
 		if tok, err = agent.SessionTokenWithFailover(ctx, rb, agent.AutoFailoverProvider(ctx), p.Name); err != nil {

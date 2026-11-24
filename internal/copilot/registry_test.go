@@ -134,7 +134,22 @@ func stubSettingsRegistry(t *testing.T) {
 		return []CopilotEndpoint{{ID: "claude-sonnet-5-5"}}, nil
 	}
 	agent.EnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	mintSession = func(context.Context, []string, int, string) (string, error) { return "fixture-session", nil }
+	mintSession = func(context.Context, string, []string, string) (string, error) { return "fixture-session", nil }
+}
+
+// prepareRegistry mints its session token on the router base the registry was built on.
+func TestPrepareRegistryMintsOnRegistryBase(t *testing.T) {
+	stubSettingsRegistry(t)
+	var got string
+	mintSession = func(_ context.Context, base string, _ []string, _ string) (string, error) {
+		got = base
+		return "tok", nil
+	}
+	r := copilotRegistry{Profile: "p", Base: "http://127.0.0.1:1"}
+	_, _ = prepareRegistry(context.Background(), r, "p", 1)
+	if got != "http://127.0.0.1:1" {
+		t.Fatalf("minted on base %q", got)
+	}
 }
 
 // A keyed Databricks row runs on the registry except on macOS, which takes routed BYOK.
