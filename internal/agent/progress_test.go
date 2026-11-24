@@ -100,7 +100,7 @@ func TestProgressCountsStreamPastChunkAndLongLines(t *testing.T) {
 	}
 }
 
-// Tokens are never clipped: a healthy "last event", then the tool count, yield; a tool duration prints whole or not at all.
+// Tokens are never clipped: a healthy "last event", then the tool count, yield first.
 func TestProgressLineTokensKeptWhenWide(t *testing.T) {
 	p := Progress{Agent: "pi", Model: "databricks-claude-sonnet-5-5", Elapsed: 14 * time.Second, Quiet: 13 * time.Second,
 		Tools: 1, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour, Doing: "bash", In: 4200, Out: 74}
@@ -116,7 +116,11 @@ func TestProgressLineTokensKeptWhenWide(t *testing.T) {
 	if got := p.Line(80); !strings.HasSuffix(got, "↑12M ↓12.3k") || textutil.DisplayWidth(got) > 80 {
 		t.Errorf("long-model line = %q", got)
 	}
-	p = Progress{Agent: "pi", Elapsed: time.Minute, Tools: 1, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour, ToolMs: 850}
+}
+
+// A tool duration prints whole or not at all.
+func TestProgressLineToolDurWhole(t *testing.T) {
+	p := Progress{Agent: "pi", Elapsed: time.Minute, Tools: 1, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour, ToolMs: 850}
 	if got := p.Fragment(30); strings.Contains(got, "tool 8") && !strings.Contains(got, "tool 850ms") {
 		t.Errorf("partial duration = %q", got)
 	}
