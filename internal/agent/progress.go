@@ -30,8 +30,10 @@ type Progress struct {
 	Agent, Model, Doing string
 	Elapsed, Quiet      time.Duration
 	Tools               int
-	Stream              bool // the agent has a quiet/hung threshold; false: no live signal to judge by
-	Seen                bool // a no-stream agent showed any sign of life
+	In, Out             int64 // live tokens so far (input incl. cache, output); 0 0: none reported
+	ToolMs              int64 // the last finished tool's duration; 0: unknown
+	Stream              bool  // the agent has a quiet/hung threshold; false: no live signal to judge by
+	Seen                bool  // a no-stream agent showed any sign of life
 	quietAt, hungAt     time.Duration
 }
 
@@ -62,7 +64,11 @@ func ProgressOf(r Record, now time.Time) Progress {
 			p.Tools = max(p.Tools, n)
 		}
 	}
-	p.Seen = p.Doing != "" || p.Tools > 0
+	if a := r.Activity; a != nil {
+		u := a.Usage
+		p.In, p.Out, p.ToolMs = int64(u.InputTokens+u.CacheCreationTokens+u.CacheReadTokens), int64(u.OutputTokens), a.ToolMs
+	}
+	p.Seen = p.Doing != "" || p.Tools > 0 || p.In+p.Out > 0
 	return p
 }
 
@@ -165,6 +171,38 @@ func progressDur(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", s/3600, s%3600/60)
 }
 
+// toolsText is "21 tools"; empty when the count is unknown.
+func (p Progress) toolsText() string {
+	if p.Tools < 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d tools", p.Tools)
+}
+
+// usageText is "↑12.4k ↓350" (input incl. cache, output); empty when no usage is known.
+func (p Progress) usageText() string {
+	if p.In+p.Out == 0 {
+		return ""
+	}
+	return "↑" + textutil.CompactCount(p.In) + " ↓" + textutil.CompactCount(p.Out)
+}
+
+// fitsBeside reports whether the doing field still shows in full (up to its cap) in avail columns.
+func (p Progress) fitsBeside(avail int) bool {
+	return p.Doing == "" || avail >= min(doingWidth, textutil.DisplayWidth(p.Doing))
+}
+
+// toolDur spells the last tool's duration as "tool 850ms" or "tool 12s"; empty when unknown.
+func (p Progress) toolDur() string {
+	switch {
+	case p.ToolMs <= 0:
+		return ""
+	case p.ToolMs < 1000:
+		return fmt.Sprintf("tool %dms", p.ToolMs)
+	}
+	return "tool " + progressDur(time.Duration(p.ToolMs)*time.Millisecond)
+}
+
 // signal is the liveness field and whether the doing field is labelled "last:" (the run looks hung).
 func (p Progress) signal() (text string, hung bool) {
 	switch {
@@ -190,19 +228,46 @@ func (p Progress) Line(width int) string {
 // Fragment is Line without agent, model and elapsed, for a row that already shows them.
 func (p Progress) Fragment(width int) string { return p.render(width) }
 
+// head joins lead, signal, tools and usage; on overflow a healthy "last event" and then the tool count yield.
+func (p Progress) head(width int, sig string, noLive bool, lead []string) string {
+	usage := p.usageText()
+	join := func(sig, tools, usage string) string {
+		parts := append(slices.Clone(lead), sig)
+		if !noLive {
+			parts = append(parts, tools, usage)
+		}
+		return strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), " · ")
+	}
+	head := join(sig, p.toolsText(), usage)
+	if usage == "" || noLive || textutil.DisplayWidth(head) <= width {
+		return head
+	}
+	if strings.HasPrefix(sig, "last event") {
+		sig = ""
+	}
+	if head = join(sig, p.toolsText(), usage); textutil.DisplayWidth(head) <= width {
+		return head
+	}
+	if head = join(sig, "", usage); textutil.DisplayWidth(head) <= width {
+		return head
+	}
+	return textutil.TruncateCells(join(sig, "", ""), width-textutil.DisplayWidth(usage)-3, "…") + " · " + usage
+}
+
 func (p Progress) render(width int, lead ...string) string {
 	sig, hung := p.signal()
 	noLive := strings.HasPrefix(sig, "⚠ no live")
-	parts := append(lead, sig)
-	if p.Tools >= 0 && !noLive {
-		parts = append(parts, fmt.Sprintf("%d tools", p.Tools))
-	}
-	head := strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), " · ")
+	head := p.head(width, sig, noLive, lead)
 	label := ""
 	if hung {
 		label = "last: "
 	}
-	room := min(doingWidth, width-textutil.DisplayWidth(head)-3-len(label))
+	avail := width - textutil.DisplayWidth(head) - 3 - len(label)
+	room := min(doingWidth, avail)
+	if tm := p.toolDur(); tm != "" && !noLive && avail >= len(tm)+3 && p.fitsBeside(avail-len(tm)-3) {
+		head += " · " + tm
+		room = min(doingWidth, avail-len(tm)-3)
+	}
 	if p.Doing != "" && !noLive && room >= 4 {
 		head += " · " + label + textutil.TruncateCells(p.Doing, room, "…")
 	}

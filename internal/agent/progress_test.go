@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -54,6 +55,24 @@ func TestProgressLine(t *testing.T) {
 	}
 }
 
+// Live usage and the last tool's duration join the line; the duration yields to the task text, no usage adds nothing.
+func TestProgressLineTokens(t *testing.T) {
+	p := Progress{Agent: "pi", Elapsed: time.Minute, Tools: 21, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour,
+		Doing: "go test", In: 12400, Out: 350, ToolMs: 1500}
+	want := "pi · 1m00s · last event 0s ago · 21 tools · ↑12.4k ↓350 · tool 2s · go test"
+	if got := p.Line(80); got != want {
+		t.Errorf("line = %q, want %q", got, want)
+	}
+	p.Doing = "a very long task text that needs room"
+	if got := p.Line(80); strings.Contains(got, "tool 2s") || !strings.HasSuffix(got, "a very long task te…") {
+		t.Errorf("long task line = %q", got)
+	}
+	p.In, p.Out, p.ToolMs = 0, 0, 0
+	if got := p.Line(80); strings.Contains(got, "↑") {
+		t.Errorf("no-usage line = %q", got)
+	}
+}
+
 func writeAged(t *testing.T, path, text string, at time.Time) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -78,5 +97,36 @@ func TestProgressCountsStreamPastChunkAndLongLines(t *testing.T) {
 	log := "▸ step: a done\n▸ step: " + strings.Repeat("x", 100) + " done\n" + strings.Repeat("y", 100) + " done\n▸ step: b\n"
 	if n, err := countDoneSteps(strings.NewReader(log)); err != nil || n != 2 {
 		t.Fatalf("done steps = %d, %v; want 2", n, err)
+	}
+}
+
+// Tokens are never clipped: a healthy "last event", then the tool count, yield; a tool duration prints whole or not at all.
+func TestProgressLineTokensKeptWhenWide(t *testing.T) {
+	p := Progress{Agent: "pi", Model: "databricks-claude-sonnet-5-5", Elapsed: 14 * time.Second, Quiet: 13 * time.Second,
+		Tools: 1, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour, Doing: "bash", In: 4200, Out: 74}
+	if got := p.Line(80); !strings.Contains(got, "↑4.2k ↓74") || strings.Contains(got, "last event") || textutil.DisplayWidth(got) > 80 {
+		t.Errorf("line = %q", got)
+	}
+	p.Quiet, p.quietAt, p.Model, p.In, p.Out = 3*time.Hour, time.Minute, "databricks-claude-sonnet-5-5-very-long", 12_000_000, 0
+	got := p.Line(80)
+	if !strings.Contains(got, "↑12M ↓0") || strings.Contains(got, "1 tools") || textutil.DisplayWidth(got) > 80 {
+		t.Errorf("large line = %q", got)
+	}
+	p.Out = 12345
+	if got := p.Line(80); !strings.HasSuffix(got, "↑12M ↓12.3k") || textutil.DisplayWidth(got) > 80 {
+		t.Errorf("long-model line = %q", got)
+	}
+	p = Progress{Agent: "pi", Elapsed: time.Minute, Tools: 1, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour, ToolMs: 850}
+	if got := p.Fragment(30); strings.Contains(got, "tool 8") && !strings.Contains(got, "tool 850ms") {
+		t.Errorf("partial duration = %q", got)
+	}
+}
+
+// A no-stream agent with live usage is alive: its tokens show instead of "no live signal".
+func TestProgressOfActivitySeen(t *testing.T) {
+	r := Record{ID: "x", Agent: "copilot", Time: time.Now().Add(-time.Hour), Status: "running",
+		Activity: &Activity{Usage: wire.Usage{InputTokens: 1500, OutputTokens: 20}}}
+	if got := ProgressOf(r, time.Now()).Line(80); !strings.Contains(got, "↑1.5k ↓20") || strings.Contains(got, "no live") {
+		t.Errorf("line = %q", got)
 	}
 }
