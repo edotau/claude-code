@@ -223,15 +223,11 @@ func drainIfIdle(r *Router) bool {
 	return true
 }
 
-// drainCleared waits a few ms for a failed drain attempt to lift its flag, so that request is served, not refused.
+// drainCleared waits out a drain attempt in progress, then reports whether it left the router admitting.
 func drainCleared(r *Router) bool {
-	for range 10 {
-		time.Sleep(2 * time.Millisecond)
-		if !r.draining.Load() {
-			return true
-		}
-	}
-	return false
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
+	return !r.draining.Load()
 }
 
 // helloProbe reports a HEAD or GET of /p/<profile>/api/hello.

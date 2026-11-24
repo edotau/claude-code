@@ -78,7 +78,7 @@ func DrainIfIdle(ctx context.Context, sc Scope) (idle, answered bool) {
 	if err != nil {
 		return false, false
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second) // a cancelled caller still reads the reply
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, Base(sc.Port)+DrainPath, nil)
 	if err != nil {

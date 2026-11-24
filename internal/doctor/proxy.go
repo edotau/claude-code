@@ -88,7 +88,7 @@ func scopeOverReserved(sc proxy.Scope, cfg proxyteam.Config) (reserved int, over
 	return 0, true
 }
 
-// scopeReport probes the live detached scopes concurrently and returns one line each plus the over-reserved count.
+// scopeReport probes the live detached scopes concurrently and returns one line each plus the count needing attention.
 func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []string, over int) {
 	scopes := proxy.DetachedScopes()
 	lines = make([]string, len(scopes))
@@ -105,6 +105,7 @@ func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []
 			lines[i] = proxy.ScopeLine(sc, h.Inflight)
 			if !ok {
 				lines[i] += " not serving (draining or wedged)"
+				flagged[i] = true
 			}
 			if n, bad := scopeOverReserved(sc, cfg); bad && !busy {
 				lines[i] += fmt.Sprintf(" over reserved=%d: unmanaged; gateway proxy --stop stops it", n)
@@ -150,15 +151,17 @@ func proxyStatus(ctx context.Context) (detail string, bad bool) {
 		td += fmt.Sprintf("; %d standing proxies live", n)
 	}
 	if over > 0 {
-		td += fmt.Sprintf("; %d over reserved: %s", over, strings.Join(overLines(lines), " | "))
+		td += fmt.Sprintf("; %d need attention: %s", over, strings.Join(flaggedLines(lines), " | "))
 		tbad = true
 	}
 	return detail + "; teams: " + td, bad || tbad
 }
 
-// overLines keeps the lines scopeReport flagged as over reserved.
-func overLines(lines []string) []string {
-	return slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return !strings.Contains(l, " over reserved=") })
+// flaggedLines keeps the lines scopeReport flagged: over reserved, or not serving.
+func flaggedLines(lines []string) []string {
+	return slices.DeleteFunc(slices.Clone(lines), func(l string) bool {
+		return !strings.Contains(l, " over reserved=") && !strings.Contains(l, " not serving")
+	})
 }
 
 func proxyDaemonStatus(ctx context.Context) (detail string, bad bool) {
