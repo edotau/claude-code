@@ -70,8 +70,8 @@ func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
 		}
 		lines = append(lines, "team "+strings.Join(parts, " "))
 	}
-	scopes, _ := scopeReport(context.Background(), cfg, false)
-	return append(lines, scopes...), problems
+	scopes, scopeProblems := scopeReport(context.Background(), cfg, false)
+	return append(lines, scopes...), append(problems, scopeProblems...)
 }
 
 // probeWorkers bounds the concurrent /healthz probes of scopeReport.
@@ -88,11 +88,11 @@ func scopeOverReserved(sc proxy.Scope, cfg proxyteam.Config) (reserved int, over
 	return 0, true
 }
 
-// scopeReport probes the live detached scopes concurrently and returns one line each plus the count needing attention.
-func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []string, over int) {
+// scopeReport probes the live detached scopes concurrently and returns one line each plus a problem per flagged scope.
+func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []string, probs []proxyteam.Problem) {
 	scopes := proxy.DetachedScopes()
 	lines = make([]string, len(scopes))
-	flagged := make([]bool, len(scopes))
+	reasons := make([]string, len(scopes))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, probeWorkers)
 	for i, sc := range scopes {
@@ -103,23 +103,26 @@ func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []
 			defer func() { <-sem }()
 			h, ok := proxy.Holder(ctx, sc.Port)
 			lines[i] = proxy.ScopeLine(sc, h.Inflight)
+			var why []string
 			if !ok {
-				lines[i] += " not serving (draining or wedged)"
-				flagged[i] = true
+				why = append(why, "not serving (draining or wedged)")
 			}
 			if n, bad := scopeOverReserved(sc, cfg); bad && !busy {
-				lines[i] += fmt.Sprintf(" over reserved=%d: unmanaged; gateway proxy --stop stops it", n)
-				flagged[i] = true
+				why = append(why, fmt.Sprintf("over reserved=%d: unmanaged; gateway proxy --stop stops it", n))
+			}
+			reasons[i] = strings.Join(why, "; ")
+			if reasons[i] != "" {
+				lines[i] += " " + reasons[i]
 			}
 		}()
 	}
 	wg.Wait()
-	for _, f := range flagged {
-		if f {
-			over++
+	for i, r := range reasons {
+		if r != "" {
+			probs = append(probs, proxyteam.Problem{Team: scopes[i].Team, Field: "scope " + scopes[i].ID, Detail: r})
 		}
 	}
-	return lines, over
+	return lines, probs
 }
 
 // proxyTeamsStatus summarizes the loaded team config for the doctor row.
@@ -146,11 +149,11 @@ func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	detail, bad = proxyDaemonStatus(ctx)
 	cfg, problems, busy := loadTeams()
 	td, tbad := proxyTeamsStatus(cfg, problems, busy)
-	lines, over := scopeReport(ctx, cfg, busy)
+	lines, scopeProblems := scopeReport(ctx, cfg, busy)
 	if n := len(lines); n > 0 {
 		td += fmt.Sprintf("; %d standing proxies live", n)
 	}
-	if over > 0 {
+	if over := len(scopeProblems); over > 0 {
 		td += fmt.Sprintf("; %d need attention: %s", over, strings.Join(flaggedLines(lines), " | "))
 		tbad = true
 	}
