@@ -762,10 +762,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
-		if saveErr != nil { // the --job child loads this record; without it the job never starts
-			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
-		}
-		return askSpawn(ctx, fs, prepared, native, format, name)
+		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
 	}
 	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
 }

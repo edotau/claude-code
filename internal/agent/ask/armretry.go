@@ -82,6 +82,7 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		}
 		return cl.Exec(ctx, p, sink, attempt)
 	})
+	settleHeld(ctx, p, res, err) // the record still runs, so no reaper takes the contract while it settles
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if held != nil {

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -443,66 +444,111 @@ func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	return nil
 }
 
-// runSettled runs a prepared foreground dispatch or --job child, then settles the contract it holds.
-func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions, run *armRetry,
-	isJob bool, format, save string, out io.Writer) int {
-	if askContractOf(ctx) != nil || isJob {
-		defer settleAsk(ctx, p.Record.ID)
+// spawnHeld detaches a background dispatch; a job that never started fails the contract opened for it.
+func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native bool, format, name string,
+	saveErr error) int {
+	var code int
+	if saveErr != nil { // the --job child loads this record; without it the job never starts
+		code = failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
+	} else {
+		code = askSpawn(ctx, fs, p, native, format, name)
 	}
-	if run != nil {
-		return run.run(ctx, cl, p, req)
+	if code != 0 && askContractOf(ctx) != nil {
+		if rec, err := agent.LoadRecord(p.Record.ID); err != nil || !rec.Alive() { // a started job settles its own
+			got, err := abandonContract(p.Record.ID, contract.ReasonOwnerDead)
+			reportSettled(p.Record.ID, got, err)
+		}
 	}
-	return runAskAndReport(ctx, cl, p, isJob, format, save, out)
+	return code
 }
 
-// settleAsk settles id's working contract after its run; a panic or a cancelled ctx fails it instead.
-func settleAsk(ctx context.Context, id string) {
-	p := recover()
+// runSettled runs a prepared foreground dispatch or --job child; one holding a contract settles it in the run.
+func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions, run *armRetry,
+	isJob bool, format, save string, out io.Writer) int {
+	if !holdsContract(p.Record.ID) {
+		if run != nil {
+			return run.run(ctx, cl, p, req)
+		}
+		return runAskAndReport(ctx, cl, p, isJob, format, save, out)
+	}
+	defer abandonOnPanic(p.Record.ID)
+	if run != nil {
+		return run.run(ctx, cl, p, req) // the arm retry calls settleHeld before it concludes the record
+	}
+	return runHeld(ctx, cl, p, isJob, format, save, out)
+}
+
+// holdsContract reports whether dispatch id holds a working contract; most asks have no contract file at all.
+func holdsContract(id string) bool {
 	c, err := contract.Load(id)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(os.Stderr, "ask: contract %s: %v\n", id, err)
 	}
-	if err == nil && c.State() == contract.StateWorking {
-		var got contract.Contract
-		switch {
-		case p != nil:
-			got, err = abandonContract(id, contract.ReasonOwnerDead)
-		case ctx.Err() != nil:
-			got, err = abandonContract(id, contract.ReasonCancelled)
-		default:
-			got, err = settleContract(id, returnOf(ctx, c, id))
-		}
-		reportSettled(id, got, err)
+	return err == nil && c.State() == contract.StateWorking
+}
+
+// runHeld is runAskAndReport with the record held running until the contract settles, so no reaper takes it.
+func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob bool, format, save string, out io.Writer) int {
+	opts := jobOpts(isJob, format, out)
+	attempt := opts
+	attempt.Hold = true
+	held := &resultHold{Sink: sinkTo(sinkOut(out, format, save), format, p.Record.ID)}
+	res, err := cl.Exec(ctx, p, held, attempt)
+	settleHeld(ctx, p, res, err)
+	opts.Notify = cl.Notify
+	err = p.Record.Conclude(res, err, opts)
+	if format == agent.FormatStreamJSON {
+		(&armRetry{}).emitFinal(held, p, res, err)
 	}
-	if p != nil {
+	return reportAsk(out, format, save, p, res, err)
+}
+
+// abandonOnPanic fails id's contract when the run panics, then re-panics; deferred directly so recover works.
+func abandonOnPanic(id string) {
+	if p := recover(); p != nil {
+		got, err := abandonContract(id, contract.ReasonOwnerDead)
+		reportSettled(id, got, err)
 		panic(p)
 	}
 }
 
-// settleScan is how many recent dispatch records the spend is summed over.
-const settleScan = 500
+// settleHeld settles the working contract p's dispatch holds from its held result; a cancelled ctx fails it instead.
+func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr error) {
+	id := p.Record.ID
+	if !holdsContract(id) {
+		return
+	}
+	var got contract.Contract
+	var err error
+	if ctx.Err() != nil {
+		got, err = abandonContract(id, contract.ReasonCancelled)
+	} else {
+		got, err = settleContract(id, returnOf(ctx, p.Record, res, runErr))
+	}
+	reportSettled(id, got, err)
+}
 
-// returnOf is what Go observed of id's run: the record's end and report, the envelope's verify and hand-back, the gate.
-func returnOf(ctx context.Context, c contract.Contract, id string) contractReturn {
-	rec, err := agent.LoadRecord(id)
+// returnOf is what Go observed of rec's held run: its end, verify and hand-back, the filed report, spend and the gate.
+func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr error) contractReturn {
+	c, err := contract.Load(rec.ID)
 	if err != nil {
 		return contractReturn{End: endDied}
 	}
-	r := contractReturn{End: runEndOf(rec), Report: rec.Report}
+	r := contractReturn{End: runEndOf(rec, res, runErr), Verify: res.Verify, Handback: res.Handback, Report: rec.Report}
+	if res.Handback != nil {
+		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
+	}
+	if saved, err := agent.LoadRecord(rec.ID); err == nil { // `memory report --job` files the path on the saved record
+		r.Report = cmp.Or(saved.Report, r.Report)
+	}
 	for _, ch := range c.Children {
 		if cc, err := contract.Load(ch); err == nil {
 			r.Children = append(r.Children, cc)
 		}
 	}
-	if env, ok := rec.SavedEnvelope(); ok {
-		r.Verify, r.Handback = env.Verify, env.Handback
-		if env.Handback != nil {
-			r.Tests, r.Method = env.Handback.Tests, env.Handback.Method
-		}
-	}
-	r.Spent = contract.SpentOf(c, usesOf(agent.RecentRecords(settleScan)))
+	r.Spent = contract.SpentOf(c, subtreeUses(rec.ID, spentTokens(&res.Usage)))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
-		g, _ := worktree.RunScopedGate(ctx, dir, c.Scope.Own, false)
+		g, _ := worktree.RunScopedGate(ctx, dir, gateScope(dir, c.Scope.Own), false)
 		if g.Gate != "" { // no gate found is a no-result record
 			r.Gate = &g
 		}
@@ -510,27 +556,62 @@ func returnOf(ctx context.Context, c contract.Contract, id string) contractRetur
 	return r
 }
 
-func usesOf(recs []agent.Record) []contract.Use {
-	out := make([]contract.Use, len(recs))
-	for i, r := range recs {
-		u := r.Usage
-		if u == nil && r.Activity != nil {
-			u = &r.Activity.Usage
+// gateScope is own as the directories the scoped gate takes: an owned file stands for its package directory.
+func gateScope(dir string, own []string) []string {
+	var out []string
+	for _, p := range own {
+		full := p
+		if !filepath.IsAbs(p) {
+			full = filepath.Join(dir, p)
 		}
-		n := 0
-		if u != nil {
-			n = u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
+		if fi, err := os.Stat(full); err != nil || !fi.IsDir() {
+			p = filepath.Dir(p)
 		}
-		out[i] = contract.Use{ID: r.ID, Parent: r.Parent, Tokens: n}
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
 	}
 	return out
 }
 
-func runEndOf(rec agent.Record) runEnd {
+// subtreeUses is every dispatch record started at or after root (none earlier descends from it); root's own is held.
+func subtreeUses(root string, rootTokens int) []contract.Use {
+	stamp, _, _ := strings.Cut(root, "-") // a dispatch id starts with its start stamp, so names sort by start
+	ents, _ := os.ReadDir(paths.DispatchDir())
+	out := []contract.Use{{ID: root, Tokens: rootTokens}}
+	for _, e := range slices.Backward(ents) {
+		if e.Name() < stamp {
+			break
+		}
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || id == root {
+			continue
+		}
+		if r, err := agent.LoadRecord(id); err == nil {
+			u := r.Usage
+			if u == nil && r.Activity != nil {
+				u = &r.Activity.Usage
+			}
+			out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: spentTokens(u)})
+		}
+	}
+	return out
+}
+
+// spentTokens counts every input and output token a budget charges, cache reads included (the budget's own sum).
+func spentTokens(u *wire.Usage) int {
+	if u == nil {
+		return 0
+	}
+	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
+}
+
+// runEndOf is how the held run ended: a cancel, a finished ok run, else a died owner.
+func runEndOf(rec agent.Record, res wire.Result, runErr error) runEnd {
 	switch {
-	case rec.Cutoff == "cancelled" || rec.FailKind == "cancelled":
+	case rec.Cutoff == "cancelled" || errors.Is(runErr, context.Canceled):
 		return endCancelled
-	case rec.Status == wire.StatusOK:
+	case res.Status == wire.StatusOK && runErr == nil:
 		return endFinished
 	}
 	return endDied

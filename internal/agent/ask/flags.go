@@ -82,7 +82,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
-	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the brief's Task: line and the record's plan_task")
+	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the record's plan_task and a spec brief's Task: line")
 	fs.StringVar(&f.tier, "tier", "", "task tier: "+strings.Join(agent.TierNames(), "|")+"; heads the brief with a Tier: line, sized under --model auto")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")

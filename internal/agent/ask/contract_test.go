@@ -59,7 +59,7 @@ func TestOpenContractObservesLaneAndProxy(t *testing.T) {
 	}
 }
 
-// TestStartAndSettleAsk: startAsk opens a working contract; settleAsk with no gate and no hand-back fails it on term.
+// TestStartAndSettleAsk: startAsk opens a working contract; settleHeld with no gate and no hand-back fails it on term.
 func TestStartAndSettleAsk(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	o := &contractOpen{
@@ -77,7 +77,7 @@ func TestStartAndSettleAsk(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	settleAsk(ctx, "d-9")
+	settleHeld(ctx, &agent.Prepared{Record: rec}, wire.Result{Status: wire.StatusOK}, nil)
 	if c, err := contract.Load("d-9"); err != nil || c.State() != contract.StateFailed || c.Failed != contract.ReasonTerm {
 		t.Fatalf("after settle: %v %q, %v; want failed term", c.State(), c.Failed, err)
 	}
