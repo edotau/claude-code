@@ -45,7 +45,8 @@ type askFlags struct {
 	codemode                                                                                                                                                                           string
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
-	spec, verify                                                                                                                                                                       string
+	spec, verify, action                                                                                                                                                               string
+	actionOwn                                                                                                                                                                          []string
 	contract                                                                                                                                                                           *contractOpen
 	planTask                                                                                                                                                                           string
 	dryRun                                                                                                                                                                             bool

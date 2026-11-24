@@ -131,6 +131,9 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		defer func() { exit = closeAskOutput(masked, exit) }()
 		out = masked
 	}
+	if f.action != "" { // a typed no-model step: no routing, no agent
+		return runAction(ctx, fs, f, out)
+	}
 	if f.dryRun { // a dry-run pick gets one peek mark, the workspace's included
 		ctx = agent.PeekContext(ctx)
 	} else {

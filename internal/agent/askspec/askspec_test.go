@@ -51,3 +51,13 @@ func TestArgvTaskKeys(t *testing.T) {
 		t.Fatalf("wrong type err = %v, want one naming own", err)
 	}
 }
+
+func TestArgvActionKey(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"action":"diff","own":["a.go"]}`))
+	if err != nil || task.Action != "diff" || len(task.Own) != 1 {
+		t.Fatalf("task = %+v err %v", task, err)
+	}
+	if _, _, _, err := testSchema().Argv([]byte(`{"action":"rm"}`)); err == nil || !strings.Contains(err.Error(), "gate|diff") {
+		t.Fatalf("unknown action err = %v, want one listing the actions", err)
+	}
+}

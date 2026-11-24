@@ -1,3 +1,4 @@
+internal/agent/ask/action.go:finishAction	unversioned: text: a no-model action's captured output at its record's log path
 internal/agent/ask/flags.go:claimRecover	unversioned: marker: --recover single-claim file in the watch dir, empty until the new dispatch id lands
 internal/agent/ask/flags.go:finishRecover	unversioned: marker: --recover claim file filled with the new dispatch id
 internal/agent/ask/loop_state.go:save	ask-loop

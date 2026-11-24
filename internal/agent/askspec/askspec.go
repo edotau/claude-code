@@ -3,6 +3,7 @@ package askspec
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -47,7 +48,12 @@ type Task struct {
 	Report   string    `json:"report"`
 	Verify   string    `json:"verify"`
 	Contract *Contract `json:"contract"`
+	// Action is a typed no-model step (one of Actions) the harness runs in a plain child; it is not a brief key.
+	Action string `json:"action"`
 }
+
+// Actions are the values of the spec's action key: each runs one existing verb with Go-built argv and no model.
+var Actions = []string{"gate", "diff", "gateway", "scope"}
 
 // Contract is the spec's contract key: the unit, its size and optional limits; Go derives every other field.
 type Contract struct {
@@ -68,7 +74,7 @@ func (t Task) Set() bool {
 }
 
 // TaskKeys are the spec keys Argv reads into Task instead of argv.
-var TaskKeys = []string{"own", "report", "verify", "contract"}
+var TaskKeys = []string{"own", "report", "verify", "contract", "action"}
 
 // FromFlagSet builds the schema from fs, skipping internal flags and --spec itself.
 func FromFlagSet(fs *flag.FlagSet, o Opts) Schema {
@@ -195,18 +201,20 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 			}
 			continue
 		}
-		dst, want := any(&t.Report), "a string"
-		switch k {
-		case "own":
-			dst, want = &t.Own, "an array of strings"
-		case "verify":
-			dst = &t.Verify
-		}
+		dst := cmp.Or(map[string]any{"own": &t.Own, "verify": &t.Verify, "action": &t.Action}[k], any(&t.Report))
+		want := map[bool]string{true: "an array of strings", false: "a string"}[k == "own"]
 		if json.Unmarshal(v, dst) != nil || string(v) == "null" || string(v) == `""` {
 			return Task{}, fmt.Errorf("spec %s: want %s", k, want)
 		}
 	}
-	return t, nil
+	return t, t.checkAction()
+}
+
+func (t Task) checkAction() error {
+	if t.Action == "" || slices.Contains(Actions, t.Action) {
+		return nil
+	}
+	return fmt.Errorf("spec action %q unknown (%s)", t.Action, strings.Join(Actions, "|"))
 }
 
 // contractOf decodes the contract key strictly: an unknown field is a typo, never ignored.

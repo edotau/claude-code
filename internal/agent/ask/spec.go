@@ -110,6 +110,15 @@ func briefTarget(argv []string) (briefFlags, error) {
 	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, workdir: f.workdir, codeMode: mode != "" && mode != "off"}, nil
 }
 
+// takeAction stores the spec's no-model action on f; it refuses any task text.
+func takeAction(f *askFlags, task askspec.Task, prompt string, pos []string) error {
+	if len(pos) > 0 || strings.TrimSpace(prompt) != "" || task.Report != "" || task.Verify != "" || task.Contract != nil {
+		return errors.New("spec action runs no model: drop the prompt, task words, report, verify and contract (own and agent/model stay)")
+	}
+	f.action, f.actionOwn = task.Action, task.Own
+	return nil
+}
+
 // withSpec puts the spec's argv first, so a typed scalar flag wins and a typed list adds to the spec's.
 func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 	argv, prompt, task, err := specParts(f.spec, os.Stdin)
@@ -117,6 +126,15 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 		return nil, err
 	}
 	out := append(argv, dropSpec(args)...)
+	if task.Action != "" {
+		return out, takeAction(f, task, prompt, pos)
+	}
+	return withPrompt(f, out, args, pos, prompt, task)
+}
+
+// withPrompt appends the spec's brief (or inline prompt) to out unless a positional task was typed.
+func withPrompt(f *askFlags, out, args, pos []string, prompt string, task askspec.Task) ([]string, error) {
+	var err error
 	if task.Set() && (len(pos) > 0 || strings.TrimSpace(prompt) == "" || prompt == "-") {
 		return nil, errors.New("spec own, report, verify and contract wrap the spec's own inline prompt: set prompt, no positional task")
 	}
@@ -167,6 +185,7 @@ func reparseSpec(f *askFlags, verb string, args, pos []string) (*flag.FlagSet, *
 	}
 	pos, code, done := parseAskArgs(fs, merged)
 	nf.spec, nf.verify, nf.contract = f.spec, f.verify, f.contract
+	nf.action, nf.actionOwn = f.action, f.actionOwn
 	return fs, nf, merged, pos, code, done
 }
 

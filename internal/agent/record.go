@@ -56,6 +56,7 @@ type Record struct {
 	Request        RunOptions  `json:"request"`
 	Status         string      `json:"status"`               // running | ok | error | partial | stalled | quota
 	Experiment     string      `json:"experiment,omitempty"` // the one trial the run carries (pi: rtk-wrap|codemode|none)
+	Role           string      `json:"role,omitempty"`       // owner | fleet, from a Tier: line in the prompt; "" for a no-model action
 	Error          string      `json:"error,omitempty"`
 	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
@@ -289,7 +290,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens,
-		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req)}
+		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req), Role: string(dispatchRole(req.Prompt))}
 }
 
 // Experimenter is an optional Driver method: the trial a run of req carries, for the record.
