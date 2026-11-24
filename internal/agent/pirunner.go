@@ -33,15 +33,12 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 	}
 	reg := loadRegistryWarn()
 	lead := c.Dispatches[0]
-	if !ownDatabricksHop(reg, q, lead) {
-		if !typed { // first-party, Copilot and Google logins keep their own CLI
-			return c
-		}
-		return c.noted(q.Agent + ": pi runner skipped: " + hopTarget(lead) + " is not the agent's Databricks hop")
+	if !ownDatabricksHop(reg, q, lead) { // first-party, Copilot and Google logins keep their own CLI
+		return c.notedIf(typed, q.Agent+": pi runner skipped: "+hopTarget(lead)+" is not the agent's Databricks hop")
 	}
 	pi, err := Lookup(agentid.Pi)
 	if err != nil || pi.Available() != nil { // a build without the pi driver, or pi not installed
-		return c
+		return c.notedIf(typed, q.Agent+": pi runner skipped: pi is not installed")
 	}
 	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
 	if why != "" {
@@ -51,6 +48,14 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
 	}
 	return c.ledBy(hops)
+}
+
+// notedIf is c with line as a preflight note when a typed runner was asked, else c.
+func (c Chain) notedIf(typed bool, line string) Chain {
+	if !typed {
+		return c
+	}
+	return c.noted(line)
 }
 
 // ownDatabricksHop reports lead as the asked agent's own hop on a Databricks row.
@@ -235,7 +240,10 @@ func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, lead 
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
 	stamped, why := agentModelOn(ctx, reg, q, AutoModel, profile)
-	if why != "" || !models.SameModel(stamped, model) {
+	if why != "" {
+		return "pi on " + profile + ": " + why
+	}
+	if !models.SameModel(stamped, model) {
 		return "pi on " + profile + ": the rotation pick moved off " + model
 	}
 	return ""
