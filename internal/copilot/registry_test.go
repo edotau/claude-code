@@ -146,7 +146,7 @@ func TestPrepareRegistryMintsOnRegistryBase(t *testing.T) {
 		return "tok", nil
 	}
 	r := copilotRegistry{Profile: "p", Base: "http://127.0.0.1:1"}
-	_, _ = prepareRegistry(context.Background(), r, "p", 1)
+	_, _ = prepareRegistry(context.Background(), r, "p", 1) // render fails on no models, after the mint under test
 	if got != "http://127.0.0.1:1" {
 		t.Fatalf("minted on base %q", got)
 	}
