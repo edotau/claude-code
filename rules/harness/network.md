@@ -12,6 +12,7 @@ paths:
 | Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups, stale launch overlays, leftover `memory sandbox` dirs) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Restart the proxy only when its binary changed (`make install` and the status line run it when idle) | `claude-code gateway proxy --restart --if-changed` |
+| List teams and standing proxies, or stop them | `claude-code gateway proxy --status` · `--stop` (stops the daemon and every standing scope) |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port, or `--host-browser` opens the host's browser |
 | Least-busy Databricks workspace, requests through the other machine | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"` (what `/coworker` sends); `--host auto` runs the whole ask on that machine |
 | Send Databricks requests out through a host | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart --if-changed` (add `--force` with requests in flight) stops the tunnels after an actual restart; plain `--restart` leaves them running |
@@ -23,6 +24,9 @@ paths:
   A tunnel that cannot start or has died fails the request with `egress host <host>: <cause>`, never a direct
   connection. `--direct` is refused under `--remote`; a credential minted by a provider's `auth.command` is not
   tunnelled.
+- A standing scoped proxy listens on a free `127.0.0.1` port. Its scope record is removed when it stops; `--status` and
+  doctor sweep the records whose process is gone. A phase proxy is in-process and its record lasts only for its wave
+  or batch; it is not listed as standing.
 - `--host auto` and `--remote auto` resolve to a host name here, before any ssh call: `CLAUDE_REMOTE_HOST` (process
   env, else the vault's; a comma-separated list, the first entry is the machine named), else the one other online
   tailnet machine that answers `claude-code version` over ssh within 5 s (cached 10 minutes in

@@ -224,8 +224,37 @@ adds upstream headers; invalid lines are dropped, and auth, attribution and fram
 ```bash
 claude-code gateway proxy [--start|--stop|--restart|--status]   # bare = --status
 claude-code gateway proxy --serve --port 18765        # foreground
+claude-code gateway proxy --serve --scope <team>@<id> # standing scoped proxy on a free port, until signalled
 claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 ```
+
+## Proxy teams and scopes
+
+A **team** is one row of the schema in `internal/proxyteam`; the shipped rows are
+`internal/assets/files/proxy/teams.json`.
+`shared` is the daemon and the default team, so every kind no team claims goes there. `phase` takes kind `group` and
+runs in-process in the wave or batch that owns it, falling back to `shared`.
+
+| Field | Values |
+| --- | --- |
+| `name` | unique; a scope is named `<team>@<id>` |
+| `kinds` | `interactive`, `single`, `lane`, `nested`, `carried`, `group`, `memory`; a dispatch takes the first true of group, memory, carried, nested, lane, else `single` |
+| `host` | `daemon` (`proxy.json`), `phase` (in-process in its owner), `detached` (standing scoped process), `ask` (in one ask; unused) |
+| `lifetime` | `shared`, `phase`, `standing`, `ask`; each host pairs with one lifetime (daemon/shared, phase/phase, detached/standing, ask/ask) |
+| `reserved` | proxies kept for the team; a detached slot is `fnv32(dispatch id) % reserved` |
+| `borrow` | `never` (no other team's work goes there), `idle` (overflow only at in-flight 0), `any` |
+| `fallback` | team names in order; a dispatch's route list is its team, its fallback, then every shared team, each once |
+| `default` | exactly one team; it takes every kind no team claims |
+
+**Load.** The vault overlay (key `proxy-teams` in the vault's overlay store) replaces or adds a row by name.
+`Validate` names each problem: unknown values, duplicate names or kind claims, zero or two defaults, not exactly one
+shared team, an unpaired host and lifetime, or a fallback that is unknown, itself, or cyclic. `gateway proxy --status`
+prints each as a `problem` line and exits 1, so `make install` fails on a bad overlay. At run time a bad overlay never
+fails an ask: the last clean config (`state/harness/proxy/teams.last-good.json`, rewritten on each clean load) stays in
+force, else the embedded one. `doctor` says which config is in force.
+
+A scope record sits in `state/harness/proxy/scopes/<team>@<id>.json` while its proxy serves; `--scope` ids are
+lower-case letters, digits, `.`, `_`, `-`. Route order: `agent.md` → Proxy routes. Standing proxies: `network.md`.
 
 ## Sync the Databricks model menu
 

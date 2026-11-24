@@ -18,7 +18,7 @@ paths:
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>` |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
-| Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` |
+| Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` · standing: `--serve --scope <team>@<id>` |
 
 - Transcript cleanup: `claude-code doctor --secrets --fix` masks idle Claude and harness transcript stores in place at
   the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.
@@ -40,6 +40,9 @@ paths:
   doctor's) at its first poll with no request in flight; in-flight streams drain (up to 2 min, then are cut) while the
   replacement serves; `--stop` waits as long. The respawn gap is ~55 ms (max ~110 ms, connection refused; clients
   retry); a down proxy is restarted the same way. Plain `--restart` stays.
+- Proxy teams: a dispatch's kind picks its team, and the team picks the proxy it runs through (the shared daemon, a
+  wave's or batch's phase proxy, or a standing scoped process). Schema and defaults: `providers-reference.md` → Proxy
+  teams; the route walk: `agent.md` → Proxy routes.
 - Session tokens are signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (one year; the
   process is the real limit) under a key derived from the router secret and the config dir, so every daemon of the
   config accepts them; a token cannot be revoked: it ends when its process exits, at expiry, or when the router secret
@@ -50,6 +53,9 @@ paths:
   once (a passthrough session then needs a relaunch). A token the previous (stored-token) build minted keeps its old
   rules (7-day idle expiry, bound process, never re-minted by `resolve --proxy`) while `sessions.json` lists it; that
   file is read, never written, and its renewed expiries persist in `legacy-renewals.json`, which only this build writes.
+- A token carries the launch's confinement fence (`fz`: the profiles the overlay confines it to; `open` when none).
+  A scoped proxy verifies and signs with the same key, binds a token it signs to its own pid and start time, and never
+  widens a fence.
 
 ## Routing precedence
 

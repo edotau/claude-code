@@ -259,6 +259,25 @@ vendor CLI untouched.
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 
+## Proxy routes
+
+- **Which agents:** pi, codex and opencode (`ScopedProxy` in their roster rows), gemini and copilot (their launch seam
+  marks the context) walk the team route list. Headless claude and the interactive session use the shared daemon.
+- **The walk:** `agent.ProxyRoutes` (`internal/agent/proxyroute.go`) maps the dispatch's record to its kind, then takes
+  that kind's routes from the team config (`providers-reference.md` → Proxy teams). A parent's phase team goes first
+  when `HARNESS_DISPATCH_PROXY` names one. A daemon route is `proxy.Ensure`; a scoped route is live when its scope
+  record's pid and start time match, `/healthz` answers, and no other process holds its port.
+- **The choice:** the first live route wins. A later one prints `<agent>: proxy: <first> unavailable (<reason>); using
+  <chosen>` on stderr, and the envelope's `transport.proxy` names the route (`<team>:<id>`, or the daemon team's name).
+  A scoped route's token is signed locally (`providers.md` → Session tokens).
+- **Child asks:** a scoped choice is exported to the child as `HARNESS_DISPATCH_PROXY=<team>:<id>`; a daemon choice
+  clears it. A nested or carried ask reads it and puts that phase team first.
+- **Reroute:** a refused or reset connection to a known loopback proxy is a transport error, never an account fault.
+  The dispatch retries once at once; its relaunch walks the list again without the route that died, and starts over
+  when every route is dead.
+- **Batch and wave lines:** a batch line's `group` key (`internal/agent/ask/batch.go`) names a phase scope id. A wave
+  and a bare batch host their own phase proxy (the `phase` team) and close it when they end.
+
 ## Pi carrier and experiments
 
 1. **Carrier (D1).** `agents ask --carry --agent <a> [ask flags] -- "<task>"` (spec key `carry`) builds the inner
