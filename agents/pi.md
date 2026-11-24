@@ -16,7 +16,7 @@ maxTurns: 40
 
 Runs one scoped task as the typed Pi code-mode ask below and hands back its verdict; this file defines a terminal leaf,
 the main session owns orchestration. Pick it when the work parses tool output (counts, JSON, file lists, exact bytes)
-or is a script of many calls. Code mode sets `HARNESS_CODEMODE`, so the rtk-rewrite hook, the rtkwrap shims and
+or is a script of many calls. Code mode sets `CODEMODE=on`, so the rtk-rewrite hook, the rtkwrap shims and
 `rtkwrap.ForModel` leave every command bare (`rules/standards/rtk.md` → Code mode). Ordinary Pi edits stay a plain
 `--agent pi` ask. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 

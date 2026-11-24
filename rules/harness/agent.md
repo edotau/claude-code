@@ -99,7 +99,7 @@ paths:
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
 - **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `CODEMODE` resolving to on;
-  `--codemode off` wraps; Pi sets `HARNESS_CODEMODE` for it): every Pi launch puts `state/harness/rtkwrap/bin`
+  `--codemode off` wraps; Pi sets `CODEMODE=on` for it): every Pi launch puts `state/harness/rtkwrap/bin`
   first on PATH and, with code mode off, sets `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing
   a line's last command, sourcing the user's own `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one symlink per
   rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
@@ -108,7 +108,7 @@ paths:
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`; there is no switch (a
   missing `bin/.rtkwrap` launches unshimmed with a notice). Windows has no shims.
 - **rtk for the other agents** — `rtk-rewrite` in the codex and opencode hooks rewrites every eligible command, never
-  while `HARNESS_CODEMODE` is set. Copilot's SDK shell tool rewrites through the same function. agy cannot rewrite
+  while `CODEMODE` is on or only. Copilot's SDK shell tool rewrites through the same function. agy cannot rewrite
   (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets awareness text only.
   `claude-code doctor` shows one rtk row per agent.
 - **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
