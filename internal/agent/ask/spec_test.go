@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -118,7 +119,7 @@ func TestSpecTaskKeysRenderBrief(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief, err := specBrief(prompt, "claude", task)
+	brief, err := specBrief(prompt, nil, task)
 	if err != nil || !strings.Contains(brief, `Owned: ["a.go"]`) || !strings.Contains(brief, "Verify: go vet ./x") {
 		t.Fatalf("brief = %q err %v", brief, err)
 	}
@@ -127,7 +128,7 @@ func TestSpecTaskKeysRenderBrief(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := specBrief(p, "claude", task); err == nil {
+		if _, err := specBrief(p, nil, task); err == nil {
 			t.Errorf("specBrief accepted %s", bad)
 		}
 	}
@@ -141,5 +142,14 @@ func TestSpecTaskKeysNeedInlinePrompt(t *testing.T) {
 	f.spec = `{"own":["a.go"],"prompt":"-"}`
 	if _, err := withSpec(f, nil, nil); err == nil {
 		t.Error("withSpec accepted a stdin prompt beside own")
+	}
+}
+
+func TestSpecBriefCodeModeFollowsTarget(t *testing.T) {
+	task := askspec.Task{Own: []string{"a.go"}}
+	on, err1 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "only"}, task)
+	off, err2 := specBrief("p", []string{"--agent", "pi", "--tools", "--codemode", "off"}, task)
+	if err1 != nil || err2 != nil || on == off {
+		t.Fatalf("code mode did not change the brief: %v %v", err1, err2)
 	}
 }

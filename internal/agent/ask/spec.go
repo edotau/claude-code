@@ -53,7 +53,7 @@ func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, e
 }
 
 // specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.
-func specBrief(prompt, agentName string, t askspec.Task) (string, error) {
+func specBrief(prompt string, argv []string, t askspec.Task) (string, error) {
 	if !t.Set() {
 		return prompt, nil
 	}
@@ -61,15 +61,13 @@ func specBrief(prompt, agentName string, t askspec.Task) (string, error) {
 		return "", errors.New("spec verify: want go build|vet|test on ./ packages, agents diff --check or doctor, " +
 			"rtk forms, joined by &&")
 	}
-	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: agentName, Owned: t.Own, Report: t.Report, Verify: t.Verify})
-}
-
-// specAgent is the agent name the merged argv selects, read the way the real parse will.
-func specAgent(argv []string) string {
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
-	_, _ = helptext.ParseArgs(fs, argv)
-	return f.name
+	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag
+	mode, _ := validateCodemode(f.codemode, f.name, f.tools)
+	codeMode := mode != "" && mode != "off"
+	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: f.name, Owned: t.Own, Report: t.Report,
+		Verify: t.Verify, CodeMode: &codeMode})
 }
 
 // withSpec puts the spec's argv first, so a typed scalar flag wins and a typed list adds to the spec's.
@@ -82,7 +80,7 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 	if task.Set() && (len(pos) > 0 || strings.TrimSpace(prompt) == "" || prompt == "-") {
 		return nil, errors.New("spec own, report and verify wrap the spec's own inline prompt: set prompt, no positional task")
 	}
-	if prompt, err = specBrief(prompt, specAgent(out), task); err != nil {
+	if prompt, err = specBrief(prompt, out, task); err != nil {
 		return nil, err
 	}
 	if prompt != "" && len(pos) == 0 {
