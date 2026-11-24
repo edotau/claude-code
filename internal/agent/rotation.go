@@ -183,8 +183,12 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 		o, err := noReadyCell(reg, o, session, scope)
 		return ctx, o, roleNote{text: joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped))}, err
 	}
-	cell, err := router.PickRoleCell(role, ready, !Peeking(ctx), now)
-	if err != nil {
+	cell, ready, skipped, err := scan.pick(role, ready, rows, skipped)
+	switch {
+	case cell.Provider == "":
+		o, err := noReadyCell(reg, o, session, scope)
+		return ctx, o, roleNote{text: joinNotes(head+": no cell passed preflight, the session route runs", skippedNote(skipped))}, err
+	case err != nil:
 		head += " (pick unstamped: " + err.Error() + ")"
 	}
 	row := rows[cell.Key()]
@@ -192,6 +196,24 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 	ctx, o = placeRotation(ctx, reg, o, row, scope)
 	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, row, len(ready), len(cells))
 	return ctx, o, roleNote{text: joinNotes(pick, skippedNote(skipped)), account: router.AccountOf(reg.Row(row))}, nil
+}
+
+// pick stamps the LRU ready cell, then preflights only its row (never in a dry run); a refusal skips it and re-picks.
+func (s cellScan) pick(role router.Role, ready []router.RoleCell, rows map[string]string, skipped []string) (
+	router.RoleCell, []router.RoleCell, []string, error) {
+	for len(ready) > 0 {
+		cell, err := router.PickRoleCell(role, ready, !Peeking(s.ctx), s.now)
+		why := ""
+		if !Peeking(s.ctx) {
+			why = s.workspaceWhy(rows[cell.Key()])
+		}
+		if why == "" {
+			return cell, ready, skipped, err
+		}
+		skipped = append(skipped, cell.Key()+": "+rows[cell.Key()]+" "+why)
+		ready = slices.DeleteFunc(slices.Clone(ready), func(c router.RoleCell) bool { return c == cell })
+	}
+	return router.RoleCell{}, nil, skipped, nil
 }
 
 // noReadyCell keeps today's route, except under an exclusive mode: the start row alone, or a refusal with none.
@@ -342,8 +364,8 @@ func (s cellScan) ready(cells []router.RoleCell) (ready []router.RoleCell, rows 
 		var why []string
 		for _, name := range names {
 			reason := rowNotReady(s.reg.Row(name), s.st, s.agent, c.Model, s.now)
-			if reason == "" { // the preflight probes only a row the cheap checks pass; it may clear a stale auth mark
-				reason = cmp.Or(s.workspaceWhy(name), s.accountWhy(name, c.Model))
+			if reason == "" { // read-only here: the probing preflight runs only on the picked row (pick)
+				reason = s.accountWhy(name, c.Model)
 			}
 			if reason != "" {
 				why = append(why, name+" "+reason)
