@@ -45,12 +45,24 @@ func laneStateDir() string { return filepath.Join(paths.StateDir(), "worktree", 
 
 // runLeafLane waits for the leaf to finish (a held stop keeps it working), then judges its lane.
 func runLeafLane(lane, session, transcript string) {
-	done := func() bool { return leafFinished(transcript) }
+	finished := func() bool { return leafFinished(transcript) }
 	verdict := laneUnfinished
-	if waitUntil(laneFinishWait, done) {
+	done := finished
+	if waitUntil(laneFinishWait, finished) {
 		verdict = laneVerdict(leafReport(transcript))
+		seen := transcriptStamp(transcript)
+		done = func() bool { return finished() && transcriptStamp(transcript) == seen } // a leaf sent back writes more
 	}
 	runLaneJob(laneJob{lane: lane, session: session, verdict: verdict, done: done})
+}
+
+// transcriptStamp is the transcript's mtime and size; it changes when the leaf runs again.
+func transcriptStamp(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fi.ModTime().String() + strconv.FormatInt(fi.Size(), 10)
 }
 
 // leafFinished is Claude Code's finished mark in the leaf's meta.json; no readable mark is not finished.
@@ -75,6 +87,9 @@ func runJobLane(id string) {
 	if waitUntil(laneExitWait, done) {
 		env, _ := rec.SavedEnvelope()
 		verdict = laneVerdict(env.Answer)
+		if env.Handback != nil { // the typed outcome wins over the answer's text line
+			verdict = handbackVerdict(env.Handback)
+		}
 	}
 	runLaneJob(laneJob{lane: lane, session: os.Getenv(paths.SessionIDEnv), verdict: verdict, task: rec.PlanTask, done: done})
 }

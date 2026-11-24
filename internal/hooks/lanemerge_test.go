@@ -35,6 +35,23 @@ func TestLaneMergeLeafReportReadsHandback(t *testing.T) {
 	}
 }
 
+func TestLaneMergeTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "agent-a.jsonl")
+	if err := os.WriteFile(tr, []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seen := transcriptStamp(tr)
+	f, err := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("b\n")
+	f.Close()
+	if transcriptStamp(tr) == seen {
+		t.Fatal("stamp unchanged after the leaf wrote again")
+	}
+}
+
 func TestLaneMergeRestrictionFiles(t *testing.T) {
 	got := restrictionFiles([]string{"internal/hooks/safety/safety.go", "internal/settings/hookspec.go",
 		"settings.json", "README.md", "internal/hooks/lanemerge.go", "(diff unreadable)"})
