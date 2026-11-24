@@ -2,10 +2,11 @@ package router
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/contract"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/contract"
 )
 
 func TestParseProviderMode(t *testing.T) {
