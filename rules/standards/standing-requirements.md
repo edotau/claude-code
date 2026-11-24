@@ -19,9 +19,9 @@ A row is deleted only when the tool makes the prose redundant.
 | R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
 | R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask` |
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
-| R11 make | `quality.md`; a leaf runs `rtk make lint`, `agents diff --check`, and the reserved targets (audit, install, fmt, build, verify, bootstrap, adopt) or a fixing `lint-<kind>` in the harness tree, each with an `agentBashAllow` note (`hooks.md`); `make lint` and dry runs pass without one | `safety-scan` for main and undispatched agents; leaves pass `agentBashAllow` except the floor and deny rows |
+| R11 make | `quality.md`; a leaf runs `rtk make lint`, `agents diff --check`, and the reserved targets (audit, install, fmt, build, verify, bootstrap, adopt) or a fixing `lint-<kind>` in the harness tree | prose |
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
-| R13 Guard walls | `--secret`, `vault get --key --secret`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` for main (unless a settings allow covers it); leaves pass `agentBashAllow` except the floor and deny rows |
+| R13 Guard walls | `safety-scan` has two rules: a `settings.json` deny rule blocks, and an AI-attribution footer in a commit, merge, tag or PR blocks (`hooks.md`) | `safety-scan`, for every agent |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
 | R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only; `--secret` main session only, leaves get credentials at launch | credential verbs redact; hooks `secrets-out` (Bash output) and `secrets-end` (ended transcripts) |
 | R15 Plan tests | Default, not absolute: new feature: basic tests that it works, a couple of seconds to run at most; no long tests before it has been used a while; more tests are suggestions `dream` lists | plan template, `brief.tmpl`, dream Phase 5c |

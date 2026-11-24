@@ -2,8 +2,6 @@
 package safety
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,188 +14,47 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
-
-// pipeBlocks match the whole command minus inert data: pipes, a fork bomb and encoded Python heredocs span segments.
-var pipeBlocks = []*core.Gated{
-	core.Gate(`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh(\s+-[a-mo-zA-Z]*(\s|$)|\s+[^-\s]|[^[:alnum:]_\s-]|\s*$)`, "curl", "wget"),
-	core.Gate(`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`, "eval"),
-	core.Gate(`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`, "base64"),
-	core.Gate(`:\(\)\s*\{[^}]*\}\s*;\s*:`, ":()"),
-	core.Gate(`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`, "curl", "wget"),
-	core.Gate(`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`, "curl", "wget"),
-	core.Gate(`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`, "python"),
-}
-
-// askRule is an intent-dependent shape matched within one shell segment, its message, allowed route and exemption.
-type askRule struct {
-	what, hint string
-	pats       []*core.Gated
-	exempt     func(seg, cmd, cwd string) bool
-}
-
-const gitPushPrefix = `git\s+(((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)|--?[a-zA-Z][a-zA-Z-]*(=\S+)?)\s+)*push\s+`
-
-// forceFlag is a standalone --force or short-flag cluster containing f (-f, -fu, -uf).
-const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
-
-// protectedBranch is main/master as a whole refspec word: after space, a quote, `:` or refs/heads/ (not feature-main)
-const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
-
-const (
-	forcePushWhat = "force push to main/master"
-	forcePushHint = "Push a branch and open a PR instead: git push origin HEAD:<branch>." + ownerRoute
-)
-
-var askRules = []askRule{
-	{forcePushWhat, forcePushHint, []*core.Gated{
-		core.Gate(gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch, "push"),
-		core.Gate(gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag, "push"),
-		core.Gate(gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch, "push"),
-		core.Gate(gitPushPrefix+protectedBranch+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`, "push"),
-		core.Gate(gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`, "push"),
-	}, nil},
-	{"recursive removal of a .git directory",
-		"That deletes the repository history; use a fresh worktree instead: claude-code worktree create <name>." + ownerRoute,
-		[]*core.Gated{core.Gate(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`, ".git")},
-		tempGitRemoval},
-}
-
-const terminalHint = "If intentional, run it yourself in a terminal."
-
-// sqlDestructive runs against the lowercased command.
-var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|[^[:alnum:]_])(drop\s+(database|table|schema)|truncate\s+table|truncate\s+[a-z_"][a-z0-9_."]*\s*(;|$|cascade|["']))([^[:alnum:]_]|$)`)
-})
-
-// credRead is a reader of a credential file, the left side of exfilPatterns[1].
-const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc)`
-
-// exfilPatterns match credential-exfiltration shapes.
-var exfilPatterns = []*core.Gated{
-	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
-	core.Gate(credRead+`.*(\|.*(^|[^[:alnum:]_])|>\(([^)]*[^[:alnum:]_])?)(`+strings.Join(networkSinks, "|")+`|openssl\s+s_client)([^[:alnum:]_]|$)`,
-		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc"),
-	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
-	core.Gate(`(scp|rsync)\s+.*(\.ssh/id_|\.aws/credentials)`, ".ssh/id_", ".aws/credentials"),
-}
-
-// toolEnv is a tool's own `env` subcommand (`go env`): it prints the tool's settings, not the environment.
-var toolEnv = core.Gate(`(^|[\s;&|({\x60])(\S*/)?(go|conda|mamba|poetry)[ \t]+env([ \t]*>)`, "env")
-
-var credReader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(credRead) })
-
-// exfilMatch is exfilPatterns[i] on scan, minus a tool's `env` subcommand, public keys and credentials cmd only prints.
-func exfilMatch(i int, re *core.Gated, scan, cmd string) bool {
-	if i == 0 && toolEnv.MayMatch(scan) {
-		scan = toolEnv.Regexp().ReplaceAllString(scan, "${1}${3}${4}")
-	}
-	if i == 1 && publicKey.MayMatch(scan) {
-		scan = publicKey.Regexp().ReplaceAllString(scan, " ${1}")
-	}
-	return i == 1 && secretPiped(scan) || re.MatchString(scan) && (i != 1 || !credsShownOnly(cmd))
-}
-
-// credsShownOnly reports every credential read is a cat/head/tail piped only to filters, with nothing to carry it on.
-func credsShownOnly(cmd string) bool {
-	if secretPiped(cmd) || strings.ContainsAny(cmd, "(){}<>`$") {
-		return false
-	}
-	segs, seps := shell.SegmentsSep(cmd)
-	for k, seg := range segs {
-		if !credReader().MatchString(seg) {
-			continue
-		}
-		toks := shell.Tokens(seg)
-		piped := seps[k] == "|" || seps[k] == "|&"
-		if k > 0 && (seps[k-1] == "|" || seps[k-1] == "|&") || len(toks) == 0 ||
-			!slices.Contains([]string{"cat", "head", "tail"}, toks[0]) || piped && !filtersOnly(segs, seps, k+1) {
-			return false
-		}
-	}
-	return true
-}
-
-// softWarn patterns print a warning but never block.
-var softWarn = []*core.Gated{
-	core.Gate(`kubectl\s+delete(\W|$)`, "kubectl"),
-	core.Gate(`docker\s+system\s+prune`, "prune"),
-	core.Gate(`git\s+reset\s+--hard`, "--hard"),
-	core.Gate(`git\s+clean\s+-[a-z]*f`, "clean"),
-}
-
-// softWarnings names each softWarn shape cmd holds, judging cmd's own inert view when a heredoc was dropped.
-func softWarnings(cmd, scan string, heredocDropped bool) string {
-	view := scan
-	if heredocDropped {
-		view = blankInert(cmd)
-	}
-	var warn strings.Builder
-	for _, re := range softWarn {
-		if re.MatchString(view) {
-			fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
-		}
-	}
-	return warn.String()
-}
 
 // isAskLessEdit marks a non-Bash tool on an agent with no permission-gate ask path (Copilot's edit tools).
 func isAskLessEdit(in *core.Input) bool {
 	return in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") && !core.SupportsAsk(in.Agent())
 }
 
-// Scan checks command safety: a block or non-Claude ask rejects, a Claude ask prompts, soft warnings ride stderr.
+// Scan denies a call a settings.json deny rule matches and an AI-attribution footer; nothing else is checked.
 func Scan(in *core.Input) core.Result {
 	if isAskLessEdit(in) {
 		return protectedEdit(in)
 	}
-	return scanCommand(in)
-}
-
-func scanCommand(in *core.Input) core.Result {
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
-	dropped := dropInertHeredocs(cmd)
-	scan := blankInert(dropped)
-	decision, msg, detail, floor := commandVerdict(in, cmd, scan)
-	var warn strings.Builder
-	if decision != core.Block && detail != settingsAllowDetail && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
-		warn.WriteString(softWarnings(cmd, scan, dropped != cmd))
+	d, msg, detail := commandVerdict(in, cmd)
+	if d == core.Allow {
+		return core.Result{}
 	}
-	if decision == core.Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
-		return core.Result{Stderr: strings.TrimSpace(msg + warn.String())}
-	}
-	rule := detail // the pattern or bucket the audit records, minus a force push's branch name (command text)
-	if strings.HasPrefix(rule, "force push of ") {
-		rule = "force push"
-	}
-	if decision == core.Ask {
+	if d == core.Ask {
 		detail = "ask: " + detail
 	}
 	audit.LogSession(audit.HookBlocked, in.SessionID, "safety", detail)
-	if decision == core.Ask && core.SupportsAsk(in.Agent()) {
-		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String()), Rule: rule, Floor: floor}
+	if d == core.Ask && core.SupportsAsk(in.Agent()) {
+		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Rule: detail, Floor: true}
 	}
-	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg), Rule: rule, Floor: floor}
+	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(msg), Rule: detail, Floor: true}
 }
 
-// Verdict is safety-scan's decision for in with no audit entry or warning, for the doctor permissions report.
-func Verdict(in *core.Input) core.Decision { d, _, _, _ := safetyVerdict(in); return d }
-
-// safetyVerdict checks all block patterns before considering any ask pattern.
-func safetyVerdict(in *core.Input) (core.Decision, string, string, bool) {
-	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
-	return commandVerdict(in, cmd, inertStripped(cmd))
+// Verdict is safety-scan's decision for in with no audit entry, for the doctor permissions report.
+func Verdict(in *core.Input) core.Decision {
+	d, _, _ := commandVerdict(in, dropMessageHeredocs(dropPatchBodies(in.ToolCommand())))
+	return d
 }
 
-// settingsAllowDetail marks a main-thread command a settings allow rule covers: past the floor, built-ins are off (D8).
-const settingsAllowDetail = "settings allow"
-
-// commandVerdict judges cmd floor → deny → ask → allow (main) → built-ins; true marks a floor or deny block.
-func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string, bool) {
+// commandVerdict judges cmd: an attribution footer first, then the settings deny rules.
+func commandVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") || cmd == "" {
-		return core.Allow, "", "", false
+		return core.Allow, "", ""
+	}
+	if d, msg, detail := attributionVerdict(in); d != core.Allow {
+		return d, msg, detail
 	}
 	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
 	py := withPyLaunches(dropPyScripts(cmd))
@@ -206,192 +63,37 @@ func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, st
 	if py != cmd {
 		plain = intentView(cmd, false)
 	}
-	d, warn, detail := floorVerdict(in, cmd, scan, asked) // an Allow's message is the rewrite guard's warning
-	if d != core.Allow {
-		return d, warn, detail, true
-	}
-	if d, msg, detail := planBashVerdict(in, cmd); d != core.Allow {
-		return d, msg, detail, true
-	}
-	if d, msg, detail := leafWallVerdict(in, cmd, plain); d != core.Allow {
-		return d, warn + msg, detail, true
-	}
-	if d, msg, detail, deny := settingsVerdict(in, cmd, asked, plain); d != core.Allow || detail == settingsAllowDetail {
-		return d, warn + msg, detail, deny
-	}
-	d, msg, detail := builtinVerdict(in, cmd, asked, plain)
-	return d, warn + msg, detail, false
+	return settingsVerdict(in, cmd, asked, plain)
 }
 
-// floorVerdict is the code-only floor: every agent, never loosened by a settings allow or a dispatch policy.
-func floorVerdict(in *core.Input, cmd, scan, asked string) (core.Decision, string, string) {
-	for _, re := range pipeBlocks {
-		if re.MatchString(scan) {
-			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
-		}
-	}
-	if fetchToShell(scan) {
-		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", "fetch piped into a shell", terminalHint), "fetch piped into shell"
-	}
-	if d, msg, detail := hardBlockVerdict(in, cmd, scan); d == core.Block {
-		return d, msg, detail
-	}
-	for i, re := range exfilPatterns {
-		if exfilMatch(i, re, scan, cmd) {
-			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
-		}
-	}
-	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
-	d, msg, detail, warn := rewriteVerdict(in, cmd)
-	if d != core.Allow {
-		return d, warn + msg, detail
-	}
-	if d, msg, detail := floorIntentVerdict(in, asked); d != core.Allow {
-		return d, warn + msg, detail
-	}
-	d, msg, detail = fedIntentVerdict(in, cmd)
-	return d, warn + msg, detail
-}
-
-// fedIntentVerdict is floorIntentVerdict on the text a printf/echo piped into a shell runs.
-func fedIntentVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
-	_, fed := shellFeeds(cmd)
-	for _, text := range fed {
-		if d, msg, detail := floorIntentVerdict(in, intentView(text, false)); d != core.Allow {
-			return d, msg, detail
-		}
-	}
-	return core.Allow, "", ""
-}
-
-// programName is the basename of the command a segment runs, past rtk, wrappers and assignments.
-func programName(seg string) string {
-	rest := unwrapAll(shell.Tokens(seg))
-	if len(rest) == 0 {
-		return ""
-	}
-	return filepath.Base(rest[0])
-}
-
-// unwrapAll drops rtk and wrappers until neither leads (`env rtk timeout 5 X`), bounded like shell nesting.
-func unwrapAll(toks []string) []string {
-	for range 8 {
-		next, _ := shell.Unwrap(shell.DropRtk(toks), "")
-		if slices.Equal(next, toks) {
-			break
-		}
-		toks = next
-	}
-	return toks
-}
-
-func pipedOn(sep string) bool { return sep == "|" || sep == "|&" }
-
-// fetchToShell reports a curl/wget piped, through wrappers and pure filters only, into a shell.
-func fetchToShell(scan string) bool {
-	if !strings.Contains(scan, "curl") && !strings.Contains(scan, "wget") {
-		return false
-	}
-	segs, seps := shell.SegmentsSep(scan)
-	for i := 0; i+1 < len(segs); i++ {
-		if name := programName(segs[i]); pipedOn(seps[i]) && (name == "curl" || name == "wget") && feedsShell(segs, seps, i+1) {
-			return true
-		}
-	}
-	return false
-}
-
-// feedsShell reports a shell at segs[from:], reached through filters only.
-func feedsShell(segs, seps []string, from int) bool {
-	for k := from; k < len(segs); k++ {
-		name := programName(segs[k])
-		if shellNames()[name] {
-			return !noExecShell(segs[k])
-		}
-		if !pipedOn(seps[k]) || !pipeFilters()[name] && name != "cat" && name != "tee" {
-			return false
-		}
-	}
-	return false
-}
-
-// noExecShell reports a shell invoked only to syntax-check or print its version (`-n`, `--version`, `--help`).
-func noExecShell(seg string) bool {
-	rest, _ := shell.Unwrap(shell.DropRtk(shell.Tokens(seg)), "")
-	for _, t := range rest[min(1, len(rest)):] {
-		if !strings.HasPrefix(t, "-") {
-			return false
-		}
-		if t == "--version" || t == "--help" || t == "--noexec" || !strings.HasPrefix(t, "--") && strings.Contains(t, "n") {
-			return true
-		}
-	}
-	return false
-}
-
-// floorIntentVerdict blocks the intent rules and a bare force-push, then the git floor.
-func floorIntentVerdict(in *core.Input, asked string) (core.Decision, string, string) {
-	// Rules match inside ONE shell segment: `git push origin main; readlink -f x` is no force-push.
-	for _, seg := range shell.Segments(asked) {
-		read := shellRead(seg) // `git pu''sh -f origin ma''in` is the same push
-		for _, rule := range askRules {
-			for _, re := range rule.pats {
-				if (re.MatchString(seg) || re.MatchString(read)) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
-					return core.Block, core.SafetyMessage(in, core.Block, rule.what, re.String(), rule.hint), re.String()
-				}
-			}
-		}
-	}
-	if branch := bareForcePush(asked, in.CWD); branch != "" {
-		return core.Block, core.SafetyMessage(in, core.Block, forcePushWhat, "", forcePushHint), "force push of " + branch
-	}
-	return floorGitVerdict(in, asked)
-}
-
-// floorGitVerdict blocks hard rule 4 git verbs under the config tree and hard rule 3 footers.
-func floorGitVerdict(in *core.Input, asked string) (core.Decision, string, string) {
-	if verb := harnessGitVerb(asked, in.CWD); verb != "" {
-		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
-		if verb == shell.Uninspectable {
-			what = "command nests too deep to check, inside the shared config tree (CLAUDE.md hard rule 4)"
-		}
-		hint := "The live checkout is shared; make a new commit to undo, or work in a linked worktree " +
-			"(`claude-code worktree create <name>`)." + ownerRoute
-		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared config git mutation"
-	}
-	// strict deny for everyone; nothing loosens it (D5). A footer lives in the message body, so commit text stays.
-	if shell.AttributionFooterCommit(intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true), in.CWD) ||
-		shell.FooterFileWritten(in.ToolCommand(), in.CWD) { // a -F file written earlier in the command, read unblanked
-		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
-		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
+// attributionVerdict blocks an AI-attribution footer in a commit, merge or tag message or a PR title or body.
+func attributionVerdict(in *core.Input) (core.Decision, string, string) {
+	view := intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true)
+	if shell.AttributionFooterCommit(view, in.CWD) || shell.FooterFileWritten(in.ToolCommand(), in.CWD) {
+		what := "AI-attribution footer in a commit, merge, tag or PR message (CLAUDE.md hard rule 3)"
+		hint := "Remove the Co-Authored-By / Generated-with lines and run it again; that needs no approval." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
 	}
 	return core.Allow, "", ""
 }
 
-// settingsVerdict applies deny, ask (dispatch decides without ask) and allow (ends main); true marks a deny block.
-func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string, bool) {
+// settingsVerdict denies a command a settings.json deny rule covers; a fuzzy interpreter write asks.
+func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
 	p, cwd := livePolicy(), in.CWD
-	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, false); {
+	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny); {
 	case rule != "":
 		return core.Block, core.SafetyMessage(in, core.Block, "matches a settings.json deny rule", rule,
-			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny", true
+			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny"
 	case sudoDenied() && sudoInvoked(asked, cwd):
-		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo", true
+		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
 	case f != "":
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", f,
-			"Edit it by hand, or run it yourself in a terminal."), "protected write", true
+			"Edit it by hand, or run it yourself in a terminal."), "protected write"
 	}
-	if needle, _ := interpreterWrite(plain, p.editDeny, false); needle != "" { // fuzzy: asks; Scan blocks without ask
-		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write", true
+	if needle, _ := interpreterWrite(plain, p.editDeny); needle != "" { // fuzzy: asks; Scan blocks without ask
+		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
 	}
-	if d, msg, detail := settingsAskVerdict(in, cmd, asked, plain, p); d != core.Allow {
-		return d, msg, detail, false
-	}
-	if !isLeaf(in) && settingsAllowed(cmd, cwd, p.bashAllow) { // D8: allow never loosens a leaf
-		return core.Allow, "", settingsAllowDetail, false
-	}
-	return core.Allow, "", "", false
+	return core.Allow, "", ""
 }
 
 // fedRuleHit is the deny rule cmd hits, else the one a printf/echo piped into a shell prints.
@@ -408,165 +110,28 @@ func fedRuleHit(cmd, cwd string, rules []permission.Rule) string {
 	return ""
 }
 
-// settingsAskVerdict asks on Claude for each settings ask hit; elsewhere dispatchAsk decides (D1).
-func settingsAskVerdict(in *core.Input, cmd, asked, plain string, p policy) (core.Decision, string, string) {
-	path := protectedWrite(cmd, in.CWD, p.editAsk, false)
-	_, glob := interpreterWrite(plain, p.editAsk, false)
-	for _, h := range []askHit{
-		{"matches a settings.json ask rule", "Bash", cmd, settingsRuleHit(asked, in.CWD, p.bashAsk)},
-		{"writes a file settings.json asks before editing", "Edit", path, "Edit(" + path + ")"},
-		{"an interpreter script that may write a file settings.json asks before editing", "Edit", glob, "Edit(" + glob + ")"},
-	} {
-		switch {
-		case h.arg == "" || h.rule == "" || h.rule == "Edit()":
-		case core.SupportsAsk(in.Agent()):
-			return core.Ask, core.SafetyMessage(in, core.Ask, h.what, h.rule, "Approve only if you asked for it."), "settings ask"
-		default:
-			if d, msg := dispatchAsk(in, h); d != core.Allow {
-				return d, msg, "settings ask (dispatch)"
-			}
-		}
-	}
-	return core.Allow, "", ""
-}
-
 const (
 	interpreterWhat = "an interpreter script that may write a file Edit/Write may never touch"
 	interpreterHint = "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
 )
 
-// builtinVerdict is the rest: settings.local.json and leaf settings.json writes, main-only rules, SQL.
-func builtinVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
-	leaf := isLeaf(in)
-	globs := settingsGlobs(leaf) // the state dir is leafWallVerdict's
-	if p := protectedWrite(cmd, in.CWD, globs, leaf); p != "" {
-		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
-			"Edit it by hand, or run it yourself in a terminal."), "protected write"
-	}
-	if needle, _ := interpreterWrite(plain, globs, leaf); needle != "" {
-		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
-	}
-	if d, msg, detail := mainOnlyVerdict(in); d != core.Allow {
-		return d, msg, detail
-	}
-	if sqlDestructive().MatchString(strings.ToLower(asked)) {
-		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
-		return core.Ask, core.SafetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
-	}
-	return core.Allow, "", ""
-}
-
-// bareForcePush is the protected branch a force-push names no refspec for (it updates the checked-out one), else "".
-func bareForcePush(cmd, cwd string) string {
-	if !strings.Contains(unquoted.Replace(cmd), "push") {
-		return ""
-	}
-	var branch string
-	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
-		if cwd == "" && !filepath.IsAbs(target) { // a relative target needs a cwd to resolve
-			return false
+// unwrapAll drops rtk and wrappers until neither leads (`env rtk timeout 5 X`), bounded like shell nesting.
+func unwrapAll(toks []string) []string {
+	for range 8 {
+		next, _ := shell.Unwrap(shell.DropRtk(toks), "")
+		if slices.Equal(next, toks) {
+			break
 		}
-		if verb == "push" && forcesPush(args) && !slices.Contains(args, "--tags") && impliedRefspec(args) {
-			branch = protectedHead(target)
-		}
-		return branch != ""
-	})
-	return branch
-}
-
-// forcesPush reports --force, --force-with-lease[=…] or a short-flag cluster containing f among push args.
-func forcesPush(args []string) bool {
-	return slices.ContainsFunc(args, func(a string) bool {
-		return a == "--force" || strings.HasPrefix(a, "--force-with-lease") ||
-			(strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "f"))
-	})
-}
-
-// pushValueFlags take their value as the next word, which is neither the remote nor a refspec.
-var pushValueFlags = sync.OnceValue(func() []string { return shell.GuardWords("git_push_value_flags") })
-
-// impliedRefspec reports a push whose words are at most a remote and HEAD, so it updates the checked-out branch.
-func impliedRefspec(args []string) bool {
-	var words []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case slices.Contains(pushValueFlags(), args[i]):
-			i++
-		case !strings.HasPrefix(args[i], "-"):
-			words = append(words, args[i])
-		}
+		toks = next
 	}
-	return len(words) <= 1 || (len(words) == 2 && words[1] == "HEAD")
-}
-
-// protectedHead is dir's checked-out main/master, else ""; a failing git reports an unknown branch so the push asks.
-func protectedHead(dir string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
-	defer cancel()
-	lines, ok, err := proc.Git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
-	if err != nil {
-		return "an unknown branch (git failed)"
-	}
-	if !ok || len(lines) != 1 || (lines[0] != "main" && lines[0] != "master") {
-		return ""
-	}
-	return lines[0]
-}
-
-// dropRemoteHeredocs removes quoted-delimiter heredoc bodies fed to ssh: they run remotely, unexpanded locally.
-func dropRemoteHeredocs(cmd string) string {
-	return core.DropHeredocBodies(cmd, false, func(lines []string, i int) int {
-		m := core.HeredocOp().FindStringSubmatch(lines[i])
-		if m == nil || m[4] != "" || strings.Contains(lines[i], "<<<") || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter
-			return -1
-		}
-		return core.HeredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-")
-	})
-}
-
-// sshHoldsHeredoc reports an ssh segment carrying the heredoc operator whose output is not piped on.
-func sshHoldsHeredoc(line string) bool {
-	segs, seps := shell.SegmentsSep(line)
-	for i, seg := range segs {
-		if core.HeredocOp().MatchString(seg) {
-			toks := shell.Tokens(seg)
-			return len(toks) > 0 && toks[0] == "ssh" && seps[i] != "|" && seps[i] != "|&"
-		}
-	}
-	return false
+	return toks
 }
 
 // fdToSubst matches a redirect to fd 3+, which `exec 3> >(sh)` can point at an interpreter.
 var fdToSubst = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[<>]&[3-9]`) })
 
-// inertStripped blanks data-only text but keeps command substitutions; pipeBlocks, exfil and SQL patterns match it.
-func inertStripped(cmd string) string { return blankInert(dropInertHeredocs(cmd)) }
-
-// blankInert is the shape rules' view: a segment is blanked only if it is inert and the intent view blanks it too.
-func blankInert(cmd string) string {
-	return blankSegments(cmd, false, func(segs, seps []string, i int, _ bool) bool {
-		// A piped segment feeds the next command, so its text stays (`echo "curl x" | sh`) unless only filters read it.
-		return inertSegment(segs[i]) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1)) &&
-			dataSegment(segs[i], false, false) && dataPipeline(segs, seps, i, false, false)
-	})
-}
-
 // pipeFilters only read stdin and print it: none runs, writes or forwards its input.
 var pipeFilters = sync.OnceValue(func() map[string]bool { return shell.GuardSet("pipe_filters") })
-
-// filtersOnly reports a pipeline from segs[from] on made only of pipeFilters with no redirect, ending at the terminal.
-func filtersOnly(segs, seps []string, from int) bool {
-	for k := from; k < len(segs); k++ {
-		toks := shell.Tokens(segs[k])
-		if len(toks) == 0 || !pipeFilters()[toks[0]] || !inertEcho(toks) || !inertGrep(toks) {
-			return false
-		}
-		if seps[k] != "|" && seps[k] != "|&" {
-			return true
-		}
-	}
-	return false
-}
 
 // msgHeredocOpen matches a line ending in `$(cat <<'EOF'`: the body becomes the substitution's text.
 var msgHeredocOpen = sync.OnceValue(func() *regexp.Regexp {
@@ -763,22 +328,8 @@ func dropInertHeredocs(cmd string) string {
 	})
 }
 
-// isLeaf reports an Agent-tool subagent (agent_id) or a dispatched CLI leaf (dispatch id or depth in the env).
-func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(context.Background()) }
-
-// leafSettings spells settings.json from $HOME, ~, a HOME concatenation or CLAUDE_CONFIG_DIR; a leaf may not write it.
-var leafSettings = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
-		`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
-})
-
 // protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
-func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
-	return protectedWriteOf(cmd, cwd, raw, leaf, core.WrittenPaths(cmd, cwd))
-}
-
-// protectedWriteOf is protectedWrite judging the given written paths.
-func protectedWriteOf(cmd, cwd string, raw []string, leaf bool, written []string) string {
+func protectedWrite(cmd, cwd string, raw []string) string {
 	var globs []string
 	folded := false
 	fold := func() []string {
@@ -787,8 +338,8 @@ func protectedWriteOf(cmd, cwd string, raw []string, leaf bool, written []string
 		}
 		return globs
 	}
-	for _, p := range written {
-		if (protectedPath(p, fold()) || leaf && leafSettings().MatchString(p)) && !tempWriteAllowed(cmd, p) {
+	for _, p := range core.WrittenPaths(cmd, cwd) {
+		if protectedPath(p, fold()) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
@@ -840,7 +391,7 @@ func homePrefix() string {
 }
 
 // interpreterWrite is the raw glob's needle (and glob) an interpreter command's text mentions beside a write indicator.
-func interpreterWrite(cmd string, raw []string, leaf bool) (needle, glob string) {
+func interpreterWrite(cmd string, raw []string) (needle, glob string) {
 	cmd = core.DropDataHeredocs(cmd)
 	heredoc := strings.Contains(cmd, "<<")   // a script body sits on lines after its interpreter's segment
 	whole := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
@@ -860,23 +411,20 @@ func interpreterWrite(cmd string, raw []string, leaf bool) (needle, glob string)
 		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, text) {
 			continue
 		}
-		if n, g := mentionedGlob(raw, used, leaf); n != "" {
+		if n, g := mentionedGlob(raw, used); n != "" {
 			return n, g
 		}
 	}
 	return "", ""
 }
 
-// mentionedGlob is the raw glob's needle (and glob) the folded text names; a leaf's settings.json counts too.
-func mentionedGlob(raw []string, used string, leaf bool) (needle, glob string) {
+// mentionedGlob is the raw glob's needle (and glob) the folded text names.
+func mentionedGlob(raw []string, used string) (needle, glob string) {
 	home := homePrefix()
 	for _, g := range raw {
 		if n := globNeedle(g, home); n != "" && strings.Contains(used, paths.FoldCase(n)) {
 			return n, g
 		}
-	}
-	if m := leafSettings().FindString(used); leaf && m != "" {
-		return m, ""
 	}
 	return "", ""
 }

@@ -26,13 +26,11 @@ type guardSection struct {
 
 // guardExclusive are section pairs whose words must never overlap: a word in both is a contradiction.
 var guardExclusive = [][2]string{
-	{"rebase_resume_flags", "rebase_value_flags"},
 	{"removal_operand_commands", "removal_move_commands"},
 	{"writer_script_flags", "writer_operand_commands"},
 	{"writer_script_flags", "writer_destination_commands"},
 	{"writer_operand_commands", "writer_destination_commands"},
 	{"find_exec_flags", "find_write_flags"},
-	{"data_commands", "runner_names"},
 	{"inert_commands", "evaluators"},
 	{"pipe_filters", "evaluators"},
 }

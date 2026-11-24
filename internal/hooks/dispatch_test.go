@@ -262,7 +262,7 @@ var pointerBound = map[string]core.Runner{
 	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": reminderWatched,
-	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
+	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
 	"worktree-clean-end": wthook.CleanEnd,
 	"secrets-out":        SecretsOut, "secrets-end": SecretsEnd, "web-tavily": WebTavily,
 }
@@ -429,11 +429,14 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	}
 }
 
+// askCmd is an interpreter write to a settings deny path: the one shape safety-scan asks on.
+const askCmd = `python3 -c "open('/Users/me/.ssh/x','w')"`
+
 // TestSafetyAskDocumentExactShape pins the Claude ask document: exactly one top-level key, three inner keys.
 func TestSafetyAskDocumentExactShape(t *testing.T) {
 	narrowAllow(t, hosttest.TierHarness(t))
 	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", hosttest.BashPayload("psql -c 'DROP TABLE t'"), &out, &errb); code != core.ExitProceed {
+	if code := runDirect("safety-scan", hosttest.BashPayload(askCmd), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var top map[string]json.RawMessage
@@ -484,7 +487,7 @@ func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	narrowAllow(t, flagHarness(t))
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash", "cwd": t.TempDir(),
-		"tool_input": map[string]string{"command": "psql -c 'DROP TABLE t'"},
+		"tool_input": map[string]string{"command": askCmd},
 	})
 	t.Run("gate carries the ask", func(t *testing.T) {
 		var out, errb bytes.Buffer

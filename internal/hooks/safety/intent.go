@@ -3,7 +3,6 @@ package safety
 import (
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -15,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// ownerRoute ends every intent-rule deny: the owner's deliberate path past the hook.
+// ownerRoute ends every deny: the owner's deliberate path past the hook.
 const ownerRoute = " The owner can run it with `!` in the prompt."
 
 // intentView is cmd minus data heredoc bodies and data words; keepCommit keeps commit text for the footer rule.
@@ -164,9 +163,17 @@ func dataSegment(seg string, runs, keepCommit bool) bool {
 		return false
 	}
 	name := filepath.Base(toks[0])
+	if keepCommit && shell.PRMessage(toks) { // a PR's title and body are scanned for a footer, as a commit's are
+		return false
+	}
 	if shell.IsHarnessName(name) {
 		return claudeCodeData(toks, keepCommit)
 	}
+	return plainData(name, toks, keepCommit)
+}
+
+// plainData reports a non-harness command whose words are text.
+func plainData(name string, toks []string, keepCommit bool) bool {
 	if judge, ok := dataJudges[name]; ok {
 		return judge(toks)
 	}
@@ -204,87 +211,6 @@ var envAssign = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 var sedExec = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|[;{}\n])\s*e(\s|;|$)|/[gpIiMm0-9w]*e[gpIiMm0-9w]*\s*($|[;}])`)
 })
-
-// harmlessGit is a rule-2 verb form that discards and hides no work: a new branch, or an unstage.
-func harmlessGit(verb string, args []string) bool {
-	switch verb {
-	case "checkout":
-		return newBranchOnly(args, "-b")
-	case "switch":
-		return newBranchOnly(args, "-c", "--create")
-	case "restore":
-		return unstageOnly(args)
-	case "reset":
-		return resetUnstage(args)
-	}
-	return false
-}
-
-// branchQuietFlags are the checkout/switch flags that neither discard nor overwrite.
-var branchQuietFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("branch_quiet_flags") })
-
-// newBranchOnly reports a create flag with its name, at most one start point and only quiet/track flags.
-func newBranchOnly(args []string, create ...string) bool {
-	named, points := false, 0
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case slices.Contains(create, a) && i+1 < len(args):
-			named = true
-			i++
-		case !strings.HasPrefix(a, "-"):
-			points++
-		case !branchQuietFlags()[a] && !strings.HasPrefix(a, "--track="):
-			return false // -f, -B, --discard-changes, --orphan, -- paths …
-		}
-	}
-	return named && points <= 1
-}
-
-// unstageOnly reports `git restore --staged` with no --worktree: it resets the index and leaves files alone.
-func unstageOnly(args []string) bool {
-	staged := false
-	for i := 0; i < len(args) && args[i] != "--"; i++ {
-		a := args[i]
-		if a == "-s" || a == "--source" {
-			i++
-			continue
-		}
-		if !restoreIndexFlag(a) {
-			return false
-		}
-		staged = staged || a == "--staged" || !strings.HasPrefix(a, "--") && strings.Contains(a, "S")
-	}
-	return staged
-}
-
-// restoreIndexFlag is a pathspec or a restore flag that touches only the index: -S, --staged, -q, --source=.
-func restoreIndexFlag(a string) bool {
-	switch {
-	case !strings.HasPrefix(a, "-"):
-		return true
-	case strings.HasPrefix(a, "--"):
-		return a == "--staged" || a == "--quiet" || strings.HasPrefix(a, "--source=")
-	}
-	return strings.Trim(a[1:], "Sq") == ""
-}
-
-// resetUnstage reports a mixed `git reset` of HEAD itself, optionally limited to paths: it only unstages.
-func resetUnstage(args []string) bool {
-	head := false
-	for i, a := range args {
-		switch {
-		case a == "--":
-			return !slices.ContainsFunc(args[i+1:], func(p string) bool { return strings.HasPrefix(p, "-") })
-		case a == "-q" || a == "--quiet" || a == "--mixed":
-		case a == "HEAD" && !head:
-			head = true
-		case !head || strings.HasPrefix(a, "-"): // a commit other than HEAD, or a mode such as --hard
-			return false
-		}
-	}
-	return true
-}
 
 const sudoHint = "sudo is not run from an agent session; install to a user prefix (~/.local, pipx, a venv) instead." +
 	ownerRoute
@@ -402,60 +328,6 @@ func interpreterBodySudo(view string) bool {
 	return false
 }
 
-// hardDataCommands never run their words: a hard-block shape only in their arguments is text, not a command.
-var hardDataCommands = map[string]func(toks []string) bool{
-	"grep": inertGrep, "rg": inertGrep, "ag": inertGrep, "echo": inertWords, "printf": inertWords,
-	"jq": inertWords, "test": inertWords, "[": inertWords,
-	"git": func(toks []string) bool { return inertGit(toks) || len(toks) > 1 && toks[1] == "log" },
-	"claude-code": func(toks []string) bool {
-		// HarnessArgs drops `--host h`, so that form reads as the plain one; a commit message or PR text is data.
-		h := shell.HarnessArgs(toks)
-		if len(h) > 1 && h[0] == "worktree" {
-			return slices.Contains([]string{"commit", "pr", "checks"}, h[1])
-		}
-		return len(h) > 1 && h[0] == "agents" && slices.Contains(briefVerbs(), h[1])
-	},
-}
-
-func inertWords([]string) bool { return true }
-
-var briefVerbs = sync.OnceValue(func() []string { return shell.GuardWords("agents_brief_verbs") })
-
-// runnerNames take their input or arguments as code; text piped into one is not data.
-var runnerNames = sync.OnceValue(func() map[string]bool { return shell.GuardSet("runner_names") })
-
-// blankHardData blanks the words of hardDataCommands segments outside heredoc bodies, keeping substitutions.
-func blankHardData(cmd string) string {
-	return blankSegments(cmd, true, func(segs, seps []string, i int, runs bool) bool {
-		return hardDataSegment(segs[i], runs) && !pipesIntoRunner(segs, seps, i)
-	})
-}
-
-// hardDataSegment reports a hardDataCommands segment; a redirect counts only when no file runs in the same line.
-func hardDataSegment(seg string, runs bool) bool {
-	toks := shell.Tokens(seg)
-	if len(toks) == 0 || runs && slices.ContainsFunc(toks, func(t string) bool { return strings.Contains(t, ">") }) {
-		return false
-	}
-	name := filepath.Base(toks[0])
-	if shell.IsHarnessName(name) {
-		name = "claude-code"
-	}
-	judge, ok := hardDataCommands[name]
-	return ok && judge(toks)
-}
-
-// pipesIntoRunner reports segs[i]'s output reaching a runner or interpreter through a pipe.
-func pipesIntoRunner(segs, seps []string, i int) bool {
-	for k := i; k+1 < len(segs) && (seps[k] == "|" || seps[k] == "|&"); k++ {
-		rest, _ := shell.Unwrap(shell.Tokens(segs[k+1]), "")
-		if len(rest) == 0 || runnerNames()[filepath.Base(rest[0])] || interpreterLang(filepath.Base(rest[0])) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // keptSubstitutions is seg reduced to its command substitutions, which still run.
 func keptSubstitutions(seg string) string {
 	_, subs := shell.ExtractSubstitutions(seg)
@@ -474,109 +346,4 @@ func spliceBodies(out string, bodies []string) string {
 		out = strings.Replace(out, fmt.Sprintf("%s%d\n", bodySlot, k), body, 1)
 	}
 	return out
-}
-
-// freshMktemp reports a `$(mktemp …)` at the start of s that makes its file under a system temp root, not the cwd.
-func freshMktemp(s string) bool {
-	inner, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimLeft(s, `"`), "$("), ")")
-	toks := shell.Tokens(inner)
-	if len(toks) == 0 || toks[0] != "mktemp" {
-		return false
-	}
-	underTempDir := func(p string) bool { return filepath.IsAbs(p) && !strings.Contains(p, "..") && underTemp(p) }
-	prefixed := false // -t: the template is a prefix inside the temp dir
-	for i := 1; i < len(toks); i++ {
-		switch a := toks[i]; {
-		case a == "-p" || a == "--tmpdir":
-			if i++; i >= len(toks) || !underTempDir(toks[i]) {
-				return false
-			}
-		case strings.HasPrefix(a, "--tmpdir=") || strings.HasPrefix(a, "-p"):
-			if !underTempDir(strings.TrimPrefix(strings.TrimPrefix(a, "--tmpdir="), "-p")) {
-				return false
-			}
-		case a == "-t":
-			prefixed = true
-		case strings.HasPrefix(a, "-"):
-			if strings.Trim(a[1:], "dqu") != "" && a != "--directory" && a != "--quiet" && a != "--dry-run" {
-				return false
-			}
-		case !prefixed && !underTempDir(a) || strings.Contains(a, "/") && !underTempDir(a):
-			return false // a bare or relative template lands in the cwd
-		}
-	}
-	return true
-}
-
-// mktempAssign matches a statement assigning one `$(mktemp …)` substitution.
-var mktempAssign = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(?:export\s+)?([A-Za-z_]\w*="?\$\(\s*mktemp[^)]*\)"?)$`)
-})
-
-// varPaths maps each variable a statement assigns a literal absolute path, or a fresh `$(mktemp)` dir, to that path.
-func varPaths(cmd string) map[string]string {
-	vals, bad := map[string]string{}, map[string]bool{}
-	for _, seg := range shell.Segments(cmd) {
-		toks := shell.Tokens(seg)
-		if m := mktempAssign().FindStringSubmatch(strings.TrimSpace(seg)); m != nil { // Tokens splits the substitution
-			toks = []string{m[1]}
-		}
-		if len(toks) > 0 && (toks[0] == "export" || toks[0] == "local" || toks[0] == "declare") {
-			toks = toks[1:]
-		}
-		if len(toks) == 0 || len(shellSkipAssign(toks)) > 0 { // `T=x cmd` sets T for cmd only
-			continue
-		}
-		for _, t := range toks {
-			name, word, _ := strings.Cut(t, "=")
-			word = expandWith(word, vals)
-			switch {
-			case mktempCd[2].MatchString(word) && freshMktemp(word):
-				word = filepath.Join(os.TempDir(), "mktemp-"+name) // a fresh dir: never the shared tree
-			case !filepath.IsAbs(word) || strings.ContainsAny(word, "$`*?") || strings.Contains(word, ".."):
-				bad[name] = true
-			}
-			if prev, seen := vals[name]; bad[name] || seen && prev != word {
-				bad[name] = true
-				delete(vals, name)
-				continue
-			}
-			vals[name] = word
-		}
-	}
-	return vals
-}
-
-// expandVars writes each varPaths variable's path in place of $NAME and ${NAME}.
-func expandVars(text string) string {
-	if !strings.Contains(text, "=") || !strings.Contains(text, "$") {
-		return text
-	}
-	return expandWith(text, varPaths(text))
-}
-
-// varRef matches $NAME or ${NAME}; the greedy \w+ equals the old per-name `\$NAME\b`.
-var varRef = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\$(?:\{\w+\}|\w+)`) })
-
-func expandWith(text string, vals map[string]string) string {
-	if len(vals) == 0 {
-		return text
-	}
-	return varRef().ReplaceAllStringFunc(text, func(m string) string {
-		if val, ok := vals[strings.Trim(m, "${}")]; ok {
-			return val
-		}
-		return m
-	})
-}
-
-// guardedWord matches a hard rule 4 git verb as a whole word anywhere in text.
-var guardedWord = sync.OnceValue(func() *core.Gated {
-	verbs := shell.GuardWords("git_shared_tree_banned_verbs")
-	return core.Gate(`\b(?:`+strings.Join(verbs, "|")+`)\b`, verbs...)
-})
-
-// tooDeepNoVerb reports a too-deep call whose command text holds no guarded verb word, so nothing there can mutate.
-func tooDeepNoVerb(verb string, args []string, cmd string) bool {
-	return verb == shell.Uninspectable && shell.TooDeep(args) && !guardedWord().MatchString(cmd)
 }

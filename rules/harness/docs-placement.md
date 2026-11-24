@@ -37,7 +37,7 @@ tracked or ignored, is redirected to the dated plans home (`docs-placement`).
 ## The Plan agent
 
 A `Write`/`Edit` from the `Plan` subagent (payload `agent_type`) passes only under `~/.claude/plans/`; any other path
-blocks.
+blocks. A Bash write outside it blocks too (a floor block the leaf allow-and-note never lifts).
 
 ## When the gate blocks
 

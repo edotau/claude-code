@@ -58,8 +58,8 @@ func TestHeredocBodies(t *testing.T) {
 	}
 	for _, c := range cases {
 		segs, seps := SegmentsSep(c.cmd)
-		if got := HeredocBodies(segs, seps); !slices.Contains(got, true) == c.want {
-			t.Errorf("HeredocBodies(%q) = %v, want a marked body: %v", c.cmd, got, c.want)
+		if got := newSegWalk(segs, seps).heredocBodies(); !slices.Contains(got, true) == c.want {
+			t.Errorf("heredocBodies(%q) = %v, want a marked body: %v", c.cmd, got, c.want)
 		}
 	}
 }

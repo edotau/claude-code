@@ -9,9 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shell"
 )
 
 // symlinkMaker spots a command that could point a temp path into a real directory before the removal runs.
@@ -40,17 +38,6 @@ var movesCwd = sync.OnceValue(func() *regexp.Regexp {
 func tempWriteAllowed(cmd, p string) bool {
 	return !movesCwd().MatchString(cmd) && !strings.Contains(cmd, "truncate") && !symlinkMaker().MatchString(cmd) &&
 		tempRemovable(p) && tempRemovable(paths.Real(p))
-}
-
-// tempGitRemoval reports a plain `rm` whose operands and their targets pass tempWriteAllowed's rules (a fixture .git).
-func tempGitRemoval(seg, cmd, cwd string) bool {
-	seg, cmd = expandWith(seg, varPaths(cmd)), expandVars(cmd) // `T=/tmp/x && rm -rf $T/.git` removes a temp copy
-	toks := shell.Tokens(seg)
-	if len(toks) == 0 || toks[0] != "rm" || !removalAllowed(cmd, core.RemovedPaths(cmd, cwd)) {
-		return false
-	}
-	removed := core.RemovedPaths(seg, cwd)
-	return len(removed) > 0 && !slices.ContainsFunc(removed, func(p string) bool { return !tempWriteAllowed(cmd, p) })
 }
 
 // tempRemovable reports whether deleting p (the final element, never what it points at) touches only a temp folder.

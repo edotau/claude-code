@@ -122,41 +122,6 @@ func TestSafetyTempFixtureWrites(t *testing.T) {
 	})
 }
 
-// A throwaway temp repo's .git may be removed; the live tree's, or one reached by a link, cd or nested shell, asks.
-func TestSafetyTempGitRemoval(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	tmp := t.TempDir()
-	liveCfg := paths.ConfigDir()
-	link := filepath.Join(tmp, "linkcfg")
-	if err := os.Symlink(liveCfg, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	fx := filepath.Join(tmp, "fixture")
-	runTempCases(t, []tempCase{
-		{"rm -rf a temp fixture's .git", "rm -rf " + filepath.Join(fx, ".git"), core.Allow},
-		{"rm -rf the live tree's .git", "rm -rf " + filepath.Join(liveCfg, ".git"), core.Block},
-		{"rm -rf through a temp symlink, trailing slash", "rm -rf " + filepath.Join(link, ".git") + "/", core.Block},
-		{"ln -s into the config dir, then rm", "ln -s " + liveCfg + " " + filepath.Join(tmp, "l4") + " && rm -rf " +
-			filepath.Join(tmp, "l4", ".git"), core.Block},
-		{"cd, then a relative .git", "cd " + fx + " && rm -rf .git", core.Block},
-		{"a glob", "rm -rf " + filepath.Join(tmp, "*", ".git"), core.Block},
-		{"inside bash -c", "bash -c 'rm -rf " + filepath.Join(fx, ".git") + "'", core.Block},
-		{"temp .git beside the live one", "rm -rf " + filepath.Join(fx, ".git") + " " + filepath.Join(liveCfg, ".git"),
-			core.Block},
-	})
-}
-
-func TestSafetyKeepsDestructiveShapesOverTempRemovals(t *testing.T) {
-	temp := vaultIn(t, filepath.Join(t.TempDir(), "copy"))
-	runTempCases(t, []tempCase{
-		{"rm -rf ~", "rm -rf ~", core.Block},
-		{"rm -rf $HOME", "rm -rf $HOME", core.Block},
-		{"rm -rf /", "rm -rf /", core.Block},
-		{"rm -rf a system dir", "rm -rf /usr", core.Block},
-		{"temp copy then the home directory", "rm " + temp + " && rm -rf ~", core.Block},
-	})
-}
-
 func TestSafetyBlocksRemovingInTheLiveConfigDirUnderATempRoot(t *testing.T) {
 	tmp := t.TempDir()
 	liveCfg := filepath.Join(tmp, ".ssh")

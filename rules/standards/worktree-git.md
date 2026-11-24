@@ -2,7 +2,7 @@
 
 1. **Conventional Commits** — `<type>[scope][!]: <description>` (types `feat` `fix` `docs` `style` `refactor` `perf`
    `test` `chore` `ci` `build` `revert`), a subject over 150 characters warns, 2 lines max plus a `BREAKING CHANGE:`
-   line, no AI-attribution footers (`safety-scan` blocks);
+   line, no AI-attribution footers in a commit, merge, tag or PR (`safety-scan` blocks them);
    `Fixes #42` where an issue exists; a body line only for what the diff cannot show.
 2. **Branches** — `feature/<domain>-<component>`, `fix/<issue>-<description>`, `docs/<component>`,
    `hotfix/<issue>-<description>`, `test/<feature>`; delete after merging.
@@ -74,10 +74,9 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
   Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
 
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in
-  your own linked worktree (CLAUDE.md hard rule 4). `safety-scan` blocks stash|checkout|switch|reset|restore|clean under
-  `~/.claude` (a new branch, an unstage and dry runs pass) and `commit --amend`, `rebase` and `reset <commit>` in a
-  shared checkout (a leaf outside `~/.claude` is held to the main session's rules). Coordination:
-  `skills/using-git-worktrees/references/shared-checkout.md`.
+  your own linked worktree (CLAUDE.md hard rule 4). Never run stash, checkout, switch, reset, restore or clean in
+  `~/.claude`, nor `commit --amend`, `rebase` or `reset <commit>` in a shared checkout; a new branch, an unstage and
+  dry runs are fine. Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
 - **A change you did not make is the owner's.** An uncommitted edit, new file or deletion you did not make in this task
   is the owner's or a peer's: never revert, overwrite, reformat or "clean up" it, even when it fails a gate; build on
   it and report what blocks you.

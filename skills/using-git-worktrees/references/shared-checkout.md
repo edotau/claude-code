@@ -55,9 +55,8 @@ writer is the exception: one row in `internal/schemas/testdata/writers/<pkg>.txt
 
 ## Never rewrite shared history
 
-Rule: `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md` → Worktrees. `safety-scan` applies it in a shared
-tree: `~/.claude`, a tree a peer works in, or a main tree where your session has live leaves (a leaf under
-`~/.claude` is always blocked; elsewhere it is held to the main session's rules). Rewrite history only in your own
+Rule: `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md` → Worktrees. It holds in a shared tree:
+`~/.claude`, a tree a peer works in, or a main tree where your session has live leaves. Rewrite history only in your own
 linked worktree (`claude-code worktree create <slug>`). Path resets
 (`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
 

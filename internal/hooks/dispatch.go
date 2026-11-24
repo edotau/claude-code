@@ -332,9 +332,6 @@ func unreadable(name, problem string) string {
 func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	res, rows, _ := dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
-	if allowed := agentBashAllow(in, res); allowed.Decision != res.Decision {
-		res, rows = allowed, passedRows(rows) // telemetry records what the call got, not the lifted block
-	}
 	code := core.Emit(in.Agent(), event, res, stdout, stderr)
 	hooktelemetry.Record(rows)
 	return code
@@ -409,7 +406,7 @@ func drain(wg *sync.WaitGroup, log io.Writer) {
 var native = map[string]core.Runner{
 	"safety-scan":          safety.Scan,
 	"rtk-rewrite":          safety.RTKRewrite,
-	"docs-placement":       docs.Placement,
+	"docs-placement":       placementRun,
 	"memory-start":         WithDispatchLabels(memhook.Start),
 	"memory-recall":        WithDispatchLabels(memhook.Recall),
 	"paths-resolve":        docs.ResolvePaths,
@@ -435,7 +432,7 @@ var native = map[string]core.Runner{
 	"worktree-remove":      viaStderr(wthook.Remove),
 	"worktree-busy":        busyWatched,
 	"worktree-claim":       wthook.Claim,
-	"worktree-claim-check": wthook.ClaimCheck,
+	"worktree-claim-check": claimCheckRun,
 	"worktree-clean-end":   wthook.CleanEnd,
 	"permission-gate":      safety.PermissionGate,
 	"secrets-out":          SecretsOut,
@@ -516,7 +513,6 @@ func emitDirect(name string, o directOutcome, stdout, stderr io.Writer) int {
 	agent := os.Getenv(settings.AgentEnv)
 	if o.in != nil {
 		agent = o.in.Agent()
-		o.res = agentBashAllow(o.in, o.res)
 	}
 	if o.res.Decision == core.Block && specOf(name).Blocks {
 		return renderBlock(specOf(name), agent, o.res, stdout, stderr)
@@ -533,9 +529,6 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
 	rule, verdict := tagOf(name, o.res, o.err)
 	row := hooktelemetry.Row{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur, Rule: rule, Verdict: verdict}
-	if o.in != nil && agentBashAllow(o.in, o.res).Decision != o.res.Decision {
-		row = passedRows([]hooktelemetry.Row{row})[0]
-	}
 	if o.in != nil {
 		row.Sid, row.Tool = o.in.SessionID, o.in.ToolName
 	}

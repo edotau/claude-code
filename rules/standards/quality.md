@@ -49,14 +49,13 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
 | 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
 | 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, and at the end of every wave over its merged diff |
-| 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**; a leaf runs a chain target only when its brief names it (its `make` call gets the `agentBashAllow` note) |
+| 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**; a leaf runs a chain target only when its brief names it |
 
 `rtk make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and
 fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
 call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main), never one call per file (each
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
-tree. A leaf may run them too, each with an `agentBashAllow` note (`rules/harness/hooks.md` → safety-scan
-main-session rules); the audit after a worktree merge and at session end runs on clean main automatically.
+tree. A leaf may run them too; the audit after a worktree merge and at session end runs on clean main automatically.
 
 Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes.
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.

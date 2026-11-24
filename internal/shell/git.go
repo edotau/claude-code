@@ -187,8 +187,8 @@ func footerLine(arg string) bool {
 const maxMessageFile = 64 << 10
 
 // messageFileFooter reports a footer line in an existing file named by -F/--file/-t/--template.
-func messageFileFooter(target string, args []string) bool {
-	for _, path := range messageFiles(target, args) {
+func messageFileFooter(paths []string) bool {
+	for _, path := range paths {
 		if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxMessageFile {
 			continue
 		}
@@ -199,24 +199,34 @@ func messageFileFooter(target string, args []string) bool {
 	return false
 }
 
-// messageFiles are the absolute paths of a commit's -F/--file/-t/--template files; stdin (-) is not a file.
-func messageFiles(target string, args []string) []string {
+// messageFiles are the absolute paths of a verb's message files: a commit's -F/--file/-t/--template, a PR's body file.
+func messageFiles(target, verb string, args []string) []string {
+	file := commitFile
+	if prMessageVerb(verb) {
+		file = prFile
+	}
 	var out []string
-	for i, a := range args {
-		path := ""
-		switch {
-		case (a == "-F" || a == "--file" || a == "-t" || a == "--template") && i+1 < len(args):
-			path = args[i+1]
-		case strings.HasPrefix(a, "--file="), strings.HasPrefix(a, "--template="):
-			_, path, _ = strings.Cut(a, "=")
-		case len(a) > 2 && (strings.HasPrefix(a, "-F") || strings.HasPrefix(a, "-t")):
-			path = a[2:]
-		}
-		if path != "" && path != "-" {
+	for i := range args {
+		if path := file(args, i); path != "" && path != "-" {
 			out = append(out, resolveIn(target, path))
 		}
 	}
 	return out
+}
+
+// commitFile is the message file args[i] names, whole or with its value attached; "" when it names none.
+func commitFile(args []string, i int) string {
+	a := args[i]
+	switch {
+	case (a == "-F" || a == "--file" || a == "-t" || a == "--template") && i+1 < len(args):
+		return args[i+1]
+	case strings.HasPrefix(a, "--file="), strings.HasPrefix(a, "--template="):
+		_, path, _ := strings.Cut(a, "=")
+		return path
+	case len(a) > 2 && (strings.HasPrefix(a, "-F") || strings.HasPrefix(a, "-t")):
+		return a[2:]
+	}
+	return ""
 }
 
 func isFlag(w string) bool { return strings.HasPrefix(w, "-") }
@@ -230,13 +240,13 @@ func resolveIn(dir, path string) string {
 
 // FooterFileWritten reports a commit message file that the same command writes a footer line into first.
 func FooterFileWritten(cmd, cwd string) bool {
-	if !containsAny(cmd, "commit", "merge", "tag") || !containsAny(cmd, ">", "tee", "python", "node", "perl", "ruby", "php") ||
-		!containsAny(cmd, "-F", "--file", "-t") {
+	if !containsAny(cmd, "commit", "merge", "tag", "pr") || !containsAny(cmd, ">", "tee", "python", "node", "perl", "ruby", "php") ||
+		!containsAny(cmd, "-F", "--file", "-t", "body-file") {
 		return false
 	}
 	files := map[string]bool{}
-	EachGit(cmd, cwd, func(target, verb string, args []string) bool {
-		for _, p := range messageFiles(target, args) {
+	EachMessage(cmd, cwd, func(target, verb string, args []string) bool {
+		for _, p := range messageFiles(target, verb, args) {
 			files[p] = files[p] || messageVerb(verb)
 		}
 		return false
@@ -328,35 +338,54 @@ func containsAny(s string, subs ...string) bool {
 }
 
 func messageVerb(verb string) bool {
-	return verb == "commit" || verb == "merge" || verb == "tag" || verb == WorktreeCommit
+	return verb == "commit" || verb == "merge" || verb == "tag" || verb == WorktreeCommit || prMessageVerb(verb)
 }
 
-// AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.
+// prMessageVerb reports a verb EachMessage gives for a PR-creating or PR-editing call.
+func prMessageVerb(verb string) bool {
+	return verb == PRCreate || verb == PREdit || verb == WorktreePRCreate
+}
+
+// prFile is the body file (--body-file, -F; value attached or next) args[i] names; "" when it names none.
+func prFile(args []string, i int) string {
+	a := args[i]
+	name, val, has := strings.Cut(a, "=")
+	switch {
+	case (a == "--body-file" || a == "-body-file" || a == "-F") && i+1 < len(args):
+		return args[i+1]
+	case has && (name == "--body-file" || name == "-body-file"):
+		return val
+	case len(a) > 2 && strings.HasPrefix(a, "-F"):
+		return a[2:]
+	}
+	return ""
+}
+
+// prValues are the text a PR flag attaches to its word: --title=T, --body=B, -bB, -tT.
+func prValues(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		if _, val, has := strings.Cut(a, "="); has {
+			out = append(out, val)
+		} else if len(a) > 2 && (a[1] == 'b' || a[1] == 't') {
+			out = append(out, a[2:])
+		}
+	}
+	return out
+}
+
+// AttributionFooterCommit reports a footer in a commit, merge, tag or PR message, in its words, a file or raw text.
 func AttributionFooterCommit(cmd, cwd string) bool {
 	_, subs := ExtractSubstitutions(cmd)
 	dynamic := slices.ContainsFunc(subs, func(s string) bool { return !strings.Contains(s, "<<") })
 	var subjects []string
 	sawCommit := false
-	if EachGit(cmd, cwd, func(target, verb string, args []string) bool {
-		if messageVerb(verb) || verb == Uninspectable {
-			sawCommit = true
-		}
-		if !messageVerb(verb) {
-			return false
-		}
-		if messageFileFooter(target, args) {
-			return true
-		}
-		for _, a := range args {
-			if footerLine(a) {
-				return true
-			}
-			if hasFooter(a) {
-				subjects = append(subjects, a)
-			}
-		}
-		return dynamic && slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, subMask) }) &&
-			footerMention().MatchString(cmd)
+	if EachMessage(cmd, cwd, func(target, verb string, args []string) bool {
+		sawCommit = sawCommit || messageVerb(verb) || verb == Uninspectable
+		return messageVerb(verb) && footerInCall(cmd, target, verb, args, dynamic, &subjects)
 	}) {
 		return true
 	}
@@ -376,6 +405,26 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 		raw = strings.ReplaceAll(raw, s, "")
 	}
 	return hasFooter(raw)
+}
+
+// footerInCall reports a footer in one message call's file or words; a footer named past a subject joins subjects.
+func footerInCall(cmd, target, verb string, args []string, dynamic bool, subjects *[]string) bool {
+	if messageFileFooter(messageFiles(target, verb, args)) {
+		return true
+	}
+	if prMessageVerb(verb) {
+		args = append(slices.Clone(args), prValues(args)...)
+	}
+	for _, a := range args {
+		if footerLine(a) {
+			return true
+		}
+		if hasFooter(a) {
+			*subjects = append(*subjects, a)
+		}
+	}
+	return dynamic && slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, subMask) }) &&
+		footerMention().MatchString(cmd)
 }
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.

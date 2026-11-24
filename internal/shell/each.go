@@ -71,20 +71,17 @@ func (w *segWalk) run(i int) bool {
 // heredocText reports segment i as the body of a heredoc that only pure readers consume and nothing runs.
 func (w *segWalk) heredocText(i int) bool {
 	if w.inertBody == nil {
-		w.inertBody = w.heredocBodies(true)
+		w.inertBody = w.heredocBodies()
 	}
 	return w.inertBody[i]
 }
 
-// HeredocBodies marks the heredoc bodies that are text: only pure readers consume them and no file they write runs.
-func HeredocBodies(segs, seps []string) []bool { return newSegWalk(segs, seps).heredocBodies(true) }
-
-// heredocBodies marks each heredoc body that is text (readOnly consumes it), or with text false each live one.
-func (w *segWalk) heredocBodies(text bool) []bool {
+// heredocBodies marks each heredoc body that is text: only pure readers consume it and no file they write runs.
+func (w *segWalk) heredocBodies() []bool {
 	out := make([]bool, len(w.segs))
 	for j := range w.segs {
 		delim, ok := heredocDelim(w.cmdWords(j))
-		if !ok || w.readOnly(j) != text {
+		if !ok || !w.readOnly(j) {
 			continue
 		}
 		k := j + 1
@@ -199,9 +196,6 @@ var interpreterName = sync.OnceValue(func() *regexp.Regexp {
 		`osascript|Rscript|pwsh)[0-9.]*$`)
 })
 
-// IsInterpreter reports a script interpreter's command word (python3, node, ruby, perl, …), as a path or a name.
-func IsInterpreter(word string) bool { return interpreterName().MatchString(filepath.Base(word)) }
-
 // evaluator reports a command word that reads text as code, or a dynamic one (`$CMD`, `$(…)`) whose text is unknown.
 func evaluator(word string) bool {
 	name := filepath.Base(word)
@@ -220,46 +214,6 @@ func evaluatorStart(toks []string) ([]string, bool) {
 }
 
 func evaluates(toks []string) bool { _, ok := evaluatorStart(toks); return ok }
-
-// EvaluatedText is cmd's text an evaluator runs: its words, a live heredoc body, a pipe's left side, a script run.
-func EvaluatedText(cmd, cwd string) []string {
-	cmd = DropComments(cmd)
-	var out []string
-	for _, s := range RunScripts(cmd, cwd) {
-		out = append(out, s.Text)
-	}
-	_, subs := extractSubstitutions(cmd, subMask)
-	for _, sub := range subs {
-		out = append(out, EvaluatedText(sub, cwd)...)
-	}
-	segs, seps := SegmentsSep(cmd)
-	w := newSegWalk(segs, seps)
-	text, live := w.heredocBodies(true), w.heredocBodies(false)
-	for i, seg := range segs {
-		toks := Tokens(seg) // not commandWords: an ssh command evaluates its string remotely
-		if len(toks) > 0 {
-			toks[0] = strings.TrimLeft(toks[0], "({`")
-		}
-		st, ok := evaluatorStart(toks)
-		switch {
-		case live[i] || !text[i] && w.pipesIntoEvaluator(i):
-			out = append(out, seg)
-		case ok && !text[i]:
-			out = append(out, strings.Join(st, " "))
-		}
-	}
-	return out
-}
-
-// pipesIntoEvaluator reports segment i feeding, through the rest of its pipeline, an evaluator's stdin.
-func (w *segWalk) pipesIntoEvaluator(i int) bool {
-	for k := i; k+1 < len(w.segs) && (w.seps[k] == "|" || w.seps[k] == "|&"); k++ {
-		if evaluates(w.cmdWords(k + 1)) {
-			return true
-		}
-	}
-	return false
-}
 
 // pipesIntoRunner reports that segment i feeds a runner (xargs, eval, a shell with a script) its words to run.
 func (w *segWalk) pipesIntoRunner(i int) bool {
@@ -368,9 +322,6 @@ func statDir(p string) bool {
 
 // unknownDir is the cwd reported after a cd whose target is dynamic: absolute, never a real dir or under one.
 var unknownDir = filepath.Join(string(filepath.Separator), "<unknown cwd>")
-
-// UnknownDir reports the target EachGit gives git run after a dynamic cd in the same `&&` chain.
-func UnknownDir(dir string) bool { return dir == unknownDir }
 
 // cwdTracker follows the shell cwd across subshells, pipes, `||` after a cd, missing targets and pushd/popd.
 type cwdTracker struct {

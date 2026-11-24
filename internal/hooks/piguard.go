@@ -185,9 +185,6 @@ func piModuleBlock(s settings.EventSpec, payload []byte) string {
 		return "pi guard: " + s.Name + " is not available; blocked"
 	}
 	o := invokeDirect(s.Name, run, bytes.NewReader(payload), s)
-	if o.in != nil {
-		o.res = agentBashAllow(o.in, o.res) // the same owner-order loosening every agent's direct hook gets
-	}
 	switch {
 	case o.res.Decision == core.Block:
 		return reasonOr(o.res.Reason, "pi guard: "+s.Name+" blocked the call")

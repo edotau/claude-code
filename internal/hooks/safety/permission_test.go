@@ -391,60 +391,6 @@ func checkVendorsRelayReason(t *testing.T, r core.Result) {
 	}
 }
 
-// A leaf's apply_patch on settings.json is refused with no dispatch policy; the main session's is not.
-func TestPermissionGateLeafSettingsPatch(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("HARNESS_DISPATCH_ID", "")
-	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
-	t.Setenv(agent.DispatchPermissionsEnv, "")
-	for _, c := range []struct {
-		agentID string
-		block   bool
-	}{{"a1", true}, {"", false}} {
-		payload, _ := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": "/tmp", "agent_id": c.agentID,
-			"tool_input": map[string]string{"command": "*** Begin Patch\n*** Update File: " + cfg + "/settings.json\n@@\n+x\n*** End Patch"}})
-		res := PermissionGate(core.ParseInputFor(bytes.NewReader(payload), "codex"))
-		if (res.Decision == core.Block) != c.block {
-			t.Errorf("agent_id %q: decision %v reason %q, want block=%v", c.agentID, res.Decision, res.Reason, c.block)
-		}
-	}
-}
-
-// dispatchAsk: the dispatch's own allow/deny rules decide a settings ask; with neither, the block names the flag.
-func TestDispatchAsk(t *testing.T) {
-	hit := askHit{what: "settings ask", tool: "Bash", arg: "go build ./...", rule: "Bash(go build *)"}
-	rules := func(specs ...string) []permission.Rule {
-		var out []permission.Rule
-		for _, s := range specs {
-			out = append(out, mustParseRule(t, s))
-		}
-		return out
-	}
-	for _, c := range []struct {
-		name   string
-		policy *permission.Permissions
-		want   core.Decision
-		reason string
-	}{
-		{"allow", &permission.Permissions{Allow: rules("Bash(go build:*)")}, core.Allow, ""},
-		{"deny", &permission.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "deny rule"},
-		{"neither with the hint", &permission.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, `--permissions '{"allow":["Bash(go build *)"]}'`},
-		{"no policy with the hint", nil, core.Block, `--permissions '{"allow":["Bash(go build *)"]}'`},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Setenv(agent.DispatchPermissionsEnv, "")
-			if c.policy != nil {
-				setGatePermissions(t, *c.policy)
-			}
-			got, reason := dispatchAsk(&core.Input{CWD: "/tmp"}, hit)
-			if got != c.want || !strings.Contains(reason, c.reason) {
-				t.Errorf("dispatchAsk = %v %q, want %v containing %q", got, reason, c.want, c.reason)
-			}
-		})
-	}
-}
-
 // benchTree is a temp tree holding real/a.txt and link, a symlink to real; it returns the root, real and link.
 func benchTree(b *testing.B) (root, real, link string) {
 	b.Helper()

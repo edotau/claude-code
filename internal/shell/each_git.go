@@ -25,8 +25,20 @@ type gitFn func(target, verb string, args []string) bool
 // commandVerb is eachGit's internal verb for a command start; its args are the command's words.
 const commandVerb = "\x00command"
 
+// The PR verbs EachMessage reports: `gh pr create|edit` and `claude-code worktree pr create`; args are the words after.
+const (
+	PRCreate         = "pr create"
+	PREdit           = "pr edit"
+	WorktreePRCreate = "worktree pr create"
+)
+
 // EachGit calls fn per git invocation in cmd and its target tree, through nesting, wrappers and cd, until fn is true.
-func EachGit(cmd, cwd string, fn gitFn) bool {
+func EachGit(cmd, cwd string, fn gitFn) bool { return eachVerb(cmd, cwd, fn, false) }
+
+// EachMessage is EachGit that also reports each PR-creating or PR-editing call, whose title and body are a message.
+func EachMessage(cmd, cwd string, fn gitFn) bool { return eachVerb(cmd, cwd, fn, true) }
+
+func eachVerb(cmd, cwd string, fn gitFn, pr bool) bool {
 	return eachGit(cmd, cwd, func(target, verb string, args []string) bool {
 		if verb != commandVerb {
 			return fn(target, verb, args)
@@ -34,8 +46,28 @@ func EachGit(cmd, cwd string, fn gitFn) bool {
 		if h := HarnessArgs(args); len(h) > 1 && h[0] == "worktree" && h[1] == "commit" {
 			return fn(target, WorktreeCommit, h[2:])
 		}
+		if v, rest := prVerb(args); pr && v != "" {
+			return fn(target, v, rest)
+		}
 		return false
 	}, 0, false)
+}
+
+// prVerb is the PR verb a command's words run, with the words after it; "" for any other command.
+func prVerb(toks []string) (string, []string) {
+	if h := HarnessArgs(toks); len(h) > 2 && h[0] == "worktree" && h[1] == "pr" && h[2] == "create" {
+		return WorktreePRCreate, h[3:]
+	}
+	if len(toks) > 2 && filepath.Base(toks[0]) == "gh" && toks[1] == "pr" && (toks[2] == "create" || toks[2] == "edit") {
+		return "pr " + toks[2], toks[3:]
+	}
+	return "", nil
+}
+
+// PRMessage reports a command whose words run a PR-creating or PR-editing call, so its text is a message.
+func PRMessage(toks []string) bool {
+	v, _ := prVerb(DropRtk(toks))
+	return v != ""
 }
 
 // harnessGlobalFlags take a host and precede the verb: remote.Flag (network/remote/ssh.go), egressFlag (cli/table.go).
@@ -81,11 +113,6 @@ func BoolFlagOn(args []string, name string) bool {
 	return false
 }
 
-// EachCommand calls fn with each command's words and dir, found as EachGit finds git, until fn is true.
-func EachCommand(cmd, cwd string, fn func(dir string, words []string) bool) bool {
-	return eachGit(cmd, cwd, func(target, verb string, args []string) bool { return verb == commandVerb && fn(target, args) }, 0, false)
-}
-
 // eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
 func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if depth > maxNest {
@@ -116,8 +143,8 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 			return fn(target, verb, args)
 		}
 	}
-	w := &segWalk{cwd: cwd, segs: segs, seps: seps, words: make([][]string, len(segs)),
-		wordsSet: make([]bool, len(segs)), fn: walk, depth: depth, runs: runs}
+	w := newSegWalk(segs, seps)
+	w.cwd, w.fn, w.depth, w.runs = cwd, walk, depth, runs
 	for i, seg := range segs {
 		w.enter(seg)
 		writing = len(scripts) > 0 && w.writesThenRuns(i) // only the writing segment's text repeats in its script
@@ -173,7 +200,7 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool 
 	}
 	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && len(head) > 0 && inertCommand(head)}
 	for _, st := range CommandStarts(toks) { // each command word, through xargs, parallel, watch, find -exec, go run
-		if st = DropRtk(skipEnvAssignments(st)); !s.inert && len(st) > 0 && fn(dir, commandVerb, st) {
+		if st = DropRtk(skipEnvAssignments(st)); len(st) > 0 && fn(dir, commandVerb, st) {
 			return true
 		}
 	}

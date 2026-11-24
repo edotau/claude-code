@@ -60,7 +60,7 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 
 | Agent · surface | Modules | Mode |
 | --- | --- | --- |
-| claude · native | every group that isn't agent-only | **block** (`safety` asks only on destructive SQL and script writes); post/prompt hooks inject context |
+| claude · native | every group that isn't agent-only | **block** (`safety-scan` asks only on an interpreter script that may write a protected path); post/prompt hooks inject context |
 | codex · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
 | copilot · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`; PostToolUse `worktree-claim`; sessionStart `memory-start`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** |
 | gemini (agy) · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check` (no `rtk-rewrite`: agy judges its own rules on the rewritten text); PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
@@ -97,25 +97,24 @@ reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permiss
 
 Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-details.md` under the hook's heading.
 
-`safety-scan` enforces the Git guards in `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md`.
-It checks each call in order:
+`safety-scan` has two rules and applies them to every agent, leaves included. It checks each Bash call in order:
 
-1. The code floor blocks every agent: the block shapes (except `sudo` and settings-rule writes) and attribution
-   footers in commits, merges and tags.
-2. Deny rows come from `~/.claude/settings.json` (template fallback, no other file); `sudo` follows `Bash(sudo:*)`.
-3. For ask rows, Claude asks. An agent without ask follows the dispatch's allow/deny rules; if neither matches,
-   it blocks and names `--permissions '{"allow":["<rule>"]}'`.
-4. Allow rows apply only to main. A match skips the main-session rules, SQL ask and softWarn.
-5. After built-ins, `agentBashAllow` allows a leaf's block or ask except `Result.Floor` (code floor and settings deny).
+1. Attribution: an AI-attribution footer (`Co-Authored-By: Claude`, `Generated with Claude Code` and the like) in a
+   commit, merge or tag message, or in a PR title or body, blocks (`CLAUDE.md` hard rule 3). The PR forms are
+   `gh pr create` and `gh pr edit` (`--title`/`-t`, `--body`/`-b`, the contents of a `--body-file`/`-F` file) and
+   `claude-code worktree pr create`; a message file the same command writes counts.
+2. Deny rules: a command that matches a `permissions.deny` rule in `~/.claude/settings.json` (template fallback, no
+   other file) blocks; `sudo` follows `Bash(sudo:*)`. A write to a path an `Edit(...)` deny glob covers blocks too,
+   whether by redirect, `cp`/`mv`/`rm` or an interpreter script (`//` absolute, `~/`, `/` = `~/.claude/`, `**/`,
+   relative = cwd); an interpreter script that only may write one asks.
 
-`Edit(...)` deny/ask globs also guard Bash and interpreter writes (`//` absolute, `~/`, `/` = `~/.claude/`, `**/`,
-relative = cwd). A leaf cannot write `settings.json`, `settings.local.json` or `state/harness/**` via Bash. Intent
-rules match invocations, not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor --audit`
-logs no command text.
+Claude asks; an agent without ask gets a block. A leaf gets no exception from either rule.
+Commands are matched as invocations, not as data text. Blocks name the allowed route and the owner's `!`;
+`claude-code doctor --audit` logs no command text.
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety-scan` ¶ | PreToolUse (Bash) | Block or ask in the order above |
+| `safety-scan` ¶ | PreToolUse (Bash) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path |
 | `permission-gate` | PreToolUse (Bash\|Write\|Edit\|Read\|WebFetch\|Glob\|Grep) | **Block** a call outside the dispatch's `Permissions` (5s); `apply_patch` is judged as an Edit per file; agent-only |
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place in every mode (auto included) with no permission decision, so auto mode's classifier still judges it; codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
@@ -157,41 +156,6 @@ and emits only the recall note; denials are unchanged, and a `coworker:<agent>` 
 (`internal/settings/template.json`; `doctor` row `mods` flags a
 settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites
 as before.
-
-### safety-scan main-session rules
-
-A leaf is a subagent or a dispatched agent; rules match commands, never text, and are stated before `agentBashAllow`
-turns a leaf's block or ask into allow. So a Claude subagent that runs one of the rows below is allowed with a note
-(replayed 2026-11-19: `make install|audit|fmt` and `vault get --secret` pass); only the code floor and settings deny
-rows stop a leaf. On codex, copilot, gemini and opencode an ask follows the dispatch's
-allow/deny rules or blocks, naming the routes (a Claude session or your own terminal). A main-thread settings allow
-match turns these rules off.
-
-- `claude-code … --secret` (prints a credential) on any verb: main session only; a leaf gets credentials at launch and
-  reports the vault name it needs. `[--host|--remote h] vault get --key --secret` (the master key) asks in main too;
-  redacted forms (no `--secret`) are open to all.
-- `kubectl|oc exec|delete` and `oc rsh` against production, or an unknown context (detection: hook-details →
-  safety-scan): asks in main; in a leaf the block is lifted to allow with a note by `agentBashAllow` (step 5
-  above), so a leaf runs it with that note. Production changes still go through the deploy pipeline
-  (`rules/standards/security.md` #4).
-- `make|gmake audit|install|fmt|build|verify|bootstrap|adopt` and a fixing `lint-<kind>` in the harness tree (install
-  targets also in its linked worktrees): a leaf-only rule, so the main session runs them with no hook block; in a leaf
-  the block is lifted to allow with a note by `agentBashAllow` (step 5 above), so a leaf runs it with that note. A
-  leaf's own check is `claude-code agents diff --check --path <files>` or `claude-code agents fix --path <files>`.
-  `make lint` passes without a note, and so does a dry run (`-n`, `-q`) unless it also names another makefile or
-  evaluated text (`-f`, `-E`, `$(shell`).
-- A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment in text that reaches a shell, `eval`, `source`, an
-  interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs),
-  an interpreter's env write (`os.environ[...]=`, `putenv`, `process.env`, `ENV[]=`, `$ENV{}=`, names built from
-  literal pieces too) and `env -i` before a launcher or interpreter: a nested dispatch inherits these limits.
-- A leaf's write under `state/harness/**` (Edit/Write, redirects, `tee`, `cp`/`mv`/`rm`, interpreter writes); reads
-  pass.
-
-These last two are floor walls (R13, 2026-11-22): `agentBashAllow` never lifts them. Only a dispatch the main session
-started (its record: no parent, depth 0) lifts one, with an explicit scoped allow rule
-(`--permissions '{"allow":["Write(/state/harness/dispatch/**)"]}'`, or a Bash rule for the command); a nested
-dispatch's allow never does, and
-the dispatch's deny rules still win.
 
 ## Authoring a gate
 

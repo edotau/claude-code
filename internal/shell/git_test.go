@@ -67,6 +67,25 @@ func TestAttributionFooterCommit(t *testing.T) {
 	}
 }
 
+// TestAttributionFooterPR: a PR's title and body are messages; wrappers are seen through, other gh verbs are not.
+func TestAttributionFooterPR(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		`gh pr create --title x --body "Co-Authored-By: Claude"`:                    true,
+		`gh pr edit 3 -t "Generated with Claude Code"`:                              true,
+		`A=1 rtk gh pr create --body="Co-Authored-By: Claude"`:                      true,
+		`bash -c 'gh pr create --body "Co-Authored-By: Claude"'`:                    true,
+		`gh pr create --title "docs: forbid Co-Authored-By: Claude" --body ok`:      false,
+		`gh pr comment 3 --body "Co-Authored-By: Claude"`:                           false,
+		`echo 'gh pr create --body "Co-Authored-By: Claude"'`:                       false,
+		`claude-code worktree pr create --title "Generated with Claude Code"`:       true,
+		`claude-code worktree pr create --title "feat: x" --body-file /nonexistent`: false,
+	} {
+		if got := AttributionFooterCommit(cmd, ""); got != want {
+			t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
 func TestAttributionFooterMessageFile(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, body string) {
@@ -87,6 +106,20 @@ func TestAttributionFooterMessageFile(t *testing.T) {
 		cmd := "git -C " + dir + " commit " + c.args
 		if got := AttributionFooterCommit(cmd, ""); got != c.want {
 			t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		args string
+		want bool
+	}{
+		{"--body-file bad.txt", true}, {"--body-file=bad.txt", true}, {"-F bad.txt", true}, {"-Fbad.txt", true},
+		{"--body-file ok.txt", false}, {"--body-file missing.txt", false}, {"--body-file -", false},
+	} {
+		for _, head := range []string{"gh pr create", "gh pr edit 3", "claude-code worktree pr create"} {
+			cmd := "cd " + dir + " && " + head + " " + c.args
+			if got := AttributionFooterCommit(cmd, ""); got != c.want {
+				t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, c.want)
+			}
 		}
 	}
 }

@@ -19,7 +19,7 @@ stashing or switching.
 | Reproducing a bug on another branch | Temporary worktree, clean up same day |
 | Quick local diff review only | Stay on current tree — no worktree |
 
-Staying put while other sessions edit the same tree — the rewrite guard, file claims, registry files:
+Staying put while other sessions edit the same tree — the no-rewrite rule, file claims, registry files:
 [references/shared-checkout.md](references/shared-checkout.md).
 
 ## In this harness: use `claude-code worktree` (the paved road)

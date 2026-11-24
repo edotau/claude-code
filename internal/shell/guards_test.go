@@ -48,9 +48,6 @@ func TestGuardsFileIsValid(t *testing.T) {
 var guardSubsets = [][2]string{
 	{"relay_go_bool_flags", "relay_go_value_flags"},
 	{"git_read_only_gated_verbs", "git_read_only_verbs"},
-	{"git_shared_tree_banned_verbs", "git_alias_proof_verbs"},
-	{"kube_prod_flags", "kube_value_flags"},
-	{"install_make_targets", "reserved_make_targets"},
 }
 
 func TestDecodeGuardsRejects(t *testing.T) {
@@ -75,9 +72,9 @@ func TestDecodeGuardsRejects(t *testing.T) {
 }
 
 func TestGuardAccessorsReturnCopies(t *testing.T) {
-	words := GuardWords("rebase_resume_flags")
+	words := GuardWords("pipe_filters")
 	words[0] = "changed"
-	if GuardWords("rebase_resume_flags")[0] == "changed" {
+	if GuardWords("pipe_filters")[0] == "changed" {
 		t.Error("GuardWords shares its slice")
 	}
 	tools := GuardTools("python_runner_options")

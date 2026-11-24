@@ -124,6 +124,7 @@ const sec = time.Second
 
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
+	// safety-scan denies only settings.json permissions.deny matches and AI-attribution footers.
 	{Name: "safety", Gate: true, Events: []EventSpec{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode", "pi"}},
 	}},

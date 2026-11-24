@@ -5,84 +5,58 @@ each, and the guardrails an agent needs before acting).
 
 ## safety-scan
 
-The pass order, footer deny, `Edit(...)` anchors and main-session rules live in `rules/harness/hooks.md`. The leaf
-filter `agentBashAllow` recognizes a leaf by payload `agent_id` or `HARNESS_DISPATCH_PERMISSIONS`, and turns a
-Write/Edit block only under `--permissions allow`; undispatched non-Claude sessions and `HARNESS_DISPATCH_ID`-only
-dispatches are not turned. Production for the `kubectl|oc exec|delete` rule means `prod`/`prd`/`production` in a
-flag, `ENV=`, `KUBECONFIG=`, `use-context`, a deleted namespace or `current-context`; none found counts. A leaf's
-edit-tool write to a protected file is refused by `permission-gate` on codex, agy,
-opencode and gated Claude launches, and by `safety-scan` itself on Copilot.
+The order and the two rules live in `rules/harness/hooks.md`; this is the detail. A leaf's edit-tool write to a
+protected file is refused by `permission-gate` on codex, agy, opencode and gated Claude launches, and by `safety-scan`
+itself on Copilot.
 
-**Block** destructive shapes (`rm -rf /`, a system dir or `$HOME` as the shell reads it: quoted, escaped, `//`, `..`;
-fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
-redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the live `settings.json`'s `Edit(...)` deny
-rules protect (the template's when it is unreadable)
-(an `rm`/`unlink`/`mv`-away of a literal path under a temp folder passes, never one inside the config dir or home,
-through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`,
-`deno`, `bun` — naming one beside a write call **asks**; reads pass), and a `commit --amend`/`rebase`/`reset <commit>`
-in a shared checkout (`~/.claude`, a tree a peer session works in, a main tree where this session has live leaves or the
-caller is a leaf under `~/.claude`; a leaf counts as shared and the live-leaves trigger applies only under
-`~/.claude`; own linked worktree exempt; an infra error allows with a warning), a branch-ref move or deletion that loses
-commits there (`branch -f|-D|-M` from a leaf only, `update-ref`), and a secret-reading command (`claude-code …
---secret`, `gh auth token`, `env`) piped into `curl`/`nc`/`wget`; **block** on
-every agent, naming
-the allowed route and that the owner can run it with `!`: `sudo`/`doas` in command position (also inside `bash -c`,
-`eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an interpreter
-runs), violations of the Git guards in `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md`,
-`rm -rf .git` and a
-force-push of main/master (spelled out, after git global flags, or with no refspec while main/master is checked out);
-**ask** on Claude (block on codex/copilot/agy) only for `DROP TABLE`-style SQL and the interpreter write; **warn** only
-prints. Those intent rules fire only on a real invocation: words in data never do (a `claude-code
-agents|memory|scm|plan` brief, an agent CLI prompt, a heredoc fed to `cat > f`/`tee f`/a data command when no file runs
-in the same line, a plain Python stdin script, `grep`/`rg`/`sed` patterns without `e`, `echo`/`printf` text not fed to a
-runner, `which`/`man`, a commit message for every rule but the footer one). The hard-block shapes ignore inert text
-(commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc bodies for the pipe,
-exfil and SQL shapes) unless it is piped on or holds a `$(…)`, and a hard-block shape only in the words of `claude-code
-agents`, `git commit|log`, `grep`/`rg`/`ag`, `jq`, `test`/`[` or an `echo`/`printf` not piped into a runner passes; any
-`<<` in the command scans the heredoc bodies too and blocks, and interpreter code (`python -c`, `node -e`) stays
-scanned. A command a Python script (stdin heredoc or `-c`) launches from literal text, a shell string (`os.system`,
-`os.popen`, `subprocess.*(…, shell=True)`) or an argv list (`subprocess.run([…])`, `os.spawn*`, `os.exec*`,
-`posix_spawn*`), gets the verdict the same command gets in the shell; one built at run time (a variable, join,
-f-string, base64) is not judged, except that a `cwd=` (or earlier `os.chdir`) literal judges the launch in that
-directory and a `tempfile.*` directory counts as a fresh temp dir. `uv run`, `poetry run`, `pipx run`,
-`conda run` (options included) and `python -m`
-of one count as the interpreter they run, for the write ask and for launched commands.
-A command nested past four levels blocks only when its text holds a guarded git verb word (staging check:
-`add` or `commit`), and a `case … in a|b) …` pattern list is not a pipe into a shell.
-A Go or other compiled
-program's own `exec.Command("sudo", …)` is out of the hook's reach. An `apply_patch`
-call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of the command is.
-Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to
-`head`/`tail`/`wc`/`cut`/`tr`/`grep`/`rg`/`jq`. A `printf`/`echo` piped into a shell is judged on its decoded text, so a
-hard-block shape built that way blocks. Passing: a fixture vault or credentials write and a `.git` removal under a temp
-folder (no `cd`, link or `truncate` beside it), `git clean -n`, `go env > /tmp/…`, a credential file only printed, and a
-leaf amending in its own temp-folder repo; warnings skip message text. git after a dynamic `cd` is judged in the
-starting directory unless every dynamic cd target is a fresh `$(mktemp …)` dir under a system temp root (no `-p .` or
-relative template); a variable a statement in the same line sets to a literal absolute path or such a mktemp dir is read
-as that path (`T=/tmp/x; git -C "$T" …`, `rm -rf $T/.git`); `cd ~user`, `~+` and `~-` count as dynamic. `echo`/`printf`
-text whose output runs (`$(echo git stash)`, `eval "$(…)"`, `bash <(…)`, piped to `xargs` or a shell's `-c`, written to
-a file a later segment runs) is a command, not inert text. A `#` after a `\`-newline
-continuation is mid-word (bash joins the lines) unless a blank precedes the `\`.
+**Attribution footer.** `Co-Authored-By:` naming Claude, Anthropic, Codex, Copilot, Gemini, OpenCode or agy, or
+`Generated with|by` one of them, blocks on every agent when it opens a line of a message: a commit, merge or tag
+(`git commit|merge|tag`, `claude-code worktree commit`), or a PR (`gh pr create|edit` `--title`/`-t`, `--body`/`-b`,
+`--body-file`/`-F`; `claude-code worktree pr create` `--title`, `--body-file`). It reads inline words (`-m`,
+`--trailer`, `--body=`, `-bTEXT`), a literal `"$(cat <<'EOF' …)"` or `--body-file -` heredoc body, a message file that
+exists (`-F`, `-t`, `--body-file`) and one the same command writes first (redirect, `tee`, an interpreter). A message a
+substitution or variable builds at run time blocks when the command also names a footer. A footer named mid-subject
+(`docs: forbid Co-Authored-By: Claude footers`) passes, as do `git log --grep`, `echo` of the phrase,
+`gh pr comment` and a human co-author. It follows wrappers, `rtk`, `cd`, `git -C`, `bash -c` and `eval`; a command nested past four levels
+blocks when its text holds a footer.
+
+**Deny rules.** The live `~/.claude/settings.json` `permissions.deny` (the template's when it is unreadable) blocks a
+command a `Bash(...)` rule covers, `sudo`/`doas` in command position when `Bash(sudo:*)` is denied (also inside
+`bash -c`, `eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an
+interpreter runs), and a Bash write (`sed -i`, redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file
+an `Edit(...)` deny glob protects. An `rm`/`unlink`/`mv`-away of a literal path under a temp folder passes, never one
+inside the config dir or home, through a symlink, `..` or glob, or beside `ln`/`truncate`. An interpreter script
+(`python`, `node`, `perl`, `ruby`, `deno`, `bun`) naming a protected path beside a write call **asks** on Claude and
+blocks on codex, copilot and agy; reads pass. Blocks name the allowed route and that the owner can run it with `!`.
+A Go or other compiled program's own `exec.Command("sudo", …)` is out of the hook's reach.
+
+Both rules match a real invocation, never words in data: a `claude-code agents|memory|plan` brief, an agent CLI prompt,
+a heredoc fed to `cat > f`, `tee f` or a data command when no file runs in the same line, `grep`/`rg`/`sed` patterns
+without `e`, `echo`/`printf` text not fed to a runner, `which`/`man`. A `printf`/`echo` piped into a shell, or whose
+output runs (`eval "$(…)"`, `bash <(…)`, `xargs`, a file a later segment runs), is a command, judged on its decoded
+text. An `apply_patch` call's patch text is not scanned; the rest of the command is. A command a Python script (stdin
+heredoc or `-c`) launches from literal text, a shell string (`os.system`, `subprocess.*(…, shell=True)`) or an argv list
+(`subprocess.run([…])`, `os.spawn*`, `os.exec*`) gets the verdict the same command gets in the shell; one built at run
+time is not judged. `uv run`, `poetry run`, `pipx run`, `conda run` and `python -m` of one count as the interpreter they
+run. A `#` after a `\`-newline continuation is mid-word (bash joins the lines) unless a blank precedes the `\`.
 A `#` inside `${…}` or `$((…))` is word text (`${l%% #*}`), and one right after a subshell's `)` starts a comment.
 A `>` or `<` inside `${…}` or `$((…))` is no redirect (`$((3>2))`).
 A file the same command line writes from `echo`/`printf` (a redirect or `tee`) and then runs (`sh f`, `bash f`,
-`zsh f`, `. f`, `source f`, `./f`) has its printed text, escapes and formats applied, checked for git verbs and
-write targets as if run directly.
+`zsh f`, `. f`, `source f`, `./f`) has its printed text, escapes and formats applied, and is judged as if run directly.
 `cd -` returns to the previous directory, or to the starting directory when that one is unknown. A
-`"$(cat <<'EOF' …)"` commit message
-blocks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
-docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
-`mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a command's relative operand
-(`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
-Blocks log to `claude-code doctor --audit` by reason, pattern and session id, never the command
+`"$(cat <<'EOF' …)"` commit message blocks only on a footer at a line start, not one named mid-subject. The
+write-path checks (this hook and docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a
+subshell's `cd` inside it, and take `mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a
+command's relative operand (`..` included) in the session cwd under a Read deny, refusing a climbing one only after
+a cd to an unknown dir. Blocks log to `claude-code doctor --audit` by reason, pattern and session id, never the
+command text.
 
 A plain Python script fed on stdin (`python3 [-I…] - <<'EOF'`, `uv run python -`; quoted delimiter or a body with no
 `$(…)`, not piped on, outside any other heredoc or quote, no later shell or interpreter run, and no `exec`/`eval`,
-`os.system`/`popen`/`exec*`/`spawn*`, reflection or import outside a fixed stdlib list) skips the intent-rule shell
-words (`sudo`, `DROP TABLE`, git verbs, force-push) in its body; the block shapes still scan it, and every other
-script, interpreter or shell keeps today's scan. In such a script a protected path named only in a `#` comment or
-inside a multi-word string no longer triggers the interpreter-write ask, unless the script splits, strips or slices
-strings; a one-word or f-string literal still does.
+`os.system`/`popen`/`exec*`/`spawn*`, reflection or import outside a fixed stdlib list) skips the shell-word match
+(`sudo`) in its body; the deny-rule write checks still scan it. In such a script a protected path named only in a `#`
+comment or inside a multi-word string no longer triggers the interpreter-write ask, unless the script splits, strips or
+slices strings; a one-word or f-string literal still does.
 
 ## rtk-rewrite
 
