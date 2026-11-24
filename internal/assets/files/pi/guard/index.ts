@@ -30,11 +30,11 @@ const isStep = (s: any): boolean => strArray(s?.env) && strArray(s?.argv) && s.a
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
 type Verdict = { block?: string; path?: string; run?: string[]; steps?: Step[]; unset?: string[]; usage?: string; notice?: string; text?: string }
-function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
+function judge(tool: string, input: any, cwd: string, sid: string, budgetMs: number = BUDGET_MS): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
-      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+      env: hookEnv(), timeout: budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
@@ -155,8 +155,9 @@ async function runAction(name: string, run: string[], cwd: string, signal: any):
   finally { signal?.removeEventListener("abort", stop) }
 }
 
-// VERIFY_MS plus BUDGET_MS stays under the 5-minute idle watch (pi_test pins it); post-run verify covers the rest.
-const VERIFY_MS = 4 * 60_000
+// The verify judge (every step's hooks), the steps and the redaction call stay under the 5-minute idle watch (pi_test).
+const VERIFY_JUDGE_MS = 60_000
+const VERIFY_MS = 3 * 60_000
 // PROXY_KEY is the proxy session token's env (internal/pi KeyRef): verify steps run edited code, so they never get it.
 const PROXY_KEY = "HARNESS_PROXY_API_KEY"
 
@@ -207,7 +208,7 @@ function masked(s: string): string {
 
 // verifyFailure runs the steps Go built from the run's verify line: the failing output, or "" (passed or not run).
 async function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
-  const v = judge("verify", { verify: line }, cwd, sid)
+  const v = judge("verify", { verify: line }, cwd, sid, VERIFY_JUDGE_MS)
   if (v.block || v.usage || !v.steps?.length) {
     process.stderr.write("pi guard: verify before settle not run: " + (v.block || v.usage || "no steps") + "\n")
     return ""
@@ -227,14 +228,16 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
 
 // failureText is the fixing turn's message, its output redacted by Go; fail closed: unredacted output never goes out.
 function failureText(line: string, r: StepResult, cwd: string, sid: string): string {
-  const red = judge("verify_output", { text: r.out }, cwd, sid)
+  const red = judge("verify_output", { text: "$ " + line + "\n" + r.out }, cwd, sid) // the line is redacted too
   if (red.block || red.usage) {
     process.stderr.write("pi guard: verify before settle skipped: output not redacted (" + (red.block || red.usage) + ")\n")
     return ""
   }
   const what = r.timedOut ? "timed out after " + VERIFY_MS / 1000 + " s" : "failed (exit " + r.code + ")"
-  return "The run's verify check " + what + ". Fix the cause without changing the check, then finish.\n$ " + line + "\n" +
-    (red.text ?? "").slice(-ERR_CHARS) // already redacted, so this cut is safe; an allow with no text is empty output
+  const text = red.text ?? "" // an allow with no text is empty output
+  const nl = text.indexOf("\n")
+  return "The run's verify check " + what + ". Fix the cause without changing the check, then finish.\n" +
+    text.slice(0, nl + 1) + text.slice(nl + 1).slice(-ERR_CHARS) // already redacted, so this cut is safe
 }
 
 // verifyBeforeSettle gives a failing --verify one fixing turn per run; the post-run verify is still the record.

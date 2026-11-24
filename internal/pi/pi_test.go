@@ -227,9 +227,10 @@ func TestAfterPassesVerifyToGuard(t *testing.T) {
 	if src := assets.PiGuardSource(); !strings.Contains(src, guardVerifyEnv) || !strings.Contains(src, `"`+keyEnv+`"`) {
 		t.Error("the guard must read the verify env and drop the proxy key from verify steps")
 	}
-	// the in-run verify (4 min) plus the judge's budget must end before the idle watch kills the run
+	// the verify judge (1 min), the steps (3 min) and the redaction call must end before the idle watch kills the run
 	budget, err := guardBudgetMs()
-	if err != nil || !strings.Contains(assets.PiGuardSource(), "VERIFY_MS = 4 * 60_000") ||
+	src := assets.PiGuardSource()
+	if err != nil || !strings.Contains(src, "VERIFY_MS = 3 * 60_000") || !strings.Contains(src, "VERIFY_JUDGE_MS = 60_000") ||
 		4*time.Minute+time.Duration(budget)*time.Millisecond >= agent.IdleLimit {
 		t.Errorf("verify budget does not fit the idle watch: judge %d ms, err %v", budget, err)
 	}
