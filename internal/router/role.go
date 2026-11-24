@@ -48,7 +48,13 @@ const (
 // RoleError is an unknown role; it never quotes the value.
 type RoleError struct{}
 
-func (RoleError) Error() string { return fmt.Sprintf("want one of %v", contract.Roles()) }
+func (RoleError) Error() string {
+	names := make([]string, 0, len(contract.Roles()))
+	for _, r := range contract.Roles() {
+		names = append(names, string(r))
+	}
+	return "want " + strings.Join(names, ", ")
+}
 
 // ParseRole reads a role; the empty string and anything unlisted are a RoleError.
 func ParseRole(s string) (Role, error) {

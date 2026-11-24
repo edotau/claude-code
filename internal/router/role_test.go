@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/contract"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,5 +40,13 @@ func TestRoleCells(t *testing.T) {
 func TestFableHint(t *testing.T) {
 	if !strings.Contains(FableHint("fable"), "anthropic") || FableHint("opus") != "" {
 		t.Error("FableHint must name anthropic for Fable only")
+	}
+}
+
+func TestEveryContractRoleHasModels(t *testing.T) {
+	for _, r := range contract.Roles() {
+		if len(Role(r).Models()) == 0 {
+			t.Errorf("contract role %q has no router model tiers", r)
+		}
 	}
 }
