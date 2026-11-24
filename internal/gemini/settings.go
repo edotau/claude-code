@@ -182,9 +182,30 @@ func agyPermissionSettings(p permission.Permissions, guard, tools bool, cwd stri
 	if err := agyPlanRefusal(p, tools, cwd); err != nil {
 		return "", nil, err
 	}
+	deny, err := agyDenyRules(p, guard, cwd)
+	if err != nil {
+		return "", nil, err
+	}
+	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
+	for _, r := range p.Ask {
+		notes = append(notes, "ask "+r.String()+" runs as allow (agy has no headless judge)")
+	}
+	perms := map[string][]string{"deny": mergeAgyDeny(nil, deny)}
+	if len(allow) > 0 {
+		perms["allow"] = mergeAgyDeny(nil, allow)
+	}
+	b, err := json.Marshal(map[string]any{"permissions": perms})
+	if err != nil {
+		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
+	}
+	return string(b), append(notes, permission.RuleStrings(unAllow)...), nil
+}
+
+// agyDenyRules is the guard denies (when guard) plus p.Deny; a deny the gate hook leaves uncovered is refused.
+func agyDenyRules(p permission.Permissions, guard bool, cwd string) ([]string, error) {
 	cfg, err := loadAgentConfig()
 	if err != nil {
-		return "", nil, fmt.Errorf("agy: guard denies for --settings: %w", err)
+		return nil, fmt.Errorf("agy: guard denies for --settings: %w", err)
 	}
 	var deny []string
 	if guard {
@@ -200,22 +221,10 @@ func agyPermissionSettings(p permission.Permissions, guard, tools bool, cwd stri
 	}
 	if len(unenforced) > 0 {
 		home, _ := agentconfig.HomeOr("")
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
+		return nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
 			strings.Join(permission.RuleStrings(unenforced), ", "), agyHooksPath(home))
 	}
-	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
-	for _, r := range p.Ask {
-		notes = append(notes, "ask "+r.String()+" runs as allow (agy has no headless judge)")
-	}
-	perms := map[string][]string{"deny": mergeAgyDeny(nil, deny)}
-	if len(allow) > 0 {
-		perms["allow"] = mergeAgyDeny(nil, allow)
-	}
-	b, err := json.Marshal(map[string]any{"permissions": perms})
-	if err != nil {
-		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
-	}
-	return string(b), append(notes, permission.RuleStrings(unAllow)...), nil
+	return deny, nil
 }
 
 func agyPlanRefusal(p permission.Permissions, tools bool, cwd string) error {
