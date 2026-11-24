@@ -79,7 +79,7 @@ func skillRootPair(own, shared string, seen map[string]bool) []string {
 		if real == "" || seen["real:"+real] || seen["name:"+e.Name()] {
 			continue
 		}
-		seen["real:"+real] = true
+		seen["real:"+real], seen["name:"+e.Name()] = true, true
 		roots = append(roots, dir)
 	}
 	return roots
