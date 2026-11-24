@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/bench"
 )
 
 // ErrRebaseConflict marks a rebase that conflicted and was aborted, leaving the lane as it was.
@@ -85,25 +84,20 @@ func abortRebase(ctx context.Context, plan *MergePlan, before string, out []byte
 		strings.Join(files, ", "), ShortOID(before))
 }
 
-// promote rechecks OIDs and states under the merge lock, requires ancestry and fast-forwards repo.Main.
+// promote checks OIDs and states under the merge lock, then applies the lane's diff uncommitted to repo.Main.
 func promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
-	return promoteOrLand(ctx, repo, plan, false)
-}
-
-// promoteOrLand checks under the merge lock, then fast-forwards main (local: applies the diff uncommitted).
-func promoteOrLand(ctx context.Context, repo *Repo, plan *MergePlan, local bool) (*MergeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var result *MergeResult
 	err := acquire(0, func() (err error) {
-		result, err = promoteLocked(ctx, repo, plan, local)
+		result, err = promoteLocked(ctx, repo, plan)
 		return err
 	})
 	return result, err
 }
 
-func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan, local bool) (*MergeResult, error) {
+func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if plan.IntegratedOID == "" {
 		return nil, errors.New("promote: no verified integration OID pinned — call integrateTarget first")
 	}
@@ -114,19 +108,11 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan, local bool)
 	if err != nil {
 		return res, err
 	}
-	// promoteFreshHeads proved ancestry, so the ff-only merge below cannot conflict: no re-simulation.
 	if err := ctx.Err(); err != nil {
-		// never start the ff-only update once canceled — repo.Main stays untouched
+		// never start the apply once canceled: repo.Main stays untouched
 		return nil, err
 	}
-	if local {
-		return &MergeResult{Phase: "land", BeforeOID: freshTarget, AfterOID: freshSource}, applyLaneDiff(ctx, repo.Main, freshTarget, freshSource)
-	}
-	out, err := runGit(ctx, repo.Main, nil, "-c", "submodule.recurse=false", "merge", "--ff-only", "--no-autostash", freshSource)
-	if err != nil {
-		return nil, fmt.Errorf("git merge --ff-only: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
-	}
-	return &MergeResult{Phase: "promote", BeforeOID: freshTarget, AfterOID: freshSource}, nil
+	return &MergeResult{Phase: "land", BeforeOID: freshTarget, AfterOID: freshSource}, applyLaneDiff(ctx, repo.Main, freshTarget, freshSource)
 }
 
 // promoteStateChecks requires the pinned target, no overlapping target edits, and a clean source worktree.
@@ -222,11 +208,9 @@ func firstNonEmpty(vals ...string) string {
 type MergeRequest struct {
 	Name, Target, ResolveAgent, Verify    string
 	Resume, NoClean, FullVerify, NoVerify bool
-	IntoBranch                            bool // fast-forward and commit onto the branch instead of landing uncommitted
 	Out, Err                              io.Writer
 	ShowPlan                              func(*MergePlan)
 	ShowResolved                          func(*MergeResult)
-	AfterPromote                          func(ctx context.Context, commitRange string) error
 	AfterLand                             func(laneHead string)
 }
 
@@ -244,7 +228,7 @@ func ShortOID(oid string) string {
 	return oid
 }
 
-// Merge runs the lifecycle under the caller's lease: plan or resume, gate, rebase, verify, promote, notify, clean.
+// Merge runs the lifecycle under the caller's lease: plan or resume, gate, rebase, verify, land, clean.
 func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*mergeOutcome, error) {
 	defer BeginScanMemo()()
 	var plan *MergePlan
@@ -287,17 +271,14 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 		return nil, err
 	}
 
-	promoted, err := promoteOrLand(ctx, repo, plan, !req.IntoBranch)
+	landed, err := promote(ctx, repo, plan)
 	if err != nil {
-		if promoted != nil && promoted.ResumeHint != "" {
-			fmt.Fprintln(req.Err, "  retry:", promoted.ResumeHint)
+		if landed != nil && landed.ResumeHint != "" {
+			fmt.Fprintln(req.Err, "  retry:", landed.ResumeHint)
 		}
 		return nil, fmt.Errorf("promote: %w", err)
 	}
-	if !req.IntoBranch {
-		return afterLand(ctx, repo, plan, req, promoted)
-	}
-	return afterPromote(ctx, repo, plan, req, promoted, integrated)
+	return afterLand(ctx, repo, plan, req, landed)
 }
 
 // scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify or the whole suite is due.
@@ -315,47 +296,6 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	}
 	return scoped, fmt.Sprintf("%s, tests: %d changed + %d direct importers (full suite runs in the post-merge audit)",
 		scopedGateSource, nChanged, len(pkgs)-nChanged), nil
-}
-
-// afterPromote reports the promotion, ticks the plan, then cleans unless NoClean; clean closes the ledger once.
-func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*mergeOutcome, error) {
-	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
-	if req.AfterPromote != nil {
-		if err := req.AfterPromote(ctx, promoted.BeforeOID+".."+promoted.AfterOID); err != nil {
-			fmt.Fprintf(req.Err, "worktree land: warning: plan tick: %v\n", err)
-		}
-	}
-	if err := bench.ApplyPending(repo.Main, req.Name); err != nil {
-		fmt.Fprintf(req.Err, "worktree land: warning: bench pending: %v\n", err)
-	}
-	notifyLanes(ctx, repo, req, plan, promoted)
-	if err := Dequeue(plan.WorktreePath); err != nil {
-		fmt.Fprintf(req.Err, "worktree land: warning: merge queue: %v\n", err)
-	}
-	if line := StartAudit(repo.Main, promoted.AfterOID); line != "" {
-		fmt.Fprintln(req.Out, line)
-	}
-	if req.NoClean {
-		// the lane stays in use by design: its ledger stays open so it keeps getting notices until clean
-		return &mergeOutcome{}, nil
-	}
-	closing := LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}
-	result, err := cleanAtWith(repo, req.Name, plan.WorktreePath, false, req.Err, closing)
-	if !result.Removed {
-		// refused or failed: the merge still landed
-		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("clean: %w", err)
-	}
-	return &mergeOutcome{Clean: &result}, nil
-}
-
-// warnLedger reports a failed ledger close as a warning; the merge itself already landed.
-func warnLedger(errOut io.Writer, err error) {
-	if err != nil {
-		fmt.Fprintf(errOut, "worktree land: warning: ledger: %v\n", err)
-	}
 }
 
 // runGate runs the verify gate (or announces its absence); a failure leaves the worktree on disk and blocks promotion.
@@ -505,7 +445,7 @@ func issueCodes(issues []Issue) string {
 	return strings.Join(codes, ", ")
 }
 
-// mergeLockFile serializes the fast-forward promote across `worktree land` runs, never external writers.
+// mergeLockFile serializes the land apply across `worktree land` runs, never external writers.
 const mergeLockFile = "worktree-merge.lock"
 
 // mergeLockWait is how long acquire waits (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
@@ -538,21 +478,14 @@ func previewMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	} else if gate != "" {
 		verify = gate + " (" + source + ", scoped to changed Go packages unless --full-verify)"
 	}
-	clean, ticks := "remove the lane, keep its branch", ""
-	if req.IntoBranch {
-		clean, ticks = "remove the lane and its branch", "tick Task: trailers; notice other lanes; "
-	}
+	clean := "remove the lane, keep its branch"
 	if req.NoClean {
 		clean = "keep the lane (--no-clean)"
 	}
 	fmt.Fprintf(req.Out, "would: rebase %s onto %s inside the lane; a conflict aborts it, lane unchanged (exit 3)\n",
 		plan.WorktreePath, plan.TargetRef)
 	fmt.Fprintf(req.Out, "would: verify in the lane: %s\n", verify)
-	if req.IntoBranch {
-		fmt.Fprintf(req.Out, "would: fast-forward %s only, committed; %s%s\n", plan.TargetRef, ticks, clean)
-	} else {
-		fmt.Fprintf(req.Out, "would: apply the lane's diff uncommitted to the live tree; refuse (exit 3) if a landed path is dirty; %s\n", clean)
-	}
+	fmt.Fprintf(req.Out, "would: apply the lane's diff uncommitted to the live tree; refuse (exit 3) if a landed path is dirty; %s\n", clean)
 	changed, err := targetTouchedPaths(ctx, repo.Main, plan.TargetOID+"..."+plan.SourceOID)
 	if err != nil {
 		return err
@@ -577,62 +510,4 @@ func previewLane(out io.Writer, repo *Repo, lane string) error {
 		}
 	}
 	return nil
-}
-
-// notifyLanes tells every other lane's session that trunk moved, naming the landed files it also changed.
-func notifyLanes(ctx context.Context, repo *Repo, req MergeRequest, plan *MergePlan, landed *MergeResult) {
-	lanes, err := listPorcelain(repo)
-	if err != nil {
-		warnNotice(req.Err, err)
-		return
-	}
-	var touched map[string]bool
-	for _, e := range lanes {
-		if e.Branch == "" || e.Prunable || paths.SamePath(e.Path, plan.WorktreePath) {
-			continue
-		}
-		session := listedSession(repo, e.Path)
-		if session == "" {
-			continue
-		}
-		if touched == nil {
-			names, err := targetTouchedPaths(ctx, repo.Main, landed.BeforeOID+".."+landed.AfterOID)
-			if err != nil {
-				warnNotice(req.Err, err)
-				return
-			}
-			touched = nameSet(names)
-		}
-		text := fmt.Sprintf("%s moved to %s (lane %s merged)", plan.TargetRef, ShortOID(landed.AfterOID), req.Name)
-		warnNotice(req.Err, noticeLane(ctx, repo, e, inboxFor(session, e.Path), touched, landed.AfterOID, text))
-	}
-}
-
-// noticeLane appends text to a lane behind sha, plus the files it changed or edits that the landed range touched.
-func noticeLane(ctx context.Context, repo *Repo, e Entry, session string, touched map[string]bool, sha, text string) error {
-	if current, err := isAncestor(ctx, repo.Main, sha, e.Head); err != nil || current {
-		return err
-	}
-	changed, err := targetTouchedPaths(ctx, repo.Main, sha+"..."+e.Branch)
-	if err != nil {
-		return err
-	}
-	mine, err := targetDirtyPaths(ctx, e.Path)
-	if err != nil {
-		return err
-	}
-	for _, f := range changed {
-		mine[f] = true
-	}
-	if shared := sharedFiles(touched, mine); len(shared) > 0 {
-		text += "; overlaps yours in " + strings.Join(shared, ", ")
-	}
-	return Append(session, Notice{TS: time.Now().Unix(), Kind: "trunk-moved", From: "worktree land", Text: text})
-}
-
-// warnNotice reports a failed lane notice as a warning; the merge itself already landed.
-func warnNotice(errOut io.Writer, err error) {
-	if err != nil {
-		fmt.Fprintf(errOut, "worktree land: warning: lane notice: %v\n", err)
-	}
 }

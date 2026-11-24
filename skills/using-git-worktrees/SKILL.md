@@ -40,7 +40,7 @@ More verbs and options:
 | Verb | Does |
 |------|------|
 | `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
-| `claude-code worktree land <name> [--merge] [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | Rebase in the lane, gate, then **Land on local (Recommended)**: uncommitted changes in your checkout, you commit; `--merge` is **Merge into working branch**: a committed fast-forward; `--dry-run` changes nothing |
+| `claude-code worktree land <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | Rebase in the lane, gate, then **land on local**: uncommitted changes in your checkout, you commit; `--dry-run` changes nothing |
 | `claude-code worktree land <name> --resolve-agent <agent>` · `--resume` | Agent resolves a conflict in the lane; reattach |
 | `claude-code worktree commit -m <msg> [<files>] [--dry-run]` | Conventional subject, files only; refuses a peer's file (a CLI leaf: any claimed file); never pushes |
 | `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
@@ -54,7 +54,7 @@ value here is `land` and `clean-all`.
 `create` makes the worktree under `~/worktrees/<repo>/<slug>` (`<repo>` drops a leading dot; older
 `~/worktrees/.claude` lanes still list; outside the repo, shared with native Claude Code) via `git worktree add`, then
 seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent and the new branch
-ignores the path (a seeding failure only warns). The full procedure, the fast-forward-only `--merge` rule and conflict
+ignores the path (a seeding failure only warns). The full procedure and conflict
 handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1. In the harness repo itself, a
 worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 — but `make install` and `claude-code` verbs
 run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it
@@ -63,7 +63,7 @@ run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points 
 ## The lane protocol (`HARNESS_WORKTREE=lanes`)
 
 One lane per stream of work, opened after its dated plan (R18); a lane lands on the live checkout uncommitted and
-you commit it (`--merge` instead fast-forwards `main`). Vault
+you commit it. Vault
 env `HARNESS_WORKTREE=lanes` makes
 the claim check refuse a leaf's edit or stage of a tracked file in the live checkout (it asks the main session) and name
 `claude-code worktree create <slug>`; a lane is never refused.
@@ -73,7 +73,6 @@ claude-code worktree create <slug>                           # lane at ~/worktre
 claude-code worktree commit --task <id> -m "<msg>" <files>   # in the lane; a leaf names its files
 claude-code worktree land <slug> --dry-run                   # every step and the overlaps with other lanes; changes nothing
 claude-code worktree land <slug>                             # rebase in the lane, gate, land uncommitted on the live checkout
-claude-code worktree land <slug> --merge                     # Merge into working branch: committed fast-forward of main
 claude-code worktree land <slug> --no-clean                  # keep the lane for its next task
 ```
 
@@ -91,8 +90,6 @@ What `land` does, in order:
 - Removes the lane's worktree and prints `landed <lane>: N files uncommitted in <dir>; branch <b> kept` plus the diff
   stat; the branch is the only committed copy until you commit, and `worktree clean <lane>` deletes it once its diff is
   in `HEAD`. No plan ticks fire at landing: they tick when you commit with `Task:` trailers or run `plan task --done`.
-- With `--merge` instead: fast-forwards `main`, ticks the plan tasks named by `Task:` trailers, notices every other
-  lane left behind (naming overlapping files) and deletes the branch too.
 
 Exit code 3 = the rebase conflicted (aborted, the lane exactly as it was, files named, the lane's session notified) or
 the land was refused on a dirty path. Fix a conflict in the lane, never on `main`: edit the files and commit with
@@ -104,7 +101,6 @@ Notices a lane sees (drained at its next prompt or `git` command):
 
 | Notice | Do |
 |--------|----|
-| `main moved to <sha> (lane <x> merged)` (a `--merge`), naming overlapping files | Nothing yet: `land` rebases you; with overlaps, land soon |
 | A land stopped on a conflict in your lane | Resolve in the lane as above, then re-run `land` |
 
 After a green land the audit runs detached on `HEAD` plus the landed diff; once you commit, the main session installs

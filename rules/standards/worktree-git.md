@@ -63,11 +63,10 @@ user's yes; no answer means keep working in place.
 `HARNESS_WORKTREE=lanes` asks nothing and blocks nothing: an edit or stage of a tracked file in the live checkout, or in
 another repo's primary checkout, gets a note naming `claude-code worktree create <slug>`; work in a lane gets none.
 
-- **Landing choice:** every repo, `~/.claude` included, offers two modes, the first recommended. **Land on local
-  (Recommended):** the gate-green lane's net diff becomes uncommitted changes in the live checkout; you commit.
-  **Merge into working branch:** `worktree land --merge`, a committed fast-forward. A verified lane lands without
-  asking (owner, 2026-11-24), with a summary plus `git diff --stat main...<lane>`, unless its diff adds a restriction
-  (block, deny, refusal, narrower sandbox): that waits for the owner's yes.
+- **Landing:** every repo, `~/.claude` included, lands on local, the only way a lane comes back: the gate-green lane's
+  net diff becomes uncommitted changes in the live checkout; you commit (owner, 2026-11-24: "no merging, just land on
+  local"). A verified lane lands without asking, with a summary plus `git diff --stat main...<lane>`, unless its diff
+  adds a restriction (block, deny, refusal, narrower sandbox): that waits for the owner's yes.
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree land <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
   importers; all concurrent) and applies its net diff to the live working tree, uncommitted and unstaged. A landed

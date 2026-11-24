@@ -31,8 +31,7 @@ takes whatever a peer staged.
 
 Hooks queue notices in a per-session inbox (`~/.claude/state/harness/notices/<session>.jsonl`), drained into
 context at your next prompt or `git` command: a `worktree land` stopped on a rebase conflict tells the session
-that opened the worktree (ledger `Session:`) which files conflict, and a `--merge` promote tells every other lane's
-session that `main` moved and which files overlap; a diverged local branch gives one line per
+that opened the worktree (ledger `Session:`) which files conflict; a diverged local branch gives one line per
 HEAD/upstream pair naming the sides and whose commits they are: do not commit until reconciled. A `dirty-target`
 refusal names the session or leaf claiming each overlapping file.
 

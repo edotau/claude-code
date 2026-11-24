@@ -552,8 +552,8 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	}
 }
 
-// A cancellation after every recheck has passed must still stop promoteLocked before the ff-only update.
-func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
+// A cancellation after every recheck has passed must still stop promoteLocked before the apply.
+func TestPromoteCancelledAfterChecksStillRefusesLand(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
@@ -569,18 +569,22 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	orig := runGit
+	canceled, diffAfterCancel := false, false
 	runGit = func(ctx2 context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
-		if slices.Contains(args, "--ff-only") {
-			cancel()
+		diffAfterCancel = diffAfterCancel || canceled && slices.Contains(args, "diff")
+		out, err := orig(ctx2, dir, extraEnv, args...)
+		if slices.Contains(args, "--is-ancestor") {
+			canceled = true
+			cancel() // the last recheck before the apply
 		}
-		return orig(ctx2, dir, extraEnv, args...)
+		return out, err
 	}
 	defer func() { runGit = orig }()
 
-	if _, err := promote(ctx, repo, plan); err == nil {
-		t.Fatal("promote: want an error — ctx was cancelled just before the ff-only merge")
+	if _, err := promote(ctx, repo, plan); !errors.Is(err, context.Canceled) || diffAfterCancel {
+		t.Fatalf("promote: err = %v, diff after cancel = %v; want context.Canceled and no apply attempt", err, diffAfterCancel)
 	}
-	if headOf(main) != mainBefore {
+	if _, err := os.Stat(filepath.Join(main, "g.txt")); err == nil || headOf(main) != mainBefore {
 		t.Fatalf("main HEAD = %s, want unchanged %s", headOf(main), mainBefore)
 	}
 }

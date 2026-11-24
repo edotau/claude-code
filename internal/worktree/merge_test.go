@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -42,7 +41,7 @@ func TestIntegrateTargetRebaseFailureStopsBeforePromote(t *testing.T) {
 	}
 }
 
-func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
+func TestPromoteLandsUncommittedSkipsSimulation(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
@@ -61,15 +60,16 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
-	if result.AfterOID != integrated.AfterOID || headOf(main) != integrated.AfterOID {
-		t.Fatalf("promotion = %+v, HEAD = %s, want %s", result, headOf(main), integrated.AfterOID)
+	if result.AfterOID != integrated.AfterOID || headOf(main) != plan.TargetOID {
+		t.Fatalf("promotion = %+v, HEAD = %s, want unmoved %s", result, headOf(main), plan.TargetOID)
 	}
+	requireFileContent(t, filepath.Join(main, "g.txt"), "feature\n")
 	data, err := os.ReadFile(trace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireContains(t, "promotion trace", string(data), "merge-base --is-ancestor", "merge --ff-only")
-	if strings.Contains(string(data), "merge-tree") {
+	requireContains(t, "promotion trace", string(data), "merge-base --is-ancestor")
+	if strings.Contains(string(data), "merge-tree") || strings.Contains(string(data), "--ff-only") {
 		t.Fatalf("proven fast-forward unnecessarily simulated a merge:\n%s", data)
 	}
 }
@@ -133,7 +133,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	}
 }
 
-// Regression: a commit landing after integrateTarget must never be promoted; only the pinned OID is fast-forwarded.
+// Regression: a commit landing after integrateTarget must never be promoted; only the pinned OID lands.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -162,8 +162,8 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	if result == nil || result.ResumeHint == "" {
 		t.Fatalf("result = %+v, want a populated ResumeHint", result)
 	}
-	if headOf(main) == unreviewed {
-		t.Fatal("main HEAD was fast-forwarded onto a commit that was never part of the reviewed integration")
+	if _, err := os.Stat(filepath.Join(main, "unreviewed.txt")); err == nil || headOf(main) == unreviewed {
+		t.Fatal("main received a commit that was never part of the reviewed integration")
 	}
 }
 
@@ -230,9 +230,7 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	if _, err := promote(ctx, repo, plan); err != nil {
 		t.Fatalf("promote refused residue: %v", err)
 	}
-	if headOf(main) != headOf(wt) {
-		t.Fatalf("main = %s, want promoted to %s", headOf(main), headOf(wt))
-	}
+	requireFileContent(t, filepath.Join(main, "g.txt"), "feature only\n")
 }
 
 func TestMergeDirtyTargetOverlap(t *testing.T) {
@@ -255,18 +253,16 @@ func TestMergeDirtyTargetOverlap(t *testing.T) {
 			}
 			var plan *MergePlan
 			outcome, err := Merge(context.Background(), repo, MergeRequest{
-				Name: "feature", Verify: "true", NoClean: true, IntoBranch: true, Out: io.Discard, Err: io.Discard,
+				Name: "feature", Verify: "true", NoClean: true, Out: io.Discard, Err: io.Discard,
 				ShowPlan: func(p *MergePlan) { plan = p },
 			})
 			if errors.Is(err, ErrLandRefused) != overlap || (!overlap && (err != nil || outcome == nil)) {
 				t.Fatalf("Merge = %+v, %v; want a land refusal=%v", outcome, err, overlap)
 			}
-			wantHead := headOf(wt)
 			if overlap {
 				assertDirtyTargetIssue(t, plan, "a.txt")
-				wantHead = before
 			}
-			assertTargetEditIntact(t, main, wantHead)
+			assertTargetEditIntact(t, main, before)
 		})
 	}
 }
@@ -305,6 +301,14 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 		t.Fatalf("promote = %v, want dirty-target naming a.txt", err)
 	}
 	assertTargetEditIntact(t, main, before)
+}
+
+// requireFileContent fails unless the live tree holds the lane's content uncommitted at path.
+func requireFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("%s = %q, %v; want %q", path, got, err, want)
+	}
 }
 
 func mergeFixtureLockEnv(t *testing.T) {
@@ -369,25 +373,25 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 	}
 }
 
-func TestAfterPromoteCleanClosesLedgerOnce(t *testing.T) {
+func TestAfterLandCleanClosesLedgerOnce(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	wantHead := headOf(wt)
 	outcome, err := Merge(context.Background(), repo, MergeRequest{
-		Name: "feature", NoVerify: true, IntoBranch: true, Out: io.Discard, Err: io.Discard,
+		Name: "feature", NoVerify: true, Out: io.Discard, Err: io.Discard,
 		ShowPlan: func(*MergePlan) {},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome.Clean == nil || !outcome.Clean.Removed || !outcome.Clean.BranchDeleted {
-		t.Fatalf("clean = %+v, want worktree and branch removed", outcome.Clean)
+	if outcome.Clean == nil || !outcome.Clean.Removed || outcome.Clean.BranchDeleted {
+		t.Fatalf("clean = %+v, want the worktree removed and its branch kept", outcome.Clean)
 	}
 	text := ledgerFile(t, main, "feature")
-	requireContains(t, "closed ledger", text, "- Via: merge\n", "- Merge: "+wantHead+"\n", "- Branch: deleted\n")
-	if strings.Count(text, "closed via merge") != 1 || strings.Contains(text, "removed via") {
-		t.Fatalf("merge and cleanup must close the ledger exactly once:\n%s", text)
+	requireContains(t, "closed ledger", text, "- Via: land\n", "- Merge: "+wantHead+"\n", "- Branch: kept\n")
+	if strings.Count(text, "closed via land") != 1 || strings.Contains(text, "removed via") {
+		t.Fatalf("land and cleanup must close the ledger exactly once:\n%s", text)
 	}
 }
 
@@ -442,52 +446,28 @@ func laneMergeFixture(t *testing.T) (*Repo, string, string) {
 }
 
 func laneRequest(name string, out io.Writer) MergeRequest {
-	return MergeRequest{Name: name, NoVerify: true, IntoBranch: true, Out: out, Err: out,
+	return MergeRequest{Name: name, NoVerify: true, Out: out, Err: out,
 		ShowPlan: func(*MergePlan) {}, ShowResolved: func(*MergeResult) {}}
 }
 
-// The gate sees trunk's file only on the rebased tree; the trailer ticks; lane b hears of the shared file.
-func TestLaneMergeRebasesGatesTicksAndNotifies(t *testing.T) {
+// The gate sees trunk's file only on the rebased tree; main keeps its head and gets the lane's file uncommitted.
+func TestLaneLandRebasesGatesAndLeavesMainUncommitted(t *testing.T) {
 	repo, main, wt := laneMergeFixture(t)
-	b, err := Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mergeFixtureWrite(t, wt, "f.txt", "A\n", "feat: a\n\nTask: 2026-11-18-probe 1.1")
-	mergeFixtureWrite(t, b, "f.txt", "B\n", "feat: b")
+	mergeFixtureWrite(t, wt, "f.txt", "A\n", "feat: a")
 	mergeFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk moves")
 	trunk := headOf(main)
-	home := plans.Home(main)
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	plan := filepath.Join(home, "2026-11-18-probe.md")
-	if err := os.WriteFile(plan, []byte("- [ ] 1.1 Probe owns: f.txt\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	var out bytes.Buffer
 	req := laneRequest("a", &out)
 	req.NoVerify, req.Verify = false, "test -f trunk.txt"
-	req.AfterPromote = func(ctx context.Context, rng string) error {
-		return plans.TickRange(ctx, main, "a", rng, "", nil, false, &out)
-	}
 	outcome, err := Merge(t.Context(), repo, req)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	requireContains(t, "output", out.String(), "rebased:", "verify: passed (flag)", "promoted:")
-	parent, err := runGit(t.Context(), main, nil, "rev-parse", "HEAD~1")
-	if err != nil || strings.TrimSpace(string(parent)) != trunk || outcome.Clean == nil || !outcome.Clean.Removed {
-		t.Fatalf("want the lane commit fast-forwarded on top of trunk and the lane removed: %s %v %+v", parent, err, outcome.Clean)
+	requireContains(t, "output", out.String(), "rebased:", "verify: passed (flag)", "landed a:")
+	if headOf(main) != trunk || outcome.Clean == nil || !outcome.Clean.Removed {
+		t.Fatalf("want main unmoved at %s and the lane removed: head %s %+v", trunk, headOf(main), outcome.Clean)
 	}
-	if data, err := os.ReadFile(plan); err != nil || !strings.Contains(string(data), "[x] 1.1") {
-		t.Fatalf("plan: %s, %v", data, err)
-	}
-	notices, err := DrainErr("session-b")
-	if err != nil || len(notices) != 1 {
-		t.Fatalf("notices: %+v %v", notices, err)
-	}
-	requireContains(t, "notice", notices[0].Text, "main moved to "+ShortOID(headOf(main)), "lane a merged", "overlaps yours in f.txt")
+	requireFileContent(t, filepath.Join(main, "f.txt"), "A\n")
 }
 
 // A real conflict aborts the rebase: the lane keeps its HEAD and a clean tree, trunk stays, the session hears.
@@ -530,7 +510,7 @@ func TestLaneMergeDryRunPreservesEveryRef(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) || headOf(wt) == headOf(main) {
 		t.Fatalf("refs changed: %s -> %s (%v)", before, after, err)
 	}
-	requireContains(t, "preview", out.String(), "would: rebase", "fast-forward main only", "remove the lane", "changed files: f.txt")
+	requireContains(t, "preview", out.String(), "would: rebase", "apply the lane's diff uncommitted", "remove the lane", "changed files: f.txt")
 }
 
 func TestLaneMergeDirtyOverlapRefusesBeforeRebase(t *testing.T) {
@@ -570,35 +550,10 @@ func TestLaneMergeTrunkMovedDuringGateRefuses(t *testing.T) {
 		t.Fatalf("want a target-moved refusal naming re-run: %v\n%s", err, out.String())
 	}
 	if headOf(main) == headOf(wt) {
-		t.Fatal("trunk was fast-forwarded after it moved")
+		t.Fatal("main received the lane after it moved")
 	}
 	if _, statErr := os.Stat(wt); statErr != nil {
 		t.Fatalf("lane removed after a refused promote: %v", statErr)
-	}
-}
-
-// Lanes up to date, without a session, or the merged one hear nothing; a behind lane gets one plain line.
-func TestLaneMergeNonOverlappingNotice(t *testing.T) {
-	repo, _, wt := laneMergeFixture(t)
-	if _, err := Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard}); err != nil {
-		t.Fatal(err)
-	}
-	mergeFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
-	req := laneRequest("a", io.Discard)
-	req.NoClean = true
-	if _, err := Merge(t.Context(), repo, req); err != nil {
-		t.Fatal(err)
-	}
-	notices, err := DrainErr("session-b")
-	if err != nil || len(notices) != 1 {
-		t.Fatalf("notices: %+v %v", notices, err)
-	}
-	requireContains(t, "notice", notices[0].Text, "main moved to", "lane a merged")
-	if strings.Contains(notices[0].Text, "overlap") || strings.Contains(notices[0].Text, "\n") {
-		t.Fatal("want one-line trunk moved notice")
-	}
-	if own, err := DrainErr("session-a"); err != nil || len(own) != 0 {
-		t.Fatalf("merged lane notified: %+v %v", own, err)
 	}
 }
 
@@ -625,51 +580,6 @@ func TestLaneMergeResolveAgentResolvesInLane(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(main, "f.txt"))
 	if calls != 1 || err != nil || string(data) != "resolved\n" {
 		t.Fatalf("calls %d; main f.txt = %q %v", calls, data, err)
-	}
-}
-
-// CLI-created lanes each get their own inbox, and a lane kept by --no-clean stays open and still hears.
-func TestLaneMergeCLILanesOwnInboxAndKeptLaneHears(t *testing.T) {
-	repo, main, _ := laneMergeFixture(t)
-	lane := map[string]string{}
-	for _, n := range []string{"b", "c", "d"} {
-		dir, err := Create(repo, n, CreateOptions{Session: cliSession, Log: io.Discard})
-		if err != nil {
-			t.Fatal(err)
-		}
-		lane[n] = dir
-	}
-	mergeFixtureWrite(t, lane["b"], "f.txt", "B\n", "feat: b")
-	mergeFixtureWrite(t, lane["b"], "p.txt", "B\n", "feat: b p")
-	for n, f := range map[string]string{"c": "f.txt", "d": "p.txt"} {
-		if err := os.WriteFile(filepath.Join(lane[n], f), []byte(n+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	req := laneRequest("b", io.Discard)
-	req.NoClean = true
-	if _, err := Merge(t.Context(), repo, req); err != nil {
-		t.Fatal(err)
-	}
-	for n, f := range map[string]string{"c": "f.txt", "d": "p.txt"} {
-		notices, err := DrainFor("", func() string { return lane[n] })
-		if err != nil || len(notices) != 1 || !strings.HasSuffix(notices[0].Text, "overlaps yours in "+f) {
-			t.Fatalf("lane %s: want its own notice naming %s, got %+v %v", n, f, notices, err)
-		}
-	}
-	if !strings.Contains(ledgerFile(t, main, "b"), "- Status: open\n") {
-		t.Fatal("--no-clean closed the kept lane's ledger")
-	}
-	mergeFixtureRun(t, lane["c"], "checkout", "--", "f.txt")
-	mergeFixtureWrite(t, lane["c"], "c.txt", "C\n", "feat: c")
-	req = laneRequest("c", io.Discard)
-	req.NoClean = true
-	if _, err := Merge(t.Context(), repo, req); err != nil {
-		t.Fatal(err)
-	}
-	kept, err := DrainFor("", func() string { return lane["b"] })
-	if err != nil || len(kept) != 1 || !strings.Contains(kept[0].Text, "lane c merged") {
-		t.Fatalf("kept lane b: want a notice for c's merge, got %+v %v", kept, err)
 	}
 }
 

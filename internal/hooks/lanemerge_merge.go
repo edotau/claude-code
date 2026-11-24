@@ -73,7 +73,7 @@ func mergeAttempt(j laneJob, repo *worktree.Repo, base string) attempt {
 	return a
 }
 
-// runWorktreeMerge is the merge verb itself, run from the main checkout with the session's id for its plan ticks.
+// runWorktreeMerge runs `worktree land` from the main checkout with the session's id.
 var runWorktreeMerge = func(main, name, session string) (int, string) {
 	bin, ok := mainSibling()
 	if !ok {
@@ -105,7 +105,7 @@ func laneDone(j laneJob, base string) {
 	}
 }
 
-// laneMerged tells the session the lane landed: the promoted range, ticked tasks and whether the lane is gone.
+// laneMerged tells the session the lane landed and whether the lane is gone.
 func laneMerged(j laneJob, base, out string) {
 	laneDone(j, base)
 	if j.session == "" {
@@ -113,7 +113,7 @@ func laneMerged(j laneJob, base, out string) {
 	}
 	var keep []string
 	for line := range strings.Lines(out) {
-		if l := strings.TrimSpace(line); strings.HasPrefix(l, "landed ") || strings.HasPrefix(l, "promoted:") || strings.Contains(strings.ToLower(l), "ticked") {
+		if l := strings.TrimSpace(line); strings.HasPrefix(l, "landed ") {
 			keep = append(keep, strings.Join(strings.Fields(l), " "))
 		}
 	}
