@@ -108,9 +108,9 @@ const ACTIONS: Record<string, any> = {
     promptSnippet: "dispatch: send one unit of your task to a fleet leaf; returns its id",
     description: "Dispatch a fleet leaf for one unit, inside your own files; returns {id}. Check it with check.",
     parameters: { type: "object", additionalProperties: false, required: ["unit", "kind", "own", "tier", "prompt"],
-      properties: { unit: { type: "string" }, kind: { enum: ["function", "test-repair", "file", "task"] },
+      properties: { unit: { type: "string" }, kind: { type: "string", enum: ["function", "test-repair", "file", "task"] },
         own: { type: "array", items: { type: "string" }, description: "files the leaf may edit, inside your own" },
-        tier: { enum: ["fast", "standard"] }, prompt: { type: "string" } } } },
+        tier: { type: "string", enum: ["fast", "standard"] }, prompt: { type: "string" } } } },
   check: { label: "Check", executionMode: "parallel", promptSnippet: "check: the status of a leaf you dispatched",
     description: "Status of a leaf you dispatched, by id.",
     parameters: { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string" } } } },
@@ -118,9 +118,9 @@ const ACTIONS: Record<string, any> = {
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     description: "Finish: report the outcome of the task. Call once, last.",
     parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
-      properties: { status: { enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
+      properties: { status: { type: "string", enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
         summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } },
-        tests: { enum: HANDBACK_TESTS }, method: { enum: HANDBACK_METHODS } } } },
+        tests: { type: "string", enum: HANDBACK_TESTS }, method: { type: "string", enum: HANDBACK_METHODS } } } },
 }
 
 // stopTree ends the action's process tree: taskkill /T on Windows, SIGTERM (the gate reaps its tree) elsewhere.
