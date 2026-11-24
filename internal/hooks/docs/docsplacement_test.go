@@ -465,6 +465,19 @@ func TestDocsPlacementYieldsToPlanRewrite(t *testing.T) {
 	}
 }
 
+// A first plan-named Write at the harness root is rewritten to the harness plans home whatever repo cwd is in.
+func TestDocsPlacementHarnessPlanFromOtherRepo(t *testing.T) {
+	harness, other := placementRepo(t), placementRepo(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", harness)
+	b, _ := json.Marshal(map[string]any{"tool_name": "Write", "cwd": other,
+		"tool_input": map[string]string{"file_path": filepath.Join(harness, "my-plan.md"), "content": "x"}})
+	r := Placement(core.ParseInput(bytes.NewReader(b)))
+	want := filepath.Join(plans.Home(harness), time.Now().Format("2006-01-02")+"-my-plan.md")
+	if r.Decision == core.Block || r.UpdatedInput == nil || r.UpdatedInput["file_path"] != want {
+		t.Fatalf("result = %+v, want a rewrite to %s", r, want)
+	}
+}
+
 // A block whose name picks a kind (plan, report, handoff) names the one free dated path instead of three templates.
 func TestDocsPlacementNamesExactDest(t *testing.T) {
 	cfg := t.TempDir()

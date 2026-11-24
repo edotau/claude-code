@@ -53,6 +53,38 @@ func TestDetachDropsTreeTag(t *testing.T) {
 	}
 }
 
+// A child left in the group after its leader dies (a fork the cancel sweep missed) is gone once ReapGroup returns.
+func TestReapGroupKillsLeftoverChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no sh; taskkill /T takes the tree")
+	}
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", `sleep 30 & echo $! > "$1"; wait`, "sh", pidFile)
+	TreeCancel(cmd, 10*time.Millisecond)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	child := 0
+	for end := time.Now().Add(2 * time.Second); child == 0; time.Sleep(5 * time.Millisecond) {
+		if b, _ := os.ReadFile(pidFile); len(b) > 0 && b[len(b)-1] == '\n' {
+			child, _ = strconv.Atoi(string(b[:len(b)-1]))
+		} else if time.Now().After(end) {
+			t.Fatal("shell never started its sleep")
+		}
+	}
+	_ = cmd.Process.Kill() // the leader only: the sleep stays in its group
+	_ = cmd.Wait()
+	if !ReapGroup(cmd.Process.Pid, time.Second) {
+		t.Fatal("ReapGroup timed out with the group still alive")
+	}
+	for end := time.Now().Add(500 * time.Millisecond); Alive(child); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(end) {
+			_ = exec.Command("kill", "-9", strconv.Itoa(child)).Run()
+			t.Fatalf("child %d of the reaped group survived", child)
+		}
+	}
+}
+
 func TestTreeCancelKillsDetachedDescendants(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())

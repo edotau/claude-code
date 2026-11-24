@@ -47,6 +47,25 @@ func TestPermissionParsePermissionsErrors(t *testing.T) {
 	}
 }
 
+// Given a --permissions JSON value, Then ParsePolicy keeps a mode and rules and refuses an unknown key or bad mode.
+func TestParsePolicyModeObjectAndRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		mode string
+		ok   bool
+	}{
+		{`{"mode":"auto"}`, "auto", true},
+		{`{"mode":"default","allow":["Read"],"deny":["Bash(rm:*)"]}`, "default", true},
+		{`{"alow":[]}`, "", false},
+		{`{"mode":"yolo"}`, "", false},
+	} {
+		p, err := ParsePolicy(tc.in)
+		if (err == nil) != tc.ok || (tc.ok && p.Mode != tc.mode) {
+			t.Errorf("ParsePolicy(%s) = %+v, %v; want ok=%v mode=%q", tc.in, p, err, tc.ok, tc.mode)
+		}
+	}
+}
+
 func TestPermissionEach(t *testing.T) {
 	p := Permissions{
 		Allow: []Rule{{Tool: "Read", Arg: "allowed.txt"}},

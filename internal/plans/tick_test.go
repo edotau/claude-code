@@ -318,6 +318,39 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	}
 }
 
+// A reopened task stays open through a tick of its old commit; a new trailer commit ticks it again.
+func TestReopenedTaskTicksOnlyOnNewCommit(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-05-p.md")
+	writeFile(t, plan, "- [ ] 1.1 One owns: a.go\n")
+	commit := func(f string) string {
+		writeFile(t, filepath.Join(repo, f), "x")
+		hosttest.In(t, repo, "add", f)
+		hosttest.In(t, repo, "commit", "-q", "-m", "feat: "+f+"\n\nTask: 2026-10-05-p 1.1")
+		return strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
+	}
+	tick := func(sha string) string {
+		if _, _, err := TickCommit(repo, sha, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		return readFile(t, plan)
+	}
+	old := commit("a.go")
+	if got := tick(old); !strings.Contains(got, "[x] 1.1") {
+		t.Fatalf("the trailer commit must tick:\n%s", got)
+	}
+	if err := Reopen(repo, plan, "1.1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tick(old); !strings.Contains(got, "[ ] 1.1") || !strings.Contains(got, "reopened") {
+		t.Fatalf("a commit before the reopen must not re-tick:\n%s", got)
+	}
+	if got := tick(commit("b.go")); !strings.Contains(got, "[x] 1.1") {
+		t.Fatalf("a new trailer commit must tick the reopened task:\n%s", got)
+	}
+}
+
 // A requested task id must resolve to exactly one open task, or the refusal says why and what is near.
 func TestTaskTrailersRefusals(t *testing.T) {
 	hermetic(t)
