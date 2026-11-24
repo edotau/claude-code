@@ -58,10 +58,13 @@ func isAlnum(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' 
 // scopeFile joins with "@", outside the part alphabet, so two pairs never share a file.
 func scopeFile(team, id string) string { return filepath.Join(ScopesDir(), team+"@"+id+".json") }
 
-// scopeLive reports whether sc's process still runs under the identity its record names.
+// scopeLive reports whether sc's process may still run: only a gone pid or a changed start time proves it dead.
 func scopeLive(sc Scope) bool {
 	start, err := proc.StartTime(sc.PID)
-	return err == nil && start == sc.Start
+	if err != nil {
+		return !errors.Is(err, proc.ErrNoProcess)
+	}
+	return start == sc.Start
 }
 
 func checkScopeParts(team, id string) error {
@@ -94,7 +97,9 @@ func WriteScope(sc Scope) (func(), error) {
 	return func() {
 		_ = paths.WithFileLock(file, func() error { // a replacement's fresh record must not vanish mid-check
 			if cur, err := ReadScope(sc.Team, sc.ID); err == nil && cur.PID == sc.PID && cur.Started.Equal(sc.Started) {
-				_ = os.Remove(file)
+				if err := os.Remove(file); err != nil {
+					fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
+				}
 			}
 			return nil
 		})

@@ -43,7 +43,11 @@ func Open(ctx context.Context, sc proxy.Scope) (*Scoped, error) {
 	r.sessions = newMemorySessionStore(secret, func() time.Time { return r.now() })
 	s := &Scoped{port: ln.Addr().(*net.TCPAddr).Port, r: r, done: make(chan struct{}),
 		stopRefresh: acquireRefresh(), cleanup: func() {}}
-	if err := s.publish(sc); err != nil {
+	err = ctx.Err() // acquireRefresh can wait on another proxy's last Close
+	if err == nil {
+		err = s.publish(sc)
+	}
+	if err != nil {
 		_ = ln.Close()
 		s.stopRefresh()
 		return nil, err
