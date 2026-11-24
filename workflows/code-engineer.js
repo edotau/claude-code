@@ -97,6 +97,92 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // </block:stepOf>
+
+// <block:engineerPrompts>
+/** @param {{ EXT: * }} input */
+function engineerPreflightBrief({ EXT }) {
+  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. First run `echo $HOME` and report it as home.\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
+}
+
+/** @param {{ CWD: * }} input */
+function engineerRules({ CWD }) {
+  return 'Shared live tree: never git stash|checkout|reset|restore|clean|commit|add, never make build|install|audit, never edit settings.json. ' +
+  'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+}
+
+/** @param {{ RANGE: *, RULES: * }} input */
+function engineerRangeBrief({ RANGE, RULES }) {
+  return RULES + ' Report only: run `git diff --name-only ' + RANGE + " -- '*.go'` and return the files that still exist and are not *_test.go, " +
+      'repo-relative. Return {paths: []} when there are none.'
+}
+
+/** @param {{ PATHS: *, PKGS: *, RULES: *, TASK: * }} input */
+function engineerSizeBrief({ PATHS, PKGS, RULES, TASK }) {
+  return RULES + ' Report your findings. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
+      'existing behavior, feature = add behavior, refactor = change structure keeping existing behavior, audit = review packages for bugs, consolidate = merge duplicates and delete dead code, legacy paths or stale tests keeping behavior, architecture = a multi-session design change); the ' +
+      'non-test source FILES that must change (repo-relative, one entry per file, never a directory, tests excluded); the Go package dirs ' +
+      'only for an audit or consolidate; a one-line focus; and a one-line reason. Use `git status --short` and `go list ./...` only as needed.\nTask: ' + TASK +
+      (PKGS.length ? '\nGiven packages: ' + PKGS.join(', ') : '') + (PATHS.length ? '\nGiven paths: ' + PATHS.join(', ') : '')
+}
+
+function engineerHomeProbe() {
+  return 'Run `echo $HOME` and return it as home.'
+}
+
+/** @param {{ CWD: *, RULES: *, TASK: * }} input */
+function engineerPlanBrief({ CWD, RULES, TASK }) {
+  return RULES + ' Report your plan. Draft an implementation plan for this task in the shape of ' + CWD + '/docs/templates/plan.md (read it first), with the ' +
+      'real files and phases found in the repo. Return the markdown in `plan`.\nTask: ' + TASK
+}
+
+/** @param {{ PATHS: *, RULES: *, TASK: * }} input */
+function engineerIntelBrief({ PATHS, RULES, TASK }) {
+  return RULES + ' Report your findings. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
+      'Return `paths` (repo-relative files to change or audit) and `focus` (the task plus the conventions and callers that matter).\nTask: ' + TASK +
+      (PATHS.length ? '\nStart from: ' + PATHS.join(', ') : '')
+}
+
+/** @param {{ KIND: *, RULES: *, TASK: *, focus: *, implTargets: * }} input */
+function engineerImplementationBrief({ KIND, RULES, TASK, focus, implTargets }) {
+  return RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
+      'Run gofmt and go vet on the package. Do not write tests; ' + (KIND === 'feature' ? 'one Test stage follows for the feature, then ' : '') + 'code-workers follows with find, fix and gate. Return `files`: every repo-relative file you changed. ' +
+      'Then run the changed surface live (the CLI verb, hook, endpoint or make target, e.g. `go run ./cmd/claude-code <verb> ...`) on real input and return `live`: {command, exit, output (trimmed tail)}; no runnable surface: {command: "", reason: "<why>"}.\nFiles: ' + implTargets.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus
+}
+
+/** @param {{ CWD: *, RULES: *, argv: *, note: * }} input */
+function engineerPlanRunBrief({ CWD, RULES, argv, note }) {
+  return RULES + ' Run exactly the argv below once from ' + CWD + ', shell-quoting every element and appending </dev/null; it is one of `claude-code agents ask --waves <plan> ...`, ' +
+      '`claude-code agents wait <id> --timeout 10m` or `claude-code agents result <id> --verdict --lines 40`. Add no other flag or pipe.' + (note || '') +
+      ' Return its exit code as `exit` (null when it could not run) and its stdout as `out` (the last 60 lines when longer).\nargv: ' + JSON.stringify(argv)
+}
+
+/** @param {{ RULES: *, need: *, w: * }} input */
+function engineerApplySeamsBrief({ RULES, need, w }) {
+  return RULES + ' Seam step after wave ' + w + ': the package fixers below left these changes undone because each changes an exported signature or a file outside its package. ' +
+    'Apply them now and update every caller (grep the whole repo); smallest correct change; gofmt and go vet what you touched. Return `files`.\n' + need.map((x) => '- ' + x.pkg + ': ' + x.file + ' — ' + x.need).join('\n')
+}
+
+/** @param {{ LINE_BUDGET: *, RULES: *, ST_BUDGET: *, TASK: *, implOver: * }} input */
+function engineerImplShrinkBrief({ LINE_BUDGET, RULES, ST_BUDGET, TASK, implOver }) {
+  return RULES + ' Line budget ' + LINE_BUDGET + ' (production net ≤ ' + ST_BUDGET[LINE_BUDGET] + ' per package, git diff --numstat): your change measured ' +
+    implOver().map(([p, n]) => p + ' ' + n).join(', ') + '. Shrink it or justify it: cut what the task does not need and keep the change; never revert it, never git checkout/restore/stash; cannot shrink: leave it, reason in summary. Return `files`.\nTask: ' + TASK
+}
+
+/** @param {{ IMPL_FILES: *, RULES: *, ST_PROPOSE: *, TASK: *, dirs: *, stDiff: * }} input */
+function engineerImplTestBrief({ IMPL_FILES, RULES, ST_PROPOSE, TASK, dirs, stDiff }) {
+  return RULES + ' A feature just landed (' + stDiff(dirs) + '; changed: ' + IMPL_FILES.join(', ') + '). Task: ' + TASK +
+    '\nWrite basic tests for the feature\'s main behavior that call the real code (a couple of seconds at most), and repair any test the change broke. Edit only *_test.go and testdata files in ' + dirs.join(', ') + '.' + ST_PROPOSE + ' Put "n/a" in callers.'
+}
+
+/** @param {{ CWD: *, RULES: *, label: *, res: * }} input */
+function engineerRecordOnceBrief({ CWD, RULES, label, res }) {
+  return RULES + ' Record this run and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
+    '(Read that empty file before you Write it), then run exactly `cd ' + CWD + ' && claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
+    'and return its paths array. Change nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })
+}
+// </block:engineerPrompts>
+
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
@@ -554,8 +640,7 @@ const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agen
 let HOME = '' // from the preflight, else read once by runChild
 if (EXT.length) {
   const pf = await agent(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. First run `echo $HOME` and report it as home.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    engineerPreflightBrief({ EXT }),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['home', 'routes'], properties: { home: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   HOME = (pf && pf.home) || ''
@@ -568,8 +653,7 @@ if (EXT.length) {
 }
 
 const RULES =
-  'Shared live tree: never git stash|checkout|reset|restore|clean|commit|add, never make build|install|audit, never edit settings.json. ' +
-  'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+  engineerRules({ CWD })
 let CTX = { cwd: CWD, cd: '', rules: RULES, S: { ...CS, dedupe: S.dedupe, simplify: S.simplify, review: S.review }, gateMax: ST_GATE_MAX, gate: PKG_GATE } // kind, lineBudget set after Size
 const SIZED = {
   type: 'object',
@@ -612,8 +696,7 @@ let KIND = a.kind || '' // args.kind wins over the size agent and the task-verb 
 // A git range with a task, paths or packages becomes the changed Go files (non-test); a bare one goes to code-analyzer.
 if (RANGE && !ANALYZE) {
   const ch = S.size.done('range', await agent(
-    S.size.task(RULES + ' Report only: run `git diff --name-only ' + RANGE + " -- '*.go'` and return the files that still exist and are not *_test.go, " +
-      'repo-relative. Return {paths: []} when there are none.'),
+    S.size.task(engineerRangeBrief({ RANGE, RULES })),
     { phase: 'Size', label: 'range', schema: S.size.schema(RECORDED), model: S.size.model, effort: S.size.effort, ...S.size.type },
   ).catch(() => null))
   const got = ch ? strs(ch.paths) : []
@@ -638,11 +721,7 @@ if (PLAN_FILE) {
   decisions.push('sized as ' + tier + ': no task, ' + (PKGS.length ? 'a package list is an audit' : 'only named paths'))
 } else if (!tier) {
   const sz = S.size.done('size', await agent(
-    S.size.task(RULES + ' Report your findings. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
-      'existing behavior, feature = add behavior, refactor = change structure keeping existing behavior, audit = review packages for bugs, consolidate = merge duplicates and delete dead code, legacy paths or stale tests keeping behavior, architecture = a multi-session design change); the ' +
-      'non-test source FILES that must change (repo-relative, one entry per file, never a directory, tests excluded); the Go package dirs ' +
-      'only for an audit or consolidate; a one-line focus; and a one-line reason. Use `git status --short` and `go list ./...` only as needed.\nTask: ' + TASK +
-      (PKGS.length ? '\nGiven packages: ' + PKGS.join(', ') : '') + (PATHS.length ? '\nGiven paths: ' + PATHS.join(', ') : '')),
+    S.size.task(engineerSizeBrief({ PATHS, PKGS, RULES, TASK })),
     { phase: 'Size', label: 'size', schema: S.size.schema(SIZED), model: S.size.model, effort: S.size.effort, ...S.size.type },
   ).catch(() => null))
   if (!sz) return ERR('sizing agent returned nothing; pass args.tier to skip it')
@@ -669,7 +748,7 @@ phase('Route')
 // runChild runs a child a level down from harness scripts (a target's workflows/ is unreadable); no ~ expansion
 const scriptsDir = async () => {
   if (a.scripts) return String(a.scripts).replace(/\/$/, '')
-  if (!HOME) HOME = ((await agent('Run `echo $HOME` and return it as home.', { label: 'home', phase: 'Route', model: 'haiku', effort: 'low', schema: { type: 'object', required: ['home'], properties: { home: { type: 'string' } } } }).catch(() => null)) || {}).home || ''
+  if (!HOME) HOME = ((await agent(engineerHomeProbe(), { label: 'home', phase: 'Route', model: 'haiku', effort: 'low', schema: { type: 'object', required: ['home'], properties: { home: { type: 'string' } } } }).catch(() => null)) || {}).home || ''
   return HOME + '/.claude/workflows'
 }
 const runChild = async (child, cargs) => workflow({ scriptPath: (await scriptsDir()) + '/' + child + '.js' }, cargs).catch((e) => ({ exit: 'error', error: child + ' threw: ' + e.message }))
@@ -682,8 +761,7 @@ if (EVAL_ONLY) {
 }
 if (tier === 'EPIC') {
   const p = S.plan.done('plan', await agent(
-    S.plan.task(RULES + ' Report your plan. Draft an implementation plan for this task in the shape of ' + CWD + '/docs/templates/plan.md (read it first), with the ' +
-      'real files and phases found in the repo. Return the markdown in `plan`.\nTask: ' + TASK),
+    S.plan.task(engineerPlanBrief({ CWD, RULES, TASK })),
     { phase: 'Route', label: 'plan', schema: S.plan.schema(PLAN), model: S.plan.model, effort: S.plan.effort, ...S.plan.type },
   ).catch(() => null))
   if (!p) return ERR('plan agent returned nothing', tier, route, decisions)
@@ -698,9 +776,7 @@ const target = tier === 'HIGH' ? { packages: topDirs(PKGS.length ? PKGS : dirsOf
 const sized = [...(target.paths || [])] // the files the task names; intel may add context, never new packages to a fix
 if (tier === 'MEDIUM' && TASK) {
   const intel = S.intel.done('intel', await agent(
-    S.intel.task(RULES + ' Report your findings. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
-      'Return `paths` (repo-relative files to change or audit) and `focus` (the task plus the conventions and callers that matter).\nTask: ' + TASK +
-      (PATHS.length ? '\nStart from: ' + PATHS.join(', ') : '')),
+    S.intel.task(engineerIntelBrief({ PATHS, RULES, TASK })),
     { phase: 'Route', label: 'intel', schema: S.intel.schema(INTEL), model: S.intel.model, effort: S.intel.effort, ...S.intel.type },
   ).catch(() => null))
   if (intel && rels(intel.paths).length) {
@@ -720,9 +796,7 @@ else if (TASK && implTargets.length && builds) {
   const implDirs = dirsOf(implTargets)
   const pre = await stSnap(CTX, 'pre:impl', implDirs)
   const impl = S.impl.done('impl', await agent(
-    S.impl.task(RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
-      'Run gofmt and go vet on the package. Do not write tests; ' + (KIND === 'feature' ? 'one Test stage follows for the feature, then ' : '') + 'code-workers follows with find, fix and gate. Return `files`: every repo-relative file you changed. ' +
-      'Then run the changed surface live (the CLI verb, hook, endpoint or make target, e.g. `go run ./cmd/claude-code <verb> ...`) on real input and return `live`: {command, exit, output (trimmed tail)}; no runnable surface: {command: "", reason: "<why>"}.\nFiles: ' + implTargets.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus),
+    S.impl.task(engineerImplementationBrief({ KIND, RULES, TASK, focus, implTargets })),
     { phase: 'Route', label: 'impl', schema: S.impl.schema(IMPL), model: S.impl.model, effort: S.impl.effort, ...S.impl.type },
   ).catch(() => null))
   if (impl) IMPL_FILES = strs(impl.files).map((f) => stRel(CTX, f))
@@ -794,9 +868,7 @@ async function polishInto(r0, files) {
 // ── plan route: `agents ask --waves` launches and gates; planRun runs one command in a leaf (exit, stdout) ──
 async function planRun(label, argv, note) {
   const r = await agent(
-    S.runner.task(RULES + ' Run exactly the argv below once from ' + CWD + ', shell-quoting every element and appending </dev/null; it is one of `claude-code agents ask --waves <plan> ...`, ' +
-      '`claude-code agents wait <id> --timeout 10m` or `claude-code agents result <id> --verdict --lines 40`. Add no other flag or pipe.' + (note || '') +
-      ' Return its exit code as `exit` (null when it could not run) and its stdout as `out` (the last 60 lines when longer).\nargv: ' + JSON.stringify(argv)),
+    S.runner.task(engineerPlanRunBrief({ CWD, RULES, argv, note })),
     { phase: 'Run', label: 'plan:' + label, schema: S.runner.schema(PLAN_OUT), model: S.runner.model, effort: S.runner.effort, ...S.runner.type },
   ).catch((e) => { log('plan:' + label + ' failed: ' + ((e && e.message) || e)); return null })
   return S.runner.done('plan:' + label, r)
@@ -901,8 +973,7 @@ async function applySeams(need, w) {
   const sf = [...new Set(need.map((x) => stRel(CTX, x.file)).filter(Boolean))]
   const snap = (label) => (sf.length ? stSnap(CTX, label, sf) : null) // no path would diff the whole tree
   const pre = await snap('pre:seam:' + w)
-  const r = await stageAsk(CTX, CS.fix, 'seam:' + w, 'Seam', RULES + ' Seam step after wave ' + w + ': the package fixers below left these changes undone because each changes an exported signature or a file outside its package. ' +
-    'Apply them now and update every caller (grep the whole repo); smallest correct change; gofmt and go vet what you touched. Return `files`.\n' + need.map((x) => '- ' + x.pkg + ': ' + x.file + ' — ' + x.need).join('\n'), ST_WORK)
+  const r = await stageAsk(CTX, CS.fix, 'seam:' + w, 'Seam', engineerApplySeamsBrief({ RULES, need, w }), ST_WORK)
   stDelta('seam', stDir, pre, await snap('seam:' + w))
   decisions.push('seam step after wave ' + w + ': ' + need.length + ' need(s), ' + (r ? r.status : 'agent returned nothing'))
   return r ? strs(r.files).map((f) => stRel(CTX, f)) : []
@@ -929,8 +1000,7 @@ function absorb(r) {
 // implOver: [pkg, net] for each package whose measured impl rows (shrink pass included) are over the line budget.
 function implOver() { const m = {}; for (const r of ST_LINES.filter((x) => x.measured && /^impl/.test(x.stage))) m[r.pkg] = (m[r.pkg] || 0) + r.prod.net; return Object.entries(m).filter(([, n]) => stOver(CTX, n)) }
 async function implShrink(dirs, snap) { // ONE shrink-or-justify pass over an over-budget implementer; returns the new snapshot
-  const why = S.impl.done('impl:shrink', await agent(S.impl.task(RULES + ' Line budget ' + LINE_BUDGET + ' (production net ≤ ' + ST_BUDGET[LINE_BUDGET] + ' per package, git diff --numstat): your change measured ' +
-    implOver().map(([p, n]) => p + ' ' + n).join(', ') + '. Shrink it or justify it: cut what the task does not need and keep the change; never revert it, never git checkout/restore/stash; cannot shrink: leave it, reason in summary. Return `files`.\nTask: ' + TASK),
+  const why = S.impl.done('impl:shrink', await agent(S.impl.task(engineerImplShrinkBrief({ LINE_BUDGET, RULES, ST_BUDGET, TASK, implOver })),
     { phase: 'Route', label: 'impl:shrink', schema: S.impl.schema(ST_WORK), model: S.impl.model, effort: S.impl.effort, ...S.impl.type }).catch(() => null))
   const s2 = await stSnap(CTX, 'impl:shrink', dirs)
   stDelta('impl:shrink', stDir, snap, s2)
@@ -939,8 +1009,7 @@ async function implShrink(dirs, snap) { // ONE shrink-or-justify pass over an ov
   return s2
 }
 async function implTest(dirs, snap) { // kind feature gets basic tests that run in seconds; every other test is proposed in the report
-  const t = await stageAsk(CTX, CS.test, 'test:feature', 'Test', RULES + ' A feature just landed (' + stDiff(dirs) + '; changed: ' + IMPL_FILES.join(', ') + '). Task: ' + TASK +
-    '\nWrite basic tests for the feature\'s main behavior that call the real code (a couple of seconds at most), and repair any test the change broke. Edit only *_test.go and testdata files in ' + dirs.join(', ') + '.' + ST_PROPOSE + ' Put "n/a" in callers.', ST_TESTW)
+  const t = await stageAsk(CTX, CS.test, 'test:feature', 'Test', engineerImplTestBrief({ IMPL_FILES, RULES, ST_PROPOSE, TASK, dirs, stDiff }), ST_TESTW)
   for (const p of (t && t.proposed) || []) ST_PROPOSED.push({ pkg: dirs.join(','), ...p })
   if (t) IMPL_FILES = [...new Set([...IMPL_FILES, ...strs(t.files).map((f) => stRel(CTX, f))])]
   stDelta('test:feature', stDir, snap, t ? await stSnap(CTX, 'test:feature', dirs) : snap)
@@ -1088,9 +1157,7 @@ function touchedFiles(fixed) {
 }
 
 function recordOnce(res, label) { return agent(
-  S.record.task(RULES + ' Record this run and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
-    '(Read that empty file before you Write it), then run exactly `cd ' + CWD + ' && claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
-    'and return its paths array. Change nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })),
+  S.record.task(engineerRecordOnceBrief({ CWD, RULES, label, res })),
   { phase: 'Record', label: 'record', schema: S.record.schema(RECORDED), model: S.record.model, effort: S.record.effort, ...S.record.type },
 ).catch(() => null) }
 // record appends the run's report and decisions to the memory reports so continuity needs no hand-written notes.

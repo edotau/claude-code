@@ -69,8 +69,7 @@ const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
 const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.low
 let TARGET = RANGE ? 'the diff of ' + RANGE : 'the code under ' + PATHS.join(', ')
 const SHARED_TREE =
-  'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
-  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
+  analyzerSharedTree({ CWD })
 
 // <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
@@ -151,6 +150,138 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // </block:stepOf>
+
+// <block:analyzerPrompts>
+function analyzerDefaultDimensions() {
+  return [
+  { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
+  { key: 'regressions', prompt: 'behaviour regressions: a path that used to check or emit X and silently no longer does; a doc, help or dry-run surface pointing at a removed symbol; a test rewritten to pin the broken output' },
+  { key: 'tests', prompt: 'tests deleted alongside kept code, tests skipped in the range, guard tests that pin filenames the change moved, goldens that no longer match', effort: 'low' },
+]
+}
+
+function analyzerCodeDimensions() {
+  return [
+  { key: 'correctness', prompt: 'logic defects: wrong conditionals, off-by-one, nil/empty/zero-value paths that produce a wrong result or a crash, error values checked then ignored' },
+  { key: 'failure-modes', prompt: 'error handling: swallowed errors, fail-open where the comment or name promises fail-closed, exec/HTTP without a timeout or context, locks that can be skipped, partial writes' },
+  { key: 'contracts', prompt: 'contract drift: help text, comments or docs that disagree with the code; flags parsed but never read; fields declared but never set; exported symbols with no caller (verify with grep)', effort: 'low', hitsOnly: true },
+]
+}
+
+function analyzerConsolidateDimensions() {
+  return [
+  { key: 'duplicates', prompt: 'consolidation candidates, not bugs: duplicated helpers or logic across files or packages, legacy paths and shims no caller needs (verify with grep)' },
+  { key: 'dead', prompt: 'consolidation candidates, not bugs: dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss', effort: 'low' },
+]
+}
+
+/** @param {{ CWD: * }} input */
+function analyzerSharedTree({ CWD }) {
+  return 'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
+  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
+}
+
+/** @param {{ EXT: * }} input */
+function analyzerPreflightBrief({ EXT }) {
+  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
+}
+
+/** @param {{ CD: * }} input */
+function analyzerRouteStatePBrief({ CD }) {
+  return `Run exactly: ${CD}claude-code gateway --format json --agent claude --fallback none --model sonnet. ` +
+    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
+    `is "claude" and its gate value, else "unknown". Never run anything else.`
+}
+
+/** @param {{ a: * }} input */
+function analyzerFocus({ a }) {
+  return a.focus ? ` Caller focus: ${a.focus}.` : ''
+}
+
+/** @param {{ CD: *, CWD: *, PATHS: * }} input */
+function analyzerSplitPBrief({ CD, CWD, PATHS }) {
+  return `Run exactly: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | ` +
+      `jq -c '[.files[].path | sub("/[^/]*$"; "")] | group_by(.) | map({dir: .[0], files: length})' — and return its array verbatim as dirs. Never run anything else.`
+}
+
+/** @param {{ CWD: *, FILES_MODE: *, PATHS: *, RANGE: *, SPLIT: * }} input */
+function analyzerScopeCmd({ CWD, FILES_MODE, PATHS, RANGE, SPLIT }, g) {
+  return SPLIT
+  ? `claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | jq -c --argjson d '${JSON.stringify(g)}' '{files: [.files[] | select(.path | sub("/[^/]*$"; "") | IN($d[]))]}'`
+  : `claude-code review scope --repo ${CWD || '.'} ${FILES_MODE ? '' : '--range ' + (RANGE || 'HEAD~1..HEAD') + ' '}--paths ${g.join(',') || '.'} --format json </dev/null`
+}
+
+/** @param {{ CD: *, CWD: *, FILES_MODE: *, PATHS: *, RANGE: *, SPLIT: *, g: * }} input */
+function analyzerRunScopesBrief({ CD, CWD, FILES_MODE, PATHS, RANGE, SPLIT, g }) {
+  return `${CD}run ONE command: ${analyzerScopeCmd({ CWD, FILES_MODE, PATHS, RANGE, SPLIT }, g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`
+}
+
+/** @param {{ CWD: * }} input */
+function analyzerWorkingDirectory({ CWD }) {
+  return CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : ''
+}
+
+function analyzerGateRules() {
+  return 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
+}
+
+/** @param {{ CD: *, SHARED_TREE: *, dryRun: *, json: *, label: * }} input */
+function analyzerRecordReportBrief({ CD, SHARED_TREE, dryRun, json, label }) {
+  return SHARED_TREE + ' Record this and nothing else. First run `date +%H%M%S` as its own command. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
+    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + '-<that time> --file <that file> --format json </dev/null` ' +
+    'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents ask --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json
+}
+
+/** @param {{ CD: *, FILES_MODE: *, RANGE: * }} input */
+function analyzerFindFirstCall({ CD, FILES_MODE, RANGE }) {
+  return FILES_MODE
+  ? `First tool call: cat the files listed below (one call, all of them). Judge from that; open another file only to check a caller or a test (budget 8 tool calls). `
+  : `First tool call: ${CD}git diff ${RANGE || 'HEAD~1..HEAD'} -- <the files listed below> (one call, all of them). Judge from that diff; open a file only to check a caller or a test named in it (budget 8 tool calls). `
+}
+
+/** @param {{ FILES_MODE: *, RANGE: * }} input */
+function analyzerFindFiles({ FILES_MODE, RANGE }, u) {
+  return u.chunk.files.length
+  ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
+  : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`
+}
+
+/** @param {{ CD: *, FILES_MODE: *, FOCUS: *, IN: *, RANGE: *, SHARED_TREE: *, TARGET: * }} input */
+function analyzerFindPrompt({ CD, FILES_MODE, FOCUS, IN, RANGE, SHARED_TREE, TARGET }, u) {
+  return `Audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.${FOCUS}\n` + analyzerFindFirstCall({ CD, FILES_MODE, RANGE }) +
+  `Report only defects you can evidence with a grep, diff or test run — no style nits. ${SHARED_TREE}\n` +
+  `Method: ~/.claude/skills/evaluate-code/SKILL.md (report only findings on changed code you verified; >80% confidence filter)\n\n` + analyzerFindFiles({ FILES_MODE, RANGE }, u)
+}
+
+/** @param {{ FILES_MODE: *, RANGE: * }} input */
+function analyzerRefuteAt({ FILES_MODE, RANGE }) {
+  const end = (RANGE || 'HEAD~1..HEAD').split(/\.{2,3}/).pop() || 'HEAD'
+  return FILES_MODE ? '' : `These findings describe the change ${RANGE || 'HEAD~1..HEAD'}: judge the code as of its end commit ${end} (git show ${end}:<path>, git grep <pattern> ${end}) wherever the working tree differs from it; later commits do not refute a finding. `
+}
+
+function analyzerRefuteRules() {
+  return `Refuted means: the code path does not do what is claimed, the scenario cannot occur, or it is already handled; quote the line that decides it. ` +
+  `Default to refuted=true when the evidence does not hold up. A TRUE claim with a WRONG file or line is NOT refuted: set refuted=false and give the correct file and line. ` +
+  `That a change was deliberate, already merged or allowed by a repo rule does NOT refute a finding: only facts about the code do. ` +
+  `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
+}
+
+/** @param {{ FILES_MODE: *, IN: *, RANGE: *, REFUTE_RULES: * }} input */
+function analyzerRefuteBrief({ FILES_MODE, IN, RANGE, REFUTE_RULES }, pkg, fs) {
+  const list = fs.map((f, i) => `${i}. ${f.title}\n   At: ${f.file}:${f.line}\n   Scenario: ${f.scenario}\n   Evidence: ${f.evidence}`).join('\n')
+  return `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} ; one verdict per index.\n${list}\n\n` + analyzerRefuteAt({ FILES_MODE, RANGE }) + REFUTE_RULES
+}
+
+/** @param {{ CD: *, CWD: *, HOT: *, IN: *, SHARED_TREE: *, fs: *, pkg: *, relPath: * }} input */
+function analyzerDependencyScanBrief({ CD, CWD, HOT, IN, SHARED_TREE, fs, pkg, relPath }) {
+  return `Dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
+      `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
+      `importers = repo packages importing ${pkg} (run once: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${pkg} --importers --format json </dev/null and take packages[].importers), ` +
+      `hotspots = those of ${HOT.join(', ')} the fix must also edit. At most 5 tool calls. ${SHARED_TREE}`
+}
+// </block:analyzerPrompts>
+
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
@@ -551,8 +682,7 @@ let PF_STATE = '' // claude account state, read by the coworkers preflight when 
 const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await ag(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    analyzerPreflightBrief({ EXT }),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   PF_STATE = (pf && pf.claudeState) || ''
@@ -570,35 +700,22 @@ const FIX_EFFORT = RAW.fix && RAW.fix.effort
 
 // ── Pressure: Claude account state read once; low/exhausted steps every Claude stage down one model ──
 const routeStateP = PF_STATE ? Promise.resolve({ state: PF_STATE }) : ag(
-  `Run exactly: ${CD}claude-code gateway --format json --agent claude --fallback none --model sonnet. ` +
-    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
-    `is "claude" and its gate value, else "unknown". Never run anything else.`,
+  analyzerRouteStatePBrief({ CD }),
   { label: 'route-state', phase: 'Scope', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
 ).catch(() => null)
 const MODEL_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
 
-const DEFAULT_DIMENSIONS = [
-  { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
-  { key: 'regressions', prompt: 'behaviour regressions: a path that used to check or emit X and silently no longer does; a doc, help or dry-run surface pointing at a removed symbol; a test rewritten to pin the broken output' },
-  { key: 'tests', prompt: 'tests deleted alongside kept code, tests skipped in the range, guard tests that pin filenames the change moved, goldens that no longer match', effort: 'low' },
-]
+const DEFAULT_DIMENSIONS = analyzerDefaultDimensions()
 // Files mode audits whole files, so lenses cover the CODE, not the change; its failure-modes lens is error handling.
-const CODE_DIMENSIONS = [
-  { key: 'correctness', prompt: 'logic defects: wrong conditionals, off-by-one, nil/empty/zero-value paths that produce a wrong result or a crash, error values checked then ignored' },
-  { key: 'failure-modes', prompt: 'error handling: swallowed errors, fail-open where the comment or name promises fail-closed, exec/HTTP without a timeout or context, locks that can be skipped, partial writes' },
-  { key: 'contracts', prompt: 'contract drift: help text, comments or docs that disagree with the code; flags parsed but never read; fields declared but never set; exported symbols with no caller (verify with grep)', effort: 'low', hitsOnly: true },
-]
+const CODE_DIMENSIONS = analyzerCodeDimensions()
 // kind consolidate: lenses seek merge-and-delete candidates, never bugs; behaviour, messages and exit codes stay
-const CONSOLIDATE_DIMENSIONS = [
-  { key: 'duplicates', prompt: 'consolidation candidates, not bugs: duplicated helpers or logic across files or packages, legacy paths and shims no caller needs (verify with grep)' },
-  { key: 'dead', prompt: 'consolidation candidates, not bugs: dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss', effort: 'low' },
-]
+const CONSOLIDATE_DIMENSIONS = analyzerConsolidateDimensions()
 let FILES_MODE = !RANGE && PATHS.length > 0
 // A caller lens may be a bare prompt string or lack a key; both get key lens<i> (labels read find:1:undefined:7).
 const asDims = ds => ds.map((d, i) => typeof d === 'string' ? { key: 'lens' + i, prompt: d } : { ...d, key: d.key || 'lens' + i })
 const ARG_DIMS = Array.isArray(a.dimensions) && a.dimensions.length ? asDims(a.dimensions) : null
 let DIMENSIONS = ARG_DIMS || (JOB === 'consolidate' ? CONSOLIDATE_DIMENSIONS : FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
-const FOCUS = a.focus ? ` Caller focus: ${a.focus}.` : ''
+const FOCUS = analyzerFocus({ a })
 // Group packages/files ≤4 per auditor so one context holds the whole group.
 let GROUPS = []
 for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
@@ -610,14 +727,11 @@ const SPLIT_SCHEMA = { type: 'object', additionalProperties: false, required: ['
 let splitP = null
 if (FILES_MODE && !PRE && !(Array.isArray(a.packages) && a.packages.length)) {
   splitP = ag(
-    `Run exactly: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | ` +
-      `jq -c '[.files[].path | sub("/[^/]*$"; "")] | group_by(.) | map({dir: .[0], files: length})' — and return its array verbatim as dirs. Never run anything else.`,
+    analyzerSplitPBrief({ CD, CWD, PATHS }),
     { label: 'scope-split', phase: 'Scope', schema: SPLIT_SCHEMA, model: 'haiku', effort: 'low' }
   ).catch(() => null)
 }
-const scopeCmd = g => SPLIT
-  ? `claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | jq -c --argjson d '${JSON.stringify(g)}' '{files: [.files[] | select(.path | sub("/[^/]*$"; "") | IN($d[]))]}'`
-  : `claude-code review scope --repo ${CWD || '.'} ${FILES_MODE ? '' : '--range ' + (RANGE || 'HEAD~1..HEAD') + ' '}--paths ${g.join(',') || '.'} --format json </dev/null`
+
 
 const FINDING_PROPS = {
   file: { type: 'string', description: 'repo-relative path' },
@@ -748,7 +862,7 @@ const REFUTE_BATCH = a.refuteBatch || 6
 // Setup runs concurrently: route state, the scope split and round 1's unsplit scope (kept unless regrouped).
 const runScopes = (round, model) => parallel(GROUPS.map((g, gi) => () =>
   ag(S.scope.task(
-    `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
+    analyzerRunScopesBrief({ CD, CWD, FILES_MODE, PATHS, RANGE, SPLIT, g })),
     { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: model, effort: S.scope.effort } // file listing: schema-checked, haiku is enough
   ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
 ))
@@ -777,17 +891,15 @@ const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
 // Fix/gate context: bare commands (copilot rejects `cd … &&`), external agents use --workdir.
-const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: m => { if (++AGENTS > MAX_AGENTS) LIMIT_HIT = true; return routeModel(m) }, // counts stage-block agents
+const FCTX = { cwd: CWD, cd: analyzerWorkingDirectory({ CWD }), rules: SHARED_TREE, S, model: m => { if (++AGENTS > MAX_AGENTS) LIMIT_HIT = true; return routeModel(m) }, // counts stage-block agents
    kind: JOB, lineBudget: LINE_BUDGET }
-const GATE_RULES = 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
+const GATE_RULES = analyzerGateRules()
 const detectGate = pkgs => a.gate ? Promise.resolve({ gate: a.gate, source: 'args' }) : stageDetect(FCTX, S.scope, pkgs)
 // ── Record: one leaf files a report in the memory store; the plan leaf also dry-runs it with --waves ──
 const RECORDED = { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } }, dryRunExit: { type: ['integer', 'null'] } }, required: ['paths'] }
 const recordReport = async (label, report, dryRun) => {
   const json = '\nJSON:\n' + JSON.stringify({ report, decisions: [] })
-  const once = () => ag(S.record.task(SHARED_TREE + ' Record this and nothing else. First run `date +%H%M%S` as its own command. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
-    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + '-<that time> --file <that file> --format json </dev/null` ' +
-    'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents ask --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json),
+  const once = () => ag(S.record.task(analyzerRecordReportBrief({ CD, SHARED_TREE, dryRun, json, label })),
     { label: 'record:' + label, phase: 'Plan', schema: S.record.schema(RECORDED), ...S.record.type, model: S.record.model, effort: S.record.effort }).catch(() => null)
   for (let i = 0; i < 2; i++) { // a no-op record (paths []) gets one retry
     const r = S.record.done('record:' + label, await once())
@@ -811,16 +923,9 @@ const recordPartition = async (partition, byPkg, confirmed, gate) => {
   return { plan, planPath: pr.path, findingsPath: fr.path, planDryRunExit: pr.dryRunExit, notes }
 }
 // The find lens prompt: the first call differs by mode; a failed scope agent leaves the auditor to list its own files.
-const findFirstCall = () => FILES_MODE
-  ? `First tool call: cat the files listed below (one call, all of them). Judge from that; open another file only to check a caller or a test (budget 8 tool calls). `
-  : `First tool call: ${CD}git diff ${RANGE || 'HEAD~1..HEAD'} -- <the files listed below> (one call, all of them). Judge from that diff; open a file only to check a caller or a test named in it (budget 8 tool calls). `
-const findFiles = u => u.chunk.files.length
-  ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
-  : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`
-const findPrompt = u =>
-  `Audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.${FOCUS}\n` + findFirstCall() +
-  `Report only defects you can evidence with a grep, diff or test run — no style nits. ${SHARED_TREE}\n` +
-  `Method: ~/.claude/skills/evaluate-code/SKILL.md (report only findings on changed code you verified; >80% confidence filter)\n\n` + findFiles(u)
+
+
+
 // Batched per PACKAGE, ≤ REFUTE_BATCH findings each (round 11: per-file refuters grew to 24 agents / 7.9M reads).
 const refuteBatches = fresh => {
   const byPkg = new Map()
@@ -830,19 +935,10 @@ const refuteBatches = fresh => {
   return batches
 }
 // A range ending before HEAD: refuters once judged the working tree and rejected true findings about the range.
-const refuteAt = () => {
-  const end = (RANGE || 'HEAD~1..HEAD').split(/\.{2,3}/).pop() || 'HEAD'
-  return FILES_MODE ? '' : `These findings describe the change ${RANGE || 'HEAD~1..HEAD'}: judge the code as of its end commit ${end} (git show ${end}:<path>, git grep <pattern> ${end}) wherever the working tree differs from it; later commits do not refute a finding. `
-}
+
 // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
-const REFUTE_RULES = `Refuted means: the code path does not do what is claimed, the scenario cannot occur, or it is already handled; quote the line that decides it. ` +
-  `Default to refuted=true when the evidence does not hold up. A TRUE claim with a WRONG file or line is NOT refuted: set refuted=false and give the correct file and line. ` +
-  `That a change was deliberate, already merged or allowed by a repo rule does NOT refute a finding: only facts about the code do. ` +
-  `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
-const refuteBrief = (pkg, fs) => {
-  const list = fs.map((f, i) => `${i}. ${f.title}\n   At: ${f.file}:${f.line}\n   Scenario: ${f.scenario}\n   Evidence: ${f.evidence}`).join('\n')
-  return `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} ; one verdict per index.\n${list}\n\n` + refuteAt() + REFUTE_RULES
-}
+const REFUTE_RULES = analyzerRefuteRules()
+
 // One batch's verdicts: a confirmed finding comes back normalised, the rest are filed under refuted or unverified.
 const judgeBatch = (fs, v, u, refuted, unverified) => {
   const verdicts = v && Array.isArray(v.verdicts) ? v.verdicts : []
@@ -916,7 +1012,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   let missingRefutes = 0, missingUnits = 0
   const findStage = u => {
     auditorCount++
-    return auditGate(() => ag(S.audit.task(findPrompt(u)),
+    return auditGate(() => ag(S.audit.task(analyzerFindPrompt({ CD, FILES_MODE, FOCUS, IN, RANGE, SHARED_TREE, TARGET }, u)),
       { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel((RAW.audit && RAW.audit.model) || u.dim.model || S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
     )).catch(() => null).then(r => S.audit.done(`find:${round}:${u.key}`, r)).then(r => { if (!r) missingAudits.add(u.key); return r })
   }
@@ -929,7 +1025,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     mergedCount += fresh.length
     return Promise.all(refuteBatches(fresh).map(([pkg, fs, bi]) => {
       refuteCalls++
-      const brief = refuteBrief(pkg, fs)
+      const brief = analyzerRefuteBrief({ FILES_MODE, IN, RANGE, REFUTE_RULES }, pkg, fs)
       const label = `refute:${round}:${pkg.split('/').pop()}:${bi}`
       return refuteGate(() => ag(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).catch(() => null).then(v => S.refute.done(label, v)).then(v => { if (!v) missingRefutes++; return judgeBatch(fs, v, u, refuted, unverified) })
     })).then(groups => groups.flat())
@@ -972,10 +1068,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   for (const f of toFix) byPkg.set(f.package, [...(byPkg.get(f.package) || []), f])
   phase('Scan')
   const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => ag(S.depscan.task(
-    `Dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
-      `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
-      `importers = repo packages importing ${pkg} (run once: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${pkg} --importers --format json </dev/null and take packages[].importers), ` +
-      `hotspots = those of ${HOT.join(', ')} the fix must also edit. At most 5 tool calls. ${SHARED_TREE}`),
+    analyzerDependencyScanBrief({ CD, CWD, HOT, IN, SHARED_TREE, fs, pkg, relPath })),
     { label: `depscan:${round}:${pkg.split('/').pop()}`, phase: 'Scan', schema: S.depscan.schema(SCAN_SCHEMA), ...S.depscan.type, model: routeModel(S.depscan.model), effort: S.depscan.effort }
   ).then(r => S.depscan.done(`depscan:${round}:${pkg.split('/').pop()}`, r)).catch(() => null)))
   const planTasks = [...byPkg.entries()].map(([pkg, fs], i) => {

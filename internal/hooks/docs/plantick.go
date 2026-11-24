@@ -449,6 +449,7 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	if !fresh {
 		return core.Result{}
 	}
+	BenchLanded(ctx, top, before, after, in.SessionID) // a fast-forward fires no commit hook
 	var notes bytes.Buffer
 	err = plans.TickRange(ctx, top, "", before+".."+after, "", plans.MirrorDests(), false, &notes)
 	res := core.Result{Context: notes.String()}

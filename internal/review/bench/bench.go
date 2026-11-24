@@ -290,11 +290,7 @@ func benchPackages(top string, targets []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	for _, t := range targets {
-		abs, _ := filepath.Abs(t)
-		dir := abs
-		if st, err := os.Stat(abs); err != nil || !st.IsDir() {
-			dir = filepath.Dir(abs)
-		}
+		dir := targetDir(t)
 		rel, err := filepath.Rel(top, dir)
 		if err != nil || strings.HasPrefix(rel, "..") || seen[rel] || !hasBenchmarks(dir) {
 			continue
@@ -304,6 +300,19 @@ func benchPackages(top string, targets []string) ([]string, error) {
 	}
 	slices.Sort(out)
 	return out, nil
+}
+
+// targetDir is a --path target's package dir, symlinks resolved: git's toplevel is, and a cwd under macOS /tmp is not.
+func targetDir(t string) string {
+	abs, _ := filepath.Abs(t)
+	dir := abs
+	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
+		dir = filepath.Dir(abs)
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
 }
 
 func changedFiles(top string) ([]string, error) {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 func TestWorkflowSyncRepair(t *testing.T) {
@@ -39,8 +41,8 @@ func writeSyncFixture(t *testing.T) (root, canonical string) {
 	t.Helper()
 	root = writeDriftRoot(t, nil, nil)
 	dir := filepath.Join(root, "workflows")
-	step := helperStart + stepOfSource + helperEnd + "\n"
-	stages := stagesStart + stagesSource + stagesEnd + "\n"
+	step := helperStart + assets.WorkflowStepOfSource() + helperEnd + "\n"
+	stages := stagesStart + assets.WorkflowStagesSource() + stagesEnd + "\n"
 	canonical = okBody + step + stages
 	writeScript(t, dir, "canonical.js", canonical)
 	writeScript(t, dir, "target.js", strings.Replace(canonical, "const COWORKERS = []", "const COWORKERS = [1]", 1))
@@ -66,7 +68,7 @@ func TestWorkflowSyncMissingMarkers(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			root := writeDriftRoot(t, nil, nil)
 			dir := filepath.Join(root, "workflows")
-			writeScript(t, dir, "canonical.js", helperStart+stepOfSource+helperEnd+"\n")
+			writeScript(t, dir, "canonical.js", helperStart+assets.WorkflowStepOfSource()+helperEnd+"\n")
 			writeScript(t, dir, "broken.js", body)
 			var out, errb bytes.Buffer
 			if rc := RunWorkflowSync([]string{root}, &out, &errb); rc != 1 || !strings.Contains(errb.String(), "no stepOf block") {

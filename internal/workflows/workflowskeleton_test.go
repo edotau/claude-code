@@ -2,12 +2,35 @@ package workflows
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunSkeletonMigrationOutputs(t *testing.T) {
+	data, err := os.ReadFile("testdata/skeleton/migration.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixtures []struct{ Pattern, Name, SHA256 string }
+	if err := json.Unmarshal(data, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fixtures {
+		var out, errb bytes.Buffer
+		if code := RunSkeleton([]string{f.Pattern, "--name", f.Name}, &out, &errb); code != 0 {
+			t.Fatalf("%s: exit %d: %s", f.Pattern, code, errb.String())
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(out.Bytes())); got != f.SHA256 {
+			t.Errorf("%s %q: sha256 %s, want pre-migration %s", f.Pattern, f.Name, got, f.SHA256)
+		}
+	}
+}
 
 type failAtWriter struct {
 	calls  int
@@ -116,7 +139,7 @@ func TestSkeletonEscapesWorkflowName(t *testing.T) {
 	if !strings.Contains(out.String(), `name: 'team\'s-flow',`) {
 		t.Errorf("skeleton meta = %q, want name: 'team\\'s-flow'", out.String())
 	}
-	if got := metaBlock("a\\b\nc", "d", ""); !strings.Contains(got, `name: 'a\\b\nc',`) {
-		t.Errorf("metaBlock backslash/newline = %q", got)
+	if got := skeletonPatterns["pipeline"]("a\\b\nc"); !strings.Contains(got, `name: 'a\\b\nc',`) {
+		t.Errorf("skeleton backslash/newline = %q", got)
 	}
 }

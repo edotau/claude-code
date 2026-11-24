@@ -78,7 +78,7 @@ func syncWorkflowFile(path string) (string, error) {
 }
 
 func syncHelperBlocks(target string) (string, error) {
-	for _, block := range helperBlocks {
+	for _, block := range helperBlocks() {
 		ti, tj, err := syncBlockBounds(target, block)
 		if err != nil {
 			return "", err

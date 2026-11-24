@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -299,6 +300,8 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
+			before, after, _ := strings.Cut(rng, "..")
+			docs.BenchLanded(ctx, repo.Main, before, after, os.Getenv(paths.SessionIDEnv)) // a fast-forward fires no commit hook
 			return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
 		},
 	}

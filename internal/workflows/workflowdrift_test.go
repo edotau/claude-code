@@ -2,14 +2,87 @@ package workflows
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+func TestWorkflowPromptOutputs(t *testing.T) {
+	useNode(t)
+	node, err := lookNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("testdata/prompts/outputs.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture map[string]any
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	fixture["sources"] = map[string]string{
+		"analyzer":  assets.WorkflowAnalyzerPromptsSource(),
+		"engineer":  assets.WorkflowEngineerPromptsSource(),
+		"evaluator": assets.WorkflowEvaluatorPromptsSource(),
+		"workers":   assets.WorkflowWorkersPromptsSource(),
+		"looper":    assets.WorkflowLooperPromptsSource(),
+	}
+	input, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(node, "testdata/prompts/check.cjs")
+	cmd.Stdin = bytes.NewReader(input)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("prompt output equality: %v\n%s", err, out)
+	}
+}
+
+func TestWorkflowPromptInvalidMarkers(t *testing.T) {
+	for _, b := range helperBlocks()[2:] {
+		t.Run(b.name, func(t *testing.T) {
+			canonical := b.start + b.source + b.end
+			for _, src := range []string{b.uses[0] + ")", canonical + "\n" + canonical, b.start + b.source} {
+				if _, _, err := syncBlockBounds(src, b); err == nil {
+					t.Errorf("accepted missing or duplicate %s markers", b.name)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkflowPromptMarkerContracts(t *testing.T) {
+	for _, b := range helperBlocks()[2:] {
+		t.Run(b.name, func(t *testing.T) {
+			canonical := b.start + b.source + b.end
+			path := filepath.Join(t.TempDir(), "workflow.js")
+			src := b.start + "// stale\n" + b.end
+			if got := blockDrift(b, []string{path}, map[string]string{path: src}); len(got) != 1 {
+				t.Fatalf("first copy drift: %v", got)
+			}
+			if err := os.WriteFile(path, []byte(src), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if status, err := syncWorkflowFile(path); err != nil || status != "synced" {
+				t.Fatalf("sync = %s, %v", status, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != canonical {
+				t.Fatalf("canonical projection: %v", err)
+			}
+			if status, err := syncWorkflowFile(path); err != nil || status != "unchanged" {
+				t.Fatalf("second sync = %s, %v", status, err)
+			}
+		})
+	}
+}
 
 const driftDocRel = "skills/subagent-workflows/references/saved-workflows.md"
 
@@ -90,7 +163,7 @@ func TestWorkflowLintDrift(t *testing.T) {
 
 func TestWorkflowHelperDrift(t *testing.T) {
 	block := func(tag string) string {
-		return helperStart + strings.Replace(stepOfSource, "const COWORKERS = []", "const COWORKERS = ["+tag+"]", 1) + helperEnd + "\n"
+		return helperStart + strings.Replace(assets.WorkflowStepOfSource(), "const COWORKERS = []", "const COWORKERS = ["+tag+"]", 1) + helperEnd + "\n"
 	}
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
@@ -124,7 +197,7 @@ func TestWorkflowHelperDrift(t *testing.T) {
 // A stages block is held to the same verbatim rule as stepOf; a stage call without the block is a hit.
 func TestWorkflowStagesDrift(t *testing.T) {
 	block := func(tag string) string {
-		return stagesStart + strings.Replace(stagesSource, "const ST_NEAR = 10", "const ST_NEAR = "+tag, 1) + stagesEnd + "\n"
+		return stagesStart + strings.Replace(assets.WorkflowStagesSource(), "const ST_NEAR = 10", "const ST_NEAR = "+tag, 1) + stagesEnd + "\n"
 	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "workflows")

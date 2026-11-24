@@ -94,6 +94,82 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // </block:stepOf>
+
+// <block:workersPrompts>
+/** @param {{ JOB: * }} input */
+function workersLenses({ JOB }) {
+  return JOB === 'consolidate' ? [
+  { key: 'duplicate', ask: 'duplicated helpers or logic (inside the package or against a sibling), legacy paths and shims no caller needs' },
+  { key: 'dead', ask: 'dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss' },
+] : [
+  { key: 'correctness', ask: 'wrong results, bad parsing, state that disagrees with itself, broken invariants' },
+  { key: 'failure', ask: 'swallowed or mishandled errors, partial writes, records or locks left behind, races, leaked secrets' },
+]
+}
+
+/** @param {{ EXT: * }} input */
+function workersPreflightBrief({ EXT }) {
+  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
+}
+
+/** @param {{ a: * }} input */
+function workersFocus({ a }) {
+  return a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
+}
+
+/** @param {{ CWD: * }} input */
+function workersRules({ CWD }) {
+  return 'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
+  'make build|install|audit, never edit settings.json. cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+}
+
+/** @param {{ RULES: *, a: * }} input */
+function workersRo({ RULES, a }, hint) {
+  return RULES + ' Report your findings; never run go test.' + (/test/i.test((a.focus || '') + ' ' + hint) ? ' *_test.go files are in scope.' : ' Skip *_test.go.')
+}
+
+const WORKERS_JUDGMENTS = {
+  merge: 'It is a consolidation candidate, not a bug. Cite the twin it duplicates or the empty caller grep; check that merging or deleting it keeps behaviour, messages and exit codes identical. ' +
+    'reproduced=true only when both hold; put the citation and why the merge is safe in scenario, and rate its severity.',
+  cost: 'It has no failing scenario by nature. Check the cost is real: cite the spawn, loop, sleep or complexity line (measure it if cheap). ' +
+    'Check the fix keeps behavior. reproduced=true only when the cost is real and the change is safe; put the cited line and why the fix is safe in scenario, and rate its severity.',
+  bug: 'Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.',
+}
+
+/** @param {{ MERGE_KINDS: *, stCost: * }} input */
+function workersJudge({ MERGE_KINDS, stCost }, f) {
+  if (MERGE_KINDS.includes(f.kind)) return WORKERS_JUDGMENTS.merge
+  return stCost(f) ? WORKERS_JUDGMENTS.cost : WORKERS_JUDGMENTS.bug
+}
+
+/** @param {{ FOCUS: *, JOB: * }} input */
+function workersFindAsk({ FOCUS, JOB }, l) {
+  return JOB === 'consolidate'
+  ? ' Find consolidation candidates (not bugs) of this kind: ' + l.ask + '.' + FOCUS + ' Each finding: file, line, symbol, a one-line symptom, kind duplicate|dead|legacy|stale-test, ' +
+    'and as its scenario the twin it duplicates or the empty caller grep. Return {findings: []} when clean.'
+  : ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS + ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario, kind bug. A perf, runtime, complexity or ' +
+    'test-quality cost with no failing scenario takes that kind and names the cost (spawn, loop, sleep, complexity) as its scenario. Return {findings: []} when clean.'
+}
+
+/** @param {{ FILES: *, FOCUS: *, JOB: *, RULES: *, a: *, l: *, p: * }} input */
+function workersFindFrame({ FILES, FOCUS, JOB, RULES, a, l, p }) {
+  return workersRo({ RULES, a }, l.ask) + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + workersFindAsk({ FOCUS, JOB }, l)
+}
+
+/** @param {{ MERGE_KINDS: *, RULES: *, a: *, f: *, stCost: * }} input */
+function workersRederiveFrame({ MERGE_KINDS, RULES, a, f, stCost }) {
+  return workersRo({ RULES, a }, f.file + ' ' + (f.kind || '')) + ' A teammate says there is ' + (stCost(f) ? 'a ' + f.kind + ' cost' : 'a bug') + ' at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
+        '. You have not seen their reasoning. ' + workersJudge({ MERGE_KINDS, stCost }, f)
+}
+
+/** @param {{ MERGE_KINDS: *, RULES: *, a: *, stCost: *, x: * }} input */
+function workersSeverityFrame({ MERGE_KINDS, RULES, a, stCost, x }) {
+  return workersRo({ RULES, a }, x.f.file + ' ' + (x.f.kind || '')) + ' Rate the severity of a possible ' + (stCost(x.f) ? x.f.kind + ' cost' : 'bug') + ' at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
+      '. ' + workersJudge({ MERGE_KINDS, stCost }, x.f)
+}
+// </block:workersPrompts>
+
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
@@ -515,8 +591,7 @@ for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9
 const EXT = [...new Map([S, ...SP].flatMap((x) => Object.values(x)).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    workersPreflightBrief({ EXT }),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
@@ -538,17 +613,16 @@ if (FIX && a.fast !== false && Array.isArray(a.known)) {
   // a known entry is always a file: key it by its directory whatever the language (dirOf treats non-.go paths as dirs)
   for (const k of a.known) if (k && k.file && k.symptom) { const d = stDir(stRel({ cwd: CWD }, k.file)); (KNOWN[d] = KNOWN[d] || []).push(k) }
 }
-const FOCUS = a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
+const FOCUS = workersFocus({ a })
 const RULES =
-  'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
-  'make build|install|audit, never edit settings.json. cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+  workersRules({ CWD })
 // polish:false means a code-workers child of code-engineer: exported-signature and cross-package needs go back as seams
 const CTX = { cwd: CWD, cd: '', rules: RULES, S, gateMax: MAX_ITER, gate: a.gate, kind: JOB, lineBudget: LINE_BUDGET, seams: !POLISH }
 // sOf/ctxOf: package p's stage set (its round-robin profile, else S); a dir outside PKGS runs on S
 const sOf = (p) => (SP.length && PKGS.indexOf(p) >= 0 ? SP[PKGS.indexOf(p) % SP.length] : S)
 const ctxOf = (p) => ({ ...CTX, S: sOf(p) })
 // ro: test files are skipped unless the focus, lens or finding is about tests.
-const ro = (hint) => RULES + ' Report your findings; never run go test.' + (/test/i.test((a.focus || '') + ' ' + hint) ? ' *_test.go files are in scope.' : ' Skip *_test.go.')
+
 
 const SEV = { type: 'string', enum: ['critical', 'high', 'medium', 'low'] }
 // kind: a bug has a failing scenario; a cost (stCost) has none, only a real cost and a safe fix.
@@ -561,13 +635,7 @@ const FINDING = {
 }
 const FINDINGS = { type: 'object', properties: { findings: { type: 'array', items: FINDING } }, required: ['findings'] }
 const REDERIVE = { type: 'object', properties: { reproduced: { type: 'boolean' }, scenario: { type: 'string' }, severity: SEV }, required: ['reproduced', 'scenario', 'severity'] }
-const LENSES = JOB === 'consolidate' ? [
-  { key: 'duplicate', ask: 'duplicated helpers or logic (inside the package or against a sibling), legacy paths and shims no caller needs' },
-  { key: 'dead', ask: 'dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss' },
-] : [
-  { key: 'correctness', ask: 'wrong results, bad parsing, state that disagrees with itself, broken invariants' },
-  { key: 'failure', ask: 'swallowed or mishandled errors, partial writes, records or locks left behind, races, leaked secrets' },
-]
+const LENSES = workersLenses({ JOB })
 const norm = (f) => String(f).replace(CWD + '/', '')
 
 function merge(raw) {
@@ -581,20 +649,10 @@ function merge(raw) {
 }
 
 // judge: bugs need a derived failing scenario; costs need the cost cited in code and a fix that keeps behavior.
-const judge = (f) => MERGE_KINDS.includes(f.kind)
-  ? 'It is a consolidation candidate, not a bug. Cite the twin it duplicates or the empty caller grep; check that merging or deleting it keeps behaviour, messages and exit codes identical. ' +
-    'reproduced=true only when both hold; put the citation and why the merge is safe in scenario, and rate its severity.'
-  : stCost(f)
-  ? 'It has no failing scenario by nature. Check the cost is real: cite the spawn, loop, sleep or complexity line (measure it if cheap). ' +
-    'Check the fix keeps behavior. reproduced=true only when the cost is real and the change is safe; put the cited line and why the fix is safe in scenario, and rate its severity.'
-  : 'Derive your own failing scenario from the code and rate its severity; reproduced=false if you cannot.'
+
 
 // findAsk: the finder's ask; consolidate looks for merge-and-delete candidates, never bugs.
-const findAsk = (l) => JOB === 'consolidate'
-  ? ' Find consolidation candidates (not bugs) of this kind: ' + l.ask + '.' + FOCUS + ' Each finding: file, line, symbol, a one-line symptom, kind duplicate|dead|legacy|stale-test, ' +
-    'and as its scenario the twin it duplicates or the empty caller grep. Return {findings: []} when clean.'
-  : ' Find real bugs of this kind: ' + l.ask + '.' + FOCUS + ' Each finding: file, line, function or symbol, a one-line symptom, a concrete failing scenario, kind bug. A perf, runtime, complexity or ' +
-    'test-quality cost with no failing scenario takes that kind and names the cost (spawn, loop, sleep, complexity) as its scenario. Return {findings: []} when clean.'
+
 
 function knownReview(p) {
   const confirmed = KNOWN[p].map((k) => ({ ...k, file: norm(k.file), line: k.line || 0, symbol: k.symbol || 'named by the task',
@@ -611,14 +669,13 @@ async function review(p) {
   const St = sOf(p)
   const finds = await parallel(LENSES.map((l) => () =>
     agent(
-      St.find.task(ro(l.ask) + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + findAsk(l)),
+      St.find.task(workersFindFrame({ FILES, FOCUS, JOB, RULES, a, l, p })),
       { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: St.find.schema(FINDINGS), model: St.find.model, effort: St.find.effort, ...St.find.type },
     ).catch(() => null).then((r) => St.find.done('find:' + l.key + ':' + p, r))))
   const merged = merge(finds.filter(Boolean).flatMap((r) => stList(r, 'findings')))
   const judged = await parallel(merged.map((f, i) => () =>
     agent(
-      St.rederive.task(ro(f.file + ' ' + (f.kind || '')) + ' A teammate says there is ' + (stCost(f) ? 'a ' + f.kind + ' cost' : 'a bug') + ' at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
-        '. You have not seen their reasoning. ' + judge(f)),
+      St.rederive.task(workersRederiveFrame({ MERGE_KINDS, RULES, a, f, stCost })),
       { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: St.rederive.schema(REDERIVE), model: St.rederive.model, effort: St.rederive.effort, ...St.rederive.type },
     ).catch(() => null).then((r) => ({ f, r: St.rederive.done('rederive:' + p + ':' + i, r) }))))
   // A null rederive (rate or API error) is unverified, never refuted.
@@ -638,8 +695,7 @@ async function settleSeverity(p, x, i) {
   if (fixes(x.f.severity) === fixes(x.r.severity)) return out
   const St = sOf(p)
   const t = St.rederive.done('tiebreak:' + p + ':' + i, await agent(
-    St.rederive.task(ro(x.f.file + ' ' + (x.f.kind || '')) + ' Rate the severity of a possible ' + (stCost(x.f) ? x.f.kind + ' cost' : 'bug') + ' at ' + x.f.file + ':' + x.f.line + ' (' + x.f.symbol + '): ' + x.f.symptom +
-      '. ' + judge(x.f)),
+    St.rederive.task(workersSeverityFrame({ MERGE_KINDS, RULES, a, stCost, x })),
     { phase: 'Rederive', label: 'tiebreak:' + p + ':' + i, schema: St.rederive.schema(REDERIVE), model: St.rederive.model, effort: St.rederive.effort, ...St.rederive.type },
   ).catch(() => null))
   const votes = [x.f.severity, x.r.severity, t ? (t.reproduced ? t.severity : 'low') : null].filter(Boolean).sort((a, b) => ORDER[a] - ORDER[b])
