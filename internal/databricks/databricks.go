@@ -588,6 +588,10 @@ func checkProfile(row *providers.Provider, name, model string) checkRow {
 		return fill("no token", strings.TrimPrefix(err.Error(), name+": "))
 	}
 	r.cell = probe(ctx, row, tok, model)
+	if r.cell == "ok" {
+		// the workspace just served this token, so a stale 401 mark must not keep the route away
+		clearAuthMark(name)
+	}
 	return r
 }
 
