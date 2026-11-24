@@ -1,17 +1,12 @@
 package server
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -26,84 +21,45 @@ import (
 )
 
 const (
-	sessionTTL     = 7 * 24 * time.Hour // idle lifetime, renewed per accepted request while the process lives
-	sessionVerify  = 2 * time.Second    // how long a liveness check is trusted
-	sessionPersist = time.Hour          // a slid expiry is written to disk once it leads the saved one by this much
-	sessionMax     = 256
-	droppedKeep    = time.Hour // how long the reason a token was dropped stays answerable
-	sessionTokenPf = "cct_"
+	sessionVerify = 2 * time.Second // how long a liveness check is trusted
+	sessionMax    = 256             // bound on the in-memory seen set
 )
 
-// session is one minted token: scoped to a sorted profile set, bound to a process identity.
-type session struct {
-	profiles         []string
-	failoverProvider string // optional same-provider server-side failover for auto-minted tokens; never widens accept()
-	pid              int
-	start            string
-	expires          time.Time
-	saved            time.Time // the expiry last written to disk
-	checked          time.Time
-	exited           bool // the bound process is gone: the drop reason is "exited", not "expired"
+// seenSession is a token this daemon accepted: a liveness cache and the live count, memory only.
+type seenSession struct {
+	pid     int
+	start   string
+	checked time.Time
 }
 
-// dropped is why a token left the store; held in memory only, never persisted.
-type dropped struct {
-	why string
-	at  time.Time
-}
-
-type persistedSession struct {
-	Hash             string    `json:"hash"`
-	Profiles         []string  `json:"profiles"`
-	FailoverProvider string    `json:"failover_provider,omitempty"`
-	PID              int       `json:"pid"`
-	Start            string    `json:"start"`
-	Expires          time.Time `json:"expires"`
+type revokedSession struct {
+	Hash    string    `json:"hash"`
+	Expires time.Time `json:"expires"`
 }
 
 type sessionState struct {
-	Schema   int                `json:"schema"`
-	Sessions []persistedSession `json:"sessions"`
+	Schema  int              `json:"schema"`
+	Revoked []revokedSession `json:"revoked"`
 }
 
-func sessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
-
-// sessionStore persists only token hashes, scoped to the config directory at creation.
+// sessionStore verifies signed tokens; its one persisted state is the revocation list, merged on every write.
 type sessionStore struct {
 	mu        sync.Mutex
-	m         map[string]*session
-	gone      map[string]dropped // token hash -> drop reason, at most sessionMax entries
+	secret    string
+	seen      map[string]*seenSession // token hash -> last verified binding
+	revoked   map[string]time.Time    // token hash -> the token's expiry
+	read      os.FileInfo             // the revocation file version last folded in
 	file      string
 	now       func() time.Time
 	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
-	unsaved   bool                          // the last write failed: memory (e.g. a revocation) is ahead of disk
 }
 
-func newSessionStore(now func() time.Time) *sessionStore {
-	s := &sessionStore{m: map[string]*session{}, gone: map[string]dropped{}, file: sessionsFile(), now: now, procStart: proc.StartTime}
-	raw, err := os.ReadFile(s.file)
-	var state sessionState
-	if err != nil || !schemas.DecodeOK(routerSessionsFormat, raw, &state) {
-		return s
-	}
-	pruned := false
-	for _, saved := range state.Sessions {
-		if !validSavedSession(saved, now()) {
-			pruned = true
-			continue
-		}
-		s.m[saved.Hash] = &session{
-			profiles:         saved.Profiles,
-			failoverProvider: saved.FailoverProvider,
-			pid:              saved.PID,
-			start:            saved.Start,
-			expires:          saved.Expires,
-			saved:            saved.Expires,
-		}
-	}
-	if pruned {
-		_ = s.saveLocked()
-	}
+func newSessionStore(secret string, now func() time.Time) *sessionStore {
+	s := &sessionStore{secret: secret, seen: map[string]*seenSession{}, revoked: map[string]time.Time{},
+		file: proxy.SessionsFile(), now: now, procStart: proc.StartTime}
+	s.mu.Lock()
+	s.reloadLocked()
+	s.mu.Unlock()
 	return s
 }
 
@@ -117,187 +73,186 @@ func validProfiles(profiles []string) bool {
 	return len(profiles) > 0 && !slices.ContainsFunc(profiles, func(p string) bool { return !validProfile(p) })
 }
 
-// validSavedSession reports whether a persisted record is well-formed and unexpired at now.
-func validSavedSession(saved persistedSession, now time.Time) bool {
-	hash, err := hex.DecodeString(saved.Hash)
-	if err != nil || len(hash) != sha256.Size || saved.Hash != strings.ToLower(saved.Hash) {
-		return false
+// reloadLocked folds the revocation file into memory when its version changed (an atomic write is a new inode).
+func (s *sessionStore) reloadLocked() {
+	fi, err := os.Stat(s.file)
+	if err != nil || (s.read != nil && os.SameFile(s.read, fi) && fi.ModTime().Equal(s.read.ModTime()) &&
+		fi.Size() == s.read.Size()) {
+		return
 	}
-	return validProfiles(saved.Profiles) && saved.PID > 0 && saved.Start != "" && now.Before(saved.Expires)
+	if got, err := readRevoked(s.file, s.now()); err == nil { // a failed read retries on the next request
+		maps.Copy(s.revoked, got)
+		s.read = fi
+	}
 }
 
-// saveLocked writes the current hashes atomically; the caller holds mu or is constructing the store.
+// readRevoked is the file's unexpired revocations: none when absent, an error when present but unreadable.
+func readRevoked(file string, now time.Time) (map[string]time.Time, error) {
+	out := map[string]time.Time{}
+	raw, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	var state sessionState
+	if err != nil {
+		return nil, err
+	}
+	if _, err := schemas.Decode(routerSessionsFormat, raw, &state); err != nil {
+		return nil, err
+	}
+	for _, r := range state.Revoked {
+		if now.Before(r.Expires) {
+			out[r.Hash] = r.Expires
+		}
+	}
+	return out, nil
+}
+
+// saveLocked merges memory with the file under its lock, so two daemons on one config never lose a revocation.
 func (s *sessionStore) saveLocked() error {
-	state := sessionState{Schema: routerSessionsFormat.Version, Sessions: make([]persistedSession, 0, len(s.m))}
-	for hash, ses := range s.m {
-		state.Sessions = append(state.Sessions, persistedSession{
-			Hash: hash, Profiles: ses.profiles, FailoverProvider: ses.failoverProvider,
-			PID: ses.pid, Start: ses.start, Expires: ses.expires,
-		})
-	}
-	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].Hash < state.Sessions[j].Hash })
-	raw, err := json.Marshal(state)
-	if err == nil {
-		err = paths.AtomicWrite(s.file, raw, 0o600)
-	}
-	s.unsaved = err != nil
-	return err
+	return paths.WithFileLock(s.file, func() error {
+		now := s.now()
+		onDisk, err := readRevoked(s.file, now)
+		if err != nil { // never overwrite a list this daemon cannot read: it may hold another daemon's revocations
+			return fmt.Errorf("read %s: %w", s.file, err)
+		}
+		maps.Copy(s.revoked, onDisk)
+		state := sessionState{Schema: routerSessionsFormat.Version, Revoked: []revokedSession{}}
+		for h, exp := range s.revoked {
+			if now.Before(exp) {
+				state.Revoked = append(state.Revoked, revokedSession{Hash: h, Expires: exp})
+			} else {
+				delete(s.revoked, h)
+			}
+		}
+		sort.Slice(state.Revoked, func(i, j int) bool { return state.Revoked[i].Hash < state.Revoked[j].Hash })
+		raw, err := json.Marshal(state)
+		if err == nil {
+			err = paths.AtomicWrite(s.file, raw, 0o600)
+		}
+		if fi, serr := os.Stat(s.file); err == nil && serr == nil {
+			s.read = fi
+		}
+		return err
+	})
 }
 
-// errPersist marks a mint that failed on the server's own disk write, not on the request.
-var errPersist = errors.New("persist session")
-
-// mint binds a new token for the profile set to pid's current identity; a missing process is an error.
-func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
-	return s.mintWithFailover(profiles, pid, "")
-}
-
-// mintWithFailover binds a token to profiles and pid, recording an optional server-side same-provider failover group.
+// mintWithFailover signs a token for profiles bound to pid's identity, with an optional same-provider failover group.
 func (s *sessionStore) mintWithFailover(profiles []string, pid int, failoverProvider string) (string, error) {
 	if !validProfiles(profiles) || pid <= 0 || (failoverProvider != "" && !validProfile(failoverProvider)) {
 		return "", errors.New("profiles and pid are required")
 	}
-	profiles = slices.Compact(slices.Sorted(slices.Values(profiles)))
 	start, err := s.procStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("pid %d: %w", pid, err)
 	}
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	tok := sessionTokenPf + hex.EncodeToString(b)
-	now := s.now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.makeRoomLocked(now); err != nil {
-		return "", err
-	}
-	hash := textutil.SHA256Hex([]byte(tok))
-	s.m[hash] = &session{
-		profiles:         profiles,
-		failoverProvider: failoverProvider,
-		pid:              pid,
-		start:            start,
-		expires:          now.Add(sessionTTL),
-		saved:            now.Add(sessionTTL),
-		checked:          now,
-	}
-	if err := s.saveLocked(); err != nil {
-		delete(s.m, hash)
-		return "", fmt.Errorf("%w: %w", errPersist, err)
-	}
-	return tok, nil
+	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start}
+	return proxy.SignSessionToken(s.secret, c, s.now())
 }
 
-// makeRoomLocked drops expired and exited sessions so a mint fits; mu is held on entry and exit (released to probe).
-func (s *sessionStore) makeRoomLocked(now time.Time) error {
-	pruned := s.pruneExpiredLocked(now)
-	var probe map[string]*session
-	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
-		probe = maps.Clone(s.m)
-	}
-	s.mu.Unlock()
-	dead := s.unbound(probe)
-	s.mu.Lock()
-	pruned = s.dropLocked(dead) || pruned
-	if len(s.m) >= sessionMax {
-		if pruned {
-			_ = s.saveLocked()
-		}
-		return errors.New("too many live session tokens")
-	}
-	return nil
+// mint is mintWithFailover with no failover group.
+func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
+	return s.mintWithFailover(profiles, pid, "")
 }
 
-// revoke drops tok in memory even when the write fails (fail closed); count retries the write until it lands.
+// revoke denies tok on every daemon of this config; an unsigned token needs no entry.
 func (s *sessionStore) revoke(tok string) error {
+	c, err := proxy.ParseSessionToken(s.secret, tok)
+	if err != nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := textutil.SHA256Hex([]byte(tok))
-	if _, ok := s.m[hash]; ok {
-		delete(s.m, hash)
-		s.noteLocked(hash, whyRevoked)
-	}
+	s.revoked[hash] = time.Unix(c.Expires, 0)
+	delete(s.seen, hash)
 	return s.saveLocked()
 }
 
-// accept reports whether tok's set holds profile; success slides the TTL, a dead or reused process drops the token.
+// accept reports whether tok is a live, unrevoked token whose set holds profile.
 func (s *sessionStore) accept(tok, profile string) bool {
-	if !strings.HasPrefix(tok, sessionTokenPf) || profile == "" {
+	if !strings.HasPrefix(tok, proxy.SessionTokenPrefix) || profile == "" {
 		return false
 	}
-	now, hash := s.now(), textutil.SHA256Hex([]byte(tok))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ses := s.findLocked(hash)
-	if ses == nil {
-		return false
-	}
-	recheck := now.Sub(ses.checked) >= sessionVerify
-	if !s.liveLocked(hash, ses, now, recheck) || !slices.Contains(ses.profiles, profile) {
-		return false
-	}
-	if recheck { // only a passed liveness check refreshes the trust window
-		ses.checked = now
-	}
-	s.slideLocked(ses, now)
-	return true
-}
-
-// liveLocked reports whether ses is unexpired and, on recheck, still bound; an expired ses is dropped.
-func (s *sessionStore) liveLocked(hash string, ses *session, now time.Time, recheck bool) bool {
-	if recheck && now.Before(ses.expires) && !s.probeUnlocked(hash, ses) {
-		return false
-	}
-	if !now.Before(ses.expires) {
-		delete(s.m, hash)
-		s.noteLocked(hash, goneReason(ses))
-		_ = s.saveLocked()
-		return false
-	}
-	return true
-}
-
-// probeUnlocked probes ses without mu; false if ses was dropped or the probe failed, an exited process expires it.
-func (s *sessionStore) probeUnlocked(hash string, ses *session) bool {
-	s.mu.Unlock()
-	bound, verified := s.identity(ses)
-	s.mu.Lock()
-	if s.findLocked(hash) != ses || !verified {
-		return false
-	}
-	if !bound {
-		ses.expires, ses.exited = time.Time{}, true
-	}
-	return true
+	return s.check(tok, profile) == ""
 }
 
 const (
 	whyExpired = "session token expired"
 	whyExited  = "the process the session token was bound to has exited"
 	whyRevoked = "session token was revoked"
+	whyUnknown = "the session token's process could not be verified"
 )
 
-func goneReason(ses *session) string {
-	if ses.exited {
-		return whyExited
+// check is "" when tok serves profile now, else why not; a passed liveness probe is trusted for sessionVerify.
+func (s *sessionStore) check(tok, profile string) string {
+	c, err := proxy.ParseSessionToken(s.secret, tok)
+	if err != nil {
+		return err.Error()
 	}
-	return whyExpired
+	now, hash := s.now(), textutil.SHA256Hex([]byte(tok))
+	if proxy.SessionWindowErr(c, now) != nil {
+		return whyExpired
+	}
+	if !slices.Contains(c.Profiles, profile) {
+		return "session token is not scoped to this route (" + strings.Join(c.Profiles, ",") + " only)"
+	}
+	s.mu.Lock()
+	revoked, fresh := s.stateLocked(hash, now)
+	s.mu.Unlock()
+	if revoked {
+		return whyRevoked
+	}
+	if !fresh {
+		if why := s.probe(c); why != "" {
+			return why
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, revoked := s.revoked[hash]; revoked { // a revoke that landed during the probe still wins
+		return whyRevoked
+	}
+	if !fresh { // a fresh entry keeps its checked time: frequent use never extends the trust window
+		s.noteSeenLocked(hash, c, now)
+	}
+	return ""
 }
 
-// noteLocked remembers why hash was dropped, evicting the oldest note at the cap.
-func (s *sessionStore) noteLocked(hash, why string) {
-	if _, ok := s.gone[hash]; !ok && len(s.gone) >= sessionMax {
+// stateLocked reloads revocations and reports whether hash is revoked and its liveness check still trusted.
+func (s *sessionStore) stateLocked(hash string, now time.Time) (revoked, fresh bool) {
+	s.reloadLocked()
+	_, revoked = s.revoked[hash]
+	ent := s.seen[hash]
+	return revoked, ent != nil && now.Sub(ent.checked) < sessionVerify
+}
+
+// probe checks c's pid still names the process it was minted for; it never holds mu (ps may exec on darwin).
+func (s *sessionStore) probe(c proxy.SessionClaims) string {
+	start, err := s.procStart(c.PID)
+	switch {
+	case errors.Is(err, proc.ErrNoProcess):
+		return whyExited
+	case err != nil:
+		return whyUnknown
+	case start != c.Start:
+		return whyExited
+	}
+	return ""
+}
+
+// noteSeenLocked records a verified binding, evicting the oldest check at the cap.
+func (s *sessionStore) noteSeenLocked(hash string, c proxy.SessionClaims, now time.Time) {
+	if _, ok := s.seen[hash]; !ok && len(s.seen) >= sessionMax {
 		oldest := ""
-		for k, d := range s.gone {
-			if oldest == "" || d.at.Before(s.gone[oldest].at) {
+		for k, v := range s.seen {
+			if oldest == "" || v.checked.Before(s.seen[oldest].checked) {
 				oldest = k
 			}
 		}
-		delete(s.gone, oldest)
+		delete(s.seen, oldest)
 	}
-	s.gone[hash] = dropped{why: why, at: s.now()}
+	s.seen[hash] = &seenSession{pid: c.PID, start: c.Start, checked: now}
 }
 
 // refusal names why tok was refused on profile's route; it never returns any part of tok.
@@ -305,128 +260,50 @@ func (s *sessionStore) refusal(tok, profile string) string {
 	if tok == "" {
 		return "no token header sent"
 	}
-	hash := textutil.SHA256Hex([]byte(tok))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ses := s.findLocked(hash); ses != nil {
-		if profile == "" || !slices.Contains(ses.profiles, profile) {
-			return "session token is not scoped to this route (" + strings.Join(ses.profiles, ",") + " only)"
-		}
-		return "the session token's process could not be verified"
+	if why := s.check(tok, profile); why != "" {
+		return why
 	}
-	if d, ok := s.gone[hash]; ok && s.now().Sub(d.at) < droppedKeep {
-		return d.why
-	}
-	return "token is not the router secret or a session token this daemon knows (never minted here, or minted by a previous daemon)"
+	return whyUnknown
 }
 
-// profiles is tok's profile set, nil for an unknown token; it neither slides nor probes (accept already did).
+// claims is tok's verified claims, ok false for anything unsigned; accept already checked liveness.
+func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
+	if !strings.HasPrefix(tok, proxy.SessionTokenPrefix) {
+		return proxy.SessionClaims{}, false
+	}
+	c, err := proxy.ParseSessionToken(s.secret, tok)
+	return c, err == nil
+}
+
+// profiles is tok's profile set, nil for an unsigned token.
 func (s *sessionStore) profiles(tok string) []string {
-	if !strings.HasPrefix(tok, sessionTokenPf) {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ses := s.findLocked(textutil.SHA256Hex([]byte(tok))); ses != nil {
-		return ses.profiles
-	}
-	return nil
+	c, _ := s.claims(tok)
+	return c.Profiles
 }
 
 // failoverProvider is tok's server-side failover provider group, or "" when pinned to profiles only.
 func (s *sessionStore) failoverProvider(tok string) string {
-	if !strings.HasPrefix(tok, sessionTokenPf) {
-		return ""
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if ses := s.findLocked(textutil.SHA256Hex([]byte(tok))); ses != nil {
-		return ses.failoverProvider
-	}
-	return ""
+	c, _ := s.claims(tok)
+	return c.Failover
 }
 
-// findLocked returns the session for hash by constant-time compare, no map lookup keyed on the presented bytes.
-func (s *sessionStore) findLocked(hash string) *session {
-	var ses *session
-	for k, v := range s.m {
-		if subtle.ConstantTimeCompare([]byte(k), []byte(hash)) == 1 {
-			ses = v
-		}
-	}
-	return ses
-}
-
-// slideLocked renews ses's TTL and persists the new expiry once it leads the saved one by sessionPersist.
-func (s *sessionStore) slideLocked(ses *session, now time.Time) {
-	ses.expires = now.Add(sessionTTL)
-	if ses.expires.Sub(ses.saved) >= sessionPersist && s.saveLocked() == nil { // a failed write retries next request
-		ses.saved = ses.expires
-	}
-}
-
-// count reports live tokens, pruning expired tokens and tokens whose bound process has exited.
+// count is the tokens this daemon accepted whose process still lives; it is shown, never consulted for auth.
 func (s *sessionStore) count() int {
 	s.mu.Lock()
-	pruned := s.pruneExpiredLocked(s.now())
-	probe := maps.Clone(s.m)
+	probe := maps.Clone(s.seen)
 	s.mu.Unlock()
-	dead := s.unbound(probe) // procStart may exec ps (darwin): never under mu
+	dead := []string{}
+	for hash, ses := range probe {
+		if start, err := s.procStart(ses.pid); errors.Is(err, proc.ErrNoProcess) || (err == nil && start != ses.start) {
+			dead = append(dead, hash)
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.dropLocked(dead) || pruned || s.unsaved {
-		_ = s.saveLocked()
+	for _, h := range dead {
+		delete(s.seen, h)
 	}
-	return len(s.m)
-}
-
-// pruneExpiredLocked drops expired sessions and reports whether any went.
-func (s *sessionStore) pruneExpiredLocked(now time.Time) bool {
-	pruned := false
-	for k, v := range s.m {
-		if !now.Before(v.expires) {
-			delete(s.m, k)
-			s.noteLocked(k, goneReason(v))
-			pruned = true
-		}
-	}
-	return pruned
-}
-
-// unbound probes each session's process without mu and returns those whose process exited or was reused.
-func (s *sessionStore) unbound(probe map[string]*session) map[string]*session {
-	dead := map[string]*session{}
-	for hash, ses := range probe {
-		if bound, _ := s.identity(ses); !bound {
-			dead[hash] = ses
-		}
-	}
-	return dead
-}
-
-// dropLocked deletes each dead session still mapped to the same pointer and reports whether any went.
-func (s *sessionStore) dropLocked(dead map[string]*session) bool {
-	dropped := false
-	for hash, ses := range dead {
-		if s.m[hash] == ses {
-			delete(s.m, hash)
-			s.noteLocked(hash, whyExited)
-			dropped = true
-		}
-	}
-	return dropped
-}
-
-// identity probes ses's pid; verified is false when the probe itself failed, so bound is only a guess then.
-func (s *sessionStore) identity(ses *session) (bound, verified bool) {
-	start, err := s.procStart(ses.pid)
-	if errors.Is(err, proc.ErrNoProcess) {
-		return false, true // an exited process is a verified miss, so probeUnlocked expires the token
-	}
-	if err != nil {
-		return true, false // a failed probe keeps the token for pruning
-	}
-	return start == ses.start, true
+	return len(s.seen)
 }
 
 // profileOfPath returns <name> of /p/<name>/..., "" for any other path.
@@ -451,45 +328,26 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	tok, err := r.sessions.mintWithFailover(in.Profiles, in.PID, in.FailoverProvider)
-	if errors.Is(err, errPersist) {
-		fmt.Fprintf(r.log, "proxy: session mint: %v\n", err)
-		writeError(w, http.StatusInternalServerError, "proxy: session could not be persisted")
-		return
-	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: session: "+err.Error())
 		return
 	}
-	b, _ := json.Marshal(proxy.SessionResponse{Token: tok, ExpiresIn: int(sessionTTL.Seconds())})
+	b, _ := json.Marshal(proxy.SessionResponse{Token: tok, ExpiresIn: int(proxy.SessionTokenTTL.Seconds())})
 	writeJSON(w, http.StatusOK, b)
 }
 
 var routerSessionsFormat = schemas.Register(schemas.Format{
-	Name: "router-sessions", Owner: "internal/proxy", Kind: schemas.Record, Version: 2,
-	Glob:    sessionsFile,
+	Name: "router-sessions", Owner: "internal/proxy", Kind: schemas.Record, Version: 3,
+	Glob:    proxy.SessionsFile,
 	New:     func() any { return new(sessionState) },
-	Keep:    "process-bound session token hashes; retained across proxy restarts and pruned when expired or revoked",
+	Keep:    "revoked session token hashes until each token's expiry; tokens themselves are signed, never stored",
 	Migrate: migrateSessions,
 })
 
-// migrateSessions steps v0 -> v1 (stamp) and v1 -> v2 (each record's one "profile" becomes its "profiles" set).
+// migrateSessions stamps v0; from v1 on it drops the stored token list, which signed tokens no longer need.
 func migrateSessions(from int, raw []byte) ([]byte, error) {
-	if from != 1 {
+	if from == 0 {
 		return schemas.SameShape(from, raw)
 	}
-	var v1 struct {
-		Sessions []struct {
-			persistedSession
-			Profile string `json:"profile"`
-		} `json:"sessions"`
-	}
-	if err := json.Unmarshal(raw, &v1); err != nil {
-		return nil, err
-	}
-	next := sessionState{Schema: 2, Sessions: make([]persistedSession, 0, len(v1.Sessions))}
-	for _, s := range v1.Sessions {
-		s.Profiles = []string{s.Profile}
-		next.Sessions = append(next.Sessions, s.persistedSession)
-	}
-	return json.Marshal(next)
+	return json.Marshal(sessionState{Schema: from + 1, Revoked: []revokedSession{}})
 }

@@ -16,9 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -492,5 +494,40 @@ func TestLaunchOverlayRefusalNamesKeys(t *testing.T) {
 		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
 			t.Errorf("%s: err %v, want %q", c.doc, err, c.want)
 		}
+	}
+}
+
+// A rejection while this process holds a token the proxies refuse is the proxy's own: no account mark, one re-mint.
+func TestProxySessionRefusalNeverMarksAndRemintsOnce(t *testing.T) {
+	var calls []markCall
+	prevMark, prevInvalid := markAuth, sessionInvalid
+	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
+	t.Cleanup(func() { markAuth, sessionInvalid = prevMark, prevInvalid; ResetSessionTokens() })
+	ResetSessionTokens()
+	sessionTokens["base|dev"] = &sessionToken{tok: "cct_stale", minted: time.Now()}
+	sessionInvalid = func(string, string) error { return errors.New("signed with another secret") }
+	rejected := &retry.Error{AuthReason: "login rejected"}
+	noteAuth(Dispatch{Account: "databricks·dev"}, rejected)
+	if len(calls) != 0 {
+		t.Fatalf("a proxy refusal marked the account: %+v", calls)
+	}
+	refreshed := 0
+	rec := recoverSession(func(context.Context) error { refreshed++; return nil })
+	if err := rec(context.Background()); err != nil || sessionTokens["base|dev"].tok != "" || refreshed != 0 {
+		t.Fatalf("first recover = %v, provider refreshed %d", err, refreshed)
+	}
+	sessionTokens["base|dev"].tok = "cct_stale" // the re-minted token is refused too: the next recover is the provider's
+	if err := rec(context.Background()); err != nil || refreshed != 1 {
+		t.Fatalf("second recover = %v, provider refreshed %d, want 1", err, refreshed)
+	}
+	sessionInvalid = func(string, string) error { return nil } // the proxy accepts the token: the rejection is upstream's
+	noteAuth(Dispatch{Account: "databricks·dev"}, rejected)
+	if len(calls) != 1 {
+		t.Fatalf("an upstream rejection did not mark: %+v", calls)
+	}
+	sessionInvalid = func(string, string) error { return proxy.ErrSessionUnverified } // unjudgeable: never a mark
+	noteAuth(Dispatch{Account: "databricks·dev"}, rejected)
+	if len(calls) != 1 {
+		t.Fatalf("an unverifiable token let a mark through: %+v", calls)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
@@ -728,10 +729,48 @@ func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 		t.Errorf("mint failure: exit %d, stdout %q; want non-zero and empty", code, out)
 	}
 	const tok = "cct_ARM_TEST"
+	stubSessionInvalid(t, nil)
 	t.Setenv(claude.ProxyKeyEnv, tok)
 	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
 	if got := strings.TrimSpace(out); code != 0 || got != tok {
 		t.Errorf("armed: exit %d, printed the token = %v", code, got == tok)
+	}
+}
+
+func stubSessionInvalid(t *testing.T, err error) {
+	t.Helper()
+	orig := sessionInvalid
+	t.Cleanup(func() { sessionInvalid = orig })
+	sessionInvalid = func(string, string) error { return err }
+}
+
+// testProfile is the scratch registry's default session profile.
+func testProfile(t *testing.T) string {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sel.Provider.Name
+}
+
+// An armed token the proxies would refuse is replaced by a fresh one scoped to the launch's own /p/<profile> route.
+func TestResolveProxyRemintsARefusedArmedToken(t *testing.T) {
+	cliScratch(t)
+	orig := resolveProxyToken
+	t.Cleanup(func() { resolveProxyToken = orig })
+	var scope []string
+	resolveProxyToken = func(_ context.Context, s []string, _ int) (string, error) { scope = s; return "cct_FRESH", nil }
+	stubSessionInvalid(t, errors.New("session token expired"))
+	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/"+testProfile(t))
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
+	if got := strings.TrimSpace(out); code != 0 || got != "cct_FRESH" || !slices.Contains(scope, testProfile(t)) {
+		t.Fatalf("exit %d, fresh token printed = %v, scope %v", code, got == "cct_FRESH", scope)
 	}
 }
 

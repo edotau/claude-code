@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 type SessionRequest struct {
@@ -236,10 +237,50 @@ func cachedProxyToken(file, start string, scope []string) (string, bool) {
 	}
 	var rec proxyTokenRecord
 	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || rec.Start != start || !slices.Equal(rec.Scope, scope) ||
-		time.Since(rec.MintedAt) >= proxyTokenMaxAge {
+		time.Since(rec.MintedAt) >= proxyTokenMaxAge || SessionRefused(SessionInvalid(rec.Token, "")) {
 		return "", false
 	}
 	return rec.Token, true
+}
+
+// ErrSessionUnverified means the router secret is unreadable here, so only a proxy can judge the token.
+var ErrSessionUnverified = errors.New("session token cannot be verified here (router secret unreadable)")
+
+// SessionRefused reports a SessionInvalid result that is a definite refusal, not ErrSessionUnverified.
+func SessionRefused(err error) bool { return err != nil && !errors.Is(err, ErrSessionUnverified) }
+
+// SessionInvalid is why this config's proxies would refuse tok on profile ("" = any) now; nil when they accept it.
+func SessionInvalid(tok, profile string) error {
+	secret, ok, err := vaultSecret() // read only: a check never mints the router secret
+	if err != nil || !ok {
+		return ErrSessionUnverified
+	}
+	if err := CheckSessionToken(secret, tok, profile, time.Now(), proc.StartTime); err != nil {
+		return err
+	}
+	if sessionRevoked(tok) {
+		return errors.New("session token was revoked")
+	}
+	return nil
+}
+
+// SessionsFile holds the revoked session token hashes every daemon of this config shares.
+func SessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
+
+// sessionRevoked reports tok's hash on the shared revocation list; an unreadable list revokes nothing here.
+func sessionRevoked(tok string) bool {
+	type entry struct {
+		Hash string `json:"hash"`
+	}
+	var st struct {
+		Revoked []entry `json:"revoked"`
+	}
+	raw, err := os.ReadFile(SessionsFile())
+	if err != nil || json.Unmarshal(raw, &st) != nil {
+		return false
+	}
+	h := textutil.SHA256Hex([]byte(tok))
+	return slices.ContainsFunc(st.Revoked, func(r entry) bool { return r.Hash == h })
 }
 
 // pruneProxyTokens removes cache files whose pid is gone; best effort, a stray file is harmless.

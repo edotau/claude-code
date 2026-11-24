@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -369,6 +370,69 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 	}
 	e.tok, e.minted = tok, time.Now()
 	return tok, nil
+}
+
+// sessionInvalid is why the proxies would refuse a token, nil when they would accept it; a seam for tests.
+var sessionInvalid = proxy.SessionInvalid
+
+// refusedSessionSlots is cached slots for profile ("" = all) the proxies refuse; unverified: one could not be judged.
+func refusedSessionSlots(profile string) (out []*sessionToken, unverified bool) {
+	sessionMu.Lock()
+	slots := slices.Collect(maps.Values(sessionTokens))
+	sessionMu.Unlock()
+	for _, e := range slots {
+		e.mu.Lock()
+		tok := e.tok
+		e.mu.Unlock()
+		if c, ok := proxy.PeekSessionClaims(tok); tok == "" || (ok && profile != "" && !slices.Contains(c.Profiles, profile)) {
+			continue
+		}
+		switch err := sessionInvalid(tok, ""); {
+		case errors.Is(err, proxy.ErrSessionUnverified):
+			unverified = true
+		case err != nil:
+			out = append(out, e)
+		}
+	}
+	return out, unverified
+}
+
+// ProxySessionRefused reports a token for profile ("" = any) refused or unjudgeable: a 401 then is no provider fault.
+func ProxySessionRefused(profile string) bool {
+	out, unverified := refusedSessionSlots(profile)
+	return len(out) > 0 || unverified
+}
+
+// accountProfile is <p> of a "<provider>·<p>" account, "" (any profile) for any other account shape.
+func accountProfile(account string) string {
+	_, p, _ := strings.Cut(account, "·")
+	return p
+}
+
+// dropRefusedSessions clears definitely refused slots so the next launch mints; true when it cleared any.
+func dropRefusedSessions() bool {
+	slots, _ := refusedSessionSlots("")
+	for _, e := range slots {
+		e.mu.Lock()
+		e.tok = ""
+		e.mu.Unlock()
+	}
+	return len(slots) > 0
+}
+
+// recoverSession wraps an auth Recover: once per run, a proxy-refused token is re-minted and the attempt retried.
+func recoverSession(next func(context.Context) error) func(context.Context) error {
+	used := false // retry.Do calls Recover from one goroutine, between attempts
+	return func(ctx context.Context) error {
+		if !used && dropRefusedSessions() {
+			used = true
+			return nil
+		}
+		if next == nil {
+			return errors.New("no credential refresh for this provider")
+		}
+		return next(ctx)
+	}
 }
 
 // ResetSessionTokens forgets every cached session token; a test that swaps MintSession calls it.

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -32,6 +32,7 @@ type sessionRig struct {
 
 func newSessionRig(t *testing.T) *sessionRig {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	g := &sessionRig{now: time.Unix(1_700_000_000, 0), start: "100"}
 	g.r = newRouter(secret)
 	g.r.log = io.Discard
@@ -48,6 +49,12 @@ func (g *sessionRig) setStart(s string) { g.mu.Lock(); g.start = s; g.mu.Unlock(
 
 func (g *sessionRig) call(t *testing.T, path, body, key string) (int, string) {
 	t.Helper()
+	code, b, _ := g.callH(t, path, body, key)
+	return code, b
+}
+
+func (g *sessionRig) callH(t *testing.T, path, body, key string) (int, string, http.Header) {
+	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, g.srv.URL+path, strings.NewReader(body))
 	req.Header.Set("X-Api-Key", key)
 	resp, err := http.DefaultClient.Do(req)
@@ -56,7 +63,7 @@ func (g *sessionRig) call(t *testing.T, path, body, key string) (int, string) {
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(b)
+	return resp.StatusCode, string(b), resp.Header
 }
 
 func (g *sessionRig) mint(t *testing.T, profile string) string {
@@ -91,19 +98,16 @@ func TestSessionTokenScopeAndMintAuth(t *testing.T) {
 	}
 }
 
-func TestSessionTokenIdleExpiryAndSlidingRenewal(t *testing.T) {
+func TestSessionTokenExpiresAtItsTTL(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
-	use := func() int { c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); return c }
-	for range 3 { // 3 x 4d exceeds the 7d TTL only if use does not renew it
-		g.advance(4 * 24 * time.Hour)
-		if use() == http.StatusUnauthorized {
-			t.Fatal("renewed token expired")
-		}
+	g.advance(proxy.SessionTokenTTL - time.Minute)
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
+		t.Fatal("token refused inside its TTL")
 	}
-	g.advance(sessionTTL)
-	if use() != http.StatusUnauthorized {
-		t.Fatal("idle token still accepted past the TTL")
+	g.advance(time.Minute)
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
+		t.Fatal("token accepted past its TTL")
 	}
 }
 
@@ -145,96 +149,101 @@ func TestSessionTokenKeepsLivenessCheckUnderFrequentRequests(t *testing.T) {
 	t.Fatal("token outlived its process under frequent requests")
 }
 
-func TestSessionMintPrunesDeadProcesses(t *testing.T) {
+// A token minted by one daemon is valid on another of the same config, and a revocation on either holds on both.
+func TestSessionTokenValidAcrossDaemonsAndRevocationShared(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	a, b := newRouter(secret), newRouter(secret)
+	ta, tb := mintOn(t, a), mintOn(t, b)
+	for _, r := range []*Router{a, b, newRouter(secret)} {
+		if !r.sessions.accept(ta, "dev") || !r.sessions.accept(tb, "dev") || r.sessions.accept(ta, "other") {
+			t.Fatal("a daemon disagrees on a token minted by its peer")
+		}
+	}
+	// b's write must merge a's revocation, not overwrite it
+	if errors.Join(a.sessions.revoke(ta), b.sessions.revoke(tb)) != nil {
+		t.Fatal("revoke failed")
+	}
+	for _, r := range []*Router{a, b, newRouter(secret)} {
+		if r.sessions.accept(ta, "dev") || r.sessions.accept(tb, "dev") {
+			t.Fatal("a revocation was lost between two daemons")
+		}
+	}
+}
+
+func mintOn(t *testing.T, r *Router) string {
+	t.Helper()
+	tok, err := r.sessions.mint([]string{"dev"}, os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+func TestSessionTokenRefusedUnderAnotherSecret(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tok, err := newRouter(secret).sessions.mint([]string{"dev"}, os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRouter("rotated-"+secret).sessions.accept(tok, "dev") {
+		t.Fatal("a rotated router secret still accepts the old token")
+	}
+}
+
+// A token whose claims were edited (a wider scope, another pid) fails its MAC.
+func TestForgedSessionClaimsRefused(t *testing.T) {
 	g := newSessionRig(t)
-	for range sessionMax {
-		g.mint(t, "dev")
-	}
-	g.setStart("999") // every minted process is gone
-	g.advance(time.Second)
-	g.mint(t, "dev")
-}
-
-func TestSessionTokenSurvivesRouterRestart(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	first := newRouter(secret)
-	token, err := first.sessions.mint([]string{"dev"}, os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	restarted := newRouter(secret)
-	if !restarted.sessions.accept(token, "dev") {
-		t.Fatal("restarted router rejected a live session token")
-	}
-	if restarted.sessions.accept(token, "other") {
-		t.Fatal("restarted router accepted a session token for another profile")
+	tok := g.mint(t, "dev")
+	payload, mac, _ := strings.Cut(strings.TrimPrefix(tok, proxy.SessionTokenPrefix), ".")
+	raw, _ := base64.RawURLEncoding.DecodeString(payload)
+	forged := strings.Replace(string(raw), `"p":["dev"]`, `"p":["dev","prod"]`, 1)
+	tok2 := proxy.SessionTokenPrefix + base64.RawURLEncoding.EncodeToString([]byte(forged)) + "." + mac
+	if c, body := g.call(t, "/p/prod/v1/messages", `{}`, tok2); c != http.StatusUnauthorized ||
+		!strings.Contains(body, proxy.ErrSessionSignature.Error()) {
+		t.Fatalf("forged scope = %d %q", c, body)
 	}
 }
 
-func TestRevokedSessionTokenStaysRevokedAfterRestart(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	first := newRouter(secret)
-	token, err := first.sessions.mint([]string{"dev"}, os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	restarted := newRouter(secret)
-	if !restarted.sessions.accept(token, "dev") {
-		t.Fatal("restarted router rejected the token before revocation")
-	}
-	restarted.sessions.revoke(token)
-	if newRouter(secret).sessions.accept(token, "dev") {
-		t.Fatal("revoked session token returned after another restart")
-	}
-}
-
-func TestSessionTokenPersistenceIsPrivateAndHashed(t *testing.T) {
+func TestSessionTokenRevocationFileIsPrivateAndHashed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	router := newRouter(secret)
 	token, err := router.sessions.mint([]string{"dev"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	path := sessionsFile()
-	info, err := os.Stat(path)
+	if err := router.sessions.revoke(token); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(proxy.SessionsFile())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("sessions.json mode = %04o, want 0600", got)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(data, []byte(token)) {
-		t.Fatal("sessions.json contains the plaintext session token")
-	}
+	data, _ := os.ReadFile(proxy.SessionsFile())
 	hash := sha256.Sum256([]byte(token))
-	if !bytes.Contains(data, []byte(hex.EncodeToString(hash[:]))) {
-		t.Fatal("sessions.json does not contain the session token's SHA-256 hash")
+	if bytes.Contains(data, []byte(token)) || !bytes.Contains(data, []byte(hex.EncodeToString(hash[:]))) {
+		t.Fatal("sessions.json must hold the revoked token's SHA-256 hash, never the token")
 	}
 }
 
-func sessionSnapshot(t *testing.T, g *sessionRig, token string) session {
-	t.Helper()
+func seenChecked(g *sessionRig, token string) time.Time {
 	g.r.sessions.mu.Lock()
 	defer g.r.sessions.mu.Unlock()
-	ses := g.r.sessions.m[textutil.SHA256Hex([]byte(token))]
-	if ses == nil {
-		t.Fatal("session unexpectedly removed")
+	if ses := g.r.sessions.seen[textutil.SHA256Hex([]byte(token))]; ses != nil {
+		return ses.checked
 	}
-	return *ses
+	return time.Time{}
 }
 
 func TestFailedIdentityProbeRejectsWithoutRenewingTrust(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	g := newSessionRig(t)
 	token := g.mint(t, "dev")
-	before := sessionSnapshot(t, g, token)
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); c == http.StatusUnauthorized {
+		t.Fatal("fresh token refused")
+	}
+	before := seenChecked(g, token)
 	var failed atomic.Bool
 	failed.Store(true)
 	g.r.sessions.procStart = func(int) (string, error) {
@@ -244,24 +253,21 @@ func TestFailedIdentityProbeRejectsWithoutRenewingTrust(t *testing.T) {
 		return "100", nil
 	}
 	g.advance(sessionVerify)
-	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); code != http.StatusUnauthorized {
-		t.Errorf("failed identity probe accepted request: status=%d, want 401", code)
+	for range 2 { // the second call sits inside a wrongly renewed window, if the failure had renewed one
+		if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); code != http.StatusUnauthorized {
+			t.Fatalf("failed identity probe accepted request: status=%d, want 401", code)
+		}
+		g.advance(time.Second / 2)
 	}
-	if after := sessionSnapshot(t, g, token); !reflect.DeepEqual(after, before) {
-		t.Errorf("failed identity probe renewed session: before=%+v after=%+v", before, after)
-	}
-	g.advance(time.Second) // inside a wrongly renewed trust window: failure must still reject.
-	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); code != http.StatusUnauthorized {
-		t.Errorf("failed identity probe gained cached trust: status=%d, want 401", code)
+	if !seenChecked(g, token).Equal(before) {
+		t.Fatal("failed identity probe renewed trust")
 	}
 	failed.Store(false)
 	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); code == http.StatusUnauthorized {
 		t.Fatal("session did not recover after a verified identity probe")
 	}
-	after := sessionSnapshot(t, g, token)
-	elapsed := sessionVerify + time.Second
-	if !after.checked.Equal(before.checked.Add(elapsed)) || !after.expires.Equal(before.expires.Add(elapsed)) {
-		t.Fatalf("successful probe did not renew trust and expiry: before=%+v after=%+v", before, after)
+	if !seenChecked(g, token).After(before) {
+		t.Fatal("successful probe did not renew trust")
 	}
 }
 
@@ -274,13 +280,13 @@ type causeCase struct {
 
 func sessionCauseCases() []causeCase {
 	const path = "/p/dev/v1/messages"
-	unknown := sessionTokenPf + strings.Repeat("0", 64)
+	legacy := proxy.SessionTokenPrefix + strings.Repeat("0", 64)
 	return []causeCase{
 		{"missing", func(g *sessionRig, t *testing.T) (string, string) { return path, "" }, "no token header sent"},
-		{"unknown", func(g *sessionRig, t *testing.T) (string, string) { return path, unknown }, "never minted here"},
+		{"legacy", func(g *sessionRig, t *testing.T) (string, string) { return path, legacy }, "not a signed session token"},
 		{"expired", func(g *sessionRig, t *testing.T) (string, string) {
 			tok := g.mint(t, "dev")
-			g.advance(sessionTTL)
+			g.advance(proxy.SessionTokenTTL)
 			return path, tok
 		}, whyExpired},
 		{"revoked", func(g *sessionRig, t *testing.T) (string, string) {
@@ -300,24 +306,29 @@ func sessionCauseCases() []causeCase {
 	}
 }
 
-// checkRefusal asserts one refused call names its cause in the response and the log and leaks no token text.
+// checkRefusal asserts one refused call names its cause and the typed code, and leaks no token text.
 func checkRefusal(t *testing.T, g *sessionRig, log *lockedBuf, path, tok, want string) {
 	t.Helper()
-	code, body := g.call(t, path, `{}`, tok)
+	code, body, h := g.callH(t, path, `{}`, tok)
 	if code != http.StatusUnauthorized || !strings.Contains(body, want) ||
-		!strings.Contains(body, "proxy: missing or wrong client secret") {
-		t.Fatalf("response = %d %q, want a 401 naming %q", code, body, want)
+		!strings.Contains(body, "proxy: missing or wrong client secret") || !strings.Contains(body, proxy.RefusalSession) ||
+		h.Get(proxy.RefusalHeader) != proxy.RefusalSession {
+		t.Fatalf("response = %d %q, want a typed 401 naming %q", code, body, want)
 	}
 	if !strings.Contains(log.String(), "refused 401 POST "+path+": proxy: missing or wrong client secret: ") ||
 		!strings.Contains(log.String(), want) {
 		t.Fatalf("log %q does not name %q", log.String(), want)
 	}
-	if tok == "" {
-		return
+	if tok != "" {
+		checkNoLeak(t, tok, body, log.String())
 	}
-	for _, secretText := range []string{tok, tok[len(sessionTokenPf):], tok[:12], textutil.SHA256Hex([]byte(tok))} {
-		if strings.Contains(body, secretText) || strings.Contains(log.String(), secretText) {
-			t.Fatalf("token text %q leaked into %q / %q", secretText, body, log.String())
+}
+
+func checkNoLeak(t *testing.T, tok, body, log string) {
+	t.Helper()
+	for _, secretText := range []string{tok, tok[len(proxy.SessionTokenPrefix):], tok[:12], textutil.SHA256Hex([]byte(tok))} {
+		if strings.Contains(body, secretText) || strings.Contains(log, secretText) {
+			t.Fatalf("token text %q leaked into %q / %q", secretText, body, log)
 		}
 	}
 }
@@ -330,30 +341,9 @@ func TestSessionRefusalNamesItsCause(t *testing.T) {
 			var log lockedBuf
 			g.r.log = &log
 			path, tok := tc.setup(g, t)
-			for range 2 { // the first refusal drops the token; the second must still name the cause
+			for range 2 { // a second refusal must still name the cause
 				checkRefusal(t, g, &log, path, tok, tc.want)
 			}
 		})
-	}
-}
-
-// The remembered drop reasons stay bounded and age out.
-func TestDroppedReasonsAreBoundedAndAge(t *testing.T) {
-	g := newSessionRig(t)
-	for i := range sessionMax + 10 {
-		g.r.sessions.mu.Lock()
-		g.r.sessions.noteLocked(strings.Repeat("h", i+1), whyExpired)
-		g.r.sessions.mu.Unlock()
-		g.advance(time.Millisecond)
-	}
-	if n := len(g.r.sessions.gone); n != sessionMax {
-		t.Fatalf("%d reasons kept, want %d", n, sessionMax)
-	}
-	tok := g.mint(t, "dev")
-	g.advance(sessionTTL)
-	g.call(t, "/p/dev/v1/messages", `{}`, tok)
-	g.advance(droppedKeep)
-	if _, body := g.call(t, "/p/dev/v1/messages", `{}`, tok); strings.Contains(body, whyExpired) {
-		t.Errorf("a reason older than %v still answers: %q", droppedKeep, body)
 	}
 }

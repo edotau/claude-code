@@ -44,7 +44,7 @@ type Router struct {
 	log    io.Writer
 	now    func() time.Time
 
-	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
+	sessions *sessionStore // signed per-profile tokens, valid on every daemon of this config
 	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
 	bg       sync.WaitGroup // background state writes (cooling, quota-dead)
@@ -97,7 +97,7 @@ func newRouter(secret string) *Router {
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, deprecated: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
-	r.sessions = newSessionStore(func() time.Time { return r.now() })
+	r.sessions = newSessionStore(secret, func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
 	return r

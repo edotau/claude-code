@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -259,13 +261,19 @@ func cmdResolve(args []string) int {
 // resolveToken is the armed or scoped proxy token with proxy, else the profile's credential.
 func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) {
 	if proxy {
+		pid := os.Getppid()
 		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" { // an armed launch's session token, confined to its profile
 			if refresh {
 				return "", errors.New("resolve --refresh: an armed launch's token cannot be renewed here")
 			}
-			return tok, nil
+			profile = cmp.Or(profile, routeProfile(os.Getenv(proc.EnvAnthropicBaseURL))) // re-mint on the launch's route
+			remint, ok := armedRemint(tok, profile, pid)
+			if !ok {
+				return tok, nil
+			}
+			pid = remint
 		}
-		tok, err := scopedProxyToken(profile, refresh)
+		tok, err := scopedProxyToken(profile, refresh, pid)
 		if err != nil {
 			return "", fmt.Errorf("resolve --proxy: %w", err) // never falls back to the router secret
 		}
@@ -282,14 +290,42 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
 }
 
-// resolveProxyToken and refreshProxyToken are the mint+cache seams of resolve --proxy [--refresh].
+// resolveProxyToken, refreshProxyToken and sessionInvalid are the mint, cache and check seams of resolve --proxy.
 var (
 	resolveProxyToken = proxy.ResolveProxyToken
 	refreshProxyToken = proxy.RefreshProxyToken
+	sessionInvalid    = proxy.SessionInvalid
 )
 
-// scopedProxyToken mints (or reuses) the session token the launcher would arm for the calling claude process.
-func scopedProxyToken(profile string, refresh bool) (string, error) {
+// routeProfile is <p> of a /p/<p> proxy base, "" for any other base.
+func routeProfile(base string) string {
+	u, err := url.Parse(proxy.UntaggedBase(base))
+	if err != nil {
+		return ""
+	}
+	_, rest, ok := strings.Cut(u.Path, "/p/")
+	name, _, _ := strings.Cut(rest, "/")
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+// armedRemint: does a refused armed tok need a re-mint, bound to its own live process (not a helper shell) or fallback.
+func armedRemint(tok, profile string, fallback int) (int, bool) {
+	if !proxy.SessionRefused(sessionInvalid(tok, profile)) {
+		return 0, false
+	}
+	if c, ok := proxy.PeekSessionClaims(tok); ok && c.PID > 0 {
+		if start, err := proc.StartTime(c.PID); err == nil && start == c.Start {
+			return c.PID, true
+		}
+	}
+	return fallback, true
+}
+
+// scopedProxyToken mints (or reuses) the session token the launcher would arm for the process pid.
+func scopedProxyToken(profile string, refresh bool, pid int) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return "", err
@@ -307,9 +343,9 @@ func scopedProxyToken(profile string, refresh bool) (string, error) {
 		return "", err
 	}
 	if refresh {
-		return refreshProxyToken(context.Background(), scope, os.Getppid())
+		return refreshProxyToken(context.Background(), scope, pid)
 	}
-	return resolveProxyToken(context.Background(), scope, os.Getppid())
+	return resolveProxyToken(context.Background(), scope, pid)
 }
 
 // keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.

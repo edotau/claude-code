@@ -364,12 +364,14 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	}
 	p := runPolicy(ctx, req, notify)
 	var recoverErr error
+	var refresh func(context.Context) error
 	if t, ok := recoveryTarget(r, req); ok && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
-		p.Recover = func(ctx context.Context) error {
+		refresh = func(ctx context.Context) error {
 			_, recoverErr = providers.Refresh(ctx, t.Provider)
 			return recoverErr
 		}
 	}
+	p.Recover = recoverSession(refresh)
 	start := time.Now()
 	state := runState{res: res, req: req, dropped: dropped, emulated: emulated}
 	p.GiveUp = func(e *retry.Error) bool {

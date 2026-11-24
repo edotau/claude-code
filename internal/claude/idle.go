@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // authRetryLimit is how many consecutive 401/403 api_retry events end an attempt: a rejected login never recovers.
@@ -69,6 +70,11 @@ func (w *idleWatch) ceilingHit(err error) bool {
 
 // rejectedErr is the auth-kind failure of a login the API refused; AuthReason makes the fallback chain mark the account.
 func (w *idleWatch) rejectedErr() error {
+	if agent.ProxySessionRefused(w.row) { // the loopback proxy refused its own session token: no account is at fault
+		return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Status: w.status, Err: fmt.Errorf(
+			"claude: the proxy refused the session token (%s) after %d retries; the next launch mints a fresh one",
+			proxy.RefusalSession, w.retries)}
+	}
 	msg := fmt.Sprintf("claude: login rejected (%d) after %d retries; sign in with `claude /login`, or finish this task in the main session",
 		w.status, w.retries)
 	if w.row != "" {

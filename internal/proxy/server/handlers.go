@@ -372,8 +372,10 @@ func (r *Router) admit(req *http.Request) *http.Request {
 // refuseUnauthorized answers a request no credential admits: 403 for a client token out of scope, else 401.
 func (r *Router) refuseUnauthorized(w http.ResponseWriter, req *http.Request) {
 	if tok := presentedSecret(req); !r.clients.valid(tok) {
+		w.Header().Set(proxy.RefusalHeader, proxy.RefusalSession) // the proxy's own refusal: no upstream ever saw it
 		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret: "+
-			r.sessions.refusal(tok, profileOfPath(req.URL.Path))+" (apiKeyHelper: claude-code resolve --secret --proxy)")
+			r.sessions.refusal(tok, profileOfPath(req.URL.Path))+
+			" ("+proxy.RefusalSession+"; apiKeyHelper: claude-code resolve --secret --proxy)")
 		return
 	}
 	if _, err := r.registry(); err != nil { // the scope check could not run: not the token's fault
