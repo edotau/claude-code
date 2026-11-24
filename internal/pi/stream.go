@@ -249,7 +249,7 @@ func phaseEvent(ev piEvent) wire.Event {
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
 	if ev.ToolName != "handback" {
-		t.res.Handback = nil // a handback is the verdict only when it is the last tool activity
+		t.res.Handback, t.calls = nil, nil // a handback is the verdict only when it is the last tool activity
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {

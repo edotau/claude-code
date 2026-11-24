@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -364,6 +365,16 @@ func (l *EventLog) writeLocked(ev Event) {
 		if len(env.Structured) > 0 {
 			env.Structured = redactJSON(env.Structured)
 		}
+		ev.Envelope = &env
+	}
+	if ev.Envelope != nil && ev.Envelope.Handback != nil {
+		env, h := *ev.Envelope, *ev.Envelope.Handback
+		h.Summary = textutil.RedactSecrets(h.Summary)
+		h.Unfixed = slices.Clone(h.Unfixed)
+		for i, item := range h.Unfixed {
+			h.Unfixed[i] = textutil.RedactSecrets(item)
+		}
+		env.Handback = &h
 		ev.Envelope = &env
 	}
 	_ = l.sink.Emit(ev) // fail-open
