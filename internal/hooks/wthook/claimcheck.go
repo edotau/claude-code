@@ -334,8 +334,8 @@ func laneTarget(root, file, session string) (slug, dir string) {
 	if filepath.IsAbs(file) {
 		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
 	}
-	if id := paths.Slug(session, "", 8, ""); id != "" {
-		slug += "-" + id
+	if id := paths.Slug(session, "", 0, ""); id != "" {
+		slug += "-" + strings.TrimLeft(id[max(0, len(id)-8):], "-") // the tail is the random part of a time-ordered id
 	}
 	return slug, filepath.Join(paths.LaneRoot(root), slug)
 }
