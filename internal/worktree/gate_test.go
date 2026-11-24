@@ -491,13 +491,21 @@ func TestRunScopedGateCarriesIDs(t *testing.T) {
 
 // A shell-free gate runs as argv, with the lint base placeholder filled in and no bash.
 func TestRunVerifyArgvFillsLintBase(t *testing.T) {
-	for base, want := range map[string]string{"abc123": "<abc123>", "": "<HEAD>"} {
+	for base, want := range map[string]string{"abc123": "<--base><abc123>", "": "<--base><HEAD>"} {
 		var out strings.Builder
-		if err := runVerify(context.Background(), t.TempDir(), "printf '<%s>' "+lintBaseRef, base, &out, &out); err != nil {
+		if err := runVerify(context.Background(), t.TempDir(), "printf '<%s>' "+lintBaseArg, base, &out, &out); err != nil {
 			t.Fatal(err)
 		}
 		if out.String() != want {
 			t.Errorf("base %q: got %q, want %q", base, out.String(), want)
 		}
+	}
+}
+
+// A line the shell reads differently (an assignment prefix, a builtin) stays on bash.
+func TestRunVerifyKeepsBashForBuiltins(t *testing.T) {
+	var out strings.Builder
+	if err := runVerify(context.Background(), t.TempDir(), "FOO=bar printf '<%s>' x && export Y=1", "", &out, &out); err != nil || out.String() != "<x>" {
+		t.Fatalf("out %q err %v", out.String(), err)
 	}
 }
