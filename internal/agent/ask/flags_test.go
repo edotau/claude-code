@@ -666,46 +666,52 @@ func TestValidateCodemodeTable(t *testing.T) {
 		mode, ag string
 		direct   bool
 		want     string
-		wantErr  bool
+		reason   bool
 	}{
 		{"on", "claude", true, "on", false},
-		{"on", "claude", false, "", true},
-		{"only", "claude", true, "", true},
+		{"on", "claude", false, "off", true},
+		{"only", "claude", true, "off", true},
 		{"on", "opencode", false, "on", false},
-		{"only", "opencode", false, "", true},
-		{"on", "codex", true, "", true},
+		{"only", "opencode", false, "off", true},
+		{"on", "codex", true, "off", true},
 		{"off", "codex", true, "", false},
 	}
 	for _, c := range cases {
-		got, err := validateCodemode(c.mode, c.ag, true, c.direct)
-		if (err != nil) != c.wantErr || (err == nil && got != c.want) {
-			t.Errorf("validateCodemode(%q, %q, direct=%v) = %q, %v", c.mode, c.ag, c.direct, got, err)
+		got, why, err := validateCodemode(c.mode, c.ag, true, c.direct)
+		if err != nil || got != c.want || (why != "") != c.reason {
+			t.Errorf("validateCodemode(%q, %q, direct=%v) = %q, %q, %v", c.mode, c.ag, c.direct, got, why, err)
 		}
+	}
+	if _, _, err := validateCodemode("onn", "claude", true, true); err == nil {
+		t.Error("a misspelled mode must still error")
 	}
 }
 
 func TestCodemodeRouteGuards(t *testing.T) {
 	for _, ag := range []string{"claude", "opencode"} {
-		if _, err := validateCodemode("on", ag, false, true); err == nil {
-			t.Errorf("%s --codemode on without tools accepted", ag)
+		if got, why, err := validateCodemode("on", ag, false, true); err != nil || got != "off" || why == "" {
+			t.Errorf("%s --codemode on without tools = %q, %q, %v", ag, got, why, err)
 		}
 	}
+}
+
+func TestCodemodeLineAndDirectRoute(t *testing.T) {
 	if directRoute("", "") || directRoute("databricks", "dev") || !directRoute("anthropic", "") {
 		t.Error("directRoute must be true only for an explicit anthropic route")
 	}
 	line := agent.RunOptions{Codemode: "on", Tools: true, Provider: "dev"}
-	if err := lineCapable("claude", line); err == nil {
-		t.Error("batch line on a gateway profile accepted claude code mode")
+	if err := lineCapable("claude", &line); err != nil || line.Codemode != "off" || line.CodemodeReason == "" {
+		t.Errorf("batch line on a gateway profile: %v %q %q", err, line.Codemode, line.CodemodeReason)
 	}
 }
 
 func TestReplayCodemode(t *testing.T) {
 	f := &askFlags{name: "claude", codemode: "on", tools: true, retry: "x", profile: "dev"}
-	if err := replayCodemode(f); err == nil {
-		t.Error("replayed claude code mode on a gateway profile accepted")
+	if err := replayCodemode(f); err != nil || f.codemode != "off" || f.codemodeReason == "" {
+		t.Errorf("replayed claude code mode on a gateway profile: %v %q %q", err, f.codemode, f.codemodeReason)
 	}
-	f.retry = ""
-	if err := replayCodemode(f); err != nil {
-		t.Errorf("non-replay run rechecked: %v", err)
+	f = &askFlags{name: "claude", codemode: "on", tools: true, profile: "dev"}
+	if err := replayCodemode(f); err != nil || f.codemode != "on" {
+		t.Errorf("non-replay run rechecked: %v %q", err, f.codemode)
 	}
 }

@@ -43,6 +43,7 @@ type askFlags struct {
 	attach                                                                                                                                                                             attachFlag
 	keepEnv                                                                                                                                                                            []string
 	codemode                                                                                                                                                                           string
+	codemodeReason                                                                                                                                                                     string
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
 	spec, verify, action                                                                                                                                                               string
@@ -175,34 +176,53 @@ func directRoute(provider, profile string) bool {
 	return provider == "anthropic" || profile == "anthropic"
 }
 
-// validateCodemode checks --codemode against the agent's code-mode row; pi's falls back to CODEMODE under --tools.
-func validateCodemode(mode, ag string, tools, direct bool) (string, error) {
+// validateCodemode resolves --codemode: a misspelled value errors; an unsupported one runs off with a reason.
+func validateCodemode(mode, ag string, tools, direct bool) (resolved, reason string, err error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
-		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
+		return "", "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
 	if ag == agentid.Pi {
-		return pi.ResolveCodemode(mode, tools)
+		return piCodemode(mode, tools)
 	}
 	if mode == "" || mode == "off" {
-		return "", nil
+		return "", "", nil
 	}
 	if !tools {
-		return mode, fmt.Errorf("--codemode %s needs --tools: %s scripts call the tools", mode, ag)
+		return "off", "needs --tools: scripts call the tools", nil
 	}
-	return mode, checkCodemodeRow(agentid.Routing(ag).CodeMode, mode, ag, direct)
+	if why := codemodeRowGap(agentid.Routing(ag).CodeMode, mode, direct); why != "" {
+		return "off", why, nil
+	}
+	return mode, "", nil
 }
 
-// checkCodemodeRow refuses a mode the agent's row cannot give on this route.
-func checkCodemodeRow(row agentid.CodeModeRow, mode, ag string, direct bool) error {
+// piCodemode is pi's resolved mode (the vault CODEMODE under --tools); on or only without tools runs off.
+func piCodemode(mode string, tools bool) (string, string, error) {
+	mode, err := pi.ResolveCodemode(mode, tools)
+	if err != nil || tools || (mode != "on" && mode != "only") {
+		return mode, "", err
+	}
+	return "off", "needs --tools: scripts call the tools", nil
+}
+
+// codemodeRowGap is why the agent's row cannot give mode on this route; "" when it can.
+func codemodeRowGap(row agentid.CodeModeRow, mode string, direct bool) string {
 	switch {
 	case !row.Has():
-		return fmt.Errorf("--codemode applies to %s only; %s has no code mode", strings.Join(agentid.CodeModeAgents(), ", "), ag)
+		return "no code mode; only " + strings.Join(agentid.CodeModeAgents(), ", ") + " have one"
 	case mode == "only" && !row.Only:
-		return fmt.Errorf("--codemode only: %s has no script-only mode", ag)
+		return "no script-only mode"
 	case row.DirectOnly && !direct:
-		return fmt.Errorf("--codemode on: %s code mode is only on the Anthropic API, not through a cloud provider or a gateway", ag)
+		return "code mode is only on the Anthropic API, not through a cloud provider or a gateway"
 	}
-	return nil
+	return ""
+}
+
+// noteCodemodeOff prints the one stderr note for a code mode that resolved to off with a reason.
+func noteCodemodeOff(ag, reason string) {
+	if reason != "" {
+		fmt.Fprintf(os.Stderr, "codemode: off for %s (%s)\n", ag, reason)
+	}
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.

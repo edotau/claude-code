@@ -2,7 +2,11 @@ package agent
 
 import (
 	"cmp"
+	"context"
+	"fmt"
+	"os"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -91,5 +95,19 @@ func withCodemodeEnv(name string, req RunOptions) RunOptions {
 	if req.Tools {
 		req.Env = slices.Concat(req.Env, CodemodeEnv(name, req.Codemode))
 	}
+	return req
+}
+
+// CodemodeOff is req with code mode off at launch: noted on stderr and in the running record, CODEMODE dropped.
+func CodemodeOff(ctx context.Context, name, reason string, req RunOptions) RunOptions {
+	fmt.Fprintf(os.Stderr, "codemode: off for %s (%s)\n", name, reason)
+	if id := DispatchIDOf(ctx); id != "" && !Peeking(ctx) {
+		_, _, _ = updateRecord(id, func(r Record) (Record, bool) {
+			r.Request.Codemode, r.Request.CodemodeReason = "off", reason
+			return r, true
+		})
+	}
+	req.Codemode, req.CodemodeReason = "off", reason
+	req.Env = slices.DeleteFunc(slices.Clone(req.Env), func(kv string) bool { return strings.HasPrefix(kv, rtkwrap.CodemodeEnv+"=") })
 	return req
 }

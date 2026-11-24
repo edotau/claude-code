@@ -182,12 +182,13 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseClaudeCmd(req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
+	origArgs := args
 	p := agent.CLIPrep{Argv: args}
 	if _, err := agent.PrepareLaunch(ctx, claudeAgent, req, launchTarget(ctx, req), &p); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(p.Argv, toolArgs(req)...)
-	cmArgs, err := codemodeArgs(ctx, req)
+	cmArgs, req, err := codemodeArgs(ctx, req)
 	if err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
@@ -203,22 +204,25 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
 	if err == nil && len(cmArgs) > 0 { // the child's own env: a shell-kept endpoint counts
 		if err = checkCodemodeRoute(launchTarget(ctx, req).Provider, lastEnv(cmd.Env, proc.EnvAnthropicBaseURL)); err != nil {
-			return nil, nil, cl, retry.Fatal("claude", err)
+			return claudeCmd(ctx, agent.CodemodeOff(ctx, agentid.Claude, err.Error(), req), origArgs, prompt)
 		}
 	}
 	return cmd, tail, cl, err
 }
 
-// codemodeArgs is the --settings arg for a code-mode request (tools only), after the profile check; nil when off.
-func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, error) {
+// codemodeArgs is the --settings arg for a code-mode request (tools only); a route off the Anthropic API runs it off.
+func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.RunOptions, error) {
 	if !req.Tools {
-		return nil, nil
+		return nil, req, nil
 	}
 	args, err := codemodeSettings(req.Codemode)
 	if err != nil || len(args) == 0 {
-		return nil, err
+		return nil, req, err
 	}
-	return args, checkCodemodeRoute(launchTarget(ctx, req).Provider, "")
+	if why := checkCodemodeRoute(launchTarget(ctx, req).Provider, ""); why != nil {
+		return nil, agent.CodemodeOff(ctx, agentid.Claude, why.Error(), req), nil
+	}
+	return args, req, nil
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.

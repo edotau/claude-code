@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -126,5 +127,12 @@ func TestCodemodeEnv(t *testing.T) {
 		if got := CodemodeEnv(c.agent, c.mode); !slices.Equal(got, c.want) {
 			t.Errorf("CodemodeEnv(%s,%s) = %v, want %v", c.agent, c.mode, got, c.want)
 		}
+	}
+}
+
+func TestCodemodeOffDropsEnvAndSetsReason(t *testing.T) {
+	req := CodemodeOff(context.Background(), "claude", "why", RunOptions{Codemode: "on", Env: []string{"A=1", "CODEMODE=on"}})
+	if req.Codemode != "off" || req.CodemodeReason != "why" || !slices.Equal(req.Env, []string{"A=1"}) {
+		t.Fatalf("%+v", req)
 	}
 }

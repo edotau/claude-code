@@ -797,8 +797,7 @@ func codemodeSettings(mode string) ([]string, error) {
 func checkCodemodeRoute(p *providers.Provider, launchBase string) error {
 	direct := p != nil && p.Protocol == providers.ProtocolAnthropic && onAnthropicAPI(p.BaseURL)
 	if !direct || !onAnthropicAPI(launchBase) {
-		return errors.New("claude: Code Mode (experimental) isn't available: for now claude -p and Agent SDK apps get it " +
-			"only on the Anthropic API, not through a cloud provider or a gateway")
+		return errors.New("code mode is only on the Anthropic API, not through a cloud provider or a gateway")
 	}
 	return nil
 }

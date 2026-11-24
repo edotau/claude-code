@@ -106,7 +106,7 @@ func briefTarget(argv []string) (briefFlags, error) {
 			name = ag
 		}
 	}
-	mode, _ := validateCodemode(f.codemode, name, f.tools, directRoute(f.provider, f.profile))
+	mode, _, _ := validateCodemode(f.codemode, name, f.tools, directRoute(f.provider, f.profile))
 	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, workdir: f.workdir, codeMode: mode != "" && mode != "off"}, nil
 }
 

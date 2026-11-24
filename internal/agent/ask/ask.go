@@ -344,7 +344,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile)); err != nil {
+	if err := resolveCodemode(f); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
@@ -581,7 +581,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}
 }
@@ -643,7 +643,13 @@ func replayCodemode(f *askFlags) error {
 	if f.retry == "" && f.job == "" {
 		return nil
 	}
-	_, err := validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile))
+	return resolveCodemode(f)
+}
+
+// resolveCodemode settles f.codemode and its reason for the resolved agent and route, noting a fall back to off.
+func resolveCodemode(f *askFlags) (err error) {
+	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile))
+	noteCodemodeOff(f.name, f.codemodeReason)
 	return err
 }
 
