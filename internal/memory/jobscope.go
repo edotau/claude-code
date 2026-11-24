@@ -67,13 +67,14 @@ func planGrants(workdir string) []string {
 		"claude-code plan task * --strike * --plan " + home + "/*"}
 }
 
-// updateWriteScope is where an update may write: the bank's typed files and its archive/ files.
+// updateWriteScope is where an update may write: the bank's typed files, archive/ files and handoffs/*.md files.
 func updateWriteScope(string) []string {
 	var w []string
 	for _, name := range bankFiles {
 		w = append(w, Path(name))
 	}
-	return append(w, filepath.Join(paths.MemoryStoreDir(), "archive", "*"))
+	return append(w, filepath.Join(paths.MemoryStoreDir(), "archive", "*"),
+		filepath.Join(paths.MemoryStoreDir(), "handoffs", "*.md"))
 }
 
 // JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.

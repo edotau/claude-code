@@ -66,6 +66,8 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), permission.Allow},
 		{memory.JobUpdate, "Write", other, permission.Deny},
 		{memory.JobUpdate, "Write", claudeMD, permission.Deny},
+		{memory.JobUpdate, "Write", filepath.Join(home, "handoffs", "2026-11-23-session-88fba51b.md"), permission.Allow},
+		{memory.JobUpdate, "Edit", filepath.Join(home, "handoffs", "sub", "x.md"), permission.Deny},
 		{memory.JobUpdate, "Write", filepath.Join(store, ".git", "config"), permission.Deny},
 		{memory.JobUpdate, "Bash", "claude-code memory promote x", permission.Deny},
 		{memory.JobUpdate, "Bash", "cd " + store, permission.Allow},
