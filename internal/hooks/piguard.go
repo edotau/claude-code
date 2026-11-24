@@ -54,10 +54,10 @@ func runPiGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	v := piVerdict{Block: "pi guard: unreadable tool call; blocked"}
 	dec := json.NewDecoder(stdin)
 	if dec.Decode(&c) == nil {
-		rest := io.MultiReader(dec.Buffered(), stdin)
-		if c.Tool == "verify" {
-			v = runPiVerify(c, rest) // the rest of stdin is the liveness pipe: its EOF means Pi is gone
-		} else if raw, err := io.ReadAll(rest); err == nil && len(bytes.TrimSpace(raw)) == 0 {
+		var extra json.RawMessage
+		if c.Tool == "verify" { // the rest of stdin is the liveness pipe: its EOF means Pi is gone
+			v = runPiVerify(c, io.MultiReader(dec.Buffered(), stdin))
+		} else if dec.Decode(&extra) == io.EOF { // only JSON whitespace may follow, as json.Unmarshal required
 			v = judgePi(c)
 		}
 	}

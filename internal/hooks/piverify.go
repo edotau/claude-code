@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -27,7 +28,7 @@ const (
 )
 
 // judgePiVerify rebuilds the run's verify line as argv steps and judges each as the bash line it is.
-func judgePiVerify(c piCall) ([]plans.VerifyStep, *piVerdict) {
+func judgePiVerify(ctx context.Context, c piCall) ([]plans.VerifyStep, *piVerdict) {
 	line, _ := c.Input["verify"].(string)
 	if len(c.Input) != 1 || line == "" {
 		return nil, &piVerdict{Usage: "verify: the only argument is a non-empty verify line"}
@@ -40,6 +41,9 @@ func judgePiVerify(c piCall) ([]plans.VerifyStep, *piVerdict) {
 		return nil, &piVerdict{Usage: "verify: " + err.Error()}
 	}
 	for _, s := range steps {
+		if ctx.Err() != nil { // the judging shares the verify deadline, so a long chain cannot outrun the idle watch
+			return nil, &piVerdict{Usage: "verify before settle skipped: judging ran out of time"}
+		}
 		if reason := piBashBlock(c, textutil.ShellJoin(append(slices.Clone(s.Env), s.Argv...))); reason != "" {
 			return nil, &piVerdict{Block: reason}
 		}
@@ -58,7 +62,7 @@ func runPiVerify(c piCall, alive io.Reader) piVerdict {
 	ctx, cancel := context.WithTimeout(context.Background(), piVerifyTimeout)
 	defer cancel()
 	go func() { _, _ = io.Copy(io.Discard, alive); cancel() }()
-	steps, bad := judgePiVerify(c)
+	steps, bad := judgePiVerify(ctx, c)
 	if bad != nil {
 		return *bad
 	}
@@ -124,7 +128,7 @@ func piVerifyText(line string, code int, timedOut bool, elapsed time.Duration, t
 	}
 	window := strings.ToValidUTF8(string(t.b), "")
 	if t.cut { // the window starts mid-output
-		window = dropFirstLine(afterOrphanPEM(window))
+		window = dropFirstLine(afterOrphanPEM(window, t.openPEM))
 	}
 	body := piMask(window) // masked before the cut so no secret leaves a suffix
 	return head + "$ " + piMask(line) + "\n" + strings.ToValidUTF8(body[max(0, len(body)-piVerifyShown):], "")
@@ -138,17 +142,22 @@ func piMask(s string) string {
 	return redact.Text(textutil.RedactSecrets(s))
 }
 
-// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut window lost.
-func afterOrphanPEM(s string) string {
-	end := strings.Index(s, "-----END ")
-	if end < 0 || strings.Contains(s[:end], "-----BEGIN ") {
+// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut lost; open: the dropped front left one open.
+func afterOrphanPEM(s string, open bool) string {
+	end := strings.Index(s, pemEnd)
+	if !open && (end < 0 || strings.Contains(s[:end], pemBegin)) {
 		return s
+	}
+	if end < 0 { // the open block's body runs to the end of the window: none of it is shown
+		return ""
 	}
 	if nl := strings.IndexByte(s[end:], '\n'); nl >= 0 {
 		return s[end+nl:]
 	}
 	return ""
 }
+
+const pemBegin, pemEnd = "-----BEGIN ", "-----END "
 
 // dropFirstLine is s past its first newline: the cut window's first line may be a secret's tail without its marker.
 func dropFirstLine(s string) string {
@@ -158,14 +167,20 @@ func dropFirstLine(s string) string {
 
 // piTail keeps the last piVerifyKeep to 2*piVerifyKeep raw bytes; masking happens once, over all of them.
 type piTail struct {
-	b   []byte
-	cut bool // the window's front was dropped
+	b       []byte
+	cut     bool // the window's front was dropped
+	openPEM bool // the dropped front ends inside a PEM block, so the window starts in its body
 }
 
 func (t *piTail) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > 2*piVerifyKeep {
-		t.b, t.cut = append(t.b[:0], t.b[len(t.b)-piVerifyKeep:]...), true
+		drop := t.b[:len(t.b)-piVerifyKeep]
+		seen := t.b[:len(drop)+len(pemBegin)-1] // a marker split by the cut still counts
+		if b, e := bytes.LastIndex(seen, []byte(pemBegin)), bytes.LastIndex(seen, []byte(pemEnd)); b != e {
+			t.openPEM = b > e // neither marker in drop: the state from earlier drops stands
+		}
+		t.b, t.cut = append(t.b[:0], t.b[len(drop):]...), true
 	}
 	return len(p), nil
 }

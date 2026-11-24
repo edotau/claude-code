@@ -108,6 +108,11 @@ func TestPiVerifyFailureIsRedacted(t *testing.T) {
 	if !strings.Contains(v.Text, "verify output withheld: redaction unavailable") || strings.Contains(v.Text, "$ go vet") {
 		t.Errorf("withheld verdict = %+v", v)
 	}
+	tail := &piTail{} // a PEM block whose BEGIN the cut drops: none of its body may show
+	_, _ = tail.Write([]byte(pemBegin + "PRIVATE KEY-----\n" + strings.Repeat("QUJD\n", 2*piVerifyKeep/5) + "tail line\n"))
+	if got := piVerifyText("go vet ./p", 1, false, 0, tail, false); strings.Contains(got, "QUJD") {
+		t.Errorf("PEM body survived the cut: %q", got)
+	}
 }
 
 func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {

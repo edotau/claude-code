@@ -28,6 +28,7 @@ func startStep(cmd *exec.Cmd) (*stepTree, error) {
 	}
 	if err := joinAndResume(job, uint32(cmd.Process.Pid)); err != nil {
 		_ = cmd.Process.Kill()
+		_ = cmd.Wait() // releases the process handle, pipes and context watcher
 		_ = windows.CloseHandle(job)
 		return nil, err
 	}
