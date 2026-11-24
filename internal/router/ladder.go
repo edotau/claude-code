@@ -473,7 +473,7 @@ type ChainReq struct {
 	Agent, Profile, Model, Alias, Fallback string
 	// Asked is the agent whose own CLI hop 3 runs; empty is claude for a pi head, else the head's own agent
 	Asked string
-	// TypedModel: the model was named on the command line, so no hop changes it and none leaves the arm
+	// TypedModel: the model was named on the command line, so no hop leaves the arm
 	TypedModel bool
 }
 
@@ -483,46 +483,31 @@ type ChainHop struct {
 	OffArm                         bool
 }
 
-// Chain is q's ordered hops and the Skips for hops it could not serve (a model is never swapped, R8).
-func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq, now time.Time) ([]ChainHop, []Skip) {
-	lp := ladderPick{t: t, reg: reg, alias: q.Alias, now: now, res: &PickResult{}}
-	out := lp.addHop(nil, q.Agent, q.Profile, q.Model, false)
-	// a rejected head leaves no runnable chain: the caller fails with the Skips, never starts on a sibling
-	if len(out) == 0 {
-		return nil, lp.res.Skipped
+// Chain orders q's hops; the caller validates each one (served, READY, agent fit) before it runs.
+func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
+	hop := func(agent, profile, model string, off bool) ChainHop {
+		return ChainHop{agent, profile, accountIn(reg)(profile), model, off}
 	}
+	out := []ChainHop{hop(q.Agent, q.Profile, q.Model, false)}
 	if q.Fallback == FallbackNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
-		return out, lp.res.Skipped
+		return out
 	}
 	if !agentid.Routing(q.Agent).NoWorkspaceFallback {
 		for _, ws := range workspaceRows(reg, q.Profile) {
-			out = lp.addHop(out, q.Agent, ws, q.Model, false)
+			out = append(out, hop(q.Agent, ws, q.Model, false))
 		}
 	}
-	if q.Fallback != FallbackPin {
-		out = lp.ownHops(out, q)
+	if q.Fallback == FallbackPin {
+		return out
 	}
-	return out, lp.res.Skipped
-}
-
-// ownHops appends hop 3 (own CLI, same profile) and, under a typed all with no typed model, hop 4 off the arm.
-func (lp ladderPick) ownHops(out []ChainHop, q ChainReq) []ChainHop {
 	own := chainOwn(q)
 	if own != q.Agent {
-		out = lp.addHop(out, own, q.Profile, cmp.Or(q.Model, q.Alias), false)
+		out = append(out, hop(own, q.Profile, cmp.Or(q.Model, q.Alias), false))
 	}
 	if q.Fallback == FallbackAll && !q.TypedModel {
-		for _, row := range OwnProfiles(lp.reg, own, "anthropic") {
-			out = lp.addHop(out, own, row, q.Alias, true)
+		for _, row := range ownRows(reg, own) {
+			out = append(out, hop(own, row, q.Alias, true))
 		}
-	}
-	return out
-}
-
-// addHop appends the hop when its row serves model.
-func (lp ladderPick) addHop(out []ChainHop, agent, profile, model string, off bool) []ChainHop {
-	if h, ok := lp.chainHop(agent, profile, model, off); ok {
-		return append(out, h)
 	}
 	return out
 }
@@ -536,53 +521,4 @@ func chainOwn(q ChainReq) string {
 		return "claude"
 	}
 	return q.Agent
-}
-
-// chainHop is agent on profile with model, or false and a Skip when the row cannot serve it (never swapped).
-func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop, bool) {
-	p := lp.reg.Providers[profile]
-	if p == nil {
-		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + profile, gateLadder, "no profile " + profile})
-		return ChainHop{}, false
-	}
-	m, why := lp.rungModel(Candidate{Agent: agent, Account: AccountOf(p), Profile: profile}, model)
-	if why == "" {
-		m, why = chainModel(agent, p, m, lp.now)
-	}
-	if why != "" {
-		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + AccountOf(p), gateLadder, why})
-		return ChainHop{}, false
-	}
-	return ChainHop{agent, profile, AccountOf(p), m, off}, true
-}
-
-// chainFamily is family m as agent's concrete READY id on p, or why there is none.
-func chainFamily(agent string, p *providers.Provider, m string, now time.Time) (model, why string) {
-	if m = providers.ConcreteModel(agent, p, m); m == "" {
-		return "", "no concrete model for the family on " + p.Name
-	}
-	if ready, fresh := ServedReady(p, m, now); fresh && !ready {
-		return "", "rung model " + m + " is not READY on " + p.Name
-	}
-	return m, ""
-}
-
-// chainModel is m as a concrete id on p (a family resolved), or why agent cannot run it there.
-func chainModel(agent string, p *providers.Provider, m string, now time.Time) (model, why string) {
-	if providers.IsFamily(m) {
-		var why string
-		if m, why = chainFamily(agent, p, m, now); why != "" {
-			return "", why
-		}
-	}
-	if agentid.Routing(agent).ResponsesRoute && !providers.ResponsesServable(p, m) {
-		return "", agent + " needs a Responses model; " + p.Name + " serves " + m + " another way"
-	}
-	if canon, _, ok := models.Resolve(m); ok && p.Preset == providers.PresetDatabricks && models.FamilyOf(canon) == models.Fable {
-		return "", "databricks serves no Fable"
-	}
-	if f := agentid.Routing(agent).ModelFamily; f != "" && string(models.FamilyKind(m)) != f {
-		return "", agent + " does not run " + m
-	}
-	return m, ""
 }

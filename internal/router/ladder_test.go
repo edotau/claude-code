@@ -269,7 +269,7 @@ func TestConfinedContextConcurrentRuns(t *testing.T) {
 	wg.Wait()
 }
 
-// chainOf runs Chain for a sonnet ask on dev over a hermetic registry with dev, qa and the anthropic login.
+// chainOf is q's chain over a hermetic registry with dev, qa and the anthropic login, one "agent account model" per hop.
 func chainOf(t *testing.T, q ChainReq) []string {
 	t.Helper()
 	vaulttest.Use(t)
@@ -284,41 +284,35 @@ func chainOf(t *testing.T, q ChainReq) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hops, skips := tb.Chain(reg, q, now0)
 	var out []string
-	for _, h := range hops {
+	for _, h := range tb.Chain(reg, q) {
 		out = append(out, h.Agent+" "+h.Account+" "+h.Model+map[bool]string{true: " OFF-ARM"}[h.OffArm])
 	}
-	t.Logf("%s %v skips=%+v", q.Fallback, out, skips)
+	t.Logf("%s %v", q.Fallback, out)
 	return out
 }
 
-// TestChainSteps: same-profile siblings and claude on the profile first; the off-arm login only under a typed all.
-func TestChainSteps(t *testing.T) {
+// TestChainOrder: same-profile siblings, then claude on the profile; the off-arm login last and only under a typed all.
+func TestChainOrder(t *testing.T) {
 	base := ChainReq{Agent: "pi", Profile: "dev", Model: "databricks-claude-sonnet-4-6", Alias: "sonnet"}
-	has := func(got []string, sub string) bool {
-		return slices.ContainsFunc(got, func(s string) bool { return strings.Contains(s, sub) })
+	off := func(got []string) int {
+		return len(slices.DeleteFunc(slices.Clone(got), func(s string) bool { return !strings.HasSuffix(s, "OFF-ARM") }))
 	}
-	agents := chainOf(t, ChainReq{Agent: base.Agent, Profile: "dev", Model: base.Model, Alias: "sonnet", Fallback: FallbackAgents})
-	if has(agents, "OFF-ARM") {
-		t.Errorf("agents chain left the arm: %v", agents)
+	q := base
+	q.Fallback = FallbackAgents
+	if got := chainOf(t, q); len(got) != 3 || off(got) != 0 || !strings.HasPrefix(got[1], "pi databricks·qa") || !strings.HasPrefix(got[2], "claude databricks·dev") {
+		t.Errorf("agents chain = %v, want pi dev, pi qa, claude dev", got)
 	}
-	all := base
-	all.Fallback = FallbackAll
-	if got := chainOf(t, all); !has(got, "OFF-ARM") || !strings.HasSuffix(got[len(got)-1], "OFF-ARM") {
-		t.Errorf("all chain = %v, want the off-arm hop last", got)
+	q.Fallback = FallbackAll
+	if got := chainOf(t, q); off(got) != 1 || !strings.HasSuffix(got[len(got)-1], "OFF-ARM") {
+		t.Errorf("all chain = %v, want one off-arm hop, last", got)
 	}
-	none := base
-	none.Fallback = FallbackNone
-	if got := chainOf(t, none); len(got) != 1 {
+	q.TypedModel = true
+	if got := chainOf(t, q); off(got) != 0 {
+		t.Errorf("typed-model all chain = %v, want no off-arm hop", got)
+	}
+	q.Fallback = FallbackNone
+	if got := chainOf(t, q); len(got) != 1 {
 		t.Errorf("none chain = %v, want one hop", got)
-	}
-	fable := ChainReq{Agent: "claude", Profile: "dev", Model: "claude-fable-5", Alias: "sonnet", Fallback: FallbackAll, TypedModel: true}
-	if got := chainOf(t, fable); has(got, "opus") || len(got) != 0 {
-		t.Errorf("fable chain = %v, want no hop at all", got)
-	}
-	gpt := ChainReq{Agent: "pi", Profile: "dev", Model: "databricks-gpt-6-1-sol", Alias: "sonnet", Fallback: FallbackAgents, TypedModel: true}
-	if got := chainOf(t, gpt); has(got, "claude") {
-		t.Errorf("gpt chain = %v, want no claude hop", got)
 	}
 }
