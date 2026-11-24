@@ -49,7 +49,7 @@ type Task struct {
 }
 
 // Set reports whether any contract key was given.
-func (t Task) Set() bool { return len(t.Own) > 0 || t.Report != "" || t.Verify != "" }
+func (t Task) Set() bool { return t.Own != nil || t.Report != "" || t.Verify != "" }
 
 // TaskKeys are the spec keys Argv reads into Task instead of argv.
 var TaskKeys = []string{"own", "report", "verify"}
@@ -180,7 +180,7 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 		case "verify":
 			dst = &t.Verify
 		}
-		if json.Unmarshal(v, dst) != nil {
+		if json.Unmarshal(v, dst) != nil || string(v) == "null" {
 			return Task{}, fmt.Errorf("spec %s: want %s", k, want)
 		}
 	}

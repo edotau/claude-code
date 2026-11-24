@@ -64,9 +64,16 @@ func specBrief(prompt string, argv []string, t askspec.Task) (string, error) {
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
 	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag
-	mode, _ := validateCodemode(f.codemode, f.name, f.tools)
+	defaultTools(fs, f)
+	name := f.name
+	if defs, err := parseAgentDefs(string(f.agents), f.host); err == nil {
+		if ag, _, err := agent.SelectAgent(name, defs); err == nil {
+			name = ag
+		}
+	}
+	mode, _ := validateCodemode(f.codemode, name, f.tools)
 	codeMode := mode != "" && mode != "off"
-	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: f.name, Owned: t.Own, Report: t.Report,
+	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: name, Owned: t.Own, Report: t.Report,
 		Verify: t.Verify, CodeMode: &codeMode})
 }
 

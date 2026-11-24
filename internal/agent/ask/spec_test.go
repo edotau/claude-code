@@ -153,3 +153,16 @@ func TestSpecBriefCodeModeFollowsTarget(t *testing.T) {
 		t.Fatalf("code mode did not change the brief: %v %v", err1, err2)
 	}
 }
+
+func TestSpecEmptyOwnIsRefused(t *testing.T) {
+	_, p, task, err := specParts(`{"own":[],"prompt":"p"}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := specBrief(p, nil, task); err == nil {
+		t.Error("own:[] dispatched a plain prompt")
+	}
+	if _, _, _, err := specParts(`{"own":null,"prompt":"p"}`, nil); err == nil {
+		t.Error("own:null accepted")
+	}
+}
