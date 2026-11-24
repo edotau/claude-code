@@ -28,6 +28,7 @@ type Spec struct {
 type Packed struct {
 	Prompt string
 	Notes  []string
+	Left   []string // files left out for the byte budget or prompt cap
 }
 
 // maxFiles is the inlined-file cap: 0 for an index-only run, else s.MaxFiles or the default.
@@ -61,6 +62,11 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 		return Packed{}, err
 	}
 	p := Packed{Prompt: prompt}
+	for _, s := range collected.Skipped {
+		if s.Reason == "budget-exceeded" || s.Reason == "prompt-cap" {
+			p.Left = append(p.Left, s.Path)
+		}
+	}
 	if w := coverageWarning(collected); w != "" {
 		p.Notes = append(p.Notes, w)
 	}

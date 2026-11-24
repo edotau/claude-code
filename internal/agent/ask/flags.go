@@ -234,8 +234,8 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 }
 
 // validateCodemode checks --codemode against the resolved agent (only pi has a codemode tool) and returns the mode
-// to run: the typed one, else pi's PI_CODEMODE setting under --tools.
-func validateCodemode(mode, ag string, tools bool) (string, error) {
+// to run: the typed one, else pi's PI_CODEMODE setting under --tools, never --read-only.
+func validateCodemode(mode, ag string, tools, readOnly bool) (string, error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
@@ -245,7 +245,7 @@ func validateCodemode(mode, ag string, tools bool) (string, error) {
 		}
 		return "", nil
 	}
-	return pi.ResolveCodemode(mode, tools)
+	return pi.ResolveCodemode(mode, tools && !readOnly)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.

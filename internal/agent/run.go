@@ -280,12 +280,13 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		wrote := watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree, p.Opts.Permissions.Allow...)
+		wrote := func() (*[]string, *[]string) { return nil, nil } // a read-only run observes nothing
+		if !p.Opts.ReadOnly && !p.Opts.NoTools {
+			wrote = watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree, p.Opts.Permissions.Allow...)
+		}
 		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
 		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
-		if w := p.Record.Wrote; w != nil && len(*w) > 0 && sharesTree(p.Record, time.Now()) {
-			p.Record.Wrote, p.Record.TreeChanged = nil, w // a peer's writes are in the diff: claim none
-		}
+		dropSharedWrites(&p.Record)
 		p.Record.Wrote = mergeWritten(p.Record.Wrote, res.Written, p.Opts.WorkDir)
 		return res, err
 	})
@@ -790,7 +791,7 @@ func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note stri
 	}
 	budget = models.PromptTokens(providers.Window(prov, model), packReserveTokens) * packBytesNum / packBytesDen
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && n < budget && !viaFile {
-		budget, note = n, d.Agent.Name()+": "+s.CLI.PromptVia.String()+" prompt cap"
+		budget, note = n, fmt.Sprintf("%s: %s prompt cap %d KB (the prompt rides one process argument)", d.Agent.Name(), s.CLI.PromptVia.String(), n/1024)
 	}
 	return budget, note
 }
@@ -811,6 +812,10 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	packed, err := pack.Build(ctx, *o.Pack, o.Prompt, cwd, budget)
 	if err != nil {
 		return clientUsageError{err}
+	}
+	if note != "" && len(packed.Left) > 0 {
+		note += fmt.Sprintf(": kept %d KB, left out %d files (%s); --max-file-bytes lifts the per-file cap, not this total",
+			len(packed.Prompt)/1024, len(packed.Left), strings.Join(packed.Left[:min(len(packed.Left), 5)], ", "))
 	}
 	notes := append(packed.Notes, note)
 	if viaFile {

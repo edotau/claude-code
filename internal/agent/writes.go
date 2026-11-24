@@ -309,14 +309,35 @@ func capPaths(list []string) *[]string {
 	return &list
 }
 
+// dropSharedWrites clears Wrote when a peer shared the run's tree or plain dir: its writes are not this run's.
+func dropSharedWrites(rec *Record) {
+	w := rec.Wrote
+	if w == nil || len(*w) == 0 {
+		return
+	}
+	switch {
+	case sharesTree(*rec, time.Now()):
+		rec.Wrote, rec.TreeChanged = nil, w
+	case sharesCwd(*rec, time.Now()):
+		rec.Wrote = nil
+	}
+}
+
 // sharesTree reports whether another dispatch in rec's git tree overlapped rec's run, which ended at end.
 func sharesTree(rec Record, end time.Time) bool {
-	if rec.Tree == "" {
-		return false
-	}
+	return rec.Tree != "" && sharesDir(rec, end, rec.Tree, func(o Record) bool { return o.Tree == rec.Tree })
+}
+
+// sharesCwd reports whether another dispatch started in rec's non-repo directory overlapped rec's run.
+func sharesCwd(rec Record, end time.Time) bool {
+	return rec.Tree == "" && rec.Cwd != "" && sharesDir(rec, end, rec.Cwd, func(o Record) bool { return o.Tree == "" && o.Cwd == rec.Cwd })
+}
+
+// sharesDir scans records mentioning needle for a same(o) peer whose run overlapped rec's.
+func sharesDir(rec Record, end time.Time, needle string, same func(Record) bool) bool {
 	shared := false
-	err := eachRecent(paths.DispatchDir(), jsonToken(rec.Tree), func(o Record) bool {
-		if o.ID == rec.ID || o.Tree != rec.Tree {
+	err := eachRecent(paths.DispatchDir(), jsonToken(needle), func(o Record) bool {
+		if o.ID == rec.ID || !same(o) {
 			return true
 		}
 		oEnd := o.Time.Add(time.Duration(o.DurationMs) * time.Millisecond)
