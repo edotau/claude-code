@@ -792,6 +792,30 @@ func TestResolveProxyRemintsARefusedArmedToken(t *testing.T) {
 	}
 }
 
+// An unverifiable armed token re-mints for its route only: --profile never moves the scope, and no route means no mint.
+func TestResolveProxyUnverifiableRemintIgnoresProfileFlag(t *testing.T) {
+	cliScratch(t)
+	origF, origA := resolveProxyTokenFailover, authenticClaims
+	t.Cleanup(func() { resolveProxyTokenFailover, authenticClaims = origF, origA })
+	var scopes [][]string
+	resolveProxyTokenFailover = func(_ context.Context, s []string, _ int, _ string) (string, error) {
+		scopes = append(scopes, s)
+		return "cct_FRESH", nil
+	}
+	authenticClaims = func(string) (proxy.SessionClaims, bool) { return proxy.SessionClaims{}, false }
+	stubSessionInvalid(t, errors.New("session token expired"))
+	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/routeA")
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy", "--profile", "B"}) })
+	if code != 0 || len(scopes) != 1 || !slices.Equal(scopes[0], []string{"routeA"}) {
+		t.Fatalf("route A with --profile B: exit %d, mints %v, want one for [routeA]", code, scopes)
+	}
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1")
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy", "--profile", "B"}) }); code == 0 || len(scopes) != 1 {
+		t.Fatalf("no route with --profile B: exit %d, mints %v, want a refusal and no mint", code, scopes)
+	}
+}
+
 // resolve --refresh asks the refresh seam, not the cache seam, and needs --proxy.
 func TestResolveRefreshMintsNewTokenAndNeedsProxy(t *testing.T) {
 	cliScratch(t)

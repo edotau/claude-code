@@ -186,6 +186,30 @@ func TestSessionTokenValidAcrossDaemonsAndRevocationShared(t *testing.T) {
 	}
 }
 
+// A revocation another daemon writes, or an unreadable list, during the unlocked probe refuses that request.
+func TestRevocationDuringProbeRefuses(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(proxy.RevokedFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for want, during := range map[string]func(b *Router, tok string) error{
+		whyRevoked:    func(b *Router, tok string) error { return b.sessions.revoke(tok) },
+		whyUnreadable: func(*Router, string) error { return os.WriteFile(proxy.RevokedFile(), []byte("{"), 0o600) },
+	} {
+		_ = os.Remove(proxy.RevokedFile())
+		a, b := newRouter(secret), newRouter(secret)
+		tok := mintOn(t, a)
+		var err error
+		a.sessions.procStart = func(pid int) (string, error) {
+			err = errors.Join(err, during(b, tok))
+			return b.sessions.procStart(pid)
+		}
+		if why := a.sessions.check(tok, "dev"); why != want || err != nil {
+			t.Fatalf("during the probe: check = %q, err %v, want %q", why, err, want)
+		}
+	}
+}
+
 func mintOn(t *testing.T, r *Router) string {
 	t.Helper()
 	tok, err := r.sessions.mint([]string{"dev"}, os.Getpid())

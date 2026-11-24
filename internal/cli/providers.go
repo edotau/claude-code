@@ -266,8 +266,8 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 			if refresh {
 				return "", errors.New("resolve --refresh: an armed launch's token cannot be renewed here")
 			}
-			profile = cmp.Or(profile, routeProfile(os.Getenv(proc.EnvAnthropicBaseURL))) // re-mint on the launch's route
-			remint, ok := armedRemint(tok, profile, pid)
+			route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
+			remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
 			if !ok {
 				return tok, nil
 			}
@@ -275,10 +275,10 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 			if c, ok := authenticClaims(tok); ok { // keep the launch's own scope and failover, never the registry's
 				return remintExact(c.Profiles, c.Failover, pid)
 			}
-			if profile == "" { // unverifiable claims (rotated secret, old format): only the route's profile is known
+			if route == "" { // unverifiable claims: only the route is trusted, never --profile
 				return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
 			}
-			return remintExact([]string{profile}, "", pid) // confinement never widens
+			return remintExact([]string{route}, "", pid) // confinement never widens or moves
 		}
 		tok, err := scopedProxyToken(profile, refresh, pid)
 		if err != nil {

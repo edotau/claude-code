@@ -243,8 +243,19 @@ func (s *sessionStore) check(tok, profile string) string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, revoked := s.revoked[hash]; revoked { // a revoke that landed during the probe still wins
+	return s.admitLocked(hash, c, now, fresh)
+}
+
+// admitLocked rechecks revocation after the unlocked probe, then records the accepted use.
+func (s *sessionStore) admitLocked(hash string, c proxy.SessionClaims, now time.Time, fresh bool) string {
+	if !fresh {
+		s.reloadLocked() // a revoke any daemon wrote during the probe still wins
+	}
+	if _, revoked := s.revoked[hash]; revoked {
 		return whyRevoked
+	}
+	if s.revokedErr != nil {
+		return whyUnreadable
 	}
 	if !fresh { // a fresh entry keeps its checked time: frequent use never extends the trust window
 		s.noteSeenLocked(hash, c, now)
