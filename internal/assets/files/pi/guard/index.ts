@@ -169,21 +169,38 @@ function verifyEnv(step: Step, unset: string[]): Record<string, string> {
   return env
 }
 
-type StepResult = { code: number; out: string; timedOut?: boolean }
+const VERIFY_OUT_CHARS = 1 << 20
+type StepResult = { code: number; out: string; timedOut?: boolean; ms: number; cut?: boolean }
+// live holds the running step children so a Pi exit can kill their groups.
+const live = new Set<any>()
+process.on("exit", () => { for (const c of live) try { killTree(c) } catch {} })
 
 // runStep runs one argv in its own group (execFile drops detached); a launch failure (rtk on Windows) throws.
 function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<StepResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step, unset), detached: process.platform !== "win32",
       windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
-    let out = ""
-    const add = (s: string) => { out = keepTail(masked(out + s)) }
-    child.stdout.setEncoding("utf8").on("data", add).on("error", () => {}) // a pipe error must not crash Pi mid-settle
-    child.stderr.setEncoding("utf8").on("data", add).on("error", () => {})
-    const timer = setTimeout(() => { killTree(child); resolve({ code: -1, out, timedOut: true }) }, Math.max(1, ms))
-    child.on("error", (err) => { clearTimeout(timer); reject(err) })
+    live.add(child)
+    const start = Date.now()
+    let out = "", cut = false, timedOut = false
+    const add = (s: string) => { const all = out + s; out = keepTail(all, VERIFY_OUT_CHARS); if (out.length < all.length) cut = true }
+    const pipeErr = (err: any) => { process.stderr.write("pi guard: verify step pipe: " + (err?.message ?? err) + "\n") }
+    child.stdout.setEncoding("utf8").on("data", add).on("error", pipeErr)
+    child.stderr.setEncoding("utf8").on("data", add).on("error", pipeErr)
+    const timedRes = () => ({ code: -1, out, timedOut: true, ms: Date.now() - start, cut })
+    let fallback: any
+    const timer = setTimeout(() => {
+      timedOut = true; killTree(child)
+      fallback = setTimeout(() => resolve(timedRes()), 2000) // close may never come
+    }, Math.max(1, ms))
+    const clear = () => { clearTimeout(timer); clearTimeout(fallback); live.delete(child) }
+    child.on("error", (err) => { clear(); reject(err) })
     child.on("exit", () => { if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ } })
-    child.on("close", (code) => { clearTimeout(timer); code === null ? reject(new Error("killed")) : resolve({ code, out }) })
+    child.on("close", (code) => {
+      clear()
+      if (timedOut) resolve(timedRes())
+      else code === null ? reject(new Error("killed")) : resolve({ code, out, ms: Date.now() - start, cut })
+    })
   })
 }
 
@@ -194,10 +211,10 @@ function killTree(child: any) {
   child.stdout?.destroy(); child.stderr?.destroy(); child.unref() // an escaped grandchild must not keep Pi alive
 }
 
-// keepTail is s's last whole lines within 4 * ERR_CHARS: a cut never leaves a secret fragment Go's redaction misses.
-function keepTail(s: string): string {
-  if (s.length <= 4 * ERR_CHARS) return s
-  const t = s.slice(-4 * ERR_CHARS)
+// keepTail is s's last whole lines within cap: a cut never leaves a secret fragment Go's redaction misses.
+function keepTail(s: string, cap: number): string {
+  if (s.length <= cap) return s
+  const t = s.slice(-cap)
   const nl = t.indexOf("\n")
   return nl < 0 ? "" : t.slice(nl + 1) // no newline in the tail: the whole partial line goes
 }
@@ -230,12 +247,19 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
 
 // failureText is the fixing turn's message, its output redacted by Go; fail closed: unredacted output never goes out.
 function failureText(line: string, r: StepResult, cwd: string, sid: string): string {
-  const red = judge("verify_output", { text: "$ " + line + "\n" + r.out }, cwd, sid) // the line is redacted too
+  let body = masked(r.out) // redact the whole output once, after the cap
+  if (r.cut) { // a cut can leave the tail of a key body: drop leading key-like lines
+    const ls = body.split("\n")
+    let i = 0
+    while (i < ls.length && /^\s*[A-Za-z0-9+\/=:._-]{16,}\s*$/.test(ls[i])) i++
+    body = ls.slice(i).join("\n")
+  }
+  const red = judge("verify_output", { text: "$ " + line + "\n" + body }, cwd, sid) // the line is redacted too
   if (red.block || red.usage) {
     process.stderr.write("pi guard: verify before settle skipped: output not redacted (" + (red.block || red.usage) + ")\n")
     return ""
   }
-  const what = r.timedOut ? "timed out after " + VERIFY_MS / 1000 + " s" : "failed (exit " + r.code + ")"
+  const what = r.timedOut ? "timed out after " + Math.round(r.ms / 1000) + " s" : "failed (exit " + r.code + ")"
   const text = red.text ?? "" // an allow with no text is empty output
   const nl = text.indexOf("\n")
   return "The run's verify check " + what + ". Fix the cause without changing the check, then finish.\n" +
