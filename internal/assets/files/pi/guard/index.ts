@@ -31,7 +31,7 @@ function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
-      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
@@ -156,7 +156,7 @@ function verifyFailure(line: string, cwd: string, sid: string): Promise<string> 
     const skip = (why: string) => { process.stderr.write("pi guard: verify before settle not run: " + why + "\n"); resolve("") }
     const child = spawn(BIN, ["hook", "PreToolUse", "--pi-guard"], { cwd, env: hookEnv(), windowsHide: true, stdio: ["pipe", "pipe", "inherit"] })
     let out = ""
-    child.stdout.setEncoding("utf8").on("data", (s: string) => { out += s })
+    child.stdout.setEncoding("utf8").on("data", (s: string) => { out += s }).on("error", () => {}) // close still comes
     child.on("error", (err: any) => skip(String(err?.message ?? err)))
     child.on("close", () => {
       child.stdin.destroy()

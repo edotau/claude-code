@@ -130,6 +130,9 @@ func piVerifyText(line string, code int, timedOut bool, elapsed time.Duration, t
 	if t.cut { // the window starts mid-output
 		window = dropFirstLine(afterOrphanPEM(window, t.openPEM))
 	}
+	if timedOut || code < 0 { // a kill mid-write can leave a value's prefix, which no needle matches
+		window = window[:strings.LastIndexByte(window, '\n')+1]
+	}
 	body := piMask(window) // masked before the cut so no secret leaves a suffix
 	return head + "$ " + piMask(line) + "\n" + strings.ToValidUTF8(body[max(0, len(body)-piVerifyShown):], "")
 }

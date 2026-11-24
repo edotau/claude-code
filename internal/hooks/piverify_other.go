@@ -19,5 +19,5 @@ func startStep(cmd *exec.Cmd) (*stepTree, error) {
 	return &stepTree{cmd}, nil
 }
 
-// reap kills the step's group and tagged descendants, even one that left it; the reaped leader's pid is not yet reused.
+// reap kills the step's group and tagged kin, even one that left it; pids recycle only on wrap, so none is foreign yet.
 func (t *stepTree) reap() { _ = t.cmd.Cancel() }
