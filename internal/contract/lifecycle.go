@@ -143,11 +143,8 @@ func (c Contract) Close(r Result) (Contract, error) {
 	if err := c.guard("close", StateVerified); err != nil {
 		return c, err
 	}
-	if err := checkResult(r); err != "" {
+	if err := checkResult(c, r); err != "" {
 		return c, refuse("close", c.state, ErrInput, "%s", err)
-	}
-	if c.Executed && r.Tests != TestsExecuted {
-		return c, refuse("close", c.state, ErrInput, "tests %q, this contract needs %q", r.Tests, TestsExecuted)
 	}
 	if miss := c.missing(append(slices.Clone(verifyTerms), c.closeTerms()...)...); len(miss) > 0 {
 		return c, refuse("close", c.state, ErrTerms, "no pass record for %v", miss)
@@ -182,8 +179,8 @@ func (c Contract) WithRecord(r TermRecord) (Contract, error) {
 	if c.state == StateVerified && slices.Contains(verifyTerms, r.Term) {
 		return c, refuse("record", c.state, ErrState, "%q was settled by verify", r.Term)
 	}
-	if st := StageOf(r.Term); slices.Index(Stages(), st) > slices.Index(Stages(), c.state.lastStage()) {
-		return c, refuse("record", c.state, ErrState, "%q is a %s term, too early", r.Term, st)
+	if tooEarly(c.state, r.Term) {
+		return c, refuse("record", c.state, ErrState, "%q is a %s term, too early", r.Term, StageOf(r.Term))
 	}
 	if err := checkRecord(c, r); err != "" {
 		return c, refuse("record", c.state, ErrInput, "%s", err)
@@ -193,15 +190,16 @@ func (c Contract) WithRecord(r TermRecord) (Contract, error) {
 	return n, nil
 }
 
-// lastStage is the latest stage whose terms s may record; close terms wait for verified.
-func (s State) lastStage() Stage {
+// tooEarly reports whether s may not yet hold a record of t: open terms from opened, close terms from verified.
+func tooEarly(s State, t Term) bool {
+	last := StageClose
 	switch s {
 	case StateOpened:
-		return StageOpen
+		last = StageOpen
 	case StateWorking:
-		return StageReturn
+		last = StageReturn
 	}
-	return StageClose
+	return slices.Index(Stages(), StageOf(t)) > slices.Index(Stages(), last)
 }
 
 // verifyTerms must pass before Verify and stay passed until Close.
@@ -234,8 +232,10 @@ func settled(r Result, unmet []Term) *Result {
 	return &r
 }
 
-func checkResult(r Result) string {
+func checkResult(c Contract, r Result) string {
 	switch {
+	case c.Executed && r.Tests != TestsExecuted:
+		return fmt.Sprintf("tests %q, this contract needs %q", r.Tests, TestsExecuted)
 	case !slices.Contains(Statuses(), r.Status):
 		return fmt.Sprintf("unknown status %q (one of %v)", r.Status, Statuses())
 	case !slices.Contains(TestsValues(), r.Tests):

@@ -70,7 +70,7 @@ func validateState(c Contract, add func(string, string, ...any)) {
 		return
 	}
 	validateFailed(c, add)
-	if s != "" && s != StateOpened && (c.ID == "" || len(c.Holders) == 0) {
+	if slices.Contains([]State{StateWorking, StateVerified, StateClosed}, s) && (c.ID == "" || len(c.Holders) == 0) {
 		add("holders", "state %q needs an id and a holder", s)
 	}
 	if miss := c.missing(entryTerms(s, c)...); len(miss) > 0 {
@@ -102,7 +102,7 @@ func validateResult(c Contract, add func(string, string, ...any)) {
 	case !slices.Equal(c.Result.Unmet, c.Unmet()):
 		add("result.unmet", "%v, the records say %v", c.Result.Unmet, c.Unmet())
 	case c.state == StateClosed:
-		if err := checkResult(*c.Result); err != "" {
+		if err := checkResult(c, *c.Result); err != "" {
 			add("result", "%s", err)
 		}
 	}
@@ -181,6 +181,8 @@ func checkRecord(c Contract, r TermRecord) string {
 	switch {
 	case !slices.Contains(c.Terms, r.Term):
 		return fmt.Sprintf("term %q is not one of the contract's terms %v", r.Term, c.Terms)
+	case tooEarly(c.state, r.Term):
+		return fmt.Sprintf("%q is a %s term, too early for state %q", r.Term, StageOf(r.Term), c.state)
 	case r.By == ByOwner && c.Executed:
 		return fmt.Sprintf("only an executed run (by %q) passes %q here", ByGo, TermTests)
 	case !slices.Contains(Verdicts(), r.Verdict):
