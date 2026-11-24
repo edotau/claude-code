@@ -3,10 +3,11 @@ package ask
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
