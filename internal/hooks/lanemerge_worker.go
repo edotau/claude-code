@@ -82,7 +82,7 @@ func runJobLane(id string) {
 	if lane == "" {
 		return
 	}
-	done := func() bool { return jobFinished(id) }
+	done := func() bool { return jobFinished(rec) }
 	verdict := laneUnfinished
 	if waitUntil(laneExitWait, done) {
 		env, _ := rec.SavedEnvelope()
@@ -95,9 +95,11 @@ func runJobLane(id string) {
 }
 
 // jobFinished reloads the record each call, so a job resumed later under a new PID is not seen as finished.
-func jobFinished(id string) bool {
-	r, err := agent.LoadRecord(id)
-	return err == nil && (r.PID <= 0 || !proc.Alive(r.PID))
+func jobFinished(rec agent.Record) bool {
+	if r, err := agent.LoadRecord(rec.ID); err == nil { // a pruned record falls back to the one first read
+		rec = r
+	}
+	return rec.PID <= 0 || !proc.Alive(rec.PID)
 }
 
 func waitUntil(limit time.Duration, done func() bool) bool {

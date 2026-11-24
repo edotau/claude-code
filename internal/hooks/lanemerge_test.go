@@ -111,14 +111,15 @@ func TestJobDoneReloadsRecord(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if jobFinished(rec.ID) {
+	if jobFinished(rec) {
 		t.Fatal("live PID reported finished")
 	}
+	stale := rec
 	rec.PID = 0
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if !jobFinished(rec.ID) {
+	if !jobFinished(stale) {
 		t.Fatal("PID 0 reported unfinished")
 	}
 }
