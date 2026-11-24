@@ -71,6 +71,7 @@ type proxyOpts struct {
 	start, stop, restart, status, serve bool
 	ifChanged, force, dry               bool
 	port                                int
+	scope                               string
 	format                              *string
 	clientToken, revokeClientToken      string
 	secret                              *bool
@@ -100,6 +101,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 		"with --serve: loopback port (a busy port held by an older proxy is reclaimed; a foreign holder "+
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
+	fs.StringVar(&o.scope, "scope", "", "with --serve: serve one scoped proxy for <team>@<id> on a free port (no --port)")
 	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
 	fs.StringVar(&o.clientToken, "client-token", "", "with --secret: mint a named editor token; print it once")
 	fs.StringVar(&o.revokeClientToken, "revoke-client-token", "", "delete the named editor token")
@@ -114,6 +116,9 @@ func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	}
 	if err := helptext.CheckFormat(*o.format); err != nil {
 		return helptext.BadFormat("gateway proxy", err), false
+	}
+	if o.scope != "" && (!o.serve || flagSet(fs, "port")) {
+		return helptext.Fail("gateway proxy: --scope needs --serve and takes no --port"), false
 	}
 	return o.checkCombos(fs)
 }
@@ -173,7 +178,7 @@ func cmdGatewayProxy(args []string) int {
 	ctx := context.Background()
 	switch {
 	case o.serve:
-		return proxyServe(ctx, o.port)
+		return o.serveCmd(ctx)
 	case o.start:
 		return proxyStart(ctx)
 	case o.report():
@@ -234,6 +239,30 @@ func proxyServe(ctx context.Context, port int) int {
 	if err := server.Serve(ctx, port); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
+	return 0
+}
+
+func (o *proxyOpts) serveCmd(ctx context.Context) int {
+	if o.scope != "" {
+		return proxyServeScope(ctx, o.scope)
+	}
+	return proxyServe(ctx, o.port)
+}
+
+// proxyServeScope runs one scoped proxy for "<team>@<id>" until SIGINT/SIGTERM, then removes its scope file.
+func proxyServeScope(ctx context.Context, spec string) int {
+	team, id, ok := strings.Cut(spec, "@")
+	if !ok {
+		return helptext.Fail("gateway proxy: --scope wants <team>@<id>, got %q", spec)
+	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	s, err := server.Open(ctx, proxy.Scope{Team: team, ID: id})
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	defer s.Close()
+	<-ctx.Done()
 	return 0
 }
 
