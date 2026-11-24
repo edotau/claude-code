@@ -221,7 +221,7 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 		}
 	}
 	closeLog()
-	env := finishCarry(rec, final, found, code, time.Since(start))
+	env := finishCarry(ctx, rec, final, found, code, time.Since(start))
 	endStream(env)
 	return code
 }
@@ -517,8 +517,8 @@ func takeCarryVerify() string {
 }
 
 // finishCarry gives rec the final child's result event, answer and outcome; children carry the usage, so it holds none.
-func finishCarry(rec, final agent.Record, found bool, code int, took time.Duration) wire.Envelope {
-	env := carryEnvelope(rec, final, found, code, took)
+func finishCarry(ctx context.Context, rec, final agent.Record, found bool, code int, took time.Duration) wire.Envelope {
+	env := carryEnvelope(ctx, rec, final, found, code, took)
 	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
 	err := events.Emit(wire.ResultEvent(env)) // before the record leaves running, so a follower never misses it
 	events.Close()
@@ -547,7 +547,7 @@ func finishCarry(rec, final agent.Record, found bool, code int, took time.Durati
 }
 
 // carryEnvelope is the final child's result envelope under rec's id, or an error one when no child finished.
-func carryEnvelope(rec, final agent.Record, found bool, code int, took time.Duration) wire.Envelope {
+func carryEnvelope(ctx context.Context, rec, final agent.Record, found bool, code int, took time.Duration) wire.Envelope {
 	if !found || final.Status == "running" {
 		res := wire.Result{Agent: rec.Agent, DurationMs: took.Milliseconds()}
 		return wire.NewEnvelope(res, fmt.Errorf(noRecordFmt, code), rec.ID)
@@ -555,7 +555,7 @@ func carryEnvelope(rec, final agent.Record, found bool, code int, took time.Dura
 	env := final.ResultEnvelope(io.Discard)
 	env.DispatchID, env.DurationMs = rec.ID, took.Milliseconds()
 	if v := rec.Request.Verify; v != "" && env.Verify == nil && env.Status == wire.StatusOK && env.Error == nil {
-		env.Verify = agent.VerifyRun(context.Background(), rec.Request, rec.Host != "") // the child has no verify flag: once, here
+		env.Verify = agent.VerifyRun(ctx, rec.Request, rec.Host != "") // the child has no verify flag: once, here
 		fmt.Fprintln(os.Stderr, "ask:", env.Verify.Line())
 	}
 	if env.Agent != rec.Agent && env.Fallback == nil {

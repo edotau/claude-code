@@ -42,8 +42,8 @@ func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyRe
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(opts.Unset, name)
 	})
-	env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, opts.KeepEnv), "") // go test runs the agent's edits
-	return runVerify(ctx, opts.WorkDir, opts.Verify, append(env, opts.Env...))
+	env, _ = proc.ScrubAgentCredentials(append(env, opts.Env...), keepSet(ctx, opts.KeepEnv), "") // go test runs edits
+	return runVerify(ctx, opts.WorkDir, opts.Verify, env)
 }
 
 // runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.
