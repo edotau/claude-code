@@ -7,7 +7,7 @@
 
 | Template | Source | Rendered by | Example |
 | --- | --- | --- | --- |
-| Memory bank seed files (6) | [`internal/memory/templates/*.md`](../../internal/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (router/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
+| Memory bank seed files (6) | [`internal/assets/files/memory/templates/*.md`](../../internal/assets/files/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (router/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
 | autoMode rules | [`internal/settings/automode.json`](../../internal/settings/automode.json) | `claude-code claude` and `claude --launcher` (session overlay, `LaunchSettings`) | — |
 | Settings template | [`internal/settings/template.json`](../../internal/settings/template.json) | first-run seed in `claude-code install`, `claude-code configure --restore` | — |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
@@ -19,7 +19,7 @@
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
 | Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |
-| Memory procedures | [`internal/memory/prompts/*.md`](../../internal/memory/prompts/) | `claude-code memory <verb>` (`Reference`) | — |
+| Memory procedures | [`internal/assets/files/memory/prompts/*.md`](../../internal/assets/files/memory/prompts/) | `claude-code memory <verb>` (named assets procedure readers) | — |
 | Model ranks | [`internal/assets/files/catalog/ranks.json`](../../internal/assets/files/catalog/ranks.json) | `--model auto` ranking | — |
 | Model catalog and route table | [`internal/models/catalog.json`](../../internal/models/catalog.json), [`internal/router/table.json`](../../internal/router/table.json) | model resolution, the fallback ladder | — |
 | opencode overlay templates | [`internal/agentconfig/template/`](../../internal/agentconfig/template/) | every opencode launch (`OpencodeOverlayRendered`) | — |

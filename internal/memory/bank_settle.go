@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -317,7 +318,7 @@ func writeCatalog(now time.Time) error {
 // nativeCatalog lists every native note by folder, one line each, from its front matter alone.
 func nativeCatalog() string {
 	var b strings.Builder
-	b.WriteString("\n## Native memories (complete)\n")
+	b.WriteString(assets.MemoryNativeHeading())
 	bad := 0
 	rows := scanRows(noteDirs...)
 	for _, d := range noteDirs {
@@ -327,7 +328,7 @@ func nativeCatalog() string {
 				continue
 			}
 			if first {
-				fmt.Fprintf(&b, "\n### %s/\n\n", d)
+				b.WriteString(assets.MemoryNativeFolder(d))
 				first = false
 			}
 			if !r.OK {
@@ -337,7 +338,7 @@ func nativeCatalog() string {
 		}
 	}
 	if bad > 0 {
-		fmt.Fprintf(&b, "\n%d note(s) listed by file name: front matter did not parse.\n", bad)
+		b.WriteString(assets.MemoryNativeUnparsed(bad))
 	}
 	return b.String()
 }

@@ -1,0 +1,34 @@
+[
+  [
+    "archive",
+    "rotated logs and older history"
+  ],
+  [
+    "handoffs",
+    "session handoffs"
+  ],
+  [
+    "reports",
+    "reviews, audits and leaf reports"
+  ],
+  [
+    "knowledge",
+    "promoted knowledge notes"
+  ],
+  [
+    "feedback",
+    "Claude Code feedback notes"
+  ],
+  [
+    "notes",
+    "Claude Code topic notes"
+  ],
+  [
+    "worktrees",
+    "worktree ledgers"
+  ],
+  [
+    "techdebt",
+    "techdebt notes, one file per area"
+  ]
+]

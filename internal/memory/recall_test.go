@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -374,7 +375,7 @@ func TestAgentRecallCappedAtThreeHitsAndByteBudget(t *testing.T) {
 	if len(ids) == 0 || len(ids) > 3 || strings.Count(block, "\n- ") != len(ids) {
 		t.Errorf("ids=%v, want 1-3 matching the block's lines: %q", ids, block)
 	}
-	if len(block) > agentRecallBlockCapBytes || !strings.HasPrefix(block, "\n\n"+agentRecallMarker) {
+	if len(block) > agentRecallBlockCapBytes || !strings.HasPrefix(block, "\n\n"+assets.MemoryRecallMarker()) {
 		t.Errorf("block is %d bytes, want <= %d and marker-led: %q", len(block), agentRecallBlockCapBytes, block)
 	}
 }
@@ -384,10 +385,10 @@ func TestAgentRecallHitsTheBankAndSkipsMarkedTasks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedRecallBank(t, 1)
 	block, ids := AgentRecall(context.Background(), "test-session", recallTask)
-	if len(ids) != 1 || !strings.Contains(block, agentRecallMarker) {
+	if len(ids) != 1 || !strings.Contains(block, assets.MemoryRecallMarker()) {
 		t.Errorf("ids=%v block=%q, want the one home-bank hit", ids, block)
 	}
-	if b, i := AgentRecall(context.Background(), "test-session", recallTask+" "+agentRecallMarker); b != "" || i != nil {
+	if b, i := AgentRecall(context.Background(), "test-session", recallTask+" "+assets.MemoryRecallMarker()); b != "" || i != nil {
 		t.Errorf("a task already carrying the marker must return nothing, got %q %v", b, i)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -140,10 +141,7 @@ func promoteJudgment(id, to, target string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ref, err := Reference("promote")
-	if err != nil {
-		return "", err
-	}
+	ref := assets.MemoryPromoteProcedure()
 	return block + "\n\ntarget: " + target + "\n\n" + ref + "\n", nil
 }
 

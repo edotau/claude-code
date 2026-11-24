@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -173,16 +174,12 @@ func dreamChanged(since time.Time) []string {
 
 // agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
 func agentDreamPrompt(changed []string) (string, error) {
-	ref, err := Reference("dream")
-	if err != nil {
-		return "", err
-	}
-	list := "none — nothing changed since the last dream"
+	ref := assets.MemoryDreamProcedure()
+	list := assets.MemoryDreamUnchanged()
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return fmt.Sprintf(dreamPromptFormat, paths.MemoryStoreDir()) +
-		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
+	return assets.MemoryDreamPrompt(assets.MemoryDreamWorker(paths.MemoryStoreDir()), list, ref), nil
 }
 
 // dream archives durable-file overflow, consolidates the bank on the agent, settles, and stamps.
@@ -304,7 +301,7 @@ func (d *dreamPlans) promptBlock() string {
 	if len(open) == 0 || err != nil {
 		return ""
 	}
-	return "\n\nOpen plan tasks: " + string(b) + "\n"
+	return assets.MemoryOpenTasks(string(b))
 }
 
 // finish re-checks every plan change made during the run and prints one line; it never fails the dream.

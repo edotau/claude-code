@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -136,27 +137,13 @@ func transcriptInteractive(path string) (interactive bool) {
 	return interactive
 }
 
-// Worker prompt openings are followed by the bank-specific continuation below.
-const (
-	updatePromptOpen = "Background update of a finished session."
-	dreamPromptOpen  = "Background daily consolidation of the memory bank."
-)
-
-// Prompt formats are shared with the builders so classification requires the worker-only continuation.
-const (
-	updatePromptFormat = updatePromptOpen + " The bank files are %s (the steps below name them by bare filename); write only there. "
-	dreamPromptFormat  = dreamPromptOpen + " The memory bank is %s. "
-)
-
-// Formats of worker prompts recorded before the one-bank merge; transcripts still carry them.
-const (
-	legacyUpdatePromptFormat = updatePromptOpen + " The bank files are %s and the shared home bank files are %s (the steps below name them by bare filename); write only there. "
-	legacyDreamPromptFormat  = dreamPromptOpen + " The local bank is %s; the memory root %s holds the home bank and every repo store. "
-)
-
 var memoryJobPatterns = sync.OnceValue(func() []*regexp.Regexp {
-	return []*regexp.Regexp{workerPromptPattern(updatePromptFormat), workerPromptPattern(dreamPromptFormat),
-		workerPromptPattern(legacyUpdatePromptFormat), workerPromptPattern(legacyDreamPromptFormat)}
+	return []*regexp.Regexp{
+		workerPromptPattern(assets.MemoryUpdateWorker("%s")),
+		workerPromptPattern(assets.MemoryDreamWorker("%s")),
+		workerPromptPattern(assets.MemoryLegacyUpdateWorker("%s", "%s")),
+		workerPromptPattern(assets.MemoryLegacyDreamWorker("%s", "%s")),
+	}
 })
 
 func workerPromptPattern(format string) *regexp.Regexp {

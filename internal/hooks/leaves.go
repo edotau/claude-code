@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -973,9 +974,8 @@ func askTask(seg string) (name, task string) {
 }
 
 func withoutRecall(prompt string) string {
-	const footer = "\nLoad one with: claude-code memory show <id>\n</memory-recall>"
 	// Match AgentRecall's suffix, not a marker mentioned in the task.
-	if strings.HasSuffix(prompt, footer) {
+	if strings.HasSuffix(prompt, assets.MemoryRecallFooter()) {
 		if i := strings.LastIndex(prompt, "\n\n<memory-recall>\n- "); i >= 0 {
 			prompt = prompt[:i]
 		}

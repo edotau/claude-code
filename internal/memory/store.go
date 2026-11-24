@@ -4,7 +4,6 @@ package memory
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"io/fs"
 	"os"
@@ -14,13 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
-
-//go:embed templates/*.md
-var templatesFS embed.FS
 
 // fileCaps are the per-file line caps `claude-code memory update` holds; sessionHistory rotates by entry count instead.
 var fileCaps = map[string]int{
@@ -106,15 +103,14 @@ func isProjectContextTemplate() bool {
 
 // templates seed a fresh bank's six files; `claude-code memory update` fills them from real session work.
 var templates = sync.OnceValue(func() map[string]string {
-	m := make(map[string]string, len(BankFiles()))
-	for _, name := range BankFiles() {
-		body, err := templatesFS.ReadFile("templates/" + name)
-		if err != nil {
-			panic(err) // embedded alongside bankFiles; a mismatch is a build-time bug, not a runtime one
-		}
-		m[name] = string(body)
+	return map[string]string{
+		"activeContext.md":  assets.MemoryActiveContextSeed(),
+		"conventions.md":    assets.MemoryConventionsSeed(),
+		"decisionLog.md":    assets.MemoryDecisionLogSeed(),
+		"progress.md":       assets.MemoryProgressSeed(),
+		"projectContext.md": assets.MemoryProjectContextSeed(),
+		"sessionHistory.md": assets.MemorySessionHistorySeed(),
 	}
-	return m
 })
 
 // catalogFile holds every MEMORY.md entry, append-only; routerFile is the generated router BuildCatalog writes.
