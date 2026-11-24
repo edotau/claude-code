@@ -520,7 +520,11 @@ func lookPathIn(env []string, dir, name string) (path string, set bool) {
 	if !set || strings.Contains(name, "/") {
 		return "", false
 	}
-	for _, d := range filepath.SplitList(list) {
+	dirs := filepath.SplitList(list)
+	if list == "" {
+		dirs = []string{""} // an empty PATH searches the current directory
+	}
+	for _, d := range dirs {
 		if !filepath.IsAbs(d) {
 			d = filepath.Join(dir, d)
 		}

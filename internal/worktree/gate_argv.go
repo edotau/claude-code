@@ -24,7 +24,7 @@ var shellBuiltins = []string{"cd", "export", "source", ".", "eval", "exec", "set
 
 // NeedsShell is true when only bash reads a step's command word right: a builtin, an assignment prefix, or rtk.
 func NeedsShell(word string) bool {
-	if slices.Contains(shellBuiltins, word) {
+	if slices.Contains(shellBuiltins, word) || strings.Contains(word, "=") {
 		return true
 	}
 	_, err := exec.LookPath(word)
