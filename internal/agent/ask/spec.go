@@ -61,6 +61,9 @@ func specBrief(prompt string, argv []string, t askspec.Task) (string, error) {
 		return "", errors.New("spec verify: want go build|vet|test on ./ packages, agents diff --check or doctor, " +
 			"rtk forms, joined by &&")
 	}
+	if strings.ContainsAny(t.Report, "\r\n") {
+		return "", errors.New("spec report: want a one-line path")
+	}
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
 	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag

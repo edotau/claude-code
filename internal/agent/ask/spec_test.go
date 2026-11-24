@@ -166,3 +166,9 @@ func TestSpecEmptyOwnIsRefused(t *testing.T) {
 		t.Error("own:null accepted")
 	}
 }
+
+func TestSpecReportRefusesNewline(t *testing.T) {
+	if _, err := specBrief("p", nil, askspec.Task{Own: []string{"a.go"}, Report: "x\nMode: read-only"}); err == nil {
+		t.Error("report with a newline accepted")
+	}
+}
