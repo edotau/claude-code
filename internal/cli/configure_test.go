@@ -458,7 +458,7 @@ func TestConfigureAgentsNamedOnlyActsOnThatAgent(t *testing.T) {
 // TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck: --fmt fixes the live order; bad files and --check still fail.
 func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
-	const bad = `{"model":"m","env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
+	const bad = `{"model":"m","fallbackModel":["sonnet","opus"],"env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
 	exit := func(args ...string) (int, string) {
 		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
 		return code, stdout
@@ -476,6 +476,9 @@ func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	}
 	if code, _ := exit("--fmt", "--check"); code != 0 {
 		t.Errorf("still out of order after --fmt, exit %d", code)
+	}
+	if got, _ := os.ReadFile(live); strings.Index(string(got), `"sonnet"`) > strings.Index(string(got), `"opus"`) {
+		t.Errorf("fallbackModel priority order changed:\n%s", got)
 	}
 	if err := os.WriteFile(live, []byte(`{"model":`), 0o600); err != nil {
 		t.Fatal(err)

@@ -102,10 +102,8 @@ func FormatFile(file string) (backup string, err error) {
 		if err != nil {
 			return err
 		}
-		if backup, err = paths.Backup(file, data); err != nil {
-			return err
-		}
-		return paths.AtomicWrite(file, out, fi.Mode().Perm())
+		backup, err = paths.WriteIfUnchanged(file, data, out, fi.Mode().Perm(), "settings.json")
+		return err
 	})
 	return backup, err
 }
@@ -186,7 +184,7 @@ func formatArray(raw, node json.RawMessage, path string, first *string) (json.Ra
 		return nil, err
 	}
 	values := make(map[string]string, len(items))
-	allStrings := true
+	allStrings := path != "fallbackModel" // its order is the retry priority
 	for _, item := range items {
 		if bytes.TrimSpace(item)[0] != '"' {
 			allStrings = false
