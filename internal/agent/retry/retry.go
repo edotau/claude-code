@@ -102,17 +102,16 @@ func IsPolicyRefusal(err error) bool {
 	return policyRefusal(err)
 }
 
-// policyRefusal reads a typed ErrorCode(); text patterns apply with no code or under a generic 400/422 envelope.
+// policyRefusal reads a typed ErrorCode(); text patterns apply only to an untyped status or a 400/422 refusal status.
 func policyRefusal(err error) bool {
 	var coded interface{ ErrorCode() string }
-	if errors.As(err, &coded) && coded.ErrorCode() != "" {
-		if slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode())) {
-			return true
-		}
-		var st interface{ StatusCode() int }
-		if !errors.As(err, &st) || (st.StatusCode() != http.StatusBadRequest && st.StatusCode() != http.StatusUnprocessableEntity) {
-			return false
-		}
+	if errors.As(err, &coded) && slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode())) {
+		return true
+	}
+	var st interface{ StatusCode() int }
+	if errors.As(err, &st) && st.StatusCode() != 0 &&
+		st.StatusCode() != http.StatusBadRequest && st.StatusCode() != http.StatusUnprocessableEntity {
+		return false
 	}
 	return policyTextRE().MatchString(strings.ToLower(err.Error()))
 }
