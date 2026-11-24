@@ -39,7 +39,8 @@ func agentsSpec() *helptext.Node {
 			boolFlag("files")}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
 			boolFlag("watch"), flag("interval"), boolFlag("files"), formatFlag()}},
-		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
+		"codemode": {Flags: []helptext.Flag{flag("session")}},
+		"label":    {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
@@ -98,6 +99,7 @@ var agentsPage = helptext.Page{
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"dashboard", "walk the live tree: move, expand, collapse; enter follows a job"},
 		{"label", "print a leaf's dispatch description prefix"},
+		{"codemode", "codemode on|off|status: this session's rtk-free shell"},
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
 		{"fix", "run the make fmt fixers on --path files only; --dry-run"},
@@ -128,6 +130,9 @@ var agentsSubPages = map[string][3]string{
 		"↑tokens in, ↓tokens out, Σ subtree total, age, idle; piped output is unclipped, a terminal clips rows to 80 columns. " +
 		"--files adds each leaf's still-dirty files (claims ledger, or a dispatch's run), its latest undelivered note, and the dirty files no live leaf holds.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
+	"codemode": {"codemode on|off|status [flags]", "Turn this Claude session's code mode on (Bash calls are not " +
+		"rewritten to rtk) or off, or print its state. Dispatched children keep their own --codemode.",
+		"Prints codemode: on|off (<source>). Exit 0, 2 usage."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and task.",
 		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
@@ -209,6 +214,7 @@ func wireAsk() {
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
+	"codemode":  cmdAgentsCodemode,
 	"dashboard": cmdAgentsDashboard,
 	"diff":      cmdAgentsDiff,
 	"fix":       cmdAgentsFix,

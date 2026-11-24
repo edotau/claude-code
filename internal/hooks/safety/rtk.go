@@ -69,7 +69,7 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 
 // rtkAgentEligible gates before the rtk exec; a code-mode run's scripts stay raw.
 func rtkAgentEligible(in *core.Input, bin, cmd string) bool {
-	return !rtkwrap.CodeMode() && bin != "" &&
+	return !rtkwrap.CodeModeFor(in.SessionID) && bin != "" &&
 		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
 		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkOpencodeEnvHit(in)
 }
@@ -326,7 +326,7 @@ func rtkAgentInput(in *core.Input, pinned string) map[string]any {
 
 // rtkRewrite is RTKRewrite for a Claude Bash call: rewritten in place in every mode.
 func rtkRewrite(in *core.Input) core.Result {
-	if rtkwrap.CodeMode() {
+	if rtkwrap.CodeModeFor(in.SessionID) {
 		return core.Result{}
 	}
 	// no permissionDecision is set, so auto mode's classifier still judges the rewritten call
