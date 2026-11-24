@@ -224,6 +224,9 @@ func TestAfterPassesVerifyToGuard(t *testing.T) {
 			t.Errorf("verify %q: env = %v", verify, p.Env)
 		}
 	}
+	if src := assets.PiGuardSource(); !strings.Contains(src, guardVerifyEnv) || !strings.Contains(src, `"`+keyEnv+`"`) {
+		t.Error("the guard must read the verify env and drop the proxy key from verify steps")
+	}
 }
 
 func TestAfterSystemPrompt(t *testing.T) {

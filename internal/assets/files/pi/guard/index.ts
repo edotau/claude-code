@@ -143,6 +143,38 @@ async function runAction(name: string, run: string[], cwd: string, signal: any):
 
 // VERIFY_MS keeps the in-run verify under the harness's 5-minute idle watch; post-run verify covers a slower one.
 const VERIFY_MS = 4 * 60_000
+// PROXY_KEY is the proxy session token's env (internal/pi KeyRef): verify steps run edited code, so they never get it.
+const PROXY_KEY = "HARNESS_PROXY_API_KEY"
+
+// verifyEnv is hookEnv without the proxy token, plus the step's GOOS/GOARCH/CGO_ENABLED assignments.
+function verifyEnv(step: Step): Record<string, string> {
+  const env = hookEnv()
+  delete env[PROXY_KEY]
+  for (const kv of step.env) env[kv.slice(0, kv.indexOf("="))] = kv.slice(kv.indexOf("=") + 1)
+  return env
+}
+
+// runStep runs one argv in its own process group; a timeout stops the tree and settles at once, never on a held pipe.
+async function runStep(step: Step, cwd: string, ms: number): Promise<void> {
+  const p = execFileAsync(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step), encoding: "utf8", maxBuffer: 64 << 20,
+    detached: process.platform !== "win32", windowsHide: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { killTree(p.child); reject(new Error("verify timed out")) }, Math.max(1, ms)) })
+  try { await Promise.race([p, timeout]) } finally { clearTimeout(timer) }
+}
+
+// killTree kills the step's group (taskkill /T on Windows); with no group of its own, the step alone.
+function killTree(child: any) {
+  if (process.platform === "win32") return stopTree(child)
+  try { process.kill(-child.pid, "SIGKILL") } catch { child.kill("SIGKILL") }
+  child.stdout?.destroy(); child.stderr?.destroy(); child.unref() // an escaped grandchild must not keep Pi alive
+}
+
+// masked is s with the proxy token's value cut out, should a step print its inherited env.
+function masked(s: string): string {
+  const key = process.env[PROXY_KEY]
+  return key ? s.split(key).join("[redacted]") : s
+}
 
 // verifyFailure runs the steps Go built from the run's verify line: the failing output, or "" (passed or not run).
 async function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
@@ -153,13 +185,10 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
   }
   const deadline = Date.now() + VERIFY_MS
   for (const s of v.steps) {
-    const env = { ...hookEnv(), ...Object.fromEntries(s.env.map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)])) }
-    try {
-      await execFileAsync(s.argv[0], s.argv.slice(1), { cwd, env, encoding: "utf8", maxBuffer: 64 << 20, timeout: Math.max(1, deadline - Date.now()) })
-    } catch (err: any) {
+    try { await runStep(s, cwd, deadline - Date.now()) } catch (err: any) {
       if (typeof err.code !== "number") return "" // timed out or not launched: a fixing turn cannot help
       return "The run's verify check failed (exit " + err.code + "). Fix the cause without changing the check, then finish.\n$ " +
-        line + "\n" + String((err.stdout ?? "") + (err.stderr ?? "")).slice(-ERR_CHARS)
+        line + "\n" + masked(String((err.stdout ?? "") + (err.stderr ?? ""))).slice(-ERR_CHARS)
     }
   }
   return ""
