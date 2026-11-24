@@ -81,10 +81,10 @@ func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
 	case errors.Is(err, schemas.ErrNewer):
 		fmt.Fprintf(os.Stderr, "models learn: %v; prices.json left as it is\n", err)
 		return nil
+	case err == nil && prev.Fresh(now), !dry && !catalog.ClaimEvery("prices-attempt", priceRetry, now):
+		return nil
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "models learn: %v; refetching the price snapshot\n", err)
-	case prev.Fresh(now), !dry && !catalog.ClaimEvery("prices-attempt", priceRetry, now):
-		return nil
 	}
 	next, rep, err := fetchFold(prev, now)
 	if err != nil {
