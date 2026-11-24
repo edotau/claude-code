@@ -299,10 +299,8 @@ var (
 func armedProxyToken(tok, profile string, pid int) (string, error) {
 	route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
 	c, signed := authenticClaims(tok)
-	if signed { // a token, valid or refused, never covers a profile outside the launcher-set fence
-		if err := withinFence(c.Profiles); err != nil {
-			return "", err
-		}
+	if err := withinFence(c, signed); err != nil { // a token, valid or refused, stays inside the launcher-set fence
+		return "", err
 	}
 	remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
 	if !ok {
@@ -313,18 +311,22 @@ func armedProxyToken(tok, profile string, pid int) (string, error) {
 		profiles, failover = c.Profiles, c.Failover
 	} else if route == "" { // unverifiable claims: only the route is trusted, never --profile
 		return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
-	} else if err := withinFence(profiles); err != nil {
-		return "", err
 	}
 	return remintExact(profiles, failover, remint)
 }
 
-// withinFence refuses profiles the launcher-set overlay env confines out; an unconfined run loads no registry.
-func withinFence(profiles []string) error {
-	if router.ArmProfileContext(context.Background()) == "" {
+// withinFence holds a confined run's token to verified claims on the fence alone, no failover.
+func withinFence(c proxy.SessionClaims, signed bool) error {
+	mode, arm, err := router.OverlayRoute(context.Background())
+	switch {
+	case err != nil:
+		return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
+	case mode != router.RouteDatabricks || arm == "":
 		return nil
+	case !signed || c.Failover != "":
+		return errors.New("resolve --proxy: a confined launch's token must carry verified claims and no failover; relaunch it")
 	}
-	for _, p := range profiles {
+	for _, p := range c.Profiles {
 		if _, err := agent.TokenScope(context.Background(), p); err != nil {
 			return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
 		}
