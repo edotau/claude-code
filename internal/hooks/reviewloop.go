@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 // unfixedRules is the one table of hand-back phrases that report a finding left unfixed or a decision for the owner.
 var unfixedRules = []struct{ match, unless *regexp.Regexp }{
-	{regexp.MustCompile(`(?i)\bleft as[ -]is\b|\bleft it\b`), regexp.MustCompile(`(?i)\bcovered\b|\btested\b`)},
+	{regexp.MustCompile(`(?i)\bleft as[ -]is\b|\bleft it\b`), regexp.MustCompile(`(?i)\bcovered by\b`)},
 	{regexp.MustCompile(`(?i)\bnot fixed\b|\bdid not fix\b`), nil},
 	{regexp.MustCompile(`(?i)\bLOW, left\b`), nil},
 	{regexp.MustCompile(`(?i)\bfor the owner\b|\bowner decision\b|\bdecisions for the owner\b`), nil},
@@ -25,10 +26,11 @@ var unfixedRules = []struct{ match, unless *regexp.Regexp }{
 }
 
 var (
-	clauseSplit  = regexp.MustCompile(`[;.]\s+|;`)
-	cleanClause  = regexp.MustCompile(`(?i)^\W*(?:no|none|zero|0)\s|\ball (?:were |are )?(?:fixed|resolved)\b`)
+	outputFile   = regexp.MustCompile(`<output-file>([^<]+)</output-file>`)
+	clauseSplit  = regexp.MustCompile(`[;.]\s+|;|,?\s+(?:but|however|yet)\s+`)
+	cleanClause  = regexp.MustCompile(`(?i)^\W*(?:no|none|zero|0)\s|^\W*all (?:were |are )?(?:fixed|resolved)\b`)
 	numberedItem = regexp.MustCompile(`^\W*\d+[.)]\s.*\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b`)
-	itemResolved = regexp.MustCompile(`(?i)\b(?:fixed|resolved|addressed)\b`)
+	itemResolved = regexp.MustCompile(`(?i)\b(?:fixed|resolved|addressed)(?:[^-\w]|$)`)
 )
 
 const (
@@ -42,6 +44,9 @@ func ReviewHandback(in *core.Input) core.Result {
 	report := strings.Join(responseStrings(in.Field("tool_response"), nil), "\n")
 	if strings.Contains(in.Prompt, "<task-notification") {
 		report = in.Prompt // a background leaf's report arrives as a prompt
+		if m := outputFile.FindStringSubmatch(in.Prompt); m != nil && filepath.IsAbs(m[1]) {
+			report += "\n" + string(tailOf(m[1]))
+		}
 	}
 	for l := range strings.SplitSeq(report, "\n") {
 		if l = strings.TrimSpace(l); l != "" && unfixedLine(l) && len(lines) < maxHandbackLines {
@@ -95,8 +100,9 @@ var (
 	statementPhrase = regexp.MustCompile(`(?i)\byour call\b|\bpick one\b|\bsay yes\b`)
 	decideTopic     = regexp.MustCompile(`(?i:\bfix(?:es|ed|ing)?\b|\bfindings?\b|\bfollow-?ups?\b|\breviews?\b|\bissues?\b|\bbugs?\b|\baddress\b)|\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b`)
 	askTopic        = regexp.MustCompile(`(?i)\bfix(?:es|ed|ing)?\b|\bfindings?\b|\bfollow-?ups?\b|\baddress\b`)
-	quoted          = regexp.MustCompile("(?s)```.*?```|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"\\n]*\"|(?:^|[\\s(])'[^'\\n]*'")
-	sentence        = regexp.MustCompile(`[^.!?\n]+[.!?]*`)
+	quoted          = regexp.MustCompile("(?s)```.*?```|(?m:^\\s*>.*$)|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"\\n]*\"|(?:^|[\\s(])'[^'\\n]*'")
+	sentence        = regexp.MustCompile(`(?m)[^\n]*?[.!?]+(?:\s|$)|[^\n]+`)
+	negated         = regexp.MustCompile(`(?i)\bno longer\b|\bno need\b|\bnot needed\b|\bnever\b`)
 )
 
 const decideReason = "Decide and act: the owner's standing rule is that decisions are made now, not asked (R28)"
@@ -121,7 +127,7 @@ func asksDecision(text string) bool {
 	ss := sentence.FindAllString(quoted.ReplaceAllString(text, " "), -1)
 	for i, s := range ss {
 		asked := questionPhrase.MatchString(s) && strings.HasSuffix(strings.TrimSpace(s), "?")
-		if !asked && !statementPhrase.MatchString(s) {
+		if negated.MatchString(s) || (!asked && !statementPhrase.MatchString(s)) {
 			continue
 		}
 		if decideTopic.MatchString(s) || (i > 0 && decideTopic.MatchString(ss[i-1])) {
@@ -134,8 +140,9 @@ func asksDecision(text string) bool {
 const turnTailBytes = 512 << 10
 
 type turnBlock struct {
-	Type, Text, Name string
-	Input            json.RawMessage
+	Type, Text, Name, ID string
+	ToolUseID            string `json:"tool_use_id"`
+	Input                json.RawMessage
 }
 
 // turnEntry is one transcript line's role and blocks; ok is false for a synthetic (isMeta) or non-message line.
@@ -197,22 +204,46 @@ func askText(input json.RawMessage) string {
 // lastTurn is the assistant text and unanswered AskUserQuestion text after the last user entry of the transcript.
 func lastTurn(path string) (text, asks string) {
 	var texts []string
+	var askList []string
+	answered, sawResult := map[string]bool{}, false
 	for _, line := range slices.Backward(bytes.Split(tailOf(path), []byte("\n"))) {
 		role, blocks, ok := turnEntry(line)
 		if !ok {
 			continue
 		}
 		if role == "user" {
-			break // a prompt or a tool result: what follows it is the final message
+			if !isResults(blocks) {
+				break // a prompt: what follows it is the turn
+			}
+			sawResult = true // text before a tool result is not the final message
+			for _, b := range blocks {
+				answered[b.ToolUseID] = true
+			}
+			continue
 		}
 		for _, b := range slices.Backward(blocks) {
-			if b.Type == "text" {
-				texts = append(texts, b.Text)
-			} else if b.Name == "AskUserQuestion" {
-				asks += askText(b.Input)
+			if t, q := blockText(b, sawResult, answered); t != "" {
+				texts = append(texts, t)
+			} else {
+				askList = append(askList, q)
 			}
 		}
 	}
 	slices.Reverse(texts)
-	return strings.Join(texts, "\n"), asks
+	return strings.Join(texts, "\n"), strings.Join(askList, "")
+}
+
+func isResults(blocks []turnBlock) bool {
+	return len(blocks) > 0 && !slices.ContainsFunc(blocks, func(b turnBlock) bool { return b.Type != "tool_result" })
+}
+
+// blockText is a text block's text (unless a tool result follows it) or an unanswered AskUserQuestion's text.
+func blockText(b turnBlock, sawResult bool, answered map[string]bool) (text, ask string) {
+	if b.Type == "text" && !sawResult {
+		return b.Text, ""
+	}
+	if b.Name == "AskUserQuestion" && !answered[b.ID] {
+		return "", askText(b.Input)
+	}
+	return "", ""
 }

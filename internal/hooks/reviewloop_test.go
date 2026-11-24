@@ -33,6 +33,10 @@ func TestReviewHandback(t *testing.T) {
 		{"deferred", "MEDIUM: parser leak deferred to a follow-up", true},
 		{"numbered finding", "1. MEDIUM - parser leaks on empty input", true},
 		{"numbered fixed", "1. MEDIUM - parser leak, fixed in a.go", false},
+		{"negation then new clause", "No HIGH remaining, but 2 MEDIUM remaining", true},
+		{"not all fixed", "Not all fixed: MEDIUM remaining", true},
+		{"fixed-size item", "1. MEDIUM - fixed-size buffer overflows on long names", true},
+		{"tested but broken", "MEDIUM parser left as-is, tested but still broken", true},
 		{"lowercase severity", "the open file is high priority", false},
 	} {
 		in := core.ParseInput(strings.NewReader(`{"tool_name":"Agent","tool_response":{"content":[{"type":"text","text":` +
@@ -85,6 +89,10 @@ func TestReviewDecide(t *testing.T) {
 	meta := `{"type":"user","isMeta":true,"message":{"content":"<task-notification>done</task-notification>"}}`
 	twoBlocks := `{"type":"assistant","message":{"content":[{"type":"text","text":"All checks pass."},` +
 		`{"type":"text","text":"Want me to fix the LOW findings?"}]}}`
+	askID := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"a1","name":"AskUserQuestion","input":{"questions":[` +
+		`{"question":"Fix the LOW findings?"}]}}]}}`
+	otherUse := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"b2","name":"Bash","input":{}}]}}`
+	otherResult := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b2","content":"ok"}]}}`
 	huge := text(strings.Repeat("x", turnTailBytes+10) + "\nWant me to fix the LOW findings?") // last_assistant_message backs it up
 	for _, c := range []struct {
 		name  string
@@ -108,11 +116,26 @@ func TestReviewDecide(t *testing.T) {
 		{"would you like", []string{user, text("Would you like me to fix the findings?")}, false, true},
 		{"shall i", []string{user, text("Shall I fix the LOW findings?")}, false, true},
 		{"quoted question", []string{user, text("Fixed all findings. I will never ask \u2018want me to fix it?\u2019 again.")}, false, false},
+		{"negated call", []string{user, text("Fixed the findings. Your call is no longer needed.")}, false, false},
+		{"blockquote", []string{user, text("> Want me to fix the LOW findings?\nDONE.")}, false, false},
+		{"filename dot", []string{user, text("There is a bug in api.go. Want me to proceed?")}, false, true},
+		{"unrelated result", []string{user, askID, otherUse, otherResult}, false, true},
 		{"option description", []string{user, transcriptAsk("Which editor should I open?", "Quick fixes")}, false, false},
 	} {
 		if r := stopResult(t, c.lines, c.stop); (r.Decision == core.Block) != c.want || (c.want && !strings.Contains(r.Reason, "Decide and act")) {
 			t.Errorf("%s: got %+v, want block=%v", c.name, r, c.want)
 		}
+	}
+}
+
+func TestReviewHandbackNotificationFile(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "out.txt")
+	if err := os.WriteFile(f, []byte("DONE.\n1. MEDIUM - parser leaks on empty input\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := core.ParseInput(strings.NewReader(`{"prompt":` + jsonStr("<task-notification><output-file>"+f+"</output-file><summary>done</summary></task-notification>") + `}`))
+	if r := ReviewHandback(in); !strings.Contains(r.Context, "parser leaks") {
+		t.Errorf("notification file not read: %q", r.Context)
 	}
 }
 
