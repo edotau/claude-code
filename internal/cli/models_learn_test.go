@@ -23,15 +23,16 @@ func TestFoldPricesUnreachableLeavesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(catalog.PricesPath())
-	catalog.FetchSnapshot = func(context.Context) ([]byte, error) { return nil, errors.New("unreachable") }
+	fetches := 0
+	catalog.FetchSnapshot = func(context.Context) ([]byte, error) { fetches++; return nil, errors.New("unreachable") }
 	if rep := foldPrices(now, false); rep != nil {
 		t.Fatalf("report = %+v, want none", rep)
 	}
 	if after, _ := os.ReadFile(catalog.PricesPath()); string(after) != string(before) {
 		t.Error("prices.json changed on an unreachable snapshot")
 	}
-	if rep := foldPrices(now, false); rep != nil {
-		t.Fatalf("retry within the hour fetched again: %+v", rep)
+	if rep := foldPrices(now, false); rep != nil || fetches != 1 {
+		t.Fatalf("retry within the hour fetched again: %d fetches, report %+v", fetches, rep)
 	}
 	if err := os.Remove(filepath.Join(paths.StateDir(), "preflight", "prices-attempt")); err != nil {
 		t.Fatal(err)

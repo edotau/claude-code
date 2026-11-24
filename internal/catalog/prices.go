@@ -222,7 +222,8 @@ func contextTiers(in []snapTier) ([]TierPrice, error) {
 }
 
 // snapFirst are the providers whose row wins when several list one model key; the rest follow by name.
-var snapFirst = []string{"anthropic", "openai", "google"}
+var snapFirst = []string{"anthropic", "openai", "google", "xai", "deepseek", "moonshotai", "alibaba", "mistral", "minimax",
+	"zai", "zhipuai"}
 
 func snapOrder(provs []string) []string {
 	slices.Sort(provs)

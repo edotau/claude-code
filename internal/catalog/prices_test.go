@@ -103,6 +103,15 @@ func TestFoldSnapshotRefreshKeepsAndOwnerStrips(t *testing.T) {
 	}
 }
 
+// The originating provider's row beats a reseller that sorts earlier by name.
+func TestFoldSnapshotPrefersOriginator(t *testing.T) {
+	raw := `{"above":{"models":{"deepseek-x":{"cost":{"input":9,"output":9}}}},"deepseek":{"models":{"deepseek-x":{"cost":{"input":1,"output":2}}}}}`
+	p, _, err := FoldSnapshot([]byte(raw), nil, Prices{}, pricesT0)
+	if err != nil || p.Models["deepseek-x"].Input != 1 {
+		t.Errorf("deepseek-x = %+v, %v, want the deepseek row", p.Models["deepseek-x"], err)
+	}
+}
+
 // Fetch failure and a non-snapshot body error out; prices.json round-trips and goes stale after the window.
 func TestPricesFileAndFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
