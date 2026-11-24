@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -438,7 +439,28 @@ func TestReapOrphanOwnTimeout(t *testing.T) {
 
 func TestContractNoteEmptyForPlainDispatch(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got := contractNote("d-none", nil); got != "" {
+	if got := contractNote("d-none"); got != "" {
 		t.Fatalf("contractNote = %q; want empty", got)
+	}
+}
+
+func TestContractNoteSumsSubtree(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const owner, child = "20261124T100000.000-pi", "20261124T100001.000-pi"
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: 100, Leaves: 6},
+		contract.Facts{Fleet: true})
+	if c, err := c.Start(owner); len(ps) > 0 || err != nil || contract.Save(c) != nil {
+		t.Fatalf("contract: %v %v", ps, err)
+	}
+	for id, parent := range map[string]string{owner: "", child: owner} {
+		r := agent.Record{ID: id, Time: time.Now().Add(-time.Minute), Agent: "pi", Status: "ok", Parent: parent,
+			Usage: &wire.Usage{OutputTokens: 20}}
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := contractNote(owner); !strings.Contains(got, "40% budget") {
+		t.Fatalf("contractNote = %q; want the owner and child summed", got)
 	}
 }

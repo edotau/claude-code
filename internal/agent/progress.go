@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -110,14 +111,14 @@ func ProgressOf(r Record, now time.Time) Progress {
 		p.In, p.Out, p.ToolMs = int64(u.InputTokens+u.CacheCreationTokens+u.CacheReadTokens), int64(u.OutputTokens), a.ToolMs
 	}
 	if c, err := contract.Load(r.ID); err == nil {
-		p.Contract = contractText(c, p.In+p.Out)
+		p.Contract = contractText(c, wire.SpentBy(c))
 	}
 	p.Seen = p.Doing != "" || p.Tools > 0 || p.In+p.Out > 0
 	return p
 }
 
 // contractText is "terms 3/7 · leaves 2/6 · 41% budget"; leaves and budget drop when unlimited.
-func contractText(c contract.Contract, tokens int64) string {
+func contractText(c contract.Contract, spent contract.Spent) string {
 	passed := map[contract.Term]bool{}
 	for _, r := range c.Records {
 		passed[r.Term] = r.Verdict == contract.VerdictPass
@@ -130,10 +131,10 @@ func contractText(c contract.Contract, tokens int64) string {
 	}
 	s := fmt.Sprintf("terms %d/%d", met, len(c.Terms))
 	if c.Limits.Leaves > 0 {
-		s += fmt.Sprintf(" · leaves %d/%d", len(c.Children), c.Limits.Leaves)
+		s += fmt.Sprintf(" · leaves %d/%d", spent.Leaves, c.Limits.Leaves)
 	}
-	if c.Limits.Tokens > 0 && tokens > 0 { // no usage yet: budget unknown, not 0%
-		s += fmt.Sprintf(" · %d%% budget", tokens*100/int64(c.Limits.Tokens))
+	if c.Limits.Tokens > 0 && spent.Tokens > 0 { // no usage yet: budget unknown, not 0%
+		s += fmt.Sprintf(" · %d%% budget", spent.Tokens*100/c.Limits.Tokens)
 	}
 	return s
 }
