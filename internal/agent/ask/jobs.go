@@ -57,7 +57,7 @@ func statusRows(prefix string, rows []agent.Row) []inspect.StatusRow {
 		out[i].Row = r
 		c, err := inspect.ContractOf(r.ID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: contract %s: %v\n", prefix, r.ID, err)
+			fmt.Fprintf(os.Stderr, "%s: %s: %v\n", prefix, r.ID, err)
 		}
 		out[i].Contract = c
 	}

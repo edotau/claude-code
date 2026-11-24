@@ -144,7 +144,7 @@ func RoleCells(role Role, provs []ClaudeProvider) []RoleCell {
 
 // FableHint names the one provider that serves Fable when model is Fable; else "".
 func FableHint(model string) string {
-	fam, _, _, claude := models.ParseClaudeID(model)
+	fam, _, _, claude := models.ParseClaudeID(strings.ToLower(model))
 	if !strings.EqualFold(model, models.Fable) && (!claude || fam != models.Fable) {
 		return ""
 	}
