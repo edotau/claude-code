@@ -336,7 +336,18 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
 		t.Fatal("the bridge rewrote sessions.json, which the previous build still writes without a lock")
 	}
-	g.setStart("100")
+}
+
+// A running daemon stops bridging a live old-format token once sessions.json is removed.
+func TestLegacySessionTokenDroppedWhenSessionsFileRemoved(t *testing.T) {
+	g := newSessionRig(t)
+	tok := proxy.SessionTokenPrefix + strings.Repeat("cd", 32)
+	hash := textutil.SHA256Hex([]byte(tok))
+	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
+		`"expires":"2023-11-20T00:00:00Z"}]}`)
+	if _, _, ok := g.r.sessions.legacyClaims(tok); !ok {
+		t.Fatal("a stored old-format token was not live before sessions.json was removed")
+	}
 	if err := os.Remove(proxy.SessionsFile()); err != nil {
 		t.Fatal(err)
 	}
