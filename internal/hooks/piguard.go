@@ -18,11 +18,8 @@ import (
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // piGuardName is the "module" of `hook PreToolUse --pi-guard`: Pi's guard extension sends a raw tool call, this judges it.
@@ -44,15 +41,7 @@ type piVerdict struct {
 	Run    []string `json:"run,omitempty"`
 	Usage  string   `json:"usage,omitempty"`
 	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
-	Steps  []piStep `json:"steps,omitempty"`
-	Unset  []string `json:"unset,omitempty"` // credential names verify steps never get, as the post-run verify scrubs
-	Text   string   `json:"text,omitempty"`  // verify_output's redacted text
-}
-
-// piStep is one argv the guard runs for a verify line, with its GOOS/GOARCH/CGO_ENABLED assignments.
-type piStep struct {
-	Env  []string `json:"env"`
-	Argv []string `json:"argv"`
+	Text   string   `json:"text,omitempty"`   // the verify result: the fixing turn's redacted text, "" when it passed
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -63,8 +52,14 @@ func runPiGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	dropHookControlEnv() // fail closed: an inherited HARNESS_HOOK_SKIP must never turn the guards off
 	var c piCall
 	v := piVerdict{Block: "pi guard: unreadable tool call; blocked"}
-	if raw, err := io.ReadAll(stdin); err == nil && json.Unmarshal(raw, &c) == nil {
-		v = judgePi(c)
+	dec := json.NewDecoder(stdin)
+	if dec.Decode(&c) == nil {
+		rest := io.MultiReader(dec.Buffered(), stdin)
+		if c.Tool == "verify" {
+			v = runPiVerify(c, rest) // the rest of stdin is the liveness pipe: its EOF means Pi is gone
+		} else if raw, err := io.ReadAll(rest); err == nil && len(bytes.TrimSpace(raw)) == 0 {
+			v = judgePi(c)
+		}
 	}
 	if err := json.NewEncoder(stdout).Encode(v); err != nil {
 		_, _ = io.WriteString(stderr, "pi guard: verdict not written: "+err.Error()+"\n")
@@ -170,9 +165,6 @@ func (r budgetRecord) tokens() int {
 
 // judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
 func judgePiCall(c piCall) piVerdict {
-	if v, ok := judgePiVerifyCall(c); ok {
-		return v
-	}
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
 	}
@@ -461,40 +453,4 @@ func piBashBlock(c piCall, command string) string {
 		return "pi guard: payload: " + err.Error() + "; blocked"
 	}
 	return piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload)
-}
-
-// judgePiVerifyCall answers the guard's own verify calls, never model tools (the guard registers neither name).
-func judgePiVerifyCall(c piCall) (piVerdict, bool) {
-	switch c.Tool {
-	case "verify":
-		return judgePiVerify(c), true
-	case "verify_output": // a failed step's output, redacted before the model sees it
-		out, _ := c.Input["text"].(string)
-		return piVerdict{Allow: true, Text: redact.Text(textutil.RedactSecrets(out))}, true
-	}
-	return piVerdict{}, false
-}
-
-// judgePiVerify rebuilds the run's verify line as argv steps and judges each as the bash line it is.
-func judgePiVerify(c piCall) piVerdict {
-	line, _ := c.Input["verify"].(string)
-	if len(c.Input) != 1 || line == "" {
-		return piVerdict{Usage: "verify: the only argument is a non-empty verify line"}
-	}
-	steps, err := plans.VerifyArgv(line)
-	if err == nil {
-		err = plans.VerifyShape(line)
-	}
-	if err != nil {
-		return piVerdict{Usage: "verify: " + err.Error()}
-	}
-	out := make([]piStep, len(steps))
-	for i, s := range steps {
-		if reason := piBashBlock(c, textutil.ShellJoin(append(slices.Clone(s.Env), s.Argv...))); reason != "" {
-			return piVerdict{Block: reason}
-		}
-		out[i] = piStep{Env: append([]string{}, s.Env...), Argv: s.Argv}
-	}
-	_, unset := proc.ScrubAgentCredentials(os.Environ(), nil, "") // the judge's env is the steps' env
-	return piVerdict{Allow: true, Steps: out, Unset: unset}
 }

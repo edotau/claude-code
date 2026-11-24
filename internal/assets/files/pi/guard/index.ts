@@ -23,34 +23,29 @@ function hookEnv(): Record<string, string> {
   return env
 }
 
-// Step is one argv Go built from a verify line, with the GOOS/GOARCH/CGO_ENABLED assignments it carries.
-type Step = { env: string[]; argv: string[] }
 const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => typeof s === "string")
-const isStep = (s: any): boolean => strArray(s?.env) && strArray(s?.argv) && s.argv.length > 0
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-type Verdict = { block?: string; path?: string; run?: string[]; steps?: Step[]; unset?: string[]; usage?: string; notice?: string; text?: string }
-function judge(tool: string, input: any, cwd: string, sid: string, budgetMs: number = BUDGET_MS): Verdict {
+type Verdict = { block?: string; path?: string; run?: string[]; usage?: string; notice?: string }
+function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
-      env: hookEnv(), timeout: budgetMs, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["pipe", "pipe", "pipe"] })
+      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
     if (v.allow !== true) return stuck("unrecognized verdict")
-    if (v.unset !== undefined && !strArray(v.unset)) return stuck("malformed unset") // fail closed: never run with it
     return allowVerdict(v)
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
 }
 
-// allowVerdict keeps only the well-typed fields of an allow; a malformed run or steps is dropped, so nothing runs.
+// allowVerdict keeps only the well-typed fields of an allow; a malformed run is dropped, so nothing runs.
 function allowVerdict(v: any): Verdict {
   return { path: typeof v.path === "string" ? v.path : "", run: strArray(v.run) ? v.run : undefined,
-    steps: Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined, unset: v.unset ?? [],
-    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined, text: typeof v.text === "string" ? v.text : undefined }
+    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined }
 }
 
 // running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
@@ -155,119 +150,26 @@ async function runAction(name: string, run: string[], cwd: string, signal: any):
   finally { signal?.removeEventListener("abort", stop) }
 }
 
-// The verify judge (every step's hooks), the steps and the redaction call stay under the 5-minute idle watch (pi_test).
-const VERIFY_JUDGE_MS = 60_000
-const VERIFY_MS = 3 * 60_000
-// PROXY_KEY is the proxy session token's env (internal/pi KeyRef): verify steps run edited code, so they never get it.
-const PROXY_KEY = "HARNESS_PROXY_API_KEY"
-
-// verifyEnv is hookEnv without the proxy token and the credentials Go named, plus the step's GOOS/GOARCH/CGO_ENABLED.
-function verifyEnv(step: Step, unset: string[]): Record<string, string> {
-  const env = hookEnv()
-  for (const name of [PROXY_KEY, ...unset]) delete env[name]
-  for (const kv of step.env) if (kv.includes("=")) env[kv.slice(0, kv.indexOf("="))] = kv.slice(kv.indexOf("=") + 1)
-  return env
-}
-
-const VERIFY_OUT_CHARS = 1 << 20
-type StepResult = { code: number; out: string; timedOut?: boolean; ms: number; cut?: boolean }
-// live holds the running step children so a Pi exit can kill their groups.
-const live = new Set<any>()
-process.on("exit", () => { for (const c of live) try { killTree(c) } catch {} })
-
-// runStep runs one argv in its own group (execFile drops detached); a launch failure (rtk on Windows) throws.
-function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<StepResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step, unset), detached: process.platform !== "win32",
-      windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
-    live.add(child)
-    const start = Date.now()
-    let out = "", cut = false, timedOut = false
-    const add = (s: string) => { const all = out + s; out = keepTail(all, VERIFY_OUT_CHARS); if (out.length < all.length) cut = true }
-    const pipeErr = (err: any) => { process.stderr.write("pi guard: verify step pipe: " + (err?.message ?? err) + "\n") }
-    child.stdout.setEncoding("utf8").on("data", add).on("error", pipeErr)
-    child.stderr.setEncoding("utf8").on("data", add).on("error", pipeErr)
-    const timedRes = () => ({ code: -1, out, timedOut: true, ms: Date.now() - start, cut })
-    let fallback: any
-    const timer = setTimeout(() => {
-      timedOut = true; killTree(child)
-      fallback = setTimeout(() => resolve(timedRes()), 2000) // close may never come
-    }, Math.max(1, ms))
-    const clear = () => { clearTimeout(timer); clearTimeout(fallback); live.delete(child) }
-    child.on("error", (err) => { clear(); reject(err) })
-    child.on("exit", () => { if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ } })
-    child.on("close", (code, signal) => {
-      clear()
-      if (timedOut) { resolve(timedRes()); return }
-      // reap any descendant left in the group
-      if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ }
-      // a signal-killed step is a failed check, not a launch error
-      if (code === null) resolve({ code: -1, out: out + "\n[killed by " + signal + "]", ms: Date.now() - start, cut })
-      else resolve({ code, out, ms: Date.now() - start, cut })
+// verifyFailure asks Go to judge, run and redact the run's verify line: the fixing turn's text, or "" (passed or not run).
+function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
+  return new Promise((resolve) => {
+    const skip = (why: string) => { process.stderr.write("pi guard: verify before settle not run: " + why + "\n"); resolve("") }
+    const child = spawn(BIN, ["hook", "PreToolUse", "--pi-guard"], { cwd, env: hookEnv(), windowsHide: true, stdio: ["pipe", "pipe", "inherit"] })
+    let out = ""
+    child.stdout.setEncoding("utf8").on("data", (s: string) => { out += s })
+    child.on("error", (err: any) => skip(String(err?.message ?? err)))
+    child.on("close", () => {
+      child.stdin.destroy()
+      let v: any
+      try { v = JSON.parse(out) } catch { return skip("unreadable reply") }
+      // an unjudgeable reply settles clean by design: the harness's post-run verify is the record
+      if (v?.allow !== true) return skip(String(v?.block || v?.usage || "no verdict"))
+      resolve(typeof v.text === "string" ? v.text : "")
     })
+    child.stdin.on("error", () => {}) // Go gone first: close reports it
+    // stdin stays open: its close is how Go learns Pi exited and kills the verify tree
+    child.stdin.write(JSON.stringify({ tool: "verify", input: { verify: line }, cwd, session_id: sid }) + "\n")
   })
-}
-
-// killTree kills the step's group (taskkill /T on Windows); with no group of its own, the step alone.
-function killTree(child: any) {
-  if (process.platform === "win32") stopTree(child)
-  else try { process.kill(-child.pid, "SIGKILL") } catch { child.kill("SIGKILL") }
-  child.stdout?.destroy(); child.stderr?.destroy(); child.unref() // an escaped grandchild must not keep Pi alive
-}
-
-// keepTail is s's last whole lines within cap: a cut never leaves a secret fragment Go's redaction misses.
-function keepTail(s: string, cap: number): string {
-  if (s.length <= cap) return s
-  const t = s.slice(-cap)
-  const nl = t.indexOf("\n")
-  return nl < 0 ? "" : t.slice(nl + 1) // no newline in the tail: the whole partial line goes
-}
-
-// masked is s with the proxy token's value cut out, should a step print its inherited env.
-function masked(s: string): string {
-  const key = process.env[PROXY_KEY]
-  return key ? s.split(key).join("[redacted]") : s
-}
-
-// verifyFailure runs the steps Go built from the run's verify line: the failing output, or "" (passed or not run).
-async function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
-  const v = judge("verify", { verify: line }, cwd, sid, VERIFY_JUDGE_MS)
-  if (v.block || v.usage || !v.steps?.length) {
-    process.stderr.write("pi guard: verify before settle not run: " + (v.block || v.usage || "no steps") + "\n")
-    return ""
-  }
-  const deadline = Date.now() + VERIFY_MS
-  for (const s of v.steps) {
-    let r: StepResult
-    try { r = await runStep(s, v.unset ?? [], cwd, deadline - Date.now()) } catch (err: any) { // a fixing turn cannot help
-      const why = err?.code === "ENOENT" ? "cannot launch " + s.argv[0] + " (not on PATH)" : s.argv[0] + ": " + (err?.message ?? err)
-      process.stderr.write("pi guard: verify before settle skipped: " + why + "\n")
-      return ""
-    }
-    if (r.code !== 0) return failureText(line, r, cwd, sid)
-  }
-  return ""
-}
-
-// failureText is the fixing turn's message, its output redacted by Go; fail closed: unredacted output never goes out.
-function failureText(line: string, r: StepResult, cwd: string, sid: string): string {
-  let body = masked(r.out) // redact the whole output once, after the cap
-  if (r.cut) { // a cut can leave the tail of a key body: drop leading key-like lines
-    const ls = body.split("\n")
-    let i = 0
-    while (i < ls.length && /^\s*[A-Za-z0-9+\/=:._-]{16,}\s*$/.test(ls[i])) i++
-    body = ls.slice(i).join("\n")
-  }
-  const red = judge("verify_output", { text: "$ " + line + "\n" + body }, cwd, sid) // the line is redacted too
-  if (red.block || red.usage) {
-    process.stderr.write("pi guard: verify before settle skipped: output not redacted (" + (red.block || red.usage) + ")\n")
-    return ""
-  }
-  const what = r.timedOut ? "timed out after " + Math.round(r.ms / 1000) + " s" : "failed (exit " + r.code + ")"
-  const text = red.text ?? "" // an allow with no text is empty output
-  const nl = text.indexOf("\n")
-  return "The run's verify check " + what + ". Fix the cause without changing the check, then finish.\n" +
-    text.slice(0, nl + 1) + text.slice(nl + 1).slice(-ERR_CHARS) // already redacted, so this cut is safe
 }
 
 // verifyBeforeSettle gives a failing --verify one fixing turn per run; the post-run verify is still the record.

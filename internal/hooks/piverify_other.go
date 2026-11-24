@@ -1,0 +1,23 @@
+//go:build !windows
+
+package hooks
+
+import (
+	"os/exec"
+
+	"github.com/edotau/claude-code/internal/proc"
+)
+
+type stepTree struct{ cmd *exec.Cmd }
+
+// startStep runs cmd in its own group under a tree tag (proc.TreeCancel), so a timeout or cancel kills the tree.
+func startStep(cmd *exec.Cmd) (*stepTree, error) {
+	proc.TreeCancel(cmd, 0) // after cmd.Env: it appends the tag
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &stepTree{cmd}, nil
+}
+
+// reap kills the step's group and tagged descendants, even one that left it; the reaped leader's pid is not yet reused.
+func (t *stepTree) reap() { _ = t.cmd.Cancel() }

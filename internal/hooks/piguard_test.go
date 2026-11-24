@@ -3,9 +3,10 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/redact"
 )
 
 func piGuard(t *testing.T, tool string, input map[string]any) piVerdict {
@@ -74,13 +76,7 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 	}
 }
 
-func TestPiGuardVerifySteps(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "x")
-	v := piGuard(t, "verify", map[string]any{"verify": "GOOS=linux go build ./internal/pi && go vet ./internal/pi"})
-	if !v.Allow || len(v.Steps) != 2 || strings.Join(v.Steps[0].Env, " ") != "GOOS=linux" ||
-		strings.Join(v.Steps[1].Argv, " ") != "go vet ./internal/pi" || !slices.Contains(v.Unset, "OPENAI_API_KEY") {
-		t.Errorf("verdict = %+v", v)
-	}
+func TestPiGuardBadVerifyLineIsUsage(t *testing.T) {
 	for _, bad := range []map[string]any{{"verify": "go vet ./x; rm -rf ."}, {"verify": "rm -rf ."}, {"verify": ""}, {"verify": "go vet ./x", "y": 1}} {
 		if v := piGuard(t, "verify", bad); v.Allow || v.Usage == "" {
 			t.Errorf("%v: verdict = %+v, want a usage error", bad, v)
@@ -88,13 +84,29 @@ func TestPiGuardVerifySteps(t *testing.T) {
 	}
 }
 
-func TestPiGuardVerifyQuotingAndRedaction(t *testing.T) {
-	if v := piGuard(t, "verify", map[string]any{"verify": "go test -run 'TestA|TestB' ./x"}); !v.Allow || v.Steps[0].Argv[3] != "TestA|TestB" {
-		t.Errorf("quoted run pattern: %+v", v)
+func TestPiVerifyFailureIsRedacted(t *testing.T) {
+	if piVerifyTimeout+5*time.Second >= agent.IdleLimit {
+		t.Errorf("verify timeout %v does not fit the idle watch %v", piVerifyTimeout, agent.IdleLimit)
 	}
-	key := "sk-ant-api03-" + strings.Repeat("a", 90)
-	if v := piGuard(t, "verify_output", map[string]any{"text": "FAIL " + key}); strings.Contains(v.Text, key) || !strings.HasPrefix(v.Text, "FAIL") {
-		t.Errorf("verify output not redacted: %q", v.Text)
+	mod := t.TempDir()
+	for name, src := range map[string]string{"go.mod": "module p\n", "p.go": "package p\n\nimport \"fmt\"\n\nfunc F() { fmt.Printf(\"%d\\n\", \"x\") }\n"} {
+		if err := os.WriteFile(filepath.Join(mod, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	call := piCall{Tool: "verify", Input: map[string]any{"verify": "go vet ./..."}, CWD: mod}
+	pr, pw := io.Pipe() // an empty reader would EOF at once and cancel the run
+	defer pw.Close()
+	v := runPiVerify(call, pr)
+	if !v.Allow || !strings.Contains(v.Text, "exit 1") || !strings.Contains(v.Text, "go vet") {
+		t.Errorf("verdict = %+v", v)
+	}
+	redact.StubSource(t, func() ([]string, error) { return nil, errors.New("down") })
+	v = runPiVerify(call, pr)
+	if !strings.Contains(v.Text, "verify output withheld: redaction unavailable") || strings.Contains(v.Text, "$ go vet") {
+		t.Errorf("withheld verdict = %+v", v)
 	}
 }
 
