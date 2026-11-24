@@ -87,7 +87,7 @@ func pickWire(p *providers.Provider, wire string) (string, bool) {
 	return providers.ProtocolOpenAI, has(providers.ProtocolOpenAI)
 }
 
-// compatFor is Pi's per-model compat; strict tools only for Claude on the anthropic wire.
+// compatFor is Pi's per-model compat; strict tools: Claude on anthropic only (dev, qa, prod accept, 2026-11-24).
 func compatFor(wire, w string) map[string]any {
 	c := map[string]any{}
 	claude := models.FamilyKind(wire) == models.FamilyClaude
