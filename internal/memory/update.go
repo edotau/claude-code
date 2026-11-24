@@ -175,14 +175,14 @@ func (r UpdateResult) needsAttention(now time.Time) bool {
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
 // agentUpdatePrompt frames `memory update` for an agent without slash commands; the stable procedure leads for caching.
-func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) {
+func agentUpdatePrompt(transcript, session, cwd string, historical bool) (string, error) {
 	ref := assets.MemoryUpdateProcedure()
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
 	return assets.MemoryUpdatePrompt(assets.MemoryUpdateInput{
 		Worker: assets.MemoryUpdateWorker(bankPaths()), Procedure: ref, Historical: historicalBlock(historical),
-		Digest: digestBlock(transcript), Git: gitSinceBlock(transcript, cwd), Tags: tagBlock(transcript, historical),
+		Digest: digestBlock(transcript), Git: gitSinceBlock(transcript, cwd), Tags: tagBlock(transcript, session, historical),
 	}), nil
 }
 
@@ -318,18 +318,21 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 	return out
 }
 
-// tagBlock files the transcript's tags (historical: DECISION only); a failure degrades to no block.
-func tagBlock(transcript string, historical bool) string {
-	f, err := os.Open(transcript)
-	if err != nil {
-		return ""
+// tagBlock files the session's tags (historical: DECISION only): typed events, then transcript tags they do not repeat.
+func tagBlock(transcript, session string, historical bool) string {
+	var legacy []tag
+	if f, err := os.Open(transcript); err == nil {
+		defer f.Close()
+		legacy, _ = extractTags(f)
 	}
-	defer f.Close()
-	tags, err := extractTags(f)
+	if session == "" { // no id on the request: the transcript's stem is the session id for Claude transcripts
+		session = strings.TrimSuffix(filepath.Base(transcript), ".jsonl")
+	}
+	tags := mergeTags(typedTags(session), legacy)
 	if historical {
 		tags = slices.DeleteFunc(tags, func(t tag) bool { return t.Kind != "DECISION" })
 	}
-	if err != nil || len(tags) == 0 {
+	if len(tags) == 0 {
 		return ""
 	}
 	var lines []string
@@ -337,6 +340,43 @@ func tagBlock(transcript string, historical bool) string {
 		lines = append(lines, t.Kind+": "+t.Text)
 	}
 	return assets.MemorySessionTags(lines)
+}
+
+// typedTags is the session's recorded tag events as tags; an empty session reads none.
+func typedTags(session string) []tag {
+	if session == "" {
+		return nil
+	}
+	var out []tag
+	for _, e := range ReadTagEvents(session) {
+		out = append(out, tag{Kind: strings.ToUpper(e.Event), Text: e.Text})
+	}
+	return out
+}
+
+// mergeTags is typed first, then each legacy tag no typed one repeats; over the cap the legacy ones go first.
+func mergeTags(typed, legacy []tag) []tag {
+	seen := map[tag]bool{}
+	var out, extra []tag
+	for _, t := range typed {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, t := range legacy {
+		if !seen[t] {
+			seen[t] = true
+			extra = append(extra, t)
+		}
+	}
+	if len(out) > tagMaxCount {
+		out = out[len(out)-tagMaxCount:]
+	}
+	if room := tagMaxCount - len(out); len(extra) > room {
+		extra = extra[len(extra)-room:]
+	}
+	return append(out, extra...)
 }
 
 // updateOptions drive one background update.
@@ -476,7 +516,7 @@ func (r *updateRun) locked(o updateOptions) error {
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
 func runAgentUpdate(ctx context.Context, o updateOptions) error {
-	prompt, err := agentUpdatePrompt(o.Transcript, o.CWD, o.Historical)
+	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
 	if err != nil {
 		return err
 	}
@@ -592,6 +632,40 @@ func parseTagLine(ln string) (tag, bool) {
 		}
 	}
 	return tag{}, false
+}
+
+// ParseTagLine is parseTagLine for the Stop hook: the tag's kind ("DECISION"...) and text.
+func ParseTagLine(ln string) (kind, text string, ok bool) {
+	t, ok := parseTagLine(ln)
+	return t.Kind, t.Text, ok
+}
+
+// TagEvent is one typed session event the Stop hook recorded from an assistant tag line.
+type TagEvent struct {
+	Event string `json:"event"`
+	Text  string `json:"text"`
+	At    string `json:"at"`
+}
+
+// TagEventsPath is the session's append-only tag event log, one TagEvent JSON per line.
+func TagEventsPath(session string) string {
+	return filepath.Join(paths.MemoryStateDir(), "tags-"+filepath.Base(session)+".jsonl")
+}
+
+// ReadTagEvents returns the session's recorded events in order; a missing log or a torn line yields what parses.
+func ReadTagEvents(session string) []TagEvent {
+	b, err := os.ReadFile(TagEventsPath(session))
+	if err != nil {
+		return nil
+	}
+	var out []TagEvent
+	for ln := range bytes.SplitSeq(b, []byte("\n")) {
+		var e TagEvent
+		if json.Unmarshal(ln, &e) == nil && e.Event != "" && e.Text != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // handoffMarker is the per-session file the context steward leaves for its update worker; it holds the handoff path.

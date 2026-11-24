@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,21 +29,21 @@ func writeTranscript(t *testing.T, lines ...string) string {
 func TestTagBlock_EmptyTranscriptNoBlock(t *testing.T) {
 	t.Parallel()
 	path := writeTranscript(t, "")
-	if got := tagBlock(path, false); got != "" {
+	if got := tagBlock(path, "", false); got != "" {
 		t.Fatalf("tagBlock on an empty transcript = %q, want empty", got)
 	}
 }
 
 func TestTagBlock_MissingTranscriptNoBlock(t *testing.T) {
 	t.Parallel()
-	if got := tagBlock(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), false); got != "" {
+	if got := tagBlock(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), "", false); got != "" {
 		t.Fatalf("tagBlock on a missing transcript = %q, want empty", got)
 	}
 }
 
 func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 	transcript := writeTranscript(t, "")
-	got, err := agentUpdatePrompt(transcript, "", false)
+	got, err := agentUpdatePrompt(transcript, "", "", false)
 	if err != nil {
 		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 
 	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	path := writeTranscript(t, `{"timestamp":"`+ts+`"}`)
-	got, err := agentUpdatePrompt(path, cwd, false)
+	got, err := agentUpdatePrompt(path, "", cwd, false)
 	if err != nil {
 		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
@@ -710,7 +711,7 @@ func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		p, err := agentUpdatePrompt("", root, false)
+		p, err := agentUpdatePrompt("", "", root, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -720,4 +721,34 @@ func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTagBlockTypedEventBeatsLegacyText: an event the Stop hook recorded and the same transcript line file once.
+func TestTagBlockTypedEventBeatsLegacyText(t *testing.T) {
+	tempConfig(t)
+	path := filepath.Join(t.TempDir(), "s9.jsonl")
+	block := `{"type":"text","text":"DECISION: use A\nNOTE: b"}`
+	write(t, path, `{"type":"assistant","message":{"role":"assistant","content":[`+block+`]}}`)
+	write(t, TagEventsPath("s9"), `{"event":"decision","text":"use A","at":"x"}`+"\n")
+	got := tagBlock(path, "other", false)
+	if strings.Count(got, "use A") != 1 || !strings.Contains(got, "NOTE: b") {
+		t.Fatalf("tagBlock with another session id = %q, want only the transcript tags once", got)
+	}
+	got = tagBlock(path, "s9", false)
+	if n := strings.Count(got, "use A"); n != 1 || !strings.Contains(got, "NOTE: b") {
+		t.Fatalf("tagBlock = %q, want use A once and the legacy-only NOTE", got)
+	}
+}
+
+// TestMergeTagsCapDropsLegacyBeforeTyped: over the cap the typed-only events stay.
+func TestMergeTagsCapDropsLegacyBeforeTyped(t *testing.T) {
+	typed := []tag{{Kind: "DECISION", Text: "typed"}}
+	var legacy []tag
+	for i := range tagMaxCount + 5 {
+		legacy = append(legacy, tag{Kind: "NOTE", Text: strconv.Itoa(i)})
+	}
+	got := mergeTags(typed, legacy)
+	if len(got) != tagMaxCount || got[0] != typed[0] {
+		t.Fatalf("mergeTags len %d first %v, want %d and the typed event", len(got), got[0], tagMaxCount)
+	}
 }

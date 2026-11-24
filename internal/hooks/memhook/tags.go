@@ -10,26 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // tagEvent is one typed session event recorded from an assistant DECISION:/BUG:/NEXT:/NOTE: line.
-type tagEvent struct {
-	Event string `json:"event"`
-	Text  string `json:"text"`
-	At    string `json:"at"`
-}
-
-// tagMaxLen caps one event's text, as the update's own tag parser does.
-const tagMaxLen = 300
-
-var tagEvents = []string{"DECISION", "BUG", "NEXT", "NOTE"}
-
-// tagEventsPath is the session's append-only event log (wanted: a memory function that owns this path and reads it).
-func tagEventsPath(session string) string {
-	return filepath.Join(paths.MemoryStateDir(), "tags-"+filepath.Base(session)+".jsonl")
-}
+type tagEvent = memory.TagEvent
 
 // tagLockWait bounds how long a Stop waits for a peer Stop of the same session.
 const tagLockWait = 2 * time.Second
@@ -39,7 +26,7 @@ func recordTags(session, transcriptPath string, now time.Time) {
 	if session == "" || transcriptPath == "" {
 		return
 	}
-	logPath := tagEventsPath(session)
+	logPath := memory.TagEventsPath(session)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return
 	}
@@ -109,31 +96,13 @@ func tagEventsIn(r io.Reader, now time.Time) ([]tagEvent, int64) {
 				continue
 			}
 			for ln := range strings.SplitSeq(block.Text, "\n") {
-				if ev, text, ok := parseTagEvent(ln); ok {
-					out = append(out, tagEvent{Event: ev, Text: text, At: at})
+				if kind, text, ok := memory.ParseTagLine(ln); ok && text != "" {
+					out = append(out, tagEvent{Event: strings.ToLower(kind), Text: text, At: at})
 				}
 			}
 		}
 	})
 	return out, read
-}
-
-// parseTagEvent matches an optional bullet then a tag prefix; the event is the lower-case kind.
-func parseTagEvent(ln string) (event, text string, ok bool) {
-	ln = strings.TrimSpace(ln)
-	ln = strings.TrimPrefix(strings.TrimPrefix(ln, "- "), "* ")
-	for _, k := range tagEvents {
-		after, found := strings.CutPrefix(ln, k+":")
-		if !found {
-			continue
-		}
-		text = strings.TrimSpace(after)
-		if len(text) > tagMaxLen {
-			text = strings.ToValidUTF8(text[:tagMaxLen], "")
-		}
-		return strings.ToLower(k), text, text != ""
-	}
-	return "", "", false
 }
 
 // appendEvents adds events not already in the log; false when the log cannot be written.
