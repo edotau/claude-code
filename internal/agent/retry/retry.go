@@ -102,11 +102,11 @@ func IsPolicyRefusal(err error) bool {
 	return policyRefusal(err)
 }
 
-// policyRefusal reads a typed ErrorCode() first and falls back to the text patterns.
+// policyRefusal reads a typed ErrorCode() and uses the text patterns only when the error carries no code.
 func policyRefusal(err error) bool {
 	var coded interface{ ErrorCode() string }
-	if errors.As(err, &coded) && slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode())) {
-		return true
+	if errors.As(err, &coded) && coded.ErrorCode() != "" {
+		return slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode()))
 	}
 	return policyTextRE().MatchString(strings.ToLower(err.Error()))
 }

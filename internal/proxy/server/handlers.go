@@ -157,7 +157,7 @@ func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Tar
 			last = last && !tpmSpare(in) // walkAttempts holds a workspace to hop to
 		}
 	}
-	if last || !retryable[resp.StatusCode] {
+	if last || !retryable[resp.StatusCode] || upstreamNoRetry(resp) {
 		return false, hard
 	}
 	drain(resp)

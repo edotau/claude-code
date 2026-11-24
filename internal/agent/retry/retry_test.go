@@ -603,3 +603,10 @@ func TestPolicyRefusalTextFallback(t *testing.T) {
 		t.Errorf("policy beats a rate-limit word: %+v", e)
 	}
 }
+
+func TestTypedCodeBeatsPolicyText(t *testing.T) {
+	err := stubErr{code: 429, body: "slow down, not content_filter", vend: "rate_limit_exceeded"}
+	if e := Classify("x", err, false); e.PolicyRefusal || e.Kind != KindRateLimit {
+		t.Errorf("a typed non-policy code must win over text: %+v", e)
+	}
+}

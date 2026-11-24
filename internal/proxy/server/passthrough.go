@@ -183,6 +183,11 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	return out, model, geminiChat, err
 }
 
+// upstreamNoRetry is true when the upstream answered x-should-retry: false.
+func upstreamNoRetry(resp *http.Response) bool {
+	return retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")) == retry.ShouldRetryNo
+}
+
 // passthroughRetryable: an upstream x-should-retry: false ends the failover; true and absent keep the status rule.
 func passthroughRetryable(in *http.Request, status int, hint retry.ShouldRetry) bool {
 	if hint == retry.ShouldRetryNo {
