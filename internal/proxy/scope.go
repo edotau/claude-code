@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -51,11 +52,17 @@ func ValidScopePart(s string) bool {
 	return !slices.ContainsFunc([]byte(s), func(c byte) bool { return !isAlnum(c) && !strings.ContainsRune("._-", rune(c)) })
 }
 
-func isAlnum(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
-}
+// isAlnum is lower-case only: file names that differ by case would share a file on a case-insensitive filesystem.
+func isAlnum(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }
 
-func scopeFile(team, id string) string { return filepath.Join(ScopesDir(), team+"@"+id+".json") } // "@" is outside the part alphabet: two pairs never share a file
+// scopeFile joins with "@", outside the part alphabet, so two pairs never share a file.
+func scopeFile(team, id string) string { return filepath.Join(ScopesDir(), team+"@"+id+".json") }
+
+// scopeLive reports whether sc's process still runs under the identity its record names.
+func scopeLive(sc Scope) bool {
+	start, err := proc.StartTime(sc.PID)
+	return err == nil && start == sc.Start
+}
 
 func checkScopeParts(team, id string) error {
 	if !ValidScopePart(team) || !ValidScopePart(id) {
@@ -75,7 +82,13 @@ func WriteScope(sc Scope) (func(), error) {
 		return nil, err
 	}
 	file := scopeFile(sc.Team, sc.ID)
-	if err := paths.WithFileLock(file, func() error { return paths.AtomicWrite(file, data, 0o600) }); err != nil {
+	err = paths.WithFileLock(file, func() error {
+		if cur, rerr := ReadScope(sc.Team, sc.ID); rerr == nil && scopeLive(cur) {
+			return fmt.Errorf("proxy scope: %s@%s is already served by pid %d", sc.Team, sc.ID, cur.PID)
+		}
+		return paths.AtomicWrite(file, data, 0o600)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return func() {
