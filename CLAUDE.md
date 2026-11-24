@@ -43,11 +43,11 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
 5. **Finish at the requested boundary.** A review or an edit task stops there. To land an authorized change,
-   follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
-   `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then install and
-   live-check on the Mac (the required check; WSL is a periodic sync, R19). Under `HARNESS_WORKTREE=lanes` a verified
-   lane merges without asking unless its diff adds a restriction. `make audit` runs at session end (a worktree merge
-   starts its own); `make install` after pulls.
+   follow `rules/standards/worktree-git.md`. A verified lane lands on local without asking (uncommitted in the live
+   checkout; the owner commits; `worktree land --merge` commits) unless its diff adds a restriction. Once the owner's
+   commit builds (macOS, `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin
+   main, then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). `make audit` runs at
+   session end (a worktree land starts its own); `make install` after pulls.
 
 ## Behavioral guidelines
 
@@ -100,6 +100,6 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
 | Agents and dispatch | Agent tool (guideline 3) | `rules/workflows/agents.md` · `skills/subagent-workflows/SKILL.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
-| Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
+| Git and worktrees | `claude-code worktree create\|land <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `claude-code agents diff --check` · `/code-review` | `rules/standards/quality.md` |
