@@ -763,3 +763,32 @@ func TestCommitTaskTrailersValidateBeforeStaging(t *testing.T) {
 		}
 	}
 }
+
+func TestCommitFileIDs(t *testing.T) {
+	dir := commitRepo(t)
+	hosttest.WriteRel(t, dir, "a.txt", "one\n")
+	hosttest.WriteRel(t, dir, "b.txt", "two\n")
+	list, err := Candidates(context.Background(), dir)
+	if err != nil || len(list) != 2 || list[1] != fileID("b.txt")+" b.txt" {
+		t.Fatalf("Candidates = %v, %v", list, err)
+	}
+	hosttest.WriteRel(t, dir, "c.txt", "three\n") // a changed set keeps b.txt's id
+	if _, err = commitRun(commitReq(dir, "fix: b", fileID("b.txt"))); err != nil {
+		t.Fatal(err)
+	}
+	if got := commitFiles(t, dir); strings.TrimSpace(got) != "M\tb.txt" {
+		t.Fatalf("commit holds %q, want only b.txt", got)
+	}
+}
+
+func TestCommitFileIDLiteralNameWins(t *testing.T) {
+	dir := commitRepo(t)
+	hosttest.WriteRel(t, dir, "a.txt", "one\n")
+	hosttest.WriteRel(t, dir, "@lit", "two\n")
+	if _, err := commitRun(commitReq(dir, "fix: lit", "@lit")); err != nil {
+		t.Fatal(err)
+	}
+	if got := commitFiles(t, dir); strings.TrimSpace(got) != "A\t@lit" {
+		t.Fatalf("commit holds %q, want only @lit", got)
+	}
+}

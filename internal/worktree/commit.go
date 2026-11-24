@@ -5,6 +5,8 @@ package worktree
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -142,9 +144,15 @@ func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, erro
 	var want []string
 	var err error
 	if len(req.Paths) > 0 {
-		if want, err = namedPaths(req.Dir, t.top, req.Paths); err != nil {
+		var names []string
+		if want, names, err = pickIDs(t, req.Paths); err != nil {
 			return nil, err
 		}
+		named, err := namedPaths(req.Dir, t.top, names)
+		if err != nil {
+			return nil, err
+		}
+		want = append(want, named...)
 	} else if dispatched {
 		return nil, usage("a dispatched leaf commits named files only: name your files " +
 			"(claude-code worktree commit -m <msg> <files>)")
@@ -156,6 +164,66 @@ func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, erro
 		return nil, refuse("nothing to commit: none of %s differs from HEAD", strings.Join(want, ", "))
 	}
 	return set, nil
+}
+
+// Candidates lists the dirty files of dir's checkout as `@id path` lines; `@id` names the file in worktree commit.
+func Candidates(ctx context.Context, dir string) ([]string, error) {
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		return nil, usage("not inside a git work tree: %s", dir)
+	}
+	entries, err := readOnlyStatus(ctx, paths.Real(top))
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, p := range dirtyPaths(entries) {
+		out = append(out, fileID(p)+" "+p)
+	}
+	return out, nil
+}
+
+func dirtyPaths(entries []proc.StatusEntry) []string {
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Path)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// fileID is "@" plus 6 hex of the path's hash: it stays the same while other files change.
+func fileID(path string) string {
+	sum := sha1.Sum([]byte(path))
+	return "@" + hex.EncodeToString(sum[:3])
+}
+
+func idListing(t commitTree) string {
+	var b strings.Builder
+	for _, p := range dirtyPaths(t.entries) {
+		fmt.Fprintf(&b, "\n  %s %s", fileID(p), p)
+	}
+	return b.String()
+}
+
+// pickIDs splits args into dirty paths chosen by `@id` and the rest; a dirty file literally named `@id` wins.
+func pickIDs(t commitTree, args []string) (picked, rest []string, err error) {
+	dirty := dirtyPaths(t.entries)
+	for _, a := range args {
+		var hit []string
+		if strings.HasPrefix(a, "@") && !slices.Contains(dirty, a) {
+			hit = slices.DeleteFunc(slices.Clone(dirty), func(p string) bool { return fileID(p) != a })
+		}
+		switch {
+		case len(hit) > 1:
+			return nil, nil, usage("%s names several files (%s): name them by path", a, strings.Join(hit, ", "))
+		case len(hit) == 0:
+			rest = append(rest, a)
+		default:
+			picked = append(picked, hit[0])
+		}
+	}
+	return picked, rest, nil
 }
 
 // dirtyAmong is the sorted dirty paths among want, each rename's two paths together (git needs both).
@@ -237,7 +305,8 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 		return nil, usage("a subagent of this session also has claims: name your files " +
 			"(claude-code worktree commit -m <msg> <files>)")
 	case len(out) == 0:
-		return nil, usage("no files to commit: name your files (claude-code worktree commit -m <msg> <files>)")
+		return nil, usage("no files to commit: name your files or ids (claude-code worktree commit -m <msg> <files|@id>)%s",
+			idListing(t))
 	}
 	return out, nil
 }
