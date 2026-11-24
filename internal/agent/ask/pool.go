@@ -50,6 +50,7 @@ func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOpt
 	if req, err = confineLine(ctx, t.Agent, req); err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
+	req = agent.MarkReviewLoop(req) // the line's own agent, tools and permissions decide
 	if o.Auto != "" && l.Task.Profile == "" && base.Provider == "" {
 		pick, err := linePick(t.Agent, req.Model, o)
 		if err != nil {

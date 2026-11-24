@@ -120,8 +120,9 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 		})
 		return agent.RecentRecords(1)[0].Request.Prompt
 	}
-	if bare := run(task); bare != task {
-		t.Fatalf("empty bank: prompt = %q, want the bare task", bare)
+	sent := task + "\n\n" + agent.ReviewLoopRule + "\n"
+	if bare := run(task); bare != sent {
+		t.Fatalf("empty bank: prompt = %q, want the task plus the review rule", bare)
 	}
 	bareID := agent.RecentRecords(1)[0].ID
 	var b strings.Builder
@@ -146,8 +147,8 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 	if again := run("--retry", id); again != first {
 		t.Errorf("retry sent %q, want %q", again, first)
 	}
-	if again := run("--retry", bareID); again != task {
-		t.Errorf("retry of a bare send = %q, want %q", again, task)
+	if again := run("--retry", bareID); again != sent {
+		t.Errorf("retry of a bare send = %q, want %q", again, sent)
 	}
 }
 

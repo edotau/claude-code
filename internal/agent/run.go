@@ -233,7 +233,7 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 
 func (c *Client) alias(prompt string) string {
 	if c.Alias != nil {
-		return c.Alias(prompt)
+		return c.Alias(WithoutReviewLoop(prompt))
 	}
 	return ""
 }
@@ -449,6 +449,7 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}
+	req.Prompt = hopPrompt(req)
 	if req.ReadOnly {
 		req.Permissions = withReadOnlyRules(r.Caps(), req.Permissions)
 		if r.Caps().ReadOnly == Emulated { // gated read-only: git status/diff must not rewrite .git/index; --env cannot undo it
@@ -635,6 +636,7 @@ type RunOptions struct {
 	AutoArm                                             bool               `json:"auto_arm,omitempty"`   // the workspace was an auto pick: a --job child may move on a 429
 	Carry                                               bool               `json:"carry,omitempty"`      // ask --carry: runs CarryArgv as a plain child; the depth exemption keys on it
 	CarryArgv                                           []string           `json:"carry_argv,omitempty"` // the inner ask line --carry runs; the task rides stdin, never this argv
+	ReviewLoop                                          bool               `json:",omitempty"`           // ask's code-writing candidate: checkRun adds the rule per hop that can write
 	Maintenance                                         bool               `json:"-"`                    // trusted memory job: keeps its own write tools despite an inherited read-only
 	DataPrompt                                          bool               `json:"-"`                    // the prompt embeds transcript data: the gate skips its Workflow-brief scan
 	Gate                                                bool               `json:"-"`                    // claude: bypass its prompts, permission.Permissions enforced by the injected permission-gate

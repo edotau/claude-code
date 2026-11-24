@@ -47,9 +47,9 @@ var cutoffFormat = schemas.Register(schemas.Format{
 	Keep: "rebuildable cache; entries expire after 60 minutes and a version mismatch is a miss",
 })
 
-// CutoffKey hashes agent, model selector and task (memory-recall block and trailing whitespace dropped).
+// CutoffKey hashes agent, model selector and task (memory-recall, review-loop and trailing whitespace dropped).
 func CutoffKey(agentName, model, prompt string) string {
-	task := preRecall(prompt)
+	task := preRecall(WithoutReviewLoop(prompt))
 	if IsAuto(model) {
 		model = "" // a record stores an auto model folded to "", so the typed word must hash the same
 	}

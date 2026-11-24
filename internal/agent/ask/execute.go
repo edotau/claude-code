@@ -41,8 +41,9 @@ func (r *askRun) execute() int {
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
-	prompt = join()
-	req, run := r.request(prompt), r.armRun()
+	req, run := r.request(join()), r.armRun()
+	req = agent.MarkReviewLoop(req)
+	prompt = req.Prompt
 	if run != nil {
 		req = run.probe(req)
 	}

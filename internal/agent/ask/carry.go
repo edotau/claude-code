@@ -432,6 +432,9 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 	fmt.Fprintf(os.Stderr, "ask: carry: %s was cut off (%s); pi takes over\n", child.ID, cut)
 	log.Emit(wire.EventTakeover, fmt.Sprintf("%s cut off (%s); pi takes over", child.ID, cut))
 	brief := fmt.Sprintf(takeoverBrief, rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
+	if agent.IsReadOnlyBrief(rec.Request.Prompt) { // the wrapped task's header no longer opens the brief
+		brief = "Mode: read-only\n\n" + brief
+	}
 	stopForward := agent.StartForward(ctx, rec.ID, child.ID, log)
 	code := carryExec(ctx, argv, strings.NewReader(brief), carryEnv(ctx, rec), out, carryErr(rec, out))
 	stopForward()
@@ -481,7 +484,7 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 	if f.readOnly {
 		argv = append(argv, "--read-only")
 	}
-	for _, kv := range [][2]string{{"permissions", (&permValue{f}).String()}, {"workdir", f.workdir}} {
+	for _, kv := range [][2]string{{"permissions", (&permValue{f}).String()}, {"workdir", f.workdir}, {"rubric", f.rubric}} {
 		if kv[1] != "" {
 			argv = append(argv, "--"+kv[0], kv[1])
 		}

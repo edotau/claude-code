@@ -676,7 +676,7 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 	if err := previewServes(tb, q.Model, profiles); err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	chain, pick, err := chainFor(ctx, q, tb.PreviewAlias(q.Model, q.Task), lead)
+	chain, pick, err := chainFor(ctx, q, tb.PreviewAlias(q.Model, WithoutReviewLoop(q.Task)), lead)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}

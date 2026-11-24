@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/json"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // BriefInput supplies the authored task and the leaf's execution contract.
@@ -26,6 +29,76 @@ type BriefInput struct {
 	ReadOnly bool
 	Report   string
 	Verify   string
+}
+
+// ReviewLoopRule is the standing rule every code-writing dispatch carries.
+const ReviewLoopRule = `Review loop (standing rule): after your change, get it reviewed for bugs; fix the findings and review again.
+Do not stop until a review comes back with no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better); hand back
+only then, with the last review's result. A test your change breaks: fix it now if small (repair the test only when
+the test is wrong; never delete or skip it); if large, hand back naming it for a test-repair leaf.`
+
+// reviewLoopBlock is what WithReviewLoop appends; a replayed prompt drops it so each run decides again.
+const reviewLoopBlock = "\n\n" + ReviewLoopRule + "\n"
+
+// WithoutReviewLoop is prompt minus the appended rule: what replay, cutoff keys and task classification read.
+func WithoutReviewLoop(prompt string) string { return strings.ReplaceAll(prompt, reviewLoopBlock, "") }
+
+// MarkReviewLoop flags a code-writing candidate by its typed inputs and adds the rule when the first hop can write.
+func MarkReviewLoop(req RunOptions) RunOptions {
+	req.ReviewLoop = reviewLoopCandidate(req)
+	req.Prompt = WithReviewLoop(req)
+	return req
+}
+
+// reviewLoopCandidate is a dispatch whose own flags and brief ask for code: tools, no read-only mode, no rubric.
+func reviewLoopCandidate(req RunOptions) bool {
+	p := WithoutReviewLoop(req.Prompt)
+	return req.Tools && !req.ReadOnly && !req.NoTools && !IsReadOnlyBrief(p) && req.Rubric == "" &&
+		!strings.HasPrefix(p, rubricLead) // a rubric run is a review, kept so on replay
+}
+
+// WithReviewLoop is req.Prompt plus ReviewLoopRule, once, when the run can write code under its inherited policy too.
+func WithReviewLoop(req RunOptions) string {
+	p := WithoutReviewLoop(req.Prompt)
+	if strings.Contains(p, ReviewLoopRule) || !reviewLoopCandidate(req) || !writesCode(req) {
+		return p
+	}
+	return p + reviewLoopBlock
+}
+
+// withDefaults is req's policy over its resolved agent's default policy; an unresolvable selector keeps req's own.
+func withDefaults(req RunOptions) permission.Permissions {
+	name, _, err := SelectAgent(req.Agent, req.Agents)
+	if err != nil {
+		return req.Permissions
+	}
+	def, err := DefaultPermissions(name)
+	if err != nil {
+		return req.Permissions
+	}
+	p, _ := permission.Resolve(def, req.Permissions)
+	return p
+}
+
+// hopPrompt is the prompt with the rule iff ask marked it and this hop's effective policy (checkRun's) can write.
+func hopPrompt(req RunOptions) string {
+	p := WithoutReviewLoop(req.Prompt)
+	if !req.ReviewLoop || req.ReadOnly || !req.Tools || req.NoTools || req.Permissions.Mode == permission.PermPlan ||
+		strings.Contains(p, ReviewLoopRule) {
+		return p
+	}
+	return p + reviewLoopBlock
+}
+
+// writesCode reports whether req has write tools once defaults and the outer policy layer as in checkRun.
+func writesCode(req RunOptions) bool {
+	if !req.Tools || req.ReadOnly || req.NoTools {
+		return false
+	}
+	vctx := valuesContext(context.Background(), req.Values)
+	p, err := InheritPermissions(vctx, withDefaults(req))
+	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
+	return err == nil && (!readOnly || req.Maintenance) && p.Mode != permission.PermPlan && outer.Mode != permission.PermPlan
 }
 
 //go:embed brief.tmpl

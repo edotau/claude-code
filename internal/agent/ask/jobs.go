@@ -406,6 +406,9 @@ func Send(id, task, format string, timeout time.Duration) int {
 			}
 			return resumeSend(ctx, rec, prompt, format)
 		}
+		rec.Request.Prompt, rec.Request.Agent = prompt, rec.Agent    // Agent is not saved; its defaults count
+		rec.Request.Values = proc.Values{proc.DispatchIDEnv: rec.ID} // holder + ancestors' policy
+		prompt = agent.WithReviewLoop(rec.Request)
 	}
 	env, err := agent.SendLive(ctx, id, prompt, stdoutSink(format, id))
 	if err != nil {
@@ -527,6 +530,9 @@ func startLive(ctx context.Context, s *askState, perms permission.Permissions, n
 		return failAsk(format, name, err)
 	}
 	rec.Live = true
+	if p, err := agent.InheritPermissions(ctx, perms); err == nil { // agents send reads the holder's env-only policy here
+		rec.ExportedPolicy = &p
+	}
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}

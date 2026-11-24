@@ -26,13 +26,16 @@ const WebViaCLI = "For web search or fetching a page, run `claude-code network w
 // MaxPromptBytes keeps a prompt passed as one argv element under the kernel's 128 KiB MAX_ARG_STRLEN.
 const MaxPromptBytes = 96 << 10
 
+// rubricLead opens every rubric prompt; a replayed rubric review is recognised by it.
+const rubricLead = "You are reviewing against a fixed standard, quoted in full below.\n\n"
+
 // rubricPrompt frames task against the review standard in file, quoted verbatim.
 func rubricPrompt(file, task string) (string, error) {
 	standard, err := os.ReadFile(file)
 	if err != nil {
 		return "", fmt.Errorf("rubric: %w", err)
 	}
-	prompt := "You are reviewing against a fixed standard, quoted in full below.\n\n" +
+	prompt := rubricLead +
 		"=== BEGIN REVIEW STANDARD (the rubric, NOT the code under review) ===\n" + string(standard) +
 		"\n=== END REVIEW STANDARD ===\n\nTASK: " + task + "\n\nRules for your output:\n" +
 		"- Apply the standard exactly as written, including every exemption it states.\n" +
