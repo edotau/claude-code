@@ -199,7 +199,9 @@ func (r *runner) adoptLegacy(old string) {
 
 // phaseScopeID names wave n's phase proxy: the path-keyed state dir name, so same-named plans never collide.
 func phaseScopeID(dir string, n int) string {
-	return strings.TrimLeft(filepath.Base(dir), "._-") + "-w" + strconv.Itoa(n)
+	suffix := "-w" + strconv.Itoa(n)
+	base := strings.TrimLeft(filepath.Base(dir), "._-")
+	return base[:min(len(base), 64-len(suffix))] + suffix
 }
 
 // planSlug names a plan's state dir, reports and notices.
@@ -293,7 +295,10 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return 0, nil
 	}
 	defer r.notify(w.Number)
-	group, closeProxy := agent.HostPhaseProxy(ctx, phaseScopeID(r.dir, w.Number))
+	group, closeProxy := "", func() {}
+	if len(launch) > 0 {
+		group, closeProxy = agent.HostPhaseProxy(ctx, phaseScopeID(r.dir, w.Number))
+	}
 	defer closeProxy()
 	r.group = group
 	defer func() { r.group = "" }()
