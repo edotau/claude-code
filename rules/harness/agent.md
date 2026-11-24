@@ -84,7 +84,8 @@ paths:
   then the agent's own CLI; hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once
   by context size under `all` or `agents` (a typed model is kept, not replaced);
   a policy refusal and `x-should-retry` are typed error classes. Fable is refused on Databricks by name, never run
-  as Opus; among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name. A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
+  as Opus; among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name.
+  A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
 - **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
   typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
   its footer line (`internal/pi/stream.go` `handbackStatuses`). A spec's `own`, `report` and `verify` keys on
