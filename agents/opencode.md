@@ -37,6 +37,15 @@ its wording, through the rotation (`agent.TaskTier`). On the Databricks route th
 reachable from the main session: `claude-code opencode …`, or overlay `{"runner":"own"}`. Role rotation covers
 opencode's models too.
 
+**Code mode** (only when the brief says so) — the same ask with `--codemode on`:
+
+```bash
+claude-code agents ask --background --agent opencode --codemode on --provider databricks --tools --timeout 60m - < PATH
+```
+
+It sets `CODEMODE=on` and opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`, so rtk is off inside the run. `--codemode only`
+is not offered for opencode (it runs off with a note). Its effect on opencode's tool list is unverified.
+
 ## Owns
 
 - **Code changes and doc updates** in the files the brief names; **doc lookups** from current official sources.

@@ -108,15 +108,24 @@ paths:
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`; there is no switch (a
   missing `bin/.rtkwrap` launches unshimmed with a notice). Windows has no shims.
 - **rtk for the other agents** — `rtk-rewrite` in the codex and opencode hooks rewrites every eligible command, never
-  while `CODEMODE` is on or only. Copilot's SDK shell tool rewrites through the same function. agy cannot rewrite
-  (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets awareness text only.
+  while `CODEMODE` is on or only, or while a code-mode vendor variable (claude's `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE`,
+  opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`) is on. Copilot's SDK shell tool rewrites through the same function.
+  agy cannot rewrite (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets
+  awareness text only.
   `claude-code doctor` shows one rtk row per agent.
-- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
-  machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`), loads `builtin:codemode`. The
-  model writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts.
-  The guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode
-  never wraps (see Pi carrier and experiments, rule 4).
-  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
+- **code mode (trial, per agent)** — `agents ask --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
+  machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`). Each agent with a row
+  (`agentid.CodeModeAgents()`: pi, claude, opencode) turns it on its own way: pi loads `builtin:codemode`, where the
+  model writes a script that calls the guard's tools in a QuickJS sandbox, and `only` routes every tool through
+  scripts; claude takes `on` only on the direct Anthropic route (`--provider anthropic`), via its
+  `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` in the `--settings` env block; opencode takes `on` via
+  `OPENCODE_EXPERIMENTAL_CODE_MODE`. A run that cannot give code mode (no row, `only` where it is not offered, claude
+  off the direct route, or `--tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
+  recorded as `codemode_reason`; only a misspelled value exits 2. The guard allows pi's one tool only from
+  `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
+  experiments, rule 4).
+  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
+  `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
@@ -308,7 +317,8 @@ vendor CLI untouched.
    - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
      parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
    - A record names one `experiment`: `codemode`, `rtk-wrap` (a bash tool, off Windows) or `none`.
-5. **When to use code mode (`--codemode on|only`, `off` for one call, or `CODEMODE` per machine):** read-heavy
+5. **When to use code mode** (`--codemode on|only` for pi, `on` for claude and opencode, `off` for one call, or
+   `CODEMODE` per machine): read-heavy
    work that fans out (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not
    single reads or edits: the first runs cost more tokens there.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
