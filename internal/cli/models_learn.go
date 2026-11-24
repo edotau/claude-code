@@ -109,7 +109,7 @@ func readFold() (catalog.Prices, catalog.PriceReport, error) {
 		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); the owner count is omitted\n", err)
 	}
 	for _, id := range owner {
-		if _, ok := next.Rate(id); ok {
+		if row, ok := next.Row("databricks", id); ok && row.Priced {
 			rep.OwnerKept++
 		}
 	}

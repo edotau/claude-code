@@ -92,7 +92,7 @@ func ledgerModelKey(profile, model string) string {
 
 // estimateCost prices ledger entries at or after since; profiles without a table are left out unless none has one.
 func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]providers.Price, since time.Time) []costRow {
-	type key struct{ profile, model string }
+	type key struct{ profile, provider, model string }
 	keyed := map[string]map[string]providers.Price{}
 	for profile, table := range prices {
 		keyed[profile] = map[string]providers.Price{}
@@ -107,10 +107,10 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 		if e.Ts.Before(since) || (len(prices) > 0 && keyed[e.ProfileName()] == nil) {
 			continue
 		}
-		k := key{e.ProfileName(), ledgerModelKey(e.ProfileName(), e.Model)}
+		k := key{e.ProfileName(), e.Provider, ledgerModelKey(e.ProfileName(), e.Model)}
 		r := idx[k]
 		if r == nil {
-			r = &costRow{Profile: k.profile, Provider: e.Provider, Model: k.model, Source: costEst}
+			r = &costRow{Profile: k.profile, Provider: k.provider, Model: k.model, Source: costEst}
 			idx[k] = r
 			order = append(order, k)
 		}
