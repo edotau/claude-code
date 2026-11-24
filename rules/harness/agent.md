@@ -69,9 +69,9 @@ paths:
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
-  reasons and cut-off streams fail). Pi may be a fallback for write work. Its
-  run carries no permission policy (R30), whoever the caller is; bash is judged by `safety-scan`. `make` and
-  the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
+  reasons and cut-off streams fail). Pi is the default leaf route (claude in-context on a Pi refusal) and
+  may be a fallback for write work. Its run carries no permission policy (R30), whoever the caller is; bash is
+  judged by `safety-scan`. `make` and the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
@@ -134,7 +134,7 @@ paths:
   `prompt` is the task; `overlay`, `agents`, `output-schema` also take an object). An unknown key or bad value exits 2
   naming the nearest key; typed flags beat the spec, typed list flags add to it. `--batch` lines use the same keys
   (`id`, `plan_task` extra; a batch-wide key on a line exits naming it). `--dry-run` prints agent, route (as `gateway
-  resolve`), hops, permissions, overlay and the canonical argv through the real resolvers; it saves no record and
+  resolve`), hops, overlay and the canonical argv through the real resolvers; it saves no record and
   calls no model and stamps neither workspace nor model picks; not with `--live`, `--batch`, `--job`.
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
   (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
@@ -260,7 +260,7 @@ vendor CLI untouched.
 2. **The mark (D2).** The outer record has `request.carry: true` and is the parent of the inner run (and of a takeover).
    - Its child has a direct call's depth; the exemption needs a running top-level `carry` record whose live process
      is the child's ancestor.
-   - The child inherits the carrier's permissions, token caps and any route fence (`COWORKER_OVERLAY`) the carrier
+   - The child inherits the carrier's token caps and any route fence (`COWORKER_OVERLAY`) the carrier
      itself inherited; the carrier adds no route of its own (it runs before ask exports one).
    - Every other nested dispatch, a plain `--agent pi` run's included, stays fenced to its parent's route.
 3. **Each shell layer wraps only its own commands.** The rtk stand-ins act in Pi's own tool shell. A carried
@@ -276,7 +276,8 @@ vendor CLI untouched.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
    - rtk wrapping is on: review `state/harness/rtkwrap/decisions.jsonl` for a wrap on program-parsed output.
    - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
-7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command).
+7. **Don't** lean on Pi's Databricks route on purpose in a carried command (name the route);
+   a leaf's default Pi route is intended.
 
 ## Skills and instructions parity
 
@@ -295,9 +296,9 @@ vendor CLI untouched.
 | copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
 | opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` |
 
-- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs per-call `Decide` on the
-  dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK
-  callbacks are registered (each guard would run twice).
+- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` carries no policy;
+  hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are
+  registered (each guard would run twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 5; 0 = no cap; invalid uses default); a
@@ -306,8 +307,8 @@ vendor CLI untouched.
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 20,000,000; 0 = no cap; unknown usage counts 0;
   invalid uses default; it only refuses new nested dispatches, a running one is never stopped). With no
   `HARNESS_DISPATCH_ID` in its env, a dispatch walks its parent processes once: the nearest ancestor running
-  `claude-code` whose pid and start time match a running record becomes the parent, and that record's depth,
-  permissions and children/tree-token caps apply, so `env -i` inside a leaf no longer makes a top-level dispatch
+  `claude-code` whose pid and start time match a running record becomes the parent, and that record's depth
+  and children/tree-token caps apply, so `env -i` inside a leaf no longer makes a top-level dispatch
   (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.

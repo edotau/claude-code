@@ -42,7 +42,7 @@ func Scan(in *core.Input) core.Result {
 	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(msg), Rule: detail, Floor: true}
 }
 
-// Verdict is safety-scan's decision for in with no audit entry, for the doctor permissions report.
+// Verdict is safety-scan's decision for in with no audit entry.
 func Verdict(in *core.Input) core.Decision {
 	d, _, _ := commandVerdict(in, dropMessageHeredocs(dropPatchBodies(in.ToolCommand())))
 	return d

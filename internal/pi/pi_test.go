@@ -226,8 +226,8 @@ func TestAfterDeliversAttachmentsBeforePrompt(t *testing.T) {
 }
 
 func TestWithoutHookControl(t *testing.T) {
-	got := withoutHookControl([]string{"A=1", "HARNESS_HOOK_SKIP=all", "harness_hook_agent=x", "HARNESS_HOOKS=keep", "HARNESS_DISPATCH_PERMISSIONS={}"})
-	if want := []string{"A=1", "HARNESS_HOOKS=keep", "HARNESS_DISPATCH_PERMISSIONS={}"}; !slices.Equal(got, want) {
+	got := withoutHookControl([]string{"A=1", "HARNESS_HOOK_SKIP=all", "harness_hook_agent=x", "HARNESS_HOOKS=keep", "HARNESS_DISPATCH_ID=x"})
+	if want := []string{"A=1", "HARNESS_HOOKS=keep", "HARNESS_DISPATCH_ID=x"}; !slices.Equal(got, want) {
 		t.Errorf("env = %v, want %v", got, want)
 	}
 }

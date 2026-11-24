@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/assets"
 
 	"github.com/edotau/claude-code/internal/paths"
 
@@ -208,23 +209,11 @@ func readCapped(path string) ([]byte, error) {
 	return data, nil
 }
 
-// reviewPromptNeutral mirrors the adversarial prompt's shape with a non-adversarial brief.
-const reviewPromptNeutral = `Review the attached diff for correctness, regressions, missing tests, and scope creep.
-Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
-The first line of your answer is the verdict alone: SHIP, FIX REQUIRED or BLOCK.`
-
-// reviewPromptAdversarial asks for severity-ordered findings only, with a fixed clean-diff verdict.
-const reviewPromptAdversarial = `You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in
-priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
-MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.
-Skepticism ON: name the hidden assumption each change depends on. No praise, no summary — findings only, one
-per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: ` + cleanVerdict + `.`
-
 // reviewPrompt returns the base review prompt, with a "Focus: " line appended when focus is set.
 func reviewPrompt(adversarial bool, focus string) string {
-	p := reviewPromptNeutral
+	p := assets.ReviewNeutral()
 	if adversarial {
-		p = reviewPromptAdversarial
+		p = assets.ReviewAdversarial(cleanVerdict)
 	}
 	if focus != "" {
 		p += "\nFocus: " + focus

@@ -526,7 +526,7 @@ func cmdAgentsFind(args []string) int {
 // cmdAgentsWaves is `agents ask --waves <plan>`: the wave runner.
 func cmdAgentsWaves(args []string) int {
 	fs := helptext.NewFlagSet("agents ask --waves", helptext.Page{Usage: "claude-code agents ask --waves <plan> [flags]",
-		About: "Run a plan’s waves with observed verification and no commits; the shared route and permission flags reach every leaf.",
+		About: "Run a plan’s waves with observed verification and no commits; the shared route flags reach every leaf.",
 		Hint:  "Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n3 outside owned files or unattributed, 4 interrupted."})
 	timeout := fs.Duration("timeout", 0, "per-dispatch time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)

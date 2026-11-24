@@ -235,15 +235,20 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
 			"Refuses a peer's file or a non-Conventional subject; never pushes.\n" +
 			"--task writes Task: <plan-slug> <id>; a named task ticks once the commit is on main.\n" +
-			"Quote an id with spaces: --task \"Phase 2.1\"."})
+			"Quote an id with spaces: --task \"Phase 2.1\".\n" +
+			"List the candidates first: claude-code worktree commit --list (no -m)."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
+	list := fs.Bool("list", false, "print each dirty file as @id<TAB>path and exit; no -m needed")
 	var tasks []string
 	fs.Func("task", "name an open task `id` (ticks on landing); repeat for several", func(id string) error { tasks = append(tasks, id); return nil })
 	plan := fs.String("plan", "", "plan file for --task (default: recent or claimed plans)")
 	files, err := helptext.ParseArgs(fs, args) // files come first in the usual call, so flags may follow them
 	if err != nil {
 		return helptext.ExitCode(err)
+	}
+	if *list {
+		return listCommitCandidates(cwd)
 	}
 	if *plan != "" {
 		top, _ := paths.CheckoutOf(cwd)
@@ -264,6 +269,21 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 		return helptext.FailUsage("worktree commit: %v", err)
 	}
 	return helptext.Fail("worktree commit: %v", err)
+}
+
+// listCommitCandidates prints one @id<TAB>path line per dirty file.
+func listCommitCandidates(cwd string) int {
+	cands, err := worktree.Candidates(context.Background(), cwd)
+	if err != nil {
+		return helptext.Fail("worktree commit: %v", err)
+	}
+	for _, c := range cands {
+		id, path, _ := strings.Cut(c, " ")
+		if _, err := fmt.Printf("%s\t%s\n", id, path); err != nil {
+			return helptext.Fail("worktree commit: %v", err)
+		}
+	}
+	return 0
 }
 
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
@@ -516,7 +536,7 @@ func worktreeSpec() *helptext.Node {
 	sub := map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
-		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run")}},
+		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},

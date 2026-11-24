@@ -45,7 +45,7 @@ A file the same command line writes from `echo`/`printf` (a redirect or `tee`) a
 `cd -` returns to the previous directory, or to the starting directory when that one is unknown. A
 `"$(cat <<'EOF' …)"` commit message blocks only on a footer at a line start, not one named mid-subject. The
 write-path checks (this hook and docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a
-subshell's `cd` inside it, and take `mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a
+subshell's `cd` inside it, and take `mv -t DIR`'s sources, not `DIR`, as moved away. `safety-scan` places a
 command's relative operand (`..` included) in the session cwd under a Read deny, refusing a climbing one only after
 a cd to an unknown dir. Blocks log to `claude-code doctor --audit` by reason, pattern and session id, never the
 command text.
@@ -253,5 +253,5 @@ its upstream, adds one line per HEAD/upstream pair, whatever the mode
 Pi has no prompts and no sandbox: its only tools are the guard extension's seven (read, bash, edit, write, grep, find,
 ls), each judged by `claude-code hook PreToolUse --pi-guard` (`safety-scan` for
 bash). Only an explicit allow runs the tool, on the judged path; `HARNESS_HOOK_*` is ignored there. Mapping, path
-rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi ask runs with the
-dispatch's permissions like any agent (R30); `make` and the live check stay with the main session.
+rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi ask
+carries no permission policy, like any agent (R30); `make` and the live check stay with the main session.

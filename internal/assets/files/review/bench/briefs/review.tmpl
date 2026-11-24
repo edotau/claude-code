@@ -32,7 +32,7 @@ Check the complete lane diff, not just the supplied excerpt, against the named p
 
 ```bash
 cd {{sh .Workdir}}
-rtk git diff --no-ext-diff --no-textconv HEAD
+{{if not .CodeMode}}rtk {{end}}git diff --no-ext-diff --no-textconv HEAD
 {{.IdentityCommand}}
 {{.Verify}}
 ```
@@ -49,7 +49,7 @@ The owner decides that exception; a reviewer must not silently approve it. Name 
 - D1 allows only driver commits in lanes; never commit on main, merge a lane, or advance rolling.txt before merge.
 - Never wipe or rewrite the dispatch environment, print credentials, use sudo, or delete files.
 - Never use foreground sleep; use background work and its completion notification.
-- Shell output uses rtk; use rtk read for files and rtk bypass when exact bytes matter. Run only scoped checks.
+- {{if not .CodeMode}}Shell output uses rtk; use rtk read for files and rtk bypass when exact bytes matter. {{end}}Run only scoped checks.
 - Report unowned compile failures and missing evidence; do not repair them or launch a lower-tier judgment.
 
 ## Reporting contract

@@ -43,7 +43,7 @@ func checkBlankFields(t *testing.T, fix assets.BenchFixInput, review assets.Benc
 		v := reflect.ValueOf(item)
 		for i := range v.NumField() {
 			name := v.Type().Field(i).Name
-			if name == "Diff" {
+			if name == "Diff" || v.Field(i).Kind() != reflect.String {
 				continue
 			}
 			copy := reflect.New(v.Type()).Elem()

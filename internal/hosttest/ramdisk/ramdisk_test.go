@@ -130,7 +130,8 @@ fi
 	origTimeout, origWait := diskTimeout, diskWaitDelay
 	diskTimeout, diskWaitDelay = time.Second, time.Second
 	t.Cleanup(func() { diskTimeout, diskWaitDelay = origTimeout, origWait })
-	stall := diskTimeout + diskWaitDelay + 5*time.Second
+	bound := diskTimeout + diskWaitDelay + 3*time.Second // load headroom over the abandon point
+	stall := bound + 5*time.Second
 	writeDiskTool(t, bin, "diskutil", fmt.Sprintf("exec sleep %d\n", int(stall/time.Second)))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(offEnv, "1")
@@ -141,8 +142,8 @@ fi
 	out := filepath.Join(t.TempDir(), "tmpdir")
 	start := time.Now()
 	code := Run(probe(out, "3"))
-	if elapsed := time.Since(start); elapsed >= diskTimeout+diskWaitDelay {
-		t.Errorf("stalled erase took %s, want less than %s", elapsed, diskTimeout+diskWaitDelay)
+	if elapsed := time.Since(start); elapsed >= bound {
+		t.Errorf("stalled erase took %s, want less than %s (the stub stalls for %s)", elapsed, bound, stall)
 	}
 	if code != 3 {
 		t.Errorf("exit = %d, want the fallback command's 3", code)
@@ -154,12 +155,21 @@ fi
 	if string(got) != os.Getenv("TMPDIR") {
 		t.Errorf("child TMPDIR = %q, want inherited %q", got, os.Getenv("TMPDIR"))
 	}
-	got, err = os.ReadFile(detached)
+	got, err = readEventually(detached, stall)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != "/dev/disk9" {
 		t.Errorf("detached = %q, want /dev/disk9", got)
+	}
+}
+
+// readEventually polls for non-empty path up to limit, so a slow detached command is waited for, not misread.
+func readEventually(path string, limit time.Duration) (got []byte, err error) {
+	for deadline := time.Now().Add(limit); ; time.Sleep(10 * time.Millisecond) {
+		if got, err = os.ReadFile(path); (err == nil && len(got) > 0) || time.Now().After(deadline) {
+			return got, err
+		}
 	}
 }
 

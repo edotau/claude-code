@@ -18,12 +18,11 @@ one, edit both and run `make install` for projections; an existing Claude `setti
 
 ## Groups and the dispatcher
 
-`settings.Registry` lists the groups in run order; `permission` and `codex` are agent-only, never in Claude settings.
+`settings.Registry` lists the groups in run order; `codex` is agent-only, never in Claude settings.
 
 | Group | Does |
 | --- | --- |
 | `safety` | Bash safety gate (block / ask / warn tiers) |
-| `permission` | Agent-only (codex, gemini, opencode): judges each call against the dispatch's permissions |
 | `rtk` | Routes noisy command output through rtk (Claude, codex, opencode); Claude rewrites in place in every mode, auto included |
 | `docs` | Markdown placement; plan template, dated plan copies, plan-task ticks |
 | `dispatch` | Concurrency cap, subagent model fill, memory recall on spawn and every `agents ask` |

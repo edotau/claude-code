@@ -219,7 +219,7 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   and truncation notice.
   A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
   to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
-  If the permission gate refused writes and no bank file changed it reruns once; a second miss records status
+  If `safety-scan` refused writes and no bank file changed it reruns once; a second miss records status
   `blocked` (no retry, no Stop block) with one quiet line.
 - `memory dream` — consolidates (on Claude, the logged-in user): baseline → audit → recent sessions → prune native
   memory → refresh bank → plans audit → cross-pollinate → report; archives durable-file overflow. The plans audit

@@ -30,6 +30,10 @@
   extension fails; a new setting prefers a typed overlay field); "merge" means fold and dedup, never nest.
 - **No single source** — a source, mirror, route or profile is an ordered list with runtime fallback and the same
   integrity check; never remove a working source to unify (an owner pin or an explicit `--fallback none` stands).
+- **Typed over composed** — wherever code can decide, the model picks from a typed list (an action, an id, an enum,
+  typed arguments) and Go builds the exact command, path or record from it; a model never writes a command line,
+  file name or status text that code could produce ready to run. New surfaces start typed; an existing free-text
+  one is converted when it is next touched.
 - **Precise changes** — every changed line traces to the request: no drive-by reformatting, comment churn or "while
   I'm here" refactors. When adding an entry (flag, command, target), write only its text. Remove only orphans your
   change created; mention pre-existing dead code. Never rename what an established naming scheme defines unless asked;

@@ -6,7 +6,7 @@ rebuild the plan. `Agent: in-context` = the leaf does it itself.
 ## Every brief adds
 
 ```text
-Agent: <in-context | work agent matching the selected leaf type>
+Agent: <in-context | pi (default for code leaves) | work agent matching the selected leaf type>
 Shared tree: follow CLAUDE.md hard rule 4 and rules/standards/worktree-git.md.
 Confirm each write with `rtk git diff --stat -- <file>`.
 Terminal leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
@@ -14,7 +14,7 @@ Before a behavior change write TASK: code does X; check expects Y; spec says Z (
 contradicts, or stop and report). After a defect fix write ISSUE: searched <pattern> — found <N> other sites:
 <files|none>; before reporting PENDING: <skipped follow-up or none>. Report all as plain sentences.
 Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
-Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only)>.
+Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only); after a Pi fallback, the failed Pi line then `self`>.
 ```
 
 Templates list only their own lines. Reviewers inspect the artifact, never the report about it; Code

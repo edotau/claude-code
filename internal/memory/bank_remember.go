@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,12 +20,38 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// RememberTypes maps --type to its file: "project" is a dated decisionLog.md entry, the rest conventions.md bullets.
+// RememberTypes maps --type to its file; a feedback-<class> type maps to feedbackDir, a note of its own.
 var RememberTypes = map[string]string{
 	"project":   "decisionLog.md",
 	"user":      "conventions.md",
 	"feedback":  "conventions.md",
 	"reference": "conventions.md",
+}
+
+// FeedbackClasses are the classes of a feedback note, each with the sentence that tells the model when to pick it.
+var FeedbackClasses = map[string]string{
+	"correction": "the owner corrected an action, claim or output",
+	"preference": "the owner stated how they want something done",
+	"process":    "the owner changed a workflow, order or approval step",
+	"tooling":    "the owner reported a tool, hook or verb misbehaving or missing",
+}
+
+const feedbackDir = "feedback/"
+
+func init() {
+	for c := range FeedbackClasses {
+		RememberTypes["feedback-"+c] = feedbackDir
+	}
+}
+
+// RememberTypeHelp lists the --type values; the feedback classes carry their when-to-pick sentence.
+func RememberTypeHelp() string {
+	var b strings.Builder
+	b.WriteString("user, feedback, project, reference")
+	for _, c := range slices.Sorted(maps.Keys(FeedbackClasses)) {
+		b.WriteString("; feedback-" + c + " (a feedback/ note: " + FeedbackClasses[c] + ")")
+	}
+	return b.String()
 }
 
 // afterRememberWrite runs between Remember's stamped write and its settle, under the lock; tests race a rival there.
@@ -37,11 +66,17 @@ func Remember(kind, fact string, now time.Time) (string, error) {
 func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 	file, ok := RememberTypes[kind]
 	if !ok {
-		return "", fmt.Errorf("--type %q: want user, feedback, project, or reference", kind)
+		return "", fmt.Errorf("--type %q: want %s", kind, RememberTypeHelp())
 	}
 	fact = strings.Join(strings.Fields(fact), " ") // one line: a newline plus "## date — x" would stamp a second entry
 	if fact == "" {
 		return "", errors.New("empty fact")
+	}
+	if file == feedbackDir {
+		if old != "" {
+			return "", errors.New("--supersedes: a feedback-<class> note replaces nothing; use --type feedback")
+		}
+		return rememberNote(strings.TrimPrefix(kind, "feedback-"), fact, now)
 	}
 	if old != "" { // before EnsureBank, so a refused id leaves no store behind
 		var err error
@@ -76,11 +111,93 @@ func rememberLocked(file, kind, fact, old string, now time.Time) (string, error)
 	if err != nil {
 		return "", err
 	}
+	before, _ := StoreRepo().headSHA()
 	id, err := writeRememberFact(file, kind, fact, old, now)
 	if err != nil {
 		return "", err
 	}
-	return id, restoreOnError(errors.Join(stampAndSettle(file, now), requireReplaced(old, id)), snap)
+	err = errors.Join(stampAndSettle(file, now), requireReplaced(old, id))
+	if err == nil {
+		return id, nil
+	}
+	if rerr := restoreSnaps(snap); rerr != nil { // half restored: keep the settle commit as the recovery point
+		return id, errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
+	}
+	err = fmt.Errorf("%w (write rolled back)", err)
+	return id, errors.Join(err, dropCommitsSince(before, "settle: "+stateKey(), err))
+}
+
+// dropCommitsSince undoes the one commit settle made on before once the write failed, the files being restored already.
+func dropCommitsSince(before, subject string, failed error) error {
+	repo := StoreRepo()
+	head, ok := repo.headSHA()
+	if failed == nil || !ok || before == "" || head == before {
+		return nil
+	}
+	n, err := repo.run("rev-list", "--count", before+".."+head)
+	if err != nil || strings.TrimSpace(n) != "1" {
+		return nil // a peer committed too, or HEAD moved off the pre-write commit: not ours to move
+	}
+	if got, err := repo.run("log", "-1", "--format=%s", head); err != nil || strings.TrimSpace(got) != subject {
+		return nil
+	}
+	_, err = repo.run("reset", "--quiet", before)
+	return err
+}
+
+// rememberNote writes a feedback/ note for class, indexes it and settles.
+func rememberNote(class, fact string, now time.Time) (string, error) {
+	if err := EnsureBank(""); err != nil {
+		return "", err
+	}
+	var rel string
+	err := withFlatLock(BankLockWait, func() error {
+		var werr error
+		rel, werr = writeNoteLocked(class, fact, now)
+		return werr
+	})
+	return rel, err
+}
+
+// writeNoteLocked keeps the note and settle output on a failed settle: a rollback cannot tell a peer's bytes.
+func writeNoteLocked(class, fact string, now time.Time) (string, error) {
+	slug := noteSlug(fact)
+	dir := paths.MemorySubDir("feedback")
+	for n := 2; statOK(filepath.Join(dir, slug+".md")); n++ { // a taken name is never overwritten
+		slug = noteSlug(fact) + "-" + strconv.Itoa(n)
+	}
+	rel := "feedback/" + slug + ".md"
+	path := filepath.Join(dir, slug+".md")
+	desc := strconv.Quote(textutil.Truncate(fact, 200))
+	note := "---\nname: " + slug + "\ndescription: " + desc + "\nmetadata:\n  type: feedback\n  class: " + class +
+		"\n  modified: " + now.UTC().Format(time.RFC3339) + "\n---\n\n" + fact + "\n"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := paths.AtomicWrite(path, []byte(note), 0o600); err != nil {
+		return "", err
+	}
+	pointer := "- [" + slug + "](" + rel + ") — " + textutil.Truncate(fact, 160)
+	_, err := settleBankWith(now, []string{pointer}, "memory: feedback "+slug)
+	if err = tolerateIndex(err); err != nil {
+		return rel, fmt.Errorf("%s written, settle failed (kept): %w", rel, err)
+	}
+	return rel, nil
+}
+
+// noteSlug is feedback-<first words of fact>: lower-case ASCII words joined by "-", at most 60 columns.
+func noteSlug(fact string) string {
+	words := strings.FieldsFunc(strings.ToLower(fact), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+	slug := "feedback"
+	for _, w := range words {
+		if len(slug)+1+len(w) > 60 {
+			break
+		}
+		slug += "-" + w
+	}
+	return slug
 }
 
 // liveEntryID resolves ref to the persisted id of a not-yet-replaced entry of decisionLog.md or conventions.md.

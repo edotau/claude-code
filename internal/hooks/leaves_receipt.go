@@ -399,7 +399,7 @@ func (a AskWords) Prompt() string {
 }
 
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
-	"attach keep-env env permissions overlay system-prompt append-system-prompt output-schema timeout host " +
+	"attach keep-env env overlay system-prompt append-system-prompt output-schema timeout host " +
 	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
 	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode tier")
 
