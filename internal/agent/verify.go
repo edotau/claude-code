@@ -107,7 +107,7 @@ func dropFirstLine(s string) string {
 	_, rest, _ := strings.Cut(s, "\n")
 	for rest != "" {
 		line, next, _ := strings.Cut(rest, "\n")
-		if !base64Line(strings.TrimSuffix(line, "\r")) {
+		if !base64Line(strings.TrimSpace(line)) {
 			break
 		}
 		rest = next

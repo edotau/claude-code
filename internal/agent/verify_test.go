@@ -53,6 +53,10 @@ func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
 		t.Errorf("tail = %q, want short fragments after the cut dropped", tail)
 	}
+	tb = &tailBuf{b: []byte("x\n    " + line + "\r\n" + line + "  \r\n" + line[:7] + "\nFAIL pkg\n"), cut: true}
+	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
+		t.Errorf("tail = %q, want indented, CRLF and padded body lines dropped", tail)
+	}
 	hash := strings.Repeat("0123456789abcdef", 4)
 	tb = &tailBuf{b: []byte("x\n" + hash + "\nok\n"), cut: true}
 	if tail := verifyTail(tb); !strings.Contains(tail, hash) {
