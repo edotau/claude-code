@@ -190,9 +190,7 @@ func (t *piTurn) phase(ev piEvent, ts *wire.TransportTracker) error {
 	t.flushLog()
 	switch ev.Type {
 	case "auto_retry_start", "summarization_retry_scheduled":
-		if ev.Type == "auto_retry_start" {
-			ts.Retry(nil)
-		}
+		ts.Retry(nil)
 		return t.retry(ev)
 	}
 	out := phaseEvent(ev)

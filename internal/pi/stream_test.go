@@ -376,8 +376,11 @@ func TestParseEventsCompactionAndRetryPhases(t *testing.T) {
 		`{"type":"compaction_end","errorMessage":"too big"}` + "\n" +
 		`{"type":"summarization_retry_scheduled","attempt":1,"maxAttempts":3,"delayMs":2000}` + "\n" +
 		`{"type":"auto_retry_end","success":true}` + "\n" +
-		`{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n"
-	_, sink, _, _ := parseFixture(t, data)
+		`{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n" + msgEnd("stop", "") + settled
+	_, sink, _, err := parseFixture(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var got []string
 	for _, ev := range sink.evs {
 		got = append(got, ev.Type+"|"+ev.Status+"|"+ev.Text)
@@ -390,9 +393,9 @@ func TestParseEventsCompactionAndRetryPhases(t *testing.T) {
 }
 
 func TestParseEventsPhaseMarksAreNotReplayProgress(t *testing.T) {
-	data := `{"type":"compaction_end","aborted":true}` + "\n" + `{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n"
-	_, sink, _, _ := parseFixture(t, data)
-	if len(sink.evs) < 2 || sink.evs[0].Text != "compaction aborted" || sink.evs[0].Progress() || sink.evs[1].Progress() {
+	data := `{"type":"compaction_end","aborted":true}` + "\n" + `{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n" + msgEnd("stop", "") + settled
+	_, sink, _, err := parseFixture(t, data)
+	if err != nil || len(sink.evs) < 2 || sink.evs[0].Text != "compaction aborted" || sink.evs[0].Progress() || sink.evs[1].Progress() {
 		t.Fatalf("events %+v", sink.evs)
 	}
 }
