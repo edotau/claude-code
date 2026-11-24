@@ -157,23 +157,52 @@ func scopeLive(ctx context.Context, sc proxy.Scope) string {
 	return ""
 }
 
+// ensureTeam is a seam for tests; it finds or starts a detached team's proxy.
+var ensureTeam = proxy.EnsureTeam
+
+// ensureDetached resolves a detached team to its slot's proxy; why is the reason it cannot start.
+func ensureDetached(ctx context.Context, c routeCand) (routeCand, string, string) {
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	sc, err := ensureTeam(ctx, c.team, id)
+	if err != nil {
+		return c, "", err.Error()
+	}
+	c.scope = sc
+	return c, proxy.Base(sc.Port), ""
+}
+
+// resolveCand is c's base, or why it cannot be used; a detached team's label is known only once resolved.
+func resolveCand(ctx context.Context, c routeCand, skip map[string]bool,
+	ensure func(context.Context) (string, error)) (routeCand, string, string) {
+	var base, why string
+	if c.team.Host == proxyteam.HostDetached {
+		c, base, why = ensureDetached(ctx, c)
+	}
+	switch {
+	case why != "":
+	case skip[c.label()]:
+		why = "failed mid-run"
+	case c.team.Host == proxyteam.HostDetached:
+	case c.team.Host == proxyteam.HostDaemon:
+		base, err := ensure(ctx)
+		if err != nil {
+			why = err.Error()
+		}
+		return c, base, why
+	default:
+		if why = scopeLive(ctx, c.scope); why == "" {
+			base = proxy.Base(c.scope.Port)
+		}
+	}
+	return c, base, why
+}
+
 // chooseRoute returns the first live candidate not in skip, its base, and a note when it is not the first.
 func chooseRoute(ctx context.Context, agent string, cands []routeCand, skip map[string]bool,
 	ensure func(context.Context) (string, error)) (routeCand, string, string, error) {
 	var reasons []string
 	for i, c := range cands {
-		var base, why string
-		if skip[c.label()] {
-			why = "failed mid-run"
-		} else if c.team.Host == proxyteam.HostDaemon {
-			b, err := ensure(ctx)
-			if err != nil {
-				why = err.Error()
-			}
-			base = b
-		} else if why = scopeLive(ctx, c.scope); why == "" {
-			base = proxy.Base(c.scope.Port)
-		}
+		c, base, why := resolveCand(ctx, c, skip, ensure)
 		if why != "" {
 			reasons = append(reasons, c.label()+": "+why)
 			continue

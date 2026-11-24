@@ -55,3 +55,33 @@ func TestRouteWalkSkipsDeadFirstRoute(t *testing.T) {
 		t.Fatalf("skipped route: note %q err %v", note, err)
 	}
 }
+
+func TestRouteWalkResolvesDetachedTeam(t *testing.T) {
+	old := ensureTeam
+	t.Cleanup(func() { ensureTeam = old })
+	fail := false
+	ensureTeam = func(_ context.Context, tm proxyteam.Team, _ string) (proxy.Scope, error) {
+		if fail {
+			return proxy.Scope{}, os.ErrNotExist
+		}
+		return proxy.Scope{Team: tm.Name, ID: "0", Port: 9}, nil
+	}
+	cands := []routeCand{
+		{team: proxyteam.Team{Name: "general", Host: proxyteam.HostDetached}, scope: proxy.Scope{Team: "general"}},
+		{team: proxyteam.Team{Name: "shared", Host: proxyteam.HostDaemon}},
+	}
+	ensure := func(context.Context) (string, error) { return "http://127.0.0.1:8", nil }
+	got, base, note, err := chooseRoute(context.Background(), "pi", cands, nil, ensure)
+	if err != nil || got.label() != "general:0" || base != proxy.Base(9) || note != "" {
+		t.Fatalf("got %s %s %q %v", got.label(), base, note, err)
+	}
+	got, _, _, _ = chooseRoute(context.Background(), "pi", cands, map[string]bool{"general:0": true}, ensure)
+	if got.team.Name != "shared" {
+		t.Fatalf("failed slot not skipped: %s", got.label())
+	}
+	fail = true
+	got, _, note, err = chooseRoute(context.Background(), "pi", cands, nil, ensure)
+	if err != nil || got.team.Name != "shared" || !strings.Contains(note, "general unavailable") {
+		t.Fatalf("fallthrough: %s %q %v", got.label(), note, err)
+	}
+}
