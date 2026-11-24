@@ -23,6 +23,18 @@ func TestStampRunnerPiCarriesClaude(t *testing.T) {
 	}
 }
 
+func TestStampRunnerSurvivesWorkspaceRepick(t *testing.T) {
+	hops := []wire.Hop{{Agent: "pi"}, {Agent: "pi"}}
+	res := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "pi", Fallback: "claude", Model: "claude-sonnet-5-5", Hops: hops})
+	if res.Runner != "pi" || res.Type != "claude" {
+		t.Fatalf("runner %q type %q", res.Runner, res.Type)
+	}
+	hops[0].Agent = "claude"
+	if got := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "pi", Fallback: "claude", Hops: hops}); got.Runner != "" {
+		t.Fatalf("a real fallback to pi is no runner: %q", got.Runner)
+	}
+}
+
 func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	own := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "claude", Model: "claude-sonnet-5-5"})
 	if own.Runner != "" || own.Type != "claude" {

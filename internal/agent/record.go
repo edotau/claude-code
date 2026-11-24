@@ -1122,7 +1122,8 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	}
 	var runErr error
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
-		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason,
+		Type: rec.Type, Runner: rec.Runner, Asked: rec.Agent}
 	if rec.Failed() {
 		runErr, res.Status = fmt.Errorf("%s", rec.Error), rec.Status
 	}

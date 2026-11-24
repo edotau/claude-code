@@ -168,7 +168,7 @@ func settleDead(cur agent.Record) (agent.Record, string) {
 // envelopeResult is the part of env that Record.Finish reads back.
 func envelopeResult(env wire.Envelope) wire.Result {
 	res := wire.Result{Agent: env.Agent, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
-		SessionID: env.SessionID, FallbackReason: env.FallbackReason}
+		SessionID: env.SessionID, FallbackReason: env.FallbackReason, Type: env.Type, Runner: env.Runner}
 	if env.Fallback != nil {
 		res.Fallback = *env.Fallback
 	}

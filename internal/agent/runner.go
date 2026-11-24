@@ -2,6 +2,7 @@ package agent
 
 import (
 	"cmp"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -16,10 +17,15 @@ func engineOf(res wire.Result) string {
 	return res.Agent
 }
 
+// onlyPiHops: no hop ran as another agent, so Pi carried the request even across a workspace re-pick.
+func onlyPiHops(res wire.Result) bool {
+	return !slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return h.Agent != agentid.Pi })
+}
+
 // stampRunner sets the typed Runner, Asked and Type on res: Runner "pi" when Pi ran another agent's request.
 func stampRunner(rec Record, res wire.Result) wire.Result {
 	engine := engineOf(res)
-	if res.Fallback == "" && engine == agentid.Pi && rec.Agent != agentid.Pi {
+	if engine == agentid.Pi && rec.Agent != agentid.Pi && onlyPiHops(res) {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
