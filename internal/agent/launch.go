@@ -288,7 +288,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 		}
 		return tok, nil
 	}
-	scope, err := tokenScope(ctx, profile)
+	scope, err := TokenScope(ctx, profile)
 	if err != nil {
 		return "", err
 	}
@@ -300,11 +300,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 }
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
-func TokenScope(profile string, extra ...string) ([]string, error) {
-	return tokenScope(context.Background(), profile, extra...)
-}
-
-func tokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
+func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
 	if arm := router.ArmProfileContext(ctx); arm != "" { // confinement never widens, nor moves to a sibling workspace
 		return armScope(profile, arm)
 	}

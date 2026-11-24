@@ -681,6 +681,27 @@ func TestClaudeProxyTokenCoversAliasProfiles(t *testing.T) {
 	}
 }
 
+// A confinement carried in the launch context (no process env) fences the token like the env one does.
+func TestClaudeProxyTokenFencedByContextOverlay(t *testing.T) {
+	hermetic(t, armDBX)
+	var minted []string
+	stubMint(t, func(_ context.Context, profiles []string, _ int) (string, error) {
+		minted = append(minted, strings.Join(profiles, ","))
+		return "cct_SCOPED", nil
+	})
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := proc.WithValues(t.Context(), proc.Values{"COWORKER_OVERLAY": `{"provider":"databricks","profile":"dev"}`})
+	if _, err := proxyToken(ctx, "http://127.0.0.1:1", providers.Selection{Provider: reg.Providers["dev"]}); err != nil || !slices.Equal(minted, []string{"dev"}) {
+		t.Fatalf("confined to dev: mints %v, err %v; want [dev]", minted, err)
+	}
+	if _, err := proxyToken(ctx, "http://127.0.0.1:1", providers.Selection{Provider: reg.Providers["qa"]}); err == nil || len(minted) != 1 {
+		t.Fatalf("confined to dev, qa asked: mints %v, err %v; want a refusal and no mint", minted, err)
+	}
+}
+
 // A failed mint aborts the launch; the child is never handed the router secret instead.
 func TestClaudeProxyMintFailureAbortsLaunch(t *testing.T) {
 	hermetic(t, armDBX)

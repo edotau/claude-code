@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -26,11 +27,15 @@ func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
 	if sibs, skips, why := piSiblings(armed, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
 		t.Fatalf("confined to dev, pi hops planned beyond it: hops %v, skips %v, why %q", sibs, skips, why)
 	}
-	if _, err := tokenScope(armed, "qa"); err == nil {
+	if _, err := TokenScope(armed, "qa"); err == nil {
 		t.Fatal("confined to dev, a token for qa was scoped")
 	}
-	if got, err := tokenScope(armed, "dev"); err != nil || len(got) != 1 || got[0] != "dev" {
+	if got, err := TokenScope(armed, "dev"); err != nil || len(got) != 1 || got[0] != "dev" {
 		t.Fatalf("confined token scope = %v, %v; want [dev]", got, err)
+	}
+	want := slices.Compact(slices.Sorted(slices.Values(append([]string{"dev", "qa"}, reg.Fallback...))))
+	if got, err := TokenScope(open, "dev", "qa"); err != nil || !slices.Equal(got, want) {
+		t.Fatalf("unconfined token scope = %v, %v; want asked + extra + fallbacks %v", got, err, want)
 	}
 }
 

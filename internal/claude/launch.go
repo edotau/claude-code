@@ -574,7 +574,7 @@ func proxyToken(ctx context.Context, routerBase string, sel providers.Selection)
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)
 	}
-	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
+	scope, err := agent.TokenScope(ctx, sel.Provider.Name, aliases...)
 	if err != nil {
 		return "", fmt.Errorf("proxy: %w", err)
 	}

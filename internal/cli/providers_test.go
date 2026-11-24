@@ -792,6 +792,53 @@ func TestResolveProxyRemintsARefusedArmedToken(t *testing.T) {
 	}
 }
 
+// A confined helper (overlay env set by the launcher) mints no scope beyond its workspace, armed or not.
+func TestResolveProxyConfinedStaysOnWorkspace(t *testing.T) {
+	cliScratch(t)
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["qa"],"providers":{"databricks":{
+		"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},
+		"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	origR, origF, origA := resolveProxyToken, resolveProxyTokenFailover, authenticClaims
+	t.Cleanup(func() { resolveProxyToken, resolveProxyTokenFailover, authenticClaims = origR, origF, origA })
+	var scopes [][]string
+	resolveProxyToken = func(_ context.Context, s []string, _ int) (string, error) {
+		scopes = append(scopes, s)
+		return "cct_FRESH", nil
+	}
+	resolveProxyTokenFailover = func(_ context.Context, s []string, _ int, _ string) (string, error) {
+		scopes = append(scopes, s)
+		return "cct_FRESH", nil
+	}
+	t.Setenv(claude.ProxyKeyEnv, "")
+	check := func(name, profile string, want []string) { // want nil: a refusal and no mint
+		t.Helper()
+		scopes = nil
+		code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy", "--profile", profile}) })
+		pass := code != 0 && len(scopes) == 0
+		if want != nil {
+			pass = code == 0 && len(scopes) == 1 && slices.Equal(scopes[0], want)
+		}
+		if !pass {
+			t.Fatalf("%s: exit %d, scopes %v; want %v", name, code, scopes, want)
+		}
+	}
+	fence := `{"provider":"databricks","profile":"dev"}`
+	t.Setenv(route.OverlayVar, "")
+	check("unconfined dev", "dev", []string{"dev", "qa"})
+	t.Setenv(route.OverlayVar, fence)
+	check("confined to dev, dev asked", "dev", []string{"dev"})
+	check("confined to dev, qa asked", "qa", nil)
+	// an armed token whose signed claims cross the fence is not re-minted
+	authenticClaims = func(string) (proxy.SessionClaims, bool) {
+		return proxy.SessionClaims{Profiles: []string{"dev", "qa"}}, true
+	}
+	stubSessionInvalid(t, errors.New("session token expired"))
+	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/dev")
+	check("armed claims [dev qa] under a dev fence", "dev", nil)
+}
+
 // An unverifiable armed token re-mints for its route only: --profile never moves the scope, and no route means no mint.
 func TestResolveProxyUnverifiableRemintIgnoresProfileFlag(t *testing.T) {
 	cliScratch(t)
