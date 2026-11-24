@@ -167,7 +167,8 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
 	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
 	cells, scope := modeCells(reg, ov.ProviderMode, role, session)
-	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
+	eng, _ := Lookup(o.Agent) // a missing engine fails at Plan's own Lookup right after
+	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, engine: eng, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
 	ready, rows, skipped := scan.ready(cells)
 	head := "rotation: role " + string(role)
 	if scope != "" {
@@ -246,6 +247,7 @@ type cellScan struct {
 	ctx     context.Context
 	reg     *providers.Registry
 	agent   string
+	engine  Engine // the account gate's dispatch agent; nil skips that gate
 	session string
 	now     time.Time
 	st      router.State
@@ -263,8 +265,8 @@ func (s cellScan) ready(cells []router.RoleCell) (ready []router.RoleCell, rows 
 		var why []string
 		for _, name := range names {
 			reason := rowNotReady(s.reg.Row(name), s.st, s.agent, c.Model, s.now)
-			if reason == "" { // the preflight probes only a row the cheap checks pass
-				reason = s.workspaceWhy(name)
+			if reason == "" { // the preflight probes only a row the cheap checks pass; it may clear a stale auth mark
+				reason = cmp.Or(s.workspaceWhy(name), s.accountWhy(name, c.Model))
 			}
 			if reason != "" {
 				why = append(why, name+" "+reason)
@@ -320,11 +322,11 @@ func rowNotReady(p *providers.Provider, st router.State, agentName, alias string
 	if err != nil {
 		return "cannot spell " + alias
 	}
-	return rowHeld(p, st, agentName, wire, now)
+	return rowHeld(p, st, wire, now)
 }
 
-// rowHeld is why p's account or wire model is out now: cooling, dead, not READY, or the launch's own account gate.
-func rowHeld(p *providers.Provider, st router.State, agentName, wire string, now time.Time) string {
+// rowHeld is why p's account or its wire model is out now: account or model cooling, a dead model, a listing not READY.
+func rowHeld(p *providers.Provider, st router.State, wire string, now time.Time) string {
 	acct := router.AccountOf(p)
 	switch {
 	case st.CoolingUntil(acct).After(now):
@@ -334,11 +336,20 @@ func rowHeld(p *providers.Provider, st router.State, agentName, wire string, now
 	case p.Preset == providers.PresetDatabricks && router.ListedNotReady(p, wire, now):
 		return "lists " + wire + " not READY"
 	}
-	eng, err := Lookup(agentName)
+	return ""
+}
+
+// accountWhy is the launch's own account gate on row (exhausted, auth-marked, stalled), after the preflight renewed it.
+func (s cellScan) accountWhy(row, alias string) string {
+	p, eng := s.reg.Row(row), s.engine
+	if p == nil || eng == nil {
+		return ""
+	}
+	wire, err := spellModel(&ModelRoute{}, p, s.agent, alias, s.now)
 	if err != nil {
 		return ""
 	}
-	if e := accountRefused(Dispatch{Agent: eng, Account: p.Account()}, wire); e != nil { // exhausted, auth-marked, stalled
+	if e := accountRefused(Dispatch{Agent: eng, Account: p.Account()}, wire); e != nil {
 		return "is refused: " + e.Err.Error()
 	}
 	return ""
