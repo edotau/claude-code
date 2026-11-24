@@ -60,6 +60,9 @@ type Contract struct {
 	Unit   string         `json:"unit"`
 	Kind   string         `json:"kind"`
 	Limits ContractLimits `json:"limits"`
+	// Role is "owner" (default) or "fleet"; a fleet member names the owner contract it joins as Parent.
+	Role   string `json:"role"`
+	Parent string `json:"parent"`
 }
 
 // ContractLimits overrides the kind's default budget; zero keeps the default.
@@ -228,6 +231,9 @@ func contractOf(v json.RawMessage) (*Contract, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("%s: %v", want, err)
+	}
+	if (c.Role != "" && c.Role != "owner" && c.Role != "fleet") || (c.Role == "fleet") != (c.Parent != "") {
+		return nil, errors.New("spec contract: role is owner or fleet, and parent goes with role fleet only")
 	}
 	return &c, nil
 }

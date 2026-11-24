@@ -203,3 +203,19 @@ func TestPiDispatchAtBudget(t *testing.T) {
 		t.Errorf("at budget: %+v, want allowed, nothing run, the budget notice", v)
 	}
 }
+
+// TestHeldContractFollowsRetryChain: a retried owner (id in no Holders) resolves to its original's contract.
+func TestHeldContractFollowsRetryChain(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const owner, retry = "20261124T120000.000-pi", "20261124T120500.000-pi"
+	saveOwnerContract(t, owner, 1000)
+	if err := os.MkdirAll(agent.WatchDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agent.WatchMarker("resumed", owner), []byte(retry+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := heldContract(retry); !ok || c.ID != owner {
+		t.Fatalf("heldContract(retry) = %q, %v; want the original contract", c.ID, ok)
+	}
+}

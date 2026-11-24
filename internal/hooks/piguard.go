@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -89,6 +90,8 @@ func judgePi(c piCall) piVerdict {
 		return piVerdict{Allow: true, Notice: contract.BudgetNotice} // a tool result, not an error
 	case tokens:
 		v.Notice = contract.BudgetNotice
+	case c.Tool == "check" || c.Tool == "dispatch":
+		v.Notice = piResent()
 	}
 	return v
 }
@@ -105,19 +108,56 @@ func piBudget() (leaves, tokens bool) {
 
 // heldContract is the open contract id holds: its own, else one it took over by a re-assign.
 func heldContract(id string) (contract.Contract, bool) {
-	if id == "" {
-		return contract.Contract{}, false
-	}
-	c, err := contract.Load(id)
-	if errors.Is(err, fs.ErrNotExist) {
-		open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
-		i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) })
-		if i < 0 {
-			return contract.Contract{}, false
+	for range 4 { // a retry of a retry: follow the resumed markers back to the dispatch that holds the contract
+		if id == "" {
+			break
 		}
-		c, err = open[i], nil
+		c, err := contract.Load(id)
+		if errors.Is(err, fs.ErrNotExist) {
+			open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
+			if i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) }); i >= 0 {
+				c, err = open[i], nil
+			}
+		}
+		if err == nil {
+			return c, !c.State().Terminal()
+		}
+		id = resumedFrom(id)
 	}
-	return c, err == nil && !c.State().Terminal()
+	return contract.Contract{}, false
+}
+
+// resumedFrom is the dispatch id a `--retry --recover` marker names as the one id was resumed from, else "".
+func resumedFrom(id string) string {
+	ents, _ := os.ReadDir(agent.WatchDir())
+	for _, e := range ents {
+		from, ok := strings.CutPrefix(e.Name(), "resumed-")
+		if !ok {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(agent.WatchDir(), e.Name())); err == nil && strings.TrimSpace(string(b)) == id {
+			return from
+		}
+	}
+	return ""
+}
+
+// piResent is the notice for an owner's re-sent leaf: its id and the dispatch now holding it, "" for none.
+func piResent() string {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
+		return ""
+	}
+	var out []string
+	for _, id := range c.Children {
+		if k, err := contract.Load(id); err == nil && k.State() == contract.StateWorking && len(k.Holders) > 1 {
+			out = append(out, id+" re-sent as "+k.Holders[len(k.Holders)-1])
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "leaf died and was re-sent once: " + strings.Join(out, ", ")
 }
 
 // judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.

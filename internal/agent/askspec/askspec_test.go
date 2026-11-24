@@ -61,3 +61,16 @@ func TestArgvActionKey(t *testing.T) {
 		t.Fatalf("unknown action err = %v, want one listing the actions", err)
 	}
 }
+
+func TestArgvContractRoleParent(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"contract":{"unit":"x","kind":"function","role":"fleet","parent":"d-1"}}`))
+	if err != nil || task.Contract.Role != "fleet" || task.Contract.Parent != "d-1" {
+		t.Fatalf("task = %+v err %v", task.Contract, err)
+	}
+	for _, bad := range []string{`{"role":"fleet"}`, `{"parent":"d-1"}`, `{"role":"boss","parent":"d-1"}`} {
+		doc := `{"contract":{"unit":"x","kind":"function",` + bad[1:] + `}`
+		if _, _, _, err := testSchema().Argv([]byte(doc)); err == nil {
+			t.Errorf("contract %s accepted", bad)
+		}
+	}
+}

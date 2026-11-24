@@ -31,6 +31,7 @@ type contractOpen struct {
 	Owner      contract.Party
 	Limits     contract.Limits
 	Facts      contract.Facts
+	Parent     string // the owner contract a fleet member joins; empty for an owner
 	Dispatch   string // the owner's dispatch id; it becomes the contract id
 	Dir        string // the run's working tree, a lane when Facts.Lane
 	ProxyScope string // the scoped proxy's scope file when Facts.ScopedProxy
@@ -83,6 +84,7 @@ func openContract(o contractOpen) (contract.Contract, []contract.Problem, error)
 	if len(ps) > 0 {
 		return c, ps, nil
 	}
+	c.Parent = o.Parent
 	c, err := withRecords(c, openRecords(c, o, time.Now()))
 	if err == nil {
 		c, err = c.Start(o.Dispatch)
@@ -151,7 +153,24 @@ func returnRecords(c contract.Contract, r contractReturn, hb *handback, now time
 	} else {
 		out = append(out, failed(contract.TermHandback, handbackMiss(r.Handback), now))
 	}
+	if slices.Contains(c.Terms, contract.TermLeaves) {
+		out = append(out, leavesRecord(c.Children, r.Children, now))
+	}
 	return append(out, observed(contract.TermReport, isReport(r.Report), r.Report, missAbsent, now))
+}
+
+// leavesRecord passes when every sub-contract id closed ok (a re-sent one on its new holder); else it names the rest.
+func leavesRecord(ids []string, kids []contract.Contract, now time.Time) contract.TermRecord {
+	var bad []string
+	for _, id := range ids {
+		if !slices.ContainsFunc(kids, func(k contract.Contract) bool { return k.ID == id && k.State() == contract.StateClosed }) {
+			bad = append(bad, id)
+		}
+	}
+	if len(bad) > 0 {
+		return failed(contract.TermLeaves, strings.Join(bad, ","), now)
+	}
+	return observed(contract.TermLeaves, true, strconv.Itoa(len(ids))+" closed", "", now)
 }
 
 func gateRecord(g *worktree.GateRun, now time.Time) contract.TermRecord {
@@ -354,16 +373,19 @@ func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
 	if bf.planTask != "" && plan == "" {
 		fmt.Fprintf(os.Stderr, "ask: contract: plan task %q is in no single open plan of this repo: no tick term\n", bf.planTask)
 	}
-	lim := t.Contract.Limits
+	lim, role := t.Contract.Limits, contract.Role(cmp.Or(t.Contract.Role, string(contract.RoleOwner)))
 	o := &contractOpen{
 		Scope: contract.Scope{Unit: t.Contract.Unit, Kind: kind, Own: t.Own, PlanTask: bf.planTask, Plan: plan,
 			Lane: lane, Verify: t.Verify},
-		Owner:  contract.Party{Role: contract.RoleOwner, Agent: bf.name, Tier: bf.tier},
-		Limits: contract.LimitsFor(kind, contract.RoleOwner, contract.Limits{Tokens: lim.Tokens, Leaves: lim.Leaves}),
+		Owner:  contract.Party{Role: role, Agent: bf.name, Tier: bf.tier},
+		Limits: contract.LimitsFor(kind, role, contract.Limits{Tokens: lim.Tokens, Leaves: lim.Leaves}),
 		// Fleet only when the spec asks for leaves: a solo owner owes no leaves term.
 		Facts: contract.Facts{Lane: lane != "", PlanTask: plan != "", Fleet: lim.Leaves > 0,
 			TestStep: strings.Contains(t.Verify, "go test"), TestRepair: kind == contract.KindTestRepair},
-		Dir: dir}
+		Parent: t.Contract.Parent, Dir: dir}
+	if role == contract.RoleFleet { // a fleet member works in its owner's lane and plan task: only the owner owes them
+		o.Facts = contract.Facts{TestStep: o.Facts.TestStep, TestRepair: o.Facts.TestRepair}
+	}
 	if _, ps := contract.Open(o.Scope, o.Owner, o.Limits, o.Facts); len(ps) > 0 {
 		return nil, problemsErr(ps)
 	}
@@ -444,6 +466,18 @@ func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	if len(ps) > 0 || err != nil {
 		return fmt.Errorf("open contract: %w", errors.Join(problemsErr(ps), err))
 	}
+	return joinFleet(open.Parent, rec.ID)
+}
+
+// joinFleet reserves a leaf of the owner contract parent for child under its lock, before the child spawns.
+func joinFleet(parent, child string) error {
+	if parent == "" {
+		return nil
+	}
+	if _, err := contract.Update(parent, func(c contract.Contract) (contract.Contract, error) { return c.AddChild(child) }); err != nil {
+		_, _ = abandonContract(child, contract.ReasonLimit)
+		return fmt.Errorf("dispatch refused: %w", err)
+	}
 	return nil
 }
 
@@ -478,17 +512,37 @@ func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native 
 // runSettled runs a prepared foreground dispatch or --job child; one holding a contract settles it in the run.
 func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions, run *armRetry,
 	isJob bool, format, save string, out io.Writer) int {
-	if !holdsContract(p.Record.ID) {
+	cid := heldID(p.Record)
+	if cid == "" {
 		if run != nil {
 			return run.run(ctx, cl, p, req)
 		}
 		return runAskAndReport(ctx, cl, p, isJob, format, save, out)
 	}
-	defer abandonOnPanic(p.Record.ID)
+	defer abandonOnPanic(cid)
+	defer watchLeaves(ctx, cid)()
 	if run != nil {
 		return run.run(ctx, cl, p, req) // the arm retry calls settleHeld before it concludes the record
 	}
 	return runHeld(ctx, cl, p, isJob, format, save, out)
+}
+
+// heldID is the id of the working contract rec's dispatch holds: its own, else the one a re-send took over.
+func heldID(rec agent.Record) string {
+	if holdsContract(rec.ID) {
+		return rec.ID
+	}
+	if rec.Parent == "" { // only a dispatched child can be a re-send: skip the scan for every other ask
+		return ""
+	}
+	open, _ := contract.Pending()
+	i := slices.IndexFunc(open, func(c contract.Contract) bool {
+		return c.State() == contract.StateWorking && c.Holders[len(c.Holders)-1] == rec.ID
+	})
+	if i < 0 {
+		return ""
+	}
+	return open[i].ID
 }
 
 // holdsContract reports whether dispatch id holds a working contract; most asks have no contract file at all.
@@ -530,14 +584,14 @@ func abandonOnPanic(id string) {
 
 // settleHeld settles the working contract p's dispatch holds from its held result; a cancelled ctx fails it instead.
 func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr error) {
-	id := p.Record.ID
-	if !holdsContract(id) {
+	id := heldID(p.Record)
+	if id == "" {
 		return
 	}
 	var got contract.Contract
 	var err error
 	if ctx.Err() == nil {
-		ret := returnOf(ctx, p.Record, res, runErr)
+		ret := returnOf(ctx, p.Record, id, res, runErr)
 		if ctx.Err() == nil { // a cancel during the settle gate is a cancel, not an unmet gate
 			got, err = settleContract(id, ret)
 			reportSettled(id, got, err)
@@ -553,8 +607,8 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 }
 
 // returnOf is what Go observed of rec's held run: its end, verify and hand-back, the filed report, spend and the gate.
-func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr error) contractReturn {
-	c, err := contract.Load(rec.ID)
+func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result, runErr error) contractReturn {
+	c, err := contract.Load(cid)
 	if err != nil {
 		return contractReturn{End: endDied}
 	}

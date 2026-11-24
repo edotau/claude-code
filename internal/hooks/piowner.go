@@ -52,8 +52,11 @@ func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 		return nil, err
 	}
 	spec := map[string]any{"agent": "claude", "tier": tier, "own": own, "prompt": prompt,
-		"contract": map[string]any{"unit": unit, "kind": string(kind),
+		"contract": map[string]any{"unit": unit, "kind": string(kind), "role": string(contract.RoleFleet), "parent": c.ID,
 			"limits": map[string]int{"tokens": max(c.Limits.Tokens-wire.SpentBy(c).Tokens, 1)}}}
+	if c.Scope.Verify != "" { // the owner's typed verify, so a test-repair child's tests term can pass
+		spec["verify"] = c.Scope.Verify
+	}
 	b, err := json.Marshal(spec)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
@@ -108,7 +111,8 @@ func piCheckArgv(input map[string]any) ([]string, error) {
 	}
 	id := strOf(input["id"])
 	rec, err := agent.LoadRecord(id)
-	if err != nil || rec.Parent == "" || !slices.Contains(append([]string{c.ID}, c.Holders...), rec.Parent) {
+	own := append([]string{c.ID, os.Getenv(proc.DispatchIDEnv)}, c.Holders...) // a retried owner's id is in no list
+	if err != nil || rec.Parent == "" || !slices.Contains(own, rec.Parent) {
 		return nil, fmt.Errorf("check: %q is not a dispatch of this owner", id)
 	}
 	return []string{"agents", "status", rec.ID, "--format", "json"}, nil
