@@ -632,6 +632,7 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
 	}
 	r.Report = reportOf(rec, c)
+	waitLeaves(ctx, c, r.End)
 	r.Spent = contract.SpentOf(c, append(subtreeUses(rec.ID, spentTokens(&res.Usage)), deadUses(c)...))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
@@ -642,6 +643,17 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 		}
 	}
 	return r
+}
+
+// waitLeaves gives a finished owner's open leaves time to close before the gate, and logs those still working.
+func waitLeaves(ctx context.Context, c contract.Contract, end runEnd) {
+	if end != endFinished || len(c.Children) == 0 {
+		return
+	}
+	if open := settleLeaves(ctx, c.Children); len(open) > 0 {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: leaves still working after the settle wait: %s\n",
+			c.ID, strings.Join(open, ", "))
+	}
 }
 
 // reportOf is the report `memory report --job` filed on rec's saved record, else the spec's own report path if filed.
@@ -671,8 +683,8 @@ func deadUses(c contract.Contract) []contract.Use {
 	return subtreeUses(c.Holders[0], first)
 }
 
-// settleGateTimeout bounds the settle gate so a 9m30s run plus the gate stays under the 10m Bash cap.
-const settleGateTimeout = 15 * time.Second
+// The settle gate gets 90 s (a cold lane gate takes ~25 s); wholeDeadline (armretry.go) still caps run plus gate.
+const settleGateTimeout = 90 * time.Second
 
 // gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
 func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -43,6 +44,7 @@ type piVerdict struct {
 	Usage  string   `json:"usage,omitempty"`
 	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
 	Text   string   `json:"text,omitempty"`   // the verify result: the fixing turn's redacted text, "" when it passed
+	Stdin  string   `json:"stdin,omitempty"`  // the text the Run argv reads on stdin: a report's body
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -360,17 +362,19 @@ func resolvePiPath(raw, cwd string) (path, why string) {
 var (
 	piHandbackKeys = []string{"status", "summary", "unfixed", "tests", "method"}
 	piGateKeys     = []string{"scope"}
+	piReportKeys   = []string{"kind", "body"}
 	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
 )
 
 // isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
 func isPiAction(tool string) bool {
-	return slices.Contains([]string{"gate", "handback", "dispatch", "check"}, tool)
+	return slices.Contains([]string{"gate", "handback", "dispatch", "check", "report"}, tool)
 }
 
 // piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
 func piActionArgv(tool string, input map[string]any, cwd string) ([]string, error) {
-	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys}[tool]
+	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys,
+		"report": piReportKeys}[tool]
 	for k := range input {
 		if !slices.Contains(keys, k) {
 			return nil, fmt.Errorf("%s: unknown argument %q (allowed: %s)", tool, k, strings.Join(keys, ", "))
@@ -383,6 +387,8 @@ func piActionArgv(tool string, input map[string]any, cwd string) ([]string, erro
 		return piDispatchArgv(input, cwd)
 	case "check":
 		return piCheckArgv(input)
+	case "report":
+		return piReportArgv(input)
 	}
 	argv := []string{"worktree", "gate", "--run", "--format", "json"}
 	scope, err := piGateScope(input["scope"])
@@ -393,6 +399,21 @@ func piActionArgv(tool string, input map[string]any, cwd string) ([]string, erro
 		return argv, nil
 	}
 	return append(argv, "--scope", scope), nil
+}
+
+// piReportArgv files the body as the run's own report; the model supplies neither the dispatch id nor the argv.
+func piReportArgv(input map[string]any) ([]string, error) {
+	kind, body, id := strOf(input["kind"]), strOf(input["body"]), os.Getenv(proc.DispatchIDEnv)
+	if !slices.Contains(memory.ReportKinds, kind) {
+		return nil, fmt.Errorf("report: kind must be one of %s", strings.Join(memory.ReportKinds, ", "))
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, errors.New("report: body must be a non-empty string")
+	}
+	if id == "" {
+		return nil, errors.New("report: no dispatch to file the report on")
+	}
+	return []string{"memory", "report", "--job", id, "--kind", kind, "--stdin"}, nil
 }
 
 // piGateScope is the comma-joined scope dirs; each must be a clean relative directory.
@@ -427,7 +448,11 @@ func judgePiAction(c piCall) piVerdict {
 	if reason := piBashBlock(c, "claude-code "+textutil.ShellJoin(argv)); reason != "" {
 		return piVerdict{Block: reason}
 	}
-	return piVerdict{Allow: true, Run: argv}
+	v := piVerdict{Allow: true, Run: argv}
+	if c.Tool == "report" {
+		v.Stdin = strOf(c.Input["body"])
+	}
+	return v
 }
 
 // piBashBlock runs Pi's Bash PreToolUse modules on command; "" allows.

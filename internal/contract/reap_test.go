@@ -60,3 +60,27 @@ func TestReapSparesAFreshContractAndFailUnreadableStubs(t *testing.T) {
 		t.Fatalf("after FailUnreadable: %v %v, %v; want failed unreadable", c.State(), c.Failed, err)
 	}
 }
+
+// TestReapSuccessorRunsOutsideTheLock: Successor may itself Update the contract, so the re-send holds no lock.
+func TestReapSuccessorRunsOutsideTheLock(t *testing.T) {
+	savedWorking(t)
+	done := make(chan error, 1)
+	env := Env{Lost: func(string) bool { return true }, Successor: func(c Contract) string {
+		go func() {
+			_, err := Update(c.ID, func(c Contract) (Contract, error) { return c, nil })
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Update in Successor: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Update inside Successor blocked: the contract is locked")
+		}
+		return "d-2"
+	}}
+	if got, err := Reap(env); err != nil || len(got) != 1 || got[0].Action != "reassigned" {
+		t.Fatalf("Reap = %v, %v; want one reassigned", got, err)
+	}
+}

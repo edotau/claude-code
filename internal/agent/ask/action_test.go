@@ -24,12 +24,12 @@ func TestActionCheckRefusals(t *testing.T) {
 }
 
 func TestWholeDeadlineCapsAttemptsAndSettle(t *testing.T) {
-	sctx, rctx, cancel := wholeDeadline(context.Background(), agent.RunOptions{Timeout: time.Minute})
+	sctx, rctx, cancel := wholeDeadline(context.Background(), agent.RunOptions{Timeout: 10 * time.Minute})
 	defer cancel()
 	s, _ := sctx.Deadline()
 	r, _ := rctx.Deadline()
-	if left := time.Until(s); left > time.Minute || left < 59*time.Second {
-		t.Errorf("whole deadline in %v, want the 1m timeout", left)
+	if left := time.Until(s); left > 10*time.Minute || left < 10*time.Minute-time.Second {
+		t.Errorf("whole deadline in %v, want the 10m timeout", left)
 	}
 	if gap := s.Sub(r); gap != settleGateTimeout {
 		t.Errorf("attempts end %v before the settle ends, want %v", gap, settleGateTimeout)

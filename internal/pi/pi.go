@@ -263,7 +263,7 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 
 // guardTools are the tools the guard registers on a --tools run; ownerTools join them for a contract owner only.
 const (
-	guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
+	guardTools = "read,bash,edit,write,grep,find,ls,gate,handback,report"
 	ownerTools = ",dispatch,check"
 )
 

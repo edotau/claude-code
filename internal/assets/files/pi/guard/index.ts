@@ -26,7 +26,7 @@ function hookEnv(): Record<string, string> {
 const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => typeof s === "string")
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-type Verdict = { block?: string; path?: string; run?: string[]; usage?: string; notice?: string }
+type Verdict = { block?: string; path?: string; run?: string[]; usage?: string; notice?: string; stdin?: string }
 function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
@@ -45,7 +45,8 @@ function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
 // allowVerdict keeps only the well-typed fields of an allow; a malformed run is dropped, so nothing runs.
 function allowVerdict(v: any): Verdict {
   return { path: typeof v.path === "string" ? v.path : "", run: strArray(v.run) ? v.run : undefined,
-    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined }
+    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined,
+    stdin: typeof v.stdin === "string" ? v.stdin : undefined }
 }
 
 // running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
@@ -114,6 +115,11 @@ const ACTIONS: Record<string, any> = {
   check: { label: "Check", executionMode: "parallel", promptSnippet: "check: the status of a leaf you dispatched",
     description: "Status of a leaf you dispatched, by id.",
     parameters: { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string" } } } },
+  report: { label: "Report", executionMode: "sequential",
+    promptSnippet: "report: file your full report; call it before handback",
+    description: "File the full report of the task; returns its path",
+    parameters: { type: "object", additionalProperties: false, required: ["kind", "body"],
+      properties: { kind: { type: "string", enum: ["review", "implementation", "audit", "research"] }, body: { type: "string" } } } },
   handback: { label: "Hand back", executionMode: "sequential", promptSnippet: "handback: report the task's outcome; call it once, last",
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     description: "Finish: report the outcome of the task. Call once, last.",
@@ -144,14 +150,15 @@ function action(name: string) {
       if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
     }
     if (!v.run) return { content: [{ type: "text", text: v.notice ?? "recorded" }], details: {} }
-    const text = await tracked(id, () => runAction(name, v.run!, cwd, signal))
+    const text = await tracked(id, () => runAction(name, v.run!, cwd, signal, v.stdin))
     return withNotice({ content: [{ type: "text", text }], details: {} }, v.notice)
   } }
 }
 
 // runAction runs Go's argv abortably: a cancelled call stops the tree; a failed launch or exit is a tool error.
-async function runAction(name: string, run: string[], cwd: string, signal: any): Promise<string> {
+async function runAction(name: string, run: string[], cwd: string, signal: any, stdin?: string): Promise<string> {
   const p = execFileAsync(BIN, run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
+  if (stdin !== undefined) { p.child.stdin?.on("error", () => {}); p.child.stdin?.end(stdin) }
   const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
   signal?.addEventListener("abort", stop, { once: true })
   if (signal?.aborted) stop() // cancelled before the listener existed

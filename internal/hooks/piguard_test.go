@@ -219,3 +219,21 @@ func TestHeldContractFollowsRetryChain(t *testing.T) {
 		t.Fatalf("heldContract(retry) = %q, %v; want the original contract", c.ID, ok)
 	}
 }
+
+func TestPiReportArgv(t *testing.T) {
+	t.Setenv("HARNESS_DISPATCH_ID", "d-9")
+	got, err := piActionArgv("report", map[string]any{"kind": "implementation", "body": "x"}, "/w")
+	if want := "memory report --job d-9 --kind implementation --stdin"; err != nil || strings.Join(got, " ") != want {
+		t.Errorf("argv = %v, %v", got, err)
+	}
+	for _, in := range []map[string]any{{"kind": "bogus", "body": "x"}, {"kind": "audit", "body": "x", "job": "z"},
+		{"kind": "audit", "body": " \n"}} {
+		if _, err := piActionArgv("report", in, "/w"); err == nil {
+			t.Errorf("report %v: want a usage error", in)
+		}
+	}
+	t.Setenv("HARNESS_DISPATCH_ID", "")
+	if _, err := piActionArgv("report", map[string]any{"kind": "audit", "body": "x"}, "/w"); err == nil {
+		t.Error("report without a dispatch id: want an error")
+	}
+}

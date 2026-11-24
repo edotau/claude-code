@@ -10,8 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/proc"
 )
+
+// resendOutput runs the re-send command; tests replace it.
+var resendOutput = func(cmd *exec.Cmd) ([]byte, error) { return cmd.Output() }
 
 const resendTimeout = time.Minute
 
@@ -52,6 +56,12 @@ func ResendClaimed(holder string) bool {
 	return m != "" && err == nil && time.Since(fi.ModTime()) < resendTimeout
 }
 
+// followable reports whether dispatch id is worth following: it finished ok or its job is still live.
+func followable(id string) bool {
+	rec, err := LoadRecord(id)
+	return err == nil && (rec.Status == wire.StatusOK || jobLive(rec))
+}
+
 // Resend runs `agents ask --retry <holder> --recover` under the holder's parent and returns the new dispatch id.
 func Resend(ctx context.Context, holder string) (string, error) {
 	rec, err := LoadRecord(holder)
@@ -67,7 +77,7 @@ func Resend(ctx context.Context, holder string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, self, "agents", "ask", "--retry", holder, "--recover", "--background", "--format", "json")
 	cmd.Env = append(os.Environ(), proc.DispatchIDEnv+"="+rec.Parent)
-	out, err := cmd.Output()
+	out, err := resendOutput(cmd)
 	var got struct {
 		ID string `json:"id"`
 	}
@@ -75,7 +85,7 @@ func Resend(ctx context.Context, holder string) (string, error) {
 		err = fmt.Errorf("no dispatch id in %d bytes of output", len(out))
 	}
 	if err != nil { // a recovery that launched anyway (timeout, lost claim) is named by its marker: follow it
-		if won, ok := ResumedAs(holder); ok {
+		if won, ok := ResumedAs(holder); ok && followable(won) {
 			return won, nil
 		}
 		return "", err

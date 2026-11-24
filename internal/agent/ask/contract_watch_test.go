@@ -65,11 +65,12 @@ func TestWatchOnceResendsOnceThenFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	send := func(context.Context, string) (string, error) { return "d-4", nil }
-	watchOnce(context.Background(), "d-1", send)
+	tries := map[string]int{}
+	watchOnce(context.Background(), "d-1", send, tries)
 	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || k.State() != contract.StateWorking {
 		t.Fatalf("after first loss: holders %v state %s, want re-assigned and working", k.Holders, k.State())
 	}
-	watchOnce(context.Background(), "d-1", send)
+	watchOnce(context.Background(), "d-1", send, tries)
 	if k, _ := contract.Load("d-2"); k.State() != contract.StateFailed || k.Failed != contract.ReasonOwnerDead {
 		t.Fatalf("after second loss: %s %q, want failed owner-dead", k.State(), k.Failed)
 	}
@@ -120,5 +121,94 @@ func TestReportOfAcceptsSpecReportPath(t *testing.T) {
 	}
 	if got := reportOf(agent.Record{ID: "d-1"}, contract.Contract{}); got != "" {
 		t.Fatalf("no report: %q, want empty", got)
+	}
+}
+
+// lostLeaf opens owner and one leaf whose dispatch record is already dead.
+func lostLeaf(t *testing.T, owner, leaf string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := leavesGrace
+	leavesGrace = 0
+	t.Cleanup(func() { leavesGrace = old })
+	if err := startFleet(t, "", owner, contract.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := startFleet(t, owner, leaf, contract.RoleFleet); err != nil {
+		t.Fatal(err)
+	}
+	dead := agent.Record{ID: leaf, Status: "failed", Time: time.Now().Add(-time.Minute)}
+	if err := dead.Save(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWatchOnceRetriesTransientResend: a re-send that errs twice is retried on the next polls.
+func TestWatchOnceRetriesTransientResend(t *testing.T) {
+	lostLeaf(t, "d-1", "d-2")
+	calls, okAfter := 0, 2
+	send := func(context.Context, string) (string, error) {
+		calls++
+		if calls <= okAfter {
+			return "", errors.New("transient")
+		}
+		return "d-4", nil
+	}
+	tries := map[string]int{}
+	for range 2 {
+		watchOnce(context.Background(), "d-1", send, tries)
+	}
+	if k, _ := contract.Load("d-2"); k.State() != contract.StateWorking || len(k.Holders) != 1 {
+		t.Fatalf("after two transient errors: %s holders %v, want working and unchanged", k.State(), k.Holders)
+	}
+	watchOnce(context.Background(), "d-1", send, tries)
+	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || tries["d-2"] != 0 {
+		t.Fatalf("after success: holders %v tries %v, want re-assigned", k.Holders, tries)
+	}
+}
+
+// TestWatchOnceFailsAfterRepeatedResendErrors: the third consecutive re-send error fails the leaf owner-dead.
+func TestWatchOnceFailsAfterRepeatedResendErrors(t *testing.T) {
+	lostLeaf(t, "e-1", "e-2")
+	bad := func(context.Context, string) (string, error) { return "", errors.New("transient") }
+	tries := map[string]int{}
+	for range resendTries {
+		watchOnce(context.Background(), "e-1", bad, tries)
+	}
+	if k, _ := contract.Load("e-2"); k.State() != contract.StateFailed || k.Failed != contract.ReasonOwnerDead {
+		t.Fatalf("after %d errors: %s %q, want failed owner-dead", resendTries, k.State(), k.Failed)
+	}
+}
+
+// TestSettleLeavesWaitsForWorking: the wait ends when the leaf closes, and names a leaf still working at the cap.
+func TestSettleLeavesWaitsForWorking(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	oldPoll, oldCap := leavesSettlePoll, leavesSettle
+	leavesSettlePoll = 10 * time.Millisecond
+	t.Cleanup(func() { leavesSettlePoll, leavesSettle = oldPoll, oldCap })
+	if err := startFleet(t, "", "d-1", contract.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := startFleet(t, "d-1", "d-2", contract.RoleFleet); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = contract.Update("d-2", func(k contract.Contract) (contract.Contract, error) {
+			return k.Fail(contract.ReasonOwnerDead)
+		})
+	}()
+	if open := settleLeaves(context.Background(), []string{"d-2"}); len(open) != 0 {
+		t.Fatalf("open = %v, want none once the leaf closed", open)
+	}
+	if err := startFleet(t, "", "e-1", contract.RoleOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := startFleet(t, "e-1", "e-2", contract.RoleFleet); err != nil {
+		t.Fatal(err)
+	}
+	leavesSettle = 50 * time.Millisecond
+	if open := settleLeaves(context.Background(), []string{"e-2"}); len(open) != 1 || open[0] != "e-2" {
+		t.Fatalf("open = %v, want e-2 still working", open)
 	}
 }

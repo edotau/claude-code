@@ -49,23 +49,27 @@ func orphaned(c Contract, env Env) bool {
 		env.Lost(c.Holders[len(c.Holders)-1])
 }
 
-// reapOne settles id under its lock, re-checking the holder there; the lane and scope stay as they are.
+// reapOne re-sends outside the lock (Resend's resumed marker keeps it single), then settles id re-checking the holder.
 func reapOne(id string, env Env) (r Reaped, err error) {
+	c, err := Load(id)
+	if err != nil {
+		return Reaped{}, err
+	}
+	if !orphaned(c, env) {
+		return Reaped{}, nil
+	}
+	holder, next := c.Holders[len(c.Holders)-1], ""
+	if env.Successor != nil && len(c.Holders) == 1 {
+		next = env.Successor(c)
+	}
 	_, err = Update(id, func(c Contract) (Contract, error) {
-		if !orphaned(c, env) {
+		if !orphaned(c, env) || c.Holders[len(c.Holders)-1] != holder {
 			return c, nil
 		}
-		r = Reaped{ID: id, Holder: c.Holders[len(c.Holders)-1]}
-		if n, ok := reassign(c, env); ok {
-			r.Action = "reassigned"
-			return n, nil
-		}
-		n, err := c.Fail(ReasonOwnerDead)
-		if err != nil {
-			return c, err
-		}
-		r.Action = "failed"
-		return n, nil
+		r = Reaped{ID: id, Holder: holder}
+		n, action, err := reassignOrFail(c, next)
+		r.Action = action
+		return n, err
 	})
 	if err != nil {
 		r.Action = ""
@@ -73,17 +77,18 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 	return r, err
 }
 
-// reassign hands c to its successor when it has not been re-assigned yet and one exists.
-func reassign(c Contract, env Env) (Contract, bool) {
-	if env.Successor == nil || len(c.Holders) > 1 {
-		return c, false
+// reassignOrFail hands c to next when there is one and it takes, else fails c owner-dead.
+func reassignOrFail(c Contract, next string) (Contract, string, error) {
+	if next != "" {
+		if n, err := c.Reassign(next); err == nil {
+			return n, "reassigned", nil
+		}
 	}
-	next := env.Successor(c)
-	if next == "" {
-		return c, false
+	n, err := c.Fail(ReasonOwnerDead)
+	if err != nil {
+		return c, "", err
 	}
-	n, err := c.Reassign(next)
-	return n, err == nil
+	return n, "failed", nil
 }
 
 // Summary is the doctor row: counts by state, the oldest non-terminal contract and verified ones waiting on a commit.
