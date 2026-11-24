@@ -67,7 +67,7 @@ func paneEventLine(ev wire.Event, width int) (string, bool) {
 	return textutil.TruncateCells(paneText(strings.Join(parts, " ")), min(max(width, 0), maxLineWidth), "…"), true
 }
 
-// eventParts is an event's words: a tool call or result with a mark, thinking dim-marked, else type, tool, status, text.
+// eventParts is an event's words: a marked tool call or result, thinking, else type, tool, status and text.
 func eventParts(ev wire.Event) []string {
 	var parts []string
 	name := ""
@@ -186,7 +186,7 @@ func paneOnLine(s paneState, line []byte) paneState {
 	return s
 }
 
-// paneOnText joins text deltas into lines: a newline or a new turn ends the open line, so Pi's token stream reads whole.
+// paneOnText joins text deltas into lines; a newline or a new turn ends the open line.
 func paneOnText(s paneState, ev wire.Event) paneState {
 	if ev.Sep {
 		s.open = false
@@ -299,7 +299,7 @@ const eventThinking = "thinking"
 // transcriptPoll is how often a subagent's transcript is read again for new lines.
 const transcriptPoll = 300 * time.Millisecond
 
-// transcriptStream tails a subagent transcript as wire event lines until its sidecar says finished or ctx ends.
+// transcriptStream tails a subagent transcript as wire event lines until it finishes or ctx ends.
 func transcriptStream(path string) streamFunc {
 	return func(ctx context.Context, _ agent.Record, w io.Writer) error {
 		f, err := os.Open(path)
@@ -307,42 +307,14 @@ func transcriptStream(path string) streamFunc {
 			return err
 		}
 		defer f.Close()
-		r, enc, names := bufio.NewReaderSize(f, readBuf), json.NewEncoder(w), map[string]string{}
-		emit := func(line []byte, cut bool) error {
-			evs := transcriptEvents(line, names)
-			if cut {
-				evs = []wire.Event{{Type: wire.EventText, Text: "…(line truncated)\n"}}
-			}
-			for _, ev := range evs {
-				if err := enc.Encode(ev); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		var partial []byte
-		var cut bool
+		t := &transcriptTail{r: bufio.NewReaderSize(f, readBuf), enc: json.NewEncoder(w), names: map[string]string{}}
 		for {
 			settled := transcriptFinished(path) // read before the drain, so the last lines are never missed
-			for {
-				if done, _ := readCapped(r, &partial, &cut); !done { // EOF: the rest of the line has not landed yet
-					break
-				}
-				if err := emit(partial, cut); err != nil {
-					return err
-				}
-				partial, cut = partial[:0], false
-				if cap(partial) > 2*readBuf {
-					partial = nil
-				}
+			if err := t.drain(settled); err != nil {
+				return err
 			}
 			if settled {
-				if len(partial) > 0 {
-					if err := emit(partial, cut); err != nil {
-						return err
-					}
-				}
-				return enc.Encode(wire.Event{Type: wire.EventResult, Status: "finished"})
+				return t.enc.Encode(wire.Event{Type: wire.EventResult, Status: "finished"})
 			}
 			select {
 			case <-ctx.Done():
@@ -353,11 +325,52 @@ func transcriptStream(path string) streamFunc {
 	}
 }
 
+// transcriptTail is one transcript read: the unfinished line, its truncation flag and the tool names seen.
+type transcriptTail struct {
+	r       *bufio.Reader
+	enc     *json.Encoder
+	names   map[string]string
+	partial []byte
+	cut     bool
+}
+
+// drain emits every complete line; with last set it also emits a final line that has no newline.
+func (t *transcriptTail) drain(last bool) error {
+	for {
+		done, _ := readCapped(t.r, &t.partial, &t.cut) // an error is EOF: the rest of the line has not landed yet
+		if !done && (!last || len(t.partial) == 0) {
+			return nil
+		}
+		if err := t.emit(); err != nil {
+			return err
+		}
+		if !done {
+			return nil
+		}
+	}
+}
+
+func (t *transcriptTail) emit() error {
+	evs := transcriptEvents(t.partial, t.names)
+	if t.cut {
+		evs = []wire.Event{{Type: wire.EventText, Text: "…(line truncated)\n"}}
+	}
+	t.partial, t.cut = t.partial[:0], false
+	if cap(t.partial) > 2*readBuf {
+		t.partial = nil
+	}
+	for _, ev := range evs {
+		if err := t.enc.Encode(ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // readBuf is the transcript reader's buffer size.
 const readBuf = 64 << 10
 
-// readCapped adds r's next line chunks to partial, keeping at most paneLineBytes and flagging cut past that;
-// it reports true once the newline was read, false at EOF with the rest still to land.
+// readCapped adds r's next line to partial up to paneLineBytes (cut past that); true once the newline was read.
 func readCapped(r *bufio.Reader, partial *[]byte, cut *bool) (bool, error) {
 	for {
 		chunk, err := r.ReadSlice('\n')
