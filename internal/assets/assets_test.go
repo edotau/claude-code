@@ -28,6 +28,14 @@ var inventory = []struct {
 	{"files/review/source/retired_words.json", "json", "RetiredWords", RetiredWords},
 	{"files/ui/theme/default_config.json", "json", "ThemeDefaultConfig", ThemeDefaultConfig},
 	{"files/ui/theme/default_palettes.json", "json", "ThemeDefaultPalettes", ThemeDefaultPalettes},
+	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
+	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
+	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
+	{"files/databricks/templates/codex.toml", "toml", "DatabricksCodexTemplate", DatabricksCodexTemplate},
+	{"files/setup/tmux.conf", "conf", "TmuxConf", TmuxConf},
+	{"files/ui/vscode/keybindings.template.json", "jsonc", "VSCodeKeybindingsTemplate", VSCodeKeybindingsTemplate},
+	{"files/ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
+	{"files/pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
 }
 
 // readers maps each exported production accessor to the embedded paths its body reads.

@@ -189,10 +189,11 @@ var hostLike = regexp.MustCompile(`https?://[A-Za-z0-9.-]+`)
 
 func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 	for _, n := range []string{"claude.json", "codex.toml"} {
-		b, err := tmplFS.ReadFile("templates/" + n)
+		raw, err := tmpl(n)
 		if err != nil {
 			t.Fatal(err)
 		}
+		b := []byte(raw)
 		for _, h := range hostLike.FindAllString(string(b), -1) {
 			if h != placeholderHost {
 				t.Errorf("%s: unexpected host %q", n, h)
