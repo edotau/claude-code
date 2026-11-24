@@ -573,7 +573,7 @@ func costScope(entries []tokenledger.Entry, session string, days int) ([]tokenle
 		time.Time{}, "session " + session
 }
 
-// printUsageCost prints the estimate, or one line naming the key to set when no profile carries prices.
+// printUsageCost prints the estimate; with no price table a hint line names the key and USD stays "-".
 func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, days int, budgets func() []Budget) {
 	if budgets != nil {
 		for _, b := range budgets() {
@@ -583,12 +583,13 @@ func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, da
 	prices := costPrices()
 	if len(prices) == 0 {
 		fmt.Fprintln(w, costPriceHint)
-		return
 	}
 	scoped, since, scope := costScope(entries, session, days)
 	rows := estimateCost(scoped, prices, since)
 	if len(rows) == 0 {
-		fmt.Fprintf(w, "usage: no ledger entries for a profile with a price table, %s\n", scope)
+		if len(prices) > 0 {
+			fmt.Fprintf(w, "usage: no ledger entries for a profile with a price table, %s\n", scope)
+		}
 		return
 	}
 	printCostSection(w, rows, scope)
@@ -596,14 +597,17 @@ func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, da
 
 // costJSON is one cost row; USD is null when the model has no price, never NaN.
 type costJSON struct {
-	Profile    string   `json:"profile"`
-	Model      string   `json:"model"`
-	Input      int      `json:"input"`
-	Output     int      `json:"output"`
-	CacheRead  int      `json:"cache_read"`
-	CacheWrite int      `json:"cache_write"`
-	USD        *float64 `json:"usd"`
-	Source     string   `json:"source"`
+	Profile    string `json:"profile"`
+	Model      string `json:"model"`
+	Input      int    `json:"input"`
+	Output     int    `json:"output"`
+	CacheRead  int    `json:"cache_read"`
+	CacheWrite int    `json:"cache_write"`
+	// CacheHit is a whole percent, null when there is no input; CacheHitSuspect marks reads with no uncached input.
+	CacheHit        *int     `json:"cache_hit_percent"`
+	CacheHitSuspect bool     `json:"cache_hit_suspect"`
+	USD             *float64 `json:"usd"`
+	Source          string   `json:"source"`
 }
 
 // costTotalJSON is one profile's total over its priced models; Partial is true when Unpriced models are left out.
@@ -612,23 +616,31 @@ type costTotalJSON struct {
 	USD      *float64 `json:"usd"`
 	Unpriced int      `json:"unpriced_models"`
 	Partial  bool     `json:"partial"`
+	// CacheHit and CacheHitSuspect are costJSON's, over the profile's summed tokens.
+	CacheHit        *int `json:"cache_hit_percent"`
+	CacheHitSuspect bool `json:"cache_hit_suspect"`
 }
 
 func costForJSON(entries []tokenledger.Entry, session string, days int) ([]costJSON, []costTotalJSON) {
 	prices := costPrices()
-	if len(prices) == 0 {
-		return nil, nil // as in the text output: no price table, no cost section
-	}
 	scoped, since, _ := costScope(entries, session, days)
 	rows := estimateCost(scoped, prices, since)
 	out := make([]costJSON, 0, len(rows))
 	var totals []costTotalJSON
+	var sums []costRow
 	for _, r := range rows {
-		out = append(out, costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
-			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, USD: knownUSD(r.USD), Source: r.Source})
+		pct, ok, suspect := cacheHit(r)
+		row := costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
+			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, CacheHitSuspect: suspect, USD: knownUSD(r.USD), Source: r.Source}
+		if ok {
+			row.CacheHit = &pct
+		}
+		out = append(out, row)
 		if len(totals) == 0 || totals[len(totals)-1].Profile != r.Profile {
 			totals = append(totals, costTotalJSON{Profile: r.Profile})
+			sums = append(sums, costRow{USD: math.NaN()})
 		}
+		addCost(&sums[len(sums)-1], r)
 		t := &totals[len(totals)-1]
 		if math.IsNaN(r.USD) {
 			t.Unpriced++
@@ -636,6 +648,11 @@ func costForJSON(entries []tokenledger.Entry, session string, days int) ([]costJ
 		}
 		if !math.IsNaN(r.USD) {
 			t.USD = knownUSD(addKnown(valueOr(t.USD, math.NaN()), r.USD))
+		}
+	}
+	for i := range totals {
+		if pct, ok, suspect := cacheHit(sums[i]); ok {
+			totals[i].CacheHit, totals[i].CacheHitSuspect = &pct, suspect
 		}
 	}
 	return out, totals

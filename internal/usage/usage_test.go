@@ -696,13 +696,13 @@ func TestUsageCostWithPrices(t *testing.T) {
 }
 
 func TestUsageCostNoPricesHints(t *testing.T) {
-	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 5}}, costReg(nil))
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 5, CacheRead: 5}}, costReg(nil))
 	var out bytes.Buffer
 	if code := Run([]string{"--cost", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if !strings.Contains(out.String(), costPriceHint) || strings.Contains(out.String(), "COST,") {
-		t.Errorf("want the hint and no table:\n%s", out.String())
+	if !strings.Contains(out.String(), costPriceHint) || !strings.Contains(out.String(), "50%") {
+		t.Errorf("want the hint and the unpriced table with its cache-hit share:\n%s", out.String())
 	}
 }
 
@@ -761,6 +761,24 @@ func TestUsageCostJSONPartialTotal(t *testing.T) {
 	}
 	if tot := doc.Totals[0]; tot.USD == nil || *tot.USD != 3 || tot.Unpriced != 1 || !tot.Partial {
 		t.Errorf("total = %+v, want 3 USD, partial, 1 unpriced", tot)
+	}
+}
+
+func TestUsageCostJSONTotalCacheHit(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000, CacheRead: 3_000_000}},
+		costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Totals []costTotalJSON `json:"cost_totals"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Totals) != 1 {
+		t.Fatalf("err %v totals %+v", err, doc.Totals)
+	}
+	if tot := doc.Totals[0]; tot.CacheHit == nil || *tot.CacheHit != 75 || tot.CacheHitSuspect {
+		t.Errorf("total cache hit = %+v, want 75%%", tot)
 	}
 }
 

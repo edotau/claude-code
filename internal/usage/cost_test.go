@@ -133,11 +133,27 @@ func TestCostPrintSection(t *testing.T) {
 	var sb strings.Builder
 	printCostSection(&sb, rows, "last 30 days")
 	out := sb.String()
-	for _, want := range []string{"(est.)", "(billed)", "1.5M", "$1.25", "total (partial: 1 unpriced)", "COST, last 30 days (est.)", "totals leave out unpriced models",
+	for _, want := range []string{"(est.)", "(billed)", "1.5M", "$1.25", "total (1 unpriced)", "COST, last 30 days (est.)", "totals leave out unpriced models",
 		"est.: local ledger tokens x your price table, not an invoice",
 		"billed: system.billing, through 2026-11-18"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCacheHitCell(t *testing.T) {
+	for _, tt := range []struct {
+		r    costRow
+		want string
+	}{
+		{costRow{Input: 10, CacheRead: 80, CacheWrite: 10}, "80%"},
+		{costRow{CacheRead: 5}, "100%?"},
+		{costRow{Output: 3}, "-"},
+		{costRow{Input: 5, CacheWrite: 5}, "0%"},
+	} {
+		if got := cacheHitCell(tt.r); got != tt.want {
+			t.Errorf("cacheHitCell(%+v) = %q, want %q", tt.r, got, tt.want)
 		}
 	}
 }

@@ -43,7 +43,7 @@ func ledgerModelKey(profile, model string) string {
 	return models.ModelKey(m)
 }
 
-// estimateCost prices ledger entries at or after since with each profile's table; unpriced profiles are left out.
+// estimateCost prices ledger entries at or after since; profiles without a table are left out unless none has one.
 func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]providers.Price, since time.Time) []costRow {
 	type key struct{ profile, model string }
 	keyed := map[string]map[string]providers.Price{}
@@ -56,7 +56,7 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 	idx := map[key]*costRow{}
 	var order []key
 	for _, e := range entries {
-		if e.Ts.Before(since) || keyed[e.ProfileName()] == nil {
+		if e.Ts.Before(since) || (len(prices) > 0 && keyed[e.ProfileName()] == nil) {
 			continue
 		}
 		k := key{e.ProfileName(), ledgerModelKey(e.ProfileName(), e.Model)}
@@ -94,6 +94,26 @@ func priceRow(r costRow, p providers.Price) float64 {
 	}
 	return (float64(r.Input)*p.Input + float64(r.Output)*p.Output + float64(r.CacheRead)*p.CacheRead +
 		float64(r.CacheWrite-w1h)*p.CacheWrite + float64(w1h)*rate1h) / 1e6
+}
+
+// cacheHit is cache reads over all input (ledger input excludes cache reads); suspect: reads with no uncached input.
+func cacheHit(r costRow) (pct int, ok, suspect bool) {
+	all := r.CacheRead + r.CacheWrite + r.Input
+	if all <= 0 {
+		return 0, false, false
+	}
+	return int(math.Round(float64(r.CacheRead) * budgetPercent / float64(all))), true, r.Input == 0 && r.CacheRead > 0
+}
+
+func cacheHitCell(r costRow) string {
+	pct, ok, suspect := cacheHit(r)
+	switch {
+	case !ok:
+		return "-"
+	case suspect:
+		return fmt.Sprintf("%d%%?", pct)
+	}
+	return fmt.Sprintf("%d%%", pct)
 }
 
 func compareCostRows(a, b costRow) int {
@@ -249,8 +269,8 @@ func costTable(src string, rows []costRow) ([]string, [][]string) {
 	head := []string{"PROFILE", "MODEL", "DBUS", "USD"}
 	last := 3
 	if src == costEst {
-		head = []string{"PROFILE", "MODEL", "INPUT", "OUTPUT", "CACHE-R", "CACHE-W", "USD"}
-		last = 6
+		head = []string{"PROFILE", "MODEL", "INPUT", "OUTPUT", "CACHE-R", "CACHE-W", "HIT", "USD"}
+		last = 7
 	}
 	var body [][]string
 	for i := 0; i < len(rows); {
@@ -261,7 +281,7 @@ func costTable(src string, rows []costRow) ([]string, [][]string) {
 			addCost(&tot, rows[j])
 		}
 		if tot.Unpriced > 0 {
-			tot.Model = fmt.Sprintf("total (partial: %d unpriced)", tot.Unpriced)
+			tot.Model = fmt.Sprintf("total (%d unpriced)", tot.Unpriced)
 		}
 		body = append(body, costCells(src, tot))
 		i = j
@@ -305,5 +325,5 @@ func costCells(src string, r costRow) []string {
 		return []string{dash(r.Profile), dash(r.Model), dbus, usd}
 	}
 	return []string{dash(r.Profile), dash(r.Model), humanTokens(r.Input), humanTokens(r.Output),
-		humanTokens(r.CacheRead), humanTokens(r.CacheWrite), usd}
+		humanTokens(r.CacheRead), humanTokens(r.CacheWrite), cacheHitCell(r), usd}
 }
