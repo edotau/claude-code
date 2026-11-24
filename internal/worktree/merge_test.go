@@ -674,6 +674,7 @@ func TestLaneMergeCLILanesOwnInboxAndKeptLaneHears(t *testing.T) {
 }
 
 func TestLaneLiveCheckRefusesLiveProcess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	old := processesIn
 	t.Cleanup(func() { processesIn = old })
 	processesIn = func(string) ([]Proc, error) { return []Proc{{PID: 1 << 30, Comm: "sleep"}}, nil }
