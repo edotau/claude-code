@@ -33,8 +33,9 @@ claude-code agents ask --background --agent gemini --provider databricks --tools
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(`gemini via pi` once the Pi runner leads typed external asks). Gemini on agy and its Google sign-in stays reachable
-from the main session: `claude-code gemini …`, or overlay `{"runner":"own"}`. Role rotation covers gemini's models too.
+(the receipt reads `gemini via pi`; its own CLI is the fallback hop). Gemini on agy and its Google sign-in stays
+reachable from the main session: `claude-code gemini …`, or overlay `{"runner":"own"}`. Role rotation covers
+gemini's models too.
 
 ## Owns
 

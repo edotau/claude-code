@@ -33,8 +33,9 @@ claude-code agents ask --background --agent copilot --provider databricks --tool
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(`copilot via pi` once the Pi runner leads typed external asks). The Copilot CLI on its own login stays reachable from
-the main session: `claude-code copilot …`, or overlay `{"runner":"own"}`. Role rotation covers copilot's models too.
+(the receipt reads `copilot via pi`; its own CLI is the fallback hop). The Copilot CLI on its own login stays
+reachable from the main session: `claude-code copilot …`, or overlay `{"runner":"own"}`. Role rotation covers
+copilot's models too.
 
 ## Owns
 
