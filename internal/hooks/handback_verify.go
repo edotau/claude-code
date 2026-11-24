@@ -25,8 +25,10 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	if top == "" {
 		return nil
 	}
+	lane := cmp.Or(leafLane(withAgentID(in)), laneOf(in.CWD))
+	dirtyTop := cmp.Or(lane, top)
 	dirtyc := make(chan []string, 1)
-	go func() { dirtyc <- dirtyPaths(top) }() // git status overlaps the plan parse
+	go func() { dirtyc <- dirtyPaths(dirtyTop) }() // git status overlaps the plan parse
 	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
 	dirty := <-dirtyc
 	recTask := recordPlanTask(loadRecords(lr.ids))
@@ -45,18 +47,38 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	files := dirtyOwned(dirty, plans.OwnedPaths(task))
 	commit := "commit+tick: claude-code worktree commit --task '" + id + "' --plan " + planPath +
 		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, files...), " ")
+	if lane == "" && len(files) == 0 { // no lane and no owned edit in the checkout: nothing shows where the leaf worked
+		return []string{"verify " + id + ": lane not resolved; not run", commit}
+	}
 	if time.Until(deadline) < 2*time.Second {
 		return []string{"verify " + id + ": no time left in the hand-back budget; the commit-time verify still runs", commit}
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: top, Task: task, Files: files,
+	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: dirtyTop, Task: task, Files: files,
 		OutDir: filepath.Join(paths.StateDir(), "verify", "handback")})
-	lines := make([]string, 0, len(checks)+1)
+	return append(verifyLines(checks), commit)
+}
+
+// withAgentID is in with the hand-back's subagent id, which leafLane reads from AgentID.
+func withAgentID(in *core.Input) *core.Input {
+	c := *in
+	c.AgentID = in.SubagentID()
+	return &c
+}
+
+// verifyLines is one line per check; a check cut by the deadline is the one line, with no "no checks ran" after it.
+func verifyLines(checks []waves.TaskCheck) []string {
+	for _, c := range checks {
+		if strings.HasPrefix(c.Skip, "not finished") {
+			return []string{c.Line()}
+		}
+	}
+	lines := make([]string, 0, len(checks))
 	for _, c := range checks {
 		lines = append(lines, c.Line())
 	}
-	return append(lines, commit)
+	return lines
 }
 
 // checkoutTop is dir's git toplevel by stat walk; git runs only for a layout the walk cannot see (bare gitdir).

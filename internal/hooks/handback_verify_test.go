@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
@@ -73,13 +74,21 @@ func TestCheckoutTopResolvesSymlinks(t *testing.T) {
 	}
 }
 
+func TestVerifyLinesOneLineOnTimeout(t *testing.T) {
+	cut := waves.TaskCheck{Task: "2.4", Cmd: "go vet ./x", Skip: "not finished in 13 s; the commit-time verify still runs"}
+	none := waves.TaskCheck{Task: "2.4", Cmd: "-", Skip: "no checks ran"}
+	if got := verifyLines([]waves.TaskCheck{cut, none}); len(got) != 1 || !strings.Contains(got[0], "not finished") {
+		t.Errorf("got %q, want the one not-finished line", got)
+	}
+}
+
 func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, plan := planRepo(t)
 	in := &core.Input{CWD: repo}
 	lr := leafRead{scan: leafScan{brief: "Task: 1.2\nwire it"}}
 	got := handbackVerify(in, lr, time.Now()) // an expired deadline takes the no-time branch: no gate runs
-	if len(got) != 2 || !strings.HasPrefix(got[0], "verify 1.2:") ||
+	if len(got) != 2 || got[0] != "verify 1.2: lane not resolved; not run" ||
 		!strings.HasPrefix(got[1], "commit+tick: claude-code worktree commit --task '1.2' --plan "+plan) {
 		t.Errorf("task brief: got %q, want one verify 1.2 line and one commit+tick naming it", got)
 	}
