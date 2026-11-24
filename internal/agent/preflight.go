@@ -133,7 +133,7 @@ func checkWorkspace(ctx context.Context, p *providers.Provider, st router.State,
 			return []Finding{*f}
 		}
 	}
-	if f := workspaceAuth(ctx, p); f != nil {
+	if f := workspaceAuth(ctx, p, now); f != nil {
 		out = append(out, *f)
 	}
 	return out
@@ -267,9 +267,12 @@ func tokenHint(p *providers.Provider) string {
 	return providers.LoginCommand(p.Name)
 }
 
-// workspaceAuth reads the current state and clock, so a verdict authMarkFinding just stored spares a second probe.
-func workspaceAuth(ctx context.Context, p *providers.Provider) *Finding {
-	if loadState().VerifiedOK(router.AccountOf(p), workspaceKey(p), verdictFP(ctx, p), time.Now()) {
+// workspaceAuth reads the current state at the later of now and the clock: a verdict just stored spares a second probe.
+func workspaceAuth(ctx context.Context, p *providers.Provider, now time.Time) *Finding {
+	if wall := time.Now(); wall.After(now) {
+		now = wall
+	}
+	if loadState().VerifiedOK(router.AccountOf(p), workspaceKey(p), verdictFP(ctx, p), now) {
 		return nil
 	}
 	if probeWorkspace(ctx, p) != "auth" {

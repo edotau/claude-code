@@ -170,7 +170,7 @@ func TestPreflightAuthCacheReprobesFailuresAndRotatedCredentials(t *testing.T) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old })
 	check := func(wantFail bool) {
 		t.Helper()
-		f := workspaceAuth(context.Background(), p)
+		f := workspaceAuth(context.Background(), p, time.Now())
 		if (f != nil) != wantFail {
 			t.Fatalf("finding = %v, want failure %v", f, wantFail)
 		}
