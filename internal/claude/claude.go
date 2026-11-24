@@ -379,8 +379,7 @@ type claudeStreamState struct {
 	tools     toolTimer
 }
 
-// toolTimer times each top-level tool call from its tool_use to its result (the stream has no start event, so
-// queueing and permission waits count), by tool_use id.
+// toolTimer times top-level calls by tool_use id, tool_use to result (no start event, so waits count).
 type toolTimer map[string]pendingTool
 
 type pendingTool struct {
