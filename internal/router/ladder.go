@@ -556,14 +556,23 @@ func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop,
 	return ChainHop{agent, profile, AccountOf(p), m, off}, true
 }
 
+// chainFamily is family m as agent's concrete READY id on p, or why there is none.
+func chainFamily(agent string, p *providers.Provider, m string, now time.Time) (model, why string) {
+	if m = providers.ConcreteModel(agent, p, m); m == "" {
+		return "", "no concrete model for the family on " + p.Name
+	}
+	if ready, fresh := ServedReady(p, m, now); fresh && !ready {
+		return "", "rung model " + m + " is not READY on " + p.Name
+	}
+	return m, ""
+}
+
 // chainModel is m as a concrete id on p (a family resolved), or why agent cannot run it there.
 func chainModel(agent string, p *providers.Provider, m string, now time.Time) (model, why string) {
 	if providers.IsFamily(m) {
-		if m = providers.ConcreteModel(agent, p, m); m == "" {
-			return "", "no concrete model for the family on " + p.Name
-		}
-		if ready, fresh := ServedReady(p, m, now); fresh && !ready {
-			return "", "rung model " + m + " is not READY on " + p.Name
+		var why string
+		if m, why = chainFamily(agent, p, m, now); why != "" {
+			return "", why
 		}
 	}
 	if agentid.Routing(agent).ResponsesRoute && !providers.ResponsesServable(p, m) {
