@@ -31,8 +31,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
 
 ## Hard rules (always on)
 
-1. **`settings.json` is yours:** hand-edited, untracked; install never writes an existing one; reset with
-   `claude-code configure --restore` (`rules/harness/settings-management.md`).
+1. **`settings.json` is yours:** hand-edited, untracked; install never writes an existing one; the lint step only
+   reformats it (`configure --fmt`: key order, backup kept); reset with `claude-code configure --restore`
+   (`rules/harness/settings-management.md`).
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
    comes from the OS keyring, `HARNESS_VAULT_KEY`, or `key_command`.
