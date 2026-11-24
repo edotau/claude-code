@@ -4,6 +4,7 @@ package claude
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -123,11 +124,32 @@ type httpError struct {
 	status int
 	after  time.Duration
 	msg    string
+	hint   retry.ShouldRetry // the x-should-retry response header
+	code   string            // the provider's typed error code
 }
 
-func (e *httpError) Error() string             { return e.msg }
-func (e *httpError) StatusCode() int           { return e.status }
-func (e *httpError) RetryAfter() time.Duration { return e.after }
+func (e *httpError) Error() string                  { return e.msg }
+func (e *httpError) StatusCode() int                { return e.status }
+func (e *httpError) RetryAfter() time.Duration      { return e.after }
+func (e *httpError) ShouldRetry() retry.ShouldRetry { return e.hint }
+func (e *httpError) ErrorCode() string              { return e.code }
+
+// errorBodyMax bounds the error body read for the message and the typed code.
+const errorBodyMax = 4 << 10
+
+// bodyErrorCode is the typed code of an error body ({"error":{"code"}} or Databricks' "error_code"); "" when absent.
+func bodyErrorCode(body []byte) string {
+	var b struct {
+		Code  string `json:"error_code"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &b) != nil {
+		return ""
+	}
+	return strings.ToLower(cmp.Or(b.Error.Code, b.Code))
+}
 
 // chatStream POSTs {base}/chat/completions with stream=true and writes content deltas to w.
 func chatStream(ctx context.Context, base string, p *providers.Provider, model, prompt, effort string, w io.Writer) (wire.Usage, string, error) {
@@ -159,10 +181,11 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 600))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyMax))
 		after, _ := textutil.HeaderRetryAfter(resp.Header, time.Now())
 		return wire.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
-			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
+			hint: retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")), code: bodyErrorCode(raw),
+			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw[:min(len(raw), 600)])))}
 	}
 	return parseChatStream(resp.Body, w)
 }
@@ -345,8 +368,10 @@ func boxSDKError(err error) error {
 	if !errors.As(err, &apiErr) {
 		return err
 	}
-	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
+	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON()),
+		code: bodyErrorCode([]byte(apiErr.RawJSON()))}
 	if apiErr.Response != nil {
+		out.hint = retry.ParseShouldRetry(apiErr.Response.Header.Get("X-Should-Retry"))
 		// Keep the SDK caller's integer-only header policy.
 		h := apiErr.Response.Header
 		if v := h.Get("Retry-After"); h.Get("Retry-After-Ms") != "" || (v == strings.TrimSpace(v) && !strings.Contains(v, ":")) {

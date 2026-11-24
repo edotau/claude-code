@@ -359,3 +359,21 @@ func TestOneShotWireModelsAlreadyBare(t *testing.T) {
 		})
 	}
 }
+
+func TestBodyErrorCodeAndHintReachClassify(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"error":{"code":"Content_Filter"}}`: "content_filter", `{"error_code":"REFUSAL"}`: "refusal",
+		`{"error":{"code":7}}`: "", `not json`: "",
+	} {
+		if got := bodyErrorCode([]byte(body)); got != want {
+			t.Errorf("bodyErrorCode(%s) = %q, want %q", body, got, want)
+		}
+	}
+	err := &httpError{status: 503, msg: "HTTP 503", hint: retry.ParseShouldRetry("false")}
+	if e := retry.Classify("claude", err, false); e.ShouldRetry != retry.ShouldRetryNo || e.Kind != retry.KindTransient {
+		t.Errorf("Classify = %+v", e)
+	}
+	if e := retry.Classify("claude", &httpError{status: 400, msg: "HTTP 400", code: "content_filter"}, false); !e.PolicyRefusal {
+		t.Errorf("typed code not classified: %+v", e)
+	}
+}
