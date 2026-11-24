@@ -260,10 +260,10 @@ func (m *reqMeta) noteBody(model string, top map[string]json.RawMessage) {
 
 // isTiny reports a body with no tools and a positive max_tokens of at most tinyMaxTokens.
 func isTiny(top map[string]json.RawMessage) bool {
-	switch string(bytes.TrimSpace(top["tools"])) {
-	case "", "null", "[]":
-	default:
-		return false
+	if t := bytes.TrimSpace(top["tools"]); len(t) > 0 && string(t) != "null" {
+		if j := skipSpace(t, 1); t[0] != '[' || j >= len(t) || t[j] != ']' {
+			return false
+		}
 	}
 	n, err := strconv.Atoi(string(bytes.TrimSpace(top["max_tokens"])))
 	return err == nil && n > 0 && n <= tinyMaxTokens

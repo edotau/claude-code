@@ -227,3 +227,14 @@ func TestReqMetaTypedKinds(t *testing.T) {
 		t.Errorf("passthroughCall = %q, want chat", got)
 	}
 }
+
+func TestTinyAndGeminiPathModel(t *testing.T) {
+	var top map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(`{"max_tokens":8,"tools":[ ]}`), &top)
+	if !isTiny(top) {
+		t.Error(`isTiny with "tools":[ ] = false, want true`)
+	}
+	if got := geminiPathModel("/p/pt/gemini/v1beta/models/gemini-x:generateContent", providers.ProtocolGemini); got != "gemini-x" {
+		t.Errorf("geminiPathModel = %q, want gemini-x", got)
+	}
+}

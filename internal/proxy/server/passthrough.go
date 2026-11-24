@@ -146,7 +146,7 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 		var asked string
 		body, asked, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect, dbxGemini)
 		if m, _ := in.Context().Value(metaKey{}).(*reqMeta); m != nil {
-			m.asked = modelToken(asked)
+			m.asked = modelToken(cmp.Or(geminiPathModel(in.URL.Path, dialect), asked))
 		}
 	}
 	if err != nil {
@@ -874,6 +874,18 @@ func safeRest(rest string) error {
 		}
 	}
 	return nil
+}
+
+// geminiPathModel is the model id the client's gemini path named, before the gateway rewrite; "" for another dialect.
+func geminiPathModel(path, dialect string) string {
+	if dialect != providers.ProtocolGemini {
+		return ""
+	}
+	_, _, rest, _ := parsePassthrough(path)
+	if m := geminiCallRE().FindStringSubmatch(rest); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // geminiCallRE is the one call agy's gateway mode makes: v1beta/models/<id>:(stream)GenerateContent.
