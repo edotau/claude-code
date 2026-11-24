@@ -624,8 +624,8 @@ func checkNewTask(t WaveTask) error {
 		return errors.New("plans: a new task needs an id and a title")
 	}
 	for _, s := range slices.Concat([]string{t.ID, t.Task, t.Leaf, t.Agent, t.Profile, t.Verify}, t.Owns, t.BlockedBy) {
-		if strings.ContainsAny(s, "\r\n") || strings.Contains(s, " — ") || waveAttr().MatchString(s) {
-			return fmt.Errorf("plans: field %q holds a newline, an em dash separator or an attribute key such as \"profile:\"", s)
+		if strings.Contains(s, " — ") || waveAttr().MatchString(s) {
+			return fmt.Errorf("plans: field %q holds an em dash separator or an attribute key such as \"profile:\"", s)
 		}
 	}
 	t.Manual = t.Agent == "in-context" || strings.HasSuffix(strings.ToUpper(t.ID), ".V")
@@ -644,7 +644,7 @@ func AddTask(planPath string, t WaveTask) error {
 			return "", fmt.Errorf("plans: task %q already exists in %s", t.ID, planPath)
 		}
 		for _, b := range t.BlockedBy {
-			if _, ok := findTask(p, b); !ok {
+			if !slices.ContainsFunc(p.Tasks, func(o Task) bool { return o.ID == b }) {
 				return "", fmt.Errorf("plans: blocked-by %q names no task in %s", b, planPath)
 			}
 		}
@@ -694,16 +694,27 @@ func tasksEnd(lines []string, p Plan) (int, error) {
 // checkRendered refuses text where the new line does not parse back as t, or a Phase task the wave parser rejects.
 func checkRendered(planPath, text string, t WaveTask, before int) error {
 	np := parseBytes(planPath, []byte(text))
-	got, ok := findTask(np, t.ID)
-	if !ok || got.ID != "" && got.ID != t.ID || len(np.Tasks) != before+1 || !slices.Equal(got.Owns, t.Owns) ||
-		got.Title != strings.TrimPrefix(TaskLine(t), "- [ ] ") || got.Sha != "" {
+	if !readsBack(np, t, before) {
 		return fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
 	}
 	if !waveID().MatchString(t.ID) {
 		return nil
 	}
-	if _, err := parseWavesBytes(planPath, []byte(text)); err != nil {
-		return fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+	_, err := parseWavesBytes(planPath, []byte(text))
+	var we *WaveError
+	if !errors.As(err, &we) {
+		return err
 	}
-	return nil
+	if we.ID == t.ID && (we.Reason == "missing Waves row" || strings.Contains(we.Reason, "membership")) {
+		return fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
+			t.ID, strings.TrimPrefix(strings.SplitN(t.ID, ".", 2)[0], "Phase "))
+	}
+	return fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+}
+
+// readsBack reports whether np holds exactly one new task whose parsed fields equal t's rendered line.
+func readsBack(np Plan, t WaveTask, before int) bool {
+	got, ok := findTask(np, t.ID)
+	return ok && (got.ID == "" || got.ID == t.ID) && len(np.Tasks) == before+1 && slices.Equal(got.Owns, t.Owns) &&
+		got.Title == strings.TrimPrefix(TaskLine(t), "- [ ] ") && got.Sha == ""
 }
