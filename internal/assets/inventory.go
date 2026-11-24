@@ -32,6 +32,7 @@ var inventory = []struct {
 	{"files/providers/defaults.json", "json", "ProviderDefaults", ProviderDefaults},
 	{"files/models/catalog.json", "json", "ModelCatalog", ModelCatalog},
 	{"files/router/table.json", "json", "RouteTable", RouteTable},
+	{"files/proxy/teams.json", "json", "ProxyTeams", ProxyTeams},
 	{"files/shell/guards.json", "json", "ShellGuards", ShellGuards},
 	{"files/agentconfig/agents.json", "json", "AgentDefaults", AgentDefaults},
 	{"files/agentconfig/overlay.schema.json", "json", "OverlaySchemaSnapshot", OverlaySchemaSnapshot},

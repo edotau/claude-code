@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "teams": [
+    {
+      "name": "shared",
+      "kinds": ["interactive"],
+      "host": "daemon",
+      "lifetime": "shared",
+      "reserved": 1,
+      "borrow": "any",
+      "fallback": [],
+      "default": true
+    }
+  ]
+}

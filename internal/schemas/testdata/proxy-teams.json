@@ -1,0 +1,1 @@
+{"schema":1,"teams":[{"name":"phase","kinds":["group"],"host":"phase","lifetime":"phase","reserved":1,"borrow":"never","fallback":["shared"]}]}

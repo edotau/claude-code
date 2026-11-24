@@ -19,6 +19,7 @@
 # legacy-layout: opencode-overlay
 # legacy-layout: picker-additions
 # legacy-layout: projections
+# legacy-layout: proxy-teams-last-good
 # legacy-layout: quota
 # legacy-layout: route-fit
 # legacy-layout: router-runtime
@@ -67,6 +68,8 @@ pi-guard | derived | 1 | state/harness/pi/*/runs/*/guard.ts | internal/pi | clea
 pi-packages | derived | 1 | state/harness/pi/packages/*/.spec | internal/pi | keep
 picker-additions | store | 1 | state/vault.db | internal/catalog | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
+proxy-teams | wire | 1 | - | internal/proxyteam | keep
+proxy-teams-last-good | cache | 1 | state/harness/proxy/teams.last-good.json | internal/proxyteam | keep
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/network/remote | keep
 route-auto | cache | 1 | state/harness/router/route-auto.json | internal/router | keep

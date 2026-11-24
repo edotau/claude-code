@@ -9,6 +9,9 @@ func ModelCatalog() []byte { return read("files/models/catalog.json") }
 // RouteTable is the built-in routing table source.
 func RouteTable() []byte { return read("files/router/table.json") }
 
+// ProxyTeams is the built-in proxy team schema source.
+func ProxyTeams() []byte { return read("files/proxy/teams.json") }
+
 // ShellGuards is the shell guard vocabulary source.
 func ShellGuards() []byte { return read("files/shell/guards.json") }
 
