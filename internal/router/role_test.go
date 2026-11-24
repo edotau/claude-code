@@ -3,6 +3,7 @@ package router
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -32,5 +33,11 @@ func TestRoleCells(t *testing.T) {
 	}
 	if _, err := ParseRole("lead"); !errors.As(err, new(RoleError)) {
 		t.Errorf("lead: want a RoleError, got %v", err)
+	}
+}
+
+func TestFableHint(t *testing.T) {
+	if !strings.Contains(FableHint("fable"), "anthropic") || FableHint("opus") != "" {
+		t.Error("FableHint must name anthropic for Fable only")
 	}
 }
