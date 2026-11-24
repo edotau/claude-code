@@ -475,6 +475,8 @@ type ChainReq struct {
 	Asked string
 	// TypedModel: the model was named on the command line, so no hop leaves the arm
 	TypedModel bool
+	// TypedAll: --fallback all was named on the command line, not inherited from the env default
+	TypedAll bool
 }
 
 // ChainHop is one hop of a chain; OffArm marks the hop that leaves the Databricks arm, taken only under a typed all.
@@ -504,7 +506,7 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 	if own != q.Agent {
 		out = append(out, hop(own, q.Profile, cmp.Or(q.Model, q.Alias), false))
 	}
-	if q.Fallback == FallbackAll && !q.TypedModel {
+	if q.Fallback == FallbackAll && q.TypedAll && !q.TypedModel {
 		for _, row := range ownRows(reg, own) {
 			out = append(out, hop(own, row, q.Alias, true))
 		}

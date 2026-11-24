@@ -269,7 +269,7 @@ func TestConfinedContextConcurrentRuns(t *testing.T) {
 	wg.Wait()
 }
 
-// chainOf is q's chain over a hermetic registry with dev, qa and the anthropic login, one "agent account model" per hop.
+// chainOf is q's chain over a hermetic registry with dev, qa and the anthropic login.
 func chainOf(t *testing.T, q ChainReq) []string {
 	t.Helper()
 	vaulttest.Use(t)
@@ -304,6 +304,10 @@ func TestChainOrder(t *testing.T) {
 		t.Errorf("agents chain = %v, want pi dev, pi qa, claude dev", got)
 	}
 	q.Fallback = FallbackAll
+	if got := chainOf(t, q); off(got) != 0 {
+		t.Errorf("inherited all chain = %v, want no off-arm hop", got)
+	}
+	q.TypedAll = true
 	if got := chainOf(t, q); off(got) != 1 || !strings.HasSuffix(got[len(got)-1], "OFF-ARM") {
 		t.Errorf("all chain = %v, want one off-arm hop, last", got)
 	}
