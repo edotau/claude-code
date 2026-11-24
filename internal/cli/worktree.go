@@ -240,7 +240,7 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 			"Quote an id with spaces: --task \"Phase 2.1\".\n" +
 			"List the candidates first: claude-code worktree commit --list (no -m)."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
-	typ := fs.String("type", "", "Conventional `type`; with no -m the subject is the one --task's plan title")
+	typ := fs.String("type", "", "Conventional type; with no -m the subject is the one --task's plan title")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
 	list := fs.Bool("list", false, "print each dirty file as @id<TAB>path and exit; no -m needed")
 	var tasks []string
