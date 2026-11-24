@@ -48,7 +48,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if c.Dispatches[0].fallsBack(c.Want) { // a skip already moved the chain off the requested step
 		s.noteSkips(notify)
 	}
-	if len(c.Dispatches) > 1 && editing(req) { // the successor's `git log <start>..HEAD` needs the pre-dispatch HEAD
+	if len(c.Dispatches) > 1 && editing(req) { // successor's `git log <start>..HEAD` needs the pre-dispatch HEAD
 		s.startHead = gitHead(ctx, req.WorkDir)
 	}
 	if err := s.walk(ctx, c, sink, notify); err != nil {
@@ -119,7 +119,7 @@ func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reas
 }
 
 func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
-	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
+	hopReasons := reasons[len(c.Skipped):] // combined reason names asked skips and ran hops, never an unasked agent's skip
 	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
 	res.Requested, res.RequestedRoute = c.requested.Model, c.requestedRoute()
 	res.RequestedWhy = strings.Join(hopReasons[:min(1, len(hopReasons))], "")
@@ -193,7 +193,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := accountRefused(disp, gm); skip != nil {
-		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
+		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: invokedModel(lreq), NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
@@ -224,7 +224,7 @@ func settle(disp Dispatch, req RunOptions, res wire.Result, err error, hops []wi
 	return res, hops
 }
 
-// noteDropped1M says when opencode runs a typed [1m] request at the bare model's window (R8: no silent swap); Pi applies it.
+// noteDropped1M says opencode runs a typed [1m] request at the bare model's window (R8: no silent swap); Pi applies it.
 func noteDropped1M(agent string, req RunOptions, notify func(string)) {
 	if notify != nil && agent == agentid.OpenCode && (req.Typed1M || models.Has1M(req.Model)) {
 		notify(agent + ": runs the bare model at its default window; [1m] is not applied")
@@ -239,7 +239,7 @@ func invokedModel(req RunOptions) string {
 	return req.MarkedModel()
 }
 
-// launchedModel: auto stays auto, a typed model as asked, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
+// launchedModel gives auto, typed as asked, then a frozen copilot target's, invokedModel, else the agent's plain pin.
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
 	if IsAuto(invokedModel(req)) {
 		return invokedModel(req)
@@ -610,7 +610,7 @@ func (s *fallbackState) movesOn(ctx context.Context) bool {
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && typedModelGone(s.req, s.err) {                               // R8: a typed model the endpoint lacks is never swapped for another
+	if i > 0 && typedModelGone(s.req, s.err) {                               // R8: a typed model unserved is never swapped
 		s.stopped = true
 		return true, nil
 	}
@@ -703,7 +703,7 @@ func (s *fallbackState) handOff(i int, disp Dispatch, midRun bool, sink wire.Sin
 		return nil
 	}
 	s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
-	s.req.Prompt = s.nextPrompt(midRun) // the git reconcile steps go to an editing successor only
+	s.req.Prompt = s.nextPrompt(midRun) // git reconcile steps go to an editing successor only
 	s.noteSkips(notify)
 	if herr := announceFallback(sink, notify, s.prevDispatch, disp, s.err); herr != nil {
 		return herr
@@ -733,7 +733,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 		return true
 	}
 	lreq := dispatchRequest(s.req, disp, i == 0 && disp.Agent.Name() == c.Want)
-	ctx, disp = freezeCopilot(ctx, disp, lreq) // The gate's actual target precedes the permit and cooldown key.
+	ctx, disp = freezeCopilot(ctx, disp, lreq) // the gate's actual target precedes the permit and cooldown key
 	disp = ownLoginActual(disp, lreq)
 	key := cmp.Or(disp.Account, disp.Agent.Name()+"·own")
 	retry.WaitCooldown(ctx, key, retry.DefaultMaxDelay)
@@ -906,7 +906,7 @@ func holdable(disp Dispatch, err error) (*retry.Error, bool) {
 	switch e.Kind {
 	case retry.KindQuota:
 		return e, true
-	case retry.KindRateLimit: // a per-endpoint 429 on a credits account must not bench the whole account
+	case retry.KindRateLimit: // a per-endpoint 429 on a credits account must not bench it
 		return e, disp.Billing == router.BillSubscription
 	}
 	return nil, false
@@ -972,7 +972,7 @@ var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|Invalid JSON payload received\. Unknown name|available only via Unity Gateway|(?i)endpoint\b[^\n]*\bis deprecated`)
 })
 
-// requestSizeErr is the prompt exceeding a model's context: this ask re-picks, nothing is held; checked before capabilityErr.
+// requestSizeErr is a prompt over a model's context: this ask re-picks, nothing is held; checked before capabilityErr.
 var requestSizeErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)context length|maximum context|exceed context limit|prompt is too long|input length`)
 })
@@ -997,15 +997,14 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	msg := err.Error()
 	switch {
 	case autoRefusal(ctx, disp, lreq.Model, ran, msg):
-		return lreq.Model // the same auto request re-picks, the failed model excluded
+		return lreq.Model // same auto request re-picks, failed model excluded
 	case !auto && disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // auto re-picks from its pool below
 		return disp.servedRepick(lreq.Model)
 	}
 	return ""
 }
 
-// autoRefusal is a pick refusal an auto ask re-picks past: a size refusal or no response holds nothing, a model one
-// skips ran for 7 days.
+// autoRefusal is a refusal an auto ask re-picks past: size or no response holds nothing, a model one skips ran 7 days.
 func autoRefusal(ctx context.Context, disp Dispatch, requested, ran, msg string) bool {
 	if requestSizeErr().MatchString(msg) || strings.Contains(msg, NoResponse) {
 		return autoRetryable(disp, requested, ran) != nil
@@ -1072,7 +1071,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}
 		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
-			out.Model = AutoModel // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
+			out.Model = AutoModel // typed or pinned auto beats the cell's model on the cell's row (RunQuery)
 		}
 	}
 	out.ModelTyped = req.ModelTyped && out.Model == req.Model // a model the cell replaced is the harness's
@@ -1164,7 +1163,7 @@ func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(stri
 	if next == "" {
 		return
 	}
-	if req.ModelTyped { // R8: a typed model is never swapped; name the alias to type instead
+	if req.ModelTyped { // R8: a typed model is never swapped; name the alias to type
 		e.Err, e.Terminal, e.RetryAfter = fmt.Errorf("%s is quota-dead on this key; type --model %s instead: %w", cur, next, e.Err), true, 0
 		return
 	}

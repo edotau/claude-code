@@ -129,10 +129,10 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		defer func() { exit = closeAskOutput(masked, exit) }()
 		out = masked
 	}
-	if f.dryRun { // one peek mark for every pick a dry-run makes, the workspace's included
+	if f.dryRun { // a dry-run pick gets one peek mark, the workspace's included
 		ctx = agent.PeekContext(ctx)
 	} else {
-		defer Reap()() // flags and any spec, stdin included, are parsed, so dryness is final; a dry run reaps nothing
+		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
@@ -216,8 +216,7 @@ func takeRoute(r *askRun) error {
 	return nil
 }
 
-// confinementValue is the provider[:profile] the run is fenced to: the overlay's, else the replayed record's.
-// Typed route flags name the route themselves, so a record's never mixes in.
+// confinementValue is the fence: overlay's provider[:profile], else a replayed record's; typed route flags drop that.
 func confinementValue(r *askRun) (string, error) {
 	rec := r.recCoworker
 	if r.flagRoute {
@@ -279,7 +278,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	f.tools = f.tools || f.readOnly // read-only tools are still tools
+	f.tools = f.tools || f.readOnly // read-only tools are tools
 	if err := cmp.Or(dryCombos(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
@@ -332,7 +331,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := r.ov.CheckCloudAgent(f.name); err != nil {
 		return r.fail(err, 2)
 	}
-	if f.host != "" && f.provider != "" { // the remote ask carries --profile, never a --provider lead
+	if f.host != "" && f.provider != "" { // remote ask carries --profile, never a --provider lead
 		return r.fail(errors.New("--host cannot be combined with --provider: name the far side's profile with --profile"), 2)
 	}
 	return 0, false
@@ -351,7 +350,7 @@ func (r *askRun) checkArm() (int, bool) {
 	fallback := f.fallback
 	if picks && !r.swap { // an env default never licenses swapping a typed model
 		fallback = router.FallbackNone
-		if typedModel(f.model) { // the chain and a 429 retry both keep the typed model
+		if typedModel(f.model) { // chain and 429 retry both keep the typed model
 			f.fallback = fallback
 		}
 	}
@@ -374,7 +373,7 @@ func (r *askRun) checkArm() (int, bool) {
 
 // markAuto records an auto-picked workspace; a --job child (explicit profile) regains the parent's failover grant.
 func (r *askRun) markAuto(picks, moves bool) {
-	picks = picks || moves // a typed start retries on the next workspace after a rate limit, as an auto pick does
+	picks = picks || moves // a typed start retries on the next workspace after a rate limit, like auto
 	if !picks && !r.jobAutoArm() {
 		return
 	}
@@ -512,7 +511,7 @@ func (r *askRun) dispatchMode() (int, bool) {
 	if code, done := r.loopMode(); done {
 		return code, true
 	}
-	if f.batchSrc != "" { // --batch picks once from the base flags; a single task checks after its record
+	if f.batchSrc != "" { // --batch picks once from base flags; a single task checks after its record
 		if code, done := r.checkArm(); done {
 			return code, true
 		}
@@ -594,7 +593,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 		return rc, true
 	}
 	var err error
-	markTyped(r.fs, f) // again: applyRecord loaded the record's flag, and a --model on this line wins
+	markTyped(r.fs, f) // again: applyRecord loaded the record's flag; a --model on this line beats it
 	resumeModel(f)
 	if rc, done := r.guardResubmit(); done {
 		return rc, true
@@ -608,7 +607,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if err := resolveAskHost(r.ov, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
+	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
 		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 			return r.fail(err, 2)
 		}
@@ -722,7 +721,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	}
 	cl := newClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
-	req.Identity = cmp.Or(as, req.Identity)                                   // on the record, so a replay or a reboot relaunch keeps a typed --as
+	req.Identity = cmp.Or(as, req.Identity)                                   // recorded: replay/reboot keeps a typed --as
 	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
 		return dryRun(ctx, req, dry, format, out)
 	}
@@ -742,7 +741,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	finishRecover(ctx, prepared.Record.ID)
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
-		if saveErr != nil { // the --job child loads this record: without it the job could never start
+		if saveErr != nil { // the --job child loads this record; without it the job never starts
 			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
 		}
 		return askSpawn(ctx, fs, prepared, native, format, name)

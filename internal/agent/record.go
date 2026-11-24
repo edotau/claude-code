@@ -216,7 +216,7 @@ func liveAncestor(pid int, start, id string) bool {
 	if !liveAs(pid, start) {
 		return false
 	}
-	var between map[int]bool // read only when the walk passes a process: a direct child reads no record
+	var between map[int]bool // a direct child reads no record: read only when the walk passes a process
 	for p, n := proc.Parent(os.Getpid()), 0; p > 1 && n < ancestorWalkCap; p, n = proc.Parent(p), n+1 {
 		if p == pid {
 			return true
@@ -318,7 +318,7 @@ func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
 	depth, maxDepth = max(inherited, 0)+1, DefaultMaxDispatchDepth
 	pr, ok := parentRecord(parent)
 	switch {
-	case !ok: // a reaped or stale parent degrades to the default cap, never uncapped
+	case !ok: // a reaped or stale parent gets the default cap, never uncapped
 		fmt.Fprintf(NoticeOut, "claude-code: parent dispatch %s has no readable record; default depth cap applies\n", parent)
 	case isCarrier(parent, pr):
 		depth = 0 // a carried call has a direct call's depth
@@ -666,7 +666,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
-		if res.Agent != "" && res.Agent != r.Agent { // widening is judged against the agent that answered
+		if res.Agent != "" && res.Agent != r.Agent { // widening is judged against the answering agent
 			if w, err := widenedChecked(res.Agent, r.Request.Permissions); err == nil { // keep the original on a bad default
 				r.Widened = w
 			}
@@ -681,7 +681,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
 		r.Cutoff = CutoffOf(err)
 		if slices.Contains([]string{wire.StatusPartial, wire.StatusStalled, wire.StatusQuota}, res.Status) {
-			r.Status = res.Status // the envelope's cutoff status, so a timeout reads apart from a bad flag
+			r.Status = res.Status // envelope's cutoff status: a timeout reads apart from a bad flag
 		}
 	}
 }
@@ -819,7 +819,7 @@ func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	rec.FallbackPolicy = req.Fallback
 	rec.Finish(res, err, 0)
 	rec.Attempts = res.Hops // Finish keeps attempts only past one hop
-	claimRecord(rec)        // the one write is already concluded; a failed claim leaves nothing behind
+	claimRecord(rec)        // the one write is concluded; a failed claim leaves nothing behind
 	pruneDispatches(paths.DispatchDir(), rec.ID)
 }
 
@@ -1081,7 +1081,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 	res, err = run(ctx, tl)
 	tl.live.close()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
-	logSink.Close() // flush before writing the answer, so tail -f never misses the last line
+	logSink.Close() // flush before the answer, so tail -f never misses the last line
 	if o.Hold {
 		return res, err
 	}
@@ -1144,7 +1144,7 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 			"set %s (0 = no cap)", rec.Depth, maxDepth, rec.Parent, maxDispatchDepthEnv)}
 	}
 	if jobRec != nil {
-		return rec, nil // same id: a job run continues the record it was spawned from
+		return rec, nil // same id: a job run continues its spawning record
 	}
 	rec, err := claimLimitedRecord(ctx, name, rec)
 	if err != nil {
