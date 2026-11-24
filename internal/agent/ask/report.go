@@ -90,6 +90,11 @@ func maskEnvelope(env wire.Envelope) wire.Envelope {
 		}
 		env.Handback = &h
 	}
+	if env.Verify != nil {
+		v := *env.Verify
+		v.Command, v.Tail = redact.Text(textutil.RedactSecrets(v.Command)), redact.Text(textutil.RedactSecrets(v.Tail))
+		env.Verify = &v
+	}
 	env.Structured = maskStructured(env.Structured)
 	return env
 }

@@ -47,7 +47,7 @@ var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	// Vault-only pins and the session marker: never read from the inherited env; agent-read *_MODEL names stay.
 	"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
 	"COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
-	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
+	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG", "HARNESS_CARRY_VERIFY",
 }...)
 
 // ScrubDenyCredentials is ScrubDeny plus every credential-shaped name glob, for a child of unknown credential owner.

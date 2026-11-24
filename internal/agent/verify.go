@@ -1,9 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -36,20 +37,21 @@ func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, not
 // VerifyRun is the one place a spec's verify runs: opts.Verify in opts.WorkDir, or not run when the work is remote.
 func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyResult {
 	if remote { // the work is on another host's tree: running here would check the wrong files
-		return &wire.VerifyResult{Command: redact.Text(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
+		return &wire.VerifyResult{Command: maskShapes(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
 	}
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+	env := slices.DeleteFunc(runEnviron(valuesContext(ctx, opts.Values)), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(opts.Unset, name)
 	})
-	env, _ = proc.ScrubAgentCredentials(append(env, opts.Env...), keepSet(ctx, opts.KeepEnv), "") // go test runs edits
+	env = withRTKQuiet(append(env, opts.Env...))
+	env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, opts.KeepEnv), "") // go test runs edits
 	return runVerify(ctx, opts.WorkDir, opts.Verify, env)
 }
 
 // runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.
 func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.VerifyResult {
 	start := time.Now()
-	vr := &wire.VerifyResult{Command: redact.Text(verify)}
+	vr := &wire.VerifyResult{Command: maskShapes(verify)}
 	steps, err := plans.VerifyArgv(verify)
 	if err == nil {
 		err = plans.VerifyShape(verify)
@@ -61,7 +63,7 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 	tail := &tailBuf{}
-	out := redact.Writer(tail) // masks while reading, so the cut below never splits a secret
+	out := redact.Writer(tail) // vault values are masked while streaming
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
 		cmd.WaitDelay = proc.ExecWaitDelay
@@ -73,18 +75,31 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 		}
 	}
 	_ = out.Close()
-	vr.Tail = strings.ToValidUTF8(string(tail.b[max(0, len(tail.b)-verifyTailMax):]), "")
+	vr.Tail = verifyTail(tail.b)
 	vr.Ms = time.Since(start).Milliseconds()
 	return vr
 }
 
-// tailBuf keeps only the last verifyTailMax bytes written to it.
+// verifyTail is the last verifyTailMax bytes of window, masked before the cut so a straddling secret leaves no suffix.
+func verifyTail(window []byte) string {
+	masked := maskShapes(strings.ToValidUTF8(string(window), ""))
+	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
+}
+
+// maskShapes masks credential-shaped runs, then vault values, in s.
+func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
+
+// tailBuf keeps a window of the last output: at least verifyTailMax bytes, dropped only at a whitespace boundary.
 type tailBuf struct{ b []byte }
 
 func (t *tailBuf) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
-	if len(t.b) > 2*verifyTailMax {
-		t.b = append(t.b[:0], t.b[len(t.b)-verifyTailMax:]...)
+	if len(t.b) > 4*verifyTailMax {
+		cut := len(t.b) - 2*verifyTailMax
+		if i := bytes.IndexAny(t.b[cut:], " \t\r\n"); i >= 0 { // a secret has no whitespace: the cut never lands inside one
+			cut += i
+		}
+		t.b = append(t.b[:0], t.b[cut:]...)
 	}
 	return len(p), nil
 }

@@ -501,19 +501,22 @@ func carryEnv(ctx context.Context, rec agent.Record) []string {
 	if rec.Request.Verify != "" {
 		values = values.Merge(proc.Values{carryVerifyEnv: rec.Request.Verify})
 	}
-	return agent.EnvSpec{Mode: agent.EnvClaude}.Environ(proc.WithValues(ctx, values))
+	return agent.EnvSpec{Mode: agent.EnvClaude, Keep: []string{carryVerifyEnv}}.Environ(proc.WithValues(ctx, values))
 }
 
 // carryVerifyEnv hands a carried child the spec's verify (ask has no flag for it); the child takes it once.
 const carryVerifyEnv = "HARNESS_CARRY_VERIFY"
 
-// takeCarryVerify is the verify a carrying parent passed, cleared so the child's own children never inherit it.
-func takeCarryVerify() string {
+// takeCarryVerify is the verify a carrying parent passed, removed from the env and ctx so nothing inherits it.
+func takeCarryVerify(ctx context.Context) (context.Context, string) {
 	v := os.Getenv(carryVerifyEnv)
-	if v != "" {
-		_ = proc.Unsetenv(carryVerifyEnv)
+	_ = proc.Unsetenv(carryVerifyEnv)
+	if values, ok := proc.ValuesFromContext(ctx); ok {
+		v = cmp.Or(v, values[carryVerifyEnv])
+		delete(values, carryVerifyEnv)
+		ctx = proc.WithValues(ctx, values)
 	}
-	return v
+	return ctx, v
 }
 
 // finishCarry gives rec the final child's result event, answer and outcome; children carry the usage, so it holds none.
@@ -553,16 +556,24 @@ func carryEnvelope(ctx context.Context, rec, final agent.Record, found bool, cod
 		res := wire.Result{Agent: rec.Agent, DurationMs: took.Milliseconds()}
 		return wire.NewEnvelope(res, fmt.Errorf(noRecordFmt, code), rec.ID)
 	}
-	env := final.ResultEnvelope(io.Discard)
+	env, read := final.SavedEnvelope()
+	if !read { // no clean result event: the child may have run verify already, so the parent never reruns it
+		env = final.ResultEnvelope(io.Discard)
+	}
 	env.DispatchID, env.DurationMs = rec.ID, took.Milliseconds()
-	if v := rec.Request.Verify; v != "" && env.Verify == nil && env.Status == wire.StatusOK && env.Error == nil {
-		env.Verify = agent.VerifyRun(ctx, rec.Request, rec.Host != "") // the child has no verify flag: once, here
+	if read && parentVerifies(rec, env) {
+		env.Verify = agent.VerifyRun(ctx, rec.Request, rec.Host != "") // the child never took it: once, here
 		fmt.Fprintln(os.Stderr, "ask:", env.Verify.Line())
 	}
 	if env.Agent != rec.Agent && env.Fallback == nil {
 		env.Fallback, env.FallbackReason = &rec.Agent, cmp.Or(env.FallbackReason, "pi takeover of "+final.TakeoverOf)
 	}
 	return env
+}
+
+// parentVerifies is true for an answered run whose spec verify its child's clean result did not carry.
+func parentVerifies(rec agent.Record, env wire.Envelope) bool {
+	return rec.Request.Verify != "" && env.Verify == nil && env.Status == wire.StatusOK && env.Error == nil
 }
 
 // tailWriter keeps the last max bytes written.
