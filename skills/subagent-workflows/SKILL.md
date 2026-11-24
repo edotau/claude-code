@@ -214,12 +214,13 @@ limits are overlapping files, dependency order and an account's own rate limit.
 
 Most tasks are led by an Opus owner with a fleet on Sonnet or Haiku executing, down to one function or a test repair.
 The owner does a unit alone or sub-contracts it, and checks every leaf it dispatched. The fixed checklist (create the
-lane, confirm the dispatch did not die, lint passes with no syntax errors, an eyeball check that tests would pass, tick
-the plan, close the proxy) is to be performed and recorded by Go, never written by the model.
-Built so far: the schema and lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state transitions). Nothing in dispatch
-calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is no command for it and the rules above
-still bind: a fleet leaf never dispatches, and no leaf commits (bar the verifier's lane commit, step 5) or runs the
-suite.
+lane, confirm the dispatch did not die, lint passes with no syntax errors, tick the plan, close the proxy) is to be
+performed and recorded by Go, never written by the model. The eyeball check that tests would pass is the owner's own
+judged verdict, and a test step or test repair still needs executed tests.
+Built so far: the schema and lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state
+transitions). Nothing in dispatch calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is
+no command for it and the rules above still bind: a fleet leaf never dispatches, and no leaf commits (bar the
+verifier's lane commit, step 5) or runs the suite.
 
 #### Wave loop
 
