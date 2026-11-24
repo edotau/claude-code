@@ -81,8 +81,12 @@ func scopeBlocked(team, id string) error {
 	switch {
 	case err == nil && scopeLive(cur):
 		return fmt.Errorf("proxy scope: %s@%s is already served by pid %d", team, id, cur.PID)
-	case errors.Is(err, schemas.ErrNewer), errors.Is(err, fs.ErrPermission):
-		return err // unreadable is not dead: a newer build or another user may own it
+	case errors.Is(err, schemas.ErrNewer):
+		return err // a newer build may own it
+	}
+	var pe *fs.PathError // an I/O failure is not a dead record; only a missing file or bad JSON is replaceable
+	if errors.As(err, &pe) && !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
 	return nil
 }
@@ -108,14 +112,15 @@ func WriteScope(sc Scope) (func(), error) {
 		return nil, err
 	}
 	return func() {
-		_ = paths.WithFileLock(file, func() error { // a replacement's fresh record must not vanish mid-check
+		err := paths.WithFileLock(file, func() error { // a replacement's fresh record must not vanish mid-check
 			if cur, err := ReadScope(sc.Team, sc.ID); err == nil && cur.PID == sc.PID && cur.Started.Equal(sc.Started) {
-				if err := os.Remove(file); err != nil {
-					fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
-				}
+				return os.Remove(file)
 			}
 			return nil
 		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
+		}
 	}, nil
 }
 
