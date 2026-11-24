@@ -327,5 +327,5 @@ claude-code usage --cost --days 7           # estimate per profile and model
 
 `warehouse_id` is 1-64 letters and digits; rates are finite and not negative. `usage --cost` prints a table labelled
 `est.` (local ledger tokens times the price table, 1-hour cache writes counted as cache writes; not an invoice), `-`
-for a model with no price, and one hint line naming `options.prices` when no profile has prices. System tables are dropped:
-`usage --cost` stays an estimate, never request grants, and Databricks needs use the paired SPs.
+for a model with no price, and one hint line naming `options.prices` when no profile has prices. System tables are
+dropped: `usage --cost` stays an estimate, never request grants, and Databricks needs use the paired SPs.
