@@ -26,3 +26,9 @@
 - **Goal-driven execution** — define success as an observable check (a command, a test, a number) and loop until it
   passes; "looks right" and "optimized" with no number are not done. A multi-step task starts as `step → verify:
   check` lines.
+- **Maintenance and cleanup** — a maintenance or cleanup request (code, rules, docs, memory) consolidates, and is
+  the ask that lifts "remove only orphans" above: delete exact duplicates, merge items that say the same thing into
+  one, and fold a near-duplicate with a few extra points into one record extended with them. Nothing the owner said
+  is lost; every link, path and Markdown reference to a removed item is repointed. A conflict resolves to the
+  owner's explicit later statement, else goes to the owner. Items that only share a topic stay apart; memory's
+  bank files keep their own contracts (`decisionLog.md` supersedes, never deletes: `rules/workflows/memory-bank.md`).
