@@ -177,7 +177,7 @@ var (
 
 // ensureRouter is proxy.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
 func ensureRouter(ctx context.Context) (string, error) {
-	base, err := proxy.Ensure(ctx)
+	base, local, err := ensureProxyRoute(ctx)
 	if err != nil {
 		return base, err
 	}
@@ -188,7 +188,7 @@ func ensureRouter(ctx context.Context) (string, error) {
 		base = proxy.ViaBaseContext(ctx, base)
 	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
-	if id == "" {
+	if id == "" || local {
 		return base, nil
 	}
 	return proxy.TaggedBase(ctx, base, id), nil
@@ -228,6 +228,9 @@ func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(boo
 
 // routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+	if s.CLI.ScopedProxy {
+		ctx = WithScopedProxy(ctx)
+	}
 	rb, key, err := launchRouter(ctx, p.Name)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
@@ -368,7 +371,9 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 		return e.tok, nil
 	}
 	var tok string
-	if failoverProvider == "" {
+	if localProxyBase(routerBase) {
+		tok, err = signLocalToken(ctx, profiles, failoverProvider)
+	} else if failoverProvider == "" {
 		tok, err = MintSession(ctx, profiles, os.Getpid())
 	} else {
 		tok, err = MintSessionWithFailover(ctx, profiles, os.Getpid(), failoverProvider)

@@ -63,6 +63,7 @@ type CLI struct {
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
 	Carry                 bool            // ask --carry may run it as a plain child process with a Pi takeover
+	ScopedProxy           bool            // the launcher walks the proxy team route list for it
 	CatalogTitle          string          // heading above a text catalog; "" = none
 	ProviderVerb          bool            // `claude-code <agent> <provider> [-p NAME]` launches on that provider
 
