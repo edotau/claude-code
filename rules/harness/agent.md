@@ -79,7 +79,8 @@ paths:
   `runner: pi`; `runner: own` opts a dispatch out. First-party Anthropic, Copilot and Google routes are unchanged, and
   an auto pick, `--fallback none`, a resumed session and `--native` stay on the own CLI, and an explicit profile pin
   keeps the Pi hops on that workspace (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`,
-  `staysOnWorkspace`). Measured on one one-line task: about 3.3k tokens
+  `staysOnWorkspace`). A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
+  budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens
   through Pi against 61k on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles,
   then the agent's own CLI; hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once
   by context size under `all` or `agents` (a typed model is kept, not replaced);
