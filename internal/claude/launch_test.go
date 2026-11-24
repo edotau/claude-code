@@ -1123,3 +1123,13 @@ func TestLastEnvTakesTheLastEntry(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestChildBasePrefersSettingsEnv(t *testing.T) {
+	argv := []string{"--settings", `{"env":{"ANTHROPIC_BASE_URL":"https://gw.example"}}`}
+	if got := childBase(argv, []string{"ANTHROPIC_BASE_URL=https://api.anthropic.com"}); got != "https://gw.example" {
+		t.Fatalf("got %q", got)
+	}
+	if got := childBase(nil, []string{"ANTHROPIC_BASE_URL=x"}); got != "x" {
+		t.Fatalf("got %q", got)
+	}
+}

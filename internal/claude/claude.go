@@ -203,7 +203,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	}
 	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
 	if err == nil && len(cmArgs) > 0 { // the child's own env: a shell-kept endpoint counts
-		if err = checkCodemodeRoute(launchTarget(ctx, req).Provider, lastEnv(cmd.Env, proc.EnvAnthropicBaseURL)); err != nil {
+		if err = checkCodemodeRoute(launchTarget(ctx, req).Provider, childBase(cl.Argv, cmd.Env)); err != nil {
 			return claudeCmd(ctx, agent.CodemodeOff(ctx, agentid.Claude, err.Error(), req), origArgs, prompt)
 		}
 	}
@@ -223,6 +223,22 @@ func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.Ru
 		return nil, agent.CodemodeOff(ctx, agentid.Claude, why.Error(), req), nil
 	}
 	return args, req, nil
+}
+
+// childBase is the endpoint the child uses: the --settings env block's ANTHROPIC_BASE_URL over the process env's.
+func childBase(argv, env []string) string {
+	for i, a := range argv {
+		if a != "--settings" || i+1 >= len(argv) {
+			continue
+		}
+		doc, err := readSettings(argv[i+1])
+		if m, ok := doc["env"].(map[string]any); err == nil && ok {
+			if v, ok := m[proc.EnvAnthropicBaseURL].(string); ok {
+				return v
+			}
+		}
+	}
+	return lastEnv(env, proc.EnvAnthropicBaseURL)
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.
