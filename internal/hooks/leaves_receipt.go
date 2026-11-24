@@ -401,7 +401,7 @@ func (a AskWords) Prompt() string {
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
 	"attach keep-env env permissions overlay system-prompt append-system-prompt output-schema timeout host " +
 	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
-	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode")
+	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode tier")
 
 // OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
 func OverlayArgs(profile, model, identity, account string) []string {

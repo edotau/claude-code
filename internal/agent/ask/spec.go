@@ -31,7 +31,7 @@ func askSchema() askspec.Schema {
 	fs, _ := askFlagSet()
 	return askspec.FromFlagSet(fs, askspec.Opts{
 		Choices: map[string][]string{"fallback": router.FallbackModes,
-			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes},
+			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes, "tier": agent.TierNames()},
 		JSON: []string{"overlay", "agents", "output-schema"},
 	})
 }

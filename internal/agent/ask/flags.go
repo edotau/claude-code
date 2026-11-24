@@ -30,27 +30,27 @@ import (
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
-	modelTyped, timeoutTyped                                                                                                                                                     bool
-	recover                                                                                                                                                                      bool
-	native, tools, noTools, noPersist, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                                                   bool
-	timeout                                                                                                                                                                      time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
-	dirs, files, save                                                                                                                                                            string
-	diff, index                                                                                                                                                                  bool
-	pack                                                                                                                                                                         *pack.Spec
-	agents                                                                                                                                                                       agentsFlag
-	attach                                                                                                                                                                       attachFlag
-	keepEnv                                                                                                                                                                      []string
-	codemode                                                                                                                                                                     string
-	provider                                                                                                                                                                     string
-	env                                                                                                                                                                          []string
-	spec                                                                                                                                                                         string
-	dryRun                                                                                                                                                                       bool
-	loop                                                                                                                                                                         bool
-	waves                                                                                                                                                                        string
-	loopPlanner, loopResume                                                                                                                                                      string
-	loopRounds, loopBudget                                                                                                                                                       int
+	name, fallback, profile, as, tier, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
+	modelTyped, timeoutTyped                                                                                                                                                           bool
+	recover                                                                                                                                                                            bool
+	native, tools, noTools, noPersist, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                                                         bool
+	timeout                                                                                                                                                                            time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                       int
+	dirs, files, save                                                                                                                                                                  string
+	diff, index                                                                                                                                                                        bool
+	pack                                                                                                                                                                               *pack.Spec
+	agents                                                                                                                                                                             agentsFlag
+	attach                                                                                                                                                                             attachFlag
+	keepEnv                                                                                                                                                                            []string
+	codemode                                                                                                                                                                           string
+	provider                                                                                                                                                                           string
+	env                                                                                                                                                                                []string
+	spec                                                                                                                                                                               string
+	dryRun                                                                                                                                                                             bool
+	loop                                                                                                                                                                               bool
+	waves                                                                                                                                                                              string
+	loopPlanner, loopResume                                                                                                                                                            string
+	loopRounds, loopBudget                                                                                                                                                             int
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
@@ -80,6 +80,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
+	fs.StringVar(&f.tier, "tier", "", "task tier: "+strings.Join(agent.TierNames(), "|")+"; heads the brief with a Tier: line, sized under --model auto")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
 	fs.StringVar(&f.session, "session", "", "resume this session id")
@@ -737,7 +738,7 @@ func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
 		return readFramedPrompt(os.Stdin)
 	}
 	prompt, err := resolveAskPrompt(r.prompt)
-	return nil, prompt, err
+	return nil, agent.WithTier(prompt, r.f.tier), err
 }
 
 // recoverKey carries a *recoverClaim: the dispatch a --recover targets and whether this run holds its marker.

@@ -631,3 +631,18 @@ func TestResolveRunSeesMenuChangeBetweenRuns(t *testing.T) {
 		t.Errorf("candidates %+v then %+v (%v); want none, then the one Responses model", first, second, err)
 	}
 }
+
+func TestWithTier(t *testing.T) {
+	if got := WithTier("do it", "fast"); got != "Tier: fast\ndo it" {
+		t.Errorf("WithTier = %q", got)
+	}
+	if got := WithTier("Tier: deep\ndo it", "fast"); got != "Tier: fast\ndo it" {
+		t.Errorf("flag did not replace the Tier line: %q", got)
+	}
+	if got := WithTier(" ", "fast"); got != " " {
+		t.Errorf("empty brief gained a header: %q", got)
+	}
+	if got := WithTier("do it", ""); got != "do it" {
+		t.Errorf("empty tier changed the brief: %q", got)
+	}
+}

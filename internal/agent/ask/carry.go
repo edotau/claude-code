@@ -95,6 +95,7 @@ func (r *askRun) carryMode() (int, bool) {
 	if err != nil {
 		return r.fail(err, 1)
 	}
+	prompt = agent.WithTier(prompt, f.tier)
 	if strings.TrimSpace(prompt) == "" {
 		return r.fail(errors.New("no task: give a prompt, or \"-\" to read stdin"), 2)
 	}

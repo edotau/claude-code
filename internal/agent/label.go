@@ -240,6 +240,20 @@ func tierServed(reg *providers.Registry, r ModelRoute, now time.Time) bool {
 // tierAliases maps a brief's `Tier:` word to the alias each row spells as its model of that tier.
 var tierAliases = map[string]string{"fast": models.Haiku, "standard": models.Sonnet, "deep": models.Opus}
 
+// TierNames is the task tiers a brief or --tier may name, cheapest first.
+func TierNames() []string { return []string{"fast", "standard", "deep"} }
+
+// WithTier is brief headed by a `Tier:` line; a line the brief already has is replaced, so the flag wins.
+func WithTier(brief, tier string) string {
+	if tier == "" || strings.TrimSpace(brief) == "" {
+		return brief
+	}
+	if loc := tierLineRe().FindStringIndex(brief); loc != nil {
+		return brief[:loc[0]] + "Tier: " + tier + brief[loc[1]:]
+	}
+	return "Tier: " + tier + "\n" + brief
+}
+
 var (
 	tierLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[ \t]*Tier:[ \t]*(fast|standard|deep)\b`) })
 	// deepTaskRe: costly-mistake or large-judgment work; deep when in the task's head or 3+ distinct words.

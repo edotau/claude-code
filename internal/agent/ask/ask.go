@@ -284,7 +284,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), tierCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -294,6 +294,19 @@ func (r *askRun) prelude() (int, bool) {
 		return r.fail(err, 2)
 	}
 	return 0, false
+}
+
+// tierCheck refuses a --tier outside the tier list, or on a run that sizes more than one task.
+func tierCheck(f *askFlags) error {
+	switch {
+	case f.tier == "":
+		return nil
+	case !slices.Contains(agent.TierNames(), f.tier):
+		return fmt.Errorf("--tier %q unknown (%s)", f.tier, strings.Join(agent.TierNames(), "|"))
+	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "":
+		return errors.New("--tier sizes one task: not with --batch, --live or --loop (put a Tier: line in each brief)")
+	}
+	return nil
 }
 
 var ancestorContext = agent.AncestorContext
