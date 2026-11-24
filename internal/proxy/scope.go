@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// Scope is a scoped proxy's record: scopes/<team>-<id>.json, written while it serves, removed when it closes.
+// Scope is a scoped proxy's record: scopes/<team>@<id>.json, written while it serves, removed when it closes.
 type Scope struct {
 	Schema  int       `json:"schema"`
 	Team    string    `json:"team"`
@@ -45,20 +45,17 @@ func ScopesDir() string { return filepath.Join(paths.StateDir(), "proxy", "scope
 
 // ValidScopePart reports whether s is 1..64 file-name-safe characters starting alphanumeric.
 func ValidScopePart(s string) bool {
-	if len(s) < 1 || len(s) > 64 {
+	if len(s) < 1 || len(s) > 64 || !isAlnum(s[0]) {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		alnum := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
-		if !alnum && (i == 0 || !strings.ContainsRune("._-", rune(c))) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc([]byte(s), func(c byte) bool { return !isAlnum(c) && !strings.ContainsRune("._-", rune(c)) })
 }
 
-func scopeFile(team, id string) string { return filepath.Join(ScopesDir(), team+"-"+id+".json") }
+func isAlnum(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+func scopeFile(team, id string) string { return filepath.Join(ScopesDir(), team+"@"+id+".json") } // "@" is outside the part alphabet: two pairs never share a file
 
 func checkScopeParts(team, id string) error {
 	if !ValidScopePart(team) || !ValidScopePart(id) {
