@@ -412,6 +412,7 @@ const (
 
 // BashTimeoutMs is the Bash timeout (ms) a foreground `agents ask|wait|result -f` needs, --timeout + margin, capped.
 func BashTimeoutMs(cmd string) (ms int, ok bool) {
+	var total time.Duration
 	for _, seg := range shell.Segments(cmd) {
 		words := agentCommand(relayWords(seg))
 		if len(words) < 2 || words[0] != "agents" || !foregroundWait(words[1:]) {
@@ -421,9 +422,9 @@ func BashTimeoutMs(cmd string) (ms int, ok bool) {
 		if t := timeoutFlag(words); t > 0 {
 			d = min(t+waitMargin, maxBashTimeout)
 		}
-		return int(d / time.Millisecond), true
+		total, ok = min(total+d, maxBashTimeout), true // chained waits run one after another
 	}
-	return 0, false
+	return int(total / time.Millisecond), ok
 }
 
 // timeoutFlag is the last parseable `--timeout D` or `--timeout=D` in words, 0 when none.
