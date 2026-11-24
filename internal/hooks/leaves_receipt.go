@@ -182,7 +182,7 @@ func endedNote(rec agent.Record, how, output string) receipt {
 	env := rec.ResultEnvelope(io.Discard)
 	if line := env.RanOn; line != "" {
 		note := fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line)
-		if env.Handback != nil {
+		if env.Handback != nil && env.Error == nil {
 			note += fmt.Sprintf(" handback: %s, unfixed: %s", env.Handback.Status, handbackVerdict(env.Handback))
 		}
 		return receipt{note, body}
