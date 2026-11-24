@@ -15,6 +15,7 @@ type entry struct {
 	Version       string              `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
 	ResponsesOnly bool                `json:"responses_only,omitempty"`
 	ChatOnly      bool                `json:"chat_only,omitempty"`
+	Family        string              `json:"family,omitempty"`  // agent-type family name, only where the first-token rule is wrong
 	WireOverride  map[string]string   `json:"wire,omitempty"`    // spelling rule -> exact wire id, for exceptions
 	Limits        TokenLimits         `json:"limits,omitzero"`   // documented token limits; a zero field is unknown
 	Efforts       map[string][]string `json:"efforts,omitempty"` // agent -> efforts its CLI accepts for this model
