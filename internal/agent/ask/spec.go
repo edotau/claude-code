@@ -151,8 +151,15 @@ func withPrompt(f *askFlags, out, args, pos []string, prompt string, task askspe
 	return out, nil
 }
 
-// runWaves runs --waves unless --host is set: the wave runner dispatches its leaves on this machine.
+// runWaves runs --waves unless a typed or overlay host is set: the wave runner dispatches leaves on this machine.
 func runWaves(f *askFlags, raw []string) int {
+	if f.host == "" && f.overlay != "-" {
+		ov, err := LoadOverlay(context.Background(), f.overlay, "")
+		if err != nil {
+			return failAskCode(f.format, f.name, err, 2)
+		}
+		f.host = ov.Host
+	}
 	if f.host == "" {
 		return Waves(raw)
 	}
