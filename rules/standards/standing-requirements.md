@@ -7,7 +7,7 @@ A row is deleted only when the tool makes the prose redundant.
 | Requirement | Rule | Enforced by |
 | --- | --- | --- |
 | R1 Plan ticks | Tick on main when the commit names the task with `worktree commit --task` and its `verify:` plus the scoped gate pass on that sha; coverage alone prints a candidate once | `docs-plan-tick` hook, `worktree commit`, `plan tick --verify` |
-| R2 Dead tasks | Strike, never delete or leave open: `plan task <id> --strike "<why>"` | `plan task` verb |
+| R2 Dead tasks | Strike, never delete or leave open: `plan task <id> --reason <r> --evidence <c>` | `plan task` verb |
 | R2 Unknown state | Strike with a comment; move to the backlog plan (do now) or techdebt | prose |
 | R3 Techdebt | Lives in `~/.claude/memory/techdebt/<area>.md`, one file per area | prose (until memory knows it) |
 | R4 Plans audit | Before `memory update` and in `dream`: audit plans under 7 days old | `memory update` after unlock (deterministic audit); `dream` plan phase, re-checked in Go |

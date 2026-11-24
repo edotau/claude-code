@@ -30,8 +30,9 @@ items into What Works; drop shipped items from What's Next. File every BUG tag u
 ## Step 4: Decisions → `decisionLog.md`
 
 For each architectural/process decision made this session (every DECISION tag is one): add a dated entry
-at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: write
-`Supersedes <old id>` in the new entry; the harness strikes the old one.
+at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: save the new
+entry with `claude-code memory remember --type project --supersedes <old id> '<decision> — <rationale>'`; the
+harness strikes the old one.
 
 ## Step 5: Patterns → `conventions.md`
 
@@ -49,7 +50,8 @@ Omit standard language or framework behavior.
 
 ## Rules
 
-Edit bank files with Edit/Write only; Bash is read-only: no `printf >>`, heredocs or Python writes.
+Edit bank files with Edit/Write only; Bash is read-only except `memory remember --supersedes`: no `printf >>`,
+heredocs or Python writes.
 
 Your context is fresh: the transcript digest is your only account of the session. Never invent a summary it
 does not support; when nothing is worth persisting, write nothing rather than touch a file. Don't promote to

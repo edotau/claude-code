@@ -165,8 +165,10 @@ synced machine in the same step, only where its hash matches, or the next pull c
 
 ## Replaced entries
 
-An entry that reverses an older one says `Supersedes <old id>` (or `Supersedes "<title>" (<old id>)`) at the start of
-a body line or sentence, case-insensitive, id optionally in backticks; fenced code and quoted examples do not count.
+An entry that reverses an older one is saved with `claude-code memory remember --supersedes <old id> '<fact>'`
+(`--type project` for a decision); the legacy prose form, `Supersedes` plus the old id (or `"<title>" (<id>)`) at the
+start of a body line or sentence, still reads, case-insensitive, id optionally in backticks; fenced code and quoted
+examples do not count.
 Every settle (`update`, `dream`, `index`, `import`) then strikes the old title and adds `Replaced by <new id>
 (<date>).` under it, in `decisionLog.md`, `conventions.md` and their `archive/` files, idempotently and without moving
 a block; an unknown id or two-entry cycle is left unmarked (`memory review` reports both). A partly struck title
