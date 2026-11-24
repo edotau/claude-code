@@ -187,3 +187,19 @@ func TestBriefDropsRTKLineInCodeMode(t *testing.T) {
 		}
 	}
 }
+
+func TestBriefCodeModeFollowsTarget(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, session := range []string{"", "on"} {
+		t.Setenv(rtkwrap.CodemodeEnv, session)
+		for _, target := range []bool{true, false} {
+			brief, err := RenderBrief(BriefInput{Task: "t", Owned: []string{"/tmp/a.go"}, CodeMode: &target})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(brief, "goes through rtk"); got == target {
+				t.Errorf("session %q target %v: rtk line present = %v", session, target, got)
+			}
+		}
+	}
+}

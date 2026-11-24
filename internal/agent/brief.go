@@ -26,6 +26,8 @@ type BriefInput struct {
 	Owned  []string
 	Report string
 	Verify string
+	// CodeMode is the target run's code mode; nil reads the rendering session's HARNESS_CODEMODE.
+	CodeMode *bool
 }
 
 // ReviewLoopRule is the standing rule every code-writing dispatch carries.
@@ -111,12 +113,16 @@ func RenderBrief(input BriefInput) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse brief template: %w", err)
 	}
+	codeMode := rtkwrap.CodeMode()
+	if input.CodeMode != nil {
+		codeMode = *input.CodeMode
+	}
 	var out bytes.Buffer
 	data := struct {
 		BriefInput
 		OwnedLine, ReportsDir string
-		Codemode              bool // HARNESS_CODEMODE: the brief's rtk line drops out
-	}{input, string(owned), paths.MemorySubDir("reports"), rtkwrap.CodeMode()}
+		Codemode              bool // the brief's rtk line drops out
+	}{input, string(owned), paths.MemorySubDir("reports"), codeMode}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}
