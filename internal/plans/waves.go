@@ -612,7 +612,10 @@ func TaskLine(t WaveTask) string {
 	if len(t.BlockedBy) > 0 {
 		parts = append(parts, "Blocked by: "+strings.Join(t.BlockedBy, ", "))
 	}
-	return strings.Join(append(parts, "owns: "+strings.Join(t.Owns, ", ")), " — ")
+	if len(t.Owns) > 0 {
+		parts = append(parts, "owns: "+strings.Join(t.Owns, ", "))
+	}
+	return strings.Join(parts, " — ")
 }
 
 // checkNewTask refuses a task with no id or title, a field the line cannot hold, or an unlaunchable owns/verify.
@@ -621,10 +624,11 @@ func checkNewTask(t WaveTask) error {
 		return errors.New("plans: a new task needs an id and a title")
 	}
 	for _, s := range slices.Concat([]string{t.ID, t.Task, t.Leaf, t.Agent, t.Profile, t.Verify}, t.Owns, t.BlockedBy) {
-		if strings.ContainsAny(s, "\r\n") || strings.Contains(s, " — ") {
-			return fmt.Errorf("plans: field %q holds a newline or an em dash separator", s)
+		if strings.ContainsAny(s, "\r\n") || strings.Contains(s, " — ") || waveAttr().MatchString(s) {
+			return fmt.Errorf("plans: field %q holds a newline, an em dash separator or an attribute key such as \"profile:\"", s)
 		}
 	}
+	t.Manual = t.Agent == "in-context" || strings.HasSuffix(strings.ToUpper(t.ID), ".V")
 	return checkTask(t)
 }
 
@@ -653,25 +657,36 @@ func AddTask(planPath string, t WaveTask) error {
 	})
 }
 
-// tasksEnd is the line after the last task inside the "## Tasks" section.
-func tasksEnd(lines []string, p Plan) (int, error) {
-	start, stop := -1, len(lines)
-	for i, l := range lines {
-		switch {
-		case strings.TrimSpace(l) == "## Tasks":
-			start = i
-		case start >= 0 && strings.HasPrefix(l, "## "):
-			stop = min(stop, i)
-		}
+// tasksSpan is the line range of the "## Tasks" section: its heading and the next "## " heading or the end.
+func tasksSpan(lines []string) (start, stop int, ok bool) {
+	start = slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Tasks" })
+	if start < 0 {
+		return 0, 0, false
 	}
-	end := -1
+	next := slices.IndexFunc(lines[start+1:], func(l string) bool { return strings.HasPrefix(l, "## ") })
+	if next < 0 {
+		return start, len(lines), true
+	}
+	return start, start + 1 + next, true
+}
+
+// tasksEnd is the line after the last task of the "## Tasks" section, or its last non-blank line when it has none.
+func tasksEnd(lines []string, p Plan) (int, error) {
+	start, stop, ok := tasksSpan(lines)
+	if !ok {
+		return 0, errors.New("plans: the plan has no \"## Tasks\" heading")
+	}
+	end := start
 	for _, t := range p.Tasks {
 		if t.Start > start && t.End < stop {
 			end = max(end, t.End)
 		}
 	}
-	if start < 0 || end < 0 {
-		return 0, errors.New("plans: the plan has no task under a \"## Tasks\" heading")
+	for end == start && stop-1 > start && strings.TrimSpace(lines[stop-1]) == "" {
+		stop--
+	}
+	if end == start {
+		end = stop - 1
 	}
 	return end + 1, nil
 }
