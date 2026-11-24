@@ -627,12 +627,24 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if err := resolveAskHost(r.ov, f); err != nil {
 		return r.fail(err, 2)
 	}
+	if err := replayCodemode(f); err != nil {
+		return r.fail(err, 2)
+	}
 	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
 		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 			return r.fail(err, 2)
 		}
 	}
 	return 0, false
+}
+
+// replayCodemode rechecks --codemode after a --retry/--job record replaced the agent, route and mode.
+func replayCodemode(f *askFlags) error {
+	if f.retry == "" && f.job == "" {
+		return nil
+	}
+	_, err := validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile))
+	return err
 }
 
 // recordTools refuses the tools pair a --job/--retry record completes.

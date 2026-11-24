@@ -236,10 +236,22 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
-	if err := agent.CheckCapabilities(name, req); err != nil {
+	if err := lineCapable(name, req); err != nil {
 		return req, name, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return req, name, nil
+}
+
+// lineCapable checks the line's agent can run req, code mode included.
+func lineCapable(name string, req agent.RunOptions) error {
+	if err := agent.CheckCapabilities(name, req); err != nil {
+		return err
+	}
+	if req.Codemode == "" {
+		return nil
+	}
+	_, err := validateCodemode(req.Codemode, name, req.Tools, directRoute("", req.Provider))
+	return err
 }
 
 // lineBrief is the line's prompt, wrapped as a leaf brief when it sets own, report or verify.

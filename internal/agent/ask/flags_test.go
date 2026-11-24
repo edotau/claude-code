@@ -683,3 +683,29 @@ func TestValidateCodemodeTable(t *testing.T) {
 		}
 	}
 }
+
+func TestCodemodeRouteGuards(t *testing.T) {
+	for _, ag := range []string{"claude", "opencode"} {
+		if _, err := validateCodemode("on", ag, false, true); err == nil {
+			t.Errorf("%s --codemode on without tools accepted", ag)
+		}
+	}
+	if directRoute("", "") || directRoute("databricks", "dev") || !directRoute("anthropic", "") {
+		t.Error("directRoute must be true only for an explicit anthropic route")
+	}
+	line := agent.RunOptions{Codemode: "on", Tools: true, Provider: "dev"}
+	if err := lineCapable("claude", line); err == nil {
+		t.Error("batch line on a gateway profile accepted claude code mode")
+	}
+}
+
+func TestReplayCodemode(t *testing.T) {
+	f := &askFlags{name: "claude", codemode: "on", tools: true, retry: "x", profile: "dev"}
+	if err := replayCodemode(f); err == nil {
+		t.Error("replayed claude code mode on a gateway profile accepted")
+	}
+	f.retry = ""
+	if err := replayCodemode(f); err != nil {
+		t.Errorf("non-replay run rechecked: %v", err)
+	}
+}

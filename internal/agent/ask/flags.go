@@ -170,9 +170,9 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// directRoute reports whether provider and profile name no gateway: unset or Anthropic's own.
+// directRoute is true only for an explicit Anthropic route; an unset or later-resolved route counts as a gateway.
 func directRoute(provider, profile string) bool {
-	return (provider == "" || provider == "anthropic") && (profile == "" || profile == "anthropic")
+	return provider == "anthropic" || profile == "anthropic"
 }
 
 // validateCodemode checks --codemode against the agent's code-mode row; pi's falls back to CODEMODE under --tools.
@@ -185,6 +185,9 @@ func validateCodemode(mode, ag string, tools, direct bool) (string, error) {
 	}
 	if mode == "" || mode == "off" {
 		return "", nil
+	}
+	if !tools {
+		return mode, fmt.Errorf("--codemode %s needs --tools: %s scripts call the tools", mode, ag)
 	}
 	return mode, checkCodemodeRow(agentid.Routing(ag).CodeMode, mode, ag, direct)
 }
