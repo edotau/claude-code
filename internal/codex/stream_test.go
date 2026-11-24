@@ -84,14 +84,14 @@ func emit(evs ...string) string {
 	return b.String()
 }
 
-// runIdleScript runs a fake codex shell script under a 150ms idle limit and returns the stream's error.
-func runIdleScript(t *testing.T, script string) error {
+// runIdleScript runs a fake codex shell script under the given idle limit and returns the stream's error.
+func runIdleScript(t *testing.T, idle time.Duration, script string) error {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("needs sh")
 	}
 	old := agent.IdleLimit
-	agent.IdleLimit = 150 * time.Millisecond
+	agent.IdleLimit = idle
 	t.Cleanup(func() { agent.IdleLimit = old })
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -105,7 +105,7 @@ func runIdleScript(t *testing.T, script string) error {
 // and a retry loop behave as the claude watch does.
 func TestCodexIdleWatch(t *testing.T) {
 	pidFile := t.TempDir() + "/pid"
-	err := runIdleScript(t, emit(evThread, evMsg)+"echo $$ > "+pidFile+"\nexec sleep 30\n")
+	err := runIdleScript(t, 150*time.Millisecond, emit(evThread, evMsg)+"echo $$ > "+pidFile+"\nexec sleep 30\n")
 	if !errors.Is(err, agent.ErrSilent) {
 		t.Fatalf("silent stream: err = %v, want ErrSilent", err)
 	}
@@ -114,16 +114,16 @@ func TestCodexIdleWatch(t *testing.T) {
 	if p, _ := os.FindProcess(pid); pid == 0 || p.Signal(syscall.Signal(0)) == nil {
 		t.Fatalf("child %d still alive after the idle cutoff", pid)
 	}
-	steady := emit(evThread, evMsg) + strings.Repeat("sleep 0.05\n"+emit(evMsg), 8) + emit(evDone)
-	if err := runIdleScript(t, steady); err != nil {
+	steady := emit(evThread, evMsg) + strings.Repeat("sleep 0.01\n"+emit(evMsg), 8) + emit(evDone)
+	if err := runIdleScript(t, time.Second, steady); err != nil {
 		t.Fatalf("steady events: %v", err)
 	}
 	tool := emit(evThread, evToolA) + "sleep 0.4\n" + emit(evToolZ, evMsg, evDone)
-	if err := runIdleScript(t, tool); err != nil {
+	if err := runIdleScript(t, 150*time.Millisecond, tool); err != nil {
 		t.Fatalf("long tool call: %v", err)
 	}
 	loop := emit(evThread, evMsg) + strings.Repeat("sleep 0.05\n"+emit(evRetry), 8) + emit(evDone)
-	if err := runIdleScript(t, loop); !errors.Is(err, agent.ErrSilent) {
+	if err := runIdleScript(t, 150*time.Millisecond, loop); !errors.Is(err, agent.ErrSilent) {
 		t.Fatalf("retry loop: err = %v, want ErrSilent", err)
 	}
 }
