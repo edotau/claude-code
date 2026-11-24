@@ -12,10 +12,13 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// bornFile holds each dated plan's first-write time as "path\tunix", first line wins; atomic writes reset birth times.
+// bornFile holds each dated plan's first-write time as "path\tunix", first line wins; rewrites move the mtime.
 func bornFile() string { return filepath.Join(paths.StateDir(), "plans-born.tsv") }
 
-// planBorn is plan's first-write time (record, else file birth), never before its day; record pins an unrecorded one.
+// RecordBorn pins a dated plan's first-write time when it has no record yet; a Write tool call bypasses writePlan.
+func RecordBorn(plan string) { planBorn(plan, true) }
+
+// planBorn is plan's first-write time (record, else mtime), never before its day; record pins an unrecorded one.
 func planBorn(plan string, record bool) time.Time {
 	var day time.Time
 	if datedName().MatchString(filepath.Base(plan)) {
@@ -25,7 +28,7 @@ func planBorn(plan string, record bool) time.Time {
 	if !ok {
 		born = time.Now()
 		if fi, err := os.Stat(plan); err == nil {
-			born = fileBirth(fi)
+			born = fi.ModTime() // an atomic rewrite moves mtime later, which can only skip a tick
 		}
 		if record && !day.IsZero() {
 			appendBorn(plan, born)
@@ -55,7 +58,7 @@ func recordedBorn(plan string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// appendBorn is best effort: a lost record only falls back to the file's own, later-or-equal, time.
+// appendBorn is best effort: a lost record only falls back to the later-or-equal mtime.
 func appendBorn(plan string, born time.Time) {
 	if strings.ContainsAny(plan, "\t\n") || os.MkdirAll(paths.StateDir(), 0o700) != nil {
 		return
