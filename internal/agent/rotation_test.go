@@ -322,3 +322,12 @@ func TestRoleRotationFenced(t *testing.T) {
 		}
 	}
 }
+
+// A rotation that stays on an exclusive start pins the row as Provider: Lead stays empty and the record marks Rotated.
+func TestPlaceRotationStayPinsProvider(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"ultra": {Name: "ultra", Provider: "anthropic"}}}
+	_, o := placeRotation(context.Background(), reg, RunOptions{Lead: "old"}, "ultra", modeScope{stay: true, off: []string{"anthropic"}})
+	if o.Lead != "" || o.Provider != "ultra" || !o.Rotated {
+		t.Fatalf("lead %q provider %q rotated %v, want empty, ultra, true", o.Lead, o.Provider, o.Rotated)
+	}
+}

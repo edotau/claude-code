@@ -310,7 +310,7 @@ func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, r
 	drop := scope.rows(reg)
 	workspace := func(r string) bool { p := reg.Row(r); return p != nil && p.Preset == providers.PresetDatabricks }
 	if scope.stay || slices.ContainsFunc(drop, workspace) {
-		o.Provider = row
+		o.Provider, o.Lead, o.Rotated = row, "", true // Lead outranks Provider, so the pin needs it empty
 		return ctx, o
 	}
 	o.Lead, o.Rotated = row, true
@@ -329,7 +329,10 @@ func (s modeScope) rows(reg *providers.Registry) []string {
 // dropRotation clears a recorded rotation this run does not re-lead, so its record never claims the old cell.
 func dropRotation(o RunOptions) RunOptions {
 	if o.Rotated {
-		o.Rotated, o.Lead = false, ""
+		if !o.ModelTyped { // a typed --model keeps its recorded lead, so it stays off the session's provider
+			o.Lead = ""
+		}
+		o.Rotated = false
 	}
 	return o
 }

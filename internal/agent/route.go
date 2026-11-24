@@ -246,8 +246,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 // withAgyOverflow ends the claude ladder with the Claude model agy serves on the Google login (G3).
 func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Chain {
 	claudeHop := func(d Dispatch) bool { return VaultAgentIsClaude(d.Agent.Name()) }
-	if !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
-		(rc.row != "" && rc.row != rc.current) || !slices.ContainsFunc(c.Dispatches, claudeHop) {
+	if noOverflow(rc) || !slices.ContainsFunc(c.Dispatches, claudeHop) {
 		return c
 	}
 	id, _ := models.Alias(alias)
@@ -271,6 +270,20 @@ func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Cha
 	disp.otherRoute, disp.quotaOverflow = true, true
 	c.Dispatches = append(c.Dispatches, disp)
 	return c
+}
+
+// noOverflow reports a dispatch the agy overflow must not extend: not claude, one-hop, typed, or a kept-out Google row.
+func noOverflow(rc routeCtx) bool {
+	return !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
+		(rc.row != "" && rc.row != rc.current) || googleDropped(rc)
+}
+
+// googleDropped reports a rotated lead that keeps a Google-login row out, which the agy overflow would bring back.
+func googleDropped(rc routeCtx) bool {
+	return slices.ContainsFunc(router.RotatedLeadOf(rc.ctx).Drop, func(row string) bool {
+		p := rc.reg.Row(row)
+		return p != nil && p.SpellingRule() == "agy"
+	})
 }
 
 // finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.

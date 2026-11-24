@@ -197,6 +197,9 @@ func WithRotatedLead(ctx context.Context, l RotatedLead) context.Context {
 	return context.WithValue(ctx, rotatedLeadKey{}, l)
 }
 
+// RotatedLeadOf is the rotated lead marked on ctx; zero when none.
+func RotatedLeadOf(ctx context.Context) RotatedLead { return rotatedLead(ctx) }
+
 func rotatedLead(ctx context.Context) RotatedLead {
 	l, _ := ctx.Value(rotatedLeadKey{}).(RotatedLead)
 	return l
