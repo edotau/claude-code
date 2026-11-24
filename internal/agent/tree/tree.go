@@ -11,9 +11,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -50,7 +52,7 @@ func (t *Tokens) add(o Tokens) {
 type Subagent struct {
 	total       subtreeTotal
 	ID          string     `json:"id"`
-	Type        string     `json:"type"`
+	Type        string     `json:"type"` // the agent that runs: a claude relay row reads as its external agent
 	Description string     `json:"description"`
 	Status      string     `json:"status"` // running|finished|error|stale
 	Depth       int        `json:"depth"`
@@ -409,7 +411,26 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scan
 	if act.Tool != "" || act.Text != "" {
 		sub.Activity = &act
 	}
+	sub.Type = runningAgent(sub)
 	return sub
+}
+
+// runningAgent is the external agent a claude relay row runs: the one its description names among its own dispatches.
+func runningAgent(sub Subagent) string {
+	if sub.Type != agentid.Claude {
+		return sub.Type
+	}
+	words := strings.FieldsFunc(strings.ToLower(sub.Description), func(r rune) bool { return !unicode.IsLetter(r) })
+	var named []string
+	for _, d := range sub.Dispatches {
+		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) && !slices.Contains(named, d.Agent) {
+			named = append(named, d.Agent)
+		}
+	}
+	if len(named) != 1 {
+		return sub.Type
+	}
+	return named[0]
 }
 
 // sessionIDFromPath extracts the session id from <session>.jsonl.

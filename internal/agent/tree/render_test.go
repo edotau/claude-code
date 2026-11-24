@@ -521,6 +521,11 @@ func TestModelColumnKeepsProviderAndDropsLabelFromTask(t *testing.T) {
 		{"copilot id", "claude-sonnet-5.5", "port it", Subagent{Type: "copilot", Description: "claude-sonnet-5.5: port it"}},
 		{"provider-qualified id", "opencode-go/kimi-k3", "port it",
 			Subagent{Type: "opencode", Description: "opencode-go/kimi-k3: port it", Dispatches: rec("opencode", "kimi-k3")}},
+		{"unlabelled row shows the transcript model", "claude-sonnet-5-5", "Fixing mypy errors",
+			Subagent{Type: "claude", Description: "Fixing mypy errors", Model: "claude-sonnet-5-5"}},
+		{"retyped relay keeps its alias label model", "databricks-claude-sonnet-5-5", "port it to opencode",
+			Subagent{Type: "opencode", Description: "sonnet: port it to opencode", Model: "databricks-claude-sonnet-5-5"}},
+		{"external row never shows the wrapper model", "-", "port it", Subagent{Type: "codex", Description: "port it", Model: "claude-sonnet-5-5"}},
 		{"path prose is no label", "-", "fix internal/par: port it", Subagent{Type: "claude", Description: "fix internal/par: port it"}},
 		{"qualified id without a record", "opencode-go/kimi-k3", "port it",
 			Subagent{Type: "opencode", Description: "opencode-go/kimi-k3: port it"}},
@@ -537,6 +542,33 @@ func TestModelColumnKeepsProviderAndDropsLabelFromTask(t *testing.T) {
 		}
 		if got := subTask(c.sub); got != c.task {
 			t.Errorf("%s: task = %q, want %q", c.name, got, c.task)
+		}
+	}
+}
+
+func TestRunningAgentNamesTheRelayedAgent(t *testing.T) {
+	rec := func(agents ...string) (ds []Dispatch) {
+		for _, a := range agents {
+			ds = append(ds, Dispatch{ID: a, Agent: a, Status: "ok"})
+		}
+		return ds
+	}
+	cases := []struct {
+		name, want string
+		sub        Subagent
+	}{
+		{"claude wrapper of opencode", "opencode", Subagent{Type: "claude", Description: "Dispatching ablation runs to opencode", Dispatches: rec("opencode")}},
+		{"description names no agent", "claude", Subagent{Type: "claude", Description: "Fixing mypy errors", Dispatches: rec("opencode")}},
+		{"agent name inside a word", "claude", Subagent{Type: "claude", Description: "Fixing pipeline", Dispatches: rec("pi")}},
+		{"heuristic record is not its own", "claude", Subagent{Type: "claude", Description: "review the codex adapter", Dispatches: []Dispatch{{Agent: "codex", Matched: "heuristic"}}}},
+		{"hyphenated name", "opencode", Subagent{Type: "claude", Description: "run on opencode-go", Dispatches: rec("opencode")}},
+		{"no dispatch record", "claude", Subagent{Type: "claude", Description: "Dispatching to opencode"}},
+		{"two agents named", "claude", Subagent{Type: "claude", Description: "codex vs opencode", Dispatches: rec("codex", "opencode")}},
+		{"an external type stays", "codex", Subagent{Type: "codex", Description: "to opencode", Dispatches: rec("opencode")}},
+	}
+	for _, c := range cases {
+		if got := runningAgent(c.sub); got != c.want {
+			t.Errorf("%s: agent = %q, want %q", c.name, got, c.want)
 		}
 	}
 }

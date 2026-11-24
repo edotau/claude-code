@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -478,7 +479,7 @@ var claudeAliases = []string{"sonnet", "opus", "haiku"}
 
 // ownRecord is the dispatch record of the vendor run a relay row stands for; in-context Claude rows have none.
 func ownRecord(sub Subagent) (Dispatch, bool) {
-	if sub.Type == "claude" {
+	if sub.Type == agentid.Claude {
 		return Dispatch{}, false
 	}
 	i := slices.IndexFunc(sub.Dispatches, func(d Dispatch) bool {
@@ -517,7 +518,7 @@ func subLabel(sub Subagent) (model, task string, ok bool) {
 	return model, task, true
 }
 
-// subModel is the full model id the run used: its dispatch record, else the label, else the transcript's Databricks id.
+// subModel is the full model id the run used: its dispatch record, else the label, else a claude row's own model.
 func subModel(sub Subagent) string {
 	label, _, _ := subLabel(sub)
 	if d, ok := ownRecord(sub); ok {
@@ -528,6 +529,9 @@ func subModel(sub Subagent) string {
 	}
 	if strings.HasPrefix(sub.Model, databricksPrefix) && slices.Contains(claudeAliases, label) {
 		return sub.Model
+	}
+	if sub.Type == agentid.Claude {
+		return cmp.Or(label, sub.Model, "-")
 	}
 	return cmp.Or(label, "-")
 }
