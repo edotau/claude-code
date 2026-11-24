@@ -574,3 +574,39 @@ func TestWithin(t *testing.T) {
 		}
 	}
 }
+
+// TestTryFileLockRetriesOnReplacedPath checks a lock taken on an unlinked inode is dropped and retaken on the new file.
+func TestTryFileLockRetriesOnReplacedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("an open file cannot be unlinked on Windows, so the path cannot be replaced under a held fd")
+	}
+	path := filepath.Join(t.TempDir(), "lock")
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	opens := 0
+	open := func() (*os.File, error) {
+		opens++
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		must(err)
+		if opens == 1 {
+			must(os.Remove(path))
+			must(os.WriteFile(path, nil, 0o600))
+		}
+		return f, nil
+	}
+	called, nested := false, true
+	fn := func() error {
+		called = true
+		var err error
+		nested, err = TryFileLock(path, 0, func() error { return nil })
+		return err
+	}
+	ran, err := tryFileLock(path, time.Second, fn, open)
+	must(err)
+	if !ran || !called || nested || opens != 2 {
+		t.Fatalf("err=%v ran=%v called=%v nested=%v opens=%d", err, ran, called, nested, opens)
+	}
+}
