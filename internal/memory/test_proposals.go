@@ -28,7 +28,7 @@ type TestProposal struct {
 	Source  string `json:"source,omitempty"`
 }
 
-var proposedFenceRE = regexp.MustCompile("(?s)```proposed_tests\\s*\n(.*?)\n```")
+var proposedFenceRE = regexp.MustCompile("(?ms)^```proposed_tests[ \t]*\n(.*?)\n```[ \t]*$")
 
 func (p TestProposal) key() string {
 	return strings.TrimSpace(p.Pkg) + "\x00" + strings.TrimSpace(p.Case)

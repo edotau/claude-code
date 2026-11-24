@@ -148,8 +148,8 @@ func dreamDue(now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	names, _ := newReports(stamp)
-	return newestMtime().After(stamp) || len(names) > 0
+	names, err := newReports(stamp)
+	return newestMtime().After(stamp) || len(names) > 0 || err != nil
 }
 
 // dreamOptions drive one consolidation.
@@ -242,10 +242,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	}
 	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
-	if ingestErr := ingestTestProposals(since, o.Out); ingestErr != nil {
-		archiveErr = errors.Join(archiveErr, fmt.Errorf("test proposals: %w", ingestErr))
-		fmt.Fprintln(o.Out, "memory dream:", archiveErr)
-	}
+	archiveErr = errors.Join(archiveErr, dreamIngest(since, o.Out))
 	prompt, err := agentDreamPrompt(changed)
 	if err != nil {
 		return err, archiveErr
@@ -265,7 +262,17 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	if err == nil && len(changed) > 0 && len(dreamChanged(start)) == 0 {
 		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
 	}
-	return err, archiveErr
+	return err, errors.Join(archiveErr, dreamIngest(since, o.Out)) // again: a report may land during the run
+}
+
+// dreamIngest keeps new reports' proposed tests and reports a failure on out as well as returning it.
+func dreamIngest(since time.Time, out io.Writer) error {
+	err := ingestTestProposals(since, out)
+	if err != nil {
+		err = fmt.Errorf("test proposals: %w", err)
+		fmt.Fprintln(out, "memory dream:", err)
+	}
+	return err
 }
 
 // dreamRunLine is the receipt: "ran on" only for a run that succeeded, else the failure's first line.
