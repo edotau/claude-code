@@ -54,6 +54,7 @@ type codexStreamState struct {
 	running      map[string]bool // tool items started and not yet completed
 	marked       map[string]bool // non-shell tool items already marked as replay progress
 	turnDone     bool            // the last turn ended with turn.completed
+	stopTail     func()          // stops and joins the rollout usage tailer
 }
 
 // parseCodexStream emits text, tools and usage, retaining the last message as the answer.
@@ -70,6 +71,11 @@ func parseCodexIdle(idle *agent.IdleTimeout) func(*bufio.Reader, wire.Sink, func
 }
 
 func (s *codexStreamState) parse(br *bufio.Reader) (res wire.Result, _ error) {
+	defer func() {
+		if s.stopTail != nil {
+			s.stopTail()
+		}
+	}()
 	tr, err := wire.DecodeEvents(br, s.log, "decode codex json", true, nil, func(ev codexEvent, _ *wire.TransportTracker) (bool, error) {
 		s.observe(ev)
 		return false, s.apply(ev)
@@ -123,6 +129,7 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 	switch ev.Type {
 	case "thread.started":
 		s.res.SessionID = ev.ThreadID
+		s.startTail(ev.ThreadID)
 	case "item.completed":
 		return s.completedItem(ev)
 	case "item.started":
@@ -150,6 +157,14 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
 	return nil
+}
+
+func (s *codexStreamState) startTail(threadID string) {
+	if s.stopTail == nil && threadID != "" {
+		locked := &lockedSink{Sink: s.sink} // the tailer emits from its own goroutine; RunSink is not safe for that
+		s.sink = locked
+		s.stopTail = tailRollout(threadID, locked)
+	}
 }
 
 // markTool emits one bare progress mark per non-shell tool item, so a retry never replays its effects.
