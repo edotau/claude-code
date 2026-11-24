@@ -55,7 +55,9 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - External work agents run directly from the main session via carried asks
   (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20);
-  an unnamed `claude` code leaf runs Pi first;
+  an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
+  runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer's schema exists, its
+  dispatch wiring does not (`skills/subagent-workflows/SKILL.md` → Owner layer);
   `dispatch-effort` rewrites a missing or wrong `<model>:` description prefix on Agent leaves, never denies it.
 
 ## Agent and command files
