@@ -113,9 +113,9 @@ var bareWord = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(
 // BareCount is how many bare rtk words cmd holds; a rewrite that adds one needs PATH's rtk to be the pinned one.
 func BareCount(cmd string) int { return len(bareWord().FindAllStringIndex(cmd, -1)) }
 
-// commandWord matches a bare `rtk` at command position (line start, or after `&&`, `||`, `;`, `|`, `(`, backtick).
+// commandWord matches a bare or quoted `rtk` at command position (line start or after `&&`, `||`, `;`, `|`, `(`).
 var commandWord = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
+	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)("rtk"|'rtk'|rtk)(\s|$)`)
 })
 
 // PinRTK points every command-position `rtk` in cmd at word, so the pinned binary always runs.
@@ -138,7 +138,7 @@ func pinPass(cmd, word string) string {
 		}
 		b.WriteString(cmd[last:m[5]])
 		b.WriteString(word)
-		b.WriteString(cmd[m[6]:m[7]])
+		b.WriteString(cmd[m[8]:m[9]])
 		last = m[1]
 	}
 	return b.String() + cmd[last:]

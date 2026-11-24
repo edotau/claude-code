@@ -2,6 +2,7 @@ package assets
 
 import (
 	"bytes"
+	_ "github.com/edotau/claude-code/internal/nonet"
 	"go/ast"
 	"go/parser"
 	"go/token"

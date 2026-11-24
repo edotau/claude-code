@@ -53,10 +53,19 @@ func VetoRule(cmd, cwd string) string {
 	return ""
 }
 
+// segWords is seg's command words past env/sudo wrappers and an existing rtk prefix, so a veto sees the real command.
+func segWords(seg string) []string {
+	t, _ := shell.Unwrap(shell.Tokens(seg), "")
+	if len(t) > 0 && t[0] == rtkName {
+		return t[1:]
+	}
+	return t
+}
+
 // rtkLsAll: rtk's compacted `ls` drops the `.` and `..` rows that `ls -a` prints, so a count over it is wrong.
 func rtkLsAll(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		t := segWords(seg)
 		if len(t) > 0 && t[0] == "ls" && slices.ContainsFunc(t[1:], func(a string) bool {
 			return shortFlag(a, "aA") || a == "--all" || a == "--almost-all"
 		}) {
@@ -69,7 +78,7 @@ func rtkLsAll(cmd string) bool {
 // rtkFileOutput: rtk drops file-output flags (`git diff --output=f`, `curl -o f`), so the file is never written.
 func rtkFileOutput(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		t := segWords(seg)
 		if len(t) > 0 && slices.ContainsFunc(t[1:], func(a string) bool { return fileOutputFlag(t[0], a) }) {
 			return true
 		}
@@ -107,7 +116,7 @@ func EnvAltered(cmd string) bool { return rtkEnvAltered().MatchString(cmd) }
 // rtkGoRaw: rtk 1.1.0 reports a failed `go vet` as "No issues found" and drops `go test -v`/`-list` output.
 func rtkGoRaw(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		t := segWords(seg)
 		if len(t) < 2 || t[0] != "go" {
 			continue
 		}
@@ -172,7 +181,7 @@ func rtkMachineReadableFlag(cmd string) bool {
 
 // rtkGitArgs is the argv after `git` when the segment runs git (seen through env, sudo, time…), else nil.
 func rtkGitArgs(seg string) []string {
-	rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+	rest := segWords(seg)
 	if len(rest) == 0 || rest[0] != "git" {
 		return nil
 	}
