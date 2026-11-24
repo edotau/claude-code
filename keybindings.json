@@ -299,7 +299,8 @@
       "bindings": {
         "left": "modelPicker:decreaseEffort",
         "right": "modelPicker:increaseEffort",
-        "s": "modelPicker:thisSessionOnly"
+        "s": "modelPicker:thisSessionOnly",
+        "enter": "modelPicker:thisSessionOnly"
       }
     },
     {
