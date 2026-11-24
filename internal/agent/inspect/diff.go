@@ -223,10 +223,23 @@ func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 		return
 	}
 	in.files, err = collectChanges(ctx, in.root, in.base)
+	if err == nil && o.Base == "" && o.Check && len(filesInPaths(in.files, outsidePaths(in.files, in.sel))) == 0 {
+		in.base, in.files, err = laneChanges(ctx, in)
+	}
 	if err == nil {
 		in.preDirtyOutside, in.dispatch = preDirtyOutside(in.root, in.sel, in.verify)
 	}
 	return
+}
+
+// laneChanges re-reads the changes against merge-base(main, HEAD) when none lie in --path, so a committed lane is still checked.
+func laneChanges(ctx context.Context, in diffIn) (string, []DiffFile, error) {
+	mb, err := resolveBase(ctx, in.root, "main")
+	if err != nil {
+		return in.base, in.files, nil
+	}
+	files, err := collectChanges(ctx, in.root, mb)
+	return mb, files, err
 }
 
 // ownedScope is a brief's Owned paths plus the _test.go of each owned Go source, which a package owns too.

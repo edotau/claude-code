@@ -423,13 +423,31 @@ func printLabel(label string) int {
 	return 0
 }
 
+// parseWithPaths parses args, taking bare words between flags as extra paths; a dash word is a one-line error.
+func parseWithPaths(fs *flag.FlagSet, args []string, sel *[]string) (int, bool) {
+	for {
+		if code, done := helptext.Parse(fs, args); done {
+			return code, true
+		}
+		args = fs.Args()
+		if len(args) == 0 {
+			return 0, false
+		}
+		if strings.HasPrefix(args[0], "-") && args[0] != "-" {
+			return helptext.FailUsage("agents %s: unexpected argument %q", fs.Name(), args[0]), true
+		}
+		*sel = append(*sel, strings.Split(args[0], ",")...)
+		args = args[1:]
+	}
+}
+
 // cmdAgentsDiff is `agents diff`: changed files, ownership and, with --check, the Go gates.
 func cmdAgentsDiff(args []string) int {
 	fs := agentsFlags("diff")
 	base := fs.String("base", "", "compare the working tree against this ref (default HEAD)")
 	var sel []string
-	fs.Func("path", "a path or glob the change may touch; repeat per path; --check covers only these", func(v string) error {
-		sel = append(sel, v)
+	fs.Func("path", "paths or globs the change may touch: a,b or repeat; trailing args add more; --check covers only these", func(v string) error {
+		sel = append(sel, strings.Split(v, ",")...)
 		return nil
 	})
 	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
@@ -441,15 +459,11 @@ func cmdAgentsDiff(args []string) int {
 	})
 	all := fs.Bool("all", false, "with --check: the whole tree, not just the changes")
 	format := helptext.FormatFlag(fs)
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := parseWithPaths(fs, args, &sel); done {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("agents diff", err)
-	}
-	if fs.NArg() > 0 {
-		fs.Usage()
-		return 2
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -463,17 +477,13 @@ func cmdAgentsDiff(args []string) int {
 func cmdAgentsFix(args []string) int {
 	fs := agentsFlags("fix")
 	var sel []string
-	fs.Func("path", "a file or directory to fix; repeat per path (required)", func(v string) error {
-		sel = append(sel, v)
+	fs.Func("path", "files or directories to fix: a,b or repeat; trailing args add more (required)", func(v string) error {
+		sel = append(sel, strings.Split(v, ",")...)
 		return nil
 	})
 	dry := fs.Bool("dry-run", false, "list the files each fixer would rewrite; change nothing")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := parseWithPaths(fs, args, &sel); done {
 		return code
-	}
-	if fs.NArg() > 0 {
-		fs.Usage()
-		return 2
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
