@@ -173,12 +173,16 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 		head += ", " + scope
 	}
 	if len(ready) == 0 {
+		if scope != "" { // an exclusive mode is in force: the start row alone, so no ladder hop crosses it
+			o.Provider = session
+		}
 		return o, roleNote(joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped)))
 	}
 	cell, err := router.PickRoleCell(role, ready, !Peeking(ctx), now)
 	if err != nil {
 		head += " (pick unstamped: " + err.Error() + ")"
 	}
+	// the cell's row as the profile: a lead would lose to claude's record pin in the ladder and run elsewhere
 	o.Provider, o.Model = rows[cell.Key()], cell.Model
 	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, o.Provider, len(ready), len(cells))
 	return o, roleNote(joinNotes(pick, skippedNote(skipped)))
@@ -264,7 +268,7 @@ func readyCells(reg *providers.Registry, agentName string, cells []router.RoleCe
 	return ready, rows, skipped
 }
 
-// rowNotReady is why p cannot run alias's Claude model for agent now: credential, login, cooling, tier or listing.
+// rowNotReady is why p cannot run alias's Claude model for agent now: credential, login, tier, then rowHeld.
 func rowNotReady(p *providers.Provider, st router.State, agentName, alias string, now time.Time) string {
 	switch {
 	case p == nil:
@@ -273,8 +277,6 @@ func rowNotReady(p *providers.Provider, st router.State, agentName, alias string
 		return "has no credential"
 	case router.LoginDead(p):
 		return "login is dead"
-	case st.CoolingUntil(router.AccountOf(p)).After(now):
-		return "is cooling"
 	case models.FamilyKind(p.Models[alias]) != models.FamilyClaude:
 		return "maps no Claude " + alias
 	}
@@ -285,7 +287,18 @@ func rowNotReady(p *providers.Provider, st router.State, agentName, alias string
 	if err != nil {
 		return "cannot spell " + alias
 	}
-	if p.Preset == providers.PresetDatabricks && router.ListedNotReady(p, wire, now) {
+	return rowHeld(p, st, wire, now)
+}
+
+// rowHeld is why p's account or its wire model is out now: account or model cooling, a dead model, a listing not READY.
+func rowHeld(p *providers.Provider, st router.State, wire string, now time.Time) string {
+	acct := router.AccountOf(p)
+	switch {
+	case st.CoolingUntil(acct).After(now):
+		return "is cooling"
+	case st.ModelCoolingUntil(acct, wire).After(now) || st.ModelDead(acct, wire, now):
+		return "holds " + wire + " cooling or dead"
+	case p.Preset == providers.PresetDatabricks && router.ListedNotReady(p, wire, now):
 		return "lists " + wire + " not READY"
 	}
 	return ""
