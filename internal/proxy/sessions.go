@@ -95,8 +95,8 @@ func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int
 	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
-	// an older daemon ignores the fence fields and signs a fenceless token: never hand that back as fenced
-	if c, ok := PeekSessionClaims(out.Token); !ok || c.Open != open || !slices.Equal(c.Fence, fence) {
+	// an older daemon ignores the fence fields and signs a fenceless token: fine when open, never handed back as fenced
+	if c, ok := PeekSessionClaims(out.Token); !ok || (open && c.Fenced()) || (!open && !slices.Equal(c.Fence, fence)) {
 		return "", errors.New("proxy: the daemon signed a token without the requested confinement fence; restart the proxy")
 	}
 	return out.Token, nil
