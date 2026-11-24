@@ -3,6 +3,8 @@ package wthook
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -323,23 +325,21 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
-	slug, dir := laneTarget(live, hits[0], in.SessionID+in.AgentID)
+	create, dir := laneTarget(live, hits[0], in.SessionID+"/"+in.AgentID)
 	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir,
-		"claude-code worktree create <slug>", "cd "+strconv.Quote(live)+" && claude-code worktree create "+slug,
-	).Replace(assets.HookClaimLaneHint())
+		"claude-code worktree create <slug>", create).Replace(assets.HookClaimLaneHint())
 	return core.Result{Context: what + "; " + hint}
 }
 
-// laneTarget is a lane slug unique to the session (file base name plus session id) and that lane's directory.
-func laneTarget(root, file, session string) (slug, dir string) {
-	slug = "edit" // a staged hit can name a git command, not a path
+// laneTarget is the create command (run in root) for a lane named by file and worker, and that lane's directory.
+func laneTarget(root, file, worker string) (create, dir string) {
+	slug := "edit" // a staged hit can name a git command, not a path
 	if filepath.IsAbs(file) {
 		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
 	}
-	if id := paths.Slug(session, "", 0, ""); id != "" {
-		slug += "-" + strings.TrimLeft(id[max(0, len(id)-8):], "-") // the tail is the random part of a time-ordered id
-	}
-	return slug, filepath.Join(paths.LaneRoot(root), slug)
+	sum := sha256.Sum256([]byte(worker))
+	slug += "-" + hex.EncodeToString(sum[:4])
+	return "cd " + strconv.Quote(root) + " && claude-code worktree create " + slug, filepath.Join(paths.LaneRoot(root), slug)
 }
 
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
@@ -359,9 +359,9 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
 			continue
 		}
-		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID+in.AgentID)
+		create, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID+"/"+in.AgentID)
 		return core.Result{Context: fmt.Sprintf("lanes mode: %d tracked file(s) of %s change in its main checkout; "+
-			"a lane keeps it clean: claude-code worktree create %s", len(hits), root, slug)}
+			"a lane keeps it clean: %s", len(hits), root, create)}
 	}
 	return core.Result{}
 }
