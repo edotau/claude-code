@@ -103,8 +103,7 @@ For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-mess
 | `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
 | `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context | Ask in main; blocked in a leaf | main, leaves |
 | `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
-| `agents ask` without `--tools` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |
-| `agents ask --read-only` | Reads, URL fetches and an allow list of read commands run; other Bash and all writes are denied | dispatched agents |
+| `agents ask --tools=false` or `--no-tools` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |
 | Unsetting or overriding the `HARNESS_DISPATCH_*` variables | Blocked, so a nested dispatch keeps its limits | leaves |
 | Writing `settings.json` from Bash or a leaf | Blocked | main (Bash) and leaves |
 

@@ -26,38 +26,28 @@ func (l argvLauncher) Claude(_ context.Context, _ agent.ClaudeOptions, args []st
 	return agent.ClaudeLaunch{Binary: "claude", Argv: args}, nil
 }
 
-func liveLaunch(readOnly bool) func(string, string) pathLaunch {
-	return func(name, wd string) pathLaunch {
-		row, _ := agent.LookupSchema(name)
-		switch {
-		case !row.HasLive():
-			return pathLaunch{skip: name + " has no live mode"}
-		case name == "claude":
-			return claudeLive(readOnly, wd)
-		}
-		return resolvedLive(name, readOnly, wd)
+func liveLaunch(name, wd string) pathLaunch {
+	row, _ := agent.LookupSchema(name)
+	switch {
+	case !row.HasLive():
+		return pathLaunch{skip: name + " has no live mode"}
+	case name == "claude":
+		return claudeLive(wd)
 	}
+	return resolvedLive(name, wd)
 }
 
 // resolvedLive is a live session whose backend renders the settings ResolveSettings resolves for the request (agy).
-func resolvedLive(name string, readOnly bool, wd string) pathLaunch {
-	req := agent.RunOptions{Agent: name, Tools: true, ReadOnly: readOnly, WorkDir: wd}
+func resolvedLive(name, wd string) pathLaunch {
+	req := agent.RunOptions{Agent: name, Tools: true, WorkDir: wd}
 	st, err := agent.ResolveSettings(name, req, providers.Target{}, true)
 	if err != nil {
 		return pathLaunch{fail: "live settings: " + err.Error()}
 	}
-	l := liveMode(name, readOnly)
-	l.judge = withSafety(name, wd, permLayer(name, st.Permissions, readOnly, wd))
-	l.via = "ResolveSettings(tools" + map[bool]string{true: ", read-only"}[readOnly] + "): permissions " + permSummary(st.Permissions)
+	l := argsLaunch(name, []string{"--tools"}, nil)
+	l.judge = withSafety(name, wd, permLayer(name, st.Permissions, wd))
+	l.via = "ResolveSettings(tools): permissions " + permSummary(st.Permissions)
 	return l
-}
-
-func liveMode(name string, readOnly bool) pathLaunch {
-	flags := []string{"--tools"}
-	if readOnly {
-		flags = append(flags, "--read-only")
-	}
-	return argsLaunch(name, flags, nil)
 }
 
 // permSummary is p's rule counts: enough to see a layer missing, never a rule's text.
@@ -66,18 +56,18 @@ func permSummary(p permission.Permissions) string {
 }
 
 // claudeLive builds claude's live child with a stub launcher and judges its tool set and gate policy.
-func claudeLive(readOnly bool, wd string) pathLaunch {
+func claudeLive(wd string) pathLaunch {
 	lc, ok := agent.SchemaFor("claude").Live()
 	if !ok {
 		return pathLaunch{skip: "claude has no live mode"}
 	}
 	var args []string
-	req := agent.RunOptions{Agent: "claude", Tools: true, ReadOnly: readOnly, WorkDir: wd, Launcher: argvLauncher{&args}}
+	req := agent.RunOptions{Agent: "claude", Tools: true, WorkDir: wd, Launcher: argvLauncher{&args}}
 	cmd, _, _, err := lc.NewLive().Build(context.Background(), req)
 	if err != nil {
 		return pathLaunch{fail: "live Build: " + err.Error()}
 	}
-	l := liveMode("claude", readOnly)
+	l := argsLaunch("claude", []string{"--tools"}, nil)
 	l.via = strings.Join(args, " ")
 	pol, ok := gatePolicyEnv(cmd.Env)
 	if !ok {
@@ -153,7 +143,7 @@ func relayIn(dir, name string) pathLaunch {
 	return widest
 }
 
-// scopeRank orders the modes by what they may do: no tools, read tools, then edit and run.
+// scopeRank orders the modes by what they may do: no tools, then edit and run.
 func scopeRank(mode string) int {
-	return map[int]int{0: 0, modeRO: 1, modeTools: 2}[modeBit(mode)]
+	return map[int]int{0: 0, modeTools: 1}[modeBit(mode)]
 }

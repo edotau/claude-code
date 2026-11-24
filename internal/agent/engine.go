@@ -536,7 +536,6 @@ func watchFirstOutput(r Engine) Engine {
 // Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, DebugFile, Direct Level
-	ReadOnly                                                                                                             Level
 	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                         Level
 	Permissions                                                                                                          Level // reads RunOptions.Permissions
 }

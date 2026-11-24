@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
 	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/shell"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -36,8 +34,6 @@ func baseHandler(o Options) copilot.PermissionHandlerFunc {
 	switch {
 	case !o.AllowAllTools:
 		return denyAllTools
-	case o.ReadOnlyTools:
-		return withPermissions(o, approveReadOnly)
 	}
 	return withPermissions(o, approveToolOnce)
 }
@@ -166,59 +162,13 @@ func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (
 	return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 }
 
-// readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write or memory.
+// readOnlyKinds are the requests a plan-mode run approves: file reads and URL fetches, never write or memory.
 var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
-
-const readOnlyFeedback = "This run is read-only: only file reads, URL fetches, read-only git (status, diff, log, show, blame, rev-parse, branch --list) and the shared read-only shell list (rg, grep, ls, wc, head, tail, cat, go doc|list|env|version, claude-code agents find and similar) are allowed. git diff, log and show must start with --no-ext-diff --no-textconv, git blame with --no-textconv (git log --no-ext-diff --no-textconv -p). Report instead of changing anything."
-
-// readOnlyGitEnv replaces all inherited GIT_*; GIT_PAGER beats pager.<verb>, command-scope config beats repo files.
-var readOnlyGitEnv = slices.Concat([]string{
-	"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat",
-	// a partial clone's missing blob must not reach a transport
-	"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none",
-	// status and diff must not rewrite the index
-	"GIT_OPTIONAL_LOCKS=0",
-}, gitConfigEnv(
-	"core.fsmonitor=false", "core.pager=cat", "core.sshCommand=false", "core.hooksPath=/dev/null",
-	"diff.external=", "diff.submodule=short", "log.showSignature=false", "log.diffMerges=separate",
-	"gpg.program=false", "gpg.openpgp.program=false", "gpg.x509.program=false", "gpg.ssh.program=false",
-))
-
-// gitConfigEnv spells key=value pairs as the GIT_CONFIG_COUNT block.
-func gitConfigEnv(pairs ...string) []string {
-	out := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(pairs))}
-	for i, kv := range pairs {
-		k, v, _ := strings.Cut(kv, "=")
-		out = append(out, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, k), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, v))
-	}
-	return out
-}
-
-func shellCommand(req copilot.PermissionRequest) (string, bool) {
-	if r, ok := requestValue(req).(rpc.PermissionRequestShell); ok {
-		return r.FullCommandText, !r.HasWriteFileRedirection
-	}
-	return "", false
-}
 
 // isWebSearchMCP is the harness web_search server's one tool; the request has no command, so name and tool must match.
 func isWebSearchMCP(req copilot.PermissionRequest) bool {
 	r, ok := requestValue(req).(rpc.PermissionRequestMCP)
 	return ok && r.ServerName == webSearchServer && r.ToolName == webSearchTool
-}
-
-func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) && (!ok || !readOnlyCommand(cmd)) {
-		feedback := "Refused by copilot read-only tier: " + readOnlyFeedback
-		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
-	}
-	return approveToolOnce(req, inv)
-}
-
-// readOnlyCommand reports a shell command the read-only tier may run: a read-only git or a vetted shell command.
-func readOnlyCommand(cmd string) bool {
-	return shell.ReadOnlyGit(cmd) || permission.ReadOnlyShell(cmd)
 }
 
 // approveToolOnce is the explicit opt-in; managed org settings still win.
@@ -230,7 +180,7 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 }
 
 // DecideCall is the SDK handler's verdict (allow, deny or ask) for one Tool(arg) call, for the doctor report.
-func DecideCall(p permission.Permissions, readOnly bool, workDir, tool, arg string) string {
+func DecideCall(p permission.Permissions, workDir, tool, arg string) string {
 	var req copilot.PermissionRequest
 	switch tool {
 	case "Bash":
@@ -240,7 +190,7 @@ func DecideCall(p permission.Permissions, readOnly bool, workDir, tool, arg stri
 	default:
 		req = &rpc.PermissionRequestRead{Path: arg}
 	}
-	d, _ := baseHandler(Options{AllowAllTools: true, ReadOnlyTools: readOnly, Permissions: p, WorkingDirectory: workDir})(req, copilot.PermissionInvocation{})
+	d, _ := baseHandler(Options{AllowAllTools: true, Permissions: p, WorkingDirectory: workDir})(req, copilot.PermissionInvocation{})
 	switch d.(type) {
 	case *rpc.PermissionDecisionApproveOnce:
 		return "allow"
@@ -250,7 +200,7 @@ func DecideCall(p permission.Permissions, readOnly bool, workDir, tool, arg stri
 	return "ask"
 }
 
-// webSearchServer is the harness Tavily MCP server (`network websearch`), the one the read-only tier may call.
+// webSearchServer is the harness Tavily MCP server (`network websearch`), the one a plan-mode run may call.
 const webSearchServer = "web_search"
 
 // webSearchTool is the only tool that server exposes.

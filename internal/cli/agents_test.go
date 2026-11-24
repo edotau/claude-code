@@ -941,8 +941,8 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 			t.Errorf("brief lacks %q:\n%s", want, out)
 		}
 	}
-	if ro := okAgents(t, "brief", "--task", task, "--read-only"); !strings.Contains(ro, "read-only; do not edit files") {
-		t.Errorf("read-only brief:\n%s", ro)
+	if code, _, _ := runAgents(t, "brief", "--task", task, "--read-only"); code != 2 {
+		t.Errorf("brief --read-only exit %d, want 2: the flag is gone", code)
 	}
 	for _, args := range [][]string{
 		{"brief", "--task", task}, {"brief", "--own", "a.go"},

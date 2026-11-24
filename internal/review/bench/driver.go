@@ -539,8 +539,7 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 	if err != nil {
 		return d.hold(c, "prepare review brief: "+err.Error())
 	}
-	env, err := d.ask(ctx, c.lane, brief, "--provider", "databricks", "--model", "opus", "--fallback", "none",
-		"--read-only")
+	env, err := d.ask(ctx, c.lane, brief, "--provider", "databricks", "--model", "opus", "--fallback", "none")
 	d.spend(env.DispatchID)
 	verdict := strings.TrimSpace(firstLine(env.Answer))
 	switch {

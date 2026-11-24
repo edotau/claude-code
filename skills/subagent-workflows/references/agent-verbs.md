@@ -49,7 +49,7 @@ Agent files list only what differs; the full list is `claude-code agents ask -h`
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` |
+| Edit files / run shell | `--tools` · `--workdir <repo>` (tools are on by default; `--tools=false` or `--no-tools` turns them off) |
 | Guard the run | `--permissions allow\|default\|auto` or `--permissions '{"mode":"auto","allow":[..],"ask":[..],"deny":["Bash(git push:*)"]}'` (`allow`: dev override, every call runs; deny rules and the AI-footer block hold) (per-agent mapping: `dispatch-policy-details.md` → Permission modes per agent); an allow rule adds but never reopens a deny; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--provider databricks` (R20) |

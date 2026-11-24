@@ -90,7 +90,7 @@ claude-code usage --context                          # where one session's conte
 
 `serve` admits a background `--carry` once before its child starts; foreground carry and Pi takeover are not gated.
 
-An ask with no tools flag gets tools on (per agent: `rules/harness/agent.md`).
+An agent's tools are on unless `--tools=false` or `--no-tools` (per agent: `rules/harness/agent.md`).
 `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
 and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).

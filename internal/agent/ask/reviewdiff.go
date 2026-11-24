@@ -251,10 +251,7 @@ func reviewArgs(agentName string, diff []byte, adversarial, background bool, foc
 		_ = os.Remove(f.Name()) // best-effort cleanup; the close error is already being returned
 		return nil, nil, err
 	}
-	args := []string{"--agent", agentName, "--fallback", router.FallbackAgents, "--attach", f.Name()}
-	if agent.SchemaFor(agentName).CLI.ReviewReadOnly { // no tools tier: the agent sees only the attached diff
-		args = append(args, "--read-only")
-	}
+	args := []string{"--agent", agentName, "--fallback", router.FallbackAgents, "--attach", f.Name(), "--tools=false"} // the agent sees only the attached diff
 	if background {
 		args = append(args, "--background")
 	}

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -32,7 +32,7 @@ var needJobs = []struct {
 type stageDef struct {
 	Script, Stage, Tools string
 	Needs                []string
-	Launch               string // when set, the launch mode in place of stepOf's: tools, read-only or no flag
+	Launch               string // when set, the launch mode in place of stepOf's: tools or --tools=false
 }
 
 // wavesLeafDef is the leaf `agents ask --waves` launches, read from the launch code's flags, tools and brief.
@@ -45,15 +45,28 @@ func wavesLeafDef() (stageDef, error) {
 	return stageDef{Script: "agents ask --waves", Stage: "leaf", Needs: needs, Launch: launchModeOf(args, tools)}, nil
 }
 
-// launchModeOf is the launch mode an `ask` command line and a batch line's tools setting amount to.
+// launchModeOf is the mode of an ask line plus a batch tools setting: the last tools flag wins, then the line value.
 func launchModeOf(args []string, tools *bool) string {
-	switch {
-	case slices.Contains(args, "--read-only"):
-		return "read-only"
-	case slices.Contains(args, "--tools") || (tools != nil && *tools):
-		return "tools"
+	on := true
+	for _, a := range args {
+		switch v, hasVal := strings.CutPrefix(a, "--tools="); {
+		case a == "--tools":
+			on = true
+		case hasVal:
+			if b, err := strconv.ParseBool(v); err == nil {
+				on = b
+			}
+		case a == "--no-tools":
+			on = false
+		}
 	}
-	return "no flag"
+	if tools != nil {
+		on = *tools
+	}
+	if !on {
+		return "--tools=false"
+	}
+	return "tools"
 }
 
 func leafMode(name, launch string) string {
@@ -270,9 +283,6 @@ func stageCellText(c permStageCell) string {
 	s := c.Verdict
 	if len(c.Denied) > 0 {
 		s += ": " + strings.Join(c.Denied, ", ")
-	}
-	if c.Mode == "read-only" {
-		s += " [read-only]"
 	}
 	return s
 }

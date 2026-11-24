@@ -432,7 +432,7 @@ type RouteReq struct {
 	Profile, Provider, Lead       string // --profile (a name or LeadSession), --provider, an already-resolved lead
 	Fallback, WorkDir             string
 	Native, Preview               bool
-	AutoModel, Tools, ReadOnly    bool
+	AutoModel, Tools              bool
 	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
 	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
 	Resumed                       bool   // a resumed session stays on the row that holds it

@@ -1078,5 +1078,5 @@ func pathMatches(pattern, p string) bool {
 	return path.IsAbs(pattern) && path.IsAbs(p) && paths.GlobMatch(paths.CanonDeep(pattern), paths.CanonDeep(p))
 }
 
-// ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).
+// ReadOnlyDeny is the plan-mode read-only policy spelled as deny rules.
 var ReadOnlyDeny = []Rule{{Tool: "Bash", Arg: NotReadOnlyShellArg}, {Tool: "Write"}, {Tool: "Edit"}}

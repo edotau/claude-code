@@ -1010,7 +1010,7 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	Flags: []string{"--model", "--effort", "--conversation", "--input-format", "--output-format", "--json-schema",
 		"--dangerously-skip-permissions", "--add-dir", "--log-file", "--settings", "--print-timeout"},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
+		Tools: agent.Native, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError}, Cost: true,

@@ -16,11 +16,10 @@ func TestBriefParseOwned(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
 	t.Chdir(config)
 	input := BriefInput{
-		Task:     "Implement {{literal task text}}.\nOwned: /tmp/not-owned.go",
-		Owned:    []string{"/tmp/one.go", "/tmp/path with spaces.go", "/tmp/quote\".go"},
-		ReadOnly: true,
-		Report:   filepath.Join(config, "memory", "reports", "leaf.md"),
-		Verify:   "go test ./internal/agent",
+		Task:   "Implement {{literal task text}}.\nOwned: /tmp/not-owned.go",
+		Owned:  []string{"/tmp/one.go", "/tmp/path with spaces.go", "/tmp/quote\".go"},
+		Report: filepath.Join(config, "memory", "reports", "leaf.md"),
+		Verify: "go test ./internal/agent",
 	}
 	first, err := RenderBrief(input)
 	if err != nil {
@@ -49,43 +48,25 @@ func TestBriefParseOwned(t *testing.T) {
 	}
 }
 
-func TestBriefReadOnlyOwnsNothing(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", config)
-	t.Chdir(config)
-	brief, err := RenderBrief(BriefInput{Task: "look", ReadOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(brief, "Owned: []\n") {
-		t.Errorf("read-only brief should print an empty ownership list: %q", brief)
-	}
-	if got := ParseOwned(brief); len(got) != 0 {
-		t.Errorf("read-only brief owns %q; want nothing", got)
-	}
-	if got := ParseOwned("Owned: null\nMode: read-only"); len(got) != 0 {
-		t.Errorf("legacy null ownership parsed as %q", got)
-	}
-}
-
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
 	want := filepath.Join(config, "memory", "reports", "YYYY-MM-DD-<name>.md")
-	if got := strings.Count(brief, want); got != 0 { // a read-only brief's report is its answer, filed by --save
-		t.Errorf("brief has %d report paths matching %q; want 0", got, want)
+	if got := strings.Count(brief, want); got != 1 {
+		t.Errorf("brief has %d report paths matching %q; want 1", got, want)
 	}
 }
 
 func assertBriefContract(t *testing.T, first string, input BriefInput) {
 	t.Helper()
 	for _, want := range []string{"## Leaf rules", "Never revert a change you did not make", input.Task, input.Report, input.Verify,
-		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: the full report", "--save files it",
+		"implementation; edit only owned files", "Wrap lines at 118 columns", "Final answer: at most 8 lines",
+		"the full report path",
 		"returns with the job ended, hand back\n  the job's result as your next action; do nothing in between"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
 		}
 	}
-	for _, once := range []string{"Final answer:", "--save files it", "gross production lines"} {
+	for _, once := range []string{"Final answer:"} {
 		if got := strings.Count(first, once); got != 1 {
 			t.Errorf("brief states %q %d times; want once", once, got)
 		}

@@ -136,6 +136,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
+	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -153,6 +154,13 @@ func markTyped(fs *flag.FlagSet, f *askFlags) {
 		f.modelTyped = f.model != "" && !auto
 	}
 	f.timeoutTyped = f.timeoutTyped || helptext.Explicit(fs, "timeout")
+}
+
+// defaultTools turns tools on when neither --tools nor --no-tools was typed; a --job/--retry record then sets its own.
+func defaultTools(fs *flag.FlagSet, f *askFlags) {
+	if !f.noTools && !helptext.Explicit(fs, "tools") {
+		f.tools = true
+	}
 }
 
 func (r *askRun) fail(err error, code int) (int, bool) {
@@ -278,7 +286,6 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	f.tools = f.tools || f.readOnly // read-only tools are tools
 	if err := cmp.Or(dryCombos(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
@@ -319,7 +326,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools, f.readOnly); err != nil {
+	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
@@ -566,7 +573,7 @@ func batchOnlyFlags(fs *flag.FlagSet) error {
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
-	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
+	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
@@ -615,11 +622,10 @@ func (r *askRun) resolveRecord() (int, bool) {
 	return 0, false
 }
 
-// recordTools re-folds --read-only into tools after a --job/--retry record, refusing the tools pair it completes.
+// recordTools refuses the tools pair a --job/--retry record completes.
 func recordTools(f *askFlags) error {
-	f.tools = f.tools || f.readOnly
 	if err := askExclusive(f.background, f.job, f.tools, f.noTools); err != nil {
-		return fmt.Errorf("%w: the replayed record sets one; type it off (--tools=false --read-only=false or --no-tools=false)", err)
+		return fmt.Errorf("%w: the replayed record sets one; type it off (--tools=false or --no-tools=false)", err)
 	}
 	return nil
 }
@@ -681,7 +687,7 @@ func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
 func (r *askRun) askState() *askState {
 	f := r.f
 	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, timeoutTyped: &f.timeoutTyped, Effort: &f.effort,
-		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
+		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,

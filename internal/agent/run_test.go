@@ -353,41 +353,18 @@ func writeGatewayOverlay(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 
-// gemini read-only runs with tools on and the read-only deny rules, never refused or dropped to tools-off.
-func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
+// A gemini tools run keeps its tools through checkRun and applyCaps, and adds no git env.
+func TestCheckRunGeminiToolsKept(t *testing.T) {
 	g, err := Lookup("gemini")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := checkRun(g, RunOptions{Tools: true, ReadOnly: true})
-	if err != nil {
-		t.Fatal(err)
+	got, err := checkRun(g, RunOptions{Tools: true})
+	if err != nil || slices.Contains(got.Env, "GIT_OPTIONAL_LOCKS=0") {
+		t.Fatalf("tools run env = %v (err %v); want no GIT_OPTIONAL_LOCKS", got.Env, err)
 	}
-	for _, r := range permission.ReadOnlyDeny {
-		if !slices.Contains(got.Permissions.Deny, r) {
-			t.Errorf("deny %v lacks %s", got.Permissions.Deny, r)
-		}
-	}
-	if out, dropped, _ := applyCaps(g.Caps(), got); !out.Tools || !out.ReadOnly || len(dropped) != 0 {
-		t.Errorf("applyCaps: tools=%v read-only=%v dropped=%v, want both kept", out.Tools, out.ReadOnly, dropped)
-	}
-}
-
-// A gated read-only launch gets GIT_OPTIONAL_LOCKS=0 last (after --env); a tools run does not.
-func TestCheckRunReadOnlyDisablesGitOptionalLocks(t *testing.T) {
-	g, err := Lookup("gemini")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := checkRun(g, RunOptions{Tools: true, ReadOnly: true, Env: []string{"GIT_OPTIONAL_LOCKS=1"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(got.Env); n != 2 || got.Env[n-1] != "GIT_OPTIONAL_LOCKS=0" {
-		t.Errorf("read-only env = %d; want the caller's entry then GIT_OPTIONAL_LOCKS=0 last", len(got.Env))
-	}
-	if got, err = checkRun(g, RunOptions{Tools: true}); err != nil || slices.Contains(got.Env, "GIT_OPTIONAL_LOCKS=0") {
-		t.Errorf("tools run env = %d (err %v); want no GIT_OPTIONAL_LOCKS", len(got.Env), err)
+	if out, dropped, _ := applyCaps(g.Caps(), got); !out.Tools || len(dropped) != 0 {
+		t.Errorf("applyCaps: tools=%v dropped=%v, want tools kept", out.Tools, dropped)
 	}
 }
 
@@ -398,7 +375,7 @@ type ancestorPolicyCase struct {
 	holds func(RunOptions) bool
 }
 
-// ancestorPolicyCases cover inherited deny, ask, read-only and plan, and an ancestor allow that must not pass down.
+// ancestorPolicyCases cover inherited deny, ask and plan, and an ancestor allow that must not pass down.
 func ancestorPolicyCases() []ancestorPolicyCase {
 	curl, edit, git := permission.Rule{Tool: "Bash", Arg: "curl *"}, permission.Rule{Tool: "Edit", Arg: "/x/**"}, permission.Rule{Tool: "Bash", Arg: "git *"}
 	return []ancestorPolicyCase{
@@ -408,14 +385,13 @@ func ancestorPolicyCases() []ancestorPolicyCase {
 			func(o RunOptions) bool { return slices.Contains(o.Permissions.Deny, edit) }},
 		{"ask", RunOptions{Tools: true, Permissions: permission.Permissions{Ask: []permission.Rule{curl}}},
 			func(o RunOptions) bool { return slices.Contains(o.Permissions.Ask, curl) }},
-		{"read-only", RunOptions{Tools: true, ReadOnly: true}, func(o RunOptions) bool { return o.ReadOnly }},
 		{"plan", RunOptions{Permissions: permission.Permissions{Mode: "plan"}}, func(o RunOptions) bool { return o.Permissions.Mode == "plan" }},
 		{"allow stays with the ancestor", RunOptions{Tools: true, Permissions: permission.Permissions{Allow: []permission.Rule{git}}},
 			func(o RunOptions) bool { return !slices.Contains(o.Permissions.Allow, git) }},
 	}
 }
 
-// A leaf that clears or overwrites the policy env still gets every recorded ancestor's deny, ask, plan and read-only.
+// A leaf that clears or overwrites the policy env still gets every recorded ancestor's deny, ask and plan.
 func TestCheckRunKeepsRecordedAncestorPolicy(t *testing.T) {
 	for _, tc := range ancestorPolicyCases() {
 		setConfigDir(t)
@@ -430,7 +406,7 @@ func TestCheckRunKeepsRecordedAncestorPolicy(t *testing.T) {
 				values := proc.Values{proc.DispatchIDEnv: "mid", DispatchPermissionsEnv: policy}
 				got, err := checkRun(e, RunOptions{Tools: true, Values: values})
 				if err != nil || !tc.holds(got) {
-					t.Errorf("%s: %s child, policy env %q: %+v read-only=%v, err %v", tc.name, name, policy, got.Permissions, got.ReadOnly, err)
+					t.Errorf("%s: %s child, policy env %q: %+v, err %v", tc.name, name, policy, got.Permissions, err)
 				}
 			}
 		}
@@ -941,17 +917,17 @@ func TestPackPromptFileTransport(t *testing.T) {
 	}
 }
 
-// Given a gemini lead (pack read from a file with tools), --read-only keeps the run: agy enforces it with deny rules.
-func TestPackPromptKeepsReadOnlyOnFileRoute(t *testing.T) {
+// Given a gemini lead, the pack is read from a file and tools turn on for it.
+func TestPackPromptTurnsToolsOnForFileRoute(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
-	o := RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
+	o := RunOptions{Prompt: "p", WorkDir: dir, Pack: &pack.Spec{Dirs: []string{"."}}}
 	p := &Prepared{Opts: o, Chain: Chain{Dispatches: []Dispatch{{Agent: namedEngine("gemini")}}}}
 	if err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p); err != nil {
-		t.Fatalf("packPrompt() = %v, want the read-only file route accepted", err)
+		t.Fatalf("packPrompt() = %v, want the file route accepted", err)
 	}
 	defer p.pack.remove()
-	if !p.Opts.Tools || !p.Opts.ReadOnly {
-		t.Fatalf("opts tools=%v read-only=%v, want both on", p.Opts.Tools, p.Opts.ReadOnly)
+	if !p.Opts.Tools {
+		t.Fatalf("opts tools=%v, want on", p.Opts.Tools)
 	}
 }
 

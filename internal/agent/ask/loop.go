@@ -516,7 +516,7 @@ func (r *askRun) loopMode() (int, bool) {
 	if done {
 		return code, true
 	}
-	base.ReadOnly, base.Tools, base.NoTools = true, true, false // editing parts need per-part deny rules the pool lacks
+	base.Tools, base.NoTools = true, false // editing parts need per-part deny rules the pool lacks
 	cfg.plan, cfg.run = r.loopPlanFn(), loopRunner(o, base, helptext.Explicit(r.fs, "timeout"))
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -574,7 +574,7 @@ func (r *askRun) loopDry(cfg loopCfg, goal string) int {
 	if err != nil {
 		return helptext.Fail("ask: loop template: %v", err)
 	}
-	fmt.Fprintf(r.out, "loop dry-run: planner %s (read-only), parts on %s, <= %d rounds, <= %d parts, %d at once\n",
+	fmt.Fprintf(r.out, "loop dry-run: planner %s, parts on %s, <= %d rounds, <= %d parts, %d at once\n",
 		cfg.Planner, cmp.Or(r.ref, "claude"), cfg.Rounds, loopMaxParts, r.f.jobs)
 	fmt.Fprintf(r.out, "--- schema ---\n%s--- prompt, round 1 ---\n%s\n", loopPlanSchema, prompt)
 	return 0
@@ -583,7 +583,7 @@ func (r *askRun) loopDry(cfg loopCfg, goal string) int {
 func (r *askRun) loopPlanFn() func(context.Context, string, string) (loopPlan, wire.Usage, error) {
 	f := r.f
 	return func(ctx context.Context, planner, prompt string) (loopPlan, wire.Usage, error) {
-		args := []string{"--agent", planner, "--read-only", "--format", "json", "--output-schema", loopPlanSchema}
+		args := []string{"--agent", planner, "--format", "json", "--output-schema", loopPlanSchema}
 		for _, kv := range [][2]string{{"workdir", f.workdir}, {"as", f.as}} {
 			if kv[1] != "" {
 				args = append(args, "--"+kv[0], kv[1])

@@ -707,7 +707,7 @@ func TestLiteralReadersHonorReadDeny(t *testing.T) {
 	}
 }
 
-// The read-only check runs on every Bash call of a --read-only agent.
+// The read-only check runs on every Bash call of a plan-mode agent.
 func BenchmarkReadOnlyShell(b *testing.B) {
 	var script []string
 	for i := range 40 {

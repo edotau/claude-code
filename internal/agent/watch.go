@@ -390,12 +390,7 @@ func recoverArgs(r Record) []string {
 // ResumeArgs is the `agents ask --session` argv that continues r's session in the background.
 func ResumeArgs(r Record, session string) []string {
 	args := []string{"claude-code", "agents", "ask", "--agent", cmp.Or(r.RanAs, r.Agent), "--session", session, "--background"}
-	switch {
-	case r.Request.ReadOnly:
-		args = append(args, "--read-only")
-	case r.Request.Tools:
-		args = append(args, "--tools")
-	}
+	args = append(args, map[bool]string{true: "--tools", false: "--tools=false"}[r.Request.Tools]) // ask defaults tools on
 	if r.Request.WorkDir != "" {
 		args = append(args, "--workdir", r.Request.WorkDir)
 	}

@@ -68,19 +68,20 @@ func TestPermStageRowsGrowWithAScriptsStages(t *testing.T) {
 	}
 }
 
-func TestStageCellDeniesWhatAReadOnlyLaunchCannotDo(t *testing.T) {
+func TestStageCellDeniesWhatANoFlagLaunchCannotDo(t *testing.T) {
 	wd := t.TempDir()
-	judge, why := permJudge("copilot", "read-only", wd)
+	judge, why := permJudge("copilot", "--tools=false", wd)
 	probes := map[string]probe{}
 	for _, p := range permProbes(wd) {
 		probes[p.job] = p
 	}
-	c := stageCell(judge, why, "read-only", []string{"read", "edit", "gate"}, probes)
-	if c.Verdict != "denied" || len(c.Denied) != 2 || !strings.HasPrefix(c.Denied[0], "edit") {
-		t.Fatalf("copilot --read-only must deny edit and gate, keep read: %+v", c)
+	c := stageCell(judge, why, "--tools=false", []string{"read", "edit", "gate"}, probes)
+	if c.Verdict != "denied" || len(c.Denied) != 3 || !strings.HasPrefix(c.Denied[0], "read") {
+		t.Fatalf("copilot with --tools=false must deny read, edit and gate: %+v", c)
 	}
-	if c = stageCell(judge, why, "read-only", []string{"read"}, probes); c.Verdict != "ok" {
-		t.Fatalf("a read stage is granted: %+v", c)
+	judge, why = permJudge("copilot", "tools", wd)
+	if c = stageCell(judge, why, "tools", []string{"read"}, probes); c.Verdict != "ok" {
+		t.Fatalf("a read stage is granted under --tools: %+v", c)
 	}
 	if c = stageCell(nil, "OS sandbox", "tools", []string{"edit"}, probes); c.Verdict != verdictRuntime || c.Why != "OS sandbox" {
 		t.Fatalf("no judge is not evaluable: %+v", c)
@@ -91,15 +92,14 @@ func TestDoctorPermissionsFailsWhenAStageIsDeniedWhatItNeeds(t *testing.T) {
 	orig := workflowStages
 	t.Cleanup(func() { workflowStages = orig })
 	workflowStages = func(string) ([]stageDef, error) {
-		return []stageDef{{Script: "a", Stage: "checker", Needs: []string{"read", "gate"}, Launch: "read-only"}}, nil
+		return []stageDef{{Script: "a", Stage: "checker", Needs: []string{"read", "gate"}, Launch: "--tools=false"}}, nil
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var out bytes.Buffer
 	if code := doctorPermissions(&out, "copilot", false); code != 1 {
-		t.Fatalf("a read-only gate stage must fail the matrix: exit %d\n%s", code, out.String())
+		t.Fatalf("a --tools=false gate stage must fail the matrix: exit %d\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "checker") || !strings.Contains(out.String(), "denied: gate") ||
-		!strings.Contains(out.String(), "[read-only]") {
+	if !strings.Contains(out.String(), "denied: read deny SDK rejects every request") || !strings.Contains(out.String(), "gate deny SDK rejects every request") {
 		t.Fatalf("the stage and its denied need must be named:\n%s", out.String())
 	}
 }
@@ -167,26 +167,28 @@ S.depscan.schema(R)
 		t.Errorf("depscan needs %v, want %v (a read-only tier whose prompt runs a command needs it)", got["depscan"], want)
 	}
 	wd := t.TempDir()
-	judge, why := permJudge("copilot", "read-only", wd)
+	judge, why := permJudge("copilot", "--tools=false", wd)
 	probes := map[string]probe{}
 	for _, p := range permProbes(wd) {
 		probes[p.job] = p
 	}
-	if c := stageCell(judge, why, "read-only", got["depscan"], probes); c.Verdict != "denied" {
-		t.Errorf("a read-only copilot launch cannot run the scan command: %+v", c)
+	if c := stageCell(judge, why, "--tools=false", got["depscan"], probes); c.Verdict != "denied" {
+		t.Errorf("a --tools=false copilot launch cannot run the scan command: %+v", c)
 	}
 }
 
 // The waves-leaf row reads the launch mode and the brief from the launch code, so a launch change moves the row.
 func TestWavesLeafRowFollowsTheLaunchCode(t *testing.T) {
-	yes := true
+	yes, no := true, false
 	for _, c := range []struct {
 		args  []string
 		tools *bool
 		want  string
 	}{
-		{nil, nil, "no flag"}, {nil, &yes, "tools"}, {[]string{"--tools"}, nil, "tools"},
-		{[]string{"--read-only"}, &yes, "read-only"},
+		{nil, nil, "tools"}, {nil, &no, "--tools=false"}, {nil, &yes, "tools"}, {[]string{"--tools"}, nil, "tools"},
+		{[]string{"--tools=false"}, nil, "--tools=false"}, {[]string{"--no-tools"}, nil, "--tools=false"},
+		{[]string{"--tools=false", "--tools"}, nil, "tools"}, {[]string{"--tools", "--tools=false"}, nil, "--tools=false"}, {[]string{"--tools=false"}, &yes, "tools"},
+		{[]string{"--tools"}, &no, "--tools=false"},
 	} {
 		if got := launchModeOf(c.args, c.tools); got != c.want {
 			t.Errorf("launchModeOf(%v, %v) = %q, want %q", c.args, c.tools, got, c.want)

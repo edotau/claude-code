@@ -256,7 +256,7 @@ func checkOuter(t *testing.T, outer, child, piID string) {
 // A toolless carried run gets a toolless Pi, and an allow rule holding a comma rides the lines as one rule.
 func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 	fs, f := askFlagSet()
-	if err := fs.Parse([]string{"--agent", "gemini", "--permissions", `{"allow":["Bash(foo,bar)"],"deny":["Write"]}`}); err != nil {
+	if err := fs.Parse([]string{"--agent", "gemini", "--tools=false", "--permissions", `{"allow":["Bash(foo,bar)"],"deny":["Write"]}`}); err != nil {
 		t.Fatal(err)
 	}
 	inner := canonicalArgv(fs, f.listValues(), "task", true, nil)
@@ -269,7 +269,7 @@ func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 			t.Errorf("line %q: want --permissions with Bash(foo,bar) as one rule", line)
 		}
 	}
-	if slices.Contains(pi, "--tools") || slices.Contains(pi, "--read-only") {
+	if slices.Contains(pi, "--tools") || !slices.Contains(pi, "--tools=false") {
 		t.Errorf("toolless carried run: pi line %q grants tools", pi)
 	}
 }

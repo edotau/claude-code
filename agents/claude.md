@@ -108,7 +108,7 @@ diff" request runs Simplify detect-only (report the findings) → Review.
 - codex, copilot, gemini, opencode run carried (Databricks arm, R20), then one `claude-code agents result -f <id>`:
   `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
 - Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; tools
-  are on by default; `--tools` is accepted. Its brief stands alone (no CLAUDE.md,
+  are on by default, `--tools=false` to run without them. Its brief stands alone (no CLAUDE.md,
   skills or MCP load). Its bash is the verify shell only under a file deny, the ask's own or one inherited from the
   dispatch above; editing a worktree, add
   `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'`.

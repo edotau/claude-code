@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
@@ -66,7 +64,7 @@ func (recordingLive) Parse(*bufio.Reader, wire.Sink, func(kind, text string)) (w
 	return wire.Result{}, nil
 }
 
-// A live read-only session gets the emulated read-only rules from checkRun, as the ask path does.
+// A live session reaches Build with its recorded tools after checkRun, as the ask path does.
 func TestServeLiveAppliesCheckRun(t *testing.T) {
 	liveEnv(t)
 	var got RunOptions
@@ -75,13 +73,13 @@ func TestServeLiveAppliesCheckRun(t *testing.T) {
 	drivers["gemini"] = liveGemini{fixtureGemini{fixtureDriver{NewBaseEngine("gemini")}}, &got}
 	registryMu.Unlock()
 	t.Cleanup(func() { registryMu.Lock(); drivers["gemini"] = orig; registryMu.Unlock() })
-	rec := ClaimRecord("gemini", RunOptions{Tools: true, ReadOnly: true}, time.Now())
+	rec := ClaimRecord("gemini", RunOptions{Tools: true, ReviewLoop: true, Prompt: "task"}, time.Now())
 	rec.Live = true
 	if err := ServeLive(context.Background(), &rec); !errors.Is(err, errBuildStop) {
 		t.Fatalf("ServeLive = %v, want the fake Build's stop", err)
 	}
-	if !slices.Contains(got.Permissions.Allow, permission.ReadOnlyAllow) || !slices.Contains(got.Permissions.Deny, permission.ReadOnlyDeny[0]) {
-		t.Errorf("Build got permissions %+v, want the read-only rules checkRun adds", got.Permissions)
+	if !got.Tools || !strings.Contains(got.Prompt, ReviewLoopRule) {
+		t.Errorf("Build got tools=%v prompt %q, want tools on and the review-loop rule checkRun adds", got.Tools, got.Prompt)
 	}
 }
 

@@ -114,11 +114,14 @@ func remoteScriptTail(req RunOptions) []string {
 	for _, b := range []struct {
 		on   bool
 		flag string
-	}{{req.Tools, "--tools"}, {req.ReadOnly, "--read-only"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
+	}{{req.Tools, "--tools"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
 		{req.NoPersist, "--no-persist"}, {req.Direct, "--direct"}, {req.Native, "--native"}} {
 		if b.on {
 			w = append(w, b.flag)
 		}
+	}
+	if !req.Tools && !req.NoTools {
+		w = append(w, "--tools=false") // the remote ask defaults tools on
 	}
 	return w
 }

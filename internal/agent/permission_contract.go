@@ -29,8 +29,6 @@ func capabilityRefusal(c Caps, name string, req RunOptions) error {
 		return errors.New("unsupported capability: --no-tools")
 	case req.Tools && req.NoTools:
 		return errors.New("incompatible capabilities: --tools and --no-tools")
-	case req.ReadOnly && c.ReadOnly == Emulated && c.Permissions == None:
-		return errors.New("--read-only requires permission enforcement")
 	}
 	return nil
 }

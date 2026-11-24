@@ -130,7 +130,7 @@ func newAskTarget() *askTarget {
 	s := func() *string { return new(string) }
 	b := func() *bool { return new(bool) }
 	return &askTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
-		Tools: b(), ReadOnly: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
+		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
 		Host: s(), Fallback: s(), Codemode: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
 		PermMode: s(), PermAllow: new([]string), PermAsk: new([]string), PermDeny: new([]string),
@@ -152,16 +152,38 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	}
 }
 
-// A replayed read-only dispatch must stay read-only; the flag default would hand it write tools.
-func TestApplyRecordRoundTripsReadOnly(t *testing.T) {
-	s := newAskTarget()
-	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}}, io.Discard)
-	if !*s.ReadOnly || !*s.Tools {
-		t.Errorf("readOnly=%v tools=%v; want both on", *s.ReadOnly, *s.Tools)
+// A line with neither --tools nor --no-tools gets tools on; either typed flag, even =false, is honored.
+func TestDefaultToolsOn(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{{nil, true}, {[]string{"--tools"}, true}, {[]string{"--tools=false"}, false}, {[]string{"--no-tools"}, false}} {
+		fs, f := askFlagSet()
+		if err := fs.Parse(tc.args); err != nil {
+			t.Fatal(err)
+		}
+		defaultTools(fs, f)
+		if f.tools != tc.want {
+			t.Errorf("args %v: tools = %v, want %v", tc.args, f.tools, tc.want)
+		}
 	}
-	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
-	if *s.ReadOnly {
-		t.Error("readOnly stayed on for a record without it")
+}
+
+// --read-only is gone: ask, a --spec key and a batch line key fail as unknown.
+func TestReadOnlyFlagIsGone(t *testing.T) {
+	fs, _ := askFlagSet()
+	if err := fs.Parse([]string{"--read-only"}); err == nil {
+		t.Error("ask accepted --read-only")
+	}
+	if argv, _, err := SpecArgv(`{"read-only":true,"prompt":"x"}`, strings.NewReader("")); err == nil {
+		t.Errorf("spec accepted read-only: %v", argv)
+	}
+	lines, err := readTaskLines(strings.NewReader(`{"prompt":"p","read-only":true}` + "\n"))
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("readTaskLines = %d lines, %v", len(lines), err)
+	}
+	if _, err := parseTask(lines[0], "codex", agent.RunOptions{}, false, t.TempDir(), map[string]bool{}); err == nil {
+		t.Error("batch line accepted read-only")
 	}
 }
 

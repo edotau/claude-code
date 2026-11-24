@@ -530,7 +530,7 @@ var gitHead = func(ctx context.Context, dir string) string {
 	return head
 }
 
-func editing(req RunOptions) bool { return req.Tools && !req.ReadOnly }
+func editing(req RunOptions) bool { return req.Tools }
 
 // midRunPrompt hands the next hop the task, the cut-off hop's partial answer as data, and a reconcile-first note.
 func midRunPrompt(who, partial, startHead string, edit bool, prompt string) string {

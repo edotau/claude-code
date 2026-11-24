@@ -62,17 +62,12 @@ func gateOffAnthropic(ctx context.Context, req agent.RunOptions) (context.Contex
 	return agent.WithPermissionsEnv(ctx, req.Permissions), req
 }
 
-// offAnthropicLaunch is req after the gate decision: read-only gates fully, explicit rules gate alone, none runs bare.
+// offAnthropicLaunch is req after the gate decision: explicit rules gate alone, none runs bare.
 func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
-	if !req.Tools || req.Gate || req.Permissions.Mode == "plan" || anthropic && !req.ReadOnly {
+	if !req.Tools || req.Gate || req.Permissions.Mode == "plan" || anthropic {
 		return req
 	}
-	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, permission.ReadOnlyAllow) { // a caller that skipped checkRun
-		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), permission.ReadOnlyAllow)
-	}
 	switch {
-	case req.ReadOnly:
-		req.Permissions = readOnlyGatePolicy(req.Permissions)
 	case req.Permissions.IsZero(): // no explicit rule: bare bypassPermissions, safety-scan still hooks
 		req.Autonomous = true
 		return req
@@ -84,17 +79,9 @@ func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
 	return req
 }
 
-// readOnlyGatePolicy is a --read-only run's gate policy: reads, the shared shell list, no write, no redirect, no Ask.
-func readOnlyGatePolicy(p permission.Permissions) permission.Permissions {
-	allow := permission.Union([]permission.Rule{{Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}, p.Allow)
-	deny := permission.Union(nil, slices.Concat(p.Deny, p.Ask, permission.ReadOnlyDeny, // checkRun may have added them
-		[]permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}}))
-	return permission.Permissions{Mode: "plan", Allow: allow, Deny: deny}
-}
-
 // LaunchGate is the policy an off-Anthropic --tools launch of p hands the permission-gate; false means no gate.
-func LaunchGate(p permission.Permissions, ro bool) (permission.Permissions, bool) {
-	req := offAnthropicLaunch(agent.RunOptions{Tools: true, ReadOnly: ro, Permissions: p}, false)
+func LaunchGate(p permission.Permissions) (permission.Permissions, bool) {
+	req := offAnthropicLaunch(agent.RunOptions{Tools: true, Permissions: p}, false)
 	return req.Permissions, req.Gate
 }
 
@@ -182,9 +169,6 @@ func refusePermissionCapabilities(req agent.RunOptions) error {
 // gateRuleRefusal names the first allow or ask rule outside the gated child's tool set, or "" when every rule fits.
 func gateRuleRefusal(req agent.RunOptions) string {
 	tools := strings.Split(gateTools, ",")
-	if req.ReadOnly {
-		tools = strings.Split(readOnlyGateTools, ",")
-	}
 	for _, r := range slices.Concat(req.Permissions.Allow, req.Permissions.Ask) {
 		switch {
 		case slices.Contains(tools, r.Tool):

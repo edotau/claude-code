@@ -227,7 +227,7 @@ func (clientUsageError) ExitCode() int { return 2 }
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
-		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools, ReadOnly: o.ReadOnly})
+		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools})
 	return chain, err
 }
 
@@ -280,8 +280,8 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		wrote := func() (*[]string, *[]string) { return nil, nil } // a read-only run observes nothing
-		if !p.Opts.ReadOnly && !p.Opts.NoTools {
+		wrote := func() (*[]string, *[]string) { return nil, nil } // a toolless run observes nothing
+		if !p.Opts.NoTools {
 			wrote = watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree, p.Opts.Permissions.Allow...)
 		}
 		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
@@ -402,7 +402,7 @@ func briefHeader(prompt string) string {
 }
 
 func refuseToollessEdit(req RunOptions) error {
-	if len(ParseOwned(briefHeader(req.Prompt))) > 0 && !IsReadOnlyBrief(req.Prompt) && !req.Tools && !req.ReadOnly {
+	if len(ParseOwned(briefHeader(req.Prompt))) > 0 && !IsReadOnlyBrief(req.Prompt) && !req.Tools {
 		return errors.New("edit brief (Owned: files) needs tools: pass --tools, or add Mode: read-only")
 	}
 	return nil
@@ -439,10 +439,9 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 		return req, err
 	}
 	// the records, unlike the policy env, survive a leaf clearing HARNESS_DISPATCH_PERMISSIONS
-	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
+	outer := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
 	req.Permissions.Deny, req.Permissions.Ask = permission.Union(req.Permissions.Deny, outer.Deny), permission.Union(req.Permissions.Ask, outer.Ask)
 	req.Permissions.Mode = cmp.Or(outer.Mode, req.Permissions.Mode)
-	req.ReadOnly = req.ReadOnly || readOnly && req.Tools && !req.Maintenance
 	if err = refuseToollessEdit(req); err != nil {
 		return req, err
 	}
@@ -450,12 +449,6 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 		return req, err
 	}
 	req.Prompt = hopPrompt(req)
-	if req.ReadOnly {
-		req.Permissions = withReadOnlyRules(r.Caps(), req.Permissions)
-		if r.Caps().ReadOnly == Emulated { // gated read-only: git status/diff must not rewrite .git/index; --env cannot undo it
-			req.Env = append(slices.Clone(req.Env), "GIT_OPTIONAL_LOCKS=0")
-		}
-	}
 	return req, refusePermissions(r.Caps(), r.Name(), req.Permissions)
 }
 
@@ -604,7 +597,6 @@ type RunOptions struct {
 	Fleet                                               bool                   // copilot only: run in fleet mode (parallel subagents)
 	Codemode                                            string                 `json:"codemode,omitempty"` // pi only: off|on|only, Pi's codemode tool
 	NoTools                                             bool                   // claude only: answer from the provider directly, no claude process
-	ReadOnly                                            bool                   // tools may read but never write, run shell or commit
 	NoPersist                                           bool                   // claude, codex: no session persistence
 	DebugFile                                           string                 // claude, gemini: debug log at <path>
 	SystemPrompt, AppendSystemPrompt                    string                 // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere
@@ -637,7 +629,6 @@ type RunOptions struct {
 	Carry                                               bool               `json:"carry,omitempty"`      // ask --carry: runs CarryArgv as a plain child; the depth exemption keys on it
 	CarryArgv                                           []string           `json:"carry_argv,omitempty"` // the inner ask line --carry runs; the task rides stdin, never this argv
 	ReviewLoop                                          bool               `json:",omitempty"`           // ask's code-writing candidate: checkRun adds the rule per hop that can write
-	Maintenance                                         bool               `json:"-"`                    // trusted memory job: keeps its own write tools despite an inherited read-only
 	DataPrompt                                          bool               `json:"-"`                    // the prompt embeds transcript data: the gate skips its Workflow-brief scan
 	Gate                                                bool               `json:"-"`                    // claude: bypass its prompts, permission.Permissions enforced by the injected permission-gate
 
@@ -825,7 +816,7 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 		p.Opts.Prompt = o.Prompt + "\n\nThe workspace context for this task is in " + p.pack.path +
 			". Read that file in full with your file tools before answering."
 		p.Opts.Tools, p.Record.Request.Tools = true, true
-		notes = append(notes, fmt.Sprintf("%s: pack (%d KB) is read from a file; tools are on for this run (read-only intent)",
+		notes = append(notes, fmt.Sprintf("%s: pack (%d KB) is read from a file; tools are on for this run to read it",
 			lead.Agent.Name(), len(packed.Prompt)/1024))
 	} else {
 		p.Opts.Prompt = packed.Prompt

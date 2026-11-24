@@ -33,7 +33,7 @@ func TestPathRowsCoverEveryCaseAndAgent(t *testing.T) {
 
 // A path that launches in a narrower or wider mode than the ask path for the same request is denied, scope named.
 func TestPathCellNamesAScopeTheAskPathDoesNotGrant(t *testing.T) {
-	for _, tc := range []struct{ got, ref []string }{{nil, []string{"--tools"}}, {[]string{"--tools"}, []string{"--read-only"}}} {
+	for _, tc := range []struct{ got, ref []string }{{[]string{"--tools=false"}, []string{"--tools"}}, {[]string{"--tools"}, []string{"--tools=false"}}} {
 		pc := pathCase{path: "x", name: "y", derive: askRef(tc.got...), ref: askRef(tc.ref...)}
 		c := pathCell(pc, "copilot", t.TempDir())
 		if c.Verdict != "denied" || !strings.HasPrefix(c.Denied[0], "scope: ask runs ") {
@@ -42,15 +42,15 @@ func TestPathCellNamesAScopeTheAskPathDoesNotGrant(t *testing.T) {
 	}
 }
 
-// A path that builds its own policy is judged probe by probe: a read-only launch that allows an edit is a miss.
+// A path that builds its own policy is judged probe by probe: a --tools=false launch that allows an edit is a miss.
 func TestPathCellDeniesAPolicyThatWidensTheAskPath(t *testing.T) {
 	derive := func(name, wd string) pathLaunch {
-		l := askRef("--read-only")(name, wd)
+		l := askRef("--tools=false")(name, wd)
 		l.judge = fixed("allow", "")
 		return l
 	}
-	c := pathCell(pathCase{path: "live", name: "read-only", derive: derive, ref: askRef("--read-only")}, "gemini", t.TempDir())
-	if c.Verdict != "denied" || !slices.ContainsFunc(c.Denied, func(d string) bool { return strings.HasPrefix(d, "edit an owned file: path allow") }) {
+	c := pathCell(pathCase{path: "live", name: "--tools=false", derive: derive, ref: askRef("--tools=false")}, "gemini", t.TempDir())
+	if c.Verdict != "denied" || !slices.ContainsFunc(c.Denied, func(d string) bool { return strings.HasPrefix(d, "edit an owned file: ask decided, path allow") }) {
 		t.Fatalf("an unlayered live policy must be denied: %+v", c)
 	}
 }
@@ -66,11 +66,11 @@ func TestPathCellKeepsNAAndRuntimeOutOfTheTally(t *testing.T) {
 
 func TestLiveLaunchHasNoPathWhereTheAgentHasNoLiveMode(t *testing.T) {
 	for _, a := range []string{"codex", "copilot", "opencode"} {
-		if l := liveLaunch(false)(a, t.TempDir()); l.skip == "" {
+		if l := liveLaunch(a, t.TempDir()); l.skip == "" {
 			t.Errorf("%s has no live mode: %+v", a, l)
 		}
 	}
-	if l := liveLaunch(true)("claude", t.TempDir()); l.skip != "" || l.fail != "" || (l.judge == nil && l.why == "") {
+	if l := liveLaunch("claude", t.TempDir()); l.skip != "" || l.fail != "" || (l.judge == nil && l.why == "") {
 		t.Fatalf("claude's live child is built offline and judged: %+v", l)
 	}
 }
@@ -93,7 +93,7 @@ func TestRelayCeilingIsTheWidestCommandTheWrapperGives(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	doc := "vet: `claude-code codex ask \"<brief>\"`\nread: `claude-code codex ask --read-only`\n" +
+	doc := "vet: `claude-code codex ask \"<brief>\"`\nread: `claude-code codex ask --tools=false`\n" +
 		"rescue: `claude-code codex ask --tools [--background] \"<brief>\"`\n"
 	if err := os.WriteFile(filepath.Join(dir, "agents", "codex.md"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
@@ -134,13 +134,11 @@ func TestPathLaunchesFollowTheRequestKind(t *testing.T) {
 		name, want string
 		launch     pathLaunch
 	}{
-		{"job tools", "tools", jobLaunch(false)("codex", wd)},
-		{"job read-only", "read-only", jobLaunch(true)("codex", wd)},
+		{"job tools", "tools", jobLaunch("codex", wd)},
 		{"batch tools", "tools", batchLaunch(nil, nil)("codex", wd)},
-		{"batch read-only", "read-only", batchLaunch([]string{"--read-only"}, nil)("codex", wd)},
-		{"batch tools=false", "no flag", batchLaunch(nil, &off)("codex", wd)},
+		{"batch tools=false", "--tools=false", batchLaunch(nil, &off)("codex", wd)},
 		{"background transfer", "tools", transferLaunch(true)("codex", wd)},
-		{"background explore", "read-only", exploreLaunch(true)("copilot", wd)},
+		{"background explore", "tools", exploreLaunch(true)("copilot", wd)},
 	} {
 		if tc.launch.mode != tc.want {
 			t.Errorf("%s: mode %q (%s), want %q", tc.name, tc.launch.mode, tc.launch.via, tc.want)

@@ -166,7 +166,7 @@ func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	_, values := agent.RunValues(r.ctx, nil)
 	typed := f.modelTyped || slices.Contains(folded, "--model") && !agent.IsAuto(f.model) // the child types it
 	req := agent.RunOptions{Prompt: prompt, Agent: f.name, Model: f.model, ModelTyped: typed, Tools: f.tools,
-		ReadOnly: f.readOnly, WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, Permissions: r.perms,
+		WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, Permissions: r.perms,
 		Carry: true, CarryArgv: slices.Insert(argv, len(argv)-1, folded...), Values: values}
 	rec, err := agent.ClaimAskRecord(r.ctx, f.name, req, f.workdir, f.background)
 	if err != nil {
@@ -323,6 +323,7 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 	f.dryRun = true
 	r := &askRun{ctx: agent.PeekContext(ctx), f: f, fs: fs, args: args, pos: pos, out: io.Discard}
 	markTyped(fs, f)
+	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.resolveRecord,
 		r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
@@ -478,11 +479,11 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 		return nil, errors.New(`pi refuses "ask" permission rules (its guard only allows or blocks)`)
 	}
 	argv := []string{"claude-code", "agents", "ask", "--agent", agentid.Pi, "--format", f.format}
-	if f.tools { // a toolless carried run gets a toolless Pi
+	defaultTools(fs, f)
+	if f.tools {
 		argv = append(argv, "--tools")
-	}
-	if f.readOnly {
-		argv = append(argv, "--read-only")
+	} else {
+		argv = append(argv, "--tools=false") // a toolless carried run gets a toolless Pi
 	}
 	for _, kv := range [][2]string{{"permissions", (&permValue{f}).String()}, {"workdir", f.workdir}, {"rubric", f.rubric}} {
 		if kv[1] != "" {

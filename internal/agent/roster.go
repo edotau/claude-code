@@ -64,7 +64,6 @@ type CLI struct {
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
 	Carry                 bool            // ask --carry may run it as a plain child process with a Pi takeover
-	ReviewReadOnly        bool            // review adds --read-only: with no tools the agent sees only the attached diff
 	CatalogTitle          string          // heading above a text catalog; "" = none
 	ProviderVerb          bool            // `claude-code <agent> <provider> [-p NAME]` launches on that provider
 
@@ -677,7 +676,7 @@ type capField struct {
 // capFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
 func capFields(c Caps) []capField {
 	return []capField{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
-		{"tools", c.Tools}, {"read-only", c.ReadOnly}, {"permissions", c.Permissions}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
+		{"tools", c.Tools}, {"permissions", c.Permissions}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
 		{"no-persist", c.NoPersist}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
 		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
 		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}

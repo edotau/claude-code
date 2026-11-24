@@ -26,10 +26,7 @@ func TestCapabilityRefusal(t *testing.T) {
 	if err := CheckCapabilities("claude", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckCapabilities("codex", RunOptions{ReadOnly: true, Tools: true}); err != nil { // tools-off run, not a refusal
-		t.Fatal(err)
-	}
-	if err := CheckCapabilities("codex", RunOptions{ReadOnly: true, NoTools: true}); err == nil {
+	if err := CheckCapabilities("codex", RunOptions{NoTools: true}); err == nil {
 		t.Fatal("codex has no --no-tools; the unsupported flag must still be refused")
 	}
 }

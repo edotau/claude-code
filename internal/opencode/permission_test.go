@@ -15,10 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hooks/safety"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -167,7 +165,7 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 // TestApplyPermissionsKeepsNativeWebOff: a policy (plan mode allows webfetch) keeps a Databricks launch's web denies.
 func TestApplyPermissionsKeepsNativeWebOff(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"permission": nativeWebOff()})
-	req := agent.RunOptions{Tools: true, ReadOnly: true}
+	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "plan"}}
 	got, err := opencodeApplyPermissions([]string{opencodeConfigEnv + "=" + string(body)}, req, false)
 	if err != nil {
 		t.Fatal(err)
@@ -178,103 +176,6 @@ func TestApplyPermissionsKeepsNativeWebOff(t *testing.T) {
 	}
 	if plain, _ := opencodeApplyPermissions([]string{opencodeConfigEnv + `={}`}, req, false); nativeWebPinnedOff(plain) {
 		t.Errorf("non-Databricks launch lost native web tools: %v", plain)
-	}
-}
-
-func TestOpencodeReadOnlyLaunch(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		hub  bool
-	}{{"cli", false}, {"hub", true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			engine, seen := readOnlyLaunchEngine(t, tc.hub)
-			if engine.Caps().ReadOnly != agent.Emulated {
-				t.Fatal("read-only capability must be emulated")
-			}
-			req := agent.RunOptions{Prompt: "--auto", Tools: true, ReadOnly: true, Autonomous: true}
-			res, err := agent.Run(t.Context(), engine, req, wire.Discard, nil)
-			if err != nil || res.Answer != "ok" || len(res.Dropped) != 0 {
-				t.Fatalf("Run = %+v, %v; want tools-on read-only success without dropped flags", res, err)
-			}
-			assertReadOnlyLaunch(t, seen)
-		})
-	}
-}
-
-func readOnlyLaunchEngine(t *testing.T, hub bool) (agent.Engine, string) {
-	t.Helper()
-	data, _ := fakeOpencode(t, "1.19.3", "", nil)
-	vaulttest.Use(t)
-	t.Setenv("HOME", t.TempDir())
-	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
-	orig := bindHooks
-	bindHooks = func() []hooks.Bound { return nil }
-	t.Cleanup(func() { bindHooks = orig })
-	seen := filepath.Join(t.TempDir(), "launch")
-	pathstest.FakeVendor(t, "opencode", `{
-printf 'ARG=%s\n' "$@"
-printf 'PERM=%s\nCFG=%s\nDISPATCH=%s\n' "$OPENCODE_PERMISSION" "$OPENCODE_CONFIG_CONTENT" "$HARNESS_DISPATCH_PERMISSIONS"
-} > '`+seen+`'
-printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
-	engine, err := agent.Lookup("opencode")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hub {
-		p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-		engine = hubDispatch{agent: "opencode", provider: p}
-	}
-	return engine, seen
-}
-
-func assertReadOnlyLaunch(t *testing.T, seen string) {
-	t.Helper()
-	values := map[string]string{}
-	var argv []string
-	for line := range strings.SplitSeq(pathstest.ReadFile(t, seen), "\n") {
-		k, v, _ := strings.Cut(line, "=")
-		if k == "ARG" {
-			argv = append(argv, v)
-		} else {
-			values[k] = v
-		}
-	}
-	if len(argv) < 2 || slices.Contains(flagsOnly(argv), "--auto") || !slices.Equal(argv[len(argv)-2:], []string{"--", "--auto"}) {
-		t.Fatalf("read-only argv must remove --auto flags but preserve the prompt: %q", argv)
-	}
-	assertReadOnlyPerm(t, values["PERM"], values["CFG"])
-	if !strings.Contains(values["CFG"], "harness-hooks-") {
-		t.Fatal("read-only launch lacks the permission-gate plugin")
-	}
-	assertReadOnlyDispatch(t, values["DISPATCH"])
-}
-
-func assertReadOnlyPerm(t *testing.T, perm, cfg string) {
-	t.Helper()
-	for _, want := range []string{`"edit":"deny"`, `"websearch":"allow"`, `"bash":"allow"`} {
-		if !strings.Contains(perm, want) || !strings.Contains(cfg, want) {
-			t.Fatalf("read-only with the plugin must keep reads on, writes denied and leave bash to the gate (%s): %s", want, perm)
-		}
-	}
-	if strings.Contains(perm, `"rm`) || strings.Contains(perm, `"git log *"`) {
-		t.Fatalf("gated read-only bash must not carry the native list: %s", perm)
-	}
-	own, err := opencodePermission(GatePolicy(agent.RunOptions{ReadOnly: true}), false, "")
-	if err != nil || !strings.Contains(string(own), `"bash":{"*":"deny"`) || !strings.Contains(string(own), `"git log *":"allow"`) {
-		t.Fatalf("without the plugin read-only bash stays the native list: %s, %v", own, err)
-	}
-}
-
-func assertReadOnlyDispatch(t *testing.T, raw string) {
-	t.Helper()
-	var p permission.Permissions
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		t.Fatalf("dispatch permissions: %v", err)
-	}
-	for _, r := range permission.ReadOnlyDeny {
-		if !slices.Contains(p.Deny, r) {
-			t.Errorf("%s lacks deny %s: %+v", agent.DispatchPermissionsEnv, r, p)
-		}
 	}
 }
 
@@ -328,7 +229,6 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 	}{
 		{"deny rule", agent.RunOptions{Tools: true, Permissions: deny, Env: []string{opencodePermissionEnv + `="allow"`}}, opencodePermissionEnv},
 		{"tools off", agent.RunOptions{Env: []string{opencodeConfigEnv + `={"permission":"allow"}`}}, opencodeConfigEnv},
-		{"read only", agent.RunOptions{Tools: true, ReadOnly: true, Env: []string{opencodePermissionEnv + `="allow"`}}, opencodePermissionEnv},
 		{"no policy", agent.RunOptions{Tools: true, Env: []string{opencodePermissionEnv + `="allow"`}}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,8 +245,31 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 	}
 }
 
+// launchEngine is the opencode engine over a fake vendor binary that logs its argv, env policy and gate policy to seen.
+func launchEngine(t *testing.T) (agent.Engine, string) {
+	t.Helper()
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	t.Setenv("HOME", t.TempDir())
+	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
+	orig := bindHooks
+	bindHooks = func() []hooks.Bound { return nil }
+	t.Cleanup(func() { bindHooks = orig })
+	seen := filepath.Join(t.TempDir(), "launch")
+	pathstest.FakeVendor(t, "opencode", `{
+printf 'ARG=%s\n' "$@"
+printf 'PERM=%s\nCFG=%s\nDISPATCH=%s\n' "$OPENCODE_PERMISSION" "$OPENCODE_CONFIG_CONTENT" "$HARNESS_DISPATCH_PERMISSIONS"
+} > '`+seen+`'
+printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
+	engine, err := agent.Lookup("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine, seen
+}
+
 func TestOpencodePermissionResumeReloadsGrant(t *testing.T) {
-	engine, seen := readOnlyLaunchEngine(t, false)
+	engine, seen := launchEngine(t)
 	for _, granted := range []bool{false, true} {
 		p := permission.Permissions{Mode: "plan"}
 		if granted {

@@ -495,27 +495,6 @@ func TestOpencodeChildPermissionRefusals(t *testing.T) {
 	}
 }
 
-func TestOpencodeChildPermissionReadOnly(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	req := agent.RunOptions{Tools: true, ReadOnly: true, WorkDir: t.TempDir()}
-	cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/bin/echo", nil, []string{"run"}, "probe", req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var p permission.Permissions
-	for _, kv := range cmd.Env {
-		if raw, ok := strings.CutPrefix(kv, agent.DispatchPermissionsEnv+"="); ok {
-			if err := json.Unmarshal([]byte(raw), &p); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if p.Decide("Bash", "cat README.md") != permission.Allow || p.Decide("Bash", "rm README.md") != permission.Deny ||
-		p.Decide("Write", "README.md") != permission.Deny {
-		t.Fatalf("child plugin lacks effective read-only policy: %+v", p)
-	}
-}
-
 func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
 	for _, session := range []string{"", "s1"} {
 		h := agent.Headless{Prompt: "prompt", WorkDir: t.TempDir(), SessionID: session,

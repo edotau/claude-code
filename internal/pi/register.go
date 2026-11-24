@@ -22,7 +22,7 @@ var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 	ExtraOwnerOnly: []string{extraPackages, extraPackagesApproved},
 	MaxVersion:     "1.x", MaxReason: "2.x is untested with the harness pi route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, Env: agent.Native,
+		Tools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, WorkDir: agent.Emulated,
 		Permissions: agent.Native, OutputSchema: agent.None, Persona: agent.None},
 	Events:        []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},

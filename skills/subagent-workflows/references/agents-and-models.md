@@ -14,7 +14,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 
 ## OpenCode task guidance
 
-- `--tools` allows code and docs edits. The `permission-gate`
+- `--tools` allows code and docs edits; `--permissions` deny rules scope them. The `permission-gate`
   plugin enforces deny rules; ask rules map to OpenCode `--auto`.
 - For DOC-UPDATE, map entry points and exports, update existing guides from code, and validate links, examples and
   freshness. Do not hand-author generated docs.

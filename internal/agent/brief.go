@@ -23,12 +23,11 @@ import (
 
 // BriefInput supplies the authored task and the leaf's execution contract.
 type BriefInput struct {
-	Task     string
-	Agent    string
-	Owned    []string
-	ReadOnly bool
-	Report   string
-	Verify   string
+	Task   string
+	Agent  string
+	Owned  []string
+	Report string
+	Verify string
 }
 
 // ReviewLoopRule is the standing rule every code-writing dispatch carries.
@@ -51,10 +50,10 @@ func MarkReviewLoop(req RunOptions) RunOptions {
 	return req
 }
 
-// reviewLoopCandidate is a dispatch whose own flags and brief ask for code: tools, no read-only mode, no rubric.
+// reviewLoopCandidate is a dispatch whose own flags and brief ask for code: tools, no read-only brief, no rubric.
 func reviewLoopCandidate(req RunOptions) bool {
 	p := WithoutReviewLoop(req.Prompt)
-	return req.Tools && !req.ReadOnly && !req.NoTools && !IsReadOnlyBrief(p) && req.Rubric == "" &&
+	return req.Tools && !req.NoTools && !IsReadOnlyBrief(p) && req.Rubric == "" &&
 		!strings.HasPrefix(p, rubricLead) // a rubric run is a review, kept so on replay
 }
 
@@ -84,7 +83,7 @@ func withDefaults(req RunOptions) permission.Permissions {
 // hopPrompt is the prompt with the rule iff ask marked it and this hop's effective policy (checkRun's) can write.
 func hopPrompt(req RunOptions) string {
 	p := WithoutReviewLoop(req.Prompt)
-	if !req.ReviewLoop || req.ReadOnly || !req.Tools || req.NoTools || req.Permissions.Mode == permission.PermPlan ||
+	if !req.ReviewLoop || !req.Tools || req.NoTools || req.Permissions.Mode == permission.PermPlan ||
 		strings.Contains(p, ReviewLoopRule) {
 		return p
 	}
@@ -93,20 +92,20 @@ func hopPrompt(req RunOptions) string {
 
 // writesCode reports whether req has write tools once defaults and the outer policy layer as in checkRun.
 func writesCode(req RunOptions) bool {
-	if !req.Tools || req.ReadOnly || req.NoTools {
+	if !req.Tools || req.NoTools {
 		return false
 	}
 	vctx := valuesContext(context.Background(), req.Values)
 	p, err := InheritPermissions(vctx, withDefaults(req))
-	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
-	return err == nil && (!readOnly || req.Maintenance) && p.Mode != permission.PermPlan && outer.Mode != permission.PermPlan
+	outer := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
+	return err == nil && p.Mode != permission.PermPlan && outer.Mode != permission.PermPlan
 }
 
 //go:embed brief.tmpl
 var briefTemplate string
 
 func (input BriefInput) validate() error {
-	if !input.ReadOnly && len(input.Owned) == 0 {
+	if len(input.Owned) == 0 {
 		return errors.New("implementation brief requires at least one owned path")
 	}
 	for _, path := range input.Owned {

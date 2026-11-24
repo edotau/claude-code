@@ -18,7 +18,7 @@ func TestPermCellForMarksMissedExpectation(t *testing.T) {
 	if !judged || c.Met || c.Expect != "allow" {
 		t.Fatalf("want a judged miss, got %+v judged=%v", c, judged)
 	}
-	if c, judged, _ = permCellFor(fixed("ask", ""), "", probe{allow: modeTools}, "read-only"); judged || !c.Met {
+	if c, judged, _ = permCellFor(fixed("ask", ""), "", probe{allow: modeTools}, "--tools=false"); judged || !c.Met {
 		t.Fatalf("no expectation in this mode must not count: %+v", c)
 	}
 }
@@ -34,16 +34,13 @@ func TestPermCellForNotEvaluableIsNeverCounted(t *testing.T) {
 }
 
 func TestPermCellForScopedRowIsADesignNoteOutsideTheGate(t *testing.T) {
-	pr := probe{deny: modeTools | modeRO, scoped: true}
+	pr := probe{deny: modeTools, scoped: true}
 	c, judged, design := permCellFor(fixed("allow", ""), "", pr, "tools")
 	if judged || !design || !c.Met || c.Note != designNote {
 		t.Fatalf("--tools approve: want a design note, not a miss: %+v", c)
 	}
 	if c, judged, design = permCellFor(fixed("allow", ""), "", pr, "tools/gateway"); judged || design || !c.Met {
 		t.Fatalf("a bare claude launch scopes nothing: no expectation, no note: %+v", c)
-	}
-	if c, judged, _ = permCellFor(fixed("allow", ""), "", pr, "read-only"); !judged || c.Met {
-		t.Fatalf("read-only must keep the expectation: %+v", c)
 	}
 }
 
@@ -63,19 +60,10 @@ func TestWithSafetyBlocksADownloadIntoAShellWhereInstalled(t *testing.T) {
 	}
 }
 
-func TestPiReadOnlyWithholdsWritersAndShell(t *testing.T) {
+func TestPiLaunchTiers(t *testing.T) {
 	wd := t.TempDir()
-	ro, _ := permJudge("pi", "read-only", wd)
-	for _, c := range [][2]string{{"Bash", "git log -1"}, {"Edit", wd + "/a.go"}, {"Write", wd + "/n.go"}} {
-		if r := ro(c[0], c[1]); r.verdict != "deny" || r.layer != layerWithheld {
-			t.Fatalf("pi read-only %v: %+v", c, r)
-		}
-	}
-	if r := ro("Read", wd+"/a.go"); r.verdict != "allow" {
-		t.Fatalf("pi read-only Read: %+v", r)
-	}
-	if r, _ := permJudge("pi", "no flag", wd); r("Read", "x").verdict != "deny" {
-		t.Fatal("pi with no flag launches no tools")
+	if r, _ := permJudge("pi", "--tools=false", wd); r("Read", "x").verdict != "deny" {
+		t.Fatal("pi with --tools=false launches no tools")
 	}
 	if tl, _ := permJudge("pi", "tools", wd); tl("Edit", wd+"/a.go").verdict != "allow" || tl("Bash", "rm -rf /").layer != "safety hook" {
 		t.Fatal("pi --tools allows an edit and meets the safety hook")
@@ -109,9 +97,9 @@ func TestPermJudgeAssertsWhatItCanAndNamesTheDecision(t *testing.T) {
 	if r := judge("Bash", "go test ./x"); r.verdict != verdictRuntime {
 		t.Fatalf("the sandbox verdict is the runtime's: %+v", r)
 	}
-	judge, _ = permJudge("gemini", "no flag", wd)
+	judge, _ = permJudge("gemini", "--tools=false", wd)
 	if r := judge("Bash", "go test ./x"); r.verdict != "decided" || !strings.HasPrefix(r.layer, "O2") {
-		t.Fatalf("gemini's no-flag default is decision O2: %+v", r)
+		t.Fatalf("gemini's --tools=false default is decision O2: %+v", r)
 	}
 }
 
@@ -156,11 +144,11 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 		t.Fatalf("%s %s %q: remedy %q: %v", ag, mode, row.Job, c.Remedy, err)
 	}
 	rule, err := permission.ParseRule(policy.Allow[0])
-	p, perr := agent.LaunchPermissions(ag, mode == "read-only")
+	p, perr := agent.DefaultPermissions(ag)
 	if err != nil || perr != nil {
 		t.Fatalf("%s %s %q: remedy %q: %v %v", ag, mode, row.Job, c.Remedy, err, perr)
 	}
-	again, _ := bareLayer(ag, withAllow(p, rule), mode == "read-only", wd)
+	again, _ := bareLayer(ag, withAllow(p, rule), wd)
 	if r := again(tool, arg); r.verdict != "allow" {
 		t.Fatalf("%s %s %q: %s does not repair the call: %+v", ag, mode, row.Job, c.Remedy, r)
 	}

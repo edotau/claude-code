@@ -34,7 +34,7 @@ type askFlags struct {
 	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
 	modelTyped, timeoutTyped                                                                                                                                                     bool
 	recover                                                                                                                                                                      bool
-	native, tools, readOnly, noTools, noPersist, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                                         bool
+	native, tools, noTools, noPersist, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                                                   bool
 	timeout                                                                                                                                                                      time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
 	dirs, files, save                                                                                                                                                            string
@@ -90,8 +90,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
 	fs.StringVar(&f.session, "session", "", "resume this session id")
-	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	fs.BoolVar(&f.readOnly, "read-only", false, "read + vetted shell only; codex: read-only sandbox")
+	fs.BoolVar(&f.tools, "tools", false, "tool use where the agent can gate it (default: on; --tools=false or --no-tools turns it off)")
 	registerPermFlags(fs, f)
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
@@ -233,8 +232,8 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// validateCodemode checks --codemode (only pi has one); it's typed, else PI_CODEMODE under --tools, never --read-only.
-func validateCodemode(mode, ag string, tools, readOnly bool) (string, error) {
+// validateCodemode checks --codemode (only pi has one); it's typed, else PI_CODEMODE under --tools.
+func validateCodemode(mode, ag string, tools bool) (string, error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
@@ -244,7 +243,7 @@ func validateCodemode(mode, ag string, tools, readOnly bool) (string, error) {
 		}
 		return "", nil
 	}
-	return pi.ResolveCodemode(mode, tools && !readOnly)
+	return pi.ResolveCodemode(mode, tools)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
@@ -461,18 +460,18 @@ func resolveOutputSchema(arg string) (string, error) {
 
 // askTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.
 type askTarget struct {
-	Name, Provider, Model, Effort, Workdir, Session                   *string
-	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
-	NoPersist, Native                                                 *bool
-	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
-	Host, Fallback, Coworker, Codemode                                *string
-	Timeout                                                           *time.Duration
-	Persona                                                           **agent.Schema
-	Pack                                                              **pack.Spec
-	Attach, KeepEnv                                                   *[]string
-	PermMode                                                          *string
-	PermAllow, PermAsk, PermDeny                                      *[]string
-	permKeys                                                          *[]string
+	Name, Provider, Model, Effort, Workdir, Session           *string
+	Tools, NoTools, Autonomous, Fleet, EnableMemory, Direct   *bool
+	NoPersist, Native                                         *bool
+	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
+	Host, Fallback, Coworker, Codemode                        *string
+	Timeout                                                   *time.Duration
+	Persona                                                   **agent.Schema
+	Pack                                                      **pack.Spec
+	Attach, KeepEnv                                           *[]string
+	PermMode                                                  *string
+	PermAllow, PermAsk, PermDeny                              *[]string
+	permKeys                                                  *[]string
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
@@ -480,7 +479,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
-	*t.KeepEnv, *t.Direct, *t.NoTools, *t.ReadOnly = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
+	*t.KeepEnv, *t.Direct, *t.NoTools = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools
 	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode

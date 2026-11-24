@@ -54,20 +54,6 @@ func TestReadTaskLinesRejectsTrailingJunk(t *testing.T) {
 	}
 }
 
-func TestParseTaskReadOnlyKeepsToolsOverLineToolsFalse(t *testing.T) {
-	lines, err := readTaskLines(strings.NewReader("{\"prompt\":\"p\",\"tools\":false}\n"))
-	if err != nil || len(lines) != 1 {
-		t.Fatalf("readTaskLines = %d lines, %v", len(lines), err)
-	}
-	task, err := parseTask(lines[0], "codex", agent.RunOptions{ReadOnly: true}, false, t.TempDir(), map[string]bool{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !task.Req.Tools || !task.Req.ReadOnly {
-		t.Errorf("task tools/read-only = %v/%v, want true/true", task.Req.Tools, task.Req.ReadOnly)
-	}
-}
-
 func TestBatchLineKeyHint(t *testing.T) {
 	for line, want := range map[string]string{
 		`{"task":"x"}`:   `did you mean "prompt"`,

@@ -92,7 +92,7 @@ func TestGateOffAnthropicBareAutonomous(t *testing.T) {
 	}
 }
 
-// A default off-Anthropic --tools launch has no implicit policy; --read-only and explicit rules still gate.
+// A default off-Anthropic --tools launch has no implicit policy; explicit rules still gate.
 func TestGateOffAnthropicImplicitPolicy(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	deny := permission.Rule{Tool: "Bash", Arg: "curl *"}
@@ -108,10 +108,6 @@ func TestGateOffAnthropicImplicitPolicy(t *testing.T) {
 	if got.Mode != "" || len(got.Allow) != 0 || !slices.Contains(got.Deny, deny) || !slices.Contains(got.Deny, ask) ||
 		slices.Contains(got.Deny, permission.Rule{Tool: "Bash", Arg: permission.RedirectFileArg}) {
 		t.Errorf("explicit rules policy %+v, want only the dispatch's deny and ask-as-deny", got)
-	}
-	_, _, env = launchOf(t, agent.RunOptions{Tools: true, ReadOnly: true, Provider: "qa", WorkDir: t.TempDir()})
-	if ro := envPolicy(t, env); ro.Mode != "plan" || !slices.Contains(ro.Deny, permission.Rule{Tool: "Bash", Arg: permission.RedirectFileArg}) {
-		t.Errorf("read-only policy %+v, want its plan-mode gate policy", ro)
 	}
 }
 
@@ -140,57 +136,7 @@ func gateCall(t *testing.T, policy permission.Permissions, cwd, tool string, inp
 	return safety.PermissionGate(core.ParseInput(strings.NewReader(string(payload))))
 }
 
-type gateRow struct {
-	name        string
-	user        permission.Permissions
-	tool        string
-	input       map[string]any
-	block       bool
-	reason, not string
-}
-
-func gateWrite(path string) map[string]any { return map[string]any{"file_path": path, "content": "ok"} }
-
 func gateBash(cmd string) map[string]any { return map[string]any{"command": cmd} }
-
-// runGateRows runs each row through the real gate under the policy readOnlyGatePolicy builds from the row's user rules.
-func runGateRows(t *testing.T, wd string, cases []gateRow) {
-	t.Helper()
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			res := gateCall(t, readOnlyGatePolicy(c.user), wd, c.tool, c.input)
-			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) ||
-				c.not != "" && strings.Contains(res.Reason, c.not) {
-				t.Fatalf("decision %v reason %q, want block=%v naming %q and not %q", res.Decision, res.Reason, c.block,
-					c.reason, c.not)
-			}
-		})
-	}
-}
-
-// A --read-only claude run's gate policy: reads and the shared shell list run; builds, writes and redirects do not.
-func TestReadOnlyGatePolicy(t *testing.T) {
-	wd := t.TempDir()
-	user := permission.Permissions{Allow: []permission.Rule{permission.ReadOnlyAllow}, Deny: permission.ReadOnlyDeny}
-	read := map[string]any{"file_path": filepath.Join(wd, "a.go")}
-	row := func(name, tool string, in map[string]any, block bool) gateRow {
-		return gateRow{name: name, user: user, tool: tool, input: in, block: block}
-	}
-	runGateRows(t, wd, []gateRow{
-		row("Read", "Read", read, false),
-		row("git log", "Bash", gateBash("git log -1"), false),
-		row("git diff piped", "Bash", gateBash("git diff | head -5"), false),
-		row("go test", "Bash", gateBash("go test ./..."), true),
-		row("Edit", "Edit", gateWrite(filepath.Join(wd, "a.go")), true),
-		row("Write", "Write", gateWrite(filepath.Join(wd, "b.go")), true),
-		row("file redirect", "Bash", gateBash("git log -1 > out"), true),
-		row("substitution", "Bash", gateBash("cat $(ls)"), true),
-		row("memory remember", "Bash", gateBash("claude-code memory remember x"), true),
-	})
-	if got := gateArgs(agent.RunOptions{ReadOnly: true}); !slices.Contains(got, readOnlyGateTools) || slices.Contains(got, gateTools) {
-		t.Errorf("read-only gate tools = %v, want %s", got, readOnlyGateTools)
-	}
-}
 
 // The allow list matches every spelling the rtk rewrite hook can give its command word, and no other rtk.
 func TestGatePolicyAllowsRtkSpellings(t *testing.T) {
@@ -278,14 +224,12 @@ func TestGatePermissionExactReplay(t *testing.T) {
 	}{
 		"explicit deny": {agent.RunOptions{Permissions: permission.Permissions{Deny: []permission.Rule{curl}, Allow: []permission.Rule{curl}}},
 			map[string]bool{"curl -s x": true, "ls -l": false}},
-		"read-only": {agent.RunOptions{ReadOnly: true},
-			map[string]bool{"git log -1": false, "go test ./x": true, "git log -1 > out": true}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c.req.Tools, c.req.Provider, c.req.WorkDir = true, "qa", wd
 			req, _, env := launchOf(t, c.req)
 			if !req.Gate {
-				t.Fatal("explicit rules or --read-only must gate the launch")
+				t.Fatal("explicit rules must gate the launch")
 			}
 			policy := envPolicy(t, env)
 			for cmd, deny := range c.deny {

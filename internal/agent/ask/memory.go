@@ -87,7 +87,7 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 	// read-only inspection; echo is the job's separator, and the redirect deny still refuses `echo x > f`
 	p.Allow = append(p.Allow, permission.ReadOnlyAllow, permission.Rule{Tool: "Bash", Arg: "echo *"})
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
-		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Maintenance: true, Permissions: p}
+		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Permissions: p}
 }
 
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.

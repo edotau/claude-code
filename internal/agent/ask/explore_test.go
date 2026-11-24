@@ -93,14 +93,13 @@ func TestExploreArgsShape(t *testing.T) {
 	}
 }
 
-func TestExploreToolsReadOnly(t *testing.T) {
+func TestExploreTools(t *testing.T) {
 	cases := []struct {
-		vendor       string
-		wantTools    bool
-		wantReadOnly bool
+		vendor    string
+		wantTools bool
 	}{
-		{"copilot", true, true},
-		{"codex", false, false},
+		{"copilot", true},
+		{"codex", false},
 	}
 	for _, c := range cases {
 		t.Run(c.vendor, func(t *testing.T) {
@@ -111,27 +110,14 @@ func TestExploreToolsReadOnly(t *testing.T) {
 			if got := slices.Contains(args, "--tools"); got != c.wantTools {
 				t.Errorf("ExploreArgs --tools = %v, want %v", got, c.wantTools)
 			}
-			if got := slices.Contains(args, "--read-only"); got != c.wantReadOnly {
-				t.Errorf("ExploreArgs --read-only = %v, want %v", got, c.wantReadOnly)
-			}
 		})
 	}
 }
 
-func TestExploreRejectsPromptOnlyAgents(t *testing.T) {
-	for _, vendor := range []string{"gemini", "opencode"} {
-		t.Run(vendor, func(t *testing.T) {
-			want := "explore on " + vendor + " needs native read-only support, which it emulates with permission denies; use codex or copilot"
-			args, err := ExploreArgs(vendor, "/work", "inspect", true, true)
-			if err == nil {
-				t.Fatal("explore accepted a prompt-only agent")
-			}
-			if err.Error() != want {
-				t.Fatalf("explore error = %v; want %q", err, want)
-			}
-			if args != nil {
-				t.Fatalf("ExploreArgs returned runnable arguments: %v", args)
-			}
-		})
+// A tools-free reader is launched with tools off, since ask now defaults them on.
+func TestExploreToolsOffForToollessReaders(t *testing.T) {
+	args, err := ExploreArgs("codex", "/work", "inspect", false, false)
+	if err != nil || !slices.Contains(args, "--tools=false") {
+		t.Fatalf("ExploreArgs(codex) = %v, %v; want --tools=false", args, err)
 	}
 }

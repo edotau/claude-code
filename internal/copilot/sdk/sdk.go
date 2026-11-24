@@ -58,7 +58,6 @@ type Options struct {
 	WorkingDirectory string
 	AllowAllTools    bool
 	// with AllowAllTools: approve only file reads and URL fetches
-	ReadOnlyTools bool
 	// with AllowAllTools: Deny rejects; anything else falls to the tier
 	Permissions permission.Permissions
 	// always explicit: unset, the SDK silently falls back to the GitHub subscription
@@ -153,10 +152,6 @@ func buildClientOptions(ctx context.Context, o Options) (*copilot.ClientOptions,
 		o.Env = nil
 	}
 	env := append(registryEnv(base, nil, o.ChildUnset, ""), o.Env...)
-	// applied last so neither the parent's env nor --env can re-arm a git helper
-	if o.ReadOnlyTools {
-		env = registryEnv(env, readOnlyGitEnv, nil, "GIT_")
-	}
 	recorded := env
 	// the SDK sets it on the child itself (copilot-sdk client.go:2282)
 	if o.GitHubToken != "" {

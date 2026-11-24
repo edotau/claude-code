@@ -279,7 +279,6 @@ func TestRunWithFallbackCutOffMidRun(t *testing.T) {
 	}{
 		{"editing gets the note", "codex", rate, RunOptions{Prompt: "p", Tools: true}, true, true},
 		{"editing omits CLI error", "codex", evil, RunOptions{Prompt: "task", Tools: true}, true, true},
-		{"read-only unchanged", "codex", rate, RunOptions{Prompt: "p", Tools: true, ReadOnly: true}, true, false},
 		{"transient progressed ends", "codex", &retry.Error{Kind: retry.KindTransient, Progressed: true, Err: errors.New("reset")}, RunOptions{Prompt: "p", Tools: true}, false, false},
 		{"gemini 429 falls to the next agent", "gemini", rate, RunOptions{Prompt: "p", Tools: true}, true, true},
 	}

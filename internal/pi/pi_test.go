@@ -132,7 +132,6 @@ func TestGuardTools(t *testing.T) {
 		want string
 	}{
 		"bare":      {agent.RunOptions{Tools: true}, all},
-		"read-only": {agent.RunOptions{Tools: true, ReadOnly: true}, "read,grep,find,ls"},
 		"plan mode": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}, "read,grep,find,ls"},
 		"bash deny": {agent.RunOptions{Tools: true, Permissions: deny("Bash")}, all},
 		"edit deny": {agent.RunOptions{Tools: true, Permissions: deny("Edit")}, all}, // bash stays as the verify shell
@@ -142,7 +141,7 @@ func TestGuardTools(t *testing.T) {
 		"read deny": {agent.RunOptions{Tools: true, Permissions: deny("Read")}, "read,edit,write,find,ls"},
 		"grep deny": {agent.RunOptions{Tools: true, Permissions: deny("Grep")}, "read,edit,write"},
 		"glob deny": {agent.RunOptions{Tools: true, Permissions: deny("Glob")}, "read,edit,write"},
-		"read+plan": {agent.RunOptions{Tools: true, ReadOnly: true, Permissions: deny("Read")}, "read,find,ls"},
+		"read+plan": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan, Deny: deny("Read").Deny}}, "read,find,ls"},
 	} {
 		if got := strings.Join(guardTools(c.req), ","); got != c.want {
 			t.Errorf("%s: tools = %s, want %s", name, got, c.want)
@@ -154,10 +153,8 @@ func TestGuardTools(t *testing.T) {
 func TestToolsArgvWithoutGuardOffersNoTools(t *testing.T) {
 	_, g := guardedEnv(t)
 	for name, env := range map[string][]string{"empty": nil, "dir only": {agentDirEnv + "=/x"}, "no nonce": {agentDirEnv + "=/x", nonceFileEnv + "=" + g.NonceFile}} {
-		for _, ro := range []bool{false, true} {
-			if got, err := toolsArgv(agent.RunOptions{Tools: true, ReadOnly: ro}, env); err == nil || got != nil {
-				t.Errorf("%s ro=%v: got %v, %v; want a refusal", name, ro, got, err)
-			}
+		if got, err := toolsArgv(agent.RunOptions{Tools: true}, env); err == nil || got != nil {
+			t.Errorf("%s: got %v, %v; want a refusal", name, got, err)
 		}
 	}
 }
@@ -270,7 +267,7 @@ func TestWithoutHookControl(t *testing.T) {
 func TestRowRegistered(t *testing.T) {
 	s, ok := agent.LookupSchema("pi")
 	c := s.CLI.Caps
-	if !ok || s.CLI.Binary != "pi" || c.ReadOnly != agent.Native || c.Permissions != agent.Native || c.WorkDir != agent.Emulated {
+	if !ok || s.CLI.Binary != "pi" || c.Permissions != agent.Native || c.WorkDir != agent.Emulated {
 		t.Errorf("pi row = %+v (found %v)", s.CLI, ok)
 	}
 	for _, req := range []agent.RunOptions{{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "x"}}}},

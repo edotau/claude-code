@@ -119,16 +119,16 @@ func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 	}
 }
 
-// A live session keeps --read-only and the permission rules: tools-on alone would grant full write access.
-func TestLiveRequestCarriesReadOnlyAndPermissions(t *testing.T) {
+// A live session keeps its flags and the permission rules.
+func TestLiveRequestCarriesFlagsAndPermissions(t *testing.T) {
 	perms, err := permission.ParsePermissions("plan", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := askFlags{readOnly: true, tools: true, noTools: true, fleet: true, enableMemory: true}
+	f := askFlags{tools: true, noTools: true, fleet: true, enableMemory: true}
 	s := (&askRun{f: &f}).askState()
 	got := liveRequest(t.Context(), s, perms, "claude")
-	if !got.ReadOnly || !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
+	if !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
 		t.Errorf("live request lost a flag: %+v", got)
 	}
 	if !reflect.DeepEqual(got.Permissions, perms) {
@@ -452,7 +452,7 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	cwd, _ := os.Getwd()
-	req := agent.RunOptions{Prompt: "first", Tools: true, ReadOnly: true, Effort: "low", WorkDir: cwd, Permissions: perms}
+	req := agent.RunOptions{Prompt: "first", Tools: true, Effort: "low", WorkDir: cwd, Permissions: perms}
 	fin := agent.NewRecord("claude", req, time.Now().Add(-3*time.Hour))
 	fin.Finish(wire.Result{SessionID: "sess-1"}, nil, time.Second)
 	bare := agent.NewRecord("claude", req, time.Now().Add(-2*time.Hour))
@@ -489,9 +489,9 @@ func assertSendRefused(t *testing.T, id, want string, timeout time.Duration, cou
 
 func assertResumedPosture(t *testing.T, r agent.RunOptions, cwd string) {
 	t.Helper()
-	if r.Prompt != "follow up" || r.SessionID != "sess-1" || !r.ReadOnly || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
+	if !strings.HasPrefix(r.Prompt, "follow up") || r.SessionID != "sess-1" || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
 		!reflect.DeepEqual(permission.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
-		t.Errorf("resume request = %+v; want the record's session, tools, read-only, effort, workdir and permissions with the new prompt", r)
+		t.Errorf("resume request = %+v; want the record's session, tools, effort, workdir and permissions with the new prompt", r)
 	}
 }
 

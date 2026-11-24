@@ -260,7 +260,6 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.Effort, req.Effort != "", "--effort="+req.Effort, func() { req.Effort = "" })
 	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
 	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
-	drop(c.ReadOnly, req.ReadOnly, "--read-only (tools off)", func() { req.ReadOnly, req.Tools = false, false }) // fail closed
 	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
 	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
 	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })

@@ -240,7 +240,7 @@ func nativeWebPinnedOff(env []string) bool {
 
 // refusePolicyEnv refuses --env setting a name the permission policy owns: --env goes last and would replace it.
 func refusePolicyEnv(req agent.RunOptions) error {
-	if req.Tools && !req.ReadOnly && req.Permissions.IsZero() {
+	if req.Tools && req.Permissions.IsZero() {
 		return nil
 	}
 	for _, kv := range req.Env {
@@ -251,11 +251,8 @@ func refusePolicyEnv(req agent.RunOptions) error {
 	return nil
 }
 
-// opencodeReadOnly also recognizes emulated denies when RenderSettings carries permissions without the ReadOnly flag.
+// opencodeReadOnly recognizes the read-only deny set a plan policy carries.
 func opencodeReadOnly(req agent.RunOptions) bool {
-	if req.ReadOnly {
-		return true
-	}
 	for _, r := range permission.ReadOnlyDeny {
 		if !slices.Contains(req.Permissions.Deny, r) {
 			return false
@@ -266,10 +263,6 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 
 // GatePolicy is the policy the plugin's permission-gate judges for req, plan mode included when read-only.
 func GatePolicy(req agent.RunOptions) permission.Permissions {
-	if req.ReadOnly {
-		req.Permissions.Deny = permission.Union(req.Permissions.Deny, permission.ReadOnlyDeny) // checkRun may have added them
-		req.Permissions.Allow = permission.Union(req.Permissions.Allow, []permission.Rule{permission.ReadOnlyAllow})
-	}
 	if opencodeReadOnly(req) {
 		req.Permissions.Mode = "plan"
 	}

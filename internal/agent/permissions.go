@@ -20,30 +20,6 @@ func DefaultPermissions(name string) (permission.Permissions, error) {
 	return permission.Permissions{}, fmt.Errorf("%s default permissions: %w", name, err)
 }
 
-// withReadOnlyRules adds --read-only's deny rules and shell allow where the agent enforces them itself (Emulated).
-func withReadOnlyRules(c Caps, p permission.Permissions) permission.Permissions {
-	if c.ReadOnly != Emulated {
-		return p
-	}
-	// Union: an inherited read-only policy may already hold them
-	p.Deny = permission.Union(p.Deny, permission.ReadOnlyDeny)
-	p.Allow = permission.Union(p.Allow, []permission.Rule{permission.ReadOnlyAllow}) // Bash only where ReadOnlyShell approves
-	return p
-}
-
-// LaunchPermissions is name's default policy as checkRun builds it, minus the outer dispatch's inherited layer.
-func LaunchPermissions(name string, readOnly bool) (permission.Permissions, error) {
-	p, err := DefaultPermissions(name)
-	if err != nil || !readOnly {
-		return p, err
-	}
-	e, err := Lookup(name)
-	if err != nil {
-		return permission.Permissions{}, err
-	}
-	return withReadOnlyRules(e.Caps(), p), nil
-}
-
 // refusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
 func refusePermissions(c Caps, agentName string, p permission.Permissions) error {
 	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != permission.PermPlan) {

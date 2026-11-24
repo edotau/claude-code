@@ -355,8 +355,8 @@ func parentRecord(id string) (Record, bool) {
 // maxAncestorWalk bounds ancestorPolicy; past it only the rules collected so far and the env policy apply.
 const maxAncestorWalk = 32
 
-// ancestorPolicy unions the deny and ask rules, plan mode and read-only of parent and every recorded ancestor.
-func ancestorPolicy(parent string) (p permission.Permissions, readOnly bool) {
+// ancestorPolicy unions the deny and ask rules, and plan mode of parent and every recorded ancestor.
+func ancestorPolicy(parent string) (p permission.Permissions) {
 	seen := map[string]bool{}
 	for id := parent; id != "" && !seen[id] && len(seen) < maxAncestorWalk; {
 		seen[id] = true
@@ -373,10 +373,9 @@ func ancestorPolicy(parent string) (p permission.Permissions, readOnly bool) {
 		if policy.Mode == "plan" {
 			p.Mode = "plan"
 		}
-		readOnly = readOnly || req.ReadOnly
 		id = rec.Parent
 	}
-	return p, readOnly
+	return p
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.

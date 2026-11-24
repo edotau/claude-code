@@ -84,43 +84,33 @@ func batchLaunch(route []string, tools *bool) func(string, string) pathLaunch {
 }
 
 // jobLaunch is the `ask --job` child: its argv names only the record, which carries the scope through its JSON.
-func jobLaunch(readOnly bool) func(string, string) pathLaunch {
-	return func(name, wd string) pathLaunch {
-		req := agent.RunOptions{Agent: name, Prompt: "q", WorkDir: wd, Tools: true, ReadOnly: readOnly}
-		raw, err := json.Marshal(agent.NewRecord(name, req, time.Unix(0, 0)))
-		var rec agent.Record
-		if err == nil {
-			err = json.Unmarshal(raw, &rec)
-		}
-		if err != nil {
-			return pathLaunch{fail: err.Error()}
-		}
-		args := []string{"agents", "ask", "--job", rec.ID}
-		for _, f := range []struct { // the flags the child restores from the record (askTarget.Apply)
-			on   bool
-			flag string
-		}{{rec.Request.Tools, "--tools"}, {rec.Request.ReadOnly, "--read-only"}} {
-			if f.on {
-				args = append(args, f.flag)
-			}
-		}
-		return argsLaunch(name, args, nil)
+func jobLaunch(name, wd string) pathLaunch {
+	req := agent.RunOptions{Agent: name, Prompt: "q", WorkDir: wd, Tools: true}
+	raw, err := json.Marshal(agent.NewRecord(name, req, time.Unix(0, 0)))
+	var rec agent.Record
+	if err == nil {
+		err = json.Unmarshal(raw, &rec)
 	}
+	if err != nil {
+		return pathLaunch{fail: err.Error()}
+	}
+	args := []string{"agents", "ask", "--job", rec.ID}
+	if rec.Request.Tools { // the flag the child restores from the record (askTarget.Apply)
+		args = append(args, "--tools")
+	}
+	return argsLaunch(name, args, nil)
 }
 
 // pathCases are the launch paths beyond the matrix, one case per request kind the path's builders produce.
 func pathCases() []pathCase {
 	off := false
 	return []pathCase{
-		{"job", "tools", jobLaunch(false), askRef("--tools")},
-		{"job", "read-only", jobLaunch(true), askRef("--read-only")},
+		{"job", "tools", jobLaunch, askRef("--tools")},
 		{"background", "explore", exploreLaunch(true), exploreLaunch(false)},
 		{"background", "transfer", transferLaunch(true), transferLaunch(false)},
 		{"batch", "line tools", batchLaunch(nil, nil), askRef("--tools")},
-		{"batch", "base --read-only", batchLaunch([]string{"--read-only"}, nil), askRef("--read-only")},
-		{"batch", "line tools=false", batchLaunch(nil, &off), askRef()},
-		{"live", "tools", liveLaunch(false), askRef("--tools")},
-		{"live", "read-only", liveLaunch(true), askRef("--read-only")},
+		{"batch", "line tools=false", batchLaunch(nil, &off), askRef("--tools=false")},
+		{"live", "tools", liveLaunch, askRef("--tools")},
 		{"relay", "wrapper command", relayLaunch, nil},
 	}
 }

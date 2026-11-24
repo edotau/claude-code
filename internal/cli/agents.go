@@ -53,7 +53,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("verify"), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
@@ -606,9 +606,8 @@ func cmdAgentsBrief(args []string) int {
 		input.Owned = append(input.Owned, v)
 		return nil
 	})
-	fs.BoolVar(&input.ReadOnly, "read-only", false, "the leaf edits nothing (--own and --verify optional)")
 	fs.StringVar(&input.Report, "report", "", "where the leaf writes its full report")
-	fs.StringVar(&input.Verify, "verify", "", "how to verify completion; required unless --read-only")
+	fs.StringVar(&input.Verify, "verify", "", "how to verify completion")
 	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -617,7 +616,7 @@ func cmdAgentsBrief(args []string) int {
 	if *pathMode {
 		return printBriefPath(fs, pos)
 	}
-	if *taskFile == "" || len(pos) > 0 || (!input.ReadOnly && (len(input.Owned) == 0 || strings.TrimSpace(input.Verify) == "")) {
+	if *taskFile == "" || len(pos) > 0 || len(input.Owned) == 0 || strings.TrimSpace(input.Verify) == "" {
 		fs.Usage()
 		return 2
 	}
@@ -686,7 +685,7 @@ var agentAbout = map[string]string{
 		"own login or the selected Databricks profile. Bare launches it with args forwarded; the " +
 		"commands below run it headless.",
 	"pi": "The Pi coding agent on the selected Databricks profile through the loopback proxy, read-only. " +
-		"The commands below run it headless (ask --read-only gives it read, grep, find and ls).",
+		"The commands below run it headless.",
 }
 
 // agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
@@ -699,9 +698,6 @@ func agentPage(name string) helptext.Page {
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "model catalog; on Databricks: list|check|sync"},
 		{"profile", "show or set " + name + "'s profile; --clear = own login; --off"},
-	}
-	if exploreRefused(name) {
-		rows = slices.DeleteFunc(rows, func(r [2]string) bool { return r[0] == "explore" })
 	}
 	s, _ := agent.LookupSchema(name)
 	catalogRow := slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })
@@ -733,12 +729,6 @@ func agentPage(name string) helptext.Page {
 		Hint: "claude-code " + name + " <command> -h lists that command's flags.\n" +
 			"claude-code " + name + " " + helptext.DocsFlag + " prints " + binary + "'s own help." + hint,
 	}
-}
-
-// exploreRefused reports whether `<agent> explore` is refused: it reads with tools but cannot enforce read-only.
-func exploreRefused(name string) bool {
-	s, ok := agent.LookupSchema(name)
-	return ok && s.CLI.ReadNeedsTools && s.CLI.Caps.ReadOnly != agent.Native
 }
 
 // launchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
@@ -778,9 +768,6 @@ func agentSubPage(name, verb string) helptext.Page {
 	about := sp[1]
 	if strings.Contains(about, "%") {
 		about = fmt.Sprintf(about, name)
-	}
-	if verb == "explore" && exploreRefused(name) {
-		about = "Refused on " + name + " (read-only by prompt only); use codex or copilot."
 	}
 	return helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
 }

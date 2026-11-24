@@ -45,7 +45,6 @@ func TestLaunchToolsDefaultAndExplicitMode(t *testing.T) {
 	}{
 		{enabled: true}, {options: LaunchOptions{Tools: &no}},
 		{options: LaunchOptions{Route: []string{"--no-tools"}}},
-		{options: LaunchOptions{Route: []string{"--read-only"}}},
 	} {
 		_, tools, _, err := LeafLaunch(tc.options, "/tmp/a", "check")
 		if err != nil || (tools != nil && *tools) != tc.enabled {

@@ -158,7 +158,7 @@ func TestRanOnReceiptFromReviewAndFailedAsk(t *testing.T) {
 		isErr, wantNote                      bool
 	}{
 		{"review printed its envelope", "copilot", "claude-code copilot review --commit 994c08b1 --model gpt --format json", envelope(cp), cp, false, false},
-		{"ask exited 1 after running", "gemini", "claude-code gemini ask --tools --read-only - < /tmp/b.md", failedAsk, gm, true, false},
+		{"ask exited 1 after running", "gemini", "claude-code gemini ask --tools - < /tmp/b.md", failedAsk, gm, true, false},
 		{"guard: review envelope names no record", "copilot", "claude-code copilot review --commit 994c08b1 --format json", envelope(cp), "", false, true},
 		{"guard: review prints no receipt", "copilot", "claude-code copilot review --commit 994c08b1", "findings only", cp, false, true},
 		{"guard: failed ask prints no receipt", "gemini", "claude-code gemini ask - < /tmp/b.md", "Exit code 1\nboom", gm, true, true},

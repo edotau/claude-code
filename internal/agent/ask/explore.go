@@ -1,8 +1,6 @@
 package ask
 
 import (
-	"fmt"
-
 	"github.com/edotau/claude-code/internal/agent"
 )
 
@@ -38,28 +36,11 @@ func needsTools(agentName string) bool {
 	return ok && s.CLI.ReadNeedsTools
 }
 
-// enforcesReadOnly reports whether the agent's own CLI enforces --read-only (not every vendor can).
-func enforcesReadOnly(agentName string) bool {
-	s, ok := agent.LookupSchema(agentName)
-	return ok && s.CLI.Caps.ReadOnly == agent.Native
-}
-
-// requireReadOnly refuses an agent that reads with tools but cannot enforce read-only (prompt-only is not enough).
-func requireReadOnly(agentName string) error {
-	if !needsTools(agentName) || enforcesReadOnly(agentName) {
-		return nil
-	}
-	return fmt.Errorf("explore on %s needs native read-only support, which it emulates with permission denies; use codex or copilot", agentName)
-}
-
-// ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
+// ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read, else tools off.
 func ExploreArgs(agentName, cwd, question string, web, background bool) ([]string, error) {
-	if err := requireReadOnly(agentName); err != nil {
-		return nil, err
-	}
-	args := []string{"--agent", agentName, "--workdir", cwd}
+	args := []string{"--agent", agentName, "--workdir", cwd, "--tools=false"}
 	if needsTools(agentName) {
-		args = append(args, "--tools", "--read-only")
+		args[len(args)-1] = "--tools"
 	}
 	if background {
 		args = append(args, "--background")

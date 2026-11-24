@@ -276,7 +276,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	}
 	args = append(p.Argv, toolArgs(req)...)
 	if req.Gate {
-		args = append(args, gateArgs(req)...)
+		args = append(args, gateArgs...)
 	}
 	if err := refuseUngatedBypass(args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
@@ -326,16 +326,8 @@ var gateExe = os.Executable
 // gateTools is the only built-in tool set a gated child gets: the permission-gate judges exactly these.
 const gateTools = "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"
 
-// readOnlyGateTools is the read-only gated child's tool set: reads plus Bash, which the gate limits to the shared list.
-const readOnlyGateTools = "Read,Glob,Grep,Bash"
-
 // gateArgs are the launch flags of a gated child: no MCP and only the tools the gate judges.
-func gateArgs(req agent.RunOptions) []string {
-	if req.ReadOnly {
-		return []string{"--strict-mcp-config", "--tools", readOnlyGateTools}
-	}
-	return []string{"--strict-mcp-config", "--tools", gateTools}
-}
+var gateArgs = []string{"--strict-mcp-config", "--tools", gateTools}
 
 // readSettings is a --settings value: inline JSON when it starts with "{", else a file path.
 func readSettings(v string) (map[string]any, error) {
@@ -821,7 +813,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
-		Permissions: agent.Native, ReadOnly: agent.Emulated},
+		Permissions: agent.Native},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
 	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 }}

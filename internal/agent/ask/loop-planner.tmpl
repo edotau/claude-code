@@ -8,8 +8,8 @@ Rules for the parts you plan:
 - Each part is independent of the others in its round and small enough to finish in a few minutes.
 - A part's prompt is self-contained: it names the files and directories it needs by absolute path.
 - At most {{.MaxParts}} parts per round; ids are unique, up to {{.MaxID}} characters of letters, digits, dot, underscore and dash.
-- Every part runs read-only: it reads and reports, it edits nothing. List "owns" only for files or directories a part
-  would be the sole writer of; the parts of one round must not share an owned path.
+- You plan parts and do not edit files yourself; each part does its own work. List "owns" only for files or
+  directories a part would be the sole writer of; the parts of one round must not share an owned path.
 - Set "agent", "model" or "timeout" on a part only when you have a reason; leave them out otherwise.
 - Do not repeat a part whose answer is already in the earlier rounds below; build on it, or replan it differently.
 - When the goal is met, answer done=true with parts=[] and a summary of the result for the owner.

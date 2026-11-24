@@ -12,16 +12,9 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-// permCase is one permission request and whether the handler must approve it.
-type permCase struct {
-	name string
-	req  copilot.PermissionRequest
-	want bool
-}
-
 // policyVerdict evaluates a rule call through baseHandler.
-func policyVerdict(p permission.Permissions, tools, readOnly bool, workDir string, call permission.Rule) permission.Decision {
-	o := Options{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
+func policyVerdict(p permission.Permissions, tools bool, workDir string, call permission.Rule) permission.Decision {
+	o := Options{Permissions: p, AllowAllTools: tools, WorkingDirectory: workDir}
 	var req copilot.PermissionRequest
 	switch call.Tool {
 	case "Bash":
@@ -58,22 +51,19 @@ func TestPolicyVerdict(t *testing.T) {
 		{Tool: "mcp__web_search"}, {Tool: "mcp__github__create_issue"},
 	}
 	for _, tc := range []struct {
-		name     string
-		policy   permission.Permissions
-		tools    bool
-		readOnly bool
-		want     string
+		name   string
+		policy permission.Permissions
+		tools  bool
+		want   string
 	}{
-		{"zero", permission.Permissions{}, true, false, "AAAAAAA"},
-		{"deny", permission.Permissions{Deny: deny}, true, false, "DDDDDDD"},
-		{"ask", permission.Permissions{Ask: deny}, true, false, "AAAAAAA"},
-		{"allow unmatched", permission.Permissions{Allow: []permission.Rule{{Tool: "Read"}}}, true, false, "AAAAAAA"},
-		{"auto", permission.Permissions{Mode: "auto"}, true, false, "AAAAAAA"},
-		{"plan", permission.Permissions{Mode: "plan"}, true, false, "DDDAAAD"},
-		{"plan explicit deny", permission.Permissions{Mode: "plan", Deny: deny}, true, false, "DDDDDDD"},
-		{"read only", permission.Permissions{}, true, true, "ADDAAAD"},
-		{"tools off", permission.Permissions{}, false, false, "DDDDDDD"},
-		{"tools off read only", permission.Permissions{}, false, true, "DDDDDDD"},
+		{"zero", permission.Permissions{}, true, "AAAAAAA"},
+		{"deny", permission.Permissions{Deny: deny}, true, "DDDDDDD"},
+		{"ask", permission.Permissions{Ask: deny}, true, "AAAAAAA"},
+		{"allow unmatched", permission.Permissions{Allow: []permission.Rule{{Tool: "Read"}}}, true, "AAAAAAA"},
+		{"auto", permission.Permissions{Mode: "auto"}, true, "AAAAAAA"},
+		{"plan", permission.Permissions{Mode: "plan"}, true, "DDDAAAD"},
+		{"plan explicit deny", permission.Permissions{Mode: "plan", Deny: deny}, true, "DDDDDDD"},
+		{"tools off", permission.Permissions{}, false, "DDDDDDD"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for i, call := range calls {
@@ -81,7 +71,7 @@ func TestPolicyVerdict(t *testing.T) {
 				if tc.want[i] == 'A' {
 					want = permission.Allow
 				}
-				if got := policyVerdict(tc.policy, tc.tools, tc.readOnly, wd, call); got != want {
+				if got := policyVerdict(tc.policy, tc.tools, wd, call); got != want {
 					t.Errorf("%s: got %v, want %v", call, got, want)
 				}
 			}
@@ -104,77 +94,6 @@ func TestBuildSessionConfigLoadsHookDirectory(t *testing.T) {
 	got := buildSessionConfig(Options{ChildEnv: []string{"COPILOT_HOME=/h/private"}}).HookDirectories
 	if !slices.Equal(got, []string{"/h/private/hooks"}) {
 		t.Fatalf("registry route HookDirectories = %v", got)
-	}
-}
-
-// A read-only run approves reads and URL fetches through buildSessionConfig's handler and rejects writes and shell.
-func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
-	h := buildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for _, tc := range []struct {
-		req  copilot.PermissionRequest
-		want bool
-	}{
-		{rpc.PermissionRequestRead{}, true}, {rpc.PermissionRequestURL{}, true},
-		{rpc.PermissionRequestWrite{}, false}, {rpc.PermissionRequestShell{}, false},
-	} {
-		d, err := h(tc.req, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
-			t.Errorf("%s: approved = %v, want %v", tc.req.Kind(), approved, tc.want)
-		}
-	}
-}
-
-func TestReadOnlyWebSearchMCP(t *testing.T) {
-	h := buildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for _, tc := range []permCase{
-		{"harness value", rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
-		{"harness pointer", &rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
-		{"other value", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, false},
-		{"other pointer", &rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			d, err := h(tc.req, copilot.PermissionInvocation{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
-				t.Errorf("approved = %v, want %v (decision %T)", approved, tc.want, d)
-			}
-		})
-	}
-}
-
-// A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
-func TestReadOnlyGitShell(t *testing.T) {
-	h := buildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for cmd, want := range map[string]bool{
-		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
-		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
-		"git show --no-ext-diff --no-textconv --stat HEAD":             true, "git blame --no-textconv -L 1,5 f.go": true,
-		"git rev-parse HEAD": true, "git branch --list": true, "git log --no-ext-diff --no-textconv --format=%h": true,
-		"git log -3 --oneline": true, "git diff HEAD~1": true, "git blame f.go": true, "git status -v": true,
-		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
-		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
-		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
-		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false, "GIT_EXTERNAL_DIFF=x git diff": false,
-		"git log --exec=x": false, "git log -c": true, "git push": false, "sh status": false, "": false,
-		"ls": true, "rg foo internal | head -5": true, "claude-code agents find x": true, "go doc fmt": true,
-		"rm x": false, "ls | tee x": false, "rg --pre cat x": false, "cat f > g": false, "cat $(ls)": false,
-	} {
-		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
-			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
-		}
-	}
-	d, _ := h(rpc.PermissionRequestShell{FullCommandText: "git log", HasWriteFileRedirection: true}, copilot.PermissionInvocation{})
-	if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved {
-		t.Error("a write redirection must be rejected")
 	}
 }
 
@@ -352,31 +271,6 @@ func TestWriteAndAbsolutePathRules(t *testing.T) {
 	}
 }
 
-// The read-only tier approves one unchained `claude-code review simplify` over file paths and nothing looser.
-func TestReadOnlySimplifyDetector(t *testing.T) {
-	h := buildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
-	for cmd, want := range map[string]bool{
-		"claude-code review simplify internal/a.go": true, "claude-code review simplify internal/a.go internal/b.go": true,
-		"claude-code review simplify": true, "claude-code review simplify --json internal/a.go": true,
-		"claude-code review simplify --threshold strict internal/a.go": true, "claude-code review simplify --base main": true,
-		"claude-code review simplify a.go; rm x": false, "claude-code review simplify a.go && id": false,
-		"claude-code review simplify a.go | sh": false, "claude-code review simplify a.go > f": false,
-		"claude-code review simplify $(id)": false, "claude-code review simplify --evil a.go": false,
-		"claude-code review simplify ../../etc/passwd": false, "claude-code review simplify /etc/passwd": false,
-		"claude-code review other a.go": false, "claude-code review simplify --threshold": false,
-		"claude-code review simplify --threshold bogus a.go": false, "claude-code agents ask x": false,
-		"claude-code review simplify -a.go": false, "claude-code review simplify --base main --base -x": false,
-	} {
-		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
-			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
-		}
-	}
-}
-
 func TestPermissionRemedyResume(t *testing.T) {
 	call := permission.Rule{Tool: "Bash", Arg: "make lint"}
 	o := Options{AllowAllTools: true, SessionID: "same-session", Permissions: permission.Permissions{Mode: "plan"}}
@@ -471,7 +365,7 @@ func TestPermissionHandlerRecordsApproval(t *testing.T) {
 		want bool
 	}{
 		{Options{AllowAllTools: true}, rpc.PermissionRequestRead{}, true},
-		{Options{AllowAllTools: true, ReadOnlyTools: true}, rpc.PermissionRequestMCP{}, false},
+		{Options{AllowAllTools: false}, rpc.PermissionRequestRead{}, false},
 	} {
 		var ok atomic.Bool
 		if _, err := permissionHandler(tc.o, &ok)(tc.req, copilot.PermissionInvocation{}); err != nil {

@@ -236,7 +236,7 @@ func launchTools(o LaunchOptions) *bool {
 			enabled := value != "false"
 			return &enabled
 		}
-		if (flag == "--no-tools" || flag == "--read-only" || flag == "--autonomous") && value != "false" {
+		if (flag == "--no-tools" || flag == "--autonomous") && value != "false" {
 			return nil
 		}
 	}

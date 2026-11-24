@@ -183,7 +183,7 @@ func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
 	}
 }
 
-// --read-only on agy is the bare Bash/Write/Edit denies: refused without the gate hook, the hook's alone with it.
+// agy's read-only deny set is the bare Bash/Write/Edit denies: refused without the gate hook, the hook's alone with it.
 func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -41,14 +41,16 @@ paths:
 - `agents ask --loop "<goal>"` (top level only) plans rounds of parts on `--loop-planner` (claude), runs
   them on the `--batch` pool, retries a failed part once on claude (not a typed model or `--fallback none`) and keeps
   state in `state/harness/ask/loops/<id>.json`: exit 0 done, 1 `needs_main`, 4 cap or budget, `--loop-resume <id>`.
-- An ask with no tools flag gets tools on; an allow rule never reopens a deny. `--no-tools` is claude only (others
-  exit 2). claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
+- Tools are on by default. With `--tools=false`, claude and opencode launch no tools, copilot's SDK rejects every
+  request, gemini is only instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude
+  only (others exit 2). An allow rule never reopens a deny; claude `--tools` off Anthropic gates only explicit
+  rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Tools; each agent's
   `--permissions` modes: same file → Permission modes per agent.
 - **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
   `agents ask --agent pi`, on a Databricks profile through the loopback proxy, with no own login. It runs the models on
-  the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool.
-  Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard
+  the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
+  `--tools=false` it runs with no tools. Any tools run runs Pi with `--no-builtin-tools` plus the harness's guard
   extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
   `hook PreToolUse --pi-guard` (path normalized as Pi does and judged as typed and as the disk spells it,
   `safety-scan` and `permission-gate`) and fails closed (a guard that fails to load leaves Pi no tools; it refuses any
@@ -256,7 +258,7 @@ vendor CLI untouched.
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 - `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through each agent's real
-  launch policy per tier (no flag, `--tools`) with no model call; exit 1 on a missed expectation. Cells
+  launch policy per mode (`--tools=false`, `--tools`) with no model call; exit 1 on a missed expectation. Cells
   only a vendor runtime judges are listed apart, uncounted.
 
 ## Pi carrier and experiments
