@@ -136,8 +136,11 @@ func statusAgent(agentName string, pos []string, all bool, format string) int {
 		empty = "no " + agentName + " dispatches logged yet"
 	}
 	code := ask.Status("agents status", agentName, firstPositional(pos), all, format, empty)
-	if code == 0 && len(pos) == 1 && format != helptext.JSON {
-		printContractTerms(pos[0])
+	if code != 0 || len(pos) != 1 || format == helptext.JSON {
+		return code
+	}
+	if rec, err := agent.LoadRecord(pos[0]); err == nil {
+		printContractTerms(rec.ID)
 	}
 	return code
 }

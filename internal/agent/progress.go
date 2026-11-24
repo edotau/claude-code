@@ -132,7 +132,7 @@ func contractText(c contract.Contract, tokens int64) string {
 	if c.Limits.Leaves > 0 {
 		s += fmt.Sprintf(" · leaves %d/%d", len(c.Children), c.Limits.Leaves)
 	}
-	if c.Limits.Tokens > 0 {
+	if c.Limits.Tokens > 0 && tokens > 0 { // no usage yet: budget unknown, not 0%
 		s += fmt.Sprintf(" · %d%% budget", tokens*100/int64(c.Limits.Tokens))
 	}
 	return s
@@ -338,6 +338,9 @@ func (p Progress) head(width int, sig string, noLive bool, lead []string) string
 // withContract appends the contract text when it fits whole, so it yields before the doing field.
 func (p Progress) withContract(head string, width int, noLive bool) string {
 	room := width - textutil.DisplayWidth(head) - 3 - textutil.DisplayWidth(p.Contract)
+	if _, hung := p.signal(); hung {
+		room -= len("last: ")
+	}
 	if p.Contract == "" || noLive || room < 0 || !p.fitsBeside(room-3) {
 		return head
 	}
