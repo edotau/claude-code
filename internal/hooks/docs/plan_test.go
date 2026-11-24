@@ -195,7 +195,9 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 func TestWithTasks(t *testing.T) {
 	got := string(withTasks([]byte("# Plan: X\n\n### Phase 1 — parse\n\n## Step 2: render\n\n## Context\n")))
 	for _, want := range []string{"- [ ] Phase 1 — parse\n", "- [ ] Step 2: render\n", "- [ ] Full suite once\n",
-		"- [ ] Review: `claude-code codex review --adversarial --base <branch>`, then `/code-review high --max-findings all --fix \"<every finding>\"` until the R28 bar\n"} {
+		"- [ ] Review — `claude-code codex review --adversarial --base <branch>` — leaf: codex, read-only\n" +
+			"- [ ] Fix review findings — `/code-review high --max-findings all --fix \"<every finding>\"` " +
+			"to the R28 bar — leaf: claude\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
