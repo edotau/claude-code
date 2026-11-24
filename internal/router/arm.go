@@ -263,6 +263,9 @@ func readArmPicks() armPicks {
 // Key is c's history key in route-auto.json: provider/model.
 func (c RoleCell) Key() string { return c.Provider + "/" + c.Model }
 
+// roleLockWait bounds a dispatch's wait for the pick lock; past it the pick ranks read-only and goes unstamped.
+const roleLockWait = 5 * time.Second
+
 // PickRoleCell is role's least-recently-picked cell of cells (ties in cells order); stamp records it under the lock.
 func PickRoleCell(role Role, cells []RoleCell, stamp bool, now time.Time) (RoleCell, error) {
 	if len(cells) == 0 {
@@ -277,7 +280,7 @@ func PickRoleCell(role Role, cells []RoleCell, stamp bool, now time.Time) (RoleC
 		rank(readArmPicks())
 		return pick, nil
 	}
-	err := paths.WithFileLock(armPicksFile(), func() error {
+	err := paths.WithFileLockWithin(armPicksFile(), roleLockWait, func() error {
 		picks := readArmPicks()
 		rank(picks)
 		roles := maps.Clone(picks.Roles)
@@ -302,7 +305,7 @@ func PickRoleCell(role Role, cells []RoleCell, stamp bool, now time.Time) (RoleC
 // RoleProviderOf is the ClaudeProviders name of registry row: its group, or <group>-<row> for a workspace; "" for none.
 func RoleProviderOf(reg *providers.Registry, row string) string {
 	for _, group := range providers.ProviderKeys() {
-		if !slices.Contains(reg.ProfilesOf(group), row) {
+		if reg == nil || !slices.Contains(reg.ProfilesOf(group), row) {
 			continue
 		}
 		if reg.Row(row).Preset != "" {
@@ -316,6 +319,9 @@ func RoleProviderOf(reg *providers.Registry, row string) string {
 // RoleRows is the registry rows behind ClaudeProviders name provider, in registry order.
 func RoleRows(reg *providers.Registry, provider string) []string {
 	var out []string
+	if reg == nil {
+		return nil
+	}
 	for _, group := range providers.ProviderKeys() {
 		for _, row := range reg.ProfilesOf(group) {
 			if RoleProviderOf(reg, row) == provider {

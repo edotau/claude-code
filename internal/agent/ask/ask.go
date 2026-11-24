@@ -576,7 +576,8 @@ func (r *askRun) batchBase() agent.RunOptions {
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, FallbackTyped: r.fs != nil && helptext.Explicit(r.fs, "fallback")}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values,
+		FallbackTyped: r.fs != nil && helptext.Explicit(r.fs, "fallback") || f.fallback != router.DefaultFallback()} // a replayed record's mode counts
 }
 
 // resumeModel keeps a resumed session's model and row; a typed --model wins, a replay keeps the record's own route.

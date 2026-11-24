@@ -301,11 +301,11 @@ func TestRoleRotationModes(t *testing.T) {
 		t.Fatalf("rotate: owner cells = %v, want 3", cells)
 	}
 	if cells, scope := modeCells(reg, excl, router.RoleFleet, "dev"); len(cells) != 4 || slices.ContainsFunc(cells,
-		func(c router.RoleCell) bool { return c.Provider == "anthropic" }) || !strings.Contains(scope, "kept out") {
+		func(c router.RoleCell) bool { return c.Provider == "anthropic" }) || !strings.Contains(scope.String(), "kept out") {
 		t.Fatalf("exclusive elsewhere: cells %v scope %q", cells, scope)
 	}
 	if cells, scope := modeCells(reg, excl, router.RoleFleet, "ultra"); len(cells) != 2 || cells[0].Provider != "anthropic" ||
-		!strings.Contains(scope, "stays on") {
+		!strings.Contains(scope.String(), "stays on") {
 		t.Fatalf("exclusive start: cells %v scope %q", cells, scope)
 	}
 }

@@ -139,29 +139,33 @@ func untieredAuto(agentName string) string {
 	return models.Sonnet
 }
 
-// roleNote is a role rotation's preflight note; "" when the dispatch did not rotate.
-type roleNote string
+// roleNote is a role rotation's preflight note and the account its pick should lead on; zero when it did not rotate.
+type roleNote struct{ text, account string }
 
-// onto is c with the note as a preflight line, so the record and dry run name the rotated cell.
+// onto is c with the note as a preflight line; a route whose first hop left the picked account says so.
 func (n roleNote) onto(c Chain) Chain {
-	if n == "" || len(c.Dispatches) == 0 {
+	if n.text == "" || len(c.Dispatches) == 0 {
 		return c
 	}
-	return c.noted(string(n))
+	text := n.text
+	if n.account != "" && c.Dispatches[0].Account != n.account {
+		text += "; the picked row did not lead, the route runs " + hopTarget(c.Dispatches[0])
+	}
+	return c.noted(text)
 }
 
 // rotateRole runs an untyped Claude dispatch on its role's least-recently-picked ready cell; the note says so.
-func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions, roleNote) {
+func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions, roleNote, error) {
 	if !untypedClaude(ctx, o) {
-		return ctx, o, ""
+		return replayRotation(ctx, o), o, roleNote{}, nil
 	}
 	reg, err := providers.LoadShared()
 	if err != nil {
-		return ctx, o, ""
+		return ctx, o, roleNote{}, nil
 	}
 	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
 	if err != nil || overlayRoutes(ov) {
-		return ctx, o, ""
+		return ctx, o, roleNote{}, nil
 	}
 	now, role := time.Now(), dispatchRole(o.Prompt)
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
@@ -171,34 +175,35 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, engine: eng, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
 	ready, rows, skipped := scan.ready(cells)
 	head := "rotation: role " + string(role)
-	if scope != "" {
-		head += ", " + scope
+	if s := scope.String(); s != "" {
+		head += ", " + s
 	}
 	if len(ready) == 0 {
-		if scope != "" { // an exclusive mode is in force: the start row alone, so no ladder hop crosses it
-			o.Provider = session
-		}
-		return ctx, o, roleNote(joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped)))
+		o, err := noReadyCell(reg, o, session, scope)
+		return ctx, o, roleNote{text: joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped))}, err
 	}
 	cell, err := router.PickRoleCell(role, ready, !Peeking(ctx), now)
 	if err != nil {
 		head += " (pick unstamped: " + err.Error() + ")"
 	}
 	row := rows[cell.Key()]
-	ctx, o = placeRotation(ctx, o, row, cell.Model, scope != "")
+	o.Model = cell.Model
+	ctx, o = placeRotation(ctx, reg, o, row, scope)
 	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, row, len(ready), len(cells))
-	return ctx, o, roleNote(joinNotes(pick, skippedNote(skipped)))
+	return ctx, o, roleNote{text: joinNotes(pick, skippedNote(skipped)), account: router.AccountOf(reg.Row(row))}, nil
 }
 
-// placeRotation leads o's route with row; under an exclusive mode row is the one profile, so no sibling hop crosses.
-func placeRotation(ctx context.Context, o RunOptions, row, model string, bounded bool) (context.Context, RunOptions) {
-	o.Model = model
-	if bounded {
-		o.Provider = row
-		return ctx, o
+// noReadyCell keeps today's route, except under an exclusive mode: the start row alone, or a refusal with none.
+func noReadyCell(reg *providers.Registry, o RunOptions, session string, scope modeScope) (RunOptions, error) {
+	switch {
+	case len(scope.off) == 0:
+		return o, nil
+	case reg.Row(session) == nil:
+		return o, fmt.Errorf("rotation: exclusive %s in force, no cell is ready and no start row to stay on",
+			strings.Join(scope.off, ", "))
 	}
-	o.Lead = row
-	return router.WithRotatedLead(ctx, row), o
+	o.Provider = session // the start is never an excluded provider, so no ladder hop crosses the boundary
+	return o, nil
 }
 
 // untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, model pin, host or session.
@@ -207,17 +212,18 @@ func untypedClaude(ctx context.Context, o RunOptions) bool {
 	if !VaultAgentIsClaude(o.Agent) || slices.ContainsFunc(named, func(s string) bool { return s != "" }) {
 		return false
 	}
-	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
-	if o.AutoModel || o.Direct || !o.Route.IsZero() || typedNone || fenced(ctx) {
+	if o.AutoModel || o.Direct || !o.Route.IsZero() || fenced(ctx, o) {
 		return false
 	}
 	return agentModelPinContext(ctx, o.Agent) == "" // claude's record profile is its default lead, not a typed route
 }
 
-// fenced reports an inherited arm or provider fence: such a dispatch never rotates, so no hop leaves the boundary.
-func fenced(ctx context.Context) bool {
+// fenced reports a run held to one route: an inherited arm or provider fence, a typed --fallback none or --as.
+func fenced(ctx context.Context, o RunOptions) bool {
 	confined, _ := router.ConfinedContext(ctx)
-	return router.ArmProfileContext(ctx) != "" || confined != ""
+	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
+	identity := o.Identity != "" && o.Identity != providers.IdentityAuto
+	return router.ArmProfileContext(ctx) != "" || confined != "" || typedNone || identity
 }
 
 // overlayRoutes reports an overlay that names where the dispatch runs; providerMode, effort and runner do not.
@@ -235,8 +241,24 @@ func dispatchRole(prompt string) router.Role {
 	return router.RoleFleet
 }
 
+// modeScope is how providerMode bounded a rotation: staying on an exclusive start, or exclusive providers kept out.
+type modeScope struct {
+	stay bool
+	off  []string // exclusive provider names the dispatch did not start on
+}
+
+func (s modeScope) String() string {
+	switch {
+	case s.stay:
+		return "stays on exclusive " + s.off[0]
+	case len(s.off) > 0:
+		return "exclusive " + strings.Join(s.off, ", ") + " kept out"
+	}
+	return ""
+}
+
 // modeCells is role's cells under providerMode: a start on an exclusive provider stays there, others never get it.
-func modeCells(reg *providers.Registry, modes map[string]string, role router.Role, session string) ([]router.RoleCell, string) {
+func modeCells(reg *providers.Registry, modes map[string]string, role router.Role, session string) ([]router.RoleCell, modeScope) {
 	provs := router.ClaudeProviders(reg)
 	cells := router.RoleCells(role, provs)
 	exclusive := func(name string) bool {
@@ -244,19 +266,58 @@ func modeCells(reg *providers.Registry, modes map[string]string, role router.Rol
 		return m == router.ModeExclusive
 	}
 	if start := router.RoleProviderOf(reg, session); start != "" && exclusive(start) {
-		return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Provider != start }), "stays on exclusive " + start
+		return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Provider != start }), modeScope{stay: true, off: []string{start}}
 	}
-	var off []string
+	var scope modeScope
 	for _, p := range provs {
 		if exclusive(p.Name) {
-			off = append(off, p.Name)
+			scope.off = append(scope.off, p.Name)
 		}
 	}
-	cells = slices.DeleteFunc(cells, func(c router.RoleCell) bool { return exclusive(c.Provider) })
-	if len(off) == 0 {
-		return cells, ""
+	return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return exclusive(c.Provider) }), scope
+}
+
+// placeRotation leads o with row as a rotated lead minus kept-out rows; a pi sibling hop risk pins row explicitly.
+func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, row string, scope modeScope) (context.Context, RunOptions) {
+	drop := scope.rows(reg)
+	if scope.stay || slices.ContainsFunc(drop, func(r string) bool { return reg.Row(r).Preset == providers.PresetDatabricks }) {
+		o.Provider = row
+		return ctx, o
 	}
-	return cells, "exclusive " + strings.Join(off, ", ") + " kept out"
+	o.Lead = row
+	return router.WithRotatedLead(ctx, router.RotatedLead{Row: row, Drop: drop}), o
+}
+
+// rows is the registry rows of the kept-out exclusive providers.
+func (s modeScope) rows(reg *providers.Registry) []string {
+	var out []string
+	for _, name := range s.off {
+		out = append(out, router.RoleRows(reg, name)...)
+	}
+	return out
+}
+
+// replayRotation re-leads a replayed rotation (--job, --retry, background): a recorded lead plus an untyped tier alias.
+func replayRotation(ctx context.Context, o RunOptions) context.Context {
+	if o.Lead == "" || o.ModelTyped || !slices.Contains(models.AliasNames, o.Model) || !VaultAgentIsClaude(o.Agent) || fenced(ctx, o) {
+		return ctx
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return ctx
+	}
+	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // kept-out rows come from today's overlay
+	_, scope := modeCells(reg, ov.ProviderMode, router.RoleFleet, o.Lead)
+	if scope.stay { // the lead sits on an exclusive provider: every other Claude provider is out
+		start := scope.off[0]
+		scope.off = nil
+		for _, p := range router.ClaudeProviders(reg) {
+			if p.Name != start {
+				scope.off = append(scope.off, p.Name)
+			}
+		}
+	}
+	return router.WithRotatedLead(ctx, router.RotatedLead{Row: o.Lead, Drop: scope.rows(reg)})
 }
 
 // cellScan judges role cells for one dispatch: each cell's serving row (the session's first) or why none serves.

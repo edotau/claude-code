@@ -184,29 +184,43 @@ func (t *RouteTable) pick(
 	return res
 }
 
+// RotatedLead is a role rotation's pick as the route sees it: the row that leads, and rows no hop may use.
+type RotatedLead struct {
+	Row  string   `json:"row"`
+	Drop []string `json:"drop,omitempty"` // rows of exclusive providers the dispatch did not start on
+}
+
 type rotatedLeadKey struct{}
 
-// WithRotatedLead marks row as a role rotation's lead: a wanted claude whose PickOpts.Lead is row runs there first.
-func WithRotatedLead(ctx context.Context, row string) context.Context {
-	return context.WithValue(ctx, rotatedLeadKey{}, row)
+// WithRotatedLead marks l on ctx: a wanted claude whose PickOpts.Lead is l.Row runs there first, never on l.Drop.
+func WithRotatedLead(ctx context.Context, l RotatedLead) context.Context {
+	return context.WithValue(ctx, rotatedLeadKey{}, l)
 }
 
-func rotatedLead(ctx context.Context) string {
-	row, _ := ctx.Value(rotatedLeadKey{}).(string)
-	return row
+func rotatedLead(ctx context.Context) RotatedLead {
+	l, _ := ctx.Value(rotatedLeadKey{}).(RotatedLead)
+	return l
 }
 
-// leadRotated puts a wanted claude's rotated lead row ahead of base, which stays its fallback in order.
+// leadRotated puts a wanted claude's rotated lead row ahead of base, which stays its fallback in order minus Drop.
 func (t *RouteTable) leadRotated(
 	ctx context.Context, pg *pickGate, alias, agent string, base []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	lead := rotatedLead(ctx)
-	if lead == "" || lead != o.Lead || agent != "claude" {
+	if lead.Row == "" || lead.Row != o.Lead || agent != "claude" || pg.reg == nil {
 		return base
 	}
 	o.CanServe = nil // claude runs on any row through the proxy, and the rotation already checked this one
-	return mergeLead(t.gateRow(ctx, pg, alias, agent, lead, "", false, st, o, now, configured, res), base)
+	head := t.gateRow(ctx, pg, alias, agent, lead.Row, "", false, st, o, now, configured, res)
+	drop := slices.Clone(lead.Drop)
+	if len(head) > 0 { // base's own cell on the lead's account is the same hop spelled another way
+		drop = append(drop, lead.Row)
+	}
+	rest := slices.DeleteFunc(slices.Clone(base), func(c Candidate) bool {
+		return slices.ContainsFunc(drop, func(row string) bool { return c.Profile == row || c.Account == pg.providerAccount(row) })
+	})
+	return append(head, rest...)
 }
 
 // deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.
