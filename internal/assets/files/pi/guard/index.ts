@@ -29,7 +29,7 @@ const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => ty
 const isStep = (s: any): boolean => strArray(s?.env) && strArray(s?.argv) && s.argv.length > 0
 
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; steps?: Step[]; usage?: string } {
+function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; steps?: Step[]; unset?: string[]; usage?: string } {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
@@ -40,7 +40,7 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
     if (v.allow !== true) return stuck("unrecognized verdict")
     const run = strArray(v.run) ? v.run : undefined
     const steps = Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined
-    return { path: typeof v.path === "string" ? v.path : "", run, steps }
+    return { path: typeof v.path === "string" ? v.path : "", run, steps, unset: strArray(v.unset) ? v.unset : [] }
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
@@ -146,18 +146,18 @@ const VERIFY_MS = 4 * 60_000
 // PROXY_KEY is the proxy session token's env (internal/pi KeyRef): verify steps run edited code, so they never get it.
 const PROXY_KEY = "HARNESS_PROXY_API_KEY"
 
-// verifyEnv is hookEnv without the proxy token, plus the step's GOOS/GOARCH/CGO_ENABLED assignments.
-function verifyEnv(step: Step): Record<string, string> {
+// verifyEnv is hookEnv without the proxy token and the credentials Go named, plus the step's GOOS/GOARCH/CGO_ENABLED.
+function verifyEnv(step: Step, unset: string[]): Record<string, string> {
   const env = hookEnv()
-  delete env[PROXY_KEY]
+  for (const name of [PROXY_KEY, ...unset]) delete env[name]
   for (const kv of step.env) if (kv.includes("=")) env[kv.slice(0, kv.indexOf("="))] = kv.slice(kv.indexOf("=") + 1)
   return env
 }
 
 // runStep runs one argv in its own process group (spawn: execFile drops detached); launch failure or timeout throws.
-function runStep(step: Step, cwd: string, ms: number): Promise<{ code: number; out: string }> {
+function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step), detached: process.platform !== "win32",
+    const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step, unset), detached: process.platform !== "win32",
       windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
     let out = ""
     const add = (s: string) => { out = (out + s).slice(-4 * ERR_CHARS) }
@@ -192,7 +192,7 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
   const deadline = Date.now() + VERIFY_MS
   for (const s of v.steps) {
     let r: { code: number; out: string }
-    try { r = await runStep(s, cwd, deadline - Date.now()) } catch (err: any) { // a fixing turn cannot help either
+    try { r = await runStep(s, v.unset ?? [], cwd, deadline - Date.now()) } catch (err: any) { // a fixing turn cannot help either
       process.stderr.write("pi guard: verify before settle not run: " + s.argv[0] + " " + (err?.message ?? err) + "\n")
       return ""
     }
