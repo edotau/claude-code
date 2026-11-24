@@ -145,7 +145,7 @@ func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Tar
 		peek := peekBody(resp, 64<<10)
 		if hard = providers.ModelDenied(string(peek)); hard {
 			r.markDead(t)
-			if _, ok := r.demotion(t); ok {
+			if r.mayDemote(t, resp) {
 				drain(resp)
 				return true, true
 			}
@@ -162,6 +162,12 @@ func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Tar
 	}
 	drain(resp)
 	return true, hard
+}
+
+// mayDemote is true when t has a demotion target and the upstream did not say x-should-retry: false.
+func (r *Router) mayDemote(t providers.Target, resp *http.Response) bool {
+	_, ok := r.demotion(t)
+	return ok && !upstreamNoRetry(resp)
 }
 
 // coolDown sinks p for resp's Retry-After (clamped) after a transient 429; a hold of coolPersistMin+ is also persisted.

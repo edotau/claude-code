@@ -610,3 +610,10 @@ func TestTypedCodeBeatsPolicyText(t *testing.T) {
 		t.Errorf("a typed non-policy code must win over text: %+v", e)
 	}
 }
+
+func TestGenericCodeKeepsPolicyText(t *testing.T) {
+	err := stubErr{code: 400, body: "your content policy was violated", vend: "bad_request"}
+	if !Classify("x", err, false).PolicyRefusal {
+		t.Error("a generic 400 code must not hide an explicit content-policy message")
+	}
+}
