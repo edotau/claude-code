@@ -506,10 +506,16 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 	if own != q.Agent {
 		out = append(out, hop(own, q.Profile, cmp.Or(q.Model, q.Alias), false))
 	}
-	if q.Fallback == FallbackAll && q.TypedAll && !q.TypedModel {
-		for _, row := range ownRows(reg, own) {
-			out = append(out, hop(own, row, q.Alias, true))
-		}
+	return append(out, offArm(reg, q, own)...)
+}
+
+// offArm is the own-login hops that leave the arm: only for a typed all with no typed model.
+func offArm(reg *providers.Registry, q ChainReq, own string) (out []ChainHop) {
+	if q.Fallback != FallbackAll || !q.TypedAll || q.TypedModel {
+		return nil
+	}
+	for _, row := range ownRows(reg, own) {
+		out = append(out, ChainHop{own, row, accountIn(reg)(row), q.Alias, true})
 	}
 	return out
 }
