@@ -11,7 +11,9 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
   pipeline `rtk read f`, `--head-lines|--tail-lines N`). A pipeline prefixes its first command
   (`rtk git log --oneline | head`).
 - **Truncated or failed output:** a line `[full output: rtk recall <hash>]` means rtk saved the whole output; run that
-  command instead of re-running the original.
+  command instead of re-running the original. rtk output is condensed but sufficient: run commands normally and batch
+  related ones into one call; re-run as `rtk bypass <cmd>` only when the result is unusable (empty where output was
+  expected, contradicting its exit code, or garbled) or exact output is required (see Exact output).
 - **As typed:** `claude-code`, `git grep`, `gofmt -l`, `go vet` and `go test -v|-list` (rtk 1.1.0 reports a failed
   vet as "No issues found" and drops verbose test output), and anything `rtk rewrite` leaves empty.
 - **Exact output** (a file list a later step consumes, a count or bytes you compare): `git grep`, or
@@ -23,5 +25,6 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
 - **Docs, skills, agents, commands and brief templates:** a command block an agent will run is written in its rtk form;
   `README.md` steps for a human stay bare.
 - **No `No hook installed` banner:** every agent launch and harness rtk call sets `RTK_SUPPRESS_HOOK_WARNING=1` and
-  `RTK_TELEMETRY_DISABLED=1`; the
-  harness `rtk-rewrite` hook replaces rtk's own, so never run `rtk init -g`.
+  `RTK_TELEMETRY_DISABLED=1`; the harness `rtk-rewrite` hook replaces rtk's own, so never run `rtk init -g`; plain
+  `rtk init` is never run either: it appends instructions to the repo's CLAUDE.md and creates `.rtk/filters.toml`
+  (project filters are added deliberately, then `rtk trust`).
