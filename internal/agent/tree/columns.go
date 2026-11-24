@@ -22,11 +22,11 @@ const (
 	levelCount
 )
 
-// jobCols are a dispatch row's columns: marker, agent, model · route, ↑in, ↓out, since last signal, elapsed.
-var jobCols = []col{{}, {max: 18}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true}}
+// jobCols are a dispatch row's columns: marker, agent, model, · provider, profile, ↑in, ↓out, since, elapsed.
+var jobCols = []col{{}, {max: 18}, {fit: true}, {}, {}, {right: true}, {right: true}, {right: true}, {right: true}}
 
 // spanFrom is the first of the two token columns a queued row's span covers.
-const spanFrom = 3
+const spanFrom = 5
 
 // col shapes one fixed column; the last cell of every row is free text, clipped to the width and never padded.
 type col struct {
@@ -220,7 +220,9 @@ func fitModels(rows []row, ws [levelCount][]int, width int) {
 const (
 	colAgent = 1
 	colModel = 2
-	colSince = 5
+	colProv  = 3
+	colProf  = 4
+	colSince = 7
 	minAgent = 2
 )
 
@@ -271,6 +273,8 @@ func dispatchBudget(rows []row, w []int, level, width int) (cur []int, keptIn bo
 	}
 	grow(colModel)
 	grow(colAgent)
+	whole(colProv, nat[colProv])
+	whole(colProf, nat[colProf])
 	whole(colSince, nat[colSince])
 	whole(spanFrom, plainSpanWidth(rows, level))
 	if cur[spanFrom] > 0 {

@@ -20,7 +20,7 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "gpt-6-astra · databricks·dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
+	want := []string{"codex", "gpt-6-astra", "· databricks", "dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}

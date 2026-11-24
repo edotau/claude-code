@@ -69,7 +69,7 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(jobCells(d, now, nil), " ") }
 
 // sinceCell is a dispatch row's time-since-last-event cell.
-func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now, nil)[4] }
+func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now, nil)[6] }
 
 // A running row shows agent, model · route, since and elapsed, no "↑- ↓-" without usage, and never the brief's task.
 func TestRunningRowHasNoTask(t *testing.T) {
@@ -98,7 +98,7 @@ func TestQueuedRowShowsWait(t *testing.T) {
 	rec.Progress = "queued " + now.Add(-70*time.Second).UTC().Format(time.RFC3339Nano) + " databricks:qa"
 	d := dispatchFromRecord(rec, "", now)
 	pools := map[string]serve.PoolRow{"databricks:qa": {Pool: "databricks:qa", Running: 2, Cap: 4}}
-	if cells := jobCells(d, now, pools); d.Quiet || jobMarker(d) != "○" || cells[2] != "queued 1m10s (pool databricks:qa 2/4)" {
+	if cells := jobCells(d, now, pools); d.Quiet || jobMarker(d) != "○" || cells[4] != "queued 1m10s (pool databricks:qa 2/4)" {
 		t.Errorf("queued: quiet=%v marker=%q cells=%q", d.Quiet, jobMarker(d), cells)
 	}
 }

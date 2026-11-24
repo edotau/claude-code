@@ -79,4 +79,8 @@ func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	if got := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"}); got.Type != "pi" || got.Runner != "" {
 		t.Fatalf("code mode: runner %q type %q", got.Runner, got.Type)
 	}
+	got := stampRunner(Record{Agent: "pi"}, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
+	if got.Type != "kimi" || got.Runner != "pi" || got.Asked != "" {
+		t.Fatalf("pi ask: runner %q type %q asked %q", got.Runner, got.Type, got.Asked)
+	}
 }
