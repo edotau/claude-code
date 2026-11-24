@@ -88,7 +88,7 @@ func openRecords(c contract.Contract, o contractOpen, now time.Time) []contract.
 		out = append(out, observed(contract.TermLane, isLane(o.Dir, c.Scope.Lane), o.Dir, missAbsent, now))
 	}
 	if slices.Contains(c.Terms, contract.TermProxy) {
-		out = append(out, observed(contract.TermProxy, fileExists(o.ProxyScope), o.ProxyScope, missAbsent, now))
+		out = append(out, observed(contract.TermProxy, isProxyScope(o.ProxyScope), o.ProxyScope, missAbsent, now))
 	}
 	return out
 }
@@ -133,8 +133,9 @@ func abandonContract(id string, why contract.Reason) (contract.Contract, error) 
 // returnRecords is one record per return term: gate, tests, handback and report.
 func returnRecords(c contract.Contract, r contractReturn, hb *handback, now time.Time) []contract.TermRecord {
 	out := []contract.TermRecord{gateRecord(r.Gate, now), testsRecord(c, r.Verify, hb, now)}
-	if hb != nil {
-		out = append(out, observed(contract.TermHandback, true, string(hb.Status), "", now))
+	if hb != nil { // only a done status passes: BLOCKED and NEEDS_CONTEXT hand back unfinished work
+		done := hb.Status == contract.StatusDone || hb.Status == contract.StatusDoneWithConcerns
+		out = append(out, observed(contract.TermHandback, done, string(hb.Status), string(hb.Status), now))
 	} else {
 		out = append(out, failed(contract.TermHandback, handbackMiss(r.Handback), now))
 	}
@@ -154,7 +155,7 @@ func gateRecord(g *worktree.GateRun, now time.Time) contract.TermRecord {
 // testsRecord fails on any red verify run; else an executed run passes it, or the judged verdict where none is needed.
 func testsRecord(c contract.Contract, v *wire.VerifyResult, hb *handback, now time.Time) contract.TermRecord {
 	needRun := c.Executed || hb.claims(contract.TestsExecuted)
-	if v != nil && v.Reason == "" && (v.Exit != 0 || needRun) {
+	if ran(v) && (v.Exit != 0 || needRun) {
 		return observed(contract.TermTests, v.Exit == 0, exitEvidence(v.Exit), exitEvidence(v.Exit), now)
 	}
 	if !needRun && hb.claims(contract.TestsJudged) {
@@ -165,6 +166,9 @@ func testsRecord(c contract.Contract, v *wire.VerifyResult, hb *handback, now ti
 	}
 	return failed(contract.TermTests, missUnexecuted, now)
 }
+
+// ran reports whether v is a verify run of a named command that reached an exit.
+func ran(v *wire.VerifyResult) bool { return v != nil && v.Reason == "" && v.Command != "" }
 
 // claims reports whether hb is a typed hand-back whose tests value is t.
 func (hb *handback) claims(t contract.Tests) bool { return hb != nil && hb.Tests == t }
@@ -279,6 +283,12 @@ func isLane(dir, name string) bool {
 		}
 	}
 	return false
+}
+
+// isProxyScope reports whether p is a scope file in the contained proxy's scopes dir.
+func isProxyScope(p string) bool {
+	_, in := paths.RelWithin(filepath.Join(paths.StateDir(), "proxy", "scopes"), filepath.Clean(p))
+	return in && filepath.IsAbs(p) && fileExists(p)
 }
 
 // fileExists reports whether p is a regular file.

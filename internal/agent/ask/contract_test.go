@@ -8,13 +8,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// openSaved opens and saves contract d-1 for f under a scratch config dir.
+// openSaved opens and saves contract d-1 for f.
 func openSaved(t *testing.T, f contract.Facts, dir, scope string) contract.Contract {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	c, ps, err := openContract(contractOpen{
 		Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}, Lane: "l"},
 		Owner: contract.Party{Role: contract.RoleOwner, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1},
@@ -25,18 +25,23 @@ func openSaved(t *testing.T, f contract.Facts, dir, scope string) contract.Contr
 	return c
 }
 
-func scratchFile(t *testing.T, name string) string {
+// scratchFile writes dir/name under a scratch config dir that this test now uses.
+func scratchFile(t *testing.T, dir, name string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), name)
+	p := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
-// TestOpenContractObservesLaneAndProxy: a plain dir is no lane, an existing scope file passes proxy; abandon fails it.
+// TestOpenContractObservesLaneAndProxy: a plain dir is no lane, a scope file passes proxy; abandon fails it.
 func TestOpenContractObservesLaneAndProxy(t *testing.T) {
-	dir, scope := t.TempDir(), scratchFile(t, "scope.json")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir, scope := t.TempDir(), scratchFile(t, filepath.Join(paths.StateDir(), "proxy", "scopes"), "g.json")
 	c := openSaved(t, contract.Facts{Lane: true, ScopedProxy: true}, dir, scope)
 	got := [][2]string{}
 	for _, r := range c.Records {
@@ -53,12 +58,13 @@ func TestOpenContractObservesLaneAndProxy(t *testing.T) {
 
 // TestSettleContractFailsOnRedGate: a red gate fails the saved contract (reason term); the rest pass.
 func TestSettleContractFailsOnRedGate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	openSaved(t, contract.Facts{}, "", "")
 	one := 1
 	got, err := settleContract("d-1", contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &one},
 		Verify:   &wire.VerifyResult{Exit: 0},
 		Handback: &wire.Handback{Status: "DONE", Summary: "s", Unfixed: []string{}},
-		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, "r.md")})
+		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, t.TempDir(), "r.md")})
 	if err != nil {
 		t.Fatal(err)
 	}
