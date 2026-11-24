@@ -184,7 +184,7 @@ func formatArray(raw, node json.RawMessage, path string, first *string) (json.Ra
 		return nil, err
 	}
 	values := make(map[string]string, len(items))
-	allStrings := path != "fallbackModel" // its order is the retry priority
+	allStrings := !priorityList(path)
 	for _, item := range items {
 		if bytes.TrimSpace(item)[0] != '"' {
 			allStrings = false
@@ -213,6 +213,9 @@ func formatArray(raw, node json.RawMessage, path string, first *string) (json.Ra
 	}
 	return textutil.MarshalNoEscape(items)
 }
+
+// priorityList names string lists whose order is a priority, so formatting must keep it.
+func priorityList(path string) bool { return path == "fallbackModel" || path == "availableModels" }
 
 func compareStrings(x, y string) int {
 	if (x == "$defaults") != (y == "$defaults") {
