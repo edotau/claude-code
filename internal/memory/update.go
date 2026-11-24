@@ -328,10 +328,12 @@ func tagBlock(transcript, session string, historical bool) string {
 	if session == "" { // no id on the request: the transcript's stem is the session id for Claude transcripts
 		session = strings.TrimSuffix(filepath.Base(transcript), ".jsonl")
 	}
-	tags := mergeTags(typedTags(session), legacy)
-	if historical {
-		tags = slices.DeleteFunc(tags, func(t tag) bool { return t.Kind != "DECISION" })
+	typed := typedTags(session)
+	if historical { // before the cap, so reserved slots never go to tags this mode drops
+		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
+		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
+	tags := mergeTags(typed, legacy)
 	if len(tags) == 0 {
 		return ""
 	}

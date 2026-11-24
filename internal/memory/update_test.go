@@ -765,3 +765,21 @@ func TestMergeTagsKeepsLegacyOnlyTagWhenTypedFull(t *testing.T) {
 		t.Fatalf("mergeTags len %d, want %d ending in the legacy-only decision", len(got), tagMaxCount)
 	}
 }
+
+// TestTagBlockHistoricalFiltersBeforeTheCap: legacy notes never take slots from decisions in a historical update.
+func TestTagBlockHistoricalFiltersBeforeTheCap(t *testing.T) {
+	tempConfig(t)
+	var ev, notes strings.Builder
+	for i := range tagMaxCount {
+		ev.WriteString(`{"event":"decision","text":"d` + strconv.Itoa(i) + `","at":"x"}` + "\n")
+	}
+	for i := range 8 {
+		notes.WriteString("NOTE: n" + strconv.Itoa(i) + `\n`)
+	}
+	path := filepath.Join(t.TempDir(), "s8.jsonl")
+	write(t, path, `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"`+notes.String()+`"}]}}`)
+	write(t, TagEventsPath("s8"), ev.String())
+	if got := tagBlock(path, "s8", true); !strings.Contains(got, "DECISION: d0") || strings.Contains(got, "NOTE") {
+		t.Fatalf("historical tagBlock = %q, want all decisions and no notes", got)
+	}
+}
