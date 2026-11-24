@@ -271,7 +271,7 @@ func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer
 		return err
 	}
 	if base == "" {
-		base = "HEAD"
+		return errNoTests
 	}
 	names, gitErr := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
 	isPy := func(f string) bool { return strings.HasSuffix(f, ".py") }
