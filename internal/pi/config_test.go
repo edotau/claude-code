@@ -87,7 +87,8 @@ func compatChecks(pr map[string]piProv) []buildCheck {
 	return []buildCheck{
 		{"chat non-GPT gets max_tokens and a capped limit", pr["dbx-chat"].Models[2].Compat["maxTokensField"] == "max_tokens" && pr["dbx-chat"].Models[2].MaxTokens <= 8192},
 		{"GPT chat keeps max_completion_tokens", compatFor("databricks-gpt-5-4-mini", providers.ProtocolOpenAI) == nil},
-		{"claude compat unchanged", len(pr["dbx-claude"].Models[0].Compat) == 1 && pr["dbx-claude"].Models[0].Compat["forceAdaptiveThinking"] == true},
+		{"claude compat adds strict tools", len(pr["dbx-claude"].Models[0].Compat) == 2 && pr["dbx-claude"].Models[0].Compat["forceAdaptiveThinking"] == true && pr["dbx-claude"].Models[0].Compat["supportsStrictTools"] == true},
+		{"no strict on chat or responses", compatFor("databricks-kimi-k3", providers.ProtocolOpenAI)["supportsStrictTools"] == nil && compatFor("databricks-gpt-5-4-mini", providers.ProtocolResponses) == nil},
 	}
 }
 

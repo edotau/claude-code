@@ -87,15 +87,23 @@ func pickWire(p *providers.Provider, wire string) (string, bool) {
 	return providers.ProtocolOpenAI, has(providers.ProtocolOpenAI)
 }
 
-// compatFor is Pi's per-model compat for Databricks: no thinking.type=enabled on Claude, max_tokens on plain chat.
+// compatFor is Pi's per-model compat; strict tools only for Claude on the anthropic wire.
 func compatFor(wire, w string) map[string]any {
-	if models.FamilyKind(wire) == models.FamilyClaude && !strings.Contains(wire, "haiku-4") {
-		return map[string]any{"forceAdaptiveThinking": true}
+	c := map[string]any{}
+	claude := models.FamilyKind(wire) == models.FamilyClaude
+	if claude && !strings.Contains(wire, "haiku-4") {
+		c["forceAdaptiveThinking"] = true
+	}
+	if claude && w == providers.ProtocolAnthropic {
+		c["supportsStrictTools"] = true
 	}
 	if w == providers.ProtocolOpenAI && !models.IsOpenAIReasoning(wire) {
-		return map[string]any{"maxTokensField": "max_tokens"}
+		c["maxTokensField"] = "max_tokens"
 	}
-	return nil
+	if len(c) == 0 {
+		return nil
+	}
+	return c
 }
 
 // chatMaxTokens is the output limit for a chat-wire model with no known one: some serving endpoints cap output at 8192.
