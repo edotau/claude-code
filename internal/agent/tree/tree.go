@@ -425,16 +425,26 @@ func runningAgent(sub Subagent) string {
 	words := strings.FieldsFunc(strings.ToLower(sub.Description), func(r rune) bool { return !unicode.IsLetter(r) })
 	var named []Dispatch
 	for _, d := range sub.Dispatches {
-		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) &&
-			!slices.ContainsFunc(named, func(n Dispatch) bool { return n.Agent == d.Agent }) {
+		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) {
 			named = append(named, d)
 		}
 	}
-	if len(named) != 1 {
+	if len(named) == 0 || slices.ContainsFunc(named, func(d Dispatch) bool { return d.Agent != named[0].Agent }) {
 		return sub.Type
 	}
-	d := named[0]
-	return cmp.Or(string(models.AgentType(d.Provider, d.Model, false)), d.Agent) // the model that ran, else the asked agent
+	t := dispatchType(named[0])
+	if slices.ContainsFunc(named, func(d Dispatch) bool { return dispatchType(d) != t }) {
+		return named[0].Agent // runs on different models: the asked agent
+	}
+	return t
+}
+
+// dispatchType is the type of the model the run used (models.AgentType); the asked agent when the id names none.
+func dispatchType(d Dispatch) string {
+	if d.Model == agent.AutoModel {
+		return d.Agent
+	}
+	return cmp.Or(string(models.AgentType(d.Provider, d.Model, false)), d.Agent)
 }
 
 // sessionIDFromPath extracts the session id from <session>.jsonl.
