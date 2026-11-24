@@ -63,7 +63,9 @@ func overflowCands(disp Dispatch, tools bool, account, ran, low string) ([]route
 	pool := slices.DeleteFunc(served, func(m string) bool {
 		return router.HeldUntil(entry, name, m, now) != nil // a quota-held or skipped model stays out
 	})
-	allow1M := name != agentid.OpenCode && router.HeldUntil(entry, name, ran, now) == nil // opencode drops [1m]
+	_, restricted := router.PoolOverlay() // an owner allowlist admits the variant only through its base model
+	allow1M := name != agentid.OpenCode && router.HeldUntil(entry, name, ran, now) == nil &&
+		(!restricted || router.IsPoolModel(func() []string { return pool }, p, models.Strip1M(ran))) // opencode drops [1m]
 	return router.LargerWindow(p, ran, pool, floor, allow1M), providers.Window(p, ran)
 }
 
