@@ -47,7 +47,7 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 | 1 | Parse/compile + **lint** (`ruff`, `go vet`, `claude-code agents diff --check --path <files>`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted |
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
-| 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
+| 4 | Scoped tests for the packages you touched, named explicitly | In the sign-off driver (`worktree merge`), not by a leaf; a leaf runs only the test it wrote or repairs |
 | 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, and at the end of every wave over its merged diff |
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**; a leaf runs a chain target only when its brief names it |
 
@@ -75,8 +75,10 @@ Anything noticed mid-task (a bug, an editor or lint finding, dead code) is fixed
 within the named priority (R25).
 
 **Review loop (R28):** every code change gets an other-family review that lists every finding at once; the author
-fixes every finding, any severity, without asking, and one more review checks only those fixes. A lane merges when
-that check has no CRITICAL or HIGH; anything it still finds is fixed in a follow-up commit on main, never parked.
+fixes every finding, any severity, without asking, and the review repeats until one finds nothing. Three rounds in a
+row that each find a new HIGH in the same area stop the loop: bring the pattern and a design recommendation to the
+owner. A lane merges when the last review has no CRITICAL or HIGH; anything it still finds is fixed in a follow-up
+commit on main, never parked.
 Findings are fixed, not reported: a leaf hands back only what it could not fix, as one final `UNFIXED: none` or
 `UNFIXED: <item>; <item>` line, and the main session fixes or decides that at once (its recommendation is the
 decision; it never asks the owner) and relays only the outcome.

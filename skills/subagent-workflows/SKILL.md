@@ -198,6 +198,15 @@ an idle slot with unblocked work is a fault. Spread leaves over the three Databr
 dev|qa|prod` on the relay's Run line) and the four vendor CLIs so no single account carries the wave. The only
 limits are overlapping files, dependency order and an account's own rate limit.
 
+#### Dispatch workflow (R32)
+
+1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
+2. One sign-off gate: `claude-code worktree merge <lane>`; a leaf runs no gate chain of its own.
+3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing.
+4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
+5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane; main merges.
+6. In a contract (typed-pi-dispatch plan, phases 10-12, not built) the Opus owner runs this fan-out; until then main.
+
 #### Wave loop
 
 The main thread plans waves, dispatches, decides and commits; file reads, diff review, gate runs and review fixes go to
@@ -206,7 +215,7 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
 1. **Queue:** the [Dispatch table](#dispatch-table) holds the blocked tasks; dispatch one the moment its blocker
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
-   reads the diff, not the manager) → a fix leaf for each finding (one exhaustive review, one check of the fixes;
+   reads the diff, not the manager) → a fix leaf for each finding (review loop until clear;
    the manager fixes what the leaf could not, R28) → the manager re-runs the scoped gate and commits named files
    (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit follow
    `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
@@ -252,7 +261,8 @@ unblocked row in one message.
 
 The implementer writes the basic tests for its own feature (R15); other cases are proposals in its hand-back. Broken
 existing tests are repaired by the implementer, a `claude` leaf or a carried `copilot` ask. The main thread owns the
-live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
+live check. A leaf runs only a test it wrote or repairs; package tests run in the sign-off gate (R32).
+Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
 (`rules/standards/testing-guidelines.md` → When a test fails).
 
 | Situation | Shape |

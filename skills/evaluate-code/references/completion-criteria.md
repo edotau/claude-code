@@ -11,5 +11,5 @@ The completion checklist is canonical in `rules/standards/quality.md` → Comple
 | MEDIUM | Maintainability concern | **FIX NOW** — same round, no ask | should-fix |
 | LOW | Style, minor | **FIX NOW** — same round, no ask (R28, `rules/standards/quality.md`) | nit |
 
-One exhaustive review; fix every finding without asking; one check of the fixes; SHIP when it shows no
-CRITICAL or HIGH, the rest fixed on main (R28).
+Review, fix every finding without asking, review again until one finds nothing (three rounds in a row with a new HIGH
+in one area: stop, bring the pattern to the owner); SHIP when the last shows no CRITICAL or HIGH (R28).

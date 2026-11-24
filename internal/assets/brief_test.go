@@ -16,8 +16,9 @@ func TestBriefTextMatchesOldLiterals(t *testing.T) {
 	const exploreTail = "\nOutput exactly these five sections, each a few bullets: Structure, Conventions, Dependencies, Prior art,\n" +
 		"Open questions. Stop once two more lookups wouldn't change the brief.\n\nQuestion: "
 	checkFrames(t, []frameCase{
-		{"review-loop", ReviewLoop(), "Review loop (standing rule): after your change, get one review that lists every finding at once; fix every\n" +
-			"finding yourself, any severity, then one more review that checks only those fixes. Never hand back a finding unfixed\n" +
+		{"review-loop", ReviewLoop(), "Review loop (standing rule): after your change, get an other-family review that lists every finding; fix\n" +
+			"every finding yourself, any severity, then review again, until a review finds nothing. Three rounds in a row that each\n" +
+			"find a new HIGH in one area: stop and hand back the pattern with a design recommendation. Never hand back a finding unfixed\n" +
 			"or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.\n" +
 			"A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip\n" +
 			"it); if large, hand back naming it for a test-repair leaf.\n" +
@@ -56,8 +57,8 @@ func TestBriefTextMatchesOldLiterals(t *testing.T) {
 // The old brief.tmpl was too long to restate: its text/template render is pinned by hash, per rtk mode.
 func TestBriefBodyMatchesOldRender(t *testing.T) {
 	for rtk, want := range map[bool]string{
-		true:  "46124e2118c410872cbe81b4fb96513786a4d4ce23ce63f15cfa0243b8d3d9d8",
-		false: "f8c9a99db9bbdf67db425dd8c693fd414aaa1936bc9ca64769f9a042c5a9aeaf",
+		true:  "86d2653e642dfd8f24947d62799b7f0e5c560b5192227b9a67a1ef1f869de171",
+		false: "f38a6407482eeacdace1de7f4e169b80c2a790e1102987c297c7b396730c63b7",
 	} {
 		got := BriefBody(BriefFrame{Agent: "a", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
