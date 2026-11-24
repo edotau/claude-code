@@ -225,6 +225,7 @@ func TestAfterSystemPrompt(t *testing.T) {
 		"caller's prompt wins":              {agent.RunOptions{Tools: true, SystemPrompt: "mine"}, "mine"},
 		"no tools run names no tools":       {agent.RunOptions{}, ""},
 		"codemode hides the tools":          {agent.RunOptions{Tools: true, Codemode: "only"}, ""},
+		"codemode on keeps the tools":       {agent.RunOptions{Tools: true, Codemode: "on"}, assets.PiSystemPrompt()},
 	} {
 		p := &agent.CLIPrep{Env: env, Prompt: "x"}
 		piEngine{}.After(p, c.req)
