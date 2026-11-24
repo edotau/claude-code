@@ -81,24 +81,29 @@ func abortRebase(ctx context.Context, plan *MergePlan, before string, out []byte
 	}
 	plan.Issues = []Issue{{Code: IssueConflict, Paths: files}}
 	return fmt.Errorf("%w in %s: %s; rebase aborted, lane left at %s; resolve it in the lane "+
-		"(--resolve-agent <agent> or a fix leaf), then re-run worktree merge", ErrRebaseConflict, plan.WorktreePath,
+		"(--resolve-agent <agent> or a fix leaf), then re-run worktree land", ErrRebaseConflict, plan.WorktreePath,
 		strings.Join(files, ", "), ShortOID(before))
 }
 
 // promote rechecks OIDs and states under the merge lock, requires ancestry and fast-forwards repo.Main.
 func promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+	return promoteOrLand(ctx, repo, plan, false)
+}
+
+// promoteOrLand checks under the merge lock, then fast-forwards main (local: applies the diff uncommitted).
+func promoteOrLand(ctx context.Context, repo *Repo, plan *MergePlan, local bool) (*MergeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var result *MergeResult
 	err := acquire(0, func() (err error) {
-		result, err = promoteLocked(ctx, repo, plan)
+		result, err = promoteLocked(ctx, repo, plan, local)
 		return err
 	})
 	return result, err
 }
 
-func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan, local bool) (*MergeResult, error) {
 	if plan.IntegratedOID == "" {
 		return nil, errors.New("promote: no verified integration OID pinned — call integrateTarget first")
 	}
@@ -113,6 +118,9 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	if err := ctx.Err(); err != nil {
 		// never start the ff-only update once canceled — repo.Main stays untouched
 		return nil, err
+	}
+	if local {
+		return &MergeResult{Phase: "land", BeforeOID: freshTarget, AfterOID: freshSource}, applyLaneDiff(ctx, repo.Main, freshTarget, freshSource)
 	}
 	out, err := runGit(ctx, repo.Main, nil, "-c", "submodule.recurse=false", "merge", "--ff-only", "--no-autostash", freshSource)
 	if err != nil {
@@ -133,6 +141,9 @@ func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error 
 	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+".."+plan.IntegratedOID); err != nil {
 		return err
 	} else if issue != nil {
+		if issue.Code == issueDirtyTarget {
+			return fmt.Errorf("promote: %s: %v: %w", issue.Code, issue.Detail, ErrLandRefused)
+		}
 		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
 	}
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
@@ -178,11 +189,11 @@ func promoteFreshHeads(ctx context.Context, repo *Repo, plan *MergePlan) (target
 		return "", "", nil, err
 	}
 	if freshTarget != plan.TargetOID {
-		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree merge to re-integrate and retry"},
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree land to re-integrate and retry"},
 			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)
 	}
 	if freshSource != plan.IntegratedOID {
-		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree merge to re-integrate and retry"},
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree land to re-integrate and retry"},
 			fmt.Errorf("promote: worktree HEAD moved from the verified integration %s to %s since integration — refusing to promote an unreviewed commit",
 				plan.IntegratedOID, freshSource)
 	}
@@ -192,7 +203,7 @@ func promoteFreshHeads(ctx context.Context, repo *Repo, plan *MergePlan) (target
 		return "", "", nil, fmt.Errorf("promote: %w", err)
 	}
 	if !ancestor {
-		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "not a fast-forward — re-run worktree merge to re-integrate and retry"},
+		return "", "", &MergeResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "not a fast-forward — re-run worktree land to re-integrate and retry"},
 			fmt.Errorf("promote: %s is not an ancestor of the integrated worktree HEAD %s", freshTarget, freshSource)
 	}
 	return freshTarget, freshSource, nil, nil
@@ -207,17 +218,19 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// MergeRequest is one `worktree merge` apply; Out/Err get the progress lines, the Show* hooks render plans and results.
+// MergeRequest is one `worktree land` apply; Out/Err get the progress lines, the Show* hooks render plans and results.
 type MergeRequest struct {
 	Name, Target, ResolveAgent, Verify    string
 	Resume, NoClean, FullVerify, NoVerify bool
+	IntoBranch                            bool // fast-forward and commit onto the branch instead of landing uncommitted
 	Out, Err                              io.Writer
 	ShowPlan                              func(*MergePlan)
 	ShowResolved                          func(*MergeResult)
 	AfterPromote                          func(ctx context.Context, commitRange string) error
+	AfterLand                             func(laneHead string)
 }
 
-// mergeOutcome is a finished merge: Blocked means the plan was refused (already shown); Clean is nil when NoClean.
+// mergeOutcome is a finished land: Blocked means the plan was refused (already shown); Clean is nil when NoClean.
 type mergeOutcome struct {
 	Blocked bool
 	Clean   *CleanResult
@@ -274,12 +287,15 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 		return nil, err
 	}
 
-	promoted, err := promote(ctx, repo, plan)
+	promoted, err := promoteOrLand(ctx, repo, plan, !req.IntoBranch)
 	if err != nil {
 		if promoted != nil && promoted.ResumeHint != "" {
 			fmt.Fprintln(req.Err, "  retry:", promoted.ResumeHint)
 		}
 		return nil, fmt.Errorf("promote: %w", err)
+	}
+	if !req.IntoBranch {
+		return afterLand(ctx, repo, plan, req, promoted)
 	}
 	return afterPromote(ctx, repo, plan, req, promoted, integrated)
 }
@@ -306,15 +322,15 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
 		if err := req.AfterPromote(ctx, promoted.BeforeOID+".."+promoted.AfterOID); err != nil {
-			fmt.Fprintf(req.Err, "worktree merge: warning: plan tick: %v\n", err)
+			fmt.Fprintf(req.Err, "worktree land: warning: plan tick: %v\n", err)
 		}
 	}
 	if err := bench.ApplyPending(repo.Main, req.Name); err != nil {
-		fmt.Fprintf(req.Err, "worktree merge: warning: bench pending: %v\n", err)
+		fmt.Fprintf(req.Err, "worktree land: warning: bench pending: %v\n", err)
 	}
 	notifyLanes(ctx, repo, req, plan, promoted)
 	if err := Dequeue(plan.WorktreePath); err != nil {
-		fmt.Fprintf(req.Err, "worktree merge: warning: merge queue: %v\n", err)
+		fmt.Fprintf(req.Err, "worktree land: warning: merge queue: %v\n", err)
 	}
 	if line := StartAudit(repo.Main, promoted.AfterOID); line != "" {
 		fmt.Fprintln(req.Out, line)
@@ -338,7 +354,7 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 // warnLedger reports a failed ledger close as a warning; the merge itself already landed.
 func warnLedger(errOut io.Writer, err error) {
 	if err != nil {
-		fmt.Fprintf(errOut, "worktree merge: warning: ledger: %v\n", err)
+		fmt.Fprintf(errOut, "worktree land: warning: ledger: %v\n", err)
 	}
 }
 
@@ -369,6 +385,11 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 	}
 	req.ShowPlan(plan)
 	if len(plan.Issues) > 0 && !onlyConflictIssue(plan.Issues) {
+		for _, iss := range plan.Issues {
+			if iss.Code == issueDirtyTarget {
+				return nil, fmt.Errorf("%w: %s dirty in the live tree; nothing changed, lane kept", ErrLandRefused, strings.Join(iss.Paths, ", "))
+			}
+		}
 		return nil, nil
 	}
 	if dryRun {
@@ -433,7 +454,7 @@ func replanPinned(ctx context.Context, repo *Repo, req MergeRequest, ref, oid, b
 		return nil, fmt.Errorf("still blocked after %s (%s)", blockedAfter, issueCodes(fresh.Issues))
 	}
 	if fresh.TargetRef != ref || fresh.TargetOID != oid {
-		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) %s — re-run worktree merge explicitly to retry against the new target",
+		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) %s — re-run worktree land explicitly to retry against the new target",
 			ref, ShortOID(oid), fresh.TargetRef, ShortOID(fresh.TargetOID), movedWhen)
 	}
 	return fresh, nil
@@ -445,12 +466,12 @@ func notifyConflict(plan *MergePlan, errOut io.Writer) {
 	if s == "" {
 		return
 	}
-	err := Append(inboxFor(s, plan.WorktreePath), Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
+	err := Append(inboxFor(s, plan.WorktreePath), Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree land",
 		Text: fmt.Sprintf("rebase of %s onto %s hit a conflict in %s and was aborted, lane unchanged; resolve it there "+
-			"or run `claude-code worktree merge --resolve-agent codex %s`", plan.WorktreePath, plan.TargetRef,
+			"or run `claude-code worktree land --resolve-agent codex %s`", plan.WorktreePath, plan.TargetRef,
 			issuePaths(plan.Issues), filepath.Base(plan.WorktreePath))})
 	if err != nil && errOut != nil {
-		fmt.Fprintf(errOut, "worktree merge: warning: conflict notice: %v\n", err)
+		fmt.Fprintf(errOut, "worktree land: warning: conflict notice: %v\n", err)
 	}
 }
 
@@ -476,14 +497,14 @@ func issueCodes(issues []Issue) string {
 	return strings.Join(codes, ", ")
 }
 
-// mergeLockFile serializes the fast-forward promote across `worktree merge` runs, never external writers.
+// mergeLockFile serializes the fast-forward promote across `worktree land` runs, never external writers.
 const mergeLockFile = "worktree-merge.lock"
 
 // mergeLockWait is how long acquire waits (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
 var mergeLockWait = 5 * time.Second
 
 // errMergeBusy is returned when the merge lock is not granted within the wait.
-var errMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
+var errMergeBusy = errors.New("worktree land: another promote holds the merge lock")
 
 // acquire runs fn holding the merge lock (wait<=0 means mergeLockWait); not reentrant, fn must never call acquire.
 func acquire(wait time.Duration, fn func() error) error {
@@ -509,14 +530,21 @@ func previewMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	} else if gate != "" {
 		verify = gate + " (" + source + ", scoped to changed Go packages unless --full-verify)"
 	}
-	clean := "remove the lane and its branch"
+	clean, ticks := "remove the lane, keep its branch", ""
+	if req.IntoBranch {
+		clean, ticks = "remove the lane and its branch", "tick Task: trailers; notice other lanes; "
+	}
 	if req.NoClean {
 		clean = "keep the lane (--no-clean)"
 	}
 	fmt.Fprintf(req.Out, "would: rebase %s onto %s inside the lane; a conflict aborts it, lane unchanged (exit 3)\n",
 		plan.WorktreePath, plan.TargetRef)
 	fmt.Fprintf(req.Out, "would: verify in the lane: %s\n", verify)
-	fmt.Fprintf(req.Out, "would: fast-forward %s only; tick Task: trailers; notice other lanes; %s\n", plan.TargetRef, clean)
+	if req.IntoBranch {
+		fmt.Fprintf(req.Out, "would: fast-forward %s only, committed; %s%s\n", plan.TargetRef, ticks, clean)
+	} else {
+		fmt.Fprintf(req.Out, "would: apply the lane's diff uncommitted to the live tree; refuse (exit 3) if a landed path is dirty; %s\n", clean)
+	}
 	changed, err := targetTouchedPaths(ctx, repo.Main, plan.TargetOID+"..."+plan.SourceOID)
 	if err != nil {
 		return err
@@ -591,12 +619,12 @@ func noticeLane(ctx context.Context, repo *Repo, e Entry, session string, touche
 	if shared := sharedFiles(touched, mine); len(shared) > 0 {
 		text += "; overlaps yours in " + strings.Join(shared, ", ")
 	}
-	return Append(session, Notice{TS: time.Now().Unix(), Kind: "trunk-moved", From: "worktree merge", Text: text})
+	return Append(session, Notice{TS: time.Now().Unix(), Kind: "trunk-moved", From: "worktree land", Text: text})
 }
 
 // warnNotice reports a failed lane notice as a warning; the merge itself already landed.
 func warnNotice(errOut io.Writer, err error) {
 	if err != nil {
-		fmt.Fprintf(errOut, "worktree merge: warning: lane notice: %v\n", err)
+		fmt.Fprintf(errOut, "worktree land: warning: lane notice: %v\n", err)
 	}
 }

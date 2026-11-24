@@ -133,7 +133,7 @@ func TestStatusTextRows(t *testing.T) {
 		}
 	}
 	statusWantText(t, out, "lanes: 1 open (cap 3)", name+": unmerged, dirty=false, behind=4",
-		"claude-code worktree merge "+name, "1. 0.40 s/day [fix]", "no fix item clears the 1 s/day loop floor")
+		"claude-code worktree land "+name, "1. 0.40 s/day [fix]", "no fix item clears the 1 s/day loop floor")
 }
 
 func TestStatusLastLoop(t *testing.T) {

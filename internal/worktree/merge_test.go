@@ -255,11 +255,11 @@ func TestMergeDirtyTargetOverlap(t *testing.T) {
 			}
 			var plan *MergePlan
 			outcome, err := Merge(context.Background(), repo, MergeRequest{
-				Name: "feature", Verify: "true", NoClean: true, Out: io.Discard, Err: io.Discard,
+				Name: "feature", Verify: "true", NoClean: true, IntoBranch: true, Out: io.Discard, Err: io.Discard,
 				ShowPlan: func(p *MergePlan) { plan = p },
 			})
-			if err != nil || outcome == nil || outcome.Blocked != overlap {
-				t.Fatalf("Merge = %+v, %v; want blocked=%v", outcome, err, overlap)
+			if errors.Is(err, ErrLandRefused) != overlap || (!overlap && (err != nil || outcome == nil)) {
+				t.Fatalf("Merge = %+v, %v; want a land refusal=%v", outcome, err, overlap)
 			}
 			wantHead := headOf(wt)
 			if overlap {
@@ -375,7 +375,7 @@ func TestAfterPromoteCleanClosesLedgerOnce(t *testing.T) {
 	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	wantHead := headOf(wt)
 	outcome, err := Merge(context.Background(), repo, MergeRequest{
-		Name: "feature", NoVerify: true, Out: io.Discard, Err: io.Discard,
+		Name: "feature", NoVerify: true, IntoBranch: true, Out: io.Discard, Err: io.Discard,
 		ShowPlan: func(*MergePlan) {},
 	})
 	if err != nil {
@@ -442,7 +442,7 @@ func laneMergeFixture(t *testing.T) (*Repo, string, string) {
 }
 
 func laneRequest(name string, out io.Writer) MergeRequest {
-	return MergeRequest{Name: name, NoVerify: true, Out: out, Err: out,
+	return MergeRequest{Name: name, NoVerify: true, IntoBranch: true, Out: out, Err: out,
 		ShowPlan: func(*MergePlan) {}, ShowResolved: func(*MergeResult) {}}
 }
 
@@ -545,8 +545,8 @@ func TestLaneMergeDirtyOverlapRefusesBeforeRebase(t *testing.T) {
 	req := laneRequest("a", io.Discard)
 	req.ShowPlan = func(p *MergePlan) { plan = p }
 	outcome, err := Merge(t.Context(), repo, req)
-	if err != nil || outcome == nil || !outcome.Blocked {
-		t.Fatalf("want refusal: %+v %v", outcome, err)
+	if !errors.Is(err, ErrLandRefused) || outcome != nil || !strings.Contains(err.Error(), "f.txt") {
+		t.Fatalf("want a land refusal naming f.txt: %+v %v", outcome, err)
 	}
 	assertDirtyTargetIssue(t, plan, "f.txt")
 	if headOf(wt) != before || headOf(main) != mainBefore {
@@ -566,7 +566,7 @@ func TestLaneMergeTrunkMovedDuringGateRefuses(t *testing.T) {
 	req := laneRequest("a", &out)
 	req.NoVerify, req.Verify = false, "git -C "+textutil.ShellQuote(main)+" commit -q --allow-empty -m moved"
 	_, err := Merge(t.Context(), repo, req)
-	if err == nil || !strings.Contains(err.Error(), "target moved") || !strings.Contains(out.String(), "re-run worktree merge") {
+	if err == nil || !strings.Contains(err.Error(), "target moved") || !strings.Contains(out.String(), "re-run worktree land") {
 		t.Fatalf("want a target-moved refusal naming re-run: %v\n%s", err, out.String())
 	}
 	if headOf(main) == headOf(wt) {

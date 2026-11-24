@@ -187,9 +187,10 @@ allowlist is under dispatch-handback) plus the scoped gate on that sha in a scra
 shape-refused `verify:` ticks on the gate with a note, red stays open with the failing command and tail; with no trunk,
 nothing ticks and one line says so. Only the main session's verified `worktree commit --task` ticks; coverage prints one
 candidate per task (recent or claimed plans) and writes nothing; draft mirrors and struck tasks never tick. A lane, a
-feature branch or a detached HEAD ticks nothing; a lane commit ticks when it lands (`worktree merge` promotes it, or the
-hook sees in the HEAD reflog a fast-forward or merge commit land on main, whatever the call printed or a later command
-did; `plan tick --range` otherwise). The Stop reminder's partials record (one shared lock) is no longer written.
+feature branch or a detached HEAD ticks nothing; a lane commit ticks when it reaches main (`worktree land --merge`
+promotes it, or the hook sees in the HEAD reflog a fast-forward or merge commit land on main, whatever the call
+printed or a later command did; `plan tick --range` otherwise). The Stop reminder's partials record (one shared
+lock) is no longer written.
 `claude-code clean` sweeps obsolete `*.partial.lock` files older than one day
 
 ## memory-update

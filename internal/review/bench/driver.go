@@ -564,7 +564,7 @@ func (d *driver) keep(c candidate) (outcome, error) {
 	if err != nil {
 		return d.hold(c, "record keep: "+err.Error())
 	}
-	fmt.Fprintf(d.out, "bench: kept %s in lane %s, −%.0f ms/day (gates only); merge: claude-code worktree merge %s\n",
+	fmt.Fprintf(d.out, "bench: kept %s in lane %s, −%.0f ms/day (gates only); land: claude-code worktree land %s\n",
 		c.What, c.slug, saved, c.slug)
 	return kept, nil
 }

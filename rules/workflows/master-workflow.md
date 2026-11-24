@@ -36,7 +36,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 4. Plan (MEDIUM+) | `Plan` | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test |
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
-| 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean, no leaf still running |
+| 7. Land | `claude-code worktree land` (if a worktree was used) | Landed diff | Clean, no leaf still running |
 | 8. Verify | `rules/standards/quality.md` → Verification Order | Simplified, verified diff | Order green |
 | 9. Commit | Authorized carried `copilot` ask, brief naming `rules/standards/worktree-git.md` → LAST-MILE, or main session | Commit pushed | Clean tree, pushed |
 

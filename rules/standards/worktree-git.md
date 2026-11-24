@@ -15,11 +15,11 @@
    task (a recent or claimed plan, or a dated `--plan` file in the repo's plans home) before staging; quote an id with
    spaces. The commit carries `Task: <plan-slug> <id>` trailers: only a real trailer counts (last paragraph, every line
    a column-zero trailer; quoted or prose lines never do); a named task ticks once the commit is on main and its
-   `verify:` plus the scoped gate pass on that commit (detached; the result is a notice) (a lane commit when it lands),
-   even if it left some `owns:` files out. Main is the primary checkout on the trunk: origin/HEAD
-   when it names an existing local branch, else `init.defaultBranch`, `main`, `master`; none exists, nothing ticks.
-   Only the main session's `worktree commit --task`, after it verifies a hand-back, ticks (leaves hand back
-   uncommitted); coverage never ticks, it prints one candidate. Manual
+   `verify:` plus the scoped gate pass on that commit (detached; the result is a notice) (a lane commit once you
+   commit its landed changes on main), even if it left some `owns:` files out. Main is the primary checkout on the
+   trunk: origin/HEAD when it names an existing local branch, else `init.defaultBranch`, `main`, `master`; none
+   exists, nothing ticks. Only the main session's `worktree commit --task`, after it verifies a hand-back, ticks
+   (leaves hand back uncommitted); coverage never ticks, it prints one candidate. Manual
    `plan task <id> --done --sha <sha> --plan <file>` needs no trailer.
    Plans finishing together run their closing steps once and tick each plan's lines with that sha; strike only a
    step really dropped.
@@ -35,9 +35,9 @@ Executor mechanics: [LAST-MILE](#last-mile).
 
 Any executor given an authorized landing brief lands already-verified work; inspect the tree before resuming.
 
-1. Merge verified branches in dependency order with `claude-code worktree merge <name>` (`--dry-run` previews;
+1. Land verified branches in dependency order with `claude-code worktree land <name>` (`--dry-run` previews;
    `--verify <cmd>` sets the gate). Return conflicts needing code decisions to the caller; never change product code.
-2. After the final merge, run lint, build and tests of the merged packages once: individually green branches can fail
+2. After the final land, run lint, build and tests of the merged packages once: individually green branches can fail
    together. The release/full build, test and security chain remains main-session-only, once, with owner approval.
 3. Separate your changes from pre-existing dirt. Inspect `rtk git diff --no-ext-diff --no-textconv HEAD -- <paths>`
    and scan the staged diff for secrets. Leave every unrelated index entry untouched and report it under `excluded`.
@@ -63,24 +63,31 @@ user's yes; no answer means keep working in place.
 `HARNESS_WORKTREE=lanes` asks nothing and blocks nothing: an edit or stage of a tracked file in the live checkout, or in
 another repo's primary checkout, gets a note naming `claude-code worktree create <slug>`; work in a lane gets none.
 
-- **Owner review:** the lane is named when work starts (after its dated plan, R18); a verified lane merges without
-  asking, with a summary plus `git diff --stat main...<lane>`, unless its diff adds a restriction (block, deny,
-  refusal, narrower sandbox): that waits for the owner's yes.
-- **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree merge <lane>` rebases the
+- **Landing choice:** every repo, `~/.claude` included, offers two modes, the first recommended. **Land on local
+  (Recommended):** the gate-green lane's net diff becomes uncommitted changes in the live checkout; you commit.
+  **Merge into working branch:** `worktree land --merge`, a committed fast-forward. A verified lane lands without
+  asking (owner, 2026-11-24), with a summary plus `git diff --stat main...<lane>`, unless its diff adds a restriction
+  (block, deny, refusal, narrower sandbox): that waits for the owner's yes.
+- **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree land <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
-  importers; all concurrent) and fast-forwards `main` (a moved `main` is refused: re-run), then starts the full
-  `rtk make audit` detached on a clean snapshot of the merged commit, reported on your next prompt.
-  A conflict exits 3, the lane stays as it was and the files are named: fix it in the lane, then re-run the merge.
+  importers; all concurrent) and applies its net diff to the live working tree, uncommitted and unstaged. A landed
+  path already dirty in the live tree, or a failed apply, changes nothing, keeps the lane and exits 3 naming the
+  paths (a change you did not make is never overwritten). A clean land removes the worktree, keeps the branch
+  (the only committed copy until you commit) and prints `landed <lane>: N files uncommitted in <dir>; branch <b>
+  kept` plus the diff stat. `worktree clean <lane>` deletes the kept branch once its diff is in `HEAD`. Plan ticks
+  fire when you commit with `Task:` trailers or run `plan task --done`, not at landing. The full `rtk make audit`
+  runs detached on a snapshot of the lane's rebased head (`HEAD` plus the landed diff), reported on your next prompt.
+  A rebase conflict exits 3 too, the lane stays as it was and the files are named: fix it in the lane, then re-run.
   Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
-- **Merge on completion (every fan-out worktree, any `HARNESS_WORKTREE` value):** the moment a task's leaf hands back
+- **Land on completion (every fan-out worktree, any `HARNESS_WORKTREE` value):** the moment a task's leaf hands back
   and its scoped check passes, the main session commits the named files in the worktree and runs
-  `claude-code worktree merge --resolve-agent <agent> <lane>` (flags before the name) onto the working branch,
+  `claude-code worktree land --resolve-agent <agent> <lane>` (flags before the name) onto the live checkout,
   without asking and without waiting for sibling tasks. A conflict is resolved in the worktree, keeping both sides'
-  intent, then the merge is re-run (`--resume`); it never goes back to the owner unless the two sides contradict
-  an owner statement. A promoted worktree and its branch are removed by the merge; one it refuses to remove (a
-  process still inside it) is removed with `claude-code worktree clean <lane>` once that process ends. No finished
-  worktree outlives its task. A lane that cannot merge by itself is queued, and the main session works the queue
-  off at once. Enforced by `lane-merge` (`rules/harness/hooks.md`).
+  intent, then the land is re-run (`--resume`); it never goes back to the owner unless the two sides contradict
+  an owner statement. A landed worktree is removed by the land; one it refuses to remove (a process still inside
+  it) is removed with `claude-code worktree clean <lane>` once that process ends. No finished worktree outlives
+  its task. A lane that cannot land by itself is queued, and the main session works the queue off at once.
+  Enforced by `lane-merge` (`rules/harness/hooks.md`).
 
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in
   your own linked worktree (CLAUDE.md hard rule 4). Never run stash, checkout, switch, reset, restore or clean in

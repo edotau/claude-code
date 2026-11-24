@@ -47,7 +47,7 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 | 1 | Parse/compile + **lint** (`ruff`, `go vet`, `claude-code agents diff --check --path <files>`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted |
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
-| 4 | Scoped tests for the packages you touched, named explicitly | In the sign-off driver (`worktree merge`), not by a leaf; a leaf runs only the test it wrote or repairs |
+| 4 | Scoped tests for the packages you touched, named explicitly | In the sign-off driver (`worktree land`), not by a leaf; a leaf runs only the test it wrote or repairs |
 | 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, and at the end of every wave over its merged diff |
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**; a leaf runs a chain target only when its brief names it |
 
@@ -55,7 +55,7 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
 call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main), never one call per file (each
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
-tree. A leaf may run them too; the audit after a worktree merge and at session end runs on clean main automatically.
+tree. A leaf may run them too; the audit after a worktree land and at session end runs on clean main automatically.
 
 Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes
 (rare exception: the main session may ask the owner when the fix is disproportionate, one line vs a mountain of code;

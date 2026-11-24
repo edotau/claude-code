@@ -24,12 +24,12 @@ import (
 var worktreePage = helptext.Page{
 	Usage: "claude-code worktree <command> [flags] [<name>]",
 	About: "Linked worktrees of the current repo under ~/worktrees/<repo>/: create one\n" +
-		"per lane, then rebase it onto main, verify it and fast-forward main.",
+		"per lane, then rebase it onto main, verify it and land it on your checkout.",
 	Commands: [][2]string{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
-		{"merge", "verified fast-forward merge; --dry-run previews, --resume"},
-		{"clean", "remove one merged worktree (--force, --dry-run)"},
+		{"land", "verified land on local (--merge commits); --dry-run, --resume"},
+		{"clean", "remove a merged worktree or landed branch (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
 		{"gate", "print (or --run) the verify gate for --dir (--scope, --lint-check)"},
@@ -41,11 +41,17 @@ var worktreePage = helptext.Page{
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
 
-// worktreeVerifyNote explains merge's verification gate; it trails both the verb and the merge page.
-const worktreeVerifyNote = `Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
-Verify in the lane on the rebased tree, before promotion.
+// worktreeVerifyNote explains land's modes and verification gate; it trails both the verb and the land page.
+const worktreeVerifyNote = `Modes:
+  Land on local (Recommended): uncommitted changes in your checkout; you
+    commit (default)
+  Merge into working branch: committed onto the branch (--merge)
+Land on local refuses (exit 3, nothing changed) when a landed path is dirty
+in your checkout.
+Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
+Verify in the lane on the rebased tree, before landing.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
-package.json, or Cargo.toml. Without a gate, promotion is refused.
+package.json, or Cargo.toml. Without a gate, landing is refused.
 Makefile + go.mod: build+vet all, test changed, importing and registry pkgs;
 --full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
@@ -82,7 +88,7 @@ func cmdWorktree(args []string) int {
 var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 	"list":      cmdWorktreeList,
 	"create":    cmdWorktreeCreate,
-	"merge":     cmdWorktreeMerge,
+	"land":      cmdWorktreeLand,
 	"clean":     cmdWorktreeClean,
 	"clean-all": cmdWorktreeCleanAll,
 	"base":      cmdWorktreeBase,
@@ -314,15 +320,16 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	return 0
 }
 
-// cmdWorktreeMerge previews (--dry-run) or applies Preflight's two-phase merge under one worktree lease.
-func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>",
-		About: "Rebase <name> onto main, verify, fast-forward, tick plans, notify lanes.", Hint: worktreeVerifyNote})
-	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
+// cmdWorktreeLand previews (--dry-run) or applies Preflight's two-phase land under one worktree lease.
+func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
+	fs := helptext.NewFlagSet("worktree land", helptext.Page{Usage: "claude-code worktree land [flags] <name>\nclaude-code worktree land --resume [flags] <name>",
+		About: "Rebase <name> onto main, verify, then land it on your checkout as uncommitted changes.", Hint: worktreeVerifyNote})
+	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without landing")
+	intoBranch := fs.Bool("merge", false, "Merge into working branch: fast-forward and commit, tick plans, notify lanes")
 	target := fs.String("target", "", "require this main branch (default: current branch)")
-	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
-	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
-	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
+	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful land")
+	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks landing")
+	noVerify := fs.Bool("no-verify", false, "land without any verification gate — the only way to skip one")
 	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve a conflict in the lane with a tools-capable agent")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
@@ -330,11 +337,11 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		return code
 	}
 	if !worktree.ValidResolveAgent(*resolveAgent) {
-		return helptext.Fail("worktree merge: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
+		return helptext.Fail("worktree land: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return helptext.Fail("worktree merge: give exactly one name")
+		return helptext.Fail("worktree land: give exactly one name")
 	}
 	name := rest[0]
 
@@ -344,12 +351,13 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	var promoted string
 	req := worktree.MergeRequest{
 		Name: name, Target: *target, ResolveAgent: *resolveAgent, Verify: *verify,
-		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
+		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify, IntoBranch: *intoBranch,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
 			promoted = rng
 			return tickPromoted(ctx, repo, name, rng)
 		},
+		AfterLand: func(head string) { promoted = ".." + head },
 	}
 	if *dryRun {
 		return mergeDryRun(ctx, repo, req)
@@ -369,7 +377,7 @@ func mergeUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.Merg
 		code = mergeLocked(ctx, repo, req)
 		return nil
 	}); err != nil {
-		return helptext.Fail("worktree merge: %v", err)
+		return helptext.Fail("worktree land: %v", err)
 	}
 	return code
 }
@@ -385,12 +393,12 @@ func tickPromoted(ctx context.Context, repo *worktree.Repo, name, rng string) er
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	if req.Resume {
 		if err := worktree.CheckResumable(repo, req.Name); err != nil {
-			return helptext.Fail("worktree merge: %v", err)
+			return helptext.Fail("worktree land: %v", err)
 		}
 	}
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
 	if err != nil {
-		return helptext.Fail("worktree merge: %v", err)
+		return helptext.Fail("worktree land: %v", err)
 	}
 	if plan == nil {
 		return 1
@@ -398,13 +406,13 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	return 0
 }
 
-// mergeLocked runs worktree.Merge under the lease cmdWorktreeMerge holds and prints the outcome.
+// mergeLocked runs worktree.Merge under the lease cmdWorktreeLand holds and prints the outcome.
 func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	out, err := worktree.Merge(ctx, repo, req)
 	if err != nil {
-		helptext.Fail("worktree merge: %v", err)
-		if errors.Is(err, worktree.ErrRebaseConflict) {
-			return 3 // the rebase was aborted; resolve in the lane and re-run
+		helptext.Fail("worktree land: %v", err)
+		if errors.Is(err, worktree.ErrRebaseConflict) || errors.Is(err, worktree.ErrLandRefused) {
+			return 3 // rebase aborted, or the live tree left untouched; fix it and re-run
 		}
 		return 1
 	}
@@ -560,7 +568,7 @@ func worktreeSpec() *helptext.Node {
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
 		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("type"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
-		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
+		"land": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("merge"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},

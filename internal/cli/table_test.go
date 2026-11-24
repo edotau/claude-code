@@ -101,7 +101,7 @@ func TestCompletionExact(t *testing.T) {
 		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
 		{"vendor past double dash", []string{"codex", "--", ""}, nil},
-		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""},
+		{"resolve-agent domain", []string{"worktree", "land", "--resolve-agent", ""},
 			[]string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -482,7 +482,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
-		"worktree": {"list", "create", "merge", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
+		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
 	} {

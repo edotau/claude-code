@@ -75,7 +75,7 @@ func TestCleanLanes(t *testing.T) {
 	}
 	if text := out.String(); !strings.Contains(text, "removed automatic lane bench-a-20261123-1") ||
 		!strings.Contains(text, "kept dirty automatic lane autofix-abcdef0") ||
-		!strings.Contains(text, "claude-code worktree merge bench-c-20261123-3") ||
+		!strings.Contains(text, "claude-code worktree land bench-c-20261123-3") ||
 		strings.Contains(text, "bench-b-20261123-2") {
 		t.Fatalf("notices = %q", text)
 	}

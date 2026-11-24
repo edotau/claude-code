@@ -355,7 +355,7 @@ func cliHeadOf(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// worktreeMergeCase is one `worktree merge` run on the "feature" fixture; {wt} in args is the worktree path.
+// worktreeMergeCase is one `worktree land` run on the "feature" fixture; {wt} in args is the worktree path.
 type worktreeMergeCase struct {
 	name     string
 	commit   [2]string // file, content committed in the worktree first; empty = none
@@ -367,6 +367,8 @@ type worktreeMergeCase struct {
 	notOut   []string // stdout must contain none
 	stderr   string
 	promoted bool // main fast-forwards to the worktree's head; otherwise main never moves
+	landed   bool // g.txt holds the lane's content uncommitted in main
+	dirty    bool // main has its own untracked g.txt first; it must stay byte-identical
 	kept     bool // the worktree is still on disk afterwards
 }
 
@@ -375,13 +377,18 @@ var featureEdit = [2]string{"g.txt", "feature only\n"}
 var worktreeMergeCases = []worktreeMergeCase{
 	{name: "dry-run shows the clean plan", commit: featureEdit, args: []string{"--dry-run"}, ok: true,
 		out: []string{"clean"}, kept: true},
-	{name: "no-verify promotes, auto-cleans, marks unverified", commit: featureEdit, args: []string{"--no-verify"},
+	{name: "no-verify promotes, auto-cleans, marks unverified", commit: featureEdit, args: []string{"--no-verify", "--merge"},
 		ok: true, out: []string{"promoted", "unverified"}, promoted: true},
+	{name: "no-verify lands uncommitted, removes the worktree, keeps the branch", commit: featureEdit,
+		args: []string{"--no-verify"}, ok: true, out: []string{"landed feature: 1 files uncommitted", "branch worktree-feature kept"},
+		landed: true},
+	{name: "a dirty landed path refuses and changes nothing", commit: featureEdit, dirty: true,
+		args: []string{"--no-verify"}, exit: 3, stderr: "g.txt dirty in the live tree", kept: true},
 	{name: "no-clean leaves the worktree, resolve-agent unused on a clean plan", commit: featureEdit,
-		args: []string{"--no-verify", "--no-clean", "--resolve-agent", "claude"}, ok: true,
+		args: []string{"--no-verify", "--no-clean", "--merge", "--resolve-agent", "claude"}, ok: true,
 		out: []string{"promoted"}, promoted: true, kept: true},
 	{name: "explicit verify overrides detection and runs inside the worktree", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
-		args: []string{"--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
+		args: []string{"--merge", "--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
 		out: []string{"verify: passed (flag)", "promoted"}, promoted: true},
 	{name: "pipefail fails a failing first stage", commit: featureEdit, args: []string{"--verify", "false | cat"},
 		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
@@ -400,7 +407,7 @@ func TestCmdWorktreeMerge(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Chdir(gitRepoCLI(t)) // a bare repo suffices: neither arg set names an existing worktree
-	for _, args := range [][]string{{"merge"}, {"merge", "does-not-exist"}} {
+	for _, args := range [][]string{{"land"}, {"land", "does-not-exist"}} {
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(args) }); code == 0 {
 			t.Errorf("worktree %q: exit 0, want a failure", args)
 		}
@@ -417,7 +424,12 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 		mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	}
 	mainBefore, source := cliHeadOf(t, repo), cliHeadOf(t, wt)
-	args := []string{"merge"}
+	if tc.dirty {
+		if err := os.WriteFile(filepath.Join(repo, "g.txt"), []byte("mine\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{"land"}
 	for _, a := range tc.args {
 		args = append(args, strings.ReplaceAll(a, "{wt}", wt))
 	}
@@ -425,21 +437,36 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 	if (code == 0) != tc.ok || (tc.exit != 0 && code != tc.exit) || !strings.Contains(errb, tc.stderr) {
 		t.Fatalf("worktree %q: code=%d stdout=%q stderr=%q, want ok=%v naming %q", args, code, out, errb, tc.ok, tc.stderr)
 	}
-	for _, want := range tc.out {
+	requireStdout(t, out, tc.out, tc.notOut)
+	requireMainState(t, repo, wt, tc, map[bool]string{false: mainBefore, true: source}[tc.promoted])
+}
+
+// requireMainState checks main's HEAD, its g.txt (landed or the owner's own) and whether the worktree remains.
+func requireMainState(t *testing.T, repo, wt string, tc worktreeMergeCase, wantHead string) {
+	t.Helper()
+	if cliHeadOf(t, repo) != wantHead {
+		t.Errorf("main HEAD = %s, want %s (promoted=%v)", cliHeadOf(t, repo), wantHead, tc.promoted)
+	}
+	got, _ := os.ReadFile(filepath.Join(repo, "g.txt"))
+	if tc.landed && string(got) != "feature only\n" || tc.dirty && string(got) != "mine\n" {
+		t.Errorf("main g.txt = %q (landed=%v dirty=%v)", got, tc.landed, tc.dirty)
+	}
+	if _, err := os.Stat(wt); (err == nil) != tc.kept {
+		t.Errorf("worktree on disk = %v, want %v", err == nil, tc.kept)
+	}
+}
+
+func requireStdout(t *testing.T, out string, wants, unwanteds []string) {
+	t.Helper()
+	for _, want := range wants {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout = %q, want %q", out, want)
 		}
 	}
-	for _, unwanted := range tc.notOut {
+	for _, unwanted := range unwanteds {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("stdout = %q, must not contain %q", out, unwanted)
 		}
-	}
-	if want := map[bool]string{false: mainBefore, true: source}[tc.promoted]; cliHeadOf(t, repo) != want {
-		t.Errorf("main HEAD = %s, want %s (promoted=%v)", cliHeadOf(t, repo), want, tc.promoted)
-	}
-	if _, err := os.Stat(wt); (err == nil) != tc.kept {
-		t.Errorf("worktree on disk = %v, want %v", err == nil, tc.kept)
 	}
 }
 
@@ -485,7 +512,7 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 	}
 
 	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return cmdWorktree([]string{"land", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a wrong-repo operation, stderr=%q", errb)
@@ -512,7 +539,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 	}
 
 	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return cmdWorktree([]string{"land", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the target moved during resolution, stderr=%q", errb)
@@ -538,7 +565,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T)
 	}
 
 	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
+		return cmdWorktree([]string{"land", "--resume", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the target branch changed at the same OID, stderr=%q", errb)
@@ -612,7 +639,7 @@ func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
 	}
 
 	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "ghost"})
+		return cmdWorktree([]string{"land", "--resume", "ghost"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)

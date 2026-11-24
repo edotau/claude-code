@@ -322,6 +322,10 @@ func cleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 		if err != nil {
 			return err
 		}
+		if _, statErr := os.Lstat(dest); os.IsNotExist(statErr) {
+			result, err = cleanLandedBranch(repo, name, dryRun)
+			return err
+		}
 		result, err = cleanAtWith(repo, name, dest, dryRun, log, LedgerClose{Via: "clean"})
 		return err
 	})

@@ -323,7 +323,7 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 		rel, _ := paths.RelWithin(live, p)
 		names = append(names, rel)
 	}
-	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
+	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; a lane lands there uncommitted only after a clean gate",
 		len(hits), strings.Join(names, ", "))
 	create, dir := laneTarget(live, hits[0], in.SessionID+"/"+in.AgentID)
 	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir,

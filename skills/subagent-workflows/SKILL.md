@@ -207,7 +207,7 @@ limits are overlapping files, dependency order and an account's own rate limit.
 #### Dispatch workflow (R32)
 
 1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
-2. One sign-off gate: `claude-code worktree merge <lane>`; a leaf runs no gate chain of its own.
+2. One sign-off gate: `claude-code worktree land <lane>`; a leaf runs no gate chain of its own.
 3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
    rounds in a row each finding a new HIGH in one area stop the loop and go to the owner.
 4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
@@ -237,7 +237,7 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
    reads the diff, not the manager) → a fix leaf for each finding (review loop until clear;
    the manager fixes what the leaf could not, R28) → the manager re-runs the scoped gate and commits named files
    (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit follow
-   `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
+   `CLAUDE.md` hard rule 5 (the audit runs after each worktree land), not per wave.
 3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking,
    within the owner's named priority (R25).
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
@@ -270,10 +270,11 @@ unblocked row in one message.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
   dispatching reads and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
 - **Lanes:** with `HARNESS_WORKTREE=lanes` each stream's leaves work in their own lane and the main session lands it
-  with `claude-code worktree merge <lane>` (rebase in the lane, gate, fast-forward; a conflict exits 3):
-  `skills/using-git-worktrees/SKILL.md` → The lane protocol.
-- **Merge on completion:** each fan-out worktree merges onto the working branch as its task completes, conflicts
-  resolved in the worktree, and is removed by that merge: `rules/standards/worktree-git.md` → Merge on completion.
+  with `claude-code worktree land <lane>` (rebase in the lane, gate, land uncommitted; a conflict or a dirty landed
+  path exits 3): `skills/using-git-worktrees/SKILL.md` → The lane protocol.
+- **Land on completion:** each fan-out worktree lands on the live checkout (uncommitted; you commit) as its task
+  completes, conflicts resolved in the worktree, and is removed by that land (its branch stays until clean):
+  `rules/standards/worktree-git.md` → Land on completion.
 - **Scouts and reviews** never wait for edit work.
 
 #### Tests
@@ -343,7 +344,7 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 - **Fold before merge.** One fold leaf moves each unit into its home file (functions beside their callers, tests into
   the `_test.go` matching their source), deletes the unit files, and resolves two units changing the same code as a
   branch conflict, keeping both intents; give it every brief, not only the diffs. Then one gate over the folded tree
-  (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree merge`.
+  (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree land`.
 - **Never commit a unit file.** It breaks the one-test-file-per-source rule (`rules/harness/go.md`); the gate catches
   one left behind.
 - A test leaf proves teeth on a scratch copy (`go test -overlay`), never by editing source an editor leaf owns.

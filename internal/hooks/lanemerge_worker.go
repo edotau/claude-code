@@ -35,7 +35,7 @@ var (
 	laneMergeTries = 3
 )
 
-// laneResolveWith settles a rebase conflict in the lane (worktree-git.md → Merge on completion).
+// laneResolveWith settles a rebase conflict in the lane (worktree-git.md → Land on completion).
 const laneResolveWith = "pi"
 
 // laneUnfinished is the verdict of a run that never showed it finished: queue it, never merge it.
@@ -226,7 +226,7 @@ func verdictHold(j laneJob, q *worktree.QueuedLane) bool {
 
 // laneMergeCmd is the merge command for lane; flags go before the name.
 func laneMergeCmd(lane string) string {
-	return "claude-code worktree merge --resolve-agent " + laneResolveWith + " " + filepath.Base(lane)
+	return "claude-code worktree land --resolve-agent " + laneResolveWith + " " + filepath.Base(lane)
 }
 
 // laneTextCap bounds a queue detail, so one lane's line stays one line.

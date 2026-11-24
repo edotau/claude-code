@@ -117,7 +117,7 @@ func TestRepairGreen(t *testing.T) {
 	if res.Path != lane || res.Lane != "autofix-abcdef0" || len(res.Fixed) != 4 {
 		t.Fatalf("result = %+v", res)
 	}
-	if !strings.Contains(res.Notice, "gate green; land it: claude-code worktree merge autofix-abcdef0") {
+	if !strings.Contains(res.Notice, "gate green; land it: claude-code worktree land autofix-abcdef0") {
 		t.Fatalf("notice = %q", res.Notice)
 	}
 	checkRepairGreenCalls(t, top, *calls)
