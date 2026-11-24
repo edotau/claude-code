@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -607,13 +606,12 @@ func rosterPick(ctx context.Context, o router.PickOpts) (router.PickOpts, error)
 
 // Summary is one agent in `agents`: its binary, availability, capability levels and event kinds.
 type Summary struct {
-	Name      string                 `json:"name"`
-	Binary    string                 `json:"binary"`
-	Available bool                   `json:"available"`
-	Reason    string                 `json:"reason,omitempty"`
-	Caps      map[string]string      `json:"caps"`
-	Events    []string               `json:"events"`
-	Defaults  permission.Permissions `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
+	Name      string            `json:"name"`
+	Binary    string            `json:"binary"`
+	Available bool              `json:"available"`
+	Reason    string            `json:"reason,omitempty"`
+	Caps      map[string]string `json:"caps"`
+	Events    []string          `json:"events"`
 	shown     []string
 }
 
@@ -650,10 +648,6 @@ func Summaries() []Summary {
 			row.Binary = s.Name
 		}
 		row.Name, row.Events = s.Name, s.CLI.Events
-		var err error
-		if row.Defaults, err = DefaultPermissions(s.Name); err != nil { // checkRun refuses every dispatch on it
-			row.Available, row.Reason = false, err.Error()
-		}
 		rows = append(rows, row)
 	}
 	return rows

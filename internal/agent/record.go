@@ -284,7 +284,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	if req.Values != nil {
 		req.Values = req.Values.Merge(nil)
 	}
-	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
+	_, widened := permission.Resolve(permission.Permissions{}, req.Permissions)
 	ctx := valuesContext(context.Background(), req.Values)
 	parent := proc.Value(ctx, proc.DispatchIDEnv)
 	depth, maxDepth := lineage(ctx, parent)
@@ -376,13 +376,6 @@ func ancestorPolicy(parent string) (p permission.Permissions) {
 		id = rec.Parent
 	}
 	return p
-}
-
-// widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.
-func widenedChecked(name string, p permission.Permissions) ([]string, error) {
-	def, err := DefaultPermissions(name)
-	_, widened := permission.Resolve(def, p)
-	return widened, err
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
@@ -665,11 +658,6 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
-		if res.Agent != "" && res.Agent != r.Agent { // widening is judged against the answering agent
-			if w, err := widenedChecked(res.Agent, r.Request.Permissions); err == nil { // keep the original on a bad default
-				r.Widened = w
-			}
-		}
 	}
 	r.DurationMs = took.Milliseconds()
 	r.FirstEventMs = 0

@@ -75,13 +75,6 @@ func (p Permissions) Each(fn func(decision Decision, r Rule)) {
 	}
 }
 
-// DeniesFileWrite reports a Deny on a file-writing tool, which a shell write cannot be tied to.
-func (p Permissions) DeniesFileWrite() bool {
-	return slices.ContainsFunc(p.Deny, func(r Rule) bool {
-		return slices.Contains([]string{"Edit", "Write", "MultiEdit", "NotebookEdit"}, r.Tool)
-	})
-}
-
 // IsZero reports a request with no policy: no mode and no rules.
 func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
 

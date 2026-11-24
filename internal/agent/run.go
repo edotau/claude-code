@@ -427,14 +427,10 @@ func emptyAnswer(res wire.Result) bool {
 	return strings.TrimSpace(res.Answer) == "" && len(res.Structured) == 0
 }
 
-// checkRun layers default permissions under the request and the outer dispatch's over it, then refuses what r can't do.
+// checkRun layers the outer dispatch's policy over the request (R30), then refuses what r can't do.
 func checkRun(r Engine, req RunOptions) (RunOptions, error) {
-	def, err := DefaultPermissions(r.Name())
-	if err != nil {
-		return req, err
-	}
-	req.Permissions, _ = permission.Resolve(def, req.Permissions)
 	vctx := valuesContext(context.Background(), req.Values)
+	var err error
 	if req.Permissions, err = InheritPermissions(vctx, req.Permissions); err != nil {
 		return req, err
 	}

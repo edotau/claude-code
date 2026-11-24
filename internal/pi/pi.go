@@ -252,9 +252,7 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	return append(append(g.Argv(), "--no-builtin-tools"), codemodeArgv(req.Codemode)...), nil
 }
 
-// guardTools is the tools the guard registers for req: plan runs drop the writers; a file-writer deny
-// (permission.DeniesFileWrite) keeps bash, which the pi-guard narrows to the verify shell; a Read, Glob or Grep deny
-// drops bash and grep (grep reads every file under a path the gate judged once), and a Glob or Grep deny find and ls.
+// guardTools drops writers under plan, bash and grep under a Read/Glob/Grep deny, and find and ls under Glob/Grep.
 func guardTools(req agent.RunOptions) []string {
 	drop := []string{}
 	if req.Permissions.Mode == permission.PermPlan {

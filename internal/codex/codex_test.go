@@ -296,8 +296,6 @@ func TestCodexRenderSettingsFromRecord(t *testing.T) {
 			wantEmulated: []string{"effort max→xhigh"}},
 		{name: "flag over record", rec: vault.AgentRecord{Effort: "high"}, req: agent.RunOptions{Effort: "low"},
 			want: []string{effort("low")}, absent: []string{effort("high")}},
-		{name: "permissions block", rec: vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "auto"},
-			Extras: map[string]string{extraSandboxMode: "workspace-write"}}, req: agent.RunOptions{Tools: true}, want: []string{"--approve-for-me"}, absent: []string{"--sandbox"}},
 		{name: "launch env, no args headless", rec: vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"X_TEAM=1"},
 			Args: []string{"--search"}}}, wantEnv: "X_TEAM=1", absent: []string{"--search"}},
 	}

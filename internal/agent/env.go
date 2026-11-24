@@ -205,16 +205,12 @@ func InheritPermissions(ctx context.Context, p permission.Permissions) (permissi
 	return layerOuter(p, outer), nil
 }
 
-// layerOuter is p under an outer dispatch's policy: outer whole when p is zero, else p plus outer's deny, ask and plan.
+// layerOuter is the outer dispatch's policy exactly (mode, allow, ask, deny), plus p's own deny and ask rules (R30).
 func layerOuter(p, outer permission.Permissions) permission.Permissions {
-	if p.IsZero() {
-		return outer
-	}
-	p.Deny, p.Ask = permission.Union(p.Deny, outer.Deny), permission.Union(p.Ask, outer.Ask)
-	if outer.Mode == permission.PermPlan {
-		p.Mode = permission.PermPlan
-	}
-	return p
+	out := outer
+	out.Allow = slices.Clone(outer.Allow)
+	out.Deny, out.Ask = permission.Union(outer.Deny, p.Deny), permission.Union(outer.Ask, p.Ask)
+	return out
 }
 
 // WithPermissionsEnv exports p to children and snapshots the policy on the dispatch record, including an empty policy.

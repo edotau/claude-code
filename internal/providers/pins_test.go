@@ -637,9 +637,9 @@ func TestRecordDiffRouteFormRedactsEnv(t *testing.T) {
 	if got := recordDiff(reg, bareRoutes, migrated); len(got) != 0 {
 		t.Fatalf("bare routes vs completed routes = %v, want none", got)
 	}
-	after := map[string]vault.AgentRecord{"codex": {Permissions: &vault.AgentPolicy{Mode: "auto"}, Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}, Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
+	after := map[string]vault.AgentRecord{"codex": {Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}, Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
 	got := strings.Join(recordDiff(nil, bareRoutes, after), "\n")
-	if !strings.Contains(got, "codex.permissions.mode: (unset) → auto") || !strings.Contains(got, "codex.launch.env: (changed)") ||
+	if !strings.Contains(got, "codex.launch.env: (changed)") ||
 		strings.Contains(got, "s3cret") {
 		t.Fatalf("diff = %q", got)
 	}

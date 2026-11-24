@@ -75,10 +75,9 @@ func TestEmptyLaunchBlockSurvivesRoundTrip(t *testing.T) {
 func TestSettingsBlocksRoundTrip(t *testing.T) {
 	useZeroRootVault(t)
 	want := AgentRecord{
-		Route:       route.Route{Profile: "chatgpt"},
-		Permissions: &AgentPolicy{Mode: "auto", Allow: []string{"Bash(ls:*)"}, Ask: []string{"Edit"}, Deny: []string{"Bash(rm:*)"}},
-		Launch:      &AgentLaunch{Env: []string{"X=1"}, Args: []string{"--flag"}},
-		Extras:      map[string]string{"approvalPolicy": "never", "sandboxMode": ""},
+		Route:  route.Route{Profile: "chatgpt"},
+		Launch: &AgentLaunch{Env: []string{"X=1"}, Args: []string{"--flag"}},
+		Extras: map[string]string{"approvalPolicy": "never", "sandboxMode": ""},
 	}
 	if err := SetAgentRecord("codex", want); err != nil {
 		t.Fatal(err)
@@ -164,16 +163,14 @@ func TestReadAgentRecordsSeesAnExternalWrite(t *testing.T) {
 func TestReadAgentRecordsReturnsACopy(t *testing.T) {
 	useZeroRootVault(t)
 	want := AgentRecord{Aliases: map[string]string{"opus": "o"}, Extras: map[string]string{"k": "v"},
-		Permissions: &AgentPolicy{Allow: []string{"Read"}, Ask: []string{"Edit"}, Deny: []string{"Bash"}},
-		Launch:      &AgentLaunch{Env: []string{"X=1"}, Args: []string{"--a"}}}
+		Launch: &AgentLaunch{Env: []string{"X=1"}, Args: []string{"--a"}}}
 	if err := SetAgentRecord("claude", want); err != nil {
 		t.Fatal(err)
 	}
 	opens := cachedRecords(t)
 	got := GetAgentRecord("claude")
 	got.Aliases["opus"], got.Extras["k"] = "edited", "edited"
-	got.Permissions.Allow[0], got.Permissions.Ask[0], got.Permissions.Deny[0] = "edited", "edited", "edited"
-	got.Permissions.Mode, got.Launch.Env[0], got.Launch.Args[0] = "edited", "edited", "edited"
+	got.Launch.Env[0], got.Launch.Args[0] = "edited", "edited"
 	if again := GetAgentRecord("claude"); !reflect.DeepEqual(again, want) || *opens != 1 {
 		t.Errorf("cached record after a caller's edits = %+v (%d opens), want %+v from the cache", again, *opens, want)
 	}

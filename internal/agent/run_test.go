@@ -496,34 +496,16 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	}
 }
 
-// A vault overlay's default policy reaches the engine under the request: Deny holds, request allow and mode widen.
-func TestRunLayersAgentDefaultsUnderTheRequest(t *testing.T) {
+// The request's policy reaches the engine as given: no agent adds a default of its own (R30).
+func TestRunPassesTheRequestPolicyUnchanged(t *testing.T) {
 	hermetic(t, "")
-	vaulttest.Put(t, vault.Overlay, "agents",
-		`{"agents":{"fake":{"permission":{"defaults":{"mode":"plan","ask":["Bash(git push:*)"],"deny":["Bash(rm:*)"]}}}}}`)
 	f := &fakeRunner{caps: Caps{Permissions: Native}, errs: []error{nil}}
-	req := RunOptions{Prompt: "p", Permissions: mustPerms(t, "auto", []string{"Bash(git push:*)", "Bash(git log:*)"}, nil, nil)}
+	req := RunOptions{Prompt: "p", Permissions: mustPerms(t, "auto", []string{"Bash(git log:*)"}, nil, []string{"Bash(rm:*)"})}
 	if _, err := Run(context.Background(), f, req, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	got := f.seen[0].Permissions
-	want := `{"mode":"auto","allow":[{"Tool":"Bash","Arg":"git push:*"},{"Tool":"Bash","Arg":"git log:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`
-	if permsJSON(t, got) != want {
-		t.Errorf("engine saw %s\nwant %s", permsJSON(t, got), want)
-	}
-	if d := got.Decide("Bash", "git log && rm -rf x"); d != permission.Deny {
-		t.Errorf("the default permission.Deny must hold against a compound command, got %v", d)
-	}
-}
-
-// An unparseable default rule refuses the dispatch instead of running without the default policy.
-func TestRunRefusesAnUnreadableDefault(t *testing.T) {
-	hermetic(t, "")
-	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"fake":{"permission":{"defaults":{"deny":["Bash("]}}}}}`)
-	f := &fakeRunner{caps: Caps{Permissions: Native}, errs: []error{nil}}
-	_, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "fake default permissions") || len(f.seen) != 0 {
-		t.Fatalf("err %v, runs %d; want a refusal naming the default", err, len(f.seen))
+	if got, want := permsJSON(t, f.seen[0].Permissions), permsJSON(t, req.Permissions); got != want {
+		t.Errorf("engine saw %s\nwant %s", got, want)
 	}
 }
 

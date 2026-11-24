@@ -25,8 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
@@ -704,38 +702,16 @@ func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
 	}
 }
 
-// The dispatch record logs what the request grants beyond the agent's defaults (D3), not what the defaults grant.
+// The dispatch record logs what the request grants (D3); no agent has a default of its own (R30).
 func TestNewRecordLogsWidening(t *testing.T) {
 	setConfigDir(t)
-	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}}}}`)
 	p, err := permission.ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rec := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
-	if want := []string{"allow Bash(touch:*)"}; !slices.Equal(rec.Widened, want) {
+	if want := []string{"allow Read", "allow Bash(touch:*)"}; !slices.Equal(rec.Widened, want) {
 		t.Errorf("Widened = %q, want %q", rec.Widened, want)
-	}
-}
-
-// A fallback run is judged against the agent that answered; an unreadable fallback default keeps the original list.
-func TestFinishRecomputesWideningForFallbackAgent(t *testing.T) {
-	setConfigDir(t)
-	vaulttest.Put(t, vault.Overlay, "agents",
-		`{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}},"gemini":{"permission":{"defaults":{"deny":["Bash("]}}}}}`)
-	p, err := permission.ParsePermissions("", []string{"Read"}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
-	rec.Finish(wire.Result{Agent: "copilot", Fallback: "codex 429"}, nil, time.Second)
-	if want := []string{"allow Read"}; !slices.Equal(rec.Widened, want) {
-		t.Errorf("Widened after fallback = %q, want %q", rec.Widened, want)
-	}
-	rec2 := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
-	rec2.Finish(wire.Result{Agent: "gemini", Fallback: "codex 429"}, nil, time.Second)
-	if len(rec2.Widened) != 0 {
-		t.Errorf("bad fallback default overwrote Widened: %q", rec2.Widened)
 	}
 }
 

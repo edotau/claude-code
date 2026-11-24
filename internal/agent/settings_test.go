@@ -54,7 +54,6 @@ func TestValidateRecord(t *testing.T) {
 		{"copilot", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "copilot: aliases is claude only"},
 		{"gemini", vault.AgentRecord{Route: route.Route{Provider: "github", Account: "octo"}}, "gemini: account is copilot only"},
 		{"opencode", vault.AgentRecord{Extras: map[string]string{"k": "v"}}, ""}, // no CLI.Extras declared: not checked yet
-		{"codex", vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "yolo"}}, `unknown permission mode "yolo"`},
 		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"OPENAI_API_KEY=x"}}}, "codex launch.env:"},
 		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--api-key", fakeKey}}}, "codex launch.args[1]: looks like"},
 		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--api-key=" + fakeKey}}}, "codex launch.args[0]: looks like"},
@@ -114,11 +113,10 @@ func settingsView(t *testing.T, agentName string, req RunOptions) string {
 		s.Target.Model, s.Headless)
 }
 
-// storeCopilotRecord stores an effort, a launch block and a policy for copilot.
+// storeCopilotRecord stores an effort and a launch block for copilot.
 func storeCopilotRecord(t *testing.T) {
 	t.Helper()
-	err := vault.SetAgentRecord("copilot", vault.AgentRecord{Effort: "medium", Launch: &vault.AgentLaunch{Args: []string{"--banner"}},
-		Permissions: &vault.AgentPolicy{Mode: "plan", Deny: []string{"Bash(rm:*)"}}})
+	err := vault.SetAgentRecord("copilot", vault.AgentRecord{Effort: "medium", Launch: &vault.AgentLaunch{Args: []string{"--banner"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +136,7 @@ func TestResolveSettingsBuiltIn(t *testing.T) {
 func TestResolveSettingsRecordOverBuiltIn(t *testing.T) {
 	vaulttest.Use(t)
 	storeCopilotRecord(t)
-	want := "effort=medium args=[--banner] mode=plan allow=[] deny=[Bash(rm:*)] extras=map[defaultPermissionMode:allow-all] " +
+	want := "effort=medium args=[--banner] mode= allow=[] deny=[] extras=map[defaultPermissionMode:allow-all] " +
 		"tools=false workdir= model=m headless=true"
 	if got := settingsView(t, "copilot", RunOptions{}); got != want {
 		t.Errorf("record over built-in:\n got %s\nwant %s", got, want)
@@ -150,23 +148,10 @@ func TestResolveSettingsFlagOverRecord(t *testing.T) {
 	vaulttest.Use(t)
 	storeCopilotRecord(t)
 	req := RunOptions{Effort: "high", Tools: true, WorkDir: "/w", Permissions: permission.Permissions{Mode: "default", Allow: []permission.Rule{{Tool: "Read"}}}}
-	want := "effort=high args=[--banner] mode=default allow=[Read] deny=[Bash(rm:*)] extras=map[defaultPermissionMode:allow-all] " +
+	want := "effort=high args=[--banner] mode=default allow=[Read] deny=[] extras=map[defaultPermissionMode:allow-all] " +
 		"tools=true workdir=/w model=m headless=true"
 	if got := settingsView(t, "copilot", req); got != want {
 		t.Errorf("flag over record:\n got %s\nwant %s", got, want)
-	}
-}
-
-// A bad record policy is an error whose Settings carry the built-in record: nothing of the stored one applies.
-func TestResolveSettingsBadPolicyFallsBackToBuiltin(t *testing.T) {
-	vaulttest.Use(t)
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Permissions: &vault.AgentPolicy{Deny: []string{"Bash("}},
-		Launch: &vault.AgentLaunch{Env: []string{"FOO=1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	s, err := ResolveSettings("codex", RunOptions{}, providers.Target{}, false)
-	if err == nil || s.Agent != "codex" || s.Record.Launch != nil || s.Record.Extras["approvalPolicy"] != "never" {
-		t.Errorf("ResolveSettings = %+v, %v; want an error and the built-in codex record", s, err)
 	}
 }
 

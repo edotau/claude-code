@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -174,7 +175,7 @@ func TestEnvironInjectedCredentialBeatsInherited(t *testing.T) {
 	}
 }
 
-// Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
+// Given an outer dispatch's policy in the env, Then a nested run gets it exactly; its own allow and mode never widen.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}],"ask":[{"Tool":"Bash","Arg":"curl *"}]}`)
 	inner, err := permission.ParsePermissions("auto", []string{"Bash"}, nil, nil)
@@ -182,8 +183,11 @@ func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := InheritPermissions(context.Background(), inner)
-	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != permission.Deny || got.Decide("Bash", "ls") != permission.Allow {
-		t.Fatalf("inherit = %+v, %v; want plan mode, rm denied, ls allowed", got, err)
+	var outer permission.Permissions
+	_ = json.Unmarshal([]byte(os.Getenv(DispatchPermissionsEnv)), &outer)
+	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != permission.Deny || len(got.Allow) != 0 ||
+		got.Decide("Bash", "ls") != outer.Decide("Bash", "ls") {
+		t.Fatalf("inherit = %+v, %v; want the outer policy exactly: plan mode, rm denied, no inner allow", got, err)
 	}
 	if got.Decide("Bash", "curl x") != permission.Ask { // the inner Bash allow must not reopen the outer ask
 		t.Fatalf("inherit = %+v; want the outer curl ask kept", got)

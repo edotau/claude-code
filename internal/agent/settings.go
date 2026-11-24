@@ -65,12 +65,11 @@ func SettingsFromRecord(agentName string, rec vault.AgentRecord, req RunOptions,
 
 // newSettings copies runtime fields without revalidating the legacy fallback.
 func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t providers.Target, headless bool) Settings {
-	def, _ := policyPermissions(rec.Permissions) // An unparsable fallback policy layers as none, as before.
-	st := Settings{Permissions: def}
+	var st Settings
 	rec = rec.Clone()
 	st.Agent, st.Record, st.Target = agentName, rec, t
 	st.Effort = cmp.Or(req.Effort, rec.Effort)
-	st.Permissions, _ = permission.Resolve(st.Permissions, req.Permissions)
+	st.Permissions, _ = permission.Resolve(permission.Permissions{}, req.Permissions)
 	st.Tools, st.Autonomous, st.Gate = req.Tools, req.Autonomous, req.Gate
 	st.Headless, st.WorkDir = headless, req.WorkDir
 	if req.Values != nil {
@@ -87,14 +86,6 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 		st.Target.Provider = &p
 	}
 	return st
-}
-
-// policyPermissions parses a record policy; nil is no policy.
-func policyPermissions(p *vault.AgentPolicy) (permission.Permissions, error) {
-	if p == nil {
-		return permission.Permissions{}, nil
-	}
-	return permission.ParsePermissions(p.Mode, p.Allow, p.Ask, p.Deny)
 }
 
 // recordFieldOwners are the record fields only one agent can use; every other agent refuses them.
@@ -126,15 +117,12 @@ func validateRecord(agentName string, r vault.AgentRecord) (Settings, error) {
 			return st, fmt.Errorf("%s: %s is %s only", agentName, f.field, f.owner)
 		}
 	}
-	var err error
-	if st.Permissions, err = policyPermissions(r.Permissions); err != nil {
-		return st, fmt.Errorf("%s permissions: %w", agentName, err)
-	}
 	if decl := SchemaFor(agentName).CLI.Extras; decl != nil {
 		if err := checkExtras(agentName, decl, SchemaFor(agentName).CLI.ExtraCheck, r.Extras); err != nil {
 			return st, err
 		}
 	}
+	var err error
 	st.LaunchEnv, err = checkLaunchValues(agentName, r.Launch)
 	return st, err
 }

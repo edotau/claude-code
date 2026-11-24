@@ -396,10 +396,6 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 		{"flag over record", vault.AgentRecord{Effort: "high"}, "low",
 			map[string][]string{"ultra": {"--effort low"}, "qa": {"--effort low"}},
 			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high"}}},
-		{"permissions", vault.AgentRecord{Permissions: &vault.AgentPolicy{Allow: []string{"Bash(git *)"}}}, "",
-			map[string][]string{"ultra": {"--allowedTools Bash(git *) --permission-mode auto"},
-				"qa": {"Bash(go build *)", "Bash(git *) --permission-mode dontAsk"}},
-			map[string][]string{"ultra": {"dontAsk"}, "qa": {"auto"}}},
 		{"launch", vault.AgentRecord{Launch: launch}, "", nil,
 			map[string][]string{"ultra": {"--launch-arg"}, "qa": {"--launch-arg"}}},
 	}

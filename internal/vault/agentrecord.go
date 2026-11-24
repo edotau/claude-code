@@ -28,8 +28,6 @@ type AgentRecord struct {
 	FallbackRoute route.Route `json:"fallbackRoute,omitzero"`
 	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
 	Aliases map[string]string `json:"aliases,omitempty"`
-	// Permissions is the default dispatch policy in Claude Code rule grammar; nil inherits the built-in.
-	Permissions *AgentPolicy `json:"permissions,omitempty"`
 	// Launch is env and argv every launch carries; nil inherits the built-in, non-nil replaces it whole.
 	Launch *AgentLaunch `json:"launch,omitempty"`
 	// Extras are vendor-native knobs, merged key by key over the built-in; "" unsets a built-in key.
@@ -52,7 +50,7 @@ type AgentLaunch struct {
 
 // IsZero reports a record with nothing set.
 func (r AgentRecord) IsZero() bool {
-	if !r.Route.IsZero() || !r.FallbackRoute.IsZero() || r.Permissions != nil || r.Launch != nil {
+	if !r.Route.IsZero() || !r.FallbackRoute.IsZero() || r.Launch != nil {
 		return false
 	}
 	if len(r.Aliases) != 0 || len(r.Extras) != 0 {
@@ -327,11 +325,6 @@ func ReadAgentRecords(names []string) (map[string]AgentRecord, error) {
 // Clone is a deep copy of r, so a caller's edit never reaches the cached or stored record.
 func (r AgentRecord) Clone() AgentRecord {
 	r.Aliases, r.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
-	if r.Permissions != nil {
-		p := *r.Permissions
-		p.Allow, p.Ask, p.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
-		r.Permissions = &p
-	}
 	if r.Launch != nil {
 		l := *r.Launch
 		l.Env, l.Args = slices.Clone(l.Env), slices.Clone(l.Args)

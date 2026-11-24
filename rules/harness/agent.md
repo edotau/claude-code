@@ -29,6 +29,9 @@ paths:
 
 ## Dispatch behavior
 
+- Permissions (R30): a nested dispatch runs with its parent's policy exactly (mode, allow, ask, deny, from
+  `HARNESS_DISPATCH_PERMISSIONS`); its own `--permissions` only adds deny and ask rules, and no agent has a
+  default policy of its own. A top-level ask runs with its own `--permissions`.
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
   `invoked_model` is the plain model asked (`auto` or the selector; the profile is the route's) and `model` the model
@@ -58,20 +61,7 @@ paths:
   (Pi's bash groups included), and the idle watch is held while any tool call runs; Pi proves it loaded by writing the
   run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
   refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
-  a Deny on Edit, Write, MultiEdit or NotebookEdit (`Permissions.DeniesFileWrite`) narrows bash to the
-  verify shell (the gate cannot tie a shell write to a file; `permission.VerifyShell`, judged per segment by
-  `hook PreToolUse --pi-guard` before `safety-scan`): `go build|vet` of `./<pkg>[/...]` or `./...` (`-o` only
-  `/dev/null`), `go test [-run re] [-count n] [-v] [-race] ./<pkg>[/...]` (never `./...`, `..`, an import path),
-  `gofmt -l|-d [-s] [-e] <paths>` (flags before the first path), `cd`, the read-only list (git only on the current
-  checkout: no `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`, `--exec-path`; no `go list`
-  module query, `@`, `-versions` or `-retracted`; no help or version flag on an unlisted command) and
-  `claude-code agents diff [--check] [--path p]` (no other flag), with an optional `GOOS`/`GOARCH`/`CGO_ENABLED`,
-  `time` or `rtk` prefix and one trailing unquoted `2>&1`. Any other redirect, a glob, a `$` expansion (so
-  `; echo $?`: run each command plainly and read the tool's exit status), a wrapper, other env or any other command
-  is refused. Rule tool names match in any case (`write` is `Write`). A test runs code the leaf may have edited and
-  Pi has no sandbox, so the verify shell stops accidental writes, not a hostile test: content the leaf itself wrote
-  can execute through a tool that reads it (a test, or a git helper configured in a repository the leaf created and
-  `cd`-ed into), and the verify shell does not defend against that. A Deny on Read drops bash and grep, on Glob or
+  rule tool names match in any case (`write` is `Write`). A Deny on Read drops bash and grep, on Glob or
   Grep bash, grep, find and ls. `--permissions` (mode and allow/deny rules) rides `HARNESS_DISPATCH_PERMISSIONS` to the
   gate as for opencode; an `ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
   `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission
@@ -83,13 +73,11 @@ paths:
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
-  reasons and cut-off streams fail). Pi may be a fallback for write work. The deny
-  comes only from the ask: its `--permissions` deny rules plus those inherited from the dispatch above, never from
-  the caller's type, so a main-session or `claude`-leaf ask gets the same guard. A `--tools` run with no file deny
-  keeps the whole bash, judged by `safety-scan` and `permission-gate` only; one editing a worktree adds
-  `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'` and so runs the verify
-  shell: it builds, vets and runs scoped tests (`go test -count=1 ./<pkg>`, so a test really runs); `make`, the live
-  check and any write stay with the main session or a paired gate leaf. An overlay setting `HARNESS_HOOK_*` is
+  reasons and cut-off streams fail). Pi may be a fallback for write work. Its
+  policy comes only from the ask and the dispatch above (R30), never from the caller's type, so a main-session
+  or `claude`-leaf ask gets the same guard; bash is judged by `safety-scan` and `permission-gate`. One editing a
+  worktree adds `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'`; `make` and
+  the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:

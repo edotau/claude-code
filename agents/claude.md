@@ -109,8 +109,7 @@ diff" request runs Simplify detect-only (report the findings) → Review.
   `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
 - Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; tools
   are on by default, `--tools=false` to run without them. Its brief stands alone (no CLAUDE.md,
-  skills or MCP load). Its bash is the verify shell only under a file deny, the ask's own or one inherited from the
-  dispatch above; editing a worktree, add
+  skills or MCP load); it runs with the dispatch's permissions like any agent (R30). Editing a worktree, add
   `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'`.
 - Verify the result as a claim: no `fallback`, the diff stat shows only your files, the verify command passes; a
   refusal or failure is reported with its command, output and exit code, never redone yourself. Report the real

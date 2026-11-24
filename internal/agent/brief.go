@@ -66,20 +66,6 @@ func WithReviewLoop(req RunOptions) string {
 	return p + reviewLoopBlock
 }
 
-// withDefaults is req's policy over its resolved agent's default policy; an unresolvable selector keeps req's own.
-func withDefaults(req RunOptions) permission.Permissions {
-	name, _, err := SelectAgent(req.Agent, req.Agents)
-	if err != nil {
-		return req.Permissions
-	}
-	def, err := DefaultPermissions(name)
-	if err != nil {
-		return req.Permissions
-	}
-	p, _ := permission.Resolve(def, req.Permissions)
-	return p
-}
-
 // hopPrompt is the prompt with the rule iff ask marked it and this hop's effective policy (checkRun's) can write.
 func hopPrompt(req RunOptions) string {
 	p := WithoutReviewLoop(req.Prompt)
@@ -96,7 +82,7 @@ func writesCode(req RunOptions) bool {
 		return false
 	}
 	vctx := valuesContext(context.Background(), req.Values)
-	p, err := InheritPermissions(vctx, withDefaults(req))
+	p, err := InheritPermissions(vctx, req.Permissions)
 	outer := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
 	return err == nil && p.Mode != permission.PermPlan && outer.Mode != permission.PermPlan
 }

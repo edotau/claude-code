@@ -170,8 +170,7 @@ func legacyRecord(a agentConfig) vault.AgentRecord {
 		guard = strconv.FormatBool(*p.UseGuardRules) // an explicit false must survive mergeExtras, which drops ""
 	}
 	return vault.AgentRecord{
-		Permissions: new(p.Defaults),
-		Launch:      new(a.Launch),
+		Launch: new(a.Launch),
 		Extras: map[string]string{extraApprovalPolicy: p.ApprovalPolicy, extraSandboxMode: p.SandboxMode,
 			extraDefaultPermissionMode: p.DefaultPermissionMode, extraUseGuardRules: guard},
 	}
@@ -190,9 +189,6 @@ func mergeRecord(base, over vault.AgentRecord) vault.AgentRecord {
 	}
 	if len(over.Aliases) > 0 {
 		out.Aliases = over.Aliases
-	}
-	if over.Permissions != nil {
-		out.Permissions = over.Permissions
 	}
 	if over.Launch != nil {
 		out.Launch = over.Launch
@@ -276,11 +272,10 @@ type guardRules struct {
 
 // permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
 type permission struct {
-	UseGuardRules         *bool             `json:"useGuardRules,omitempty"`
-	ApprovalPolicy        string            `json:"approvalPolicy,omitempty"`
-	SandboxMode           string            `json:"sandboxMode,omitempty"`
-	DefaultPermissionMode string            `json:"defaultPermissionMode,omitempty"`
-	Defaults              vault.AgentPolicy `json:"defaults,omitzero"` // the agent's default dispatch policy (agent.DefaultPermissions)
+	UseGuardRules         *bool  `json:"useGuardRules,omitempty"`
+	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
+	SandboxMode           string `json:"sandboxMode,omitempty"`
+	DefaultPermissionMode string `json:"defaultPermissionMode,omitempty"`
 }
 
 // Extras keys the legacy Permission knobs map to in a vault.AgentRecord.

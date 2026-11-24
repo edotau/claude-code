@@ -17,8 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestCheckAncestorDispatchUsesInProcessIdentity(t *testing.T) {
@@ -164,9 +162,7 @@ func garbleKeepingStat(t *testing.T, path string) {
 
 func TestChainPolicyKeepsExportedLaunchPolicy(t *testing.T) {
 	hermetic(t, "")
-	vaulttest.Put(t, vault.Overlay, "agents",
-		`{"agents":{"fake":{"permission":{"defaults":{"deny":["Write"]}}}}}`)
-	rec := NewRecord("fake", RunOptions{}, time.Now())
+	rec := NewRecord("fake", RunOptions{Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Write"}}}}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +171,6 @@ func TestChainPolicyKeepsExportedLaunchPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := WithPermissionsEnv(withDispatchID(context.Background(), rec.ID, rec.Depth), req.Permissions)
-	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"fake":{"permission":{"defaults":{}}}}}`)
 	saved, err := LoadRecord(rec.ID)
 	if err != nil {
 		t.Fatal(err)

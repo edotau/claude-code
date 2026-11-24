@@ -78,9 +78,7 @@ Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-t
 the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked (the guard compares
 real paths, so a run dir reached through a symlink still matches its own tools). The guard fails
 closed: one that fails to load leaves Pi no tools, it refuses any Pi but the pinned one, and each dispatch checks a
-load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Under a dispatch Edit, Write, MultiEdit or
-NotebookEdit deny the entry first confines bash to the verify shell (builds, vet, scoped tests, `gofmt -l`, reads and
-`agents diff --check`; `permission.VerifyShell`, forms: `agent.md` Pi bullets). Pi tool to hook tool name:
+load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Pi tool to hook tool name:
 
 | Pi tool | `bash` | `edit` | `write` | `read` | `grep` | `find` | `ls` |
 | --- | --- | --- | --- | --- | --- | --- | --- |

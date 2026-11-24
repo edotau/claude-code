@@ -296,7 +296,13 @@ var verifyDenied = []string{
 	"rtk time go test ./x", "rtk gain", "GOOS=linux FOO=1 go build ./x", "GOOS=$(x) go build ./x", "cd -", "cd $HOME",
 }
 
-// A Pi leaf under a file deny builds, vets and runs scoped tests; any write, wrapper or whole-module test is refused.
+// VerifyShell reports every segment of line is a read-only or verify command (the rule pair's judge).
+func VerifyShell(line string) bool {
+	allow, deny := Rule{Tool: "Bash", Arg: VerifyShellArg}, Rule{Tool: "Bash", Arg: NotVerifyShellArg}
+	return Permissions{Allow: []Rule{allow}, Deny: []Rule{deny}}.Decide("Bash", line) == Allow
+}
+
+// The verify shell builds, vets and runs scoped tests; any write, wrapper or whole-module test is refused.
 func TestVerifyShell(t *testing.T) {
 	for _, cmd := range verifyAllowed {
 		if !VerifyShell(cmd) {

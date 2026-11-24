@@ -250,11 +250,7 @@ func chainPolicy(rec Record) permission.Permissions {
 		if rec.ExportedPolicy != nil {
 			return layerOuter(p, *rec.ExportedPolicy)
 		}
-		own := rec.Request.Permissions
-		if def, err := DefaultPermissions(rec.Agent); err == nil { // an unreadable default keeps the request's own rules
-			own, _ = permission.Resolve(def, own)
-		}
-		p = layerOuter(p, own)
+		p = layerOuter(p, rec.Request.Permissions)
 	}
 	return p
 }

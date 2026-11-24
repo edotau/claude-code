@@ -35,12 +35,6 @@ const (
 	NotVerifyShellArg = "not a verify shell command"
 )
 
-// VerifyShell reports whether every segment of line is a read-only or verify command, with no write or substitution.
-func VerifyShell(line string) bool {
-	allow, deny := Rule{Tool: "Bash", Arg: VerifyShellArg}, Rule{Tool: "Bash", Arg: NotVerifyShellArg}
-	return Permissions{Allow: []Rule{allow}, Deny: []Rule{deny}}.Decide("Bash", line) == Allow
-}
-
 // verifySegment is a read-only segment or `[GOOS=…] [time] [rtk]` go build|vet|test, gofmt, cd or agents diff.
 func verifySegment(seg string, raw bool) bool {
 	if !raw {

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/permission"
 )
 
@@ -147,11 +146,10 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 		t.Fatalf("%s %s %q: remedy %q: %v", ag, mode, row.Job, c.Remedy, err)
 	}
 	rule, err := permission.ParseRule(policy.Allow[0])
-	p, perr := agent.DefaultPermissions(ag)
-	if err != nil || perr != nil {
-		t.Fatalf("%s %s %q: remedy %q: %v %v", ag, mode, row.Job, c.Remedy, err, perr)
+	if err != nil {
+		t.Fatalf("%s %s %q: remedy %q: %v", ag, mode, row.Job, c.Remedy, err)
 	}
-	again, _ := bareLayer(ag, withAllow(p, rule), wd)
+	again, _ := bareLayer(ag, withAllow(permission.Permissions{}, rule), wd)
 	if r := again(tool, arg); r.verdict != "allow" {
 		t.Fatalf("%s %s %q: %s does not repair the call: %+v", ag, mode, row.Job, c.Remedy, r)
 	}
