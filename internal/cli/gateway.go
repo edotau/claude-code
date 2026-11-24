@@ -257,12 +257,18 @@ func proxyServeScope(ctx context.Context, spec string) int {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	s, err := server.Open(ctx, proxy.Scope{Team: team, ID: id})
+	s, err := server.Open(ctx, proxy.Scope{Team: team, ID: id, Host: proxy.HostDetached})
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	defer s.Close()
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-s.Done():
+		if ctx.Err() == nil {
+			return helptext.Fail("gateway proxy: scoped server stopped unexpectedly")
+		}
+	}
 	return 0
 }
 
@@ -632,6 +638,15 @@ func sayCode(format string, a ...any) int {
 func proxyStopHold(ctx context.Context) int {
 	if err := proxy.Hold(); err != nil {
 		return helptext.Fail("gateway proxy: hold: %v", err)
+	}
+	n, serr := proxy.StopDetached()
+	if serr != nil {
+		return helptext.Fail("gateway proxy: %v", serr)
+	}
+	if n > 0 {
+		if code := sayCode("proxy: stopped %d standing proxies\n", n); code != 0 {
+			return code
+		}
 	}
 	st, err := gatewayStop(ctx)
 	if errors.Is(err, proxy.ErrNotRunning) {

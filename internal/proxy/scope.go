@@ -27,7 +27,12 @@ type Scope struct {
 	Port    int       `json:"port"`
 	Build   string    `json:"build"`
 	Started time.Time `json:"started"`
+	Exe     string    `json:"exe,omitempty"`  // sha256 of the proxy's executable; empty from an older build
+	Host    string    `json:"host,omitempty"` // "detached" for a standing proxy, so a stop never signals an asker's
 }
+
+// HostDetached marks a scope record served by a standing `gateway proxy --serve --scope` process.
+const HostDetached = "detached"
 
 const (
 	scopeSchema   = 1

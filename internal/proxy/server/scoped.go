@@ -133,6 +133,7 @@ func (s *Scoped) publish(sc proxy.Scope) error {
 	sc.Start = start
 	sc.Port = s.port
 	sc.Build = textutil.BuildVersion()
+	sc.Exe = proxy.SelfExeHash()
 	sc.Started = time.Now().UTC()
 	cleanup, err := proxy.WriteScope(sc)
 	if err != nil {
@@ -144,6 +145,9 @@ func (s *Scoped) publish(sc proxy.Scope) error {
 
 // Base is the proxy's base URL.
 func (s *Scoped) Base() string { return proxy.Base(s.port) }
+
+// Done is closed once the listener has stopped serving, by Close or an unexpected exit.
+func (s *Scoped) Done() <-chan struct{} { return s.done }
 
 // Close stops the proxy, drains streams and removes the scope file; it is idempotent and concurrency-safe.
 func (s *Scoped) Close() {

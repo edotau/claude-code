@@ -27,7 +27,7 @@ func EnsureTeam(ctx context.Context, t proxyteam.Team, dispatchID string) (Scope
 	if err := checkScopeParts(t.Name, id); err != nil {
 		return Scope{}, err
 	}
-	if sc, inflight, ok := liveScope(ctx, t.Name, id); ok && (!scopeStale(sc) || inflight > 0) {
+	if sc, inflight, ok := liveScope(ctx, t.Name, id); ok && (!ScopeStale(sc) || inflight > 0) {
 		return sc, nil
 	}
 	var out Scope
@@ -59,33 +59,48 @@ func liveScope(ctx context.Context, team, id string) (Scope, int64, bool) {
 	return sc, h.Inflight, true
 }
 
-// scopeStale is true when the installed binary was written after the scoped proxy started.
-func scopeStale(sc Scope) bool {
-	exe, err := paths.SelfBinary()
-	if err != nil {
-		return false
-	}
-	fi, err := os.Stat(exe)
-	return err == nil && fi.ModTime().After(sc.Started)
+// SelfExeHash is the hash a scoped proxy records in its Scope; "" when the binary cannot be read.
+func SelfExeHash() string { return selfHash() }
+
+// ScopeStale is true when sc runs another binary than this one (an older record without a hash always does).
+func ScopeStale(sc Scope) bool {
+	self := selfHash()
+	return self != "" && sc.Exe != self
 }
 
 // startSlot runs under the slot lock: it re-checks, replaces an idle stale proxy, then spawns and waits for a live one.
 func startSlot(ctx context.Context, team, id string) (Scope, error) {
-	if sc, inflight, ok := liveScope(ctx, team, id); ok {
-		if !scopeStale(sc) || inflight > 0 {
-			return sc, nil // fresh or busy: use it as it is
-		}
-		if err := stopScope(sc); err != nil {
-			return Scope{}, err // a proxy that may be draining is no endpoint: the caller takes its next team
-		}
+	sc, inflight, ok := liveScope(ctx, team, id)
+	if ok && (!ScopeStale(sc) || inflight > 0) {
+		return sc, nil // fresh or busy: use it as it is
+	}
+	if err := retireSlot(team, id); err != nil {
+		return Scope{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Scope{}, err
 	}
-	if err := spawnScope(team, id); err != nil {
+	kill, err := spawnScope(team, id)
+	if err != nil {
 		return Scope{}, err
 	}
-	return awaitScope(ctx, team, id)
+	sc, err = awaitScope(ctx, team, id)
+	if err != nil {
+		kill()
+	}
+	return sc, err
+}
+
+// retireSlot stops a stale idle or wedged (alive, not answering) proxy; an asker's scope is never signalled.
+func retireSlot(team, id string) error {
+	rec, err := ReadScope(team, id)
+	if err != nil || !scopeLive(rec) {
+		return nil
+	}
+	if rec.Host != HostDetached {
+		return fmt.Errorf("proxy %s@%s is held by a process that is not a detached proxy", team, id)
+	}
+	return stopScope(rec) // a proxy that may be draining is no endpoint: the caller takes its next team
 }
 
 // stopScope SIGTERMs sc while its start-time identity still holds, and waits for it to exit.
@@ -121,16 +136,17 @@ func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 
 var spawnScope = spawnScopeProcess
 
-func spawnScopeProcess(team, id string) error {
+// spawnScopeProcess starts the detached proxy and returns a func that kills it, for a start that never turns healthy.
+func spawnScopeProcess(team, id string) (func(), error) {
 	exe, err := paths.SelfBinary()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if proc.IsSelfUnderTest(exe) {
-		return ErrTestBinary
+		return nil, ErrTestBinary
 	}
 	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	if fi, err := os.Stat(logFile()); err == nil && fi.Size() > maxLogBytes {
@@ -138,7 +154,7 @@ func spawnScopeProcess(team, id string) error {
 	}
 	lf, err := os.OpenFile(logFile(), flags, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer lf.Close()
 	cmd := exec.Command(exe, "gateway", "proxy", "--serve", "--scope", team+"@"+id) //nolint:noctx // outlives its caller
@@ -146,8 +162,8 @@ func spawnScopeProcess(team, id string) error {
 	cmd.Dir, cmd.Stdout, cmd.Stderr = paths.StateDir(), lf, lf
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	go func() { _ = cmd.Wait() }() // reaps the child, so a long-lived caller sees its exit instead of a zombie
-	return nil
+	return func() { _ = cmd.Process.Kill() }, nil
 }

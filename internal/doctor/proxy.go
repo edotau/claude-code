@@ -68,7 +68,17 @@ func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
 		}
 		lines = append(lines, "team "+strings.Join(parts, " "))
 	}
-	return lines, problems
+	return append(lines, detachedLines(context.Background())...), problems
+}
+
+// detachedLines sweeps dead scope files, then lists each live standing proxy with its build state and in-flight count.
+func detachedLines(ctx context.Context) []string {
+	var lines []string
+	for _, sc := range proxy.DetachedScopes() {
+		h, _ := proxy.Holder(ctx, sc.Port)
+		lines = append(lines, proxy.ScopeLine(sc, h.Inflight))
+	}
+	return lines
 }
 
 // proxyTeamsStatus summarizes the team config for the doctor row.
@@ -95,6 +105,9 @@ func proxyTeamsStatus() (detail string, bad bool) {
 func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	detail, bad = proxyDaemonStatus(ctx)
 	td, tbad := proxyTeamsStatus()
+	if n := len(detachedLines(ctx)); n > 0 {
+		td += fmt.Sprintf("; %d standing proxies live", n)
+	}
 	return detail + "; teams: " + td, bad || tbad
 }
 

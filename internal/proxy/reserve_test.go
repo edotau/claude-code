@@ -26,12 +26,12 @@ func TestEnsureTeamStartsOnceThenFinds(t *testing.T) {
 	old := spawnScope
 	t.Cleanup(func() { spawnScope = old })
 	spawns := 0
-	spawnScope = func(team, id string) error {
+	spawnScope = func(team, id string) (func(), error) {
 		spawns++
 		start, _ := proc.StartTime(os.Getpid())
 		_, err := WriteScope(Scope{Team: team, ID: id, PID: os.Getpid(), Start: start, Port: port,
-			Build: textutil.BuildVersion(), Started: time.Now().Add(time.Hour)})
-		return err
+			Build: textutil.BuildVersion(), Started: time.Now(), Exe: SelfExeHash(), Host: HostDetached})
+		return func() {}, err
 	}
 	team := proxyteam.Team{Name: "general", Host: proxyteam.HostDetached, Reserved: 2}
 	a, err := EnsureTeam(context.Background(), team, "d1")
