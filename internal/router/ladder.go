@@ -547,7 +547,7 @@ func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop,
 	}
 	m, why := lp.rungModel(Candidate{Agent: agent, Account: AccountOf(p), Profile: profile}, model)
 	if why == "" {
-		m, why = chainModel(agent, p, m)
+		m, why = chainModel(agent, p, m, lp.now)
 	}
 	if why != "" {
 		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + AccountOf(p), gateLadder, why})
@@ -557,11 +557,17 @@ func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop,
 }
 
 // chainModel is m as a concrete id on p (a family resolved), or why agent cannot run it there.
-func chainModel(agent string, p *providers.Provider, m string) (model, why string) {
+func chainModel(agent string, p *providers.Provider, m string, now time.Time) (model, why string) {
 	if providers.IsFamily(m) {
-		if m = providers.SpellPin(p, m); m == "" {
+		if m = providers.ConcreteModel(agent, p, m); m == "" {
 			return "", "no concrete model for the family on " + p.Name
 		}
+		if ready, fresh := ServedReady(p, m, now); fresh && !ready {
+			return "", "rung model " + m + " is not READY on " + p.Name
+		}
+	}
+	if agentid.Routing(agent).ResponsesRoute && !providers.ResponsesServable(p, m) {
+		return "", agent + " needs a Responses model; " + p.Name + " serves " + m + " another way"
 	}
 	if canon, _, ok := models.Resolve(m); ok && p.Preset == providers.PresetDatabricks && models.FamilyOf(canon) == models.Fable {
 		return "", "databricks serves no Fable"
