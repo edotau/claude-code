@@ -107,3 +107,24 @@ func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 		t.Errorf("no task: got %q, want nothing", got)
 	}
 }
+
+func TestLeafCheckoutFromMeta(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := hosttest.Repo(t)
+	lane := filepath.Join(paths.LaneRoot(repo), "l1")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "l1", lane)
+	tr := filepath.Join(t.TempDir(), "agent-a1.jsonl")
+	in := &core.Input{AgentID: "a1", AgentTranscriptPath: tr, CWD: repo}
+	if got := leafCheckout(in, repo); got != "" {
+		t.Errorf("no meta, no claims: got %q, want no lane (the caller's cwd is no evidence)", got)
+	}
+	if err := os.WriteFile(leafMeta(tr), []byte(`{"worktreePath":"`+lane+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := leafCheckout(in, repo); !paths.SamePath(got, lane) {
+		t.Errorf("meta worktreePath: got %q, want %q", got, lane)
+	}
+	if got := leafCheckout(in, hosttest.Repo(t)); got != "" {
+		t.Errorf("another repo's top: got %q, want no lane", got)
+	}
+}
