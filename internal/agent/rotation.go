@@ -320,11 +320,11 @@ func rowNotReady(p *providers.Provider, st router.State, agentName, alias string
 	if err != nil {
 		return "cannot spell " + alias
 	}
-	return rowHeld(p, st, wire, now)
+	return rowHeld(p, st, agentName, wire, now)
 }
 
-// rowHeld is why p's account or its wire model is out now: account or model cooling, a dead model, a listing not READY.
-func rowHeld(p *providers.Provider, st router.State, wire string, now time.Time) string {
+// rowHeld is why p's account or wire model is out now: cooling, dead, not READY, or the launch's own account gate.
+func rowHeld(p *providers.Provider, st router.State, agentName, wire string, now time.Time) string {
 	acct := router.AccountOf(p)
 	switch {
 	case st.CoolingUntil(acct).After(now):
@@ -333,6 +333,13 @@ func rowHeld(p *providers.Provider, st router.State, wire string, now time.Time)
 		return "holds " + wire + " cooling or dead"
 	case p.Preset == providers.PresetDatabricks && router.ListedNotReady(p, wire, now):
 		return "lists " + wire + " not READY"
+	}
+	eng, err := Lookup(agentName)
+	if err != nil {
+		return ""
+	}
+	if e := accountRefused(Dispatch{Agent: eng, Account: p.Account()}, wire); e != nil { // exhausted, auth-marked, stalled
+		return "is refused: " + e.Err.Error()
 	}
 	return ""
 }
