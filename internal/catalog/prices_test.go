@@ -96,7 +96,7 @@ func TestPricesFileAndSnapshotPath(t *testing.T) {
 // A model the provider lacks reads the vendor's own row, with dots spelled as dashes; the provider's row wins.
 func TestPricesListRow(t *testing.T) {
 	p, _ := fixtureFold(t)
-	p.Providers["openai"] = map[string]ModelPrice{"gpt-6.1-sol": {Priced: true, Input: 2}, "gpt-7": {Priced: true, Input: 8}}
+	p.Providers["openai"] = map[string]ModelPrice{"gpt-6.1-sol": {Priced: true, Input: 2}, "gpt-7": {Priced: true, Input: 8}, "o4-mini": {Priced: true, Input: 1}}
 	p.Providers["databricks"]["databricks-gpt-7"] = ModelPrice{Priced: true, Input: 7}
 	p.Providers["databricks"]["gpt-7"] = ModelPrice{Priced: true, Input: 6}
 	for _, c := range []struct {
@@ -105,7 +105,7 @@ func TestPricesListRow(t *testing.T) {
 	}{
 		{"databricks", "claude-opus-5-5", 99}, {"databricks", "claude-opus-4-5", 5}, {"databricks", "gpt-6-1-sol", 2},
 		{"databricks", "gpt-6.1-sol", 2}, {"openai", "gpt-6-1-sol", 2}, {"databricks", "gpt-7", 6},
-		{"databricks", "databricks-gpt-7", 7},
+		{"databricks", "databricks-gpt-7", 7}, {"databricks", "o4-mini", 1},
 		{"databricks", "databricks-gpt-6-1-sol", 2},
 	} {
 		if r, ok := p.ListRow(c.prov, c.id); !ok || r.Input != c.in {
