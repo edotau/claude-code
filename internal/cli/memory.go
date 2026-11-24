@@ -207,7 +207,7 @@ func memorySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"recall": {Flags: []helptext.Flag{helptext.Plain("k"),
 			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
-		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes)}},
+		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes), helptext.Plain("supersedes")}},
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n"), helptext.Plain("candidate"),
@@ -250,6 +250,7 @@ func cmdMemoryRemember(args []string) int {
 	fs := memoryFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
 		"reads like a rule? use memory promote --to rules instead")
+	old := fs.String("supersedes", "", "id of the live entry this fact replaces (see memory search)")
 	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -257,7 +258,7 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	id, err := memory.Remember(*kind, strings.Join(terms, " "), time.Now())
+	id, err := memory.RememberSupersedes(*kind, strings.Join(terms, " "), *old, time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}

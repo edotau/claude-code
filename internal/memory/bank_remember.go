@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RememberTypes maps --type to its file: "project" is a dated decisionLog.md entry, the rest conventions.md bullets.
@@ -29,6 +30,11 @@ var afterRememberWrite = func() {}
 
 // Remember writes fact under kind's file, settles to stamp an id, and returns that id.
 func Remember(kind, fact string, now time.Time) (string, error) {
+	return RememberSupersedes(kind, fact, "", now)
+}
+
+// RememberSupersedes is Remember for a fact that replaces the live entry old: Go writes the `Supersedes` edge.
+func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 	file, ok := RememberTypes[kind]
 	if !ok {
 		return "", fmt.Errorf("--type %q: want user, feedback, project, or reference", kind)
@@ -37,25 +43,84 @@ func Remember(kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
+	if old != "" { // before EnsureBank, so a refused id leaves no store behind
+		var err error
+		if old, err = liveEntryID(old); err != nil {
+			return "", err
+		}
+	}
 	err := EnsureBank("")
 	if err != nil {
 		return "", err
 	}
 	var id string
 	err = withFlatLock(BankLockWait, func() error {
-		snap, werr := snapshotPaths(Path(file))
-		if werr != nil {
-			return werr
-		}
-		if id, werr = writeRememberFact(file, kind, fact, now); werr != nil {
-			return werr
-		}
-		return restoreOnError(stampAndSettle(file, now), snap)
+		var werr error
+		id, werr = rememberLocked(file, kind, fact, old, now)
+		return werr
 	})
 	if err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// rememberLocked is RememberSupersedes' write under the bank lock; every touched bank file rolls back on error.
+func rememberLocked(file, kind, fact, old string, now time.Time) (string, error) {
+	if old != "" { // a peer may have replaced it since the check before the lock
+		if _, err := liveEntryID(old); err != nil {
+			return "", err
+		}
+	}
+	snap, err := snapshotPaths(Path(file), Path("decisionLog.md"), Path("conventions.md"))
+	if err != nil {
+		return "", err
+	}
+	id, err := writeRememberFact(file, kind, fact, old, now)
+	if err != nil {
+		return "", err
+	}
+	return id, restoreOnError(errors.Join(stampAndSettle(file, now), requireReplaced(old, id)), snap)
+}
+
+// liveEntryID resolves ref to the persisted id of a not-yet-replaced entry of decisionLog.md or conventions.md.
+func liveEntryID(ref string) (string, error) {
+	path, block, err := ShowBlock(ref)
+	if errors.Is(err, errNoBlock) {
+		return "", fmt.Errorf("--supersedes %q: no such entry (see memory search)", ref)
+	}
+	if err != nil {
+		return "", err
+	}
+	if path != Path("decisionLog.md") && path != Path("conventions.md") {
+		return "", fmt.Errorf("--supersedes %q: not an entry of decisionLog.md or conventions.md", ref)
+	}
+	if partlyStruck(textutil.FirstLine(block)) { // settle never replaces a half-valid entry
+		return "", fmt.Errorf("--supersedes %q: the entry is partly struck, so it cannot be replaced", ref)
+	}
+	if by := replacedBy(block); by != "" {
+		return "", fmt.Errorf("--supersedes %q: already replaced by %s; supersede that entry instead", ref, by)
+	}
+	id := ownerID(block)
+	if id == "" {
+		return "", fmt.Errorf("--supersedes %q: the entry has no id yet; run memory index first", ref)
+	}
+	return id, nil
+}
+
+// requireReplaced fails unless settle pointed entry old at newID: a hidden or malformed edge must not land.
+func requireReplaced(old, newID string) error {
+	if old == "" {
+		return nil
+	}
+	_, block, err := ShowBlock(old)
+	if err != nil {
+		return err
+	}
+	if replacedBy(block) != newID {
+		return fmt.Errorf("--supersedes %q: settle did not replace it", old)
+	}
+	return nil
 }
 
 // stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
@@ -74,13 +139,13 @@ func stampAndSettle(file string, now time.Time) error {
 }
 
 // writeRememberFact adds fact to the file, stamps its id in memory, writes the file once, and returns the id.
-func writeRememberFact(file, kind, fact string, now time.Time) (string, error) {
+func writeRememberFact(file, kind, fact, old string, now time.Time) (string, error) {
 	path := Path(file)
 	data, err := readFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err // never rewrite the file from an unread one
 	}
-	line, text := rememberedText(path, file, kind, fact, string(data), now)
+	line, text := rememberedText(path, file, kind, fact, old, string(data), now)
 	text, _ = stampIDs(file, idFiles[file], text, now)
 	id, err := lastStampedID(text, line, file == "decisionLog.md")
 	if err != nil { // an unclosed fence above it or an id marker inside the fact: refuse before writing
@@ -93,17 +158,25 @@ func writeRememberFact(file, kind, fact string, now time.Time) (string, error) {
 }
 
 // rememberedText is body with fact added: a dated heading on top of decisionLog.md, else a labeled bullet at the end.
-func rememberedText(path, file, kind, fact, body string, now time.Time) (line, text string) {
+func rememberedText(path, file, kind, fact, old, body string, now time.Time) (line, text string) {
 	if strings.TrimSpace(body) == "" { // a missing typed file starts from its scaffold, never appendBlocks' archive header
 		body = templates()[file]
 	}
 	if file == "decisionLog.md" {
-		line = "## " + now.Format("2006-01-02") + " — " + fact
+		line = "## " + now.Format("2006-01-02") + " — " + fact + supersedesLine(old, "")
 		header, blocks := entryBlocks(file, body) // newest-first: the new entry goes on top
 		return line, rejoin(header, append([]string{line}, blocks...))
 	}
-	line = "- " + strings.ToUpper(kind[:1]) + kind[1:] + ": " + fact
+	line = "- " + strings.ToUpper(kind[:1]) + kind[1:] + ": " + fact + supersedesLine(old, "  ")
 	return line, appendedText(path, body, []string{line})
+}
+
+// supersedesLine is the body line settle reads as a replacement edge to old ("" when old is empty).
+func supersedesLine(old, indent string) string {
+	if old == "" {
+		return ""
+	}
+	return "\n" + indent + "Supersedes " + old + "."
 }
 
 // lastStampedID finds the id stamped on line's first line in text: first match if newest-first, else the last.

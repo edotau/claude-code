@@ -91,7 +91,7 @@ func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
 		if err := os.Mkdir(p, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := writeRememberFact("decisionLog.md", "project", "x", time.Now()); err == nil {
+		if _, err := writeRememberFact("decisionLog.md", "project", "x", "", time.Now()); err == nil {
 			t.Fatal("writeRememberFact on an unreadable log = nil error, want the read error")
 		}
 		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
@@ -345,4 +345,48 @@ func TestRememberWritesTheBanksFileInEachLayout(t *testing.T) {
 			t.Errorf("conventions.md missing the fact or its id %s: %q", id, body)
 		}
 	})
+}
+
+// TestRememberSupersedesStrikesOldEntry: --supersedes writes the edge and settle strikes the old entry.
+func TestRememberSupersedesStrikesOldEntry(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	oldID, err := Remember("project", "first plan", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newID, err := RememberSupersedes("project", "second plan", oldID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := mustRead(t, Path("decisionLog.md"))
+	for _, want := range []string{"~~first plan~~", "Replaced by " + newID, "Supersedes " + oldID + "."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("decisionLog.md lacks %q: %q", want, body)
+		}
+	}
+}
+
+// TestRememberSupersedesRefusals: an unknown or already-replaced id is refused and the bank is left untouched.
+func TestRememberSupersedesRefusals(t *testing.T) {
+	tempConfig(t)
+	if _, err := RememberSupersedes("project", "x", "deadbeef", time.Now()); err == nil {
+		t.Fatal("RememberSupersedes with an unknown id = nil error, want one")
+	}
+	if _, err := os.Stat(paths.MemoryStoreDir()); err == nil {
+		t.Error("a refused supersede created the store")
+	}
+	a, _ := Remember("project", "A", time.Now())
+	b, err := RememberSupersedes("project", "B", a, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := mustRead(t, Path("decisionLog.md"))
+	_, err = RememberSupersedes("project", "C", a, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "already replaced by "+b) {
+		t.Fatalf("superseding a replaced entry = %v, want a refusal naming %s", err, b)
+	}
+	if mustRead(t, Path("decisionLog.md")) != before {
+		t.Error("a refused supersede changed decisionLog.md")
+	}
 }
