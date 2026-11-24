@@ -72,6 +72,13 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
   `rtk make audit` detached on a clean snapshot of the merged commit, reported on your next prompt.
   A conflict exits 3, the lane stays as it was and the files are named: fix it in the lane, then re-run the merge.
   Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
+- **Merge on completion (every fan-out worktree, any `HARNESS_WORKTREE` value):** the moment a task's leaf hands back
+  and its scoped check passes, the main session commits the named files in the worktree and runs
+  `claude-code worktree merge <lane> --resolve-agent <agent>` onto the working branch, without asking and without
+  waiting for sibling tasks. A conflict is resolved in the worktree, keeping both sides' intent, then the merge is
+  re-run (`--resume`); it never goes back to the owner unless the two sides contradict an owner statement. A promoted
+  worktree and its branch are removed by the merge; one it refuses to remove (a process still inside it) is removed
+  with `claude-code worktree clean <lane>` once that process ends. No finished worktree outlives its task.
 
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in
   your own linked worktree (CLAUDE.md hard rule 4). Never run stash, checkout, switch, reset, restore or clean in

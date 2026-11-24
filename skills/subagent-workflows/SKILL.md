@@ -237,6 +237,8 @@ unblocked row in one message.
 - **Lanes:** with `HARNESS_WORKTREE=lanes` each stream's leaves work in their own lane and the main session lands it
   with `claude-code worktree merge <lane>` (rebase in the lane, gate, fast-forward; a conflict exits 3):
   `skills/using-git-worktrees/SKILL.md` → The lane protocol.
+- **Merge on completion:** each fan-out worktree merges onto the working branch as its task completes, conflicts
+  resolved in the worktree, and is removed by that merge: `rules/standards/worktree-git.md` → Merge on completion.
 - **Scouts and reviews** never wait for edit work.
 
 #### Tests
