@@ -102,12 +102,12 @@ func afterOrphanPEM(s string) string {
 	return ""
 }
 
-// dropFirstLine is s past its first newline and any base64 body lines after it: a cut window may open inside a key.
+// dropFirstLine is s from the first line past the cut that is not key-shaped: a cut window may open inside a key.
 func dropFirstLine(s string) string {
 	_, rest, _ := strings.Cut(s, "\n")
-	for dropped := false; rest != ""; dropped = true {
+	for rest != "" {
 		line, next, _ := strings.Cut(rest, "\n")
-		if !base64Line(strings.TrimSuffix(line, "\r"), dropped && next == "") {
+		if !base64Line(strings.TrimSuffix(line, "\r")) {
 			break
 		}
 		rest = next
@@ -117,12 +117,12 @@ func dropFirstLine(s string) string {
 
 const b64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 
-// base64Line reports a PEM body line: 48+ base64 characters, not a hash; any length for an interrupted last line.
-func base64Line(s string, interrupted bool) bool {
+// base64Line reports a line of only base64 characters (no space or other punctuation), except a 32+ char hex hash.
+func base64Line(s string) bool {
 	if s == "" || strings.Trim(s, b64Chars) != "" {
 		return false
 	}
-	return interrupted || len(s) >= 48 && strings.Trim(s, "0123456789abcdefABCDEF") != ""
+	return len(s) < 32 || strings.Trim(s, "0123456789abcdefABCDEF") != ""
 }
 
 // maskShapes masks credential-shaped runs, then vault values, in s.

@@ -49,6 +49,10 @@ func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 	if tail := verifyTail(tb); !strings.HasPrefix(tail, "ok: build passed") {
 		t.Errorf("tail = %q, want leading body lines dropped and ordinary output kept", tail)
 	}
+	tb = &tailBuf{b: []byte("partial\n" + line[:16] + "\n" + line[:5] + "\nFAIL pkg\n"), cut: true}
+	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
+		t.Errorf("tail = %q, want short fragments after the cut dropped", tail)
+	}
 	hash := strings.Repeat("0123456789abcdef", 4)
 	tb = &tailBuf{b: []byte("x\n" + hash + "\nok\n"), cut: true}
 	if tail := verifyTail(tb); !strings.Contains(tail, hash) {
@@ -58,7 +62,7 @@ func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 
 func TestVerifyTailDropsAPEMBodyWhoseBeginWasCut(t *testing.T) {
 	body := strings.Repeat("Zq9Xw2Lm7KaB3dE5gH7jQ1wE4rT6yU8iO0pAsDfGhJk", 3)
-	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n-----END PRIVATE KEY-----\nafter\n"), cut: true}
+	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n-----END PRIVATE KEY-----\nafter: ok\n"), cut: true}
 	if tail := verifyTail(tb); strings.Contains(tail, body[:30]) || !strings.Contains(tail, "after") {
 		t.Errorf("tail = %q, want the orphaned key body dropped and later output kept", tail)
 	}
