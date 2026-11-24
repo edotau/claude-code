@@ -246,7 +246,7 @@ func markerTint(d Dispatch) string {
 		return ansi.Yellow
 	case d.Status == statusRunning:
 		return ansi.Green
-	case d.Status == statusFinished:
+	case d.Status == statusFinished || d.Status == "ok":
 		return ansi.Dim
 	case d.Status == statusError || d.Status == "lost":
 		return ansi.Red

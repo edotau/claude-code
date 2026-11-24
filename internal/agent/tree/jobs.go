@@ -172,6 +172,9 @@ func jobMarker(d Dispatch) string {
 	if d.Status == "lost" {
 		return statusGlyph(statusError)
 	}
+	if d.Status == "ok" {
+		return statusGlyph(statusFinished)
+	}
 	return statusGlyph(d.Status)
 }
 

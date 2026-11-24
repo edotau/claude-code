@@ -645,3 +645,13 @@ func TestJobDescriptionCapUnclipped(t *testing.T) {
 		t.Errorf("long description not ellipsised:\n%s", b.String())
 	}
 }
+
+func TestOkDispatchMarkerAndTint(t *testing.T) {
+	d := Dispatch{Status: "ok"}
+	if got := jobMarker(d); got != "✓" {
+		t.Errorf("jobMarker(ok) = %q, want ✓", got)
+	}
+	if got := markerTint(d); got != ansi.Dim {
+		t.Errorf("markerTint(ok) = %q, want ansi.Dim", got)
+	}
+}
