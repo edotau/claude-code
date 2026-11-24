@@ -370,7 +370,8 @@ typos:  # (folded into `install`) pinned typos release in bin/; a warning, never
 	if command -v sha256sum >/dev/null; then actual=$$(sha256sum "$$t/typos.tar.gz" | cut -d' ' -f1); \
 	else actual=$$(shasum -a 256 "$$t/typos.tar.gz" | cut -d' ' -f1); fi; \
 	[ "$$actual" = "$$s" ] || { echo -e "$(C_NOTE)typos skipped: checksum mismatch"; exit 0; }; \
-	tar -xzf "$$t/typos.tar.gz" -C "$$t" typos && mkdir -p bin && install -m 0755 "$$t/typos" bin/typos
+	tar -xzf "$$t/typos.tar.gz" -C "$$t" && [ -f "$$t/typos" ] || { echo -e "$(C_NOTE)typos skipped: binary not in archive"; exit 0; }; \
+	mkdir -p bin && install -m 0755 "$$t/typos" bin/typos && echo -e "$(C_OK)typos $(TYPOS_VERSION) installed (checksum verified)"
 
 .PHONY: verify
 verify: audit  ## audit + doctor + proxy status
