@@ -355,3 +355,16 @@ func TestEnvironDropsShimPath(t *testing.T) {
 	}
 	t.Error("PATH missing from the child env")
 }
+
+func TestEnvironExportsChosenProxy(t *testing.T) {
+	setConfigDir(t)
+	t.Setenv(dispatchProxyEnv, "stale:old")
+	ctx := withDispatchID(t.Context(), "pxid", 1)
+	routeMu.Lock()
+	chosenByID["pxid"] = "phase:g1"
+	routeMu.Unlock()
+	t.Cleanup(func() { forgetChosenProxy(ctx) })
+	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); !slices.Contains(env, dispatchProxyEnv+"=phase:g1") {
+		t.Fatalf("chosen proxy not exported: %v", slices.DeleteFunc(env, func(e string) bool { return !strings.Contains(e, "PROXY") }))
+	}
+}

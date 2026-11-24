@@ -63,11 +63,29 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		env = append(slices.DeleteFunc(env, func(e string) bool {
 			return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
 		}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
+		env = withDispatchProxy(env, id)
 	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
 	return withMemoryOrigin(withRTKQuiet(env))
+}
+
+const dispatchProxyEnv = "HARNESS_DISPATCH_PROXY"
+
+// withDispatchProxy exports the chosen scope proxy to child asks; no choice keeps the inherited, a daemon clears it.
+func withDispatchProxy(env []string, id string) []string {
+	routeMu.Lock()
+	label, chosen := chosenByID[id]
+	routeMu.Unlock()
+	if !chosen {
+		return env
+	}
+	env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") })
+	if strings.Contains(label, ":") {
+		env = append(env, dispatchProxyEnv+"="+label)
+	}
+	return env
 }
 
 // withRTKQuiet adds the rtk banner and telemetry switches unless env already sets them.
