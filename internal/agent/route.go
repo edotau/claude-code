@@ -687,7 +687,8 @@ const autoPickWhy = "an auto pick runs on the agent's own CLI"
 func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, model, profile string) (string, string) {
 	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task,
 		Default: q.AliasHint, Tools: q.Tools})
-	if IsAuto(cmp.Or(mq.Model, mq.PinModel)) { // a peek would pin the rotation's next pick without stamping it
+	// an untyped ask under an auto pin rotates at dispatch; a peek would pin the next pick without stamping it
+	if IsAuto(mq.Model) || q.Model == "" && IsAuto(mq.PinModel) {
 		return "", autoPickWhy
 	}
 	r, err := ResolveRun(reg, mq, time.Now())
