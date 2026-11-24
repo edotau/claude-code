@@ -730,6 +730,7 @@ func tokenCount(p *int64) int {
 func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage, transport *wire.Transport) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.onUsage = nil // unsubscribe does not join an admitted callback; none may emit once Ask returns
 	text, summary := strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)
 	// the answer may sit only in task_complete, after a preamble
 	if summary != "" && !strings.Contains(text, summary) {

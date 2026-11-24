@@ -984,9 +984,13 @@ func (a *activityLog) note(ev wire.Event, tools int64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.current.Tools, a.current.Last = tools, time.Now().UTC()
-	if ev.Usage != nil {
+	if ev.Usage != nil && usageTotal(*ev.Usage) >= usageTotal(a.current.Usage) { // a retried attempt restarts at 0
 		a.current.Usage = *ev.Usage
 	}
+}
+
+func usageTotal(u wire.Usage) int {
+	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
 }
 
 func (a *activityLog) save(id string, saved *Activity) {
