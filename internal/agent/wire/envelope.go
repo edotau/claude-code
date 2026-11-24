@@ -99,6 +99,38 @@ type Envelope struct {
 	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 	Verify          *VerifyResult   `json:"verify,omitempty"`     // --spec verify: what the harness ran after the answer
+	Handback        *Handback       `json:"handback,omitempty"`   // the run's typed outcome, from a pi run's handback call
+}
+
+// Handback is the typed outcome a run reports; the answer's footer is only its rendering (Footer).
+type Handback struct {
+	Status  string   `json:"status"` // DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+	Summary string   `json:"summary"`
+	Unfixed []string `json:"unfixed"`
+}
+
+// Footer is the verdict line and the one UNFIXED line; "UNFIXED: none" only for DONE with no items.
+func (h Handback) Footer() string {
+	one := func(s string) string { return strings.Join(strings.Fields(s), " ") } // a newline never forges a line
+	var items []string
+	for _, s := range h.Unfixed {
+		if s = one(s); s != "" && !strings.EqualFold(s, "none") {
+			items = append(items, s)
+		}
+	}
+	unfixed := strings.Join(items, "; ")
+	switch {
+	case unfixed != "":
+	case h.Status == "DONE":
+		unfixed = "none"
+	default:
+		unfixed = h.Status // an unfinished or concerned run is never "UNFIXED: none"
+	}
+	head := h.Status
+	if s := one(h.Summary); s != "" {
+		head += ": " + s
+	}
+	return head + "\nUNFIXED: " + unfixed
 }
 
 // VerifyResult is what the harness observed running a spec's verify steps; Exit is the first failing step's.
@@ -128,7 +160,7 @@ const (
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
-		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify}
+		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify, Handback: res.Handback}
 	if res.Denials != nil {
 		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
 	}
@@ -351,6 +383,7 @@ type Result struct {
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	Verify          *VerifyResult   `json:"verify,omitempty"`          // the spec's verify run, set by ask after the answer
+	Handback        *Handback       `json:"handback,omitempty"`        // the typed outcome the run's handback call reported
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
 }

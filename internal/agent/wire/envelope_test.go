@@ -144,3 +144,20 @@ func TestEnvelopeTurnsAndWindow(t *testing.T) {
 		t.Errorf("envelope = %s, want neither field when unknown", s)
 	}
 }
+
+func TestHandbackFooterIsCleanOnlyForDoneWithNoItems(t *testing.T) {
+	for _, c := range []struct {
+		h    Handback
+		want string
+	}{
+		{Handback{"DONE", "s", nil}, "DONE: s\nUNFIXED: none"},
+		{Handback{"DONE", "s", []string{"none"}}, "DONE: s\nUNFIXED: none"},
+		{Handback{"BLOCKED", "s", []string{"none"}}, "BLOCKED: s\nUNFIXED: BLOCKED"},
+		{Handback{"DONE_WITH_CONCERNS", "s", nil}, "DONE_WITH_CONCERNS: s\nUNFIXED: DONE_WITH_CONCERNS"},
+		{Handback{"NEEDS_CONTEXT", "a\nb", []string{"x\ny", "z"}}, "NEEDS_CONTEXT: a b\nUNFIXED: x y; z"},
+	} {
+		if got := c.h.Footer(); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.h, got, c.want)
+		}
+	}
+}

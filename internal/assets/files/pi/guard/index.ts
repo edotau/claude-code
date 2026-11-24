@@ -40,8 +40,22 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
   }
 }
 
-// guarded is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+// running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
+const running = new Set<string>()
+let handedBack = false
+
+async function tracked<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  running.add(id)
+  try { return await fn() } finally { running.delete(id) }
+}
+
 function guarded(name: string, def: any) {
+  const inner = guardedRun(name, def)
+  return { ...inner, execute: (id: string, ...rest: any[]) => tracked(id, () => inner.execute(id, ...(rest as [any, any, any, any]))) }
+}
+
+// guardedRun is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+function guardedRun(name: string, def: any) {
   return { ...def, async execute(id: string, params: any, signal: any, onUpdate: any, ctx: any) {
     const sid = String(ctx?.sessionManager?.getSessionId?.() ?? "")
     const v = judge(name, params, String(ctx?.cwd || process.cwd()), sid)
@@ -60,7 +74,7 @@ const ACTIONS: Record<string, any> = {
     description: "Run the repo's scoped build, vet and test gate; returns {gate,exit,changed,failures}",
     parameters: { type: "object", additionalProperties: false,
       properties: { scope: { type: "array", items: { type: "string" }, description: "dirs to limit the gate to" } } } },
-  handback: { label: "Hand back", promptSnippet: "handback: report the task's outcome; call it once, last",
+  handback: { label: "Hand back", executionMode: "sequential", promptSnippet: "handback: report the task's outcome; call it once, last",
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     description: "Finish: report the outcome of the task. Call once, last.",
     parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
@@ -77,13 +91,18 @@ function stopTree(child: any) {
 
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
 function action(name: string) {
-  return { name, ...ACTIONS[name], async execute(_id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
+  return { name, ...ACTIONS[name], async execute(id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
     const cwd = String(ctx?.cwd || process.cwd())
     const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
     if (v.block) throw new Error(v.block)
     if (v.usage) throw new Error(name + ": " + v.usage)
     if (signal?.aborted) throw new Error(name + ": cancelled")
-    const text = v.run ? await runAction(name, v.run, cwd, signal) : "recorded"
+    if (name === "handback") { // a usage error of this tool, not a guard block: the model retries it last
+      if (handedBack) throw new Error("handback: already handed back; the first successful call is final")
+      if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
+    }
+    const text = await tracked(id, async () => (v.run ? await runAction(name, v.run, cwd, signal) : "recorded"))
+    if (name === "handback") handedBack = true
     return { content: [{ type: "text", text }], details: {} }
   } }
 }

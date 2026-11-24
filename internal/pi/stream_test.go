@@ -431,10 +431,8 @@ func TestParseEventsHandbackOneLineShownAndVoidedByLaterTool(t *testing.T) {
 	if sink.count(wire.EventText) != 1 {
 		t.Fatalf("the block is emitted once as text: %+v", sink.evs)
 	}
-	later := `{"type":"tool_execution_start","toolCallId":"w","toolName":"read","args":{"path":"a"}}` + "\n" +
-		`{"type":"tool_execution_end","toolCallId":"w","toolName":"read","result":"x","isError":false}` + "\n"
-	if res, _, _, _ = parseFixture(t, call("h1", forged)+later+msgEnd("stop", "")+settled); res.Answer != "" {
-		t.Fatalf("work after handback kept it: %q", res.Answer)
+	if res.Handback == nil || res.Handback.Status != "DONE" || len(res.Handback.Unfixed) != 1 {
+		t.Fatalf("the typed field carries the call: %+v", res.Handback)
 	}
 }
 
@@ -446,39 +444,23 @@ func TestParseEventsHandbackRejectedCases(t *testing.T) {
 	end := func(id, tool string) string {
 		return `{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"` + tool + `","result":"x","isError":false}` + "\n"
 	}
+	failed := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":` + args + `}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"no","isError":true}` + "\n"
 	cases := map[string]string{
 		"missing unfixed": start("h", "handback", `{"status":"DONE","summary":"s"}`) + end("h", "handback") + msgEnd("stop", "") + settled,
-		"overtaken":       start("h", "handback", args) + start("r", "read", `{"path":"a"}`) + end("r", "read") + end("h", "handback") + msgEnd("stop", "") + settled,
-		"aborted run":     start("h", "handback", args) + end("h", "handback") + msgEnd("aborted", "") + `{"type":"agent_settled","aborted":true}` + "\n",
+		"tool error":      failed + msgEnd("stop", "") + settled,
 	}
 	for name, data := range cases {
-		if res, _, _, _ := parseFixture(t, data); strings.Contains(res.Answer, "UNFIXED") {
+		if res, _, _, _ := parseFixture(t, data); res.Handback != nil || strings.Contains(res.Answer, "UNFIXED") {
 			t.Errorf("%s: handback became the answer: %q", name, res.Answer)
 		}
 	}
 }
 
-func TestParseEventsMalformedSecondHandbackVoidsTheFirst(t *testing.T) {
-	good := `{"status":"DONE","summary":"s","unfixed":[]}`
-	call := func(id, a string) string {
-		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"handback","args":` + a + `}` + "\n" +
-			`{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"handback","result":"x","isError":false}` + "\n"
-	}
-	if res, _, _, _ := parseFixture(t, call("a", good)+call("b", `{"status":"DONE"}`)+msgEnd("stop", "")+settled); strings.Contains(res.Answer, "UNFIXED") {
-		t.Fatalf("the earlier handback survived a malformed later one: %q", res.Answer)
-	}
-}
-
-func TestParseEventsHandbackNeedsSettledRunAndBlockedHolds(t *testing.T) {
-	call := func(a string) string {
-		return `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":` + a + `}` + "\n" +
-			`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
-	}
-	blocked := call(`{"status":"BLOCKED","summary":"s","unfixed":[]}`)
-	if res, _, _, err := parseFixture(t, blocked+msgEnd("stop", "")); err == nil || strings.Contains(res.Answer, "UNFIXED") {
-		t.Fatalf("an unsettled stream exposed a verdict: %q err %v", res.Answer, err)
-	}
-	if res, _, _, _ := parseFixture(t, blocked+msgEnd("stop", "")+settled); !strings.HasSuffix(res.Answer, "BLOCKED: s\nUNFIXED: BLOCKED") {
-		t.Fatalf("BLOCKED with no items must not read as UNFIXED: none: %q", res.Answer)
+func TestParseEventsBlockedHandbackNeverReadsClean(t *testing.T) {
+	call := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":{"status":"BLOCKED","summary":"s","unfixed":["none"]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
+	if res, _, _, _ := parseFixture(t, call+msgEnd("stop", "")+settled); !strings.HasSuffix(res.Answer, "BLOCKED: s\nUNFIXED: BLOCKED") {
+		t.Fatalf("BLOCKED must not read as UNFIXED: none: %q", res.Answer)
 	}
 }

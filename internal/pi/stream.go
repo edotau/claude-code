@@ -92,25 +92,20 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 		err = t.finish(false)
 	}
 	res.Answer = t.text()
-	if h := t.verdict(); h != nil && err == nil { // a settled, clean stream: no later work can void it
-		res.Answer = strings.TrimSpace(res.Answer + "\n\n" + h.block())
-		err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.block(), Sep: true})
+	if h := res.Handback; h != nil { // the typed call is the source of truth; the footer only renders it
+		res.Answer = strings.TrimSpace(res.Answer + "\n\n" + h.Footer())
+		if err == nil {
+			err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.Footer(), Sep: true})
+		}
 	}
 	return res, err
-}
-
-// handback is the typed `handback` tool call's arguments; the schema lives in the guard extension's ACTIONS.
-type handback struct {
-	Status  string   `json:"status"`
-	Summary string   `json:"summary"`
-	Unfixed []string `json:"unfixed"`
 }
 
 // handbackStatuses is the schema's status enum: the verdict words.
 var handbackStatuses = []string{"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"}
 
 // parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
-func parseHandback(args json.RawMessage) (h handback, ok bool) {
+func parseHandback(args json.RawMessage) (h wire.Handback, ok bool) {
 	var raw struct {
 		Status  string    `json:"status"`
 		Summary *string   `json:"summary"`
@@ -118,39 +113,9 @@ func parseHandback(args json.RawMessage) (h handback, ok bool) {
 	}
 	// sampling is only "preferred" strict, so every required field is checked here
 	if json.Unmarshal(args, &raw) != nil || !slices.Contains(handbackStatuses, raw.Status) || raw.Summary == nil || raw.Unfixed == nil {
-		return handback{}, false
+		return wire.Handback{}, false
 	}
-	return handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed}, true
-}
-
-// verdict is the handback that decides the answer: none when the run did not end cleanly.
-func (t *piTurn) verdict() *handback {
-	if t.failure() != "" {
-		return nil
-	}
-	return t.handback
-}
-
-// block is the verdict line, the summary and the single UNFIXED line, built from the typed fields.
-func (h handback) block() string {
-	one := func(s string) string { return strings.Join(strings.Fields(s), " ") } // a newline never forges a line
-	unfixed := "none"
-	var items []string
-	for _, s := range h.Unfixed {
-		if s = one(s); s != "" {
-			items = append(items, s)
-		}
-	}
-	if len(items) > 0 {
-		unfixed = strings.Join(items, "; ")
-	} else if h.Status == "BLOCKED" || h.Status == "NEEDS_CONTEXT" {
-		unfixed = h.Status // an unfinished task is never "UNFIXED: none"
-	}
-	head := h.Status
-	if s := one(h.Summary); s != "" {
-		head += ": " + s
-	}
-	return head + "\nUNFIXED: " + unfixed
+	return wire.Handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed}, true
 }
 
 // piTurn is parseEvents' state across one run's events.
@@ -165,10 +130,9 @@ type piTurn struct {
 	stop         string          // the last assistant message's stop reason; only the last one decides the run
 	errMsg       string          // and its error message
 	assistant    bool
-	open         map[string]string   // running tool calls, id to write path
-	calls        map[string]handback // handback calls awaiting their result, by tool call id
-	handback     *handback           // the last handback call that succeeded and no tool followed
-	inflight     piUsage             // the last non-zero usage of the message still streaming; zero mid-turn means unknown
+	open         map[string]string        // running tool calls, id to write path
+	calls        map[string]wire.Handback // handback calls awaiting their result, by tool call id
+	inflight     piUsage                  // the last non-zero usage of the message still streaming; zero mid-turn means unknown
 	usageAt      time.Time
 	progressed   bool
 	finished     bool
@@ -286,13 +250,12 @@ func phaseEvent(ev piEvent) wire.Event {
 
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
-	t.handback, t.calls = nil, nil // any tool start, a later handback included, voids an earlier one: only the last counts
 	if ev.ToolName != "handback" {
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {
 		if t.calls == nil {
-			t.calls = map[string]handback{}
+			t.calls = map[string]wire.Handback{}
 		}
 		t.calls[ev.ToolCallID] = h
 	}
@@ -311,7 +274,7 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 	if h, ok := t.calls[ev.ToolCallID]; ok {
 		delete(t.calls, ev.ToolCallID)
 		if !ev.IsError {
-			t.handback = &h
+			t.res.Handback = &h // the last successful call wins; the guard makes it final
 		}
 	}
 	t.lg.Emit("tool", ev.ToolName+": "+status)
