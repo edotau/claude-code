@@ -2,7 +2,6 @@ package assets
 
 import (
 	"bytes"
-	_ "github.com/edotau/claude-code/internal/nonet"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 const importPath = "github.com/edotau/claude-code/internal/assets"
