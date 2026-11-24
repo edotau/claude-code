@@ -857,6 +857,16 @@ func planTaskCheck(f *askFlags) error {
 		return fmt.Errorf("--plan-task %q must match %s", f.planTask, planTaskRE())
 	case f.batchSrc != "" || f.live || f.loop || f.loopResume != "":
 		return errors.New("--plan-task names one task: not with --batch, --live or --loop (a batch line carries plan_task)")
+	case f.job != "":
+		return errors.New("--plan-task stamps a new dispatch: not with --job (the record already carries it)")
+	}
+	return nil
+}
+
+// contractHostCheck refuses a spec contract on --host: its lane, gate and proxy terms are observed on this machine.
+func contractHostCheck(f *askFlags) error {
+	if f.contract != nil && f.host != "" {
+		return errors.New("spec key contract cannot run with --host: its terms are observed on this machine")
 	}
 	return nil
 }

@@ -43,6 +43,7 @@ const (
 	endFinished  runEnd = "finished"
 	endDied      runEnd = "died"
 	endCancelled runEnd = "cancelled"
+	endDeadline  runEnd = "deadline"
 )
 
 // contractReturn is the typed data ask holds after the owner's last turn; nothing in it is model prose.
@@ -213,6 +214,8 @@ func failReason(c contract.Contract, end runEnd, spent contract.Spent) (contract
 	case endFinished:
 	case endCancelled:
 		return contract.ReasonCancelled, true
+	case endDeadline:
+		return contract.ReasonDeadline, true
 	default:
 		return contract.ReasonOwnerDead, true
 	}
@@ -483,6 +486,9 @@ func holdsContract(id string) bool {
 	c, err := contract.Load(id)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(os.Stderr, "ask: contract %s: %v\n", id, err)
+		if ferr := contract.FailUnreadable(id); ferr != nil { // else it would sit open forever
+			fmt.Fprintf(os.Stderr, "ask: contract %s: fail unreadable: %v\n", id, ferr)
+		}
 	}
 	return err == nil && c.State() == contract.StateWorking
 }
@@ -494,7 +500,7 @@ func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob boo
 	attempt.Hold = true
 	held := &resultHold{Sink: sinkTo(sinkOut(out, format, save), format, p.Record.ID)}
 	res, err := cl.Exec(ctx, p, held, attempt)
-	settleHeld(ctx, p, res, err)
+	settleHeld(ctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if format == agent.FormatStreamJSON {
@@ -557,8 +563,13 @@ func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr err
 	return r
 }
 
+// settleGateTimeout bounds the settle gate so a 9m30s run plus the gate stays under the 10m Bash cap.
+const settleGateTimeout = 30 * time.Second
+
 // gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
 func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {
+	ctx, cancel := context.WithTimeout(ctx, settleGateTimeout)
+	defer cancel()
 	g, err := worktree.RunScopedGate(ctx, dir, gateScope(dir, own), false)
 	if g.Gate == "" {
 		return nil
@@ -622,7 +633,9 @@ func spentTokens(u *wire.Usage) int {
 // runEndOf is how the held run ended: a cancel, a finished ok run, else a died owner.
 func runEndOf(rec agent.Record, res wire.Result, runErr error) runEnd {
 	switch {
-	case rec.Cutoff == "cancelled" || errors.Is(runErr, context.Canceled):
+	case agent.CutoffOf(runErr) == agent.CutoffDeadline:
+		return endDeadline
+	case agent.CutoffOf(runErr) == agent.CutoffCancelled || errors.Is(runErr, context.Canceled):
 		return endCancelled
 	case res.Status == wire.StatusOK && runErr == nil:
 		return endFinished

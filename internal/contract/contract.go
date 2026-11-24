@@ -88,10 +88,12 @@ const (
 )
 
 const (
-	ReasonLimit     Reason = "limit"
-	ReasonTerm      Reason = "term"
-	ReasonOwnerDead Reason = "owner-dead"
-	ReasonCancelled Reason = "cancelled"
+	ReasonLimit      Reason = "limit"
+	ReasonTerm       Reason = "term"
+	ReasonOwnerDead  Reason = "owner-dead"
+	ReasonCancelled  Reason = "cancelled"
+	ReasonDeadline   Reason = "deadline"   // the harness cut the run off at its deadline
+	ReasonUnreadable Reason = "unreadable" // the contract file could not be read
 )
 
 const (
@@ -135,7 +137,9 @@ func TestsValues() []Tests { return []Tests{TestsJudged, TestsExecuted, TestsUnk
 func Methods() []Method { return []Method{MethodSolo, MethodFleet} }
 
 // Reasons lists every Reason.
-func Reasons() []Reason { return []Reason{ReasonLimit, ReasonTerm, ReasonOwnerDead, ReasonCancelled} }
+func Reasons() []Reason {
+	return []Reason{ReasonLimit, ReasonTerm, ReasonOwnerDead, ReasonCancelled, ReasonDeadline, ReasonUnreadable}
+}
 
 // Statuses lists every Status.
 func Statuses() []Status {

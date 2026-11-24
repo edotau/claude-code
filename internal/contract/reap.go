@@ -40,9 +40,13 @@ func Orphans(env Env) ([]Contract, error) {
 	return slices.DeleteFunc(pending, func(c Contract) bool { return !orphaned(c, env) }), err
 }
 
-// orphaned reports whether c is working and its current holder's dispatch is lost.
+// reapGrace spares a contract written this recently: ask saves it just before its dispatch record exists.
+var reapGrace = 30 * time.Second
+
+// orphaned reports whether c is working, past the grace and its current holder's dispatch is lost.
 func orphaned(c Contract, env Env) bool {
-	return c.State() == StateWorking && len(c.Holders) > 0 && env.Lost != nil && env.Lost(c.Holders[len(c.Holders)-1])
+	return c.State() == StateWorking && len(c.Holders) > 0 && env.Lost != nil && age(c.ID, time.Now()) >= reapGrace &&
+		env.Lost(c.Holders[len(c.Holders)-1])
 }
 
 // reapOne settles id under its lock, re-checking the holder there; the lane and scope stay as they are.

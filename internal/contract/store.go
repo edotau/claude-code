@@ -134,3 +134,31 @@ func List() ([]Contract, error) {
 	slices.SortFunc(out, func(a, b Contract) int { return strings.Compare(a.ID, b.ID) })
 	return out, errors.Join(errs...)
 }
+
+// FailUnreadable replaces id's unreadable file with a failed (unreadable) stub, keeping the bad bytes beside it.
+func FailUnreadable(id string) error {
+	p, err := Path(id)
+	if err != nil {
+		return err
+	}
+	return paths.WithFileLock(p, func() error {
+		if _, err := load(p); err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil // readable or absent: nothing to replace
+		}
+		scope := Scope{Unit: "unreadable " + id, Kind: KindTask, Own: []string{"-"}}
+		c, ps := Open(scope, Party{Role: RoleOwner, Agent: "unknown"}, LimitsFor(KindTask, RoleOwner, Limits{}), Facts{})
+		if len(ps) > 0 {
+			return fmt.Errorf("contract %q: unreadable stub: %v", id, ps)
+		}
+		if c, err = c.Start(id); err == nil {
+			c, err = c.Fail(ReasonUnreadable)
+		}
+		if err != nil {
+			return err
+		}
+		if raw, rerr := os.ReadFile(p); rerr == nil {
+			_ = paths.AtomicWrite(p+".corrupt", raw, 0o600)
+		}
+		return write(p, c)
+	})
+}

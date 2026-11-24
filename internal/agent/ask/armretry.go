@@ -42,6 +42,7 @@ type armRetry struct {
 	tried                                    []string  // the workspaces asked so far, in order
 	hops                                     []wire.Hop
 	record                                   *agent.Record
+	spent                                    int // tokens every attempt used, for the contract's budget
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -82,7 +83,9 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		}
 		return cl.Exec(ctx, p, sink, attempt)
 	})
-	settleHeld(ctx, p, res, err) // the record still runs, so no reaper takes the contract while it settles
+	total := res
+	total.Usage = wire.Usage{InputTokens: a.spent} // the budget counts every attempt, the record only the last
+	settleHeld(ctx, p, total, err)                 // the record still runs, so no reaper takes the contract meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if held != nil {
@@ -160,6 +163,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 }
 
 func (a *armRetry) collect(res wire.Result, err error) wire.Result {
+	a.spent += spentTokens(&res.Usage)
 	if err != nil && len(res.Hops) == 0 {
 		res.Hops = []wire.Hop{{Agent: a.agentName, Account: "databricks·" + a.current(),
 			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true}}

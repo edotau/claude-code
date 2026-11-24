@@ -100,3 +100,15 @@ func TestSettleContractFailsOnRedGate(t *testing.T) {
 		t.Fatalf("state %s failed %q unmet %v; want failed, term, [gate]", got.State(), got.Failed, got.Unmet())
 	}
 }
+
+func TestContractRefusalsAndDeadlineEnd(t *testing.T) {
+	if err := contractHostCheck(&askFlags{contract: &contractOpen{}, host: "box"}); err == nil {
+		t.Fatal("contract with --host accepted")
+	}
+	if err := planTaskCheck(&askFlags{planTask: "Phase 1", job: "j-1"}); err == nil {
+		t.Fatal("--plan-task with --job accepted")
+	}
+	if got := runEndOf(agent.Record{}, wire.Result{}, context.DeadlineExceeded); got != endDeadline {
+		t.Fatalf("runEndOf = %q", got)
+	}
+}
