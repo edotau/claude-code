@@ -23,6 +23,13 @@ func TestTestProposalsParse(t *testing.T) {
 	}
 }
 
+func TestTestProposalsKeepValidLines(t *testing.T) {
+	got, err := ParseTestProposals("```proposed_tests\n{bad\n{\"pkg\":\"a\",\"case\":\"c\",\"reason\":\"r\"}\n```", "s")
+	if err == nil || len(got) != 1 {
+		t.Fatalf("got %v, err %v: want the valid line kept and the bad one reported", got, err)
+	}
+}
+
 func TestTestProposalsDedupeCap(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "techdebt", "tests.jsonl")
 	one := []TestProposal{{Pkg: "a", Case: "c1", Reason: "r"}, {Pkg: "a", Case: " c1", Reason: "r"}}
