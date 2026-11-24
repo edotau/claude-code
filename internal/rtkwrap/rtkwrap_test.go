@@ -86,3 +86,13 @@ func TestLaunchPinsCodemodeOverInherited(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeModeReadsVendorVariable(t *testing.T) {
+	t.Setenv(CodemodeEnv, "")
+	for v, want := range map[string]bool{"on": true, "1": true, "off": false, "": false} {
+		t.Setenv("CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", v)
+		if got := CodeMode(); got != want {
+			t.Errorf("vendor var %q: CodeMode() = %v, want %v", v, got, want)
+		}
+	}
+}

@@ -10,14 +10,25 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // CodemodeEnv (off|on|only) is set by the launcher for a dispatched run; on/only: no shim, hook or ForModel adds rtk.
 const CodemodeEnv = "CODEMODE"
 
-// CodeMode reports whether this process runs inside a code-mode agent run: off and empty are false.
-func CodeMode() bool { return CodemodeOn(os.Getenv(CodemodeEnv)) }
+// CodeMode reports whether this process runs in code mode: CODEMODE on, or an agent's vendor variable on (env only).
+func CodeMode() bool {
+	if CodemodeOn(os.Getenv(CodemodeEnv)) {
+		return true
+	}
+	for _, name := range agentid.All() {
+		if v := agentid.Routing(name).CodeMode.Var; v != "" && CodemodeOn(os.Getenv(v)) {
+			return true
+		}
+	}
+	return false
+}
 
 // CodemodeOn reports whether a CODEMODE value turns code mode on: on, only, 1 or true.
 func CodemodeOn(v string) bool {
