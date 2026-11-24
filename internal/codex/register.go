@@ -16,9 +16,10 @@ func init() {
 
 // row is codex's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "codex", CLI: agent.CLI{
-	PromptVia: agent.PromptStdin,
-	Carry:     true,
-	Binary:    "codex", Dialects: []string{providers.ProtocolResponses},
+	PromptVia:   agent.PromptStdin,
+	Carry:       true,
+	ScopedProxy: true,
+	Binary:      "codex", Dialects: []string{providers.ProtocolResponses},
 	RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.None, NoPersist: agent.Native, Direct: agent.Native, Env: agent.Native,

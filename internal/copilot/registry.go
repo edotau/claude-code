@@ -28,8 +28,10 @@ import (
 // Seams for tests: model discovery, the running router and the router's session tokens.
 var (
 	discoverModels = discoverCopilotEndpoints
-	mintSession    = proxy.MintScopedTokenWithFailover
-	runningRouter  = proxy.Running
+	mintSession    = func(ctx context.Context, base string, profiles []string, failover string) (string, error) {
+		return agent.SessionTokenWithFailover(ctx, base, failover, profiles...)
+	}
+	runningRouter = proxy.Running
 )
 
 // StubRegistry makes registry launches discover ids and mint tok offline, for tests in other packages.
@@ -42,7 +44,7 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
 		return eps, nil
 	}
-	mintSession = func(context.Context, []string, int, string) (string, error) { return tok, nil }
+	mintSession = func(context.Context, string, []string, string) (string, error) { return tok, nil }
 	return func() { discoverModels, mintSession = oldDiscover, oldMint }
 }
 
@@ -65,7 +67,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: discover %s models: %w", t.Provider.Name, err)
 	}
-	base, err := agent.EnsureRouter(ctx)
+	base, err := agent.EnsureRouter(agent.WithScopedProxy(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +82,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	for _, w := range home.Warnings {
 		wire.EventLogFor(ctx).Emit("note", w)
 	}
-	tok, err := mintSession(ctx, []string{t.Provider.Name}, os.Getpid(), agent.AutoFailoverProvider(ctx))
+	tok, err := mintSession(ctx, base, []string{t.Provider.Name}, agent.AutoFailoverProvider(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
@@ -132,6 +134,7 @@ type copilotRegistryProvider struct {
 // copilotRegistry is the credential-free registry data; the SDK path maps it in memory, the CLI path renders it.
 type copilotRegistry struct {
 	Profile   string
+	Base      string // router base the registry was built on
 	Providers []copilotRegistryProvider
 	Models    []sdk.RegistryModel
 	// one line naming the endpoints dropped because the profile has no route for them; "" when none
@@ -147,7 +150,7 @@ var copilotWireRoute = map[string]struct{ typ, wireAPI string }{
 
 // copilotBuildRegistry maps p's endpoints onto routerBase (no /p/<profile>); a repeated canonical id is dropped.
 func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEndpoint, routerBase string) copilotRegistry {
-	r := copilotRegistry{Profile: profile}
+	r := copilotRegistry{Profile: profile, Base: routerBase}
 	base := strings.TrimRight(routerBase, "/") + "/p/" + profile
 	seen, used := map[string]bool{}, map[string]bool{}
 	var dropped []string
@@ -475,7 +478,7 @@ func registrySelection(ctx context.Context, reg *providers.Registry, t providers
 // copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
 func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 	if !dry {
-		return agent.EnsureRouter(ctx)
+		return agent.EnsureRouter(agent.WithScopedProxy(ctx))
 	}
 	if st, ok := runningRouter(ctx); ok {
 		return proxy.ViaBaseContext(ctx, proxy.Base(st.Port)), nil
@@ -486,7 +489,7 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).
 func prepareRegistry(ctx context.Context, r copilotRegistry, profile string, pid int,
 ) (agent.LaunchFile, error) {
-	token, err := mintSession(ctx, []string{profile}, pid, agent.AutoFailoverProvider(ctx))
+	token, err := mintSession(ctx, r.Base, []string{profile}, agent.AutoFailoverProvider(ctx))
 	if err != nil {
 		return agent.LaunchFile{}, fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
 	}

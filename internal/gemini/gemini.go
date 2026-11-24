@@ -228,7 +228,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if agent.IsDryRun(ctx) {
 		rb, tok = agent.PreviewRouterBase(ctx), "<redacted>"
 	} else {
-		if rb, err = agent.EnsureRouter(ctx); err != nil {
+		if rb, err = agent.EnsureRouter(agent.WithScopedProxy(ctx)); err != nil {
 			return nil, nil, fmt.Errorf("gemini: router: %w", err)
 		}
 		if tok, err = agent.SessionTokenWithFailover(ctx, rb, agent.AutoFailoverProvider(ctx), p.Name); err != nil {
@@ -935,6 +935,9 @@ type agyLive struct {
 
 func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	ctx = agent.DirectCtx(ctx, req)
+	id := agent.DispatchIDOf(ctx)
+	agent.TakeChosenProxy(id)                       // a stale label from an earlier attempt must not reach this one
+	defer agent.TakeChosenProxy(id)                 // no entry is left behind once the command is built
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
 	p, err := agent.PrepareCLI(ctx, "gemini", req)
 	if err != nil {

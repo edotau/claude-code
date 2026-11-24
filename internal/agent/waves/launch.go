@@ -37,6 +37,7 @@ type LaunchOptions struct {
 	Route                      []string // ask.RouteFlags.Args(): overlay, fallback, mode, allow, ask, deny
 	Tools                      *bool
 	Timeout                    time.Duration
+	Group                      string          // the phase proxy scope id the leaves route through, "" for none
 	Wave                       []Spec          // every package of the wave: the files a leaf must not write
 	Fingerprint                FingerprintFunc // hashes an owned path; a leaf run alone is checked on the others'
 }
@@ -63,6 +64,7 @@ type launchLine struct {
 	Tools    *bool  `json:"tools,omitempty"`
 	Timeout  string `json:"timeout,omitempty"`
 	PlanTask string `json:"plan_task"`
+	Group    string `json:"group,omitempty"`
 }
 
 var launchID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
@@ -206,7 +208,7 @@ func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLi
 		profile = options.Provider + "·" + profile
 	}
 	line := launchLine{ID: id, Agent: spec.Agent, Profile: profile, Prompt: prompt, Workdir: spec.Workdir,
-		Tools: launchTools(options), PlanTask: "Phase " + spec.ID}
+		Tools: launchTools(options), PlanTask: "Phase " + spec.ID, Group: options.Group}
 	if options.Timeout > 0 {
 		line.Timeout = options.Timeout.String()
 	}

@@ -111,17 +111,49 @@ func WriteScope(sc Scope) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	return func() {
-		err := paths.WithFileLock(file, func() error { // a replacement's fresh record must not vanish mid-check
-			if cur, err := ReadScope(sc.Team, sc.ID); err == nil && cur.PID == sc.PID && cur.Started.Equal(sc.Started) {
-				return os.Remove(file)
-			}
-			return nil
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
+	return func() { closeScope(sc, file) }, nil
+}
+
+// closeScope removes sc's record and then its lock file, when this record was the one removed.
+func closeScope(sc Scope, file string) {
+	removed := false
+	err := paths.WithFileLock(file, func() error { // a replacement's fresh record must not vanish mid-check
+		if cur, err := ReadScope(sc.Team, sc.ID); err == nil && cur.PID == sc.PID && cur.Started.Equal(sc.Started) {
+			removed = true
+			return removeIfExists(file)
 		}
-	}, nil
+		return nil
+	})
+	if err == nil && removed {
+		err = removeScopeLock(file + ".lock")
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
+	}
+}
+
+// removeIfExists deletes name, treating an already missing file as removed.
+func removeIfExists(name string) error {
+	if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// removeScopeLock deletes the lock file once no other holder has it; a held lock is left to its holder.
+func removeScopeLock(lock string) error {
+	f, err := os.Open(lock)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if !paths.TryLock(f) {
+		return nil
+	}
+	return removeIfExists(lock) // the deferred close releases the lock after the unlink
 }
 
 // ReadScope returns the record of team and id.

@@ -45,6 +45,7 @@ type batchLine struct {
 	Verify  string          `json:"verify"`
 
 	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
+	Group    string `json:"group"`     // optional phase proxy scope id the line's dispatch routes through
 }
 
 // parsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
@@ -141,6 +142,7 @@ type batchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Plan    string // plan_task of the line, stamped on the dispatch record
+	Group   string // phase proxy scope id of the line, "" for none
 	arm     *armRetry
 	Req     agent.RunOptions
 	Prepare func(ctx context.Context) (*agent.Prepared, error)
@@ -180,6 +182,10 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, err
 	}
 	t.Plan = tl.PlanTask
+	if tl.Group != "" && !agent.ValidProxyGroup(tl.Group) {
+		return t, fmt.Errorf("line %d: group %q must be 1-64 lower-case letters, digits, . _ -, starting alphanumeric", l.N, tl.Group)
+	}
+	t.Group = tl.Group
 	seen[t.ID] = true
 	if strings.TrimSpace(tl.Prompt) == "" {
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
