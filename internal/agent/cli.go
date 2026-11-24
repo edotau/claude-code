@@ -297,7 +297,7 @@ func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
 
 func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = DirectCtx(ctx, req)
-	forgetChosenProxy(ctx) // a stale label from an earlier attempt must not reach this one
+	forgetChosenProxy(ctx)       // a stale label from an earlier attempt must not reach this one
 	defer forgetChosenProxy(ctx) // a pre-stream failure leaves no entry behind
 	p, err := v.prepare(ctx, req)
 	if p.Cleanup != nil {
