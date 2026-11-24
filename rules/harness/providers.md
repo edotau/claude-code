@@ -37,9 +37,9 @@ paths:
   (`claude-code vault env set\|unset COWORKER_OVERLAY`). Brief fields: `skills/subagent-workflows/SKILL.md`.
 - The proxy replaces itself: `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
   replaces a stale daemon (`proxy.json` `exe` sha256 differs from the installed binary, the one staleness test, also
-  doctor's) at its first poll with no request in flight; in-flight streams drain (up to 10 min) while the replacement
-  serves. The respawn gap is ~55 ms (max ~110 ms, connection refused; clients retry); a down proxy is restarted the
-  same way. Plain `--restart` stays.
+  doctor's) at its first poll with no request in flight; in-flight streams drain (up to 2 min, then are cut) while the
+  replacement serves; `--stop` waits as long. The respawn gap is ~55 ms (max ~110 ms, connection refused; clients
+  retry); a down proxy is restarted the same way. Plain `--restart` stays.
 - Session tokens are signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (one year; the
   process is the real limit) under a key derived from the router secret, so every daemon of the config accepts them;
   revocations live in `state/harness/proxy/revoked.json`. The proxy's own refusal is a 401 with

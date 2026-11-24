@@ -27,8 +27,8 @@ const (
 	maxLogBytes = 10 << 20
 )
 
-// ShutdownDrain bounds a SIGTERM's wait on in-flight streams (a replacement already serves new ones); a test seam.
-var ShutdownDrain = 10 * time.Minute
+// ShutdownDrain bounds a SIGTERM's wait on in-flight streams, then cuts them; ≥ in-flight-weighted p99 of proxy.log.
+var ShutdownDrain = 2 * time.Minute
 
 // ErrNotRunning means no healthy proxy answers for proxy.json.
 var ErrNotRunning = errors.New("proxy is not running")
