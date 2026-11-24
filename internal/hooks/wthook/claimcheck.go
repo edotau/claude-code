@@ -323,8 +323,18 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
-	hint := assets.HookClaimLaneHint()
+	slug, dir := laneTarget(live, hits[0])
+	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir, "<slug>", slug).Replace(assets.HookClaimLaneHint())
 	return core.Result{Context: what + "; " + hint}
+}
+
+// laneTarget is the lane slug a change to file suggests (its base name) and that lane's directory under root.
+func laneTarget(root, file string) (slug, dir string) {
+	slug = "edit" // a staged hit can name a git command, not a path
+	if filepath.IsAbs(file) {
+		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
+	}
+	return slug, filepath.Join(paths.LaneRoot(root), slug)
 }
 
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
@@ -344,8 +354,9 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
 			continue
 		}
+		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0])
 		return core.Result{Context: fmt.Sprintf("lanes mode: %d tracked file(s) of %s change in its main checkout; "+
-			"a lane keeps it clean: claude-code worktree create <slug>", len(hits), root)}
+			"a lane keeps it clean: claude-code worktree create %s", len(hits), root, slug)}
 	}
 	return core.Result{}
 }
