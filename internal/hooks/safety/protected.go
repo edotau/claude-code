@@ -9,15 +9,16 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 // editTools are the canonical hook tool names (codex's apply_patch is Edit) that write a file.
 var editTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "write_file": true, "edit_file": true}
 
-// protectedEdit enforces the settings deny globs on file edits, including apply_patch.
+// protectedEdit enforces the settings deny globs on file edits, including apply_patch; other tools get protectedTool.
 func protectedEdit(in *core.Input) core.Result {
 	if !editTools[strings.ToLower(in.CanonicalTool())] {
-		return core.Result{}
+		return protectedTool(in)
 	}
 	globs := foldedGlobs(livePolicy().editDeny, in.CWD)
 	for _, form := range editPaths(in) { // pathForms already hold the symlink-resolved spelling
@@ -31,6 +32,46 @@ func protectedEdit(in *core.Input) core.Result {
 		}
 	}
 	return core.Result{}
+}
+
+// protectedTool enforces the settings deny rows of a non-edit tool (Read, Grep, Glob, WebFetch…) on its path or URL.
+func protectedTool(in *core.Input) core.Result {
+	tool := permission.CanonicalTool(in.CanonicalTool())
+	var rules []permission.Rule
+	for _, r := range livePolicy().toolDeny {
+		if r.Tool == tool {
+			rules = append(rules, r)
+		}
+	}
+	if len(rules) == 0 {
+		return core.Result{}
+	}
+	judge := permission.Permissions{Mode: permission.PermAllow, Deny: rules}
+	for _, arg := range toolArgs(in, tool) {
+		if judge.DecideAt(in.CWD, tool, arg) == permission.Deny {
+			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
+				"matches a settings.json deny rule", tool+" "+arg, "Change permissions.deny in ~/.claude/settings.json if this is wrong.")}
+		}
+	}
+	return core.Result{}
+}
+
+// toolArgs are the spellings a deny row's argument is matched against: the URL, the query, or every path form.
+func toolArgs(in *core.Input, tool string) []string {
+	switch tool {
+	case "WebFetch":
+		return []string{in.Nested("tool_input", "url")}
+	case "WebSearch":
+		return []string{in.Nested("tool_input", "query")}
+	}
+	var out []string
+	for _, f := range editPaths(in) {
+		if f == "" {
+			f = in.CWD // grep, glob and list search the cwd when no path is given
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // editPaths are the spellings of every path the call edits, one set per file an apply_patch touches.

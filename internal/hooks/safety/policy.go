@@ -18,10 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// policy is the settings.json permissions.deny safety-scan reads: Bash rules, Edit/Write globs as written.
+// policy is the settings.json permissions.deny safety-scan reads: Bash rules, Edit/Write globs, other tools' rules.
 type policy struct {
 	bashDeny []permission.Rule
 	editDeny []string
+	toolDeny []permission.Rule // every other tool: Read, Grep, Glob, WebFetch, MCP…
 }
 
 var (
@@ -98,16 +99,18 @@ func noteFallback(err error) {
 	})
 }
 
-// parsePolicy keeps Bash rules and Edit/Write path args; an unparseable rule is skipped, as Claude Code skips it.
+// parsePolicy keeps Bash rules, Edit/Write path args and other tools' rules; an unparseable rule is skipped.
 func parsePolicy(deny []string) policy {
 	var p policy
 	for _, s := range deny {
-		if r, err := permission.ParseRule(s); err == nil && r.Tool == "Bash" {
+		r, err := permission.ParseRule(s)
+		switch g := editGlob(s); {
+		case err == nil && r.Tool == "Bash":
 			p.bashDeny = append(p.bashDeny, r)
-			continue
-		}
-		if g := editGlob(s); g != "" {
+		case g != "":
 			p.editDeny = append(p.editDeny, g)
+		case err == nil:
+			p.toolDeny = append(p.toolDeny, r)
 		}
 	}
 	return p

@@ -61,7 +61,7 @@ func assertPluginGuards(t *testing.T, mods map[string]pluginModule) {
 	if d, ok := mods["docs-placement"]; !ok || d.FailClosed || d.AsOpencode {
 		t.Errorf("docs-placement = %+v (present %v); want fail-open and untagged", d, ok)
 	}
-	for _, matcher := range []string{"Bash", "Write|Edit"} {
+	for _, matcher := range []string{"Bash", "Write|Edit|Read|Grep|Glob|WebFetch|WebSearch"} {
 		if !slices.ContainsFunc(pluginModules(), func(m pluginModule) bool {
 			return m.Name == "safety-scan" && m.FailClosed && m.Matcher == matcher
 		}) {

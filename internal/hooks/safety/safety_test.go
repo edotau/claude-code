@@ -698,6 +698,24 @@ func TestSettingsEditDenyBlocksOpencodeAndPiEdits(t *testing.T) {
 	}
 }
 
+// A settings.json Read deny blocks an opencode or pi Read tool call and leaves an unlisted path alone.
+func TestSettingsReadDenyBlocksOpencodeAndPiReads(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"permissions":{"deny":["Read(**/.env)"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"opencode", "pi"} {
+		for path, want := range map[string]core.Decision{"/tmp/x/.env": core.Block, "/tmp/x/a.go": core.Allow} {
+			payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Read", "harness_agent": agent,
+				"cwd": "/tmp", "tool_input": map[string]string{"file_path": path}})
+			if got := scanPayload(bytes.NewReader(payload)).Decision; got != want {
+				t.Errorf("%s read of %s: %v, want %v", agent, path, got, want)
+			}
+		}
+	}
+}
+
 // The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
 func TestCitedHardRule3Exists(t *testing.T) {
 	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))
