@@ -437,3 +437,23 @@ func TestParseEventsHandbackOneLineShownAndVoidedByLaterTool(t *testing.T) {
 		t.Fatalf("work after handback kept it: %q", res.Answer)
 	}
 }
+
+func TestParseEventsHandbackRejectedCases(t *testing.T) {
+	args := `{"status":"DONE","summary":"s","unfixed":[]}`
+	start := func(id, tool, a string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"` + tool + `","args":` + a + `}` + "\n"
+	}
+	end := func(id, tool string) string {
+		return `{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"` + tool + `","result":"x","isError":false}` + "\n"
+	}
+	cases := map[string]string{
+		"missing unfixed": start("h", "handback", `{"status":"DONE","summary":"s"}`) + end("h", "handback") + msgEnd("stop", "") + settled,
+		"overtaken":       start("h", "handback", args) + start("r", "read", `{"path":"a"}`) + end("r", "read") + end("h", "handback") + msgEnd("stop", "") + settled,
+		"aborted run":     start("h", "handback", args) + end("h", "handback") + msgEnd("aborted", "") + `{"type":"agent_settled","aborted":true}` + "\n",
+	}
+	for name, data := range cases {
+		if res, _, _, _ := parseFixture(t, data); strings.Contains(res.Answer, "UNFIXED") {
+			t.Errorf("%s: handback became the answer: %q", name, res.Answer)
+		}
+	}
+}

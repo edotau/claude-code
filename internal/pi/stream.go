@@ -109,10 +109,24 @@ var handbackStatuses = []string{"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "
 
 // parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
 func parseHandback(args json.RawMessage) (h handback, ok bool) {
-	if json.Unmarshal(args, &h) != nil || !slices.Contains(handbackStatuses, h.Status) {
+	var raw struct {
+		Status  string    `json:"status"`
+		Summary *string   `json:"summary"`
+		Unfixed *[]string `json:"unfixed"`
+	}
+	// sampling is only "preferred" strict, so every required field is checked here
+	if json.Unmarshal(args, &raw) != nil || !slices.Contains(handbackStatuses, raw.Status) || raw.Summary == nil || raw.Unfixed == nil {
 		return handback{}, false
 	}
-	return h, true
+	return handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed}, true
+}
+
+// verdict is the handback that decides the answer: none when the run did not end cleanly.
+func (t *piTurn) verdict() *handback {
+	if t.failure() != "" {
+		return nil
+	}
+	return t.handback
 }
 
 // block is the verdict line, the summary and the single UNFIXED line, built from the typed fields.
@@ -135,22 +149,13 @@ func (h handback) block() string {
 	return head + "\nUNFIXED: " + unfixed
 }
 
-// showHandback emits the typed block as a text event once, so streamed text output carries it too.
-func (t *piTurn) showHandback() error {
-	if t.handback == nil || t.shown {
-		return nil
-	}
-	t.shown = true
-	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: t.handback.block(), Sep: true})
-}
-
 // answerText is the final text, then the typed handback block last, so its status and UNFIXED line decide.
 func (t *piTurn) answerText() string {
 	text := t.text()
-	if t.handback == nil {
-		return text
+	if h := t.verdict(); h != nil {
+		return strings.TrimSpace(text + "\n\n" + h.block())
 	}
-	return strings.TrimSpace(text + "\n\n" + t.handback.block())
+	return text
 }
 
 // piTurn is parseEvents' state across one run's events.
@@ -241,14 +246,18 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 	case "agent_settled":
 		// agent_end is not final: overflow compaction and retries continue after it; agent_settled ends the run
 		t.aborted = ev.Aborted
-		return t.showAndFinish()
+		return t.settle()
 	}
 	return nil
 }
 
-func (t *piTurn) showAndFinish() error {
-	if err := t.showHandback(); err != nil {
-		return err
+// settle emits a clean run's typed handback block as a text event once, then finishes the run.
+func (t *piTurn) settle() error {
+	if h := t.verdict(); h != nil && !t.shown {
+		t.shown = true
+		if err := t.sink.Emit(wire.Event{Type: wire.EventText, Text: h.block(), Sep: true}); err != nil {
+			return err
+		}
 	}
 	return t.finish(true)
 }
@@ -295,7 +304,7 @@ func phaseEvent(ev piEvent) wire.Event {
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
 	if ev.ToolName != "handback" {
-		t.handback = nil // work after a handback means it was not last
+		t.handback, t.calls = nil, nil // a tool started after a handback: it was not last
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {
