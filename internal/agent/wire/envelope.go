@@ -247,7 +247,7 @@ func ErrorKind(err error) string {
 	return "fatal"
 }
 
-// RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
+// RanOn is the "ran on" line for a finished run's final hop: agent · account·profile · model · fallback · proxy.
 func RanOn(res Result) string {
 	if nothingRan(res) {
 		return ""
