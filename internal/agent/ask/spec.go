@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/pi"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -38,21 +39,49 @@ func askSchema() askspec.Schema {
 
 // SpecArgv reads a --spec value (file, inline JSON or -) into ask argv and the spec's prompt.
 func SpecArgv(value string, stdin io.Reader) ([]string, string, error) {
+	argv, prompt, _, err := specParts(value, stdin)
+	return argv, prompt, err
+}
+
+func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, error) {
 	raw, err := agentconfig.ReadJSONSource("spec", value, stdin)
 	if err != nil {
-		return nil, "", err
+		return nil, "", askspec.Task{}, err
 	}
 	s, _ := askspec.Current()
 	return s.Argv(raw)
 }
 
+// specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.
+func specBrief(prompt, agentName string, t askspec.Task) (string, error) {
+	if len(t.Own) == 0 && t.Report == "" && t.Verify == "" {
+		return prompt, nil
+	}
+	if t.Verify != "" && plans.VerifyShape(t.Verify) != nil {
+		return "", errors.New("spec verify: want go build|vet|test on ./ packages, agents diff --check or doctor, " +
+			"rtk forms, joined by &&")
+	}
+	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: agentName, Owned: t.Own, Report: t.Report, Verify: t.Verify})
+}
+
+// specAgent is the agent name the merged argv selects, read the way the real parse will.
+func specAgent(argv []string) string {
+	fs, f := askFlagSet()
+	fs.SetOutput(io.Discard)
+	_, _ = helptext.ParseArgs(fs, argv)
+	return f.name
+}
+
 // withSpec puts the spec's argv first, so a typed scalar flag wins and a typed list adds to the spec's.
 func withSpec(f *askFlags, args, pos []string) ([]string, error) {
-	argv, prompt, err := SpecArgv(f.spec, os.Stdin)
+	argv, prompt, task, err := specParts(f.spec, os.Stdin)
 	if err != nil {
 		return nil, err
 	}
 	out := append(argv, dropSpec(args)...)
+	if prompt, err = specBrief(prompt, specAgent(out), task); err != nil {
+		return nil, err
+	}
 	if prompt != "" && len(pos) == 0 {
 		if _, term := walkArgs(args); term < 0 {
 			out = append(out, "--")

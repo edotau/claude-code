@@ -18,14 +18,26 @@ func testSchema() Schema {
 
 func TestArgvNearestKey(t *testing.T) {
 	s := testSchema()
-	argv, prompt, err := s.Argv([]byte(`{"prompt":"hi","model":"opus","agent":"codex"}`))
+	argv, prompt, _, err := s.Argv([]byte(`{"prompt":"hi","model":"opus","agent":"codex"}`))
 	if want := []string{"--agent", "codex", "--model", "opus"}; err != nil || prompt != "hi" || !slices.Equal(argv, want) {
 		t.Fatalf("argv = %q prompt %q err %v, want %q", argv, prompt, err, want)
 	}
-	if _, _, err := s.Argv([]byte(`{"agnet":"codex"}`)); err == nil || !strings.Contains(err.Error(), `"agent"`) {
+	if _, _, _, err := s.Argv([]byte(`{"agnet":"codex"}`)); err == nil || !strings.Contains(err.Error(), `"agent"`) {
 		t.Fatalf("unknown key err = %v, want one naming agent", err)
 	}
-	if _, _, err := s.Argv([]byte(`{"fallback":"bogus"}`)); err == nil || !strings.Contains(err.Error(), "--fallback") {
+	if _, _, _, err := s.Argv([]byte(`{"fallback":"bogus"}`)); err == nil || !strings.Contains(err.Error(), "--fallback") {
 		t.Fatalf("bad choice err = %v, want one naming --fallback", err)
+	}
+}
+
+func TestArgvTaskKeys(t *testing.T) {
+	argv, _, task, err := testSchema().Argv([]byte(`{"own":["a.go"],"report":"r.md","verify":"go vet ./x","model":"m"}`))
+	if want := (Task{Own: []string{"a.go"}, Report: "r.md", Verify: "go vet ./x"}); err != nil ||
+		!slices.Equal(task.Own, want.Own) || task.Report != want.Report || task.Verify != want.Verify ||
+		!slices.Equal(argv, []string{"--model", "m"}) {
+		t.Fatalf("task = %+v argv %q err %v", task, argv, err)
+	}
+	if _, _, _, err := testSchema().Argv([]byte(`{"own":"a.go"}`)); err == nil || !strings.Contains(err.Error(), "own") {
+		t.Fatalf("wrong type err = %v, want one naming own", err)
 	}
 }

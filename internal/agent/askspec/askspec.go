@@ -41,6 +41,16 @@ type Opts struct {
 // PromptKey is the spec and batch key for the task text.
 const PromptKey = "prompt"
 
+// Task is the spec's execution contract: keys with no flag, rendered into the brief and run by the harness.
+type Task struct {
+	Own    []string `json:"own"`
+	Report string   `json:"report"`
+	Verify string   `json:"verify"`
+}
+
+// TaskKeys are the spec keys Argv reads into Task instead of argv.
+var TaskKeys = []string{"own", "report", "verify"}
+
 // FromFlagSet builds the schema from fs, skipping internal flags and --spec itself.
 func FromFlagSet(fs *flag.FlagSet, o Opts) Schema {
 	var s Schema
@@ -112,37 +122,66 @@ func StubSchema(s Schema) func() {
 	return func() { current = prev }
 }
 
-// Argv turns one spec object into ask argv (keys in schema order) and its prompt; every problem names the key.
-func (s Schema) Argv(raw []byte) ([]string, string, error) {
-	var doc map[string]json.RawMessage
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&doc); err != nil {
-		return nil, "", fmt.Errorf("spec: not a JSON object: %w", err)
+// Argv turns one spec object into ask argv (keys in schema order), its prompt and Task; every problem names the key.
+func (s Schema) Argv(raw []byte) (argv []string, prompt string, task Task, err error) {
+	doc, err := decodeDoc(raw)
+	if err != nil {
+		return nil, "", Task{}, err
 	}
-	if doc == nil {
-		return nil, "", errors.New("spec: not a JSON object")
-	}
-	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
-		return nil, "", errors.New("spec: trailing data after the JSON object")
-	}
-	prompt := ""
 	if v, ok := doc[PromptKey]; ok && json.Unmarshal(v, &prompt) != nil {
-		return nil, "", fmt.Errorf("spec %s: want a string", PromptKey)
+		return nil, "", Task{}, fmt.Errorf("spec %s: want a string", PromptKey)
 	}
-	if err := s.CheckKeys(doc, PromptKey); err != nil {
-		return nil, "", err
+	if err := s.CheckKeys(doc, append([]string{PromptKey}, TaskKeys...)...); err != nil {
+		return nil, "", Task{}, err
 	}
-	var argv []string
+	if task, err = taskOf(doc); err != nil {
+		return nil, "", Task{}, err
+	}
 	for _, f := range s.Fields {
 		if v, ok := doc[f.Name]; ok {
 			w, err := f.words(v)
 			if err != nil {
-				return nil, "", err
+				return nil, "", Task{}, err
 			}
 			argv = append(argv, w...)
 		}
 	}
-	return argv, prompt, nil
+	return argv, prompt, task, nil
+}
+
+func decodeDoc(raw []byte) (map[string]json.RawMessage, error) {
+	var doc map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("spec: not a JSON object: %w", err)
+	}
+	if doc == nil {
+		return nil, errors.New("spec: not a JSON object")
+	}
+	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
+		return nil, errors.New("spec: trailing data after the JSON object")
+	}
+	return doc, nil
+}
+
+func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
+	for _, k := range TaskKeys {
+		v, ok := doc[k]
+		if !ok {
+			continue
+		}
+		dst, want := any(&t.Report), "a string"
+		switch k {
+		case "own":
+			dst, want = &t.Own, "an array of strings"
+		case "verify":
+			dst = &t.Verify
+		}
+		if json.Unmarshal(v, dst) != nil {
+			return Task{}, fmt.Errorf("spec %s: want %s", k, want)
+		}
+	}
+	return t, nil
 }
 
 // CheckKeys refuses the first key (sorted) neither in s nor in extra, naming the nearest valid key.

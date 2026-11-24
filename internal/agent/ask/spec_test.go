@@ -111,3 +111,24 @@ func TestSpecFileRefusals(t *testing.T) {
 		t.Fatalf("big err = %v", err)
 	}
 }
+
+func TestSpecTaskKeysRenderBrief(t *testing.T) {
+	s := `{"own":["a.go"],"verify":"go vet ./x","report":"r.md","prompt":"do it"}`
+	_, prompt, task, err := specParts(s, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, err := specBrief(prompt, "claude", task)
+	if err != nil || !strings.Contains(brief, `Owned: ["a.go"]`) || !strings.Contains(brief, "Verify: go vet ./x") {
+		t.Fatalf("brief = %q err %v", brief, err)
+	}
+	for _, bad := range []string{`{"own":["a.go"],"verify":"rm -rf x","prompt":"p"}`, `{"verify":"go vet ./x","prompt":"p"}`} {
+		_, p, task, err := specParts(bad, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := specBrief(p, "claude", task); err == nil {
+			t.Errorf("specBrief accepted %s", bad)
+		}
+	}
+}
