@@ -484,6 +484,17 @@ func TestSkillRootsPinnedOnlyWhenPresent(t *testing.T) {
 	if slices.Contains((opencodeEngine{}).LaunchEnv(), opencodeNoExternalSkills+"=1") {
 		t.Error("no roots: LaunchEnv disables external skills, want opencode's own discovery")
 	}
+	proj := filepath.Join(t.TempDir(), ".claude", "skills", "p")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "SKILL.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opencodeSkillsOn(cfg, &agent.Headless{WorkDir: filepath.Dir(filepath.Dir(filepath.Dir(proj)))})
+	if _, ok := cfg["skills"]; ok {
+		t.Errorf("project-only roots: skills = %v, want unset", cfg["skills"])
+	}
 	skill := filepath.Join(cfgDir, "skills", "s")
 	if err := os.MkdirAll(skill, 0o755); err != nil {
 		t.Fatal(err)

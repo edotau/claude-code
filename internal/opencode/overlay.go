@@ -63,8 +63,9 @@ func opencodeSkillsOn(cfg map[string]any, h *agent.Headless) {
 	if h != nil && h.WorkDir != "" {
 		dir = h.WorkDir
 	}
-	if roots := agentconfig.OpencodeSkillRoots(dir); len(roots) > 0 {
-		cfg["skills"] = map[string]any{"paths": roots}
+	// the same global test as LaunchEnv's external-scan switch: project roots alone leave opencode's discovery on
+	if len(agentconfig.OpencodeSkillRoots("")) > 0 {
+		cfg["skills"] = map[string]any{"paths": agentconfig.OpencodeSkillRoots(dir)}
 	}
 }
 
