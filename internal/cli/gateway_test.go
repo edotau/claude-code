@@ -750,3 +750,16 @@ func TestGatewayRouteNamesBadFallbackEnv(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q; want an error naming %s and no --fallback", code, errOut, router.EnvFallback)
 	}
 }
+
+// TestGatewayProxyPortFormsParseAlike: `--serve --port N` and `--serve --port=N` yield the same options.
+func TestGatewayProxyPortFormsParseAlike(t *testing.T) {
+	for _, args := range [][]string{{"--serve", "--port", "18812"}, {"--serve", "--port=18812"}} {
+		fs, o := proxyFlags()
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if code, ok := o.check(fs); !ok || !o.serve || o.port != 18812 || fs.NArg() != 0 {
+			t.Errorf("%v: serve=%v port=%d narg=%d code=%d ok=%v", args, o.serve, o.port, fs.NArg(), code, ok)
+		}
+	}
+}
