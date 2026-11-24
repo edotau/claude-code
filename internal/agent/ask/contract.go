@@ -548,12 +548,21 @@ func returnOf(ctx context.Context, rec agent.Record, res wire.Result, runErr err
 	}
 	r.Spent = contract.SpentOf(c, subtreeUses(rec.ID, spentTokens(&res.Usage)))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
-		g, _ := worktree.RunScopedGate(ctx, dir, gateScope(dir, c.Scope.Own), false)
-		if g.Gate != "" { // no gate found is a no-result record
-			r.Gate = &g
-		}
+		r.Gate = gateOf(ctx, dir, c.Scope.Own)
 	}
 	return r
+}
+
+// gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
+func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {
+	g, err := worktree.RunScopedGate(ctx, dir, gateScope(dir, own), false)
+	if g.Gate == "" {
+		return nil
+	}
+	if err != nil && g.Exit != nil && *g.Exit == 0 {
+		*g.Exit = 1
+	}
+	return &g
 }
 
 // gateScope is own as the directories the scoped gate takes: an owned file stands for its package directory.
