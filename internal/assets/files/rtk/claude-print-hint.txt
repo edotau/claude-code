@@ -1,0 +1,1 @@
+headless claude print runs skip dispatch records, routing and recall; use `claude-code agents ask --agent claude "<task>"` instead

@@ -1,0 +1,1 @@
+sudo is not run from an agent session; install to a user prefix (~/.local, pipx, a venv) instead.

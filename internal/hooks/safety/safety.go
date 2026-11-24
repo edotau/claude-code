@@ -10,6 +10,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -70,8 +71,8 @@ func commandVerdict(in *core.Input, cmd string) (core.Decision, string, string) 
 func attributionVerdict(in *core.Input) (core.Decision, string, string) {
 	view := intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true)
 	if shell.AttributionFooterCommit(view, in.CWD) || shell.FooterFileWritten(in.ToolCommand(), in.CWD) {
-		what := "AI-attribution footer in a commit, merge, tag or PR message (CLAUDE.md hard rule 3)"
-		hint := "Remove the Co-Authored-By / Generated-with lines and run it again; that needs no approval." + ownerRoute
+		what := assets.SafetyAttributionWhat()
+		hint := assets.SafetyAttributionHint() + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
 	}
 	return core.Allow, "", ""
@@ -82,16 +83,16 @@ func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, s
 	p, cwd := livePolicy(), in.CWD
 	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, p.twin); {
 	case rule != "":
-		return core.Block, core.SafetyMessage(in, core.Block, "matches a settings.json deny rule", rule,
-			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny"
+		return core.Block, core.SafetyMessage(in, core.Block, assets.SafetyDenyWhat(), rule,
+			assets.SafetyDenyHint()+ownerRoute), "settings deny"
 	case sudoDenied() && sudoInvoked(asked, cwd):
-		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
+		return core.Block, core.SafetyMessage(in, core.Block, assets.SafetySudoWhat(), "", sudoHint), "sudo"
 	case f != "":
-		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", f,
-			"Edit it by hand, or run it yourself in a terminal."), "protected write"
+		return core.Block, core.SafetyMessage(in, core.Block, assets.SafetyProtectedWhat(), f,
+			assets.SafetyProtectedHint()), "protected write"
 	}
 	if needle, _ := interpreterWrite(plain, p.editDeny); needle != "" { // fuzzy: asks; Scan blocks without ask
-		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
+		return core.Ask, core.SafetyMessage(in, core.Ask, assets.SafetyInterpreterWhat(), needle, assets.SafetyInterpreterHint()), "interpreter protected write"
 	}
 	return core.Allow, "", ""
 }
@@ -109,11 +110,6 @@ func fedRuleHit(cmd, cwd string, rules []permission.Rule) string {
 	}
 	return ""
 }
-
-const (
-	interpreterWhat = "an interpreter script that may write a file Edit/Write may never touch"
-	interpreterHint = "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
-)
 
 // unwrapAll drops rtk and wrappers until neither leads (`env rtk timeout 5 X`), bounded like shell nesting.
 func unwrapAll(toks []string) []string {

@@ -1,0 +1,1 @@
+an interpreter script that may write a file Edit/Write may never touch

@@ -1,0 +1,1 @@
+Tool use is disabled for this headless run. Answer from the prompt alone.

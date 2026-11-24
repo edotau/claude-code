@@ -1,0 +1,1 @@
+AI-attribution footer in a commit, merge, tag or PR message (CLAUDE.md hard rule 3)

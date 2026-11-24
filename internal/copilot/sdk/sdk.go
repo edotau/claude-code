@@ -34,9 +34,6 @@ import (
 // defaultClientName identifies this host in the SDK's User-Agent.
 const defaultClientName = "claude-code"
 
-// denyFeedback tells the model to re-plan in prose instead of retrying a refused tool call.
-const denyFeedback = "Tool use is disabled for this headless run. Answer from the prompt alone."
-
 // Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type Options struct {
 	// OnUsage gets the cumulative usage after each model call, on the SDK goroutine

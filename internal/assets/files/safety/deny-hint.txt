@@ -1,0 +1,1 @@
+Change permissions.deny in ~/.claude/settings.json if this is wrong.

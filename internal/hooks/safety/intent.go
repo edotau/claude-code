@@ -9,13 +9,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
 // ownerRoute ends every deny: the owner's deliberate path past the hook.
-const ownerRoute = " The owner can run it with `!` in the prompt."
+var ownerRoute = assets.SafetyOwnerRoute()
 
 // intentView is cmd minus data heredoc bodies and data words; keepCommit keeps commit text for the footer rule.
 func intentView(cmd string, keepCommit bool) string {
@@ -212,8 +213,7 @@ var sedExec = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|[;{}\n])\s*e(\s|;|$)|/[gpIiMm0-9w]*e[gpIiMm0-9w]*\s*($|[;}])`)
 })
 
-const sudoHint = "sudo is not run from an agent session; install to a user prefix (~/.local, pipx, a venv) instead." +
-	ownerRoute
+var sudoHint = assets.SafetySudoHint() + ownerRoute
 
 // sudoInvoked reports sudo/doas in command position in view, in text it feeds a shell, or in an interpreter's code.
 func sudoInvoked(view, cwd string) bool {

@@ -1,0 +1,1 @@
+Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal.

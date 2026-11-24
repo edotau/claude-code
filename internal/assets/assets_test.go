@@ -156,6 +156,26 @@ var inventory = []struct {
 	{"files/brief/review-adversarial.tmpl", "tmpl", "ReviewAdversarial", func() []byte { return read("files/brief/review-adversarial.tmpl") }},
 	{"files/brief/takeover.tmpl", "tmpl", "TakeoverBrief", func() []byte { return read("files/brief/takeover.tmpl") }},
 	{"files/brief/explore.tmpl", "tmpl", "ExplorePrompt", func() []byte { return read("files/brief/explore.tmpl") }},
+	{"files/safety/message.tmpl", "tmpl", "SafetyMessage", func() []byte { return read("files/safety/message.tmpl") }},
+	{"files/safety/no-ask.tmpl", "tmpl", "SafetyNoAsk", func() []byte { return read("files/safety/no-ask.tmpl") }},
+	{"files/safety/arg-missing.tmpl", "tmpl", "SafetyArgMissing", func() []byte { return read("files/safety/arg-missing.tmpl") }},
+	{"files/safety/owner-route.txt", "txt", "SafetyOwnerRoute", func() []byte { return read("files/safety/owner-route.txt") }},
+	{"files/safety/attribution-what.txt", "txt", "SafetyAttributionWhat", func() []byte { return read("files/safety/attribution-what.txt") }},
+	{"files/safety/attribution-hint.txt", "txt", "SafetyAttributionHint", func() []byte { return read("files/safety/attribution-hint.txt") }},
+	{"files/safety/deny-what.txt", "txt", "SafetyDenyWhat", func() []byte { return read("files/safety/deny-what.txt") }},
+	{"files/safety/deny-hint.txt", "txt", "SafetyDenyHint", func() []byte { return read("files/safety/deny-hint.txt") }},
+	{"files/safety/sudo-what.txt", "txt", "SafetySudoWhat", func() []byte { return read("files/safety/sudo-what.txt") }},
+	{"files/safety/sudo-hint.txt", "txt", "SafetySudoHint", func() []byte { return read("files/safety/sudo-hint.txt") }},
+	{"files/safety/protected-what.txt", "txt", "SafetyProtectedWhat", func() []byte { return read("files/safety/protected-what.txt") }},
+	{"files/safety/protected-hint.txt", "txt", "SafetyProtectedHint", func() []byte { return read("files/safety/protected-hint.txt") }},
+	{"files/safety/interpreter-what.txt", "txt", "SafetyInterpreterWhat", func() []byte { return read("files/safety/interpreter-what.txt") }},
+	{"files/safety/interpreter-hint.txt", "txt", "SafetyInterpreterHint", func() []byte { return read("files/safety/interpreter-hint.txt") }},
+	{"files/safety/path-unresolved.txt", "txt", "SafetyPathUnresolved", func() []byte { return read("files/safety/path-unresolved.txt") }},
+	{"files/rtk/note.tmpl", "tmpl", "RtkNote", func() []byte { return read("files/rtk/note.tmpl") }},
+	{"files/rtk/shadow-none.tmpl", "tmpl", "RtkShadowNone", func() []byte { return read("files/rtk/shadow-none.tmpl") }},
+	{"files/rtk/shadow-found.tmpl", "tmpl", "RtkShadowFound", func() []byte { return read("files/rtk/shadow-found.tmpl") }},
+	{"files/rtk/claude-print-hint.txt", "txt", "ClaudePrintHint", func() []byte { return read("files/rtk/claude-print-hint.txt") }},
+	{"files/copilot/deny-feedback.txt", "txt", "CopilotDenyFeedback", func() []byte { return read("files/copilot/deny-feedback.txt") }},
 	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
 	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
 	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
@@ -184,7 +204,7 @@ func readers(t *testing.T) map[string][]string {
 
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
-	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/", "renderBriefText": "files/brief/",
+	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/", "renderBriefText": "files/brief/", "renderSafety": "files/safety/", "renderRtk": "files/rtk/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {
