@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -323,9 +324,6 @@ type agyRequest struct {
 	Env, KeepEnv                  []string
 }
 
-// agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
-const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"
-
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
 func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
@@ -394,7 +392,7 @@ func headlessAgy(ctx context.Context, id string, r agyRequest) agyRequest {
 func agyStdin(r agyRequest) (string, error) {
 	content := r.Prompt
 	if !r.Tools {
-		content = agyToolLessPreamble + content
+		content = assets.AgyToolLessPreamble() + content
 	} else { // agy's shell runs in its sorted-first workspace dir, never the run's cwd
 		dir := r.Cwd
 		if dir == "" {

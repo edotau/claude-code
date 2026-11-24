@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -621,7 +622,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 				followed = true
 			} else {
 				h.UnresolvedReplacement = true
-				h.Block += "\n[Replacement unavailable; showing the original entry.]"
+				h.Block += assets.MemoryReplacementUnavailable()
 				h.sum = 0
 				add(h)
 			}

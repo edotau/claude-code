@@ -93,6 +93,10 @@ func MemoryRTKMisses(misses string) string {
 	return renderMemory("rtk-misses.tmpl", misses)
 }
 
+func MemoryReplacementUnavailable() string {
+	return string(read("files/memory/prompts/replacement-unavailable.txt"))
+}
+
 func MemoryIndexHint() string { return string(read("files/memory/prompts/index-hint.txt")) }
 
 var memoryBlockBegin struct {

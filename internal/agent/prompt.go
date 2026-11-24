@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -47,7 +48,7 @@ func AttachSuffix(prompt string, paths []string) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	for _, p := range paths {
-		fmt.Fprintf(&b, "\n@%s", p)
+		b.WriteString(assets.AttachRef(p))
 	}
 	return b.String()
 }
@@ -73,7 +74,7 @@ func AttachInline(prompt string, paths []string) (string, error) {
 		if !IsText(data) {
 			return "", fmt.Errorf("--%w %s: binary file; attach text only", ErrBadAttach, p)
 		}
-		fmt.Fprintf(&b, "\n\n<file path=%q>\n%s\n</file>", p, data)
+		b.WriteString(assets.AttachFile(strconv.Quote(p), string(data)))
 	}
 	return b.String(), nil
 }

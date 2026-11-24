@@ -3,6 +3,7 @@ package assets
 import (
 	"io/fs"
 	"path"
+	"strings"
 	"sync"
 	"text/template/parse"
 )
@@ -152,3 +153,70 @@ func HookDiverged(branch, up string, ahead, behind int, rewritten bool) string {
 		"Branch": branch, "Up": up, "Ahead": ahead, "Behind": behind, "Rewritten": rewritten,
 	})
 }
+
+func AgyToolLessPreamble() string { return string(read("files/agent/agy-toolless.txt")) }
+
+func PiStdinTask() string { return string(read("files/agent/stdin-task.txt")) }
+
+func ClaudeAttachImage(path string) string { return renderAgent("attach-image.tmpl", path) }
+
+// AttachFile frames one inline attachment; quotedPath is the path already Go-quoted.
+func AttachFile(quotedPath, content string) string {
+	return renderAgent("attach-file.tmpl", tmplFields{"Path": quotedPath, "Data": content})
+}
+
+func AttachRef(path string) string { return renderAgent("attach-ref.tmpl", path) }
+
+func PlanTasksHead() string { return string(read("files/agent/plan-tasks-head.txt")) }
+
+func PlanTasksEmpty() string { return string(read("files/agent/plan-tasks-empty.txt")) }
+
+// PlanCloseout is the checklist tail every plan ends with, one item per line in the file.
+func PlanCloseout() []string {
+	return strings.Split(strings.TrimRight(string(read("files/agent/plan-closeout.txt")), "\n"), "\n")
+}
+
+func HookPlanPathChoose(err string) string { return renderHook("plan-path-choose.tmpl", err) }
+
+func HookPlanPathRedirect(from, quotedDest string) string {
+	return renderHook("plan-path-redirect.tmpl", tmplFields{"From": from, "Dest": quotedDest})
+}
+
+func HookPlanPathMoved(from, dest string) string {
+	return renderHook("plan-path-moved.tmpl", tmplFields{"From": from, "Dest": dest})
+}
+
+// HookPlanTemplateBlock names the headings a draft lacks; tpl is the user's template path, "" for the repo's.
+func HookPlanTemplateBlock(name, missing, tpl, headings string) string {
+	return renderHook("plan-template-block.tmpl", tmplFields{
+		"Name": name, "Missing": missing, "Tpl": tpl, "Headings": headings,
+	})
+}
+
+func HookPlanAgentWrite(home string) string { return renderHook("plan-agent-write.tmpl", home) }
+
+type DocsPlacement struct{ Base, Where, Dest, Home, Reports, Handoffs string }
+
+func HookDocsPlacement(in DocsPlacement) string {
+	return renderHook("docs-placement.tmpl", tmplFields{
+		"Base": in.Base, "Where": in.Where, "Dest": in.Dest, "Home": in.Home, "Reports": in.Reports, "Handoffs": in.Handoffs,
+	})
+}
+
+func HookDocsWhere(dir string, docs bool) string {
+	return renderHook("docs-where.tmpl", tmplFields{"Dir": dir, "Docs": docs})
+}
+
+func HookDocsRetired(dir string) string { return renderHook("docs-retired.tmpl", dir) }
+
+func HookMemoryNotePath(from, dest string) string {
+	return renderHook("memory-note-path.tmpl", tmplFields{"From": from, "Dest": dest})
+}
+
+func HookMemoryStoreName(from, dest string) string {
+	return renderHook("memory-store-name.tmpl", tmplFields{"From": from, "Dest": dest})
+}
+
+func HookReviewFixHead() string { return string(read("files/hooks/review-fix-head.txt")) }
+
+func HookReviewNoLine() string { return string(read("files/hooks/review-no-line.txt")) }

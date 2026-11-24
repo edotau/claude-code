@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -598,8 +599,7 @@ func claudeAttach(prompt string, attach []string, tools bool) (string, error) {
 	}
 	var sb strings.Builder
 	for _, p := range images {
-		sb.WriteString("\n\nAttached image (open it with the Read tool): ")
-		sb.WriteString(p)
+		sb.WriteString(assets.ClaudeAttachImage(p))
 	}
 	prompt += sb.String()
 	return prompt, nil

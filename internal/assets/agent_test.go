@@ -2,6 +2,8 @@ package assets
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -105,5 +107,53 @@ func TestHookTextMatchesOldLiterals(t *testing.T) {
 			"2): both sides have new commits; merge origin/main before committing on top"},
 		{"diverged-rewritten", HookDiverged("main", "origin/main", 1, 2, true), "local main diverged from origin/main " +
 			"(ahead 1, behind 2): a commit was rewritten; do not commit until it is reconciled"},
+	})
+}
+
+func TestStragglerTextMatchesOldLiterals(t *testing.T) {
+	const from, dest = "/r/PLAN.md", "/h/plans/2026-01-01-plan.md"
+	closeout := []string{"Live check on the real surface",
+		"Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)",
+		"Review — `claude-code codex review --adversarial --base <branch>`",
+		"Fix review findings — `/code-review high --max-findings all --fix \"<every finding>\"` to the R28 bar",
+		"Full suite once", "Commit, `make install`, push per task (named files only)", "Handoff / `claude-code memory update`"}
+	if got := PlanCloseout(); !slices.Equal(got, closeout) {
+		t.Errorf("closeout: got %q", got)
+	}
+	placement := "docs-placement: BLOCKED — %s would land in %s.\n%s A genuine repo doc the user\n" +
+		"asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.\n" +
+		"Or launch with HARNESS_HOOK_SKIP=docs-placement.\n-> rules/harness/docs-placement.md\n"
+	plans := DocsPlacement{Base: "B.md", Where: "W", Home: "H", Reports: "R", Handoffs: "F"}
+	checkFrames(t, []frameCase{
+		{"agy", AgyToolLessPreamble(), "Answer from the text below only. Do not call any tools.\n\n"},
+		{"pi", PiStdinTask(), "Follow the instructions in the piped input."},
+		{"image", ClaudeAttachImage("/i.png"), "\n\nAttached image (open it with the Read tool): /i.png"},
+		{"file", AttachFile(strconv.Quote("/a\"b"), "x{{.y}}"), fmt.Sprintf("\n\n<file path=%q>\n%s\n</file>", "/a\"b", "x{{.y}}")},
+		{"ref", AttachRef("/a b"), "\n@/a b"},
+		{"ref-braces", AttachRef("/{{x}}"), "\n@/{{x}}"},
+		{"tasks-head", PlanTasksHead(), "\n\n## Tasks\n\nTick `[x]` with the commit id as each item lands; this list is the recovery point if a " +
+			"session, agent or worktree is lost.\n\n"},
+		{"tasks-empty", PlanTasksEmpty(), "- [ ] (one line per step of this plan)\n"},
+		{"plan-choose", HookPlanPathChoose("e"), "plan-path: cannot choose a dated plans path: e"},
+		{"plan-redirect", HookPlanPathRedirect(from, strconv.Quote(dest)), fmt.Sprintf("plan-path: %s is not the plans home; "+
+			"resend this write with file_path %q. A real repo doc: create it empty first (`touch %s`), then re-issue.", from, dest, from)},
+		{"plan-moved", HookPlanPathMoved(from, dest), fmt.Sprintf("plan-path: %s → %s (dated plans home)", from, dest)},
+		{"template-repo", HookPlanTemplateBlock("p.md", `"A"`, "", "# A\n"), "plan-template: BLOCKED — p.md is missing \"A\" from the plan " +
+			"template.\nUse the plan template (`docs/templates/plan.md` in the harness repo) before filing a draft; required headings:\n# A\n"},
+		{"template-user", HookPlanTemplateBlock("p.md", `"A"`, "/t.md", "# A\n"), "plan-template: BLOCKED — p.md is missing \"A\" from the plan " +
+			"template.\nWrite the full template from /t.md before filing a draft; required headings:\n# A\n"},
+		{"plan-agent", HookPlanAgentWrite("/h"), "docs-placement: BLOCKED — the Plan agent writes only its plan under /h/"},
+		{"placement-exact", HookDocsPlacement(DocsPlacement{Base: "B.md", Where: "W", Dest: "D"}),
+			fmt.Sprintf(placement, "B.md", "W", "Re-issue the write to D.")},
+		{"placement-kinds", HookDocsPlacement(plans), fmt.Sprintf(placement, "B.md", "W",
+			"Plans belong in H, reports in R, handoffs in F; re-issue the write there.")},
+		{"where-root", HookDocsWhere("/r", false), "the repo root (/r)"},
+		{"where-docs", HookDocsWhere("/r/docs", true), "/r/docs, which this repo gitignores — it vanishes on a fresh clone"},
+		{"retired", HookDocsRetired("/d"), "/d (retired: handoffs and reports live in the memory store)"},
+		{"note-path", HookMemoryNotePath("a", "b"), "memory-note-path: a → b"},
+		{"store-name", HookMemoryStoreName("a", "b"), "memory-store-name: a → b"},
+		{"review-fix", HookReviewFixHead(), "Fix these now; do not relay them to the owner as questions:\n"},
+		{"review-noline", HookReviewNoLine(), "The leaf report has no UNFIXED line; read it and fix anything left before reporting."},
+		{"replacement", MemoryReplacementUnavailable(), "\n[Replacement unavailable; showing the original entry.]"},
 	})
 }

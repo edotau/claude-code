@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -70,7 +71,7 @@ func reviewHandback(in *core.Input) core.Result {
 	if strings.TrimSpace(report) == "" {
 		return core.Result{} // a prompt that is not a notification, or an empty response
 	}
-	const noLine = "The leaf report has no UNFIXED line; read it and fix anything left before reporting."
+	noLine := assets.HookReviewNoLine()
 	m := unfixedLine.FindAllStringSubmatch(report, -1)
 	if len(m) == 0 {
 		return core.Result{Context: noLine}
@@ -90,7 +91,7 @@ func reviewHandback(in *core.Input) core.Result {
 	if extra := len(items) - maxHandbackItems; extra > 0 {
 		items = append(items[:maxHandbackItems], "- and "+strconv.Itoa(extra)+" more: read the full UNFIXED line")
 	}
-	return core.Result{Context: "Fix these now; do not relay them to the owner as questions:\n" + strings.Join(items, "\n")}
+	return core.Result{Context: assets.HookReviewFixHead() + strings.Join(items, "\n")}
 }
 
 // responseStrings is every string in a tool response except the echoed prompt, in key-sorted order.

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -76,7 +77,7 @@ func planAgentBlock(in *core.Input) core.Result {
 		path := planWritePath(edit.Path, in.CWD)
 		if !filepath.IsAbs(path) || !paths.InsideDir(path, home) {
 			return core.Result{Decision: core.Block, Floor: true, Rule: "plan-agent-write",
-				Reason: "docs-placement: BLOCKED — the Plan agent writes only its plan under " + home + "/"}
+				Reason: assets.HookPlanAgentWrite(home)}
 		}
 	}
 	return core.Result{}
@@ -129,7 +130,7 @@ func noteRedirect(in *core.Input) (core.Result, bool) {
 	}
 	dest := filepath.Join(paths.MemoryStoreDir(), folder, base)
 	updated["file_path"] = dest
-	return core.Result{UpdatedInput: updated, SystemMessage: "memory-note-path: " + from + " → " + dest}, true
+	return core.Result{UpdatedInput: updated, SystemMessage: assets.HookMemoryNotePath(from, dest)}, true
 }
 
 // storeNameRedirect renames a NEW file in the store's handoffs/, reports/ or worktrees/ to YYYY-MM-DD-<name>.
@@ -157,7 +158,7 @@ func storeNameRedirect(in *core.Input) (core.Result, bool) {
 	}
 	dest := freeName(filepath.Join(dir, name))
 	updated["file_path"] = dest
-	return core.Result{UpdatedInput: updated, SystemMessage: "memory-store-name: " + from + " → " + dest}, true
+	return core.Result{UpdatedInput: updated, SystemMessage: assets.HookMemoryStoreName(from, dest)}, true
 }
 
 // freeName returns path, or the first free <stem>-2<ext>, -3, … when path exists.
@@ -254,11 +255,7 @@ func repoDocsPlacement(ctx context.Context, in *core.Input, stderr io.Writer, di
 		return core.ExitProceed
 	}
 
-	where := "the repo root (" + dir + ")"
-	if inDocs {
-		where = dir + ", which this repo gitignores — it vanishes on a fresh clone"
-	}
-	return blockPlacement(stderr, base, where, planHome(in, root))
+	return blockPlacement(stderr, base, assets.HookDocsWhere(dir, inDocs), planHome(in, root))
 }
 
 // harnessDocsPlacement gates a write under the harness's own docs/: images and templates and tracked files pass.
@@ -271,7 +268,7 @@ func harnessDocsPlacement(ctx context.Context, in *core.Input, stderr io.Writer,
 	if tracked, err := isTracked(ctx, config, strings.TrimPrefix(abs, config+string(filepath.Separator))); tracked || err != nil || ctx.Err() != nil {
 		return core.ExitProceed
 	}
-	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", planHome(in, config))
+	return blockPlacement(stderr, base, assets.HookDocsRetired(harnessDocs), planHome(in, config))
 }
 
 // stranded: a new untracked root file or ignored docs/ page; any existing file is the owner's.
@@ -295,19 +292,8 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
 func blockPlacement(stderr io.Writer, base, where, home string) int {
-	var fix string
-	if dest := exactDest(base, home); dest != "" {
-		fix = "Re-issue the write to " + dest + "."
-	} else {
-		fix = fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
-			home, paths.MemorySub("reports", "YYYY-MM-DD-<name>.md"), paths.MemorySub("handoffs", "YYYY-MM-DD-<topic>.md"))
-	}
-	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"%s A genuine repo doc the user\n"+
-		"asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.\n"+
-		"Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
-		"-> rules/harness/docs-placement.md\n",
-		base, where, fix)
+	_, _ = io.WriteString(stderr, assets.HookDocsPlacement(assets.DocsPlacement{Base: base, Where: where, Dest: exactDest(base, home), Home: home,
+		Reports: paths.MemorySub("reports", "YYYY-MM-DD-<name>.md"), Handoffs: paths.MemorySub("handoffs", "YYYY-MM-DD-<topic>.md")}))
 	return core.ExitBlock
 }
 

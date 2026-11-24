@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -280,14 +281,11 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		p.Argv = append(p.Argv, "@"+f)
 	}
 	if viaStdin(p.Prompt) {
-		p.Argv = append(p.Argv, stdinTask)
+		p.Argv = append(p.Argv, assets.PiStdinTask())
 		return
 	}
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
 }
-
-// stdinTask is the argv message of a prompt too big for one argument; Pi prepends the piped prompt to it.
-const stdinTask = "Follow the instructions in the piped input."
 
 // viaStdin reports whether prompt rides Pi's stdin, which has no size cap, instead of one argv element.
 func viaStdin(prompt string) bool { return len(prompt) > agent.MaxPromptBytes }

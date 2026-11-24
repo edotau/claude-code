@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -249,17 +250,6 @@ var taskHeadingWord = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(?:Phase|Step|Part|Task|Stage|Milestone)\b`)
 })
 
-// planCloseout is the completion tail every plan's checklist ends with.
-var planCloseout = []string{
-	"Live check on the real surface",
-	"Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)",
-	"Review — `claude-code codex review --adversarial --base <branch>`",
-	"Fix review findings — `/code-review high --max-findings all --fix \"<every finding>\"` to the R28 bar",
-	"Full suite once",
-	"Commit, `make install`, push per task (named files only)",
-	"Handoff / `claude-code memory update`",
-}
-
 // withTasks appends a `## Tasks` checklist when the plan has none (a recovery point if a session is lost).
 func withTasks(plan []byte) []byte {
 	headings := planHeadings(plan)
@@ -268,8 +258,7 @@ func withTasks(plan []byte) []byte {
 	}
 	var b bytes.Buffer
 	b.Write(bytes.TrimRight(plan, "\n"))
-	b.WriteString("\n\n## Tasks\n\nTick `[x]` with the commit id as each item lands; this list is the recovery point if a " +
-		"session, agent or worktree is lost.\n\n")
+	b.WriteString(assets.PlanTasksHead())
 	items := 0
 	for _, h := range headings {
 		if h.Level < 2 || h.Level > 4 || !taskHeadingWord().MatchString(h.Text) {
@@ -279,9 +268,9 @@ func withTasks(plan []byte) []byte {
 		items++
 	}
 	if items == 0 {
-		b.WriteString("- [ ] (one line per step of this plan)\n")
+		b.WriteString(assets.PlanTasksEmpty())
 	}
-	for _, c := range planCloseout {
+	for _, c := range assets.PlanCloseout() {
 		fmt.Fprintf(&b, "- [ ] %s\n", c)
 	}
 	return b.Bytes()
@@ -369,7 +358,7 @@ func Gate(in *core.Input, stderr io.Writer) int {
 // planGate rewrites a new plan-named markdown at a repo root or docs/ to dest, else runs Gate.
 func planGate(in *core.Input, dest string, err error) core.Result {
 	if err != nil {
-		return core.Result{Decision: core.Block, Reason: "plan-path: cannot choose a dated plans path: " + err.Error()}
+		return core.Result{Decision: core.Block, Reason: assets.HookPlanPathChoose(err.Error())}
 	}
 	if dest != "" { // a dated dest is never a draft, so this and fixPlanDraft never both rewrite one call
 		return rewritePlanPath(in, dest)
@@ -385,16 +374,14 @@ func planGate(in *core.Input, dest string, err error) core.Result {
 func rewritePlanPath(in *core.Input, dest string) core.Result {
 	from := in.Nested("tool_input", "file_path")
 	if in.Agent() != core.AgentClaude {
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("plan-path: %s is not the plans home; "+
-			"resend this write with file_path %q. A real repo doc: create it empty first (`touch %s`), then re-issue.",
-			from, dest, from)}
+		return core.Result{Decision: core.Block, Reason: assets.HookPlanPathRedirect(from, strconv.Quote(dest))}
 	}
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}
 	}
 	updated["file_path"] = dest
-	return core.Result{UpdatedInput: updated, SystemMessage: fmt.Sprintf("plan-path: %s → %s (dated plans home)", from, dest)}
+	return core.Result{UpdatedInput: updated, SystemMessage: assets.HookPlanPathMoved(from, dest)}
 }
 
 // planDest is the dated plans-home path for a first Write of a plan-named markdown at a repo root or docs/.
@@ -474,13 +461,12 @@ func gateDraft(path, content string, stderr io.Writer) int {
 	if len(missing) == 0 {
 		return core.ExitProceed
 	}
-	source := "Use the plan template (`docs/templates/plan.md` in the harness repo)"
-	if tpl := plans.TemplatePath(paths.ConfigDir()); paths.IsFile(tpl) {
-		source = "Write the full template from " + tpl
+	tpl := plans.TemplatePath(paths.ConfigDir())
+	if !paths.IsFile(tpl) {
+		tpl = ""
 	}
-	fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %s from the plan template.\n"+
-		"%s before filing a draft; required headings:\n%s",
-		filepath.Base(path), quoteJoin(missing, ", "), source, strings.Join(PlanTemplateHeadings(), "\n")+"\n")
+	_, _ = io.WriteString(stderr, assets.HookPlanTemplateBlock(filepath.Base(path), quoteJoin(missing, ", "), tpl,
+		strings.Join(PlanTemplateHeadings(), "\n")+"\n"))
 	return core.ExitBlock
 }
 
