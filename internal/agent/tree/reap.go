@@ -351,7 +351,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
-		carry: rec.Request.Carry, takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
+		carry: rec.Request.Carry, codeMode: rec.Request.Codemode == "on" || rec.Request.Codemode == "only", takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
 	}, rec, now)
 }
 

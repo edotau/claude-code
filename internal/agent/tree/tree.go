@@ -109,6 +109,7 @@ type Dispatch struct {
 	started   time.Time // dispatch start; a matching session must be updated at or after it
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 
+	codeMode bool      // the record's pi codemode is on or only: the row shows pi
 	carry    bool      // the outer record of a carried dispatch: its row folds in the child doing the work
 	takeover bool      // a Pi takeover that finished a cut-off carried child
 	launch   string    // the profile, else provider, the request was launched on; "" when it named none
@@ -444,7 +445,7 @@ func dispatchType(d Dispatch) string {
 	if d.Model == agent.AutoModel {
 		return d.Agent
 	}
-	return cmp.Or(string(models.AgentType(d.Provider, d.Model, false)), d.Agent)
+	return cmp.Or(string(models.AgentType(d.Provider, d.Model, d.codeMode)), d.Agent)
 }
 
 // sessionIDFromPath extracts the session id from <session>.jsonl.

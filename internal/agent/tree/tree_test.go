@@ -986,3 +986,14 @@ func TestRunningAgentIsTheModelThatRan(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeModeDispatchShowsPiAndKeepsItsModelColumn(t *testing.T) {
+	d := Dispatch{ID: "p", Agent: "pi", Model: "databricks-gpt-6-1-sol", Status: "ok", codeMode: true}
+	if got := runningAgent(Subagent{Type: "claude", Description: "to pi", Dispatches: []Dispatch{d}}); got != "pi" {
+		t.Errorf("codemode type = %q, want pi", got)
+	}
+	d.codeMode = false
+	if _, ok := ownRecord(Subagent{Type: "codex", Dispatches: []Dispatch{d}}); !ok {
+		t.Error("a pi run on a GPT id lost its record for the codex row")
+	}
+}

@@ -483,7 +483,7 @@ func ownRecord(sub Subagent) (Dispatch, bool) {
 		return Dispatch{}, false
 	}
 	i := slices.IndexFunc(sub.Dispatches, func(d Dispatch) bool {
-		return d.Model != "" && (d.Agent == sub.Type || d.Fallback == sub.Type)
+		return d.Model != "" && (d.Agent == sub.Type || d.Fallback == sub.Type || dispatchType(d) == sub.Type)
 	})
 	if i < 0 {
 		return Dispatch{}, false
