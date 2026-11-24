@@ -37,7 +37,7 @@ async function stSnap(ctx, label, paths) {
     properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } },
     required: ['path', 'added', 'deleted'] } }, outside: ST_LIST }, required: ['files', 'outside'] }
   const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', ctx.cd +
-    'Read-only: run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
+    'Run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -104,14 +104,14 @@ async function stageDetect(ctx, st, scope) {
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
-// stLoopCheck folds detection, routing pressure and the first observed check into one read-only leaf.
+// stLoopCheck folds detection, routing pressure and the first observed check into one leaf.
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const detect = 'claude-code worktree gate --dir ' + JSON.stringify(ctx.cwd || '.') +
     ' --scope ' + paths.join(',') + ' --format json'
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
   return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd +
-    'Read-only: edit nothing. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
+    'Report the check result. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
     ' Run the gate exactly once with pipefail; capture the real process exit code. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
@@ -139,7 +139,7 @@ async function stLoopFix(ctx, o, groups, iteration) {
   const run = async ([file, fs]) => {
     const dir = fs[0].file !== file
     const prompt = ctx.cd + ctx.rules + ' Fix only this owned ' + (dir ? 'package directory (its files, not subdirectories; a failing test line may have its cause in the code under test): ' : 'file: ') + file +
-      '. Never run the gate, tests, or self-checks; the read-only check owns verification. Other failures are not yours.\n' +
+      '. Never run the gate, tests, or self-checks; the check leaf owns verification. Other failures are not yours.\n' +
       fs.map((f) => f.file + ':' + (f.line || 0) + ': ' + f.text).join('\n').slice(0, 1500)
     const label = (o.label || 'gate') + ':fix:' + iteration + ':' + file
     return await stageAsk(ctx, o.fix || ctx.S.fix, label, 'Fix', prompt, ST_WORK) ||
@@ -301,7 +301,7 @@ async function stPolishPass(ctx, P, key, title, brief) {
 }
 async function stReview(ctx, P) {
   phase('Review')
-  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
+  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Report your findings; never run go test. Review the final diff with the ' + ctx.cwd +
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
