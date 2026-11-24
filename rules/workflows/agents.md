@@ -84,8 +84,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   belongs in a direct carried ask (Pi plain), the four external worker types aside; saved workflow stages run on
   `claude`.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
-  (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` is pinned to `fable`,
-  the relay types (`codex`, `copilot`, `gemini`, `opencode`, `pi`) to `haiku`; raise one call with
+  (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` inherits the session model (Opus on
+  Databricks), the relay types (`codex`, `copilot`, `gemini`, `opencode`, `pi`) to `haiku`; raise one call with
   the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
   `model: inherit` on a call reads as unset. **Tools:** list the ones the role needs.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields

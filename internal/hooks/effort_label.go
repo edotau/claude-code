@@ -113,7 +113,7 @@ func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st 
 		m = run.rosterModel(st)
 	}
 	if m == "" || m == "inherit" {
-		return run.databricksID(run.session())
+		return run.inheritedID(run.session())
 	}
 	if !slices.Contains(models.AliasNames, m) {
 		if reg, err := run.registry(); err == nil {
@@ -124,6 +124,26 @@ func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st 
 		return m
 	}
 	return run.databricksID(m)
+}
+
+// inheritedID is the session model's label; a Fable session id on a Databricks route inherits that route's Opus (D11).
+func (r *dispatchRun) inheritedID(session string) string {
+	id := r.databricksID(session)
+	if c, _, ok := models.Resolve(id); !ok || models.FamilyOf(c) != models.Fable {
+		return id
+	}
+	name, routed := providers.SessionName()
+	if r.profile != "" {
+		name, routed = r.profile, true
+	}
+	reg, err := r.registry()
+	if err != nil || !routed {
+		return id
+	}
+	if p := reg.Row(name); p != nil && p.SpellingRule() == "databricks-serving" {
+		return opusPin(reg, p)
+	}
+	return id
 }
 
 // databricksID is a Claude alias or id spelled as its `databricks-` id on a Databricks-routed session; else m as is.

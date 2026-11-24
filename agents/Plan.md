@@ -1,9 +1,9 @@
 ---
 name: Plan
 description: |
-  Planning on Fable; return docs/templates/plan.md with a tickable Tasks checklist.
+  Planning on the session model; return docs/templates/plan.md with a tickable Tasks checklist.
 tools: [Read, Grep, Glob, Write, Edit, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
-model: fable
+model: inherit
 ---
 
 # Plan
