@@ -481,6 +481,8 @@ func TestBashTimeoutComposesWithRewrite(t *testing.T) {
 	for cmd, want := range map[string]int{
 		"claude-code agents ask --agent pi -- --timeout=1s": 600000,
 		"claude-code agents ask --timeout 30s -":            40000,
+		"claude-code agents ask --background=false -":       600000,
+		"claude-code agents wait j --timeout 2562047h":      600000,
 	} {
 		if got, _ := BashTimeoutMs(cmd); got != want {
 			t.Errorf("%q: got %d want %d", cmd, got, want)

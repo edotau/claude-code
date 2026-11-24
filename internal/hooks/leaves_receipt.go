@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -425,7 +426,7 @@ func BashTimeoutMs(cmd string) (ms int, ok bool) {
 		}
 		d := maxBashTimeout
 		if t > 0 {
-			d = min(t+waitMargin, maxBashTimeout)
+			d = min(min(t, maxBashTimeout)+waitMargin, maxBashTimeout)
 		}
 		total, ok = min(total+d, maxBashTimeout), true // chained waits run one after another
 	}
@@ -455,7 +456,9 @@ func foregroundTimeout(words []string) (t time.Duration, fg bool) {
 	switch words[0] {
 	case "ask":
 		a, ok := ParseAskWords(words[1:])
-		if !ok || a.Has("background", "live") {
+		bg, _ := strconv.ParseBool(a.Value("background"))
+		live, _ := strconv.ParseBool(a.Value("live"))
+		if !ok || bg || live {
 			return 0, false
 		}
 		t, _ = time.ParseDuration(a.Value("timeout"))
