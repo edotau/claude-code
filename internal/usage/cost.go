@@ -28,7 +28,7 @@ const (
 
 // costRow is one profile+model line of the cost report; USD and DBUs are NaN when unknown (no price, SQL NULL).
 type costRow struct {
-	Profile, Model                                 string
+	Profile, Provider, Model                       string
 	Input, Output, CacheRead, CacheWrite, CacheW1h int
 	DBUs, USD                                      float64
 	Unpriced                                       int // models in a total line whose USD is unknown
@@ -38,16 +38,26 @@ type costRow struct {
 }
 
 // listPrices loads the models.dev list prices once and returns a lookup; a var so tests stay hermetic.
-var listPrices = func() func(string) (providers.Price, bool) {
+var listPrices = func() listLookup {
 	if testing.Testing() {
-		return func(string) (providers.Price, bool) { return providers.Price{}, false }
+		return func(string, string) (providers.Price, bool) { return providers.Price{}, false }
 	}
 	t, _ := catalog.ReadPrices()
-	return func(id string) (providers.Price, bool) {
-		row, ok := t.Rate(id)
+	return func(provider, id string) (providers.Price, bool) {
+		row, ok := t.Lookup(id)
+		if provider == "databricks" { // the serving provider's own row, never another provider's rate
+			if row, ok = t.Row(provider, "databricks-"+id); !ok {
+				row, ok = t.Row(provider, id)
+			}
+		}
+		// a tiered price needs the prompt size per request, which the ledger sums away: leave it unpriced
+		ok = ok && row.Priced && len(row.Tiers) == 0
 		return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
 	}
 }
+
+// listLookup is the models.dev list price for a serving provider and a ledger model key.
+type listLookup func(provider, id string) (providers.Price, bool)
 
 // label is the source shown in JSON: "est. list" for a list-priced row.
 func (r costRow) label() string {
@@ -58,11 +68,11 @@ func (r costRow) label() string {
 }
 
 // priced is r with its USD from the owner's table, else the list price; unknown stays NaN.
-func (r costRow) priced(owner map[string]providers.Price, list func(string) (providers.Price, bool)) costRow {
+func (r costRow) priced(owner map[string]providers.Price, list listLookup) costRow {
 	r.USD = math.NaN()
 	if p, ok := owner[r.Model]; ok {
 		r.USD = priceRow(r, p)
-	} else if p, ok := list(r.Model); ok {
+	} else if p, ok := list(r.Provider, r.Model); ok {
 		r.USD, r.List = priceRow(r, p), true
 	}
 	return r
@@ -97,7 +107,7 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 		k := key{e.ProfileName(), ledgerModelKey(e.ProfileName(), e.Model)}
 		r := idx[k]
 		if r == nil {
-			r = &costRow{Profile: k.profile, Model: k.model, Source: costEst}
+			r = &costRow{Profile: k.profile, Provider: e.Provider, Model: k.model, Source: costEst}
 			idx[k] = r
 			order = append(order, k)
 		}

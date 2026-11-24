@@ -192,7 +192,9 @@ func TestCostBudgetLine(t *testing.T) {
 
 // An owner price wins; the list price fills only a model the owner left unpriced; no price stays NaN.
 func TestCostRowPricedOwnerBeforeList(t *testing.T) {
-	list := func(id string) (providers.Price, bool) { return providers.Price{Input: 2, Output: 2}, id != "unknown" }
+	list := func(_, id string) (providers.Price, bool) {
+		return providers.Price{Input: 2, Output: 2}, id != "unknown"
+	}
 	owner := map[string]providers.Price{"owned": {Input: 1, Output: 1}}
 	for _, c := range []struct {
 		model    string
