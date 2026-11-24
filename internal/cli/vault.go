@@ -33,7 +33,7 @@ func vaultSpec() *helptext.Node {
 			boolFlag("dry-run")}},
 		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("secret")}},
 		"delete":        {Args: []func() []string{secretNames}},
-		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run")}}}},
+		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
