@@ -61,8 +61,8 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
 		cmd.WaitDelay = proc.ExecWaitDelay
-		proc.TreeCancel(cmd, proc.ExecWaitDelay) // a timeout kills go test's descendants too
 		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(slices.Clone(env), s.Env...), out, out
+		proc.TreeCancel(cmd, proc.ExecWaitDelay) // after cmd.Env: it tags the env, so a timeout kills descendants too
 		if err := cmd.Run(); err != nil {
 			vr.Exit = exitCode(err, out)
 			break

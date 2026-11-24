@@ -245,9 +245,7 @@ func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, e
 	if base.Codemode != "" {
 		argv = append(argv, "--codemode", base.Codemode)
 	}
-	if tools := cmp.Or(tl.Tools, &base.Tools); *tools {
-		argv = append(argv, "--tools")
-	}
+	argv = append(argv, "--tools="+strconv.FormatBool(*cmp.Or(tl.Tools, &base.Tools)))
 	return specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
 }
 
