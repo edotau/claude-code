@@ -165,11 +165,7 @@ func piRunnerBarred(ctx context.Context, q RouteReq) string {
 	if err != nil {
 		return ""
 	}
-	req := RunOptions{Carry: q.Carry, Fleet: q.Fleet, EnableMemory: q.Memory, OutputSchema: q.OutputSchema}
-	if q.Budget {
-		req.BudgetUSD = new(float64)
-	}
-	return runnerLoses(engine.Caps(), req)
+	return runnerLoses(engine.Caps(), q.Opts)
 }
 
 // headPiHop is the pi runner dispatch on lead's own workspace: lead's route flags on the wire piRunnerModel validated.

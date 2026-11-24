@@ -252,10 +252,10 @@ func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
 	setConfigDir(t)
 	registerPiForTest(t)
 	ctx := context.Background()
-	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Carry: true}); why == "" {
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Opts: RunOptions{Carry: true}}); why == "" {
 		t.Error("carry: want a reason")
 	}
-	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", OutputSchema: "{}"}); why == "" {
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Opts: RunOptions{DebugFile: "x"}}); why == "" {
 		t.Error("output schema: want a reason")
 	}
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {

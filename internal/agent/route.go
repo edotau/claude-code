@@ -529,8 +529,7 @@ type RouteReq struct {
 	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
 	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
 	Resumed                       bool   // a resumed session stays on the row that holds it
-	Carry, Fleet, Memory, Budget  bool   // the ask's runner capabilities
-	OutputSchema                  string // the ask's --output-schema, "" when none
+	Opts                          RunOptions // the ask's own options: what the pi runner must be able to run
 	Engine                        Engine // the resolved engine an explicit or --host chain runs on
 	Refresh                       func(context.Context, string) bool
 }
