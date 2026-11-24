@@ -12,6 +12,7 @@
 # legacy-layout: dispatch-events
 # legacy-layout: dispatch-record
 # legacy-layout: login-state
+# legacy-layout: model-prices
 # legacy-layout: notices
 # legacy-layout: oauth-usage-cache
 # legacy-layout: opencode-auth-cache
@@ -59,6 +60,7 @@ memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/me
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 memory-sync | cache | 2 | state/harness/memory/sync.json | internal/memory | keep
 merge-queue | record | 1 | state/harness/worktree/merge-queue.json | internal/worktree | keep
+model-prices | cache | 1 | state/harness/router/prices.json | internal/catalog | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep

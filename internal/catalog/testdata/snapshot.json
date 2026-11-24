@@ -1,0 +1,19 @@
+{
+  "anthropic": {"id": "anthropic", "extra": 1, "models": {
+    "claude-opus-5-5": {"id": "claude-opus-5-5", "cost": {"input": 4, "output": 20, "cache_read": 0.2, "cache_write": 5},
+      "limit": {"context": 1000000, "output": 128000}, "status": ""},
+    "claude-haiku-5-5": {"cost": {"input": 0.1, "output": 0.5, "tiers": [
+      {"input": 0.5, "output": 2.5, "tier": {"type": "context", "size": 100000}}]}, "limit": {"context": 1000000, "output": 128000}},
+    "claude-opus-4-5": {"cost": {"input": 5, "output": 25}, "limit": {"context": 200000, "output": 64000}, "status": "deprecated"}
+  }},
+  "databricks": {"models": {
+    "databricks-claude-opus-5-5": {"cost": {"input": 99, "output": 99}, "limit": {"context": 1, "output": 1}}
+  }},
+  "other": {"models": {
+    "free-model": {"limit": {"context": 8000}},
+    "negative-price": {"cost": {"input": -1, "output": 1}},
+    "absurd-price": {"cost": {"input": 1, "output": 9999999999}},
+    "bad-limit": {"limit": {"context": -5}},
+    "bad-shape": "nope"
+  }}
+}

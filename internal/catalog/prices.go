@@ -1,0 +1,291 @@
+package catalog
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/httpx"
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
+)
+
+const (
+	pricesSchema = 1
+	// SnapshotURL is the models.dev catalog OpenCode reads; one plain GET, no identifying detail.
+	SnapshotURL     = "https://models.dev/api.json"
+	snapshotLimit   = 32 << 20 // the real file is about 7 MB
+	snapshotTimeout = 30 * time.Second
+	pricesFresh     = 12 * time.Hour
+	maxSnapRate     = 1_000_000 // USD per million tokens
+	maxSnapTokens   = 1 << 30
+	maxSnapIDRunes  = 200
+)
+
+var pricesFormat = schemas.Register(schemas.Format{
+	Name: "model-prices", Owner: "internal/catalog", Kind: schemas.Cache, Version: pricesSchema,
+	Glob: PricesPath,
+	New:  func() any { return new(Prices) },
+	Keep: "rebuilt by `models learn` from the models.dev snapshot",
+})
+
+// PricesPath is the learned list-price table under the harness state dir.
+func PricesPath() string { return filepath.Join(paths.StateDir(), "router", "prices.json") }
+
+// TierPrice is the rate list that applies once a prompt passes Over tokens.
+type TierPrice struct {
+	Over       int     `json:"over"`
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cache_read,omitempty"`
+	CacheWrite float64 `json:"cache_write,omitempty"`
+}
+
+// ModelPrice is a snapshot row in USD per million tokens; Priced is false when an owner price or none covers it.
+type ModelPrice struct {
+	Priced     bool        `json:"priced,omitempty"`
+	Input      float64     `json:"input,omitempty"`
+	Output     float64     `json:"output,omitempty"`
+	CacheRead  float64     `json:"cache_read,omitempty"`
+	CacheWrite float64     `json:"cache_write,omitempty"`
+	Tiers      []TierPrice `json:"tiers,omitempty"`
+	Context    int         `json:"context,omitempty"`
+	MaxOutput  int         `json:"max_output,omitempty"`
+	Status     string      `json:"status,omitempty"`
+}
+
+// Prices is prices.json: rows keyed by models.ModelKey, stamped with the fetch time.
+type Prices struct {
+	Schema  int                   `json:"schema"`
+	Fetched time.Time             `json:"fetched"`
+	Models  map[string]ModelPrice `json:"models"`
+}
+
+// PriceReport counts what one snapshot fold did; Rejected names each refused row and why.
+type PriceReport struct {
+	Models     int      `json:"models"`
+	Priced     int      `json:"priced"`
+	Limits     int      `json:"limits"`
+	Deprecated int      `json:"deprecated"`
+	OwnerKept  int      `json:"owner_kept"` // owner-set prices the snapshot left alone
+	Rejected   []string `json:"rejected,omitempty"`
+}
+
+// Deprecated reports whether the snapshot marks id deprecated; the model stays usable.
+func (p Prices) Deprecated(id string) bool {
+	return p.Models[models.ModelKey(id)].Status == "deprecated"
+}
+
+// Fresh reports whether the table was fetched within the refresh window of now.
+func (p Prices) Fresh(now time.Time) bool {
+	return !p.Fetched.IsZero() && !paths.Stale(p.Fetched, pricesFresh, 0, now)
+}
+
+// ReadPrices is the table on disk; a missing file is empty, a broken one an error.
+func ReadPrices() (Prices, error) {
+	raw, err := os.ReadFile(PricesPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return Prices{}, nil
+	}
+	if err != nil {
+		return Prices{}, err
+	}
+	var p Prices
+	if _, err := schemas.Decode(pricesFormat, raw, &p); err != nil {
+		return Prices{}, fmt.Errorf("prices.json: %w", err)
+	}
+	return p, nil
+}
+
+// SavePrices writes p atomically.
+func SavePrices(p Prices) error {
+	if err := os.MkdirAll(filepath.Dir(PricesPath()), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(PricesPath(), append(data, '\n'), 0o644)
+}
+
+// FetchSnapshot GETs the snapshot with the default transport (proxy settings apply); a var so tests stay offline.
+var FetchSnapshot = func(ctx context.Context) ([]byte, error) {
+	if testing.Testing() {
+		return nil, errors.New("network off under go test")
+	}
+	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+	status, body, _, err := httpx.Do(ctx, httpx.Call{URL: SnapshotURL, Limit: snapshotLimit,
+		Header: http.Header{"Accept": {"application/json"}, "User-Agent": {"model-catalog-client"}}})
+	if err == nil && status != http.StatusOK {
+		err = fmt.Errorf("HTTP %d", status)
+	}
+	return body, err
+}
+
+type snapRates struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cache_read"`
+	CacheWrite float64 `json:"cache_write"`
+}
+
+func (r snapRates) ok() bool {
+	return !slices.ContainsFunc([]float64{r.Input, r.Output, r.CacheRead, r.CacheWrite},
+		func(x float64) bool { return x < 0 || x > maxSnapRate || math.IsNaN(x) })
+}
+
+type snapTier struct {
+	snapRates
+	Tier struct {
+		Type string `json:"type"`
+		Size int    `json:"size"`
+	} `json:"tier"`
+}
+
+type snapModel struct {
+	Cost *struct {
+		snapRates
+		Tiers []snapTier `json:"tiers"`
+	} `json:"cost"`
+	Limit struct {
+		Context int `json:"context"`
+		Output  int `json:"output"`
+	} `json:"limit"`
+	Status string `json:"status"`
+}
+
+func tokensOK(n int) bool { return n >= 0 && n <= maxSnapTokens }
+
+// row validates one snapshot model into a ModelPrice; the error says what is wrong, the caller names the row.
+func (m snapModel) row() (ModelPrice, error) {
+	out := ModelPrice{Context: m.Limit.Context, MaxOutput: m.Limit.Output}
+	if !tokensOK(out.Context) || !tokensOK(out.MaxOutput) {
+		return ModelPrice{}, errors.New("limit out of range")
+	}
+	if slices.Contains([]string{"alpha", "beta", "deprecated"}, m.Status) {
+		out.Status = m.Status
+	}
+	if m.Cost == nil {
+		return out, nil
+	}
+	r := m.Cost.snapRates
+	if !r.ok() {
+		return ModelPrice{}, errors.New("price negative or absurd")
+	}
+	out.Priced, out.Input, out.Output, out.CacheRead, out.CacheWrite = true, r.Input, r.Output, r.CacheRead, r.CacheWrite
+	var err error
+	out.Tiers, err = contextTiers(m.Cost.Tiers)
+	return out, err
+}
+
+func contextTiers(in []snapTier) ([]TierPrice, error) {
+	var out []TierPrice
+	for _, t := range in {
+		if t.Tier.Type != "context" {
+			continue
+		}
+		if t.Tier.Size <= 0 || !tokensOK(t.Tier.Size) || !t.ok() {
+			return nil, errors.New("tier negative or absurd")
+		}
+		out = append(out, TierPrice{t.Tier.Size, t.Input, t.Output, t.CacheRead, t.CacheWrite})
+	}
+	return out, nil
+}
+
+// snapFirst are the providers whose row wins when several list one model key; the rest follow by name.
+var snapFirst = []string{"anthropic", "openai", "google"}
+
+func snapOrder(provs []string) []string {
+	slices.Sort(provs)
+	first := slices.DeleteFunc(slices.Clone(snapFirst), func(n string) bool { return !slices.Contains(provs, n) })
+	return append(first, slices.DeleteFunc(provs, func(n string) bool { return slices.Contains(snapFirst, n) })...)
+}
+
+type snapFold struct {
+	out   Prices
+	rep   PriceReport
+	owner map[string]bool
+}
+
+// FoldSnapshot decodes raw; an ownerPriced key loses its snapshot price (limits stay); a row that fails is rejected.
+func FoldSnapshot(raw []byte, ownerPriced map[string]bool, now time.Time) (Prices, PriceReport, error) {
+	var provs map[string]struct {
+		Models map[string]json.RawMessage `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &provs); err != nil {
+		return Prices{}, PriceReport{}, fmt.Errorf("not a models.dev snapshot: %w", err)
+	}
+	if len(provs) == 0 {
+		return Prices{}, PriceReport{}, errors.New("not a models.dev snapshot: no providers")
+	}
+	f := snapFold{out: Prices{Schema: pricesSchema, Fetched: now, Models: map[string]ModelPrice{}}, owner: ownerPriced}
+	for _, name := range snapOrder(slices.Collect(maps.Keys(provs))) {
+		for _, id := range slices.Sorted(maps.Keys(provs[name].Models)) {
+			f.add(name+"/"+id, id, provs[name].Models[id])
+		}
+	}
+	f.rep.Models = len(f.out.Models)
+	return f.out, f.rep, nil
+}
+
+func snapIDOK(id string) bool {
+	return id != "" && id == strings.TrimSpace(id) && utf8.RuneCountInString(id) <= maxSnapIDRunes &&
+		strings.IndexFunc(id, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
+}
+
+func (f *snapFold) reject(label, why string) { f.rep.Rejected = append(f.rep.Rejected, label+": "+why) }
+
+func (f *snapFold) add(label, id string, raw json.RawMessage) {
+	var m snapModel
+	if !snapIDOK(id) {
+		f.reject(label, "bad model id")
+		return
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		f.reject(label, "unreadable row")
+		return
+	}
+	row, err := m.row()
+	if err != nil {
+		f.reject(label, err.Error())
+		return
+	}
+	key := models.ModelKey(id)
+	if _, seen := f.out.Models[key]; seen || key == "" {
+		return
+	}
+	if f.owner[key] && row.Priced {
+		row.Priced, row.Input, row.Output, row.CacheRead, row.CacheWrite, row.Tiers = false, 0, 0, 0, 0, nil
+		f.rep.OwnerKept++
+	}
+	f.count(row)
+	f.out.Models[key] = row
+}
+
+func (f *snapFold) count(row ModelPrice) {
+	if row.Priced {
+		f.rep.Priced++
+	}
+	if row.Context > 0 || row.MaxOutput > 0 {
+		f.rep.Limits++
+	}
+	if row.Status == "deprecated" {
+		f.rep.Deprecated++
+	}
+}
