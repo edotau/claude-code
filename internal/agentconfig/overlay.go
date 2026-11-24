@@ -176,8 +176,10 @@ func presetDoc(value string) (string, bool) {
 
 // readOverlaySource returns value's error label and bytes: a preset, stdin for -, inline JSON, else the file it names.
 func readOverlaySource(value string, stdin io.Reader) (string, []byte, error) {
-	if doc, ok := presetDoc(value); ok {
-		return "overlay", []byte(doc), nil
+	if _, err := os.Lstat(value); err != nil { // a file by that name still wins
+		if doc, ok := presetDoc(value); ok {
+			return "overlay", []byte(doc), nil
+		}
 	}
 	return readJSONSource("overlay", value, stdin)
 }

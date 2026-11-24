@@ -321,7 +321,11 @@ func TestLoadOverlayPresets(t *testing.T) {
 			t.Errorf("%s: got %+v, %v", value, o, err)
 		}
 	}
-	if _, err := LoadOverlayContext(t.Context(), "nosuch", nil); err == nil {
-		t.Error("a non-preset name must still read as a file")
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("coworker", []byte(`{"keep":["X"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if o, err := LoadOverlayContext(t.Context(), "coworker", nil); err != nil || o.Provider != "" || len(o.Keep) != 1 {
+		t.Errorf("a file named like a preset must win: %+v, %v", o, err)
 	}
 }
