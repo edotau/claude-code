@@ -183,3 +183,23 @@ func TestPiActionArgvIsBuiltByGo(t *testing.T) {
 		t.Errorf("unknown handback key = %+v", v)
 	}
 }
+
+func TestPiDispatchAtBudget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", dir)
+	const owner = "20261124T110000.000-pi"
+	t.Setenv(proc.DispatchIDEnv, owner)
+	saveOwnerContract(t, owner, 1000)
+	call := piCall{Tool: "dispatch", CWD: dir, Input: map[string]any{"unit": "func y", "kind": "function",
+		"own": []any{"a.go"}, "tier": "fast", "prompt": "reply ok"}}
+	if v := judgePi(call); !v.Allow || len(v.Run) < 4 || v.Run[2] != "--background" || v.Notice != "" {
+		t.Fatalf("under budget: %+v, want an ask argv", v)
+	}
+	if _, err := contract.Update(owner, func(c contract.Contract) (contract.Contract, error) { return c.AddChild("k1") }); err != nil {
+		t.Fatal(err)
+	}
+	if v := judgePi(call); !v.Allow || v.Run != nil || v.Notice != contract.BudgetNotice {
+		t.Errorf("at budget: %+v, want allowed, nothing run, the budget notice", v)
+	}
+}

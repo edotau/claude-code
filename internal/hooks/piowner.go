@@ -1,0 +1,107 @@
+package hooks
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/proc"
+)
+
+// piDispatchKeys and piCheckKeys are the typed arguments of the two owner actions.
+var (
+	piDispatchKeys = []string{"unit", "kind", "own", "tier", "prompt"}
+	piCheckKeys    = []string{"id"}
+)
+
+// piOwner is the running owner's open contract; only an owner may dispatch or check.
+func piOwner() (contract.Contract, error) {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
+		return contract.Contract{}, errors.New("only a contract owner may dispatch or check")
+	}
+	return c, nil
+}
+
+// piDispatchArgv builds `agents ask --background --spec <object>`: Go writes the object, the model picks typed values.
+func piDispatchArgv(input map[string]any) ([]string, error) {
+	c, err := piOwner()
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: %w", err)
+	}
+	unit, _ := input["unit"].(string)
+	prompt, _ := input["prompt"].(string)
+	kind, tier := contract.Kind(strOf(input["kind"])), strOf(input["tier"])
+	switch {
+	case strings.TrimSpace(unit) == "" || strings.TrimSpace(prompt) == "":
+		return nil, errors.New("dispatch: unit and prompt are required")
+	case !slices.Contains(contract.Kinds(), kind):
+		return nil, fmt.Errorf("dispatch: kind %q is not one of %v", kind, contract.Kinds())
+	case tier != "fast" && tier != "standard":
+		return nil, fmt.Errorf("dispatch: tier %q is not fast or standard", tier)
+	}
+	own, err := piOwnWithin(input["own"], c.Scope.Own)
+	if err != nil {
+		return nil, err
+	}
+	spec := map[string]any{"agent": "claude", "tier": tier, "own": own, "prompt": prompt,
+		"contract": map[string]any{"unit": unit, "kind": string(kind),
+			"limits": map[string]int{"tokens": max(c.Limits.Tokens-wire.SpentBy(c).Tokens, 1)}}}
+	b, err := json.Marshal(spec)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: %w", err)
+	}
+	return []string{"agents", "ask", "--background", "--spec", string(b)}, nil
+}
+
+func strOf(v any) string { s, _ := v.(string); return s }
+
+// piOwnWithin is the files list when every entry sits inside the owner's own scope, else an error naming the strays.
+func piOwnWithin(list any, scope []string) ([]string, error) {
+	items, ok := list.([]any)
+	if !ok || len(items) == 0 {
+		return nil, errors.New("dispatch: own must be a non-empty array of files")
+	}
+	var own, stray []string
+	for _, it := range items {
+		s, _ := it.(string)
+		if s == "" || !piInScope(s, scope) {
+			stray = append(stray, fmt.Sprintf("%q", s))
+			continue
+		}
+		own = append(own, s)
+	}
+	if len(stray) > 0 {
+		return nil, fmt.Errorf("dispatch: own files outside the owner's scope: %s", strings.Join(stray, ", "))
+	}
+	return own, nil
+}
+
+func piInScope(file string, scope []string) bool {
+	f := filepath.ToSlash(filepath.Clean(file))
+	return slices.ContainsFunc(scope, func(o string) bool {
+		o = filepath.ToSlash(filepath.Clean(o))
+		return f == o || strings.HasPrefix(f, o+"/")
+	})
+}
+
+// piCheckArgv builds `agents status <id> --format json` for a dispatch whose record names this owner as parent.
+func piCheckArgv(input map[string]any) ([]string, error) {
+	c, err := piOwner()
+	if err != nil {
+		return nil, fmt.Errorf("check: %w", err)
+	}
+	id := strOf(input["id"])
+	rec, err := agent.LoadRecord(id)
+	if err != nil || rec.Parent == "" || !slices.Contains(append([]string{c.ID}, c.Holders...), rec.Parent) {
+		return nil, fmt.Errorf("check: %q is not a dispatch of this owner", id)
+	}
+	return []string{"agents", "status", rec.ID, "--format", "json"}, nil
+}

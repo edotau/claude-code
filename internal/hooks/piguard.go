@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // piGuardName is the "module" of `hook PreToolUse --pi-guard`: Pi's guard extension sends a raw tool call, this judges it.
@@ -339,21 +340,25 @@ var (
 )
 
 // isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
-func isPiAction(tool string) bool { return tool == "gate" || tool == "handback" }
+func isPiAction(tool string) bool {
+	return slices.Contains([]string{"gate", "handback", "dispatch", "check"}, tool)
+}
 
 // piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
 func piActionArgv(tool string, input map[string]any) ([]string, error) {
-	keys := piGateKeys
-	if tool == "handback" {
-		keys = piHandbackKeys
-	}
+	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys}[tool]
 	for k := range input {
 		if !slices.Contains(keys, k) {
 			return nil, fmt.Errorf("%s: unknown argument %q (allowed: %s)", tool, k, strings.Join(keys, ", "))
 		}
 	}
-	if tool == "handback" {
+	switch tool {
+	case "handback":
 		return nil, nil
+	case "dispatch":
+		return piDispatchArgv(input)
+	case "check":
+		return piCheckArgv(input)
 	}
 	argv := []string{"worktree", "gate", "--run", "--format", "json"}
 	scope, err := piGateScope(input["scope"])
@@ -395,7 +400,7 @@ func judgePiAction(c piCall) piVerdict {
 	if argv == nil {
 		return piVerdict{Allow: true}
 	}
-	if reason := piBashBlock(c, "claude-code "+strings.Join(argv, " ")); reason != "" {
+	if reason := piBashBlock(c, "claude-code "+textutil.ShellJoin(argv)); reason != "" {
 		return piVerdict{Block: reason}
 	}
 	return piVerdict{Allow: true, Run: argv}

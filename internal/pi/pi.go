@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -33,6 +34,8 @@ const (
 	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
 	// guardVerifyEnv is the run's --verify line, set on every tools run so an inherited one never applies.
 	guardVerifyEnv = "HARNESS_PI_GUARD_VERIFY"
+	// ownerEnv marks a run whose own contract names it an owner; After adds the fleet actions for it.
+	ownerEnv = "HARNESS_PI_GUARD_OWNER"
 	// stopGrace is how long Pi gets to kill its own bash groups after SIGTERM before the descendants are killed.
 	stopGrace = 2 * time.Second
 	// packageDirsEnv carries Wire's synced package dirs to After; After strips it, so Pi never sees it.
@@ -63,6 +66,9 @@ func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless
 		return nil, nil, err
 	}
 	env = append(env, tools.PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
+	if h != nil && h.Tools && isOwnerRun(ctx) {
+		env = append(env, ownerEnv+"=1")
+	}
 	return rtkwrap.Launch(env, "", agent.NoticeOut), argv, nil
 }
 
@@ -254,8 +260,30 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	return append(append(g.Argv(), "--no-builtin-tools"), codemodeArgv(req.Codemode)...), nil
 }
 
-// guardTools are the tools the guard registers on a --tools run.
-const guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
+// guardTools are the tools the guard registers on a --tools run; ownerTools join them for a contract owner only.
+const (
+	guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
+	ownerTools = ",dispatch,check"
+)
+
+// guardToolsFor adds the fleet actions only when the run's own contract names it an owner; a fleet run gets none.
+func guardToolsFor(env []string) string {
+	if lastEnv(env, ownerEnv) == "1" {
+		return guardTools + ownerTools
+	}
+	return guardTools
+}
+
+// isOwnerRun reports whether the run holds an owner contract and was not dispatched by one: the depth limit.
+func isOwnerRun(ctx context.Context) bool {
+	id := proc.Value(ctx, proc.DispatchIDEnv)
+	c, err := contract.Load(id)
+	if err != nil || c.Owner.Role != contract.RoleOwner {
+		return false
+	}
+	rec, err := agent.LoadRecord(id)
+	return err == nil && rec.Parent == ""
+}
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
 func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
@@ -270,7 +298,7 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
-			p.Env = append(p.Env, guardToolsEnv+"="+guardTools, guardVerifyEnv+"="+req.Verify)
+			p.Env = append(p.Env, guardToolsEnv+"="+guardToolsFor(p.Env), guardVerifyEnv+"="+req.Verify)
 			if codemodeOn(req.Codemode) {
 				p.Env = append(p.Env, guardCodemodeEnv+"=1")
 				p.Env = codemodeLaunchEnv(p.Env, req.Codemode) // the shim strips rtk prefixes and never wraps
