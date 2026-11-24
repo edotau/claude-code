@@ -210,7 +210,14 @@ func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 		addJobRow(l, levelJob, append([]string{jobMarker(n.Dispatch)}, cells...), n.Dispatch, false)
 		if detail {
 			l.free(5, joinText(n.ID, "  ", textutil.OneLine(n.Task)))
+			l.free(5, jobDetail(n.Dispatch))
 		}
 		addHeld(l, 5, n.Files, n.Note)
 	}
+}
+
+// jobDetail is the "<model> · <route> · ↑<in>" line the default row leaves out.
+func jobDetail(d Dispatch) string {
+	up, _ := d.tokenCells()
+	return strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where() + " · " + up
 }

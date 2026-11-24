@@ -229,10 +229,10 @@ func addSubagentRow(l *layout, sub Subagent, c *rowCtx, twist string, hot bool) 
 	l.mark(hot, 1<<0)
 }
 
-// addJobRow adds a dispatch row of cells at level, marker first; a ↳ marker becomes the status glyph.
+// addJobRow adds a dispatch row of cells at level, marker first; a ↳ marker keeps its arrow and gains the status glyph.
 func addJobRow(l *layout, level int, cells []string, d Dispatch, sel bool) {
 	if level == levelDispatch {
-		cells[0] = strings.TrimSuffix(cells[0], "↳") + jobMarker(d)
+		cells[0] += jobMarker(d) // the ↳ stays; the glyph is last for the tint
 	}
 	l.add(level, append(cells, "")...)
 	l.rows[len(l.rows)-1].tint = markerTint(d)

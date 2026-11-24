@@ -344,6 +344,9 @@ func render(tree *Tree, now time.Time, width int, paint string) []string {
 func TestRenderSplitsActiveFromInactive(t *testing.T) {
 	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
 	lines := render(splitFixture(now), now, 0, "")
+	if !strings.Contains(strings.Join(lines, "\n"), "↳") {
+		t.Error("nested dispatch row lost its ↳")
+	}
 	var order []string
 	blanks := 0
 	for _, line := range lines {
