@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 var allFacts = Facts{Lane: true, ScopedProxy: true, PlanTask: true, Fleet: true}
