@@ -164,7 +164,8 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 		return o, ""
 	}
 	now, role := time.Now(), dispatchRole(o.Prompt)
-	session := providers.SessionLeadContext(ctx, reg, false)
+	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
+	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
 	cells, scope := modeCells(reg, ov.ProviderMode, role, session)
 	ready, rows, skipped := readyCells(reg, o.Agent, cells, session, now)
 	head := "rotation: role " + string(role)
@@ -183,13 +184,15 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 	return o, roleNote(joinNotes(pick, skippedNote(skipped)))
 }
 
-// untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, pin, host, session or one-hop mode.
+// untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, model pin, host or session.
 func untypedClaude(ctx context.Context, o RunOptions) bool {
 	named := []string{o.Model, o.Provider, o.Lead, o.Account, o.Host, o.SessionID}
 	if !VaultAgentIsClaude(o.Agent) || slices.ContainsFunc(named, func(s string) bool { return s != "" }) {
 		return false
 	}
-	if o.AutoModel || o.Direct || !o.Route.IsZero() || o.Fallback == router.FallbackNone {
+	// ask fills the env default first: a none that differs from it was typed; one equal to it cannot be told apart
+	typedNone := o.Fallback == router.FallbackNone && router.DefaultFallback() != router.FallbackNone
+	if o.AutoModel || o.Direct || !o.Route.IsZero() || typedNone {
 		return false
 	}
 	return agentModelPinContext(ctx, o.Agent) == "" // claude's record profile is its default lead, not a typed route
