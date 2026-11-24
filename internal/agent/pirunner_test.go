@@ -85,3 +85,18 @@ func TestPiRunnerBarredForCarriedChild(t *testing.T) {
 		}
 	}
 }
+
+// Every roster agent but pi takes the pi runner untyped; an unknown name never does.
+func TestPiRunnerAskedForRosterAgents(t *testing.T) {
+	setConfigDir(t)
+	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+		if asked, typed := piRunnerAsked(context.Background(), RouteReq{Agent: name}); !asked || typed {
+			t.Errorf("%s: asked %v typed %v, want asked untyped", name, asked, typed)
+		}
+	}
+	for _, name := range []string{"pi", "persona"} {
+		if asked, _ := piRunnerAsked(context.Background(), RouteReq{Agent: name}); asked {
+			t.Errorf("%s took the pi runner", name)
+		}
+	}
+}

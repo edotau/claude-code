@@ -15,14 +15,14 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// piRunnerAsked reports q taking the pi runner (D8: claude unless runner own; others on runner pi) and if it was typed.
+// piRunnerAsked reports q taking the pi runner (every roster agent but pi, unless runner own) and if it was typed.
 func piRunnerAsked(ctx context.Context, q RouteReq) (asked, typed bool) {
 	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable document already failed the ask
 	typed = ov.Runner == agentconfig.RunnerPi
-	if ov.Runner == agentconfig.RunnerOwn || q.Agent == agentid.Pi {
+	if ov.Runner == agentconfig.RunnerOwn || q.Agent == agentid.Pi || !agentid.Known(q.Agent) {
 		return false, false
 	}
-	return typed || VaultAgentIsClaude(q.Agent), typed
+	return true, typed
 }
 
 // withPiRunner leads c with the pi runner when its first hop is the asked agent on a Databricks route.
@@ -192,10 +192,11 @@ func piMenuHas(p *providers.Provider, wire string) bool {
 
 // piRunnerModel is the model q.Agent resolves on profile (the resolver gateway resolve uses) and its wire on Pi's menu.
 func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, profile string) (model, wire, why string) {
-	if q.AutoModel || IsAuto(q.Model) || IsAuto(lead.Model) {
-		return "", "", autoPickWhy
+	want, why := runnerWant(q, lead)
+	if why != "" {
+		return "", "", why
 	}
-	model, why = agentModelOn(ctx, reg, q, cmp.Or(q.Model, lead.Model), profile) // the typed model first (R8)
+	model, why = agentModelOn(ctx, reg, q, want, profile) // the typed model first (R8)
 	if why == "" {
 		why = ownHopDiffers(ctx, reg, q, lead, model)
 	}
@@ -210,6 +211,19 @@ func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lea
 		return "", "", "pi on " + profile + ": " + why
 	}
 	return model, wire, ""
+}
+
+// runnerWant is the model word the pi hop resolves: auto only for a rotating agent, whose own pick Pi then runs.
+func runnerWant(q RouteReq, lead Dispatch) (want, why string) {
+	switch {
+	case q.AutoModel || IsAuto(q.Model):
+		return "", autoPickWhy
+	case !IsAuto(lead.Model):
+		return cmp.Or(q.Model, lead.Model), ""
+	case q.Model != "" || !rotatesUnderAuto(q.Agent):
+		return "", autoPickWhy
+	}
+	return AutoModel, ""
 }
 
 // ownHopDiffers is why lead's own CLI hop would run another model than model, "" when both hops run one model.
@@ -228,10 +242,14 @@ const autoPickWhy = "an auto pick runs on the agent's own CLI"
 
 // agentModelOn is model as q.Agent resolves it on profile, or why it is no fixed model there (an error, an auto pick).
 func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, model, profile string) (string, string) {
-	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task,
-		Default: q.AliasHint, Tools: q.Tools})
+	rotating := IsAuto(model) // runnerWant asks it of a rotating agent only: the caller's ctx stamps the pick, a peek not
+	if !rotating {
+		ctx = PeekContext(ctx)
+	}
+	mq := QueryFor(ctx, ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task, Default: q.AliasHint,
+		Tools: q.Tools})
 	// an untyped ask under an auto pin rotates at dispatch; a peek would pin the next pick without stamping it
-	if IsAuto(mq.Model) || q.Model == "" && IsAuto(mq.PinModel) {
+	if !rotating && (IsAuto(mq.Model) || model == "" && IsAuto(mq.PinModel)) {
 		return "", autoPickWhy
 	}
 	r, err := ResolveRun(reg, mq, time.Now())
