@@ -251,6 +251,9 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				}
 				assertReportTextOccursOnce(t, report, "Unique report body.")
 				assertReportTextOccursOnce(t, decisions, "Keep it.")
+				if previous != "" {
+					assertReportRolledBack(t, paths.MemorySub("reports", "2026-11-08-review.md"), previous)
+				}
 			})
 		})
 	}

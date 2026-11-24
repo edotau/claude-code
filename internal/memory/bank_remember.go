@@ -348,46 +348,24 @@ func appendReport(label string, in ReportInput) ([]string, error) {
 	return out, err
 }
 
-// freeReportPath is reports/<stem>.md, or <stem>-N.md for the first N from 2 that does not exist yet.
-func freeReportPath(stem string) (string, error) {
-	path := paths.MemorySub("reports", stem+".md")
-	for n := 2; ; n++ {
-		_, err := os.Lstat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return path, nil
-		}
-		if err != nil {
-			return "", err
-		}
-		path = paths.MemorySub("reports", fmt.Sprintf("%s-%d.md", stem, n))
-	}
-}
-
 // appendReportLocked is appendReport's body; the caller holds the bank lock.
 func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o700); err != nil {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath, err := freeReportPath(day + "-" + label)
-	if err != nil {
-		return nil, err
-	}
 	decisionsPath := paths.MemorySub("reports", day+"-decisions.md")
-	report, err := snapshotFile(reportPath)
-	if err != nil {
-		return nil, err
-	}
 	decisions, err := snapshotFile(decisionsPath)
 	if err != nil {
 		return nil, err
 	}
-	// rollback undoes both appends so a retry never writes the report or its decisions twice.
-	rollback := func(err error) ([]string, error) {
-		return nil, errors.Join(err, report.restore(), decisions.restore())
+	reportPath, err := createUnique(day+"-"+label, []byte(strings.TrimRight(in.Report, "\n")+"\n\n"))
+	if err != nil {
+		return nil, err
 	}
-	if err := appendText(reportPath, "", strings.TrimRight(in.Report, "\n")+"\n\n"); err != nil {
-		return rollback(err)
+	// rollback undoes the new report and the decisions append so a retry never writes either twice.
+	rollback := func(err error) ([]string, error) {
+		return nil, errors.Join(err, os.Remove(reportPath), decisions.restore())
 	}
 	if err := appendText(decisionsPath, "# Decisions\n\n", decisionLines(day, label, in.Decisions)); err != nil {
 		return rollback(err)
