@@ -264,7 +264,7 @@ const pytestNoTestsExit = 5
 // errNoTests fails a lane that changed a .py file yet collected no tests.
 var errNoTests = errors.New("verify: no tests collected")
 
-// emptyPytest settles pytest's empty-collection exit: fails on a lane .py change, else reports and passes.
+// emptyPytest settles pytest's empty-collection exit: fails on a lane .py or pytest-config change, else passes.
 func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer) error {
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != pytestNoTestsExit {
@@ -274,11 +274,13 @@ func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer
 		return errNoTests
 	}
 	names, gitErr := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
-	isPy := func(f string) bool { return strings.HasSuffix(f, ".py") }
+	isPy := func(f string) bool {
+		return strings.HasSuffix(f, ".py") || slices.Contains([]string{"pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini"}, path.Base(f))
+	}
 	if gitErr != nil || slices.ContainsFunc(strings.Split(string(names), "\x00"), isPy) {
 		return errNoTests
 	}
-	fmt.Fprintln(out, "verify: no tests collected (no .py change in the lane); passing")
+	fmt.Fprintln(out, "verify: no tests collected (no .py or pytest-config change in the lane); passing")
 	return nil
 }
 
