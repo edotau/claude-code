@@ -102,10 +102,23 @@ func afterOrphanPEM(s string) string {
 	return ""
 }
 
-// dropFirstLine is s past its first newline: the cut window's first line may be a secret's tail without its marker.
+// dropFirstLine is s past its first newline and any base64 body lines after it: a cut window may open inside a key.
 func dropFirstLine(s string) string {
 	_, rest, _ := strings.Cut(s, "\n")
+	for rest != "" {
+		line, next, _ := strings.Cut(rest, "\n")
+		if !base64Line(line) {
+			break
+		}
+		rest = next
+	}
 	return rest
+}
+
+// base64Line reports a run of 16+ base64 characters with no spaces, the shape of a PEM body line.
+func base64Line(s string) bool {
+	s = strings.TrimSuffix(s, "\r")
+	return len(s) >= 16 && strings.Trim(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == ""
 }
 
 // maskShapes masks credential-shaped runs, then vault values, in s.
