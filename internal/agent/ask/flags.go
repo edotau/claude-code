@@ -437,6 +437,8 @@ type askState struct {
 	modelTyped   *bool   // --model typed on this command line or in the --job/--retry record
 	timeoutTyped *bool   // --timeout typed on this command line or in the --job/--retry record
 	lead         *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	// the --job/--retry record's request: its rotation and fallback-default marks
+	replayed *agent.RunOptions
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
@@ -461,7 +463,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	}
 	s.Apply(r, os.Stderr)
 	*s.modelTyped, *s.timeoutTyped = r.Request.ModelTyped, r.Request.TimeoutTyped
-	*s.lead = r.Request.Lead // the detached child leads with the profile the parent resolved
+	*s.lead, *s.replayed = r.Request.Lead, r.Request // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
 	return &r, 0, false
 }
@@ -478,7 +480,7 @@ func loadAskRetry(_ context.Context, fs *flag.FlagSet, args []string, retry, for
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
 	*s.modelTyped, *s.timeoutTyped = rec.Request.ModelTyped, rec.Request.TimeoutTyped
-	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
+	*s.lead, *s.replayed = rec.Request.Lead, rec.Request // the routed lead is not a flag: the replay leads with it
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true

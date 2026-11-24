@@ -144,11 +144,11 @@ type roleNote struct{ text, account string }
 
 // onto is c with the note as a preflight line; a route whose first hop left the picked account says so.
 func (n roleNote) onto(c Chain) Chain {
-	if n.text == "" || len(c.Dispatches) == 0 {
+	if n.text == "" {
 		return c
 	}
-	text := n.text
-	if n.account != "" && c.Dispatches[0].Account != n.account {
+	text := n.text // kept on an empty chain too: it says why routing found nothing
+	if n.account != "" && len(c.Dispatches) > 0 && c.Dispatches[0].Account != n.account {
 		text += "; the picked row did not lead, the route runs " + hopTarget(c.Dispatches[0])
 	}
 	return c.noted(text)
@@ -220,7 +220,7 @@ func untypedClaude(ctx context.Context, o RunOptions) bool {
 
 // fenced reports a run held to one route: an inherited arm or provider fence, a typed --fallback none or --as.
 func fenced(ctx context.Context, o RunOptions) bool {
-	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
+	typedNone := o.Fallback == router.FallbackNone && !o.FallbackDefaulted // ask's env-default none is no request
 	identity := o.Identity != "" && o.Identity != providers.IdentityAuto
 	return confinedRoute(ctx) || typedNone || identity
 }
@@ -289,7 +289,7 @@ func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, r
 		o.Provider = row
 		return ctx, o
 	}
-	o.Lead = row
+	o.Lead, o.Rotated = row, true
 	return router.WithRotatedLead(ctx, router.RotatedLead{Row: row, Drop: drop}), o
 }
 
@@ -302,10 +302,10 @@ func (s modeScope) rows(reg *providers.Registry) []string {
 	return out
 }
 
-// replayRotation re-leads a replayed rotation (--job, --retry, background): a recorded lead plus an untyped tier alias.
+// replayRotation re-leads a replayed rotation (--job, --retry, background) whose record marks it Rotated.
 func replayRotation(ctx context.Context, o RunOptions) context.Context {
 	// a recorded one-hop mode or identity replays on the recorded lead itself; only a confinement stops the re-lead
-	replay := o.Lead != "" && !o.ModelTyped && slices.Contains(models.AliasNames, o.Model) && VaultAgentIsClaude(o.Agent)
+	replay := o.Rotated && o.Lead != "" && !o.ModelTyped && VaultAgentIsClaude(o.Agent)
 	if !replay || confinedRoute(ctx) {
 		return ctx
 	}

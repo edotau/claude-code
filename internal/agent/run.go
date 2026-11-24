@@ -607,7 +607,6 @@ type RunOptions struct {
 	Agent                                               string             `json:"-"`
 	Agents                                              map[string]*Schema `json:"-"`
 	Fallback                                            string             `json:"-"`
-	FallbackTyped                                       bool               `json:"-"` // --fallback was typed, not the env default
 	Account                                             string             `json:"-"` // the overlay account key: a GitHub login or profile
 	CellModel                                           bool               `json:"-"`
 	Typed1M                                             bool               `json:"-"`                     // the caller typed [1m]; a cell's bare model still runs at 1M where it can
@@ -630,6 +629,11 @@ type RunOptions struct {
 	Route route.Route `json:"route,omitzero"`
 	// CellRoute is the registry row a router-pinned ladder cell runs on; it outranks Provider. Per hop, never stored.
 	CellRoute route.Route `json:"-"`
+
+	// FallbackDefaulted: Fallback is ask's env default, not typed; any other none (a flag, code, an old record) holds.
+	FallbackDefaulted bool `json:"fallback_defaulted,omitempty"`
+	// Rotated: Lead and Model are a role rotation's pick, so a --job or --retry replay leads with them again.
+	Rotated bool `json:"rotated,omitempty"`
 }
 
 // EffectiveRoute is Route when set, else built from the legacy Provider, Account and the cell's row.
