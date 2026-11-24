@@ -322,11 +322,11 @@ func tryFileLock(path string, wait time.Duration, fn func() error, open func() (
 		}
 		ok, err := acquireUntil(f, deadline)
 		if err != nil || !ok {
-			return false, errors.Join(err, f.Close())
+			return false, joinIfAny(err, f.Close())
 		}
 		same, err := lockedPath(path, f)
 		if err != nil {
-			return false, errors.Join(err, release(f))
+			return false, joinIfAny(err, release(f))
 		}
 		if same {
 			return runLocked(f, fn)
@@ -373,9 +373,17 @@ func lockedPath(path string, f *os.File) (bool, error) {
 // release unlocks f and closes it, returning both failures.
 func release(f *os.File) error { return errors.Join(unlock(f), f.Close()) }
 
+// joinIfAny is err unchanged when extra is nil, so callers still compare fn's sentinel errors by identity.
+func joinIfAny(err, extra error) error {
+	if extra == nil {
+		return err
+	}
+	return errors.Join(err, extra)
+}
+
 // runLocked runs fn while f holds the lock, then releases it; a release failure joins fn's error.
 func runLocked(f *os.File, fn func() error) (ran bool, err error) {
-	defer func() { err = errors.Join(err, release(f)) }()
+	defer func() { err = joinIfAny(err, release(f)) }()
 	return true, fn()
 }
 
