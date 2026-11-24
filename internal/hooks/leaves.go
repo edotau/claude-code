@@ -260,12 +260,12 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	lr.scan.addHeldIDs(readHeldJobs(agentID))
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
-		saveHeldJob(agentID, lr)
+		saveHeldJob(agentID, expired.Reason)
 		return preserveReport(in, agentID, lr, expired), true
 	}
 	res, block := ranOnVerdict(in, agentID, &lr)
 	if block {
-		saveHeldJob(agentID, lr)
+		saveHeldJob(agentID, res.Reason)
 		return preserveReport(in, agentID, lr, res), true
 	}
 	_ = os.Remove(heldPath(agentID)) // the hand-back or stop passes: its hold is over
@@ -481,18 +481,18 @@ func readHeldJobs(agentID string) []string {
 	return strings.Fields(string(b))
 }
 
-// saveHeldJob adds the first still-running job, the one the hold just named, to agentID's saved held ids.
-func saveHeldJob(agentID string, lr leafRead) {
-	i := slices.IndexFunc(lr.recs, jobRunning)
-	if i < 0 {
+// saveHeldJob adds the job a hold's reason names (its poll command) to agentID's saved held ids.
+func saveHeldJob(agentID, reason string) {
+	m := heldJobRe().FindStringSubmatch(reason)
+	if m == nil {
 		return
 	}
 	ids := readHeldJobs(agentID)
-	if slices.Contains(ids, lr.recs[i].ID) {
+	if slices.Contains(ids, m[1]) {
 		return
 	}
 	if os.MkdirAll(filepath.Dir(heldPath(agentID)), 0o700) == nil {
-		_ = os.WriteFile(heldJobsPath(agentID), []byte(strings.Join(append(ids, lr.recs[i].ID), "\n")), 0o600)
+		_ = os.WriteFile(heldJobsPath(agentID), []byte(strings.Join(append(ids, m[1]), "\n")), 0o600)
 	}
 }
 
