@@ -24,7 +24,7 @@ func TestForModel(t *testing.T) {
 		{"rewrites", "git log -3", "", onPath, word + " git log -3"},
 		{"code mode", "git log -3", "on", onPath, "git log -3"},
 		{"veto", "go vet ./x", "", onPath, "go vet ./x"},
-		{"already rtk", "rtk git status", "", onPath, "rtk git status"},
+		{"already rtk is pinned", "rtk git status", "", onPath, word + " git status"},
 		{"pinned off PATH", "git log -4", "", "/nonexistent", word + " git log -4"},
 	} {
 		t.Setenv(CodemodeEnv, tc.codemode)

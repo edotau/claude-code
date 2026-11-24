@@ -24,6 +24,9 @@ func ForModel(ctx context.Context, cmd, cwd string) string {
 	if formSkipped(bin, cmd, cwd) {
 		return cmd
 	}
+	if t := shell.Tokens(cmd); t[0] == rtkName { // already wrapped: pin it so a child's PATH cannot swap the binary
+		return PinRTK(cmd, textutil.QuoteSH(bin))
+	}
 	key := formKey(bin, cwd, cmd)
 	if got, ok := forms.Load(key); ok {
 		return got.(string)
@@ -37,13 +40,13 @@ func ForModel(ctx context.Context, cmd, cwd string) string {
 	return out
 }
 
-// formSkipped: code mode, no rtk, an empty or already-rtk command, a veto, or a PATH/HOME change keep cmd bare.
+// formSkipped: code mode, no rtk, an empty command, a veto, or a PATH/HOME change keep cmd bare.
 func formSkipped(bin, cmd, cwd string) bool {
 	if CodeMode() || bin == "" || Vetoed(cmd, cwd) || EnvAltered(cmd) {
 		return true
 	}
 	t := shell.Tokens(cmd)
-	return len(t) == 0 || t[0] == rtkName
+	return len(t) == 0
 }
 
 // formKey changes with PATH, the rtk binary's identity and rtk's config file, so an edit to any re-asks rtk.
