@@ -266,6 +266,9 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 	var ce *worktree.CommitError
 	switch {
 	case err == nil:
+		if !*dryRun {
+			recordCloseTerms(cwd, func() ([]string, error) { return revList(context.Background(), cwd, "HEAD^!") }, "", os.Stderr)
+		}
 		return 0
 	case errors.As(err, &ce) && ce.Code == 2:
 		return helptext.FailUsage("worktree commit: %v", err)
@@ -336,28 +339,44 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var promoted string
 	req := worktree.MergeRequest{
 		Name: name, Target: *target, ResolveAgent: *resolveAgent, Verify: *verify,
 		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
-			before, after, _ := strings.Cut(rng, "..")
-			docs.BenchLanded(ctx, repo.Main, before, after, os.Getenv(paths.SessionIDEnv)) // a fast-forward fires no commit hook
-			return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
+			promoted = rng
+			return tickPromoted(ctx, repo, name, rng)
 		},
 	}
 	if *dryRun {
 		return mergeDryRun(ctx, repo, req)
 	}
 
+	code := mergeUnderLease(ctx, repo, req)
+	if _, landed, ok := strings.Cut(promoted, ".."); ok { // promoted even when the clean failed
+		recordCloseTerms(repo.Main, func() ([]string, error) { return revList(ctx, repo.Main, promoted) }, landed, os.Stderr)
+	}
+	return code
+}
+
+// mergeUnderLease runs mergeLocked holding the lane's lease; a lease failure is exit 1.
+func mergeUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	var code int
-	if err := worktree.WithWorktreeLease(repo, name, func() error {
+	if err := worktree.WithWorktreeLease(repo, req.Name, func() error {
 		code = mergeLocked(ctx, repo, req)
 		return nil
 	}); err != nil {
 		return helptext.Fail("worktree merge: %v", err)
 	}
 	return code
+}
+
+// tickPromoted announces the landed range to the bench and ticks the plans the range's commits name.
+func tickPromoted(ctx context.Context, repo *worktree.Repo, name, rng string) error {
+	before, after, _ := strings.Cut(rng, "..")
+	docs.BenchLanded(ctx, repo.Main, before, after, os.Getenv(paths.SessionIDEnv)) // a fast-forward fires no commit hook
+	return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
 }
 
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.

@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -769,5 +771,55 @@ func TestCmdWorktreeGateRunPrintsObservedJSON(t *testing.T) {
 	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "--run", "--dir", goDir}) })
 	if code != 0 || !strings.Contains(out, `"exit": 0`) || !strings.Contains(out, `"failures": []`) {
 		t.Fatalf("gate --run: code=%d out=%q stderr=%q", code, out, errb)
+	}
+}
+
+type fakeContracts struct{ saved []contract.Contract }
+
+func (f *fakeContracts) Pending() ([]contract.Contract, error) { return f.saved, nil }
+func (f *fakeContracts) Save(c contract.Contract) error        { f.saved = []contract.Contract{c}; return nil }
+
+// A ticked plan task whose sha is in the range records tick and landed once, with the real shas as evidence.
+func TestRecordCloseTerms(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gitRepoCLI(t)
+	hosttest.WriteRel(t, repo, "a.txt", "one\n")
+	hosttest.In(t, repo, "add", "a.txt")
+	hosttest.In(t, repo, "commit", "-qm", "chore: base")
+	head := hosttest.In(t, repo, "rev-parse", "HEAD")
+	hosttest.WriteRel(t, plans.Home(repo), "2026-01-01-x.md", "## Tasks\n- [x] Phase 1.1 — do it (verify: true) ("+head[:7]+")\n")
+
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.txt"}, PlanTask: "Phase 1.1"},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: 1000, Leaves: 1},
+		contract.Facts{Lane: true, PlanTask: true})
+	if len(ps) > 0 {
+		t.Fatal(ps)
+	}
+	for _, term := range []contract.Term{contract.TermLane} {
+		c, _ = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo})
+	}
+	c, _ = c.Start("d1")
+	for _, term := range []contract.Term{contract.TermGate, contract.TermTests, contract.TermHandback, contract.TermReport} {
+		c, _ = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo})
+	}
+	c, err := c.Verify(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeContracts{saved: []contract.Contract{c}}
+	old := openContractStore
+	openContractStore = func() contractStore { return fake }
+	t.Cleanup(func() { openContractStore = old })
+
+	var warn strings.Builder
+	recordCloseTerms(repo, func() ([]string, error) { return []string{head}, nil }, head, &warn)
+	got := fake.saved[0]
+	if warn.Len() > 0 || len(got.Unmet()) != 0 {
+		t.Fatalf("warn %q, unmet %v", warn.String(), got.Unmet())
+	}
+	for _, r := range got.Records[len(got.Records)-2:] {
+		if r.Evidence != head || r.By != contract.ByGo {
+			t.Errorf("record %+v, want evidence %s", r, head)
+		}
 	}
 }
