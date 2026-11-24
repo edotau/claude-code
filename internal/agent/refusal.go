@@ -41,7 +41,7 @@ type refusedHop struct {
 // planRepick is planOverflow, or for a policy refusal the one re-pick to another family (never a second).
 func planRepick(ctx context.Context, in refusedHop) repickPlan {
 	ran := ranModel(in.disp, in.req, in.res)
-	if ran == "" || !retry.IsPolicyRefusal(in.err) || retry.Progressed(in.err) {
+	if ran == "" || in.res.Answer != "" || !retry.IsPolicyRefusal(in.err) || retry.Progressed(in.err) {
 		return repickPlan{overflowPlan: planOverflow(in.disp, in.req, in.res, ran, in.err)}
 	}
 	plan := repickPlan{policy: true, pran: ran, pfrom: models.FamilyName(ran)}
@@ -205,6 +205,7 @@ func crossFamilyMove(ctx context.Context, prev, next Dispatch, res wire.Result, 
 		return m
 	}
 	from, to := asRun(res.Model), asRun(next.Model)
-	return retryBarred(err) && from != "" && to != "" && router.DifferentFamily(from, to) &&
+	known := from != "" && to != "" && !IsAuto(from) && !IsAuto(to) // an auto hop's family is unknown until it picks
+	return retryBarred(err) && known && router.DifferentFamily(from, to) &&
 		!errors.Is(err, ErrPoolExhausted) && fallsThroughContext(ctx, prev.Agent) && hopFailed(res, err)
 }
