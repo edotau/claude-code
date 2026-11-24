@@ -1409,3 +1409,36 @@ func waitRecordActivity(t *testing.T, id string, usage wire.Usage) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestNoteReportAndNearestIDs(t *testing.T) {
+	setConfigDir(t)
+	for _, id := range []string{"20260101T000000.000-pi", "20260101T000001.000-pi"} {
+		if err := (Record{ID: id, Agent: "pi", Status: "ok"}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := NoteReport("20260101T000001.000-pi", "/r.md"); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := LoadRecord("20260101T000001"); err != nil || r.Report != "/r.md" {
+		t.Fatalf("record %+v, %v", r, err)
+	}
+	if _, err := LoadRecord("2026"); err == nil || !strings.Contains(err.Error(), "nearest: 20260101T000001.000-pi, 20260101T000000.000-pi") {
+		t.Fatalf("ambiguous id error %v, want the nearest ids", err)
+	}
+}
+
+func TestFinishSaveKeepsStoredReport(t *testing.T) {
+	setConfigDir(t)
+	rec := Record{ID: "20260101T000002.000-pi", Agent: "pi", Status: "running"}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := NoteReport(rec.ID, "/r.md"); err != nil {
+		t.Fatal(err)
+	}
+	rec.finishSave(wire.Result{Status: wire.StatusOK}, nil, time.Second, nil)
+	if got, err := LoadRecord(rec.ID); err != nil || got.Report != "/r.md" {
+		t.Fatalf("record %+v, %v: report lost on finish", got, err)
+	}
+}

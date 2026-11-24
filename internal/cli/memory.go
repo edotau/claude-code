@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -216,12 +218,13 @@ func memorySpec() *helptext.Node {
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
-		"dream":   {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
-		"search":  {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
-		"show":    {},
-		"index":   {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
-		"path":    {},
-		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag()}},
+		"dream":  {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
+		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
+		"show":   {},
+		"index":  {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
+		"path":   {},
+		"report": {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.Plain("job"),
+			helptext.ValuedFlag("kind", func() []string { return memory.ReportKinds }), helptext.CompletionFormatFlag()}},
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
@@ -411,12 +414,17 @@ func cmdMemoryReport(args []string) int {
 	label := fs.String("label", "", "report name: reports/<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
 	file := fs.String("file", "", "JSON input file: {\"report\": markdown, \"decisions\": [...]}")
 	stdin := fs.Bool("stdin", false, "read the JSON input from stdin")
+	job := fs.String("job", "", "dispatch id: write the raw --file/--stdin text to a derived reports/ path stored on its record")
+	kind := fs.String("kind", "", "with --job: "+strings.Join(memory.ReportKinds, "|"))
 	format := helptext.FormatFlag(fs)
 	if code, done := memoryParseNoArgs(fs, "report", args); done {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("memory report", err)
+	}
+	if *job != "" {
+		return cmdMemoryJobReport(*job, *kind, *file, *stdin, *format)
 	}
 	if (*file == "") == !*stdin {
 		return helptext.FailUsage("memory report: give exactly one of --file or --stdin")
@@ -430,6 +438,32 @@ func cmdMemoryReport(args []string) int {
 		return helptext.Fail("memory report: %v", err)
 	}
 	return printReportPaths(out, *format)
+}
+
+// cmdMemoryJobReport stores the raw report text under a Go-derived name and records the path on the dispatch.
+func cmdMemoryJobReport(job, kind, file string, stdin bool, format string) int {
+	if !slices.Contains(memory.ReportKinds, kind) {
+		return helptext.FailUsage("memory report: --kind must be one of %s", strings.Join(memory.ReportKinds, ", "))
+	}
+	if (file == "") == !stdin {
+		return helptext.FailUsage("memory report: give exactly one of --file or --stdin")
+	}
+	rec, err := agent.LoadRecord(job)
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	body, err := memory.ReadReportBody(file, stdin)
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	path, err := memory.JobReport(rec.Time, kind, cmp.Or(rec.PlanTask, rec.ID), body)
+	if err != nil {
+		return helptext.Fail("memory report: %v", err)
+	}
+	if err := agent.NoteReport(rec.ID, path); err != nil {
+		return helptext.Fail("memory report: %s written but not stored on %s: %v", path, rec.ID, err)
+	}
+	return printReportPaths([]string{path}, format)
 }
 
 // printReportPaths prints the written paths one per line, or as {"paths": [...]} with --format json.

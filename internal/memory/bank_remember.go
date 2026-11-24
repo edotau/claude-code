@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -415,16 +417,74 @@ func appendText(path, header, text string) error {
 	return paths.AtomicWrite(path, append(cur, text...), 0o600)
 }
 
+// ReportKinds are the `memory report --kind` values.
+var ReportKinds = []string{"review", "implementation", "audit", "research"}
+
+// ReadReportBody reads the raw report text from file, or from stdin when stdin is set.
+func ReadReportBody(file string, stdin bool) ([]byte, error) {
+	if stdin {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(file)
+}
+
+// JobReport writes body to a new reports/<day>-<kind>-<label>.md (a numeric suffix if taken) and returns its path.
+func JobReport(day time.Time, kind, label string, body []byte) (string, error) {
+	if strings.TrimSpace(string(body)) == "" {
+		return "", errors.New("report text is empty")
+	}
+	if err := EnsureBank(""); err != nil {
+		return "", err
+	}
+	label = strings.Trim(labelUnsafe().ReplaceAllString(label, "-"), "-.")
+	label = strings.Trim(label[:min(len(label), 60)], "-.") // ASCII only here, so the cut is safe
+	stem := day.Format("2006-01-02") + "-" + kind + "-" + cmp.Or(label, "report")
+	var path string
+	err := withFlatLock(BankLockWait, func() error {
+		if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o700); err != nil {
+			return err
+		}
+		var err error
+		if path, err = createUnique(stem, append(bytes.TrimRight(body, "\n"), '\n')); err != nil {
+			return err
+		}
+		if _, err := formatFiles([]string{path}, false); err != nil {
+			return errors.Join(err, os.Remove(path))
+		}
+		if err := commitStore("memory: report "+filepath.Base(path), storeRels([]string{path})...); err != nil {
+			return errors.Join(err, os.Remove(path))
+		}
+		return nil
+	})
+	return path, err
+}
+
+// createUnique writes data to reports/<stem>.md, or <stem>-N.md for the first free N, and returns the path.
+func createUnique(stem string, data []byte) (string, error) {
+	for n := 1; ; n++ {
+		path := paths.MemorySub("reports", stem+".md")
+		if n > 1 {
+			path = paths.MemorySub("reports", fmt.Sprintf("%s-%d.md", stem, n))
+		}
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, werr := f.Write(data)
+		if err := errors.Join(werr, f.Close()); err != nil {
+			return "", errors.Join(err, os.Remove(path))
+		}
+		return path, nil
+	}
+}
+
 // ReadReportInput decodes the report JSON from file, or from stdin when stdin is set.
 func ReadReportInput(file string, stdin bool) (ReportInput, error) {
 	var in ReportInput
-	var data []byte
-	var err error
-	if stdin {
-		data, err = io.ReadAll(os.Stdin)
-	} else {
-		data, err = os.ReadFile(file)
-	}
+	data, err := ReadReportBody(file, stdin)
 	if err != nil {
 		return in, err
 	}

@@ -473,3 +473,31 @@ func TestDropCommitsSinceKeepsPeerCommits(t *testing.T) {
 		t.Errorf("HEAD moved to %s, want %s kept", after, head)
 	}
 }
+
+func TestJobReportNamesAreUnique(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		day := time.Date(2026, time.November, 8, 0, 0, 0, 0, time.UTC)
+		a, err := JobReport(day, "review", "my task/x", []byte("body"))
+		b, err2 := JobReport(day, "review", "my task/x", []byte("body"))
+		if err != nil || err2 != nil || a == b || filepath.Base(a) != "2026-11-08-review-my-task-x.md" ||
+			filepath.Base(b) != "2026-11-08-review-my-task-x-2.md" {
+			t.Fatalf("paths %q %q, errors %v %v", a, b, err, err2)
+		}
+	})
+}
+
+func TestJobReportHostileLabel(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		day := time.Date(2026, time.November, 8, 0, 0, 0, 0, time.UTC)
+		for _, label := range []string{"../../etc/passwd", "-rf\n\x00", "..", strings.Repeat("a", 500)} {
+			p, err := JobReport(day, "audit", label, []byte("b"))
+			base := filepath.Base(p)
+			if err != nil || filepath.Dir(p) != paths.MemorySubDir("reports") || len(base) > 100 {
+				t.Fatalf("label %q: path %q, %v", label, p, err)
+			}
+			if strings.ContainsAny(base, "/\x00\n") || strings.HasPrefix(base, "-") {
+				t.Fatalf("label %q: unsafe name %q", label, base)
+			}
+		}
+	})
+}

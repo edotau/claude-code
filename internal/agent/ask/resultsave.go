@@ -14,6 +14,14 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
+// reportLine is the stored report path as a line, or "" when the record has none.
+func reportLine(rec agent.Record) string {
+	if rec.Report == "" {
+		return ""
+	}
+	return "report: " + rec.Report + "\n"
+}
+
 // resultText is the text `agents result` prints: the log, the whole answer, the ask line, then the resume command.
 func resultText(rec agent.Record, log string) string {
 	var b strings.Builder
@@ -31,6 +39,7 @@ func resultText(rec agent.Record, log string) string {
 	if line := agent.ObservedLine(rec); line != "" {
 		fmt.Fprintln(&b, line)
 	}
+	b.WriteString(reportLine(rec))
 	if rec.Cutoff != "" {
 		fmt.Fprintf(&b, "cutoff: %s (%s)\n", rec.Cutoff, rec.Status)
 	}

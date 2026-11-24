@@ -96,6 +96,7 @@ type Record struct {
 	Tree           string      `json:"tree,omitempty"`            // git top of the working tree the run started in
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 	TakeoverOf     string      `json:"takeover_of,omitempty"`     // a --carry takeover: the cut-off child dispatch this run finished
+	Report         string      `json:"report,omitempty"`          // absolute path of the report `memory report --job` stored
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -554,6 +555,14 @@ func (r Record) Save() error {
 	}
 	path := filepath.Join(dir, r.ID+".json")
 	_, statErr := os.Lstat(path)
+	if r.Report == "" && statErr == nil { // a stale snapshot never drops the report `memory report --job` stored
+		if cur, err := readRecord(path); err == nil && cur.Report != "" {
+			r.Report = cur.Report
+			if b, err = r.encode(); err != nil {
+				return err
+			}
+		}
+	}
 	if err := paths.AtomicWrite(path, b, 0o600); err != nil {
 		return err
 	}
@@ -946,9 +955,40 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status)", id, len(match))
+		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status); nearest: %s",
+			id, len(match), strings.Join(nearestIDs(names, id), ", "))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
+}
+
+// nearestIDs is up to three record ids sharing the longest prefix with id, newest first on a tie.
+func nearestIDs(names []string, id string) []string {
+	ids := make([]string, len(names))
+	for i, n := range names {
+		ids[i] = strings.TrimSuffix(n, ".json")
+	}
+	slices.SortStableFunc(ids, func(a, b string) int {
+		return cmp.Or(commonPrefix(b, id)-commonPrefix(a, id), strings.Compare(b, a))
+	})
+	return ids[:min(3, len(ids))]
+}
+
+// commonPrefix is the length of the longest shared prefix of a and b.
+func commonPrefix(a, b string) int {
+	n := 0
+	for n < min(len(a), len(b)) && a[n] == b[n] {
+		n++
+	}
+	return n
+}
+
+// NoteReport stores path as id's report, whatever the record's status.
+func NoteReport(id, path string) error {
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+		r.Report = path
+		return r, true
+	})
+	return err
 }
 
 // namesNoModel is a served name that is no model: empty, the request auto or "<synthetic>".

@@ -431,6 +431,7 @@ type Row struct {
 	Live     string `json:"live,omitempty"` // a running row's progress line
 	Pool     string `json:"pool,omitempty"`
 	Wait     string `json:"wait,omitempty"`
+	Report   string `json:"report,omitempty"` // the report file `memory report --job` stored
 
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
@@ -557,6 +558,9 @@ func (r Row) Detail() string {
 	if r.Error != "" {
 		d += " -- " + textutil.PreviewRedacted(r.Error, 300)
 	}
+	if r.Report != "" {
+		d += " report: " + r.Report
+	}
 	return d
 }
 
@@ -671,7 +675,7 @@ func toRow(r Record) Row {
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
-		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage}
+		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report}
 }
 
 // interrupt sends SIGINT to pid's process group and pid.
