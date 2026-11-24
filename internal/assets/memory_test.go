@@ -71,7 +71,7 @@ func TestMemoryEmptyProcedurePanics(t *testing.T) {
 	memoryProcedure([]byte(" \n\t"))
 }
 
-// memoryGolden pins each memory template renderer's complete output to a literal, so editing a template or accessor fails here.
+// memoryGolden pins each memory template renderer's full output to a literal; editing a template or accessor fails.
 var memoryGolden = []struct {
 	template string
 	got      func() string
