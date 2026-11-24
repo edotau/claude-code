@@ -228,7 +228,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
 			runBank(t, func(t *testing.T) {
-				report := paths.MemorySub("reports", "2026-11-08-review.md")
+				report := paths.MemorySub("reports", "2026-11-08-review-120000.md")
 				decisions := paths.MemorySub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
 					write(t, report, previous)
