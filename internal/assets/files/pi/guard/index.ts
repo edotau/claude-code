@@ -161,7 +161,7 @@ async function runAction(name: string, run: string[], cwd: string, signal: any, 
   const sent = new Promise<void>((ok, bad) => { // a failed or cut write must fail the call, not file a truncated body
     if (stdin === undefined || !p.child.stdin) return ok()
     p.child.stdin.on("error", bad)
-    p.child.stdin.end(stdin, () => ok())
+    p.child.stdin.end(stdin, (err?: Error | null) => err ? bad(err) : ok())
   })
   sent.catch(() => {}) // surfaced below, after the child's own exit
   const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM

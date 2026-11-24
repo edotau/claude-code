@@ -60,12 +60,9 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 		return Reaped{}, nil
 	}
 	holder := c.Holders[len(c.Holders)-1]
-	next, spare := successorOf(c, env)
-	if spare {
-		return Reaped{}, nil
-	}
+	next := successorOf(c, env)
 	_, err = Update(id, func(c Contract) (Contract, error) {
-		if !orphaned(c, env) || c.Holders[len(c.Holders)-1] != holder {
+		if !orphaned(c, env) || c.Holders[len(c.Holders)-1] != holder || spared(c, env, next) {
 			return c, nil
 		}
 		r = Reaped{ID: id, Holder: holder}
@@ -79,12 +76,17 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 	return r, err
 }
 
-// successorOf is c's re-send (once only); spare is true when none came back because a recovery is already under way.
-func successorOf(c Contract, env Env) (next string, spare bool) {
-	if env.Successor != nil && len(c.Holders) == 1 {
-		next = env.Successor(c)
+// successorOf is c's re-send, made once only ("" for none).
+func successorOf(c Contract, env Env) string {
+	if env.Successor == nil || len(c.Holders) > 1 {
+		return ""
 	}
-	return next, next == "" && env.Claimed != nil && env.Claimed(c.Holders[len(c.Holders)-1])
+	return env.Successor(c)
+}
+
+// spared reports whether c lacks a successor only because another recovery of its holder is under way.
+func spared(c Contract, env Env, next string) bool {
+	return next == "" && len(c.Holders) == 1 && env.Claimed != nil && env.Claimed(c.Holders[0])
 }
 
 // reassignOrFail hands c to next when there is one and it takes, else fails c owner-dead.

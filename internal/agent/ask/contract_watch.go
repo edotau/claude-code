@@ -89,9 +89,9 @@ func settleLeaves(ctx context.Context, ids []string) []string {
 	for open := workingOf(ids); len(open) > 0; open = workingOf(ids) {
 		select {
 		case <-ctx.Done():
-			return open
+			return workingOf(ids)
 		case <-t.C:
-			return open
+			return workingOf(ids)
 		case <-tk.C:
 		}
 	}
