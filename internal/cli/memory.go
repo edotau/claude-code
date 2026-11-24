@@ -515,6 +515,17 @@ func cmdMemoryFmt(args []string) int {
 	return 0
 }
 
+// reviewFlagProblem names the first invalid flag combination of `memory review`, "" when it is valid.
+func reviewFlagProblem(candidate, enforced, propose string, approve, timeline bool) string {
+	switch {
+	case (approve || enforced != "") && (candidate == "" || approve == (enforced != "")):
+		return "--approve or --enforced needs --candidate and takes only one"
+	case propose != "" && (timeline || candidate != ""):
+		return "--propose stands alone"
+	}
+	return ""
+}
+
 // cmdMemoryReview runs the doctor and stats engine calls and prints both output blocks.
 func cmdMemoryReview(args []string) int {
 	fs := memoryFlagSet("review")
@@ -531,8 +542,8 @@ func cmdMemoryReview(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
-	if (*approve || *enforced != "") && (*candidate == "" || *approve == (*enforced != "")) {
-		return helptext.FailUsage("memory review: --approve or --enforced needs --candidate and takes only one")
+	if msg := reviewFlagProblem(*candidate, *enforced, *propose, *approve, *timeline); msg != "" {
+		return helptext.FailUsage("memory review: %s", msg)
 	}
 	if *timeline {
 		if err := memory.TimelineReport(os.Stdout, *n); err != nil {
