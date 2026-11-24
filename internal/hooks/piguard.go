@@ -20,7 +20,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // piGuardName is the "module" of `hook PreToolUse --pi-guard`: Pi's guard extension sends a raw tool call, this judges it.
@@ -44,6 +46,7 @@ type piVerdict struct {
 	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
 	Steps  []piStep `json:"steps,omitempty"`
 	Unset  []string `json:"unset,omitempty"` // credential names verify steps never get, as the post-run verify scrubs
+	Text   string   `json:"text,omitempty"`  // verify_output's redacted text
 }
 
 // piStep is one argv the guard runs for a verify line, with its GOOS/GOARCH/CGO_ENABLED assignments.
@@ -167,8 +170,8 @@ func (r budgetRecord) tokens() int {
 
 // judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
 func judgePiCall(c piCall) piVerdict {
-	if c.Tool == "verify" {
-		return judgePiVerify(c)
+	if v, ok := judgePiVerifyCall(c); ok {
+		return v
 	}
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
@@ -460,6 +463,18 @@ func piBashBlock(c piCall, command string) string {
 	return piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload)
 }
 
+// judgePiVerifyCall answers the guard's own verify calls, never model tools (the guard registers neither name).
+func judgePiVerifyCall(c piCall) (piVerdict, bool) {
+	switch c.Tool {
+	case "verify":
+		return judgePiVerify(c), true
+	case "verify_output": // a failed step's output, redacted before the model sees it
+		out, _ := c.Input["text"].(string)
+		return piVerdict{Allow: true, Text: redact.Text(textutil.RedactSecrets(out))}, true
+	}
+	return piVerdict{}, false
+}
+
 // judgePiVerify rebuilds the run's verify line as argv steps and judges each as the bash line it is.
 func judgePiVerify(c piCall) piVerdict {
 	line, _ := c.Input["verify"].(string)
@@ -475,7 +490,7 @@ func judgePiVerify(c piCall) piVerdict {
 	}
 	out := make([]piStep, len(steps))
 	for i, s := range steps {
-		if reason := piBashBlock(c, strings.Join(append(slices.Clone(s.Env), s.Argv...), " ")); reason != "" {
+		if reason := piBashBlock(c, textutil.ShellJoin(append(slices.Clone(s.Env), s.Argv...))); reason != "" {
 			return piVerdict{Block: reason}
 		}
 		out[i] = piStep{Env: append([]string{}, s.Env...), Argv: s.Argv}

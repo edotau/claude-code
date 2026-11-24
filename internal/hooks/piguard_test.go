@@ -88,6 +88,16 @@ func TestPiGuardVerifySteps(t *testing.T) {
 	}
 }
 
+func TestPiGuardVerifyQuotingAndRedaction(t *testing.T) {
+	if v := piGuard(t, "verify", map[string]any{"verify": "go test -run 'TestA|TestB' ./x"}); !v.Allow || v.Steps[0].Argv[3] != "TestA|TestB" {
+		t.Errorf("quoted run pattern: %+v", v)
+	}
+	key := "sk-ant-api03-" + strings.Repeat("a", 90)
+	if v := piGuard(t, "verify_output", map[string]any{"text": "FAIL " + key}); strings.Contains(v.Text, key) || !strings.HasPrefix(v.Text, "FAIL") {
+		t.Errorf("verify output not redacted: %q", v.Text)
+	}
+}
+
 func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
 	if got := piModulesBlock(nil, "Write", []byte("{}")); !strings.Contains(got, "no guard module matched") {
 		t.Errorf("empty module list: %q, want a block", got)
