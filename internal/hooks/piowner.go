@@ -85,10 +85,15 @@ func piReportPath(unit string) (string, error) {
 		return "", err
 	}
 	slug := strings.Trim(piSlugRe.ReplaceAllString(strings.ToLower(unit), "-"), "-")
+	slug = strings.Trim(slug[:min(len(slug), 60)], "-")
 	if slug == "" {
 		slug = "leaf"
 	}
-	return filepath.Join(paths.MemorySubDir("reports"), fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, r)), nil
+	dir := paths.MemorySubDir("reports")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir,fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, r)), nil
 }
 
 var piSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
