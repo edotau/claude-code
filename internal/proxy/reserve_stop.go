@@ -18,15 +18,16 @@ func SweepScopes() []string {
 			continue
 		}
 		file := scopeFile(sc.Team, sc.ID)
-		err := paths.WithFileLock(file, func() error {
+		gone := false
+		err := paths.WithFileLock(file, func() error { // the lock file stays: other processes may hold its inode
 			cur, err := ReadScope(sc.Team, sc.ID) // a replacement may have published since the listing
 			if err != nil || scopeLive(cur) {
 				return err
 			}
+			gone = true
 			return os.Remove(file)
 		})
-		if err == nil {
-			_ = os.Remove(file + ".lock")
+		if err == nil && gone {
 			removed = append(removed, file)
 		}
 	}

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -49,7 +50,7 @@ func slotID(dispatchID string, reserved int) string {
 // liveScope returns the slot's record when its process is alive and answers /healthz as that pid.
 func liveScope(ctx context.Context, team, id string) (Scope, int64, bool) {
 	sc, err := ReadScope(team, id)
-	if err != nil || !scopeLive(sc) {
+	if err != nil || sc.Host != HostDetached || !scopeLive(sc) {
 		return Scope{}, 0, false
 	}
 	h, ok := Holder(ctx, sc.Port)
@@ -71,8 +72,14 @@ func ScopeStale(sc Scope) bool {
 // startSlot runs under the slot lock: it re-checks, replaces an idle stale proxy, then spawns and waits for a live one.
 func startSlot(ctx context.Context, team, id string) (Scope, error) {
 	sc, inflight, ok := liveScope(ctx, team, id)
+	if !ok {
+		sc, inflight, ok = liveScope(ctx, team, id) // one more probe: a busy proxy may miss a single 1s one
+	}
 	if ok && (!ScopeStale(sc) || inflight > 0) {
 		return sc, nil // fresh or busy: use it as it is
+	}
+	if _, err := os.Stat(heldPath()); err == nil {
+		return Scope{}, errors.New("proxy: held down by `gateway proxy --stop`; `gateway proxy --start` lifts it")
 	}
 	if err := retireSlot(team, id); err != nil {
 		return Scope{}, err
@@ -109,6 +116,9 @@ func stopScope(sc Scope) error {
 		return nil
 	}
 	if err := terminate(sc.PID); err != nil {
+		if !scopeLive(sc) {
+			return nil // it exited between the check and the signal
+		}
 		return err
 	}
 	if !awaitExit(sc.PID) {

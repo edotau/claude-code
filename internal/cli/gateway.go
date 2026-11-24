@@ -640,9 +640,6 @@ func proxyStopHold(ctx context.Context) int {
 		return helptext.Fail("gateway proxy: hold: %v", err)
 	}
 	n, serr := proxy.StopDetached()
-	if serr != nil {
-		return helptext.Fail("gateway proxy: %v", serr)
-	}
 	if n > 0 {
 		if code := sayCode("proxy: stopped %d standing proxies\n", n); code != 0 {
 			return code
@@ -650,9 +647,12 @@ func proxyStopHold(ctx context.Context) int {
 	}
 	st, err := gatewayStop(ctx)
 	if errors.Is(err, proxy.ErrNotRunning) {
-		return sayCode("proxy: not running\n")
+		err = nil
+		if serr == nil {
+			return sayCode("proxy: not running\n")
+		}
 	}
-	if err != nil {
+	if err = errors.Join(serr, err); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	return sayCode("proxy: stopped pid %d\n", st.PID)
