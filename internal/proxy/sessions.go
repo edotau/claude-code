@@ -95,6 +95,10 @@ func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int
 	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
+	// an older daemon ignores the fence fields and signs a fenceless token: never hand that back as fenced
+	if c, ok := PeekSessionClaims(out.Token); !ok || c.Open != open || !slices.Equal(c.Fence, fence) {
+		return "", errors.New("proxy: the daemon signed a token without the requested confinement fence; restart the proxy")
+	}
 	return out.Token, nil
 }
 
@@ -231,6 +235,7 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	if err != nil {
 		return "", err
 	}
+	ctx = WithFence(ctx, fence, open) // one snapshot for the cache binding and the mint
 	start, err := proxyTokenStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("identify token process %d: %w", pid, err)

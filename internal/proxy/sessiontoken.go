@@ -59,6 +59,9 @@ func (c SessionClaims) FenceAllows(profile string) bool {
 	return c.Open || len(c.Fence) == 0 || slices.Contains(c.Fence, profile)
 }
 
+// Fenced reports the token carries a confinement fence (neither open nor a legacy token).
+func (c SessionClaims) Fenced() bool { return !c.Open && len(c.Fence) > 0 }
+
 // FencedProfiles is a copy of the token's profiles its fence admits; nil when it has none (a client token).
 func (c SessionClaims) FencedProfiles() []string {
 	if c.Profiles == nil {

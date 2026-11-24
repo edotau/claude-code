@@ -370,7 +370,8 @@ func (r *Router) admit(req *http.Request) *http.Request {
 		}
 		r.touch(req.Context(), scope...)
 		ctx := context.WithValue(req.Context(), scopeKey{}, scope)
-		if fp := r.sessions.failoverProvider(tok); fp != "" {
+		// a fenced token never fails over: the sibling profiles of its provider lie outside the fence
+		if fp := r.sessions.failoverProvider(tok); fp != "" && !c.Fenced() {
 			ctx = context.WithValue(ctx, failoverProviderKey{}, fp)
 		}
 		req = req.WithContext(ctx)

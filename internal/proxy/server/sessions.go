@@ -247,7 +247,7 @@ func profileOfPath(path string) string {
 // serveSession handles the mint endpoint, after the caller proved the router secret.
 func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 	var in proxy.SessionRequest
-	if req.Method != http.MethodPost || json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096)).Decode(&in) != nil {
+	if req.Method != http.MethodPost || json.NewDecoder(http.MaxBytesReader(w, req.Body, 16<<10)).Decode(&in) != nil {
 		writeError(w, http.StatusBadRequest, "proxy: want POST with a JSON body")
 		return
 	}

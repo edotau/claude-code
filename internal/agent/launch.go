@@ -347,9 +347,10 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 		return "", err
 	}
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
-	key := routerBase + "|" + strings.Join(profiles, ",") + "|fence:" + strings.Join(fence, ",")
-	if open {
-		key += "open"
+	ctx = proxy.WithFence(ctx, fence, open)                          // one snapshot for the slot key and the mint
+	key := routerBase + "|" + strings.Join(profiles, ",") + "|open"
+	if !open {
+		key = routerBase + "|" + strings.Join(profiles, ",") + "|fence:" + fmt.Sprintf("%q", fence)
 	}
 	if failoverProvider != "" {
 		key += "|failover:" + failoverProvider
