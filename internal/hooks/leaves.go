@@ -257,7 +257,7 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	}
 	lr.recs = loadRecords(lr.ids)
 	lr.capHold(firstAskAt(lr.scan.askTimes))
-	lr.scan.addHeldIDs(readHeldJobs(agentID))
+	lr.scan.addHeldIDs(ReadHeldJobs(agentID))
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
 		saveHeldJob(agentID, expired.Reason)
@@ -470,8 +470,8 @@ func (s *leafScan) addHeldIDs(ids []string) {
 // heldJobsPath keeps the ids a leaf's holds named, so a repeat hold needs no transcript text to know them.
 func heldJobsPath(agentID string) string { return heldPath(agentID) + "jobs" }
 
-// readHeldJobs is the held ids saved for agentID; a file older than leafStopMaxWait is stale and ignored.
-func readHeldJobs(agentID string) []string {
+// ReadHeldJobs is the held ids saved for agentID; a file older than leafStopMaxWait is stale and ignored.
+func ReadHeldJobs(agentID string) []string {
 	p := heldJobsPath(agentID)
 	fi, err := os.Stat(p)
 	if err != nil || time.Since(fi.ModTime()) >= leafStopMaxWait {
@@ -487,7 +487,7 @@ func saveHeldJob(agentID, reason string) {
 	if m == nil {
 		return
 	}
-	ids := readHeldJobs(agentID)
+	ids := ReadHeldJobs(agentID)
 	if slices.Contains(ids, m[1]) {
 		return
 	}

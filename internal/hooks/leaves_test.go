@@ -1374,7 +1374,7 @@ func TestHeldJobsKeptInState(t *testing.T) {
 	saveHeldJob("a1", pollOnce("j1"))
 	saveHeldJob("a1", repeatHold("info", "", "j1"))
 	var s leafScan
-	s.addHeldIDs(readHeldJobs("a1"))
+	s.addHeldIDs(ReadHeldJobs("a1"))
 	if len(s.heldJobs) != 1 || s.heldJobs[0] != "j1" {
 		t.Fatalf("held ids = %v", s.heldJobs)
 	}
