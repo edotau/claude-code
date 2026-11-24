@@ -40,6 +40,10 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 | Paired Databricks identity | `--as user\|sp` |
 | Isolation | `--no-persist` keeps no session · `--debug-file <path>` |
 | Inline agents | `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
+| Code mode | `--provider anthropic --tools --codemode on` (only when the brief says so); rtk is off inside the run |
+
+Claude's code mode runs only on the direct Anthropic API; any other route runs with code mode off and prints
+`codemode: off for claude (<reason>)`. `--codemode only` is not offered for claude.
 
 ## Owns
 
