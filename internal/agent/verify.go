@@ -106,8 +106,8 @@ func afterOrphanPEM(s string) string {
 func dropFirstLine(s string) string {
 	_, rest, _ := strings.Cut(s, "\n")
 	for dropped := false; rest != ""; dropped = true {
-		line, next, more := strings.Cut(rest, "\n")
-		if !base64Line(strings.TrimSuffix(line, "\r"), dropped && !more) {
+		line, next, _ := strings.Cut(rest, "\n")
+		if !base64Line(strings.TrimSuffix(line, "\r"), dropped && next == "") {
 			break
 		}
 		rest = next

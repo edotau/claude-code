@@ -41,7 +41,7 @@ func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
 
 func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 	line := strings.Repeat("Zq9Xw2Lm7KaB3dE5", 4)
-	tb := &tailBuf{b: []byte("mid-line " + line[:20] + "\n" + strings.Repeat(line+"\n", 5) + line[:5]), cut: true}
+	tb := &tailBuf{b: []byte("mid-line " + line[:20] + "\n" + strings.Repeat(line+"\n", 5) + line[:5] + "\n"), cut: true}
 	if tail := verifyTail(tb); tail != "" {
 		t.Errorf("tail = %q, want empty for a window of base64 body lines", tail)
 	}
