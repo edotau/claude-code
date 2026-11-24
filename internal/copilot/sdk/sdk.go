@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
@@ -410,6 +411,10 @@ func startClient(ctx context.Context, o Options, errp *error) (*copilot.Client, 
 		return nil, nil, err
 	}
 	client, err := startRuntime(ctx, clientOpts)
+	if err != nil && strings.Contains(err.Error(), "failed to send request") {
+		// the CLI exited before the handshake and the SDK lost its stderr: fatal as when it keeps it, never a relaunch
+		return nil, nil, retry.Fatal("copilot", fmt.Errorf("start copilot runtime: CLI exited before the handshake: %w", err))
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("start copilot runtime: %w", err)
 	}
