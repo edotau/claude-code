@@ -486,11 +486,11 @@ type ChainHop struct {
 // Chain is q's ordered hops and the Skips for hops it could not serve (a model is never swapped, R8).
 func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq, now time.Time) ([]ChainHop, []Skip) {
 	lp := ladderPick{t: t, reg: reg, alias: q.Alias, now: now, res: &PickResult{}}
-	head, _ := lp.chainHop(q.Agent, q.Profile, q.Model, false)
-	if head.Agent == "" {
-		head = ChainHop{Agent: q.Agent, Profile: q.Profile, Account: ProviderAccount(q.Profile), Model: q.Model}
+	out := lp.addHop(nil, q.Agent, q.Profile, q.Model, false)
+	// a rejected head leaves no runnable chain: the caller fails with the Skips, never starts on a sibling
+	if len(out) == 0 {
+		return nil, lp.res.Skipped
 	}
-	out := []ChainHop{head}
 	if q.Fallback == FallbackNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
 		return out, lp.res.Skipped
 	}
@@ -542,15 +542,32 @@ func chainOwn(q ChainReq) string {
 func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop, bool) {
 	p := lp.reg.Providers[profile]
 	if p == nil {
+		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + profile, gateLadder, "no profile " + profile})
 		return ChainHop{}, false
 	}
 	m, why := lp.rungModel(Candidate{Agent: agent, Account: AccountOf(p), Profile: profile}, model)
-	if canon, _, ok := models.Resolve(m); why == "" && ok && p.Preset == providers.PresetDatabricks && models.FamilyOf(canon) == models.Fable {
-		why = "databricks serves no Fable"
+	if why == "" {
+		m, why = chainModel(agent, p, m)
 	}
 	if why != "" {
 		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + AccountOf(p), gateLadder, why})
 		return ChainHop{}, false
 	}
 	return ChainHop{agent, profile, AccountOf(p), m, off}, true
+}
+
+// chainModel is m as a concrete id on p (a family resolved), or why agent cannot run it there.
+func chainModel(agent string, p *providers.Provider, m string) (model, why string) {
+	if providers.IsFamily(m) {
+		if m = providers.SpellPin(p, m); m == "" {
+			return "", "no concrete model for the family on " + p.Name
+		}
+	}
+	if canon, _, ok := models.Resolve(m); ok && p.Preset == providers.PresetDatabricks && models.FamilyOf(canon) == models.Fable {
+		return "", "databricks serves no Fable"
+	}
+	if f := agentid.Routing(agent).ModelFamily; f != "" && string(models.FamilyKind(m)) != f {
+		return "", agent + " does not run " + m
+	}
+	return m, ""
 }

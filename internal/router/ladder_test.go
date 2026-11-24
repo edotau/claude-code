@@ -314,7 +314,11 @@ func TestChainSteps(t *testing.T) {
 		t.Errorf("none chain = %v, want one hop", got)
 	}
 	fable := ChainReq{Agent: "claude", Profile: "dev", Model: "claude-fable-5", Alias: "sonnet", Fallback: FallbackAll, TypedModel: true}
-	if got := chainOf(t, fable); has(got, "opus") || len(got) != 1 {
-		t.Errorf("fable chain = %v, want the one fable hop and no opus", got)
+	if got := chainOf(t, fable); has(got, "opus") || len(got) != 0 {
+		t.Errorf("fable chain = %v, want no hop at all", got)
+	}
+	gpt := ChainReq{Agent: "pi", Profile: "dev", Model: "databricks-gpt-6-1-sol", Alias: "sonnet", Fallback: FallbackAgents, TypedModel: true}
+	if got := chainOf(t, gpt); has(got, "claude") {
+		t.Errorf("gpt chain = %v, want no claude hop", got)
 	}
 }
