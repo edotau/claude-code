@@ -35,6 +35,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/fix-sonnet"},"haiku":{"model":"github-copilot/fix-haiku"}}}}}`)
+	mkSkillDir(t, filepath.Join(paths.ConfigDir(), "skills"), false)
 	cfg, tui, err := WriteOpencodeOverlay(router.OpencodeTableModels)
 	if err != nil {
 		t.Fatal(err)
@@ -87,31 +88,33 @@ func TestOpencodeSkillRootsListEachSkillOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	own, shared := filepath.Join(cfgDir, "skills"), filepath.Join(home, ".agents", "skills")
-	proj := filepath.Join(work, ".claude", "skills")
-	for _, d := range []string{filepath.Join(own, "dup"), filepath.Join(own, ".hid"), shared, filepath.Join(shared, "only"), filepath.Join(shared, "b-only"), filepath.Join(shared, "broken"), proj} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(shared, "file.md"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	own, shared, proj := filepath.Join(cfgDir, "skills"), filepath.Join(home, ".agents", "skills"), filepath.Join(work, ".agents", "skills")
+	mkSkillDir(t, filepath.Join(own, "dup"), true)
+	mkSkillDir(t, filepath.Join(own, ".hid"), true)
+	mkSkillDir(t, filepath.Join(own, "empty"), false)
+	mkSkillDir(t, filepath.Join(shared, "empty"), true)
+	mkSkillDir(t, filepath.Join(shared, "only"), true)
+	mkSkillDir(t, filepath.Join(shared, "none"), false)
+	mkSkillDir(t, filepath.Join(proj, "p"), true)
+	want := []string{own, filepath.Join(own, ".hid"), filepath.Join(shared, "empty"), filepath.Join(shared, "only"), filepath.Join(proj, "p")}
 	if err := os.Symlink(filepath.Join(own, "dup"), filepath.Join(shared, "dup")); err != nil {
-		t.Log("symlinks unavailable, using a copy:", err)
-		if err := os.Mkdir(filepath.Join(shared, "dup"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(filepath.Join(own, "gone"), filepath.Join(own, "broken")); err != nil {
-		t.Log("symlinks unavailable, broken entry skipped:", err)
-		_ = os.Remove(filepath.Join(shared, "broken"))
-	}
-	want := []string{own, filepath.Join(own, ".hid"), filepath.Join(shared, "b-only"), filepath.Join(shared, "broken"), filepath.Join(shared, "only"), proj}
-	if _, err := os.Lstat(filepath.Join(shared, "broken")); err != nil {
-		want = slices.Delete(want, 3, 4)
+		t.Log("symlinks unavailable, copy used:", err)
+		mkSkillDir(t, filepath.Join(shared, "dup"), true)
+		want = []string{own, filepath.Join(own, ".hid"), filepath.Join(shared, "empty"), filepath.Join(shared, "only"), filepath.Join(proj, "p")}
 	}
 	if got := OpencodeSkillRoots(work); !slices.Equal(got, want) {
 		t.Errorf("roots = %v, want %v", got, want)
+	}
+}
+
+func mkSkillDir(t *testing.T, dir string, withSkill bool) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if withSkill {
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

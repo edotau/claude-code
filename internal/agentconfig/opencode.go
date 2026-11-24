@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -60,46 +61,66 @@ func OpencodeSkillRoots(workDir string) []string {
 			home = u.HomeDir
 		}
 	}
-	roots := skillRootPair(filepath.Join(paths.ConfigDir(), "skills"), filepath.Join(home, ".agents", "skills"))
+	seen := map[string]bool{}
+	roots := skillRootPair(filepath.Join(paths.ConfigDir(), "skills"), filepath.Join(home, ".agents", "skills"), seen)
 	for dir := workDir; workDir != "" && dir != home && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		own := filepath.Join(dir, ".claude", "skills")
-		if fi, err := os.Stat(own); err == nil && fi.IsDir() {
-			roots = append(roots, skillRootPair(own, filepath.Join(dir, ".agents", "skills"))...)
-		}
+		roots = append(roots, skillRootPair(filepath.Join(dir, ".claude", "skills"), filepath.Join(dir, ".agents", "skills"), seen)...)
 	}
 	return roots
 }
 
-// skillRootPair is own, its hidden subdirs (a root's scan skips them), and each shared dir entry not already under own.
-func skillRootPair(own, shared string) []string {
-	roots := []string{own}
-	ownReal := map[string]bool{}
+// skillRootPair is own, its hidden subdirs (a scan skips them), and each shared dir entry not yet seen.
+func skillRootPair(own, shared string, seen map[string]bool) []string {
+	roots := ownSkillRoots(own, seen)
+	entries, _ := os.ReadDir(shared)
+	for _, e := range entries {
+		dir := filepath.Join(shared, e.Name())
+		real := skillReal(dir)
+		if real == "" || seen["real:"+real] || seen["name:"+e.Name()] {
+			continue
+		}
+		seen["real:"+real] = true
+		roots = append(roots, dir)
+	}
+	return roots
+}
+
+// ownSkillRoots is own (when present) and its hidden subdirs, marking every skill in own as seen.
+func ownSkillRoots(own string, seen map[string]bool) []string {
+	var roots []string
+	if fi, err := os.Stat(own); err == nil && fi.IsDir() {
+		roots = append(roots, own)
+	}
 	ownEntries, _ := os.ReadDir(own)
 	for _, e := range ownEntries {
-		if real, err := filepath.EvalSymlinks(filepath.Join(own, e.Name())); err == nil {
-			ownReal[real] = true
+		if real := skillReal(filepath.Join(own, e.Name())); real != "" {
+			seen["real:"+real], seen["name:"+e.Name()] = true, true
 		}
 		if e.Name()[0] == '.' && e.IsDir() {
 			roots = append(roots, filepath.Join(own, e.Name()))
 		}
 	}
-	entries, _ := os.ReadDir(shared)
-	for _, e := range entries {
-		if dir := filepath.Join(shared, e.Name()); sharedSkillIsNew(dir, own, ownReal) {
-			roots = append(roots, dir)
-		}
-	}
 	return roots
 }
 
-// sharedSkillIsNew reports a usable shared dir whose real path and name own lacks.
-func sharedSkillIsNew(dir, own string, ownReal map[string]bool) bool {
+// skillReal is dir's resolved path when it is or holds a SKILL.md, else "" (a dangling or empty entry hides nothing).
+func skillReal(dir string) string {
 	real, err := filepath.EvalSymlinks(dir)
-	if fi, serr := os.Stat(dir); err != nil || serr != nil || !fi.IsDir() || ownReal[real] {
-		return false
+	if err != nil {
+		return ""
 	}
-	_, err = os.Stat(filepath.Join(own, filepath.Base(dir)))
-	return err != nil
+	found := false
+	_ = filepath.WalkDir(real, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.Name() == "SKILL.md" {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if !found {
+		return ""
+	}
+	return real
 }
 
 // encodeOverlayJSON renders doc as the overlay files' two-space JSON (trailing newline) without HTML escaping.

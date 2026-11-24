@@ -214,8 +214,13 @@ func opencodeMCPOff() map[string]any {
 
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h agent.Headless) (env, argv []string) {
+	env, _ = mutateOpencodeConfigEnv(nil, true, func(cfg map[string]any) {
+		opencodeSkillsOn(cfg, &h)
+		if !h.Tools {
+			opencodeToolsOff(cfg)
+		}
+	})
 	if !h.Tools {
-		env, _ = mutateOpencodeConfigEnv(nil, true, opencodeToolsOff)
 		// pin it: an inherited value would override the tools-off deny
 		env = append(env, opencodePermissionEnv+`="deny"`)
 	}
