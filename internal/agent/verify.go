@@ -34,6 +34,7 @@ func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, not
 			name, _, _ := strings.Cut(kv, "=")
 			return slices.Contains(p.Opts.Unset, name)
 		})
+		env, _ = proc.Scrub(env, keepSet(ctx, p.Opts.KeepEnv)) // the agent's own credential scrub: go test runs its edits
 		res.Verify = runVerify(ctx, p.Opts.WorkDir, cmd, append(env, p.Opts.Env...))
 	}
 	if notify != nil {
