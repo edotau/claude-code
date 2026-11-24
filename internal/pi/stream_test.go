@@ -388,3 +388,11 @@ func TestParseEventsCompactionAndRetryPhases(t *testing.T) {
 		t.Fatalf("events %q, want prefix %q", got, want)
 	}
 }
+
+func TestParseEventsPhaseMarksAreNotReplayProgress(t *testing.T) {
+	data := `{"type":"compaction_end","aborted":true}` + "\n" + `{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n"
+	_, sink, _, _ := parseFixture(t, data)
+	if len(sink.evs) < 2 || sink.evs[0].Text != "compaction aborted" || sink.evs[0].Progress() || sink.evs[1].Progress() {
+		t.Fatalf("events %+v", sink.evs)
+	}
+}

@@ -195,7 +195,9 @@ func (t *piTurn) phase(ev piEvent, ts *wire.TransportTracker) error {
 		}
 		return t.retry(ev)
 	}
-	return t.sink.Emit(phaseEvent(ev))
+	out := phaseEvent(ev)
+	t.lg.Emit("phase", out.Status+": "+out.Text)
+	return t.sink.Emit(out)
 }
 
 func (t *piTurn) retry(ev piEvent) error {
@@ -206,13 +208,15 @@ func (t *piTurn) retry(ev piEvent) error {
 
 // phaseEvent marks a compaction or a retry sequence starting, ending well ("running") or ending badly ("warning").
 func phaseEvent(ev piEvent) wire.Event {
-	out := wire.Event{Type: wire.EventProgress, Status: "running"}
+	out := wire.Event{Type: wire.EventProgress, Agent: "pi", Status: "running"}
 	switch ev.Type {
 	case "compaction_start":
 		out.Status, out.Text = "compacting", ev.Reason
 	case "compaction_end":
 		out.Text = ev.compactedLine()
-		if ev.ErrorMessage != "" {
+		if ev.Aborted {
+			out.Status, out.Text = "warning", "compaction aborted"
+		} else if ev.ErrorMessage != "" {
 			out.Status, out.Text = "warning", ev.ErrorMessage
 		}
 	case "auto_retry_end":

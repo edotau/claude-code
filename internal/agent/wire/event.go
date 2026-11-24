@@ -211,7 +211,7 @@ func (r *RunSink) Emit(ev Event) error {
 func (ev Event) Progress() bool {
 	switch ev.Type {
 	case EventProgress:
-		return true
+		return ev.Agent != "pi" // pi's compaction and retry marks replay nothing, so they never block a fallback
 	case EventText:
 		return ev.Text != ""
 	case EventToolUse, EventToolResult:
