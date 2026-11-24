@@ -77,8 +77,9 @@ paths:
 - **pi runner** — a `claude` ask whose first hop is its own Databricks route runs through Pi first, on the model the
   agent resolves there; the asked agent's own CLI is the later hop. Another agent takes it only with the overlay
   `runner: pi`; `runner: own` opts a dispatch out. First-party Anthropic, Copilot and Google routes are unchanged, and
-  an auto pick, `--fallback none`, a resumed session, `--native` and an explicit profile pin stay on the own CLI
-  (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`). Measured on one one-line task: about 3.3k tokens
+  an auto pick, `--fallback none`, a resumed session and `--native` stay on the own CLI, and an explicit profile pin
+  keeps the Pi hops on that workspace (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`,
+  `staysOnWorkspace`). Measured on one one-line task: about 3.3k tokens
   through Pi against 61k on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles,
   then the agent's own CLI; hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once
   by context size under `all` or `agents`; a policy refusal and `x-should-retry` are typed error classes. Fable is
@@ -87,8 +88,8 @@ paths:
 - **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
   typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
   its footer line (`internal/pi/stream.go` `handbackStatuses`). A spec's `own`, `report` and `verify` keys on
-  `agents ask --spec` wrap the brief; Go runs `verify` once after an answered run and records it as the result's
-  `verify` object, and a failed verify does not change the run's status. The record carries per-tool stats.
+  `agents ask --spec` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
+  and records it as the result's `verify` object; a failed verify does not change the run's status. The record carries per-tool stats.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
 - **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `PI_CODEMODE` resolving to on;

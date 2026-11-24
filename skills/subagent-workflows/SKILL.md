@@ -218,7 +218,8 @@ lane, confirm the dispatch did not die, lint passes with no syntax errors, an ey
 the plan, close the proxy) is performed and recorded by Go, never written by the model. Built so far: the schema and
 lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state transitions). Nothing in dispatch
 calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is no command for it and the rules above
-still bind: a fleet leaf never dispatches, and no leaf commits or runs the suite.
+still bind: a fleet leaf never dispatches, and no leaf commits (bar the verifier's lane commit, step 5) or runs the
+suite.
 
 #### Wave loop
 
