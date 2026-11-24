@@ -270,7 +270,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(disp, lreq, res)
-		plan := planOverflow(disp, lreq, ran, err)
+		plan := planOverflow(disp, lreq, res, ran, err)
 		next := cmp.Or(plan.model, retryModel(ctx, disp, lreq, ran, err))
 		if next == "" {
 			err = plan.refuse(err)

@@ -44,8 +44,8 @@ func overflowRefusal(err error) string {
 }
 
 // overflowCands is the windows larger than ran's on disp's profile that fit the refused prompt, and ran's own window.
-func overflowCands(disp Dispatch, tools bool, ran, low string) ([]router.WindowPick, int) {
-	_, row, _ := strings.Cut(disp.Account, "·")
+func overflowCands(disp Dispatch, tools bool, account, ran, low string) ([]router.WindowPick, int) {
+	_, row, _ := strings.Cut(account, "·")
 	p := loadRegistryWarn().Row(row)
 	if p == nil {
 		return nil, models.Window(ran)
@@ -61,12 +61,12 @@ func overflowCands(disp Dispatch, tools bool, ran, low string) ([]router.WindowP
 }
 
 // planOverflow decides the re-pick of a non-auto request whose prompt overflowed ran's window; zero otherwise.
-func planOverflow(disp Dispatch, lreq RunOptions, ran string, err error) overflowPlan {
+func planOverflow(disp Dispatch, lreq RunOptions, res wire.Result, ran string, err error) overflowPlan {
 	low := overflowRefusal(err)
 	if ran == "" || IsAuto(lreq.Model) || low == "" {
 		return overflowPlan{}
 	}
-	cands, from := overflowCands(disp, lreq.Tools, ran, low)
+	cands, from := overflowCands(disp, lreq.Tools, ranAccount(disp.Account, res.Provider), ran, low)
 	plan := overflowPlan{ran: ran, from: from}
 	switch {
 	case len(cands) == 0:
