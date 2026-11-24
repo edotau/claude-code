@@ -157,6 +157,6 @@ func WireUI() {
 	agent.StdinIsTerminal = tui.StdinIsTerminal
 	agent.LoginRow = databricks.LoginRow
 	agent.PromptSecret = func(name string) (string, error) {
-		return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", vault.Preview)
+		return tui.Secret("Paste the value for "+name+" (input hidden; empty cancels): ", vault.Preview)
 	}
 }

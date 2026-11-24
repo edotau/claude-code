@@ -508,7 +508,7 @@ func TestCustomEnvPlainAndSecret(t *testing.T) {
 				want = envEdit{raw: providers.SecretRef, secret: "custom-value"}
 			}
 			d, out := newDialog("custom-value\n" + choice + "\n")
-			gotName, edit, ok := editCustomEnv(d, name)
+			gotName, edit, ok := editCustomEnv(d, name, providers.CustomEnv())
 			if !ok || gotName != name || edit != want {
 				t.Fatalf("edit = (%q, %+v, %v), want %q, %+v", gotName, edit, ok, name, want)
 			}
@@ -542,12 +542,27 @@ func assertCustomEnvSecret(t *testing.T, name, kind, want string) {
 func TestEditCustomEnvRejectsInvalidName(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	d, out := newDialog("not a valid name!\n")
-	name, edit, ok := editCustomEnv(d, "")
+	name, edit, ok := editCustomEnv(d, "", nil)
 	if ok {
 		t.Fatalf("editCustomEnv accepted an invalid NAME: name=%q edit=%+v", name, edit)
 	}
 	if !strings.Contains(out.String(), "not a valid name") {
 		t.Errorf("output = %q, want a rejection message naming the shape rule", out.String())
+	}
+}
+
+func TestEditCustomEnvEmptyValueCancels(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	const name = "CONFIGURE_ENV_EMPTY_CANCEL"
+	if err := providers.SetCustomEnv(name, "keep"); err != nil {
+		t.Fatal(err)
+	}
+	d, out := newDialog("1\n\n")
+	if _, _, ok := editCustomEnv(d, name, providers.CustomEnv()); ok || !strings.Contains(out.String(), "nothing changed") {
+		t.Fatalf("empty value did not cancel: ok=%v out=%q", ok, out.String())
+	}
+	if providers.CustomEnv()[name] != "keep" {
+		t.Error("empty input changed the variable")
 	}
 }
 
@@ -567,8 +582,8 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 			if err := vault.Store(tc.name, "sealed-value"); err != nil {
 				t.Fatal(err)
 			}
-			d, _ := newDialog("\n" + tc.answer)
-			gotName, edit, ok := editCustomEnv(d, tc.name)
+			d, _ := newDialog("2\ny\n" + tc.answer)
+			gotName, edit, ok := editCustomEnv(d, tc.name, providers.CustomEnv())
 			if !ok || gotName != tc.name || edit.raw != "" || edit.deleteSecret != tc.wantDeleted {
 				t.Fatalf("edit = (%q, %+v, %v), want raw=\"\" deleteSecret=%v", gotName, edit, ok, tc.wantDeleted)
 			}

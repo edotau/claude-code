@@ -131,7 +131,7 @@ func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 	if u := configure.ConsoleURLs[kt.EnvVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
 		openBrowser(u)
 	}
-	val, err := secretLine(d, "Paste the new value for "+kt.EnvVar+" (input hidden, Enter when done): ")
+	val, err := secretLine(d, "Paste the new value for "+kt.EnvVar+" (input hidden; empty cancels): ")
 	if err != nil || strings.TrimSpace(val) == "" {
 		d.printf("%s: no value entered\n", kt.EnvVar)
 		return false
@@ -375,7 +375,7 @@ func deleteSecret(d *dialog, name string) bool {
 // addCustom reads a NAME (visible) and its value.
 func addCustom(d *dialog) {
 	name := strings.TrimSpace(d.shell().Line("Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
-	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden, Enter when done): ")
+	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden; empty cancels): ")
 	if err != nil {
 		d.printf("secrets: %v\n", err)
 		return
