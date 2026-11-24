@@ -386,24 +386,24 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
 // stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
-  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
+  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${stShq(ctx.cwd || '.')}${scope.length ? ' --scope ' + stShq(scope.join(',')) : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
-// stLoopCheck folds detection, routing pressure and the first observed check into one leaf.
+// stCheckSteps: Go (`worktree gate --run`) observes the scoped check; an explicit gate command is run by the leaf.
+const stShq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'"
+const stCheckSteps = (ctx, paths, cmd) => cmd ?
+  'Gate command: ' + cmd + '. Run the gate exactly once with pipefail; capture the real process exit code. ' +
+  'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
+  '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
+  'Return gate, exit (null only if execution is impossible), changed, failures [{file,line,text}] from command output. Keep failing paths repo-relative; retain errors without source locations too. ' :
+  'Run exactly: claude-code worktree gate --run --dir ' + stShq(ctx.cwd || '.') + ' --scope ' + stShq(paths.join(',')) +
+  ' --format json </dev/null — Go runs the scoped gate once and observes the exit, changed hashes and failures: return its gate, exit, changed and failures fields verbatim, never your own reading of the output. '
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
-  const detect = 'claude-code worktree gate --dir ' + JSON.stringify(ctx.cwd || '.') +
-    ' --scope ' + paths.join(',') + ' --format json'
-  const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
-  return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd +
-    'Report the check result. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
-    ' Run the gate exactly once with pipefail; capture the real process exit code. ' +
-    'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
-    '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
-    'Return gate, exit (null only if execution is impossible), changed, failures [{file,line,text}] from command output. ' +
-    'Keep failing paths repo-relative; retain errors without source locations too. ' +
-    (ctx.claudeState ? 'Account state is ' + ctx.claudeState :
-      'Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet` and return candidates[0].state or unknown as state.'), ST_CHECK)
+  const state = ctx.claudeState ? 'Account state is ' + ctx.claudeState :
+    'Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet` and return candidates[0].state or unknown as state.'
+  return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. ' +
+    stCheckSteps(ctx, paths, Array.isArray(gate) ? gate.join(' && ') : gate) + state, ST_CHECK)
 }
 // stStamps maps each `changed` entry to its path; the entry (path + content hash) differs when the content does.
 const stStamps = (changed) => new Map(changed.map((s) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), s]))
@@ -446,7 +446,7 @@ const stNextExit = (c, fixed, removed) => !stRunnable(c) ? 'error' : c.exit === 
 const stWithState = (ctx, L) => L.cur && L.cur.state && !ctx.claudeState ? { ...ctx, claudeState: L.cur.state, model: (m) => ['low', 'exhausted'].includes(L.cur.state) ? ({ opus: 'sonnet', sonnet: 'haiku' }[m] || m) : m } : ctx
 const ST_NO_SCOPE = 'gate requires scope or files; check unavailable'
 async function stLoopObserve(ctx, o, L, base) {
-  const r = await stLoopCheck(ctx, o, L.gate, (o.label || 'gate') + ':check:' + L.gateRuns)
+  const r = await stLoopCheck(ctx, o, L.explicit,(o.label || 'gate') + ':check:' + L.gateRuns)
   L.gateRuns++
   if (!stCheckOk(r)) return null
   L.gate = L.gate || r.gate
@@ -471,7 +471,7 @@ async function stageLoop(ctx, o) {
   o = stLoopOpts(o)
   const used = o.iterationsUsed || 0
   const cap = Math.max(0, Math.min(o.max === undefined ? 3 : o.max, 5 - used))
-  const L = { gate: stGateCmd(o), gateRuns: 0, stamps: null, changed: new Set(), cur: null }
+  const L = { gate: stGateCmd(o), explicit: stGateCmd(o), gateRuns: 0, stamps: null, changed: new Set(), cur: null }
   const history = []
   let exit = 'error'
   if (o.scope.length || o.files.length) {
@@ -1116,7 +1116,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const det = await detectGate(pkgs)
   phase('Gate')
   const gate = det.gate
-    ? { ...(await stageLoop({ ...FCTX, rules: GATE_RULES }, { scope: pkgs, gate: det.gate, check: S.scope, fix: S.gate, max: MAX_ITER, label: 'gate:' + round })), gateSource: det.source }
+    ? { ...(await stageLoop({ ...FCTX, rules: GATE_RULES }, { scope: pkgs, gate: a.gate, check: S.scope, fix: S.gate, max: MAX_ITER, label: 'gate:' + round })), gateSource: det.source }
     : { exit: 'error', gate: '', gateSource: det.source, iterations: 0, iterationsUsed: 0, filesChanged: [], gateRuns: 0, exitCode: null, history: [],
       residual: [{ file: '', line: 0, text: 'no gate detected under ' + (CWD || 'cwd') + '; pass args.gate' }] }
 

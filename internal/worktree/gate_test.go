@@ -418,3 +418,32 @@ func TestGateStepsSplitsOnlyScopedGate(t *testing.T) {
 		t.Errorf("--verify gate split: %v", got)
 	}
 }
+
+func TestParseGateFailures(t *testing.T) {
+	got := parseGateFailures("# m\n./a.go:2:5: undefined: x\n--- FAIL: TestY (0.00s)\nFAIL\n")
+	if len(got) != 1 || got[0] != (GateFailure{File: "a.go", Line: 2, Text: "undefined: x"}) {
+		t.Fatalf("located failure: got %+v", got)
+	}
+	if got = parseGateFailures("my dir/a b.go:7: bad\n"); len(got) != 1 || got[0].File != "my dir/a b.go" || got[0].Line != 7 {
+		t.Fatalf("path with spaces: got %+v", got)
+	}
+	got = parseGateFailures("ok\n--- FAIL: TestY (0.00s)\nFAIL\n")
+	if len(got) != 1 || got[0].File != "" || got[0].Text != "--- FAIL: TestY (0.00s)" {
+		t.Fatalf("unlocated failure keeps the first FAIL line: got %+v", got)
+	}
+}
+
+func TestRunScopedGateObservesExitAndChanges(t *testing.T) {
+	dir, _, write := gateRepo(t)
+	write("a.go", "package m\n\nfunc F() int { return x }\n")
+	r, err := RunScopedGate(context.Background(), dir, nil, false)
+	if err != nil || r.Exit == nil || *r.Exit == 0 {
+		t.Fatalf("red gate: exit=%v err=%v, want a nonzero observed exit", r.Exit, err)
+	}
+	if len(r.Failures) == 0 || r.Failures[0].File != "a.go" || r.Failures[0].Line != 3 {
+		t.Fatalf("failures: %+v, want a.go:3", r.Failures)
+	}
+	if !slices.ContainsFunc(r.Changed, func(s string) bool { return strings.HasPrefix(s, "a.go ") }) {
+		t.Fatalf("changed: %v, want a.go with its hash", r.Changed)
+	}
+}

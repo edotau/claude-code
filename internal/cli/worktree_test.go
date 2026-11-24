@@ -740,3 +740,18 @@ func TestCmdWorktreeCommitPlanOutsidePlansHomeIsUsage(t *testing.T) {
 		t.Fatalf("outside plan: exit %d, stderr %q; want 2 and no commit", code, errb)
 	}
 }
+
+func TestCmdWorktreeGateRunPrintsObservedJSON(t *testing.T) {
+	scrubGitEnv(t)
+	goDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goDir, "a.go"), []byte("package m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "--run", "--dir", goDir}) })
+	if code != 0 || !strings.Contains(out, `"exit": 0`) || !strings.Contains(out, `"failures": []`) {
+		t.Fatalf("gate --run: code=%d out=%q stderr=%q", code, out, errb)
+	}
+}

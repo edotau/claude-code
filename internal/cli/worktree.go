@@ -32,7 +32,7 @@ var worktreePage = helptext.Page{
 		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
-		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
+		{"gate", "print (or --run) the verify gate for --dir (--scope, --lint-check)"},
 		{"commit", "commit named files; main session may omit them (-m, --dry-run)"},
 		{"pr", "list (--state, --author, --limit) | view|diff <id> | create --title"},
 		{"checks", "CI results of a PR <id>, or of --sha"},
@@ -187,12 +187,16 @@ func cmdWorktreeGate(args []string) int {
 	dir := fs.String("dir", ".", "repo directory to read the toolchain from")
 	scope := fs.String("scope", "", "comma-separated dirs to limit the gate to (default: whole repo)")
 	lintCheck := fs.Bool("lint-check", false, "prefix the agents diff lint check when the Makefile has a lint target")
+	run := fs.Bool("run", false, "run the gate once and print {gate,source,exit,changed,failures} as JSON")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("", err)
+	}
+	if *run {
+		return runWorktreeGate(*dir, textutil.SplitCSV(*scope), *lintCheck)
 	}
 	gate, source := worktree.ScopedVerifyGate(*dir, textutil.SplitCSV(*scope), *lintCheck)
 	if gate == "" {
@@ -205,6 +209,18 @@ func cmdWorktreeGate(args []string) int {
 		return 0
 	}
 	if _, err := fmt.Println(gate); err != nil {
+		return helptext.Fail("worktree gate: %v", err)
+	}
+	return 0
+}
+
+// runWorktreeGate prints the observed gate result; exit 0 means it ran, the gate's own exit is in the JSON.
+func runWorktreeGate(dir string, scope []string, lintCheck bool) int {
+	r, err := worktree.RunScopedGate(context.Background(), dir, scope, lintCheck)
+	if err != nil {
+		return helptext.Fail("worktree gate: %v", err)
+	}
+	if err := helptext.WriteJSON(os.Stdout, r); err != nil {
 		return helptext.Fail("worktree gate: %v", err)
 	}
 	return 0
@@ -503,7 +519,7 @@ func worktreeSpec() *helptext.Node {
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
 		"base":      {Flags: []helptext.Flag{helptext.BoolFlag("clear")}},
-		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},
+		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.BoolFlag("run"), helptext.CompletionFormatFlag()}},
 	}
 	maps.Copy(sub, scmSpec().Sub)
 	return &helptext.Node{Sub: sub}

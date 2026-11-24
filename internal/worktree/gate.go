@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,9 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -505,4 +508,124 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 		_, _ = errs[i].WriteTo(stderr)
 	}
 	return first
+}
+
+// GateFailure is one failing location parsed from gate output; file is empty when the line names none.
+type GateFailure struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// GateRun is a scoped gate's observed result: real exit (nil if it never ran), changed files, failures.
+type GateRun struct {
+	Gate     string        `json:"gate"`
+	Source   string        `json:"source"`
+	Exit     *int          `json:"exit"`
+	Changed  []string      `json:"changed"`
+	Failures []GateFailure `json:"failures"`
+}
+
+const gateRunTimeout = 20 * time.Minute
+
+var gateLocRe = regexp.MustCompile(`^\s*([^:\s][^:]*\.\w+):(\d+)(?::\d+)?:?\s*(.*)$`)
+
+// RunScopedGate runs the scoped gate for dir once and returns code-observed exit, changed paths and failures.
+func RunScopedGate(ctx context.Context, dir string, scope []string, lintCheck bool) (GateRun, error) {
+	gate, source := ScopedVerifyGate(dir, scope, lintCheck)
+	if gate == "" {
+		return GateRun{Source: source}, fmt.Errorf("no verification gate found in %s", dir)
+	}
+	ctx, cancel := context.WithTimeout(ctx, gateRunTimeout)
+	defer cancel()
+	var out bytes.Buffer
+	err := runVerify(ctx, dir, gate, "", &out, &out)
+	r := GateRun{Gate: gate, Source: source, Failures: []GateFailure{}}
+	var ee *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		return r, fmt.Errorf("gate did not finish: %w", ctx.Err())
+	case err == nil:
+		r.Exit = new(int)
+	case errors.As(err, &ee) && ee.ExitCode() >= 0:
+		code := ee.ExitCode()
+		r.Exit = &code
+		r.Failures = parseGateFailures(out.String())
+	default:
+		return r, err
+	}
+	var cerr error
+	if r.Changed, cerr = gateChanged(ctx, dir, scope); cerr != nil {
+		return r, cerr
+	}
+	return r, nil
+}
+
+// parseGateFailures reads file:line: text lines; red output with none keeps its first FAIL (else last) line.
+func parseGateFailures(out string) []GateFailure {
+	fails := []GateFailure{}
+	var last, firstFail string
+	for line := range strings.SplitSeq(out, "\n") {
+		if m := gateLocRe.FindStringSubmatch(line); m != nil {
+			n, _ := strconv.Atoi(m[2])
+			fails = append(fails, GateFailure{File: strings.TrimPrefix(m[1], "./"), Line: n, Text: strings.TrimSpace(m[3])})
+		} else if t := strings.TrimSpace(line); t != "" {
+			if last = t; firstFail == "" && strings.Contains(t, "FAIL") {
+				firstFail = t
+			}
+		}
+	}
+	if len(fails) == 0 && last != "" {
+		fails = append(fails, GateFailure{Text: cmp.Or(firstFail, last)})
+	}
+	return fails
+}
+
+// gateChanged lists `<path> <hash|deleted>` for dirty files under scope (whole repo when empty).
+func gateChanged(ctx context.Context, dir string, scope []string) ([]string, error) {
+	probe := exec.CommandContext(ctx, "git", "rev-parse", "--is-inside-work-tree")
+	probe.Dir, probe.Env = dir, gitEnv()
+	var pe *exec.ExitError
+	if err := probe.Run(); errors.As(err, &pe) && pe.ExitCode() == 128 {
+		return []string{}, nil // not a git repo: nothing is observable as changed
+	} else if err != nil {
+		return nil, fmt.Errorf("git rev-parse: %w", err)
+	}
+	args := []string{"status", "--porcelain", "-z", "--untracked-files=all"}
+	if len(scope) > 0 {
+		args = append(append(args, "--"), scope...)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir, cmd.Env = dir, gitEnv()
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git status: %w", err)
+	}
+	changed := []string{}
+	recs := strings.Split(string(data), "\x00")
+	for i := 0; i < len(recs); i++ {
+		rec := recs[i]
+		if len(rec) < 4 {
+			continue
+		}
+		p := rec[3:]
+		if strings.ContainsAny(rec[:2], "RC") {
+			i++ // the rename source follows as its own record
+		}
+		changed = append(changed, gateStamp(ctx, dir, p))
+	}
+	return changed, nil
+}
+
+// gateStamp is `<path> <hash>`, or `<path> deleted`; the bare path when hashing is refused.
+func gateStamp(ctx context.Context, dir, p string) string {
+	if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+		return p + " deleted"
+	}
+	h := exec.CommandContext(ctx, "git", "hash-object", "--", p)
+	h.Dir, h.Env = dir, gitEnv()
+	if sum, err := h.Output(); err == nil {
+		return p + " " + strings.TrimSpace(string(sum))
+	}
+	return p
 }
