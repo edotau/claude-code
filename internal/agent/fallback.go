@@ -1070,7 +1070,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}
-		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
+		if autoBeatsCell(out, req, disp) {
 			out.Model = AutoModel // typed or pinned auto beats the cell's model on the cell's row (RunQuery)
 		}
 	}

@@ -197,21 +197,36 @@ func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lea
 	if why != "" {
 		return "", "", why
 	}
-	model, why = agentModelOn(ctx, reg, q, want, profile) // the typed model first (R8)
+	model, why = agentModelOn(PeekContext(ctx), reg, q, want, profile) // the typed model first (R8)
 	if why == "" {
 		why = ownHopDiffers(ctx, reg, q, lead, model)
 	}
 	if why != "" {
 		return "", "", why
 	}
-	p := reg.Row(profile)
-	if wire, why = ProfileServes(agentid.Pi, p, model); why == "" && !piMenuHas(p, wire) {
-		why = wire + " is not on pi's menu"
+	wire, why = piWire(reg, profile, model)
+	if why == "" && IsAuto(want) && !q.Preview && !Peeking(ctx) && !stampedPick(ctx, reg, q, profile, model) {
+		why = "the rotation pick moved off " + model
 	}
 	if why != "" {
 		return "", "", "pi on " + profile + ": " + why
 	}
 	return model, wire, ""
+}
+
+// piWire is model's wire id on profile's Pi menu, or why Pi cannot run it there.
+func piWire(reg *providers.Registry, profile, model string) (wire, why string) {
+	p := reg.Row(profile)
+	if wire, why = ProfileServes(agentid.Pi, p, model); why == "" && !piMenuHas(p, wire) {
+		why = wire + " is not on pi's menu"
+	}
+	return wire, why
+}
+
+// stampedPick stamps a rotating agent's pick, once its Pi hop is validated, and reports it still being model.
+func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, profile, model string) bool {
+	stamped, why := agentModelOn(ctx, reg, q, AutoModel, profile)
+	return why == "" && models.SameModel(stamped, model)
 }
 
 // runnerWant is the model word the pi hop resolves: auto only for a rotating agent, whose own pick Pi then runs.
@@ -233,7 +248,7 @@ func ownHopDiffers(ctx context.Context, reg *providers.Registry, q RouteReq, lea
 		return ""
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
-	if own, why := agentModelOn(ctx, reg, q, lead.Model, profile); why != "" || !models.SameModel(own, model) {
+	if own, why := agentModelOn(PeekContext(ctx), reg, q, lead.Model, profile); why != "" || !models.SameModel(own, model) {
 		return "the agent's own hop runs " + lead.Model + ", not " + model
 	}
 	return ""
@@ -243,10 +258,7 @@ const autoPickWhy = "an auto pick runs on the agent's own CLI"
 
 // agentModelOn is model as q.Agent resolves it on profile, or why it is no fixed model there (an error, an auto pick).
 func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, model, profile string) (string, string) {
-	rotating := IsAuto(model) // runnerWant asks it of a rotating agent only: the caller's ctx stamps the pick, a peek not
-	if !rotating {
-		ctx = PeekContext(ctx)
-	}
+	rotating := IsAuto(model) // runnerWant asks it of a rotating agent only; ctx peeks unless the caller stamps the pick
 	mq := QueryFor(ctx, ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task, Default: q.AliasHint,
 		Tools: q.Tools})
 	// an untyped ask under an auto pin rotates at dispatch; a peek would pin the next pick without stamping it
