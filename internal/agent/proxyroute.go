@@ -66,7 +66,17 @@ func proxyGroupID(ctx context.Context, team string) string {
 	return ""
 }
 
-// parentTeamFirst puts the phase team HARNESS_DISPATCH_PROXY names first; it only reorders teams the config lists.
+// InheritedProxyLive reports whether HARNESS_DISPATCH_PROXY names a live scope proxy.
+func InheritedProxyLive(ctx context.Context) bool {
+	team, id, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":")
+	if !ok {
+		return false
+	}
+	sc, err := proxy.ReadScope(team, id)
+	return err == nil && scopeLive(ctx, sc) == ""
+}
+
+// parentTeamFirst puts the parent's phase team first per the plan; the fence is this process's own, so nothing widens.
 func parentTeamFirst(cfg proxyteam.Config, routes []proxyteam.Team) []proxyteam.Team {
 	name, _, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":")
 	i := slices.IndexFunc(cfg.Teams, func(t proxyteam.Team) bool { return t.Name == name && t.Host == proxyteam.HostPhase })
