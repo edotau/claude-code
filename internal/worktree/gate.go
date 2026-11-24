@@ -459,7 +459,7 @@ func venvPython(dir string) string {
 	return ""
 }
 
-// pythonScopeGate runs pytest (and ruff when configured) over dirs, through .venv when the repo has one.
+// pythonScopeGate runs pytest (and ruff when configured) over dirs, through its .venv or venv when it has one.
 func pythonScopeGate(dir string, dirs []string) string {
 	py := venvPython(dir)
 	targets := shellQuoteAll(dirs)

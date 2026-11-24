@@ -39,6 +39,9 @@ func seedPath(main, dest, name string) error {
 		return err
 	}
 	if isVenv(name) {
+		if !info.IsDir() {
+			return nil
+		}
 		if err := os.Symlink(source, target); err != nil {
 			return err
 		}
