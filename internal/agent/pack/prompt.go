@@ -122,7 +122,7 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 	return uniq, nil
 }
 
-// fit renders the prompt, moving trailing files to Skipped ("prompt-cap") until it fits limit; errors if none left.
+// fit moves trailing files to Skipped ("prompt-cap"), then trims the inventory (Omitted), until under limit.
 func fit(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
 	var dropped []string
 	for {
@@ -234,7 +234,7 @@ func inventoryText(ctx Context) string {
 		}
 	}
 	if ctx.Omitted > 0 {
-		fmt.Fprintf(&inv, "%d more skipped paths are not listed; list them with your file tools.\n", ctx.Omitted)
+		fmt.Fprintf(&inv, "%d more skipped paths are not listed; ask for a narrower path to see them.\n", ctx.Omitted)
 	}
 	return inv.String()
 }
