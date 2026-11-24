@@ -24,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -623,21 +622,7 @@ var customEnv = func() map[string]string {
 
 // envWith layers base, then custom (user vars), then Set; Unset and Set beat custom; CODEMODE stays out.
 func (p Plan) envWith(base []string, custom map[string]string) []string {
-	unset := map[string]bool{}
-	for _, k := range p.Unset {
-		unset[k] = true
-	}
-	merged := maps.Clone(p.Set)
-	if merged == nil {
-		merged = map[string]string{}
-	}
-	for k, v := range custom {
-		_, harness := p.Set[k]
-		if !harness && !unset[k] && k != rtkwrap.CodemodeEnv {
-			merged[k] = v
-		}
-	}
-	p.Set = merged
+	p.Set = vaultLayer(p.Set, p.Unset, custom)
 	return p.plainEnv(base)
 }
 

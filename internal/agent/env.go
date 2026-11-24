@@ -100,6 +100,21 @@ func withRTKQuiet(env []string) []string {
 	return env
 }
 
+// vaultLayer merges the vault env under set; set and unset names win, and CODEMODE is never taken from the vault.
+func vaultLayer(set map[string]string, unset []string, custom map[string]string) map[string]string {
+	merged := maps.Clone(set)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	for k, v := range custom {
+		_, harness := set[k]
+		if !harness && !slices.Contains(unset, k) && k != rtkwrap.CodemodeEnv {
+			merged[k] = v
+		}
+	}
+	return merged
+}
+
 // withoutShimPath drops the rtkwrap shim dir from an inherited PATH, so a nested agent's commands stay unshimmed.
 func withoutShimPath(env []string) []string {
 	shim := rtkwrap.Dir()
