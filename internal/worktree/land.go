@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -25,7 +26,8 @@ var gitlinkPatch = regexp.MustCompile(`(?m)^(?:index \S+ ` + gitlinkMode + `|(?:
 
 // applyLaneDiff applies the net diff from..to unstaged: --check first, then an apply a cancel cannot cut short.
 func applyLaneDiff(ctx context.Context, main, from, to string) error {
-	patch, err := runGit(ctx, main, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", from, to, "--")
+	patch, err := runGit(ctx, main, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none",
+		"--src-prefix=a/", "--dst-prefix=b/", "--no-relative", from, to, "--")
 	if err != nil {
 		return fmt.Errorf("git diff %s..%s: %w", ShortOID(from), ShortOID(to), err)
 	}
@@ -35,18 +37,87 @@ func applyLaneDiff(ctx context.Context, main, from, to string) error {
 	if gitlinkPatch.Match(patch) {
 		return fmt.Errorf("the lane changes a submodule, which cannot land uncommitted; use --merge: %w", ErrLandRefused)
 	}
-	check := gitCmd(ctx, "-C", main, "apply", "--check", "--binary", "-")
-	check.Stdin = bytes.NewReader(patch)
-	if out, err := check.CombinedOutput(); err != nil {
-		return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, strings.TrimSpace(string(out)), ErrLandRefused)
+	if out, err := gitApply(ctx, main, patch, "--check"); err != nil {
+		return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, out, ErrLandRefused)
 	}
-	apply := gitCmd(context.WithoutCancel(ctx), "-C", main, "apply", "--binary", "-")
-	apply.Stdin = bytes.NewReader(patch)
-	if out, err := apply.CombinedOutput(); err != nil {
-		return fmt.Errorf("git apply in %s failed after a clean --check, the live tree may be partly changed: %s: %w",
-			main, strings.TrimSpace(string(out)), err)
+	files, err := laneFiles(ctx, main, from, to)
+	if err != nil {
+		return err
+	}
+	saved := snapshot(main, files)
+	if out, err := gitApply(context.WithoutCancel(ctx), main, patch); err != nil {
+		if rerr := saved.restore(main); rerr != nil {
+			return fmt.Errorf("git apply in %s failed (%s) and restoring the live tree failed, it is partly changed: %w", main, out, rerr)
+		}
+		return fmt.Errorf("git apply in %s failed (%s); the live tree was restored: %w", main, out, ErrLandRefused)
 	}
 	return nil
+}
+
+// gitApply feeds patch to `git apply --binary` in main (extra flags first) and returns its trimmed output.
+func gitApply(ctx context.Context, main string, patch []byte, extra ...string) (string, error) {
+	cmd := gitCmd(ctx, append(append([]string{"-C", main, "apply", "--binary", "--whitespace=nowarn"}, extra...), "-")...)
+	cmd.Stdin = bytes.NewReader(patch)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// laneFiles lists every path the diff a..b touches, both sides of a rename.
+func laneFiles(ctx context.Context, dir, a, b string) ([]string, error) {
+	out, err := runGit(ctx, dir, nil, "--literal-pathspecs", "diff", "--name-only", "-z", "--no-renames",
+		"--ignore-submodules=none", a, b, "--")
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-only %s..%s: %w", ShortOID(a), ShortOID(b), err)
+	}
+	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
+}
+
+// preimage is one live-tree path before a land: file bytes, a symlink target, or absent.
+type preimage struct {
+	data   []byte
+	link   string
+	mode   os.FileMode
+	exists bool
+}
+
+type preimages map[string]preimage
+
+// snapshot records each path's current state so a failed apply can put it back; an unreadable path counts as absent.
+func snapshot(main string, files []string) preimages {
+	saved := preimages{}
+	for _, f := range files {
+		full := filepath.Join(main, f)
+		info, err := os.Lstat(full)
+		switch {
+		case err != nil:
+			saved[f] = preimage{}
+		case info.Mode()&os.ModeSymlink != 0:
+			link, _ := os.Readlink(full)
+			saved[f] = preimage{link: link, exists: true}
+		default:
+			data, _ := os.ReadFile(full)
+			saved[f] = preimage{data: data, mode: info.Mode().Perm(), exists: true}
+		}
+	}
+	return saved
+}
+
+// restore writes every recorded path back (removing the ones that did not exist) and joins the failures.
+func (p preimages) restore(main string) error {
+	var errs []error
+	for f, pre := range p {
+		full := filepath.Join(main, f)
+		errs = append(errs, os.RemoveAll(full))
+		if !pre.exists {
+			continue
+		}
+		if pre.link != "" {
+			errs = append(errs, os.Symlink(pre.link, full))
+			continue
+		}
+		errs = append(errs, os.MkdirAll(filepath.Dir(full), 0o755), os.WriteFile(full, pre.data, pre.mode))
+	}
+	return errors.Join(errs...)
 }
 
 // afterLand reports the land, then removes the lane's worktree (its branch stays until clean) and starts the audit.
@@ -74,11 +145,7 @@ func afterLand(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReques
 			return nil, fmt.Errorf("clean: %w", err)
 		}
 	}
-	state := "branch " + branch + " kept"
-	if out.Clean != nil && out.Clean.BranchDeleted {
-		state = "branch " + branch + " deleted"
-	}
-	printLanded(ctx, repo, req, landed, state)
+	printLanded(ctx, repo, req, landed, "branch "+branch+" kept")
 	return out, nil
 }
 
@@ -92,7 +159,7 @@ func printLanded(ctx context.Context, repo *Repo, req MergeRequest, landed *Merg
 	fmt.Fprintln(req.Out, "plan ticks: none at landing; they tick when you commit with Task: trailers or run `plan task --done`")
 }
 
-// removeLanded removes a landed lane's worktree once it is idle; its branch stays unless it is already merged.
+// removeLanded removes a landed lane's worktree once it is idle; its branch always stays until `worktree clean`.
 func removeLanded(repo *Repo, name, dest string, log io.Writer, closing LedgerClose) (CleanResult, error) {
 	result, err := beginClean(name, dest, log)
 	if err != nil {
@@ -102,7 +169,7 @@ func removeLanded(repo *Repo, name, dest string, log io.Writer, closing LedgerCl
 		result.Reason = reason
 		return result, nil
 	}
-	return removeMerged(repo, name, dest, Entry{Head: headOf(dest)}, result, log, closing), nil
+	return removeMerged(repo, name, dest, Entry{Head: headOf(dest), keepBranch: true}, result, log, closing), nil
 }
 
 // keptBranch is the branch name's ledger recorded when the lane opened, else worktree-<name>.
@@ -129,33 +196,46 @@ func cleanLandedBranch(repo *Repo, name string, dryRun bool) (CleanResult, error
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	result := CleanResult{Path: branch, Branch: branch}
-	base, err := runGit(ctx, repo.Main, nil, "merge-base", "HEAD", branch)
+	out, err := runGit(ctx, repo.Main, nil, "rev-parse", "--verify", "refs/heads/"+branch)
 	if err != nil {
-		result.Reason = "no common history with HEAD: " + err.Error()
-		return result, nil
+		return result, fmt.Errorf("resolve %s: %w", branch, err)
 	}
-	names, err := runGit(ctx, repo.Main, nil, "diff", "--name-only", "-z", "--no-renames", "--ignore-submodules=none",
-		strings.TrimSpace(string(base)), branch, "--")
-	if err != nil {
-		return result, fmt.Errorf("git diff %s: %w", branch, err)
-	}
-	files := strings.FieldsFunc(string(names), func(r rune) bool { return r == '\x00' })
-	args := append([]string{"diff", "--quiet", "--ignore-submodules=none", "HEAD", branch, "--"}, files...)
-	if _, err := runGit(ctx, repo.Main, nil, args...); err != nil {
-		if code, isExit := asExitErr(err); !isExit || code != 1 {
-			return result, fmt.Errorf("git diff HEAD %s: %w", branch, err)
-		}
-		result.Reason = "branch " + branch + " has changes not in HEAD yet: commit the landed files first"
-		return result, nil
+	oid := strings.TrimSpace(string(out))
+	if reason, err := landedBranchReason(ctx, repo.Main, branch, oid); err != nil || reason != "" {
+		result.Reason = reason
+		return result, err
 	}
 	result.Removed = true
 	if dryRun {
 		return result, nil
 	}
-	if out, err := runGit(ctx, repo.Main, nil, "branch", "-D", branch); err != nil {
+	if out, err := runGit(ctx, repo.Main, nil, "update-ref", "-d", "refs/heads/"+branch, oid); err != nil {
 		result.Removed, result.Reason = false, strings.TrimSpace(string(out))
 		return result, nil
 	}
 	result.BranchDeleted = true
 	return result, nil
+}
+
+// landedBranchReason is why branch (at oid) must stay ("" = its changed files match HEAD and it is not checked out).
+func landedBranchReason(ctx context.Context, main, branch, oid string) (string, error) {
+	if at, err := runGit(ctx, main, nil, "for-each-ref", "--format=%(worktreepath)", "refs/heads/"+branch); err == nil && len(bytes.TrimSpace(at)) > 0 {
+		return "branch " + branch + " is checked out at " + strings.TrimSpace(string(at)), nil
+	}
+	base, err := runGit(ctx, main, nil, "merge-base", "HEAD", oid)
+	if err != nil {
+		return "no common history with HEAD: " + err.Error(), nil
+	}
+	files, err := laneFiles(ctx, main, strings.TrimSpace(string(base)), oid)
+	if err != nil || len(files) == 0 {
+		return "", err
+	}
+	args := append([]string{"--literal-pathspecs", "diff", "--quiet", "--ignore-submodules=none", "HEAD", oid, "--"}, files...)
+	if _, err := runGit(ctx, main, nil, args...); err != nil {
+		if code, isExit := asExitErr(err); !isExit || code != 1 {
+			return "", fmt.Errorf("git diff HEAD %s: %w", branch, err)
+		}
+		return "branch " + branch + " has changes not in HEAD yet: commit the landed files first", nil
+	}
+	return "", nil
 }

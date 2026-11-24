@@ -455,7 +455,7 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 	if entry.patchMerged {
 		del = "-D"
 	}
-	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", del, result.Branch).Run() == nil {
+	if result.Branch != "" && !entry.keepBranch && gitCmd(ctx, "-C", repo.Main, "branch", del, result.Branch).Run() == nil {
 		result.BranchDeleted = true
 	}
 	closing.BranchDeleted = result.BranchDeleted
