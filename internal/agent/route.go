@@ -593,7 +593,7 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 		return nil, nil, err.Error()
 	}
 	fb := q.Fallback
-	if lead.unroutedDispatch { // an explicit backend (--profile, a pin) never moves workspace
+	if staysOnWorkspace(q, lead) {
 		fb = router.FallbackNone
 	}
 	var hops []Dispatch
@@ -612,6 +612,12 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 		hops = append(hops, d)
 	}
 	return hops, skips, ""
+}
+
+// staysOnWorkspace reports pi hops kept on lead's workspace: an explicit backend, or an agent that never moves.
+func staysOnWorkspace(q RouteReq, lead Dispatch) bool {
+	explicit := lead.unroutedDispatch || q.Pinned && q.Profile != "" && q.Profile != LeadSession
+	return explicit || agentid.Routing(q.Agent).NoWorkspaceFallback
 }
 
 // piRunnerBarred is why q keeps the agent's own CLI whatever the model: one named hop, a resumed session, --native.
@@ -648,22 +654,48 @@ func piHop(reg *providers.Registry, h router.ChainHop, lead Dispatch, head strin
 
 // piRunnerModel is the model q.Agent resolves on profile (the resolver gateway resolve uses) when Pi's menu has it.
 func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, profile string) (string, string) {
-	const autoPick = "an auto pick runs on the agent's own CLI"
-	now := time.Now()
-	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: cmp.Or(lead.Model, q.Model), Profile: profile,
-		Task: q.Task, Default: q.AliasHint, Tools: q.Tools})
-	if IsAuto(cmp.Or(mq.Model, mq.PinModel)) { // a peek would pin the rotation's next pick without stamping it
-		return "", autoPick
+	if q.AutoModel || IsAuto(q.Model) || IsAuto(lead.Model) {
+		return "", autoPickWhy
 	}
-	r, err := ResolveRun(reg, mq, now)
+	model, why := agentModelOn(ctx, reg, q, cmp.Or(q.Model, lead.Model), profile) // the typed model first (R8)
+	if why == "" {
+		why = ownHopDiffers(ctx, reg, q, lead, profile, model)
+	}
+	if why != "" {
+		return "", why
+	}
+	if _, why := ProfileServes(agentid.Pi, reg.Row(profile), model); why != "" {
+		return "", "pi on " + profile + ": " + why
+	}
+	return model, ""
+}
+
+// ownHopDiffers is why lead's own CLI hop would run another model than model, "" when both hops run one model.
+func ownHopDiffers(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, profile, model string) string {
+	if q.Model == "" || lead.Model == "" || lead.Model == q.Model {
+		return ""
+	}
+	if own, why := agentModelOn(ctx, reg, q, lead.Model, profile); why != "" || !models.SameModel(own, model) {
+		return "the agent's own hop runs " + lead.Model + ", not " + model
+	}
+	return ""
+}
+
+const autoPickWhy = "an auto pick runs on the agent's own CLI"
+
+// agentModelOn is model as q.Agent resolves it on profile, or why it is no fixed model there (an error, an auto pick).
+func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, model, profile string) (string, string) {
+	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task,
+		Default: q.AliasHint, Tools: q.Tools})
+	if IsAuto(cmp.Or(mq.Model, mq.PinModel)) { // a peek would pin the rotation's next pick without stamping it
+		return "", autoPickWhy
+	}
+	r, err := ResolveRun(reg, mq, time.Now())
 	switch {
 	case err != nil:
 		return "", FallbackReason(err)
 	case r.Model == "" || IsAuto(r.Model) || r.Source == "pool":
-		return "", autoPick
-	}
-	if _, why := ProfileServes(agentid.Pi, reg.Row(profile), r.Model); why != "" {
-		return "", "pi on " + profile + ": " + why
+		return "", autoPickWhy
 	}
 	return r.Model, ""
 }
