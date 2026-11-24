@@ -72,26 +72,40 @@ func reviewHandback(in *core.Input) core.Result {
 		return core.Result{} // a prompt that is not a notification, or an empty response
 	}
 	noLine := assets.HookReviewNoLine()
-	m := unfixedLine.FindAllStringSubmatch(report, -1)
-	if len(m) == 0 {
-		return core.Result{Context: noLine}
-	}
-	var items []string
-	for it := range strings.SplitSeq(strings.Trim(m[len(m)-1][1], " \t*_`"), ";") {
-		if it = strings.TrimSpace(it); it != "" {
-			items = append(items, "- "+it)
-		}
-	}
+	items := unfixedItems(report)
 	if len(items) == 0 {
 		return core.Result{Context: noLine} // an empty footer is not a clean one
 	}
-	if len(items) == 1 && strings.EqualFold(strings.Trim(items[0], "-. *_`"), "none") {
+	if unfixedNone(items) {
 		return core.Result{}
+	}
+	for i, it := range items {
+		items[i] = "- " + it
 	}
 	if extra := len(items) - maxHandbackItems; extra > 0 {
 		items = append(items[:maxHandbackItems], "- and "+strconv.Itoa(extra)+" more: read the full UNFIXED line")
 	}
 	return core.Result{Context: assets.HookReviewFixHead() + strings.Join(items, "\n")}
+}
+
+// unfixedItems is the items of a report's last UNFIXED line; nil when it has none or the line is empty.
+func unfixedItems(report string) []string {
+	m := unfixedLine.FindAllStringSubmatch(report, -1)
+	if len(m) == 0 {
+		return nil
+	}
+	var items []string
+	for it := range strings.SplitSeq(strings.Trim(m[len(m)-1][1], " \t*_`"), ";") {
+		if it = strings.TrimSpace(it); it != "" {
+			items = append(items, it)
+		}
+	}
+	return items
+}
+
+// unfixedNone reports whether the UNFIXED items are exactly "none".
+func unfixedNone(items []string) bool {
+	return len(items) == 1 && strings.EqualFold(strings.Trim(items[0], "-. *_`"), "none")
 }
 
 // responseStrings is every string in a tool response except the echoed prompt, in key-sorted order.

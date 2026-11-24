@@ -5,6 +5,7 @@ package sdk
 import (
 	"sync/atomic"
 
+	"github.com/edotau/claude-code/internal/assets"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -33,7 +34,7 @@ func baseHandler(o Options) copilot.PermissionHandlerFunc {
 }
 
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-	feedback := denyFeedback
+	feedback := assets.CopilotDenyFeedback()
 	return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 }
 

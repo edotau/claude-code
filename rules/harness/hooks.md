@@ -31,6 +31,7 @@ one, edit both and run `make install` for projections; an existing Claude `setti
 | `format` | Formats this session's still-dirty edited files |
 | `review` | Advisory `review-simplicity` finding after each edit; R28 `review-handback` and `review-decide` |
 | `worktree` | Creates/removes under `~/worktrees/<repo>/`; ledger, claims, notices |
+| `lane` | Merge on completion: a finished leaf's lane merges detached, or waits in the merge queue |
 | `codex` | Codex only: child-agent routing and its log |
 
 - **One synchronous entry per event** (`hook <Event>`, the union of its groups' matchers) reads the payload once, runs
@@ -138,6 +139,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 | stuck-leaf watchdog ¶ | within `worktree-busy` and `docs-plan-reminder`, main Claude session only | ≤1/min, one line per stale job and reason: dead while its record runs, past `HARNESS_WATCH_AGE` (10m, scaled by `Tier:`) and silent past `HARNESS_WATCH_SILENCE` (5m), running after its relay finished, or finished 5m uncollected; a dead job with a session id is resumed once, never restarted or cancelled; while healthy jobs run, one `running: Task <id>\|Job <id> (agent, age); …` line (≤4, ≤200 chars); vault env `HARNESS_WATCH=off\|false\|0` disables, `dry` only names the resume |
 | `worktree-claim` ¶ | PostToolUse (Write\|Edit\|MultiEdit; Bash async) | Never blocks: appends written or staged paths still dirty to `state/harness/hooks/claims/<pid>-<session>.jsonl`; synchronous on Codex, Copilot and Gemini (no async entry; about 10 ms per call) |
 | `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes an edit of a dirty file another live session or sibling leaf claims; **asks** on staging or committing it, in a leaf under `~/.claude` the block becomes allow + note for Bash; `HARNESS_WORKTREE=lanes` extends it to tracked-file edits in the live checkout (`worktree-git.md` → Worktrees); infra errors allow with a warning |
+| `lane-merge` | SubagentStop · UserPromptSubmit | Never blocks or asks (R27). A stopped leaf's lane (its `meta.json` `worktreePath`, else the one lane its claims sit in; a background `agents ask` job that wrote files in a lane starts the same worker at its end) goes to a detached worker, which waits for the leaf to finish and the job to exit: ahead, clean, `UNFIXED: none`, not busy and touching no `internal/hooks/safety/`, `hookspec.go` or `settings*.json` → `worktree merge <lane> --resolve-agent pi`, serialized across lanes, ≤3 tries on a moved target, then a `notice (lane-merge)`; anything else (dirty, unfixed, no UNFIXED line, busy, restriction, conflict, gate) is one entry in `state/harness/worktree/merge-queue.json`, shown as a `merge queue:` line with its next command on every prompt (≤5) and by `worktree list` until a merge or the lane's removal drops it |
 
 **`dispatch-effort` and a spawn mod.** A mod that rewrites at `agent.spawn` calls `hook PreToolUse --dispatch-effort`
 with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker

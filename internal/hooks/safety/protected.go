@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
@@ -29,7 +30,7 @@ func protectedEdit(in *core.Input) core.Result {
 		}
 		if (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
 			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
-				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
+				assets.SafetyProtectedWhat(), f, assets.SafetyProtectedHint())}
 		}
 	}
 	return core.Result{}
@@ -59,14 +60,14 @@ func protectedTool(in *core.Input) core.Result {
 		return toolBlock(in, problem, tool)
 	}
 	if (permission.Permissions{Mode: permission.PermAllow, Deny: rules}).DecideAt(in.CWD, tool, arg) == permission.Deny {
-		return toolBlock(in, "matches a settings.json deny rule", tool+" "+arg)
+		return toolBlock(in, assets.SafetyDenyWhat(), tool+" "+arg)
 	}
 	return core.Result{}
 }
 
 func toolBlock(in *core.Input, what, detail string) core.Result {
 	return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block, what, detail,
-		"Change permissions.deny in ~/.claude/settings.json if this is wrong.")}
+		assets.SafetyDenyHint())}
 }
 
 // toolArg is the argument a non-path deny row matches: the URL, the query, else none; a misshapen one is a problem.
@@ -77,7 +78,7 @@ func toolArg(in *core.Input, tool string) (arg, problem string) {
 	}
 	v, ok := in.ToolInput()[key].(string)
 	if !ok || v == "" {
-		return "", tool + " call has no " + key + " string; blocked"
+		return "", assets.SafetyArgMissing(tool, key)
 	}
 	return v, ""
 }
@@ -99,10 +100,10 @@ func protectedRead(in *core.Input, tool string, p policy) core.Result {
 	}
 	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD, p.twin))
 	if hit != "" {
-		return toolBlock(in, "matches a settings.json deny rule", tool+" "+hit)
+		return toolBlock(in, assets.SafetyDenyWhat(), tool+" "+hit)
 	}
 	if !resolved {
-		return toolBlock(in, "path cannot be resolved to an absolute one; blocked", tool)
+		return toolBlock(in, assets.SafetyPathUnresolved(), tool)
 	}
 	return core.Result{}
 }

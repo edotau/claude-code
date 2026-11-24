@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -388,5 +389,87 @@ func TestRememberSupersedesRefusals(t *testing.T) {
 	}
 	if mustRead(t, Path("decisionLog.md")) != before {
 		t.Error("a refused supersede changed decisionLog.md")
+	}
+}
+
+// TestRememberFeedbackClassWritesNote: a feedback-<class> type writes a named, front-mattered note and indexes it.
+func TestRememberFeedbackClassWritesNote(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+	rel, err := Remember("feedback-correction", "Never claim a test passed without running it: ran it", now)
+	if err != nil || rel != "feedback/feedback-never-claim-a-test-passed-without-running-it-ran-it.md" {
+		t.Fatalf("Remember = %q, %v; want the feedback/ note path", rel, err)
+	}
+	note := mustRead(t, filepath.Join(paths.MemoryStoreDir(), rel))
+	wants := []string{"name: feedback-never-claim", "  type: feedback\n  class: correction\n", "\n\nNever claim a test"}
+	for _, want := range wants {
+		if !strings.Contains(note, want) {
+			t.Errorf("note missing %q: %q", want, note)
+		}
+	}
+	if idx := mustRead(t, catalogPath()); !strings.Contains(idx, "("+rel+")") {
+		t.Errorf("index.md has no line for %s: %q", rel, idx)
+	}
+	again, err := Remember("feedback-correction", "Never claim a test passed without running it: ran it", now)
+	if err != nil || again == rel {
+		t.Fatalf("a repeat = %q, %v; want a distinct note, never an overwrite", again, err)
+	}
+	if _, err := RememberSupersedes("feedback-process", "x", "abcd1234", now); err == nil {
+		t.Error("--supersedes on a note type = nil error, want one")
+	}
+}
+
+// TestDropCommitsSinceMovesHeadBack: a failed write leaves no commit past the pre-write HEAD.
+func TestDropCommitsSinceMovesHeadBack(t *testing.T) {
+	tempConfig(t)
+	if _, err := Remember("project", "first", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := StoreRepo().headSHA()
+	if _, err := Remember("project", "second", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if head, _ := StoreRepo().headSHA(); head == before {
+		t.Fatal("settle made no commit to drop") // the assertion below would be vacuous
+	}
+	if err := dropCommitsSince(before, "settle: "+stateKey(), errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if head, _ := StoreRepo().headSHA(); head != before {
+		t.Errorf("HEAD = %s, want the pre-write %s", head, before)
+	}
+}
+
+// TestFeedbackNoteSettleFailureKeepsTheNote: a failed settle never deletes the note a retry or a peer may rely on.
+func TestFeedbackNoteSettleFailureKeepsTheNote(t *testing.T) {
+	tempConfig(t)
+	lockStoreIndex(t)()
+	rel, err := RememberSupersedes("feedback-process", "keep me after settle fails", "", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "kept") {
+		t.Fatalf("remember with a failing settle = %v, want an error saying the note was kept", err)
+	}
+	if !statOK(filepath.Join(paths.MemoryStoreDir(), rel)) {
+		t.Fatalf("note %s was removed by the failed settle", rel)
+	}
+}
+
+// TestDropCommitsSinceKeepsPeerCommits: two commits past the pre-write HEAD means a peer's is among them.
+func TestDropCommitsSinceKeepsPeerCommits(t *testing.T) {
+	tempConfig(t)
+	if _, err := Remember("project", "first", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := StoreRepo().headSHA()
+	for _, f := range []string{"second", "third"} {
+		if _, err := Remember("project", f, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head, _ := StoreRepo().headSHA()
+	if err := dropCommitsSince(before, "settle: "+stateKey(), errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := StoreRepo().headSHA(); after != head {
+		t.Errorf("HEAD moved to %s, want %s kept", after, head)
 	}
 }

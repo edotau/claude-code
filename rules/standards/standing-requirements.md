@@ -40,3 +40,4 @@ A row is deleted only when the tool makes the prose redundant.
 | R28 Review loop | One exhaustive review, every finding fixed without asking, one check of the fixes; merge on no CRITICAL/HIGH, the rest fixed on main; findings are fixed, not reported; `quality.md` → Completion | `agents ask` brief |
 | R29 Broken tests | Fix now if small, else a test-repair leaf; `quality.md` → Completion | prose |
 | R30 No agent policy | No dispatched agent (claude, codex, copilot, gemini, opencode, pi) or memory job carries a permission policy: no `--permissions`, no inherited or per-agent rules; only `safety-scan` applies (`settings.json` deny rules, the AI-attribution block); see `rules/harness/agent.md` → Dispatch behavior | `safety-scan` |
+| R31 Merge on completion | A finished lane merges or is queued for the main session; `worktree-git.md` → Worktrees | `lane-merge` hook |

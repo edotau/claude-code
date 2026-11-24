@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
@@ -36,7 +36,7 @@ func RTKRewrite(in *core.Input) core.Result {
 	}
 	res := rtkRewrite(in)
 	if claudePrintRun(in.ToolCommand()) {
-		res.Context = strings.TrimSpace(res.Context + "\n" + claudePrintHint)
+		res.Context = strings.TrimSpace(res.Context + "\n" + assets.ClaudePrintHint())
 	}
 	return res
 }
@@ -385,7 +385,7 @@ func rtkMayRewrite(cmd string) bool {
 func rtkNotes(sessionID, word, found, bin string, onPath bool) string {
 	var notes []string
 	if first, err := rtkSeen("hooks/rtk-note", sessionID, "note"); err != nil || first {
-		notes = append(notes, fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word))
+		notes = append(notes, assets.RtkNote(word))
 	}
 	if !onPath {
 		if first, err := rtkSeen("hooks/rtk-shadow", sessionID, "shadow"); err == nil && first {
@@ -406,9 +406,9 @@ func rtkSeen(kind, sessionID, key string) (bool, error) {
 // rtkShadowNotice names PATH's rtk (untrusted: by path, never executed) and the fix; found "" means PATH has none.
 func rtkShadowNotice(found, bin string) string {
 	if found == "" {
-		return fmt.Sprintf("rtk: no rtk on PATH, so the pinned %s runs by path — run make install", bin)
+		return assets.RtkShadowNone(bin)
 	}
-	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
+	return assets.RtkShadowFound(found)
 }
 
 // rtkRewritten is `rtk rewrite`'s changed output for cmd (exit 0 or 3), else "".
@@ -467,9 +467,6 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 	tokens := shell.Tokens(cmd)
 	return len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd().MatchString(cmd) || rtkwrap.Vetoed(cmd, cwd)
 }
-
-const claudePrintHint = "headless claude print runs skip dispatch records, routing and recall; " +
-	"use `claude-code agents ask --agent claude \"<task>\"` instead"
 
 // claudePrintRun reports whether a chain segment launches a headless claude print run (-p/--print).
 func claudePrintRun(cmd string) bool {

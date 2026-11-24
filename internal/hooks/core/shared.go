@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -63,14 +63,10 @@ func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 		if SupportsAsk(in.Agent()) {
 			word = "ASK"
 		} else {
-			what += " (no ask decision on " + in.Agent() + ")"
+			what += assets.SafetyNoAsk(in.Agent())
 		}
 	}
-	msg := fmt.Sprintf("safety: %s — %s\n", word, what)
-	if pattern != "" {
-		msg += "  pattern: " + pattern + "\n"
-	}
-	return msg + "  command: " + textutil.CapRunes(in.ToolCommand(), 160, "…") + "\n" + hint + "\n"
+	return assets.SafetyMessage(word, what, pattern, textutil.CapRunes(in.ToolCommand(), 160, "…"), hint)
 }
 
 var (

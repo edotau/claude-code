@@ -75,6 +75,8 @@ claude-code worktree merge <slug>                            # rebase in the lan
 claude-code worktree merge <slug> --no-clean                 # keep the lane for its next task
 ```
 
+A finished leaf's committed lane merges by itself (`lane-merge` hook); one it cannot merge is a `merge queue:` line.
+
 What `merge` does, in order:
 
 - Rebases the lane onto `main` inside the lane; `main` is never rebased.

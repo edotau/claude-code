@@ -421,7 +421,10 @@ func TestGateStepsSplitsOnlyScopedGate(t *testing.T) {
 
 func TestParseGateFailures(t *testing.T) {
 	got := parseGateFailures("# m\n./a.go:2:5: undefined: x\n--- FAIL: TestY (0.00s)\nFAIL\n")
-	if len(got) != 1 || got[0] != (GateFailure{File: "a.go", Line: 2, Text: "undefined: x"}) {
+	if len(got) != 1 || got[0].DiagnosticID == "" {
+		t.Fatalf("located failure: got %+v", got)
+	}
+	if got[0].DiagnosticID = ""; got[0] != (GateFailure{File: "a.go", Line: 2, Text: "undefined: x"}) {
 		t.Fatalf("located failure: got %+v", got)
 	}
 	if got = parseGateFailures("my dir/a b.go:7: bad\n"); len(got) != 1 || got[0].File != "my dir/a b.go" || got[0].Line != 7 {
@@ -430,6 +433,32 @@ func TestParseGateFailures(t *testing.T) {
 	got = parseGateFailures("ok\n--- FAIL: TestY (0.00s)\nFAIL\n")
 	if len(got) != 1 || got[0].File != "" || got[0].Text != "--- FAIL: TestY (0.00s)" {
 		t.Fatalf("unlocated failure keeps the first FAIL line: got %+v", got)
+	}
+}
+
+func TestGateDiagnosticIDs(t *testing.T) {
+	ids := func(out string) []string {
+		var r []string
+		for _, f := range parseGateFailures(out) {
+			r = append(r, f.DiagnosticID)
+		}
+		return r
+	}
+	base := ids("a.go:1: bad (0.2s)\na.go:9: bad (3ms)\nb.go:1: bad\na.go:1: other\n")
+	if !slices.Equal(base, ids("a.go:1: bad (0.2s)\na.go:9: bad (3ms)\nb.go:1: bad\na.go:1: other\n")) {
+		t.Fatalf("ids not stable across identical input: %v", base)
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(base)))) != len(base) {
+		t.Fatalf("ids shared within a run: %v", base)
+	}
+	if got := ids("a.go:40: bad (9s)\n"); got[0] != ids("a.go:7: bad (1ms)\n")[0] {
+		t.Fatalf("id moved with line or timing: %v", got)
+	}
+	if ids("a.go:1: see /tmp/x1/a.go:40:3\n")[0] != ids("a.go:1: see /tmp/x2/a.go:50:9\n")[0] {
+		t.Fatal("id moved with a temp path line")
+	}
+	if ids("a.go:1: bad\n")[0] == ids("b.go:1: bad\n")[0] || ids("a.go:1: bad\n")[0] == ids("a.go:1: worse\n")[0] {
+		t.Fatal("distinct failures share an id")
 	}
 }
 
@@ -445,5 +474,17 @@ func TestRunScopedGateObservesExitAndChanges(t *testing.T) {
 	}
 	if !slices.ContainsFunc(r.Changed, func(s string) bool { return strings.HasPrefix(s, "a.go ") }) {
 		t.Fatalf("changed: %v, want a.go with its hash", r.Changed)
+	}
+}
+
+func TestRunScopedGateCarriesIDs(t *testing.T) {
+	dir, _, write := gateRepo(t)
+	write("a.go", "package m\n\nfunc F() int { return x }\n")
+	r, err := RunScopedGate(context.Background(), dir, nil, false)
+	if err != nil || len(r.ChangeIDs) != len(r.Changed) || len(r.Changed) == 0 || r.ChangeIDs[0] != shortID(r.Changed[0]) {
+		t.Fatalf("change ids %v do not align with changed %v (err %v)", r.ChangeIDs, r.Changed, err)
+	}
+	if len(r.Failures) == 0 || r.Failures[0].DiagnosticID == "" {
+		t.Fatalf("failure without a diagnostic id: %+v", r.Failures)
 	}
 }

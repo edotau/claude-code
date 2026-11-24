@@ -249,7 +249,7 @@ func cmdMemoryInit(args []string) int {
 func cmdMemoryRemember(args []string) int {
 	fs := memoryFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
-		"reads like a rule? use memory promote --to rules instead")
+		"reads like a rule? use memory promote --to rules instead; types: "+memory.RememberTypeHelp())
 	old := fs.String("supersedes", "", "id of the live entry this fact replaces (see memory search)")
 	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {

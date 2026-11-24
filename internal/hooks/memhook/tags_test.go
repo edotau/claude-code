@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 func TestRecordTags(t *testing.T) {
@@ -25,7 +27,7 @@ func TestRecordTags(t *testing.T) {
 	_, _ = f.WriteString(rec("assistant", "NEXT: ship\\nDECISION: use A"))
 	_ = f.Close()
 	recordTags("s1", tr, now)
-	b, err := os.ReadFile(tagEventsPath("s1"))
+	b, err := os.ReadFile(memory.TagEventsPath("s1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,7 @@ func TestRecordTags(t *testing.T) {
 	_, _ = f.WriteString(`"}]}}` + "\n")
 	_ = f.Close()
 	recordTags("s1", tr, now)
-	b, _ = os.ReadFile(tagEventsPath("s1"))
+	b, _ = os.ReadFile(memory.TagEventsPath("s1"))
 	got := string(b)
 	for _, want := range []string{`"text":"a"`, `"text":"b"`, `"text":"torn"`} {
 		if !strings.Contains(got, want) {

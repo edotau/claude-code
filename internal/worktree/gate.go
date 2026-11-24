@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -515,15 +517,19 @@ type GateFailure struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
 	Text string `json:"text"`
+	// DiagnosticID is a short hash of file and normalized text (not line), unique within a run.
+	DiagnosticID string `json:"diagnostic_id"`
 }
 
 // GateRun is a scoped gate's observed result: real exit (nil if it never ran), changed files, failures.
 type GateRun struct {
-	Gate     string        `json:"gate"`
-	Source   string        `json:"source"`
-	Exit     *int          `json:"exit"`
-	Changed  []string      `json:"changed"`
-	Failures []GateFailure `json:"failures"`
+	Gate    string   `json:"gate"`
+	Source  string   `json:"source"`
+	Exit    *int     `json:"exit"`
+	Changed []string `json:"changed"`
+	// ChangeIDs[i] is the short hash of Changed[i], so it moves when the file's content does.
+	ChangeIDs []string      `json:"change_ids"`
+	Failures  []GateFailure `json:"failures"`
 }
 
 const gateRunTimeout = 20 * time.Minute
@@ -558,7 +564,28 @@ func RunScopedGate(ctx context.Context, dir string, scope []string, lintCheck bo
 	if r.Changed, cerr = gateChanged(ctx, dir, scope); cerr != nil {
 		return r, cerr
 	}
+	r.ChangeIDs = mapStrings(r.Changed, func(c string) string { return shortID(c) })
 	return r, nil
+}
+
+// shortID is the first 12 hex digits of the SHA-256 of the NUL-joined parts.
+func shortID(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+var gateNoiseRe = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ms|s)\b|(?:/private)?/(?:tmp|var/folders)/[^ :]+(?::\d+){0,2}`)
+
+// assignDiagnosticIDs stamps each failure; repeats of one file and text mix in their occurrence number (run-local).
+func assignDiagnosticIDs(fails []GateFailure) {
+	seen := map[string]int{}
+	for i := range fails {
+		first, _, _ := strings.Cut(fails[i].Text, "\n")
+		key := fails[i].File + "\x00" + strings.TrimSpace(gateNoiseRe.ReplaceAllString(first, ""))
+		n := seen[key]
+		seen[key]++
+		fails[i].DiagnosticID = shortID(key, strconv.Itoa(n))
+	}
 }
 
 // parseGateFailures reads file:line: text lines; red output with none keeps its first FAIL (else last) line.
@@ -578,6 +605,7 @@ func parseGateFailures(out string) []GateFailure {
 	if len(fails) == 0 && last != "" {
 		fails = append(fails, GateFailure{Text: cmp.Or(firstFail, last)})
 	}
+	assignDiagnosticIDs(fails)
 	return fails
 }
 
