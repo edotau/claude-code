@@ -470,3 +470,20 @@ func TestBashTimeoutMs(t *testing.T) {
 		}
 	}
 }
+
+func TestBashTimeoutComposesWithRewrite(t *testing.T) {
+	m := &dispatchMerge{timeoutInput: map[string]any{"command": "old", "timeout": 40000}}
+	m.merged.UpdatedInput = map[string]any{"command": "rtk new"}
+	m.applyTimeout()
+	if got := m.merged.UpdatedInput; got["command"] != "rtk new" || got["timeout"] != 40000 {
+		t.Errorf("composed input = %v", got)
+	}
+	for cmd, want := range map[string]int{
+		"claude-code agents ask --agent pi -- --timeout=1s": 600000,
+		"claude-code agents ask --timeout 30s -":            40000,
+	} {
+		if got, _ := BashTimeoutMs(cmd); got != want {
+			t.Errorf("%q: got %d want %d", cmd, got, want)
+		}
+	}
+}

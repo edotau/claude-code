@@ -408,6 +408,7 @@ var askValueFlags = strings.Fields("agent agents fallback profile provider as mo
 const (
 	maxBashTimeout = 10 * time.Minute
 	waitMargin     = 10 * time.Second
+	bashDefault    = 2 * time.Minute
 )
 
 // BashTimeoutMs is the Bash timeout (ms) a foreground `agents ask|wait|result -f` needs, --timeout + margin, capped.
@@ -415,11 +416,15 @@ func BashTimeoutMs(cmd string) (ms int, ok bool) {
 	var total time.Duration
 	for _, seg := range shell.Segments(cmd) {
 		words := agentCommand(relayWords(seg))
-		if len(words) < 2 || words[0] != "agents" || !foregroundWait(words[1:]) {
+		if len(words) < 2 || words[0] != "agents" {
+			continue
+		}
+		t, fg := foregroundTimeout(words[1:])
+		if !fg {
 			continue
 		}
 		d := maxBashTimeout
-		if t := timeoutFlag(words); t > 0 {
+		if t > 0 {
 			d = min(t+waitMargin, maxBashTimeout)
 		}
 		total, ok = min(total+d, maxBashTimeout), true // chained waits run one after another
@@ -434,11 +439,34 @@ func BashTimeout(in *core.Input) core.Result {
 	if in.ToolName != "Bash" || !ok || updated == nil {
 		return core.Result{}
 	}
-	if have, _ := updated["timeout"].(float64); int(have) >= ms {
+	have, set := updated["timeout"].(float64)
+	if !set {
+		have = float64(bashDefault.Milliseconds()) // an unset timeout is the host default; never shorten it
+	}
+	if int(have) >= ms {
 		return core.Result{}
 	}
 	updated["timeout"] = ms
 	return core.Result{UpdatedInput: updated}
+}
+
+// foregroundTimeout: words (after `agents`) are a `wait`, `result -f` or ask that stays foreground; t is its --timeout.
+func foregroundTimeout(words []string) (t time.Duration, fg bool) {
+	switch words[0] {
+	case "ask":
+		a, ok := ParseAskWords(words[1:])
+		if !ok || a.Has("background", "live") {
+			return 0, false
+		}
+		t, _ = time.ParseDuration(a.Value("timeout"))
+		return t, true
+	case "wait", "result":
+		if i := slices.Index(words, "--"); i >= 0 {
+			words = words[:i]
+		}
+		return timeoutFlag(words), words[0] == "wait" || slices.Contains(words, "-f")
+	}
+	return 0, false
 }
 
 // timeoutFlag is the last parseable `--timeout D` or `--timeout=D` in words, 0 when none.
@@ -454,19 +482,6 @@ func timeoutFlag(words []string) time.Duration {
 		}
 	}
 	return d
-}
-
-// foregroundWait: `wait`, `result -f`, or an `ask` that neither backgrounds nor opens a live session.
-func foregroundWait(words []string) bool {
-	switch words[0] {
-	case "wait":
-		return true
-	case "result":
-		return slices.Contains(words, "-f")
-	case "ask":
-		return !slices.Contains(words, "--background") && !slices.Contains(words, "--live")
-	}
-	return false
 }
 
 // OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.

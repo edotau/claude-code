@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -160,6 +161,19 @@ type dispatchMerge struct {
 	firstErr       error
 	log            io.Writer
 	rows           []hooktelemetry.Row
+	timeoutInput   map[string]any // bash-timeout's updated input, laid over another handler's rewrite at the end
+}
+
+// applyTimeout sets bash-timeout's timeout on the merged update, or adopts its input when nothing else rewrote.
+func (m *dispatchMerge) applyTimeout() {
+	switch {
+	case m.timeoutInput == nil:
+	case m.merged.UpdatedInput == nil:
+		m.merged.UpdatedInput = m.timeoutInput
+	default:
+		m.merged.UpdatedInput = maps.Clone(m.merged.UpdatedInput)
+		m.merged.UpdatedInput["timeout"] = m.timeoutInput["timeout"]
+	}
 }
 
 func (m *dispatchMerge) fail(err error) {
@@ -270,6 +284,9 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 		if err != nil {
 			return m.failed(s.b, err)
 		}
+		if s.b.Spec.Name == "bash-timeout" && r.UpdatedInput != nil { // it sets one key, so it composes with a rewrite
+			m.timeoutInput, r.UpdatedInput = r.UpdatedInput, nil
+		}
 		m.add(s.b, event, r)
 	}
 	return false
@@ -293,6 +310,7 @@ func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	if !gateFailed {
 		drain(&wg, log)
 	}
+	m.applyTimeout()
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
