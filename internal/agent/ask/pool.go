@@ -27,7 +27,7 @@ import (
 // hostBatchProxy gives a bare batch its own phase proxy; a batch whose lines or env name a group already has one.
 func hostBatchProxy(ctx context.Context, id string, tasks []batchTask) func() {
 	bare := func(t batchTask) bool { return t.Group == "" && t.Err == nil }
-	if !slices.ContainsFunc(tasks, bare) || os.Getenv("HARNESS_DISPATCH_PROXY") != "" {
+	if !slices.ContainsFunc(tasks, bare) || agent.InheritedProxyLive(ctx) {
 		return func() {}
 	}
 	group, closeProxy := agent.HostPhaseProxy(ctx, strings.ToLower(id))

@@ -86,7 +86,16 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 
 func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, recovering bool) error {
 	ctx, _ = RunValues(ctx, nil)
+	parent, _ := ctx.Value(dispatchIDKey{}).(string)
 	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
+	if parent != "" { // the job inherits the parent's chosen proxy, keyed by its own id only while its env is built
+		routeMu.Lock()
+		if label, ok := chosenByID[parent]; ok {
+			chosenByID[rec.ID] = label
+		}
+		routeMu.Unlock()
+		defer forgetChosenProxy(ctx)
+	}
 	exe, err := executable()
 	if err != nil {
 		return err

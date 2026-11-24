@@ -25,6 +25,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -354,4 +355,46 @@ func TestEnvironDropsShimPath(t *testing.T) {
 		}
 	}
 	t.Error("PATH missing from the child env")
+}
+
+func TestEnvironExportsChosenProxy(t *testing.T) {
+	setConfigDir(t)
+	t.Setenv(dispatchProxyEnv, "stale:old")
+	ctx := withDispatchID(t.Context(), "pxid", 1)
+	routeMu.Lock()
+	chosenByID["pxid"] = "phase:g1"
+	routeMu.Unlock()
+	t.Cleanup(func() { forgetChosenProxy(ctx) })
+	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); !slices.Contains(env, dispatchProxyEnv+"=phase:g1") {
+		t.Fatalf("chosen proxy not exported: %v", slices.DeleteFunc(env, func(e string) bool { return !strings.Contains(e, "PROXY") }))
+	}
+}
+
+func TestEnvironDispatchProxyKeepsInheritedAndTypedEnv(t *testing.T) {
+	setConfigDir(t)
+	t.Setenv(dispatchProxyEnv, "phase:g1")
+	ctx := withDispatchID(t.Context(), "pxid2", 1)
+	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); !slices.Contains(env, dispatchProxyEnv+"=phase:g1") {
+		t.Fatal("no choice must keep the inherited value")
+	}
+	routeMu.Lock()
+	chosenByID["pxid2"] = "shared"
+	routeMu.Unlock()
+	t.Cleanup(func() { forgetChosenProxy(ctx) })
+	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
+		t.Fatal("a daemon choice must clear the inherited value")
+	}
+	typed := dispatchProxyEnv + "=mine:x"
+	if env := (EnvSpec{Mode: EnvClaude, Extra: []string{typed}}).Environ(ctx); !slices.Contains(env, typed) {
+		t.Fatal("a typed --env value must survive")
+	}
+}
+
+func TestParentTeamFirst(t *testing.T) {
+	cfg, _ := proxyteam.Load(nil)
+	t.Setenv(dispatchProxyEnv, "phase:g1")
+	got := parentTeamFirst(cfg, cfg.Routes(proxyteam.KindNested))
+	if len(got) == 0 || got[0].Name != "phase" || got[len(got)-1].Name != "shared" {
+		t.Fatalf("routes = %v", got)
+	}
 }
