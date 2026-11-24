@@ -53,7 +53,7 @@ func parseProposalLine(line string) (TestProposal, error) {
 func ParseTestProposals(report, source string) ([]TestProposal, error) {
 	var out []TestProposal
 	for _, m := range proposedFenceRE.FindAllStringSubmatch(report, -1) {
-		for _, line := range strings.Split(m[1], "\n") {
+		for line := range strings.SplitSeq(m[1], "\n") {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
@@ -80,7 +80,7 @@ func mergeProposals(add []TestProposal, old []byte) ([]TestProposal, error) {
 	for _, p := range add {
 		push(p)
 	}
-	for _, line := range bytes.Split(old, []byte("\n")) {
+	for line := range bytes.SplitSeq(old, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
