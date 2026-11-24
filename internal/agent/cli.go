@@ -399,7 +399,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
-	res.Transport = stampProxy(idle.stampFirst(res.Transport), ChosenProxy(id))
+	res.Transport = stampProxy(idle.stampFirst(res.Transport), TakeChosenProxy(id))
 	return streamResult(ctx, name, res, perr, werr, opts, tail)
 }
 

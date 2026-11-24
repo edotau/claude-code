@@ -11,6 +11,23 @@ import (
 	"github.com/edotau/claude-code/internal/proxyteam"
 )
 
+func TestChosenProxyIsTakenOnceAndForgotten(t *testing.T) {
+	ctx := context.WithValue(context.Background(), dispatchIDKey{}, "d-take")
+	routeMu.Lock()
+	chosenByID["d-take"] = "phase:x-w1"
+	routeMu.Unlock()
+	forgetChosenProxy(ctx)
+	if got := TakeChosenProxy("d-take"); got != "" {
+		t.Fatalf("forgotten label = %q, want empty", got)
+	}
+	routeMu.Lock()
+	chosenByID["d-take"] = "phase:x-w1"
+	routeMu.Unlock()
+	if got, again := TakeChosenProxy("d-take"), TakeChosenProxy("d-take"); got != "phase:x-w1" || again != "" {
+		t.Fatalf("take = %q then %q", got, again)
+	}
+}
+
 func TestRouteWalkSkipsDeadFirstRoute(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	if err := cmd.Run(); err != nil {

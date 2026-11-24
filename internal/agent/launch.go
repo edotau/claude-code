@@ -142,6 +142,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 
 func (s Schema) configureWire(ctx context.Context, e Driver, t providers.Target, h *Headless) ([]string, []string, error) {
 	p := t.Provider
+	forgetChosenProxy(ctx)
 	dialect, base := s.firstRoute(p)
 	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
 	var cred string

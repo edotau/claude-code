@@ -179,11 +179,21 @@ var (
 	chosenByID = map[string]string{}
 )
 
-// ChosenProxy is the route label chosen for dispatch id, "" when none was walked.
-func ChosenProxy(id string) string {
+// TakeChosenProxy returns the route label chosen for dispatch id ("" when none) and forgets it.
+func TakeChosenProxy(id string) string {
 	routeMu.Lock()
 	defer routeMu.Unlock()
-	return chosenByID[id]
+	label := chosenByID[id]
+	delete(chosenByID, id)
+	return label
+}
+
+// forgetChosenProxy drops ctx's dispatch label so an attempt that bypasses the proxy names none.
+func forgetChosenProxy(ctx context.Context) {
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	routeMu.Lock()
+	defer routeMu.Unlock()
+	delete(chosenByID, id)
 }
 
 // ensureProxyRoute finds the proxy base for ctx: the daemon, or the first live scope proxy of a scoped dispatch.
