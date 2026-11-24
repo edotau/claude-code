@@ -16,7 +16,7 @@ const (
 // openWeightsGPT is the one GPT-prefixed family that is not OpenAI's GPT and keeps its own name.
 const openWeightsGPT = "gpt-oss"
 
-// AgentType is total: code mode, a GitHub Copilot route, the model's family; never empty for a non-empty model.
+// AgentType is code mode, a GitHub Copilot route, else the model's family; "" when none (the caller's agent then).
 func AgentType(routeProvider, model string, codeMode bool) Type {
 	switch {
 	case codeMode:
@@ -37,7 +37,7 @@ func AgentType(routeProvider, model string, codeMode bool) Type {
 	return Type(FamilyName(model))
 }
 
-// FamilyName is the id's family: the catalog's, else the first token; the runner's own name for an empty id.
+// FamilyName is the id's family: the catalog's, else the first token; "" for an empty id or a bare version.
 func FamilyName(id string) string {
 	if canonical, _, ok := Resolve(id); ok {
 		if f := load().byID[canonical].Family; f != "" {
@@ -50,9 +50,6 @@ func FamilyName(id string) string {
 	}
 	if i := strings.IndexFunc(n, func(r rune) bool { return r < 'a' || r > 'z' }); i >= 0 {
 		n = n[:i]
-	}
-	if n == "" {
-		return string(TypePi)
 	}
 	return n
 }

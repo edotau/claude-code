@@ -977,3 +977,12 @@ func runTreeKeyScript(t *testing.T, s dashState, nodes []Node, raw string) (dash
 	}
 	return s, effects
 }
+
+func TestRunningAgentIsTheModelThatRan(t *testing.T) {
+	for model, want := range map[string]string{"databricks-gpt-6-1-sol": "codex", "databricks-kimi-k3": "kimi", "": "pi"} {
+		sub := Subagent{Type: "claude", Description: "Dispatching to pi", Dispatches: []Dispatch{{ID: "p", Agent: "pi", Model: model, Status: "ok"}}}
+		if got := runningAgent(sub); got != want {
+			t.Errorf("model %q: agent = %q, want %q", model, got, want)
+		}
+	}
+}

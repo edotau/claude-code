@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -421,16 +423,18 @@ func runningAgent(sub Subagent) string {
 		return sub.Type
 	}
 	words := strings.FieldsFunc(strings.ToLower(sub.Description), func(r rune) bool { return !unicode.IsLetter(r) })
-	var named []string
+	var named []Dispatch
 	for _, d := range sub.Dispatches {
-		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) && !slices.Contains(named, d.Agent) {
-			named = append(named, d.Agent)
+		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) &&
+			!slices.ContainsFunc(named, func(n Dispatch) bool { return n.Agent == d.Agent }) {
+			named = append(named, d)
 		}
 	}
 	if len(named) != 1 {
 		return sub.Type
 	}
-	return named[0]
+	d := named[0]
+	return cmp.Or(string(models.AgentType(d.Provider, d.Model, false)), d.Agent) // the model that ran, else the asked agent
 }
 
 // sessionIDFromPath extracts the session id from <session>.jsonl.

@@ -25,8 +25,9 @@ func TestAgentType(t *testing.T) {
 		{"", "databricks-gpt-oss-120b", false, "gpt-oss"},
 		{"", "databricks-meta-llama-3-3-70b-instruct", false, "llama"},
 		{"", "gemma-3-12b", false, "gemma"},
-		{"", "", false, TypePi},
-		{"", "4-7", false, TypePi},
+		{"", "", false, ""},
+		{"", "4-7", false, ""},
+		{"", "", true, TypePi},
 	}
 	for _, c := range cases {
 		if got := AgentType(c.route, c.model, c.code); got != c.want {
