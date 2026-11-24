@@ -728,22 +728,72 @@ func agyDeniedActions(ev agyEvent) []string {
 	return names
 }
 
-// emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.
+// emitAgyToolStart marks progress once per tool step, then emits the step's tool_use and tool_result.
 func emitAgyToolStart(ev agyEvent, toolOpen *bool, sofar wire.Usage, sink wire.Sink) error {
 	if ev.StepUpdate.StepType != agyToolStep {
 		return nil
 	}
-	open := !agyStepEnded(ev.StepUpdate.State)
-	start := open && !*toolOpen
-	*toolOpen = open
-	if !start {
+	ended := agyStepEnded(ev.StepUpdate.State)
+	wasOpen := *toolOpen
+	*toolOpen = !ended
+	if !ended && !wasOpen {
+		e := wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}}
+		if sofar != (wire.Usage{}) { // the dispatch record's live token count; the result event replaces it
+			e.Usage = &sofar
+		}
+		if err := sink.Emit(e); err != nil {
+			return err
+		}
+	}
+	return emitAgyToolCall(ev, wasOpen, ended, sink)
+}
+
+// emitAgyToolCall emits the named tool's tool_use on its first update and its tool_result when the step ends.
+func emitAgyToolCall(ev agyEvent, wasOpen, ended bool, sink wire.Sink) error {
+	u := ev.StepUpdate
+	if u.ToolName == "" || (wasOpen && !ended) {
 		return nil
 	}
-	e := wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}}
-	if sofar != (wire.Usage{}) { // the dispatch record's live token count; the result event replaces it
-		e.Usage = &sofar
+	if !wasOpen {
+		use := wire.ToolEvent(u.ToolName, "")
+		use.Agent, use.Text = "gemini", agyArgSummary(u.ToolInfo.Parameters)
+		if err := sink.Emit(use); err != nil {
+			return err
+		}
 	}
-	return sink.Emit(e)
+	if !ended {
+		return nil
+	}
+	msg := u.ToolInfo.Error.Message
+	return sink.Emit(wire.Event{Type: wire.EventToolResult, Agent: "gemini", Tool: &wire.ToolRef{Name: u.ToolName},
+		Status: agyToolStatus(u.State, msg), Text: wire.FirstLine(msg)})
+}
+
+// agyToolStatus is a finished tool step's result status: completed, error, or denied for a refusal.
+func agyToolStatus(state, msg string) string {
+	if state != "ERROR" && msg == "" {
+		return "completed"
+	}
+	if lm := strings.ToLower(msg); strings.Contains(lm, "denied") || strings.Contains(lm, "deny rule") {
+		return "denied"
+	}
+	return "error"
+}
+
+// agyArgSummary is the tool call's primary argument (command, path, pattern), else its compact parameters, on one line.
+func agyArgSummary(raw json.RawMessage) string {
+	var a map[string]any
+	if json.Unmarshal(raw, &a) != nil || len(a) == 0 {
+		return ""
+	}
+	for _, want := range []string{"commandline", "command", "path", "absolutepath", "pattern", "query", "url"} {
+		for k, v := range a {
+			if s, ok := v.(string); ok && s != "" && strings.EqualFold(strings.ReplaceAll(k, "_", ""), want) {
+				return wire.Summary(s)
+			}
+		}
+	}
+	return wire.Summary(string(raw))
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
@@ -963,7 +1013,7 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
-	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError}, Cost: true,
+	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError}, Cost: true,
 	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
 	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
 	Extras: map[string][]string{extraUseGuardRules: {"true", "false"}},
