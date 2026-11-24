@@ -267,7 +267,8 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 	switch {
 	case err == nil:
 		if !*dryRun {
-			recordCloseTerms(cwd, func() ([]string, error) { return revList(cwd, "HEAD^!") }, "", os.Stderr)
+			top, _ := paths.CheckoutOf(cwd)
+			recordCloseTerms(top, func() ([]string, error) { return revList(cwd, "HEAD^!") }, "", os.Stderr)
 		}
 		return 0
 	case errors.As(err, &ce) && ce.Code == 2:
