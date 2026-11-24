@@ -26,10 +26,10 @@ Launcher only (a shortcut for `agents ask --overlay`), run by this session with 
 2. Run `claude-code agents brief --path <type>`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label <type> [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).
-4. Overwrite that same brief file (it is private and pruned) with the spec, one JSON object: `{"agent":"<type>","overlay":<overlay object, or the
-   file path as a string>,"tools":true,"autonomous":true,"carry":true,"background":true,"prompt":"<task,
-   JSON-escaped>"}` plus `"model"` when given. Codex leaves out `autonomous` (note it); claude and pi leave out
-   `carry`, which refuses them.
+4. Overwrite that same brief file (it is private and pruned) with the spec, one JSON object:
+   `{"agent":"<type>","overlay":<overlay object, or the file path as a string>,"tools":true,"autonomous":true,`
+   `"carry":true,"background":true,"prompt":"<task, JSON-escaped>"}` plus `"model"` when given. Codex leaves out
+   `autonomous` (note it); claude and pi leave out `carry`, which refuses them.
 5. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
    `claude-code agents ask --spec <that path>`.
 6. Read the id from its `job <id> started` line, then wait with ONE `claude-code agents result -f <id>`.
