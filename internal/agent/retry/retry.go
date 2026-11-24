@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
@@ -56,6 +57,8 @@ type Error struct {
 
 	// ProxyRefused: this attempt's KindAuth came from the loopback proxy refusing its own session token, never an account.
 	ProxyRefused bool
+	// ProxyDown: a loopback proxy refused or reset the connection; never an account fault, Do retries once at once.
+	ProxyDown bool
 	// PolicyRefusal: the vendor declined the content; the same model never retries and no account is marked.
 	PolicyRefusal bool
 	// ShouldRetry is the upstream's x-should-retry verdict; ShouldRetryNo ends the retries of this request.
@@ -237,6 +240,9 @@ func (e *Error) typedHints(err error) *Error {
 	if errors.As(err, &sr) {
 		e.ShouldRetry = sr.ShouldRetry()
 	}
+	if e.Status == 0 && e.Kind != KindAuth && loopbackDown(err) {
+		e.Kind, e.ProxyDown, e.Connect, e.RetryAfter = KindTransient, true, false, 0
+	}
 	if policyRefusal(err) {
 		e.PolicyRefusal, e.Kind, e.RetryAfter = true, KindFatal, 0
 	}
@@ -257,6 +263,22 @@ func connectFailure(err error) bool {
 		return true
 	}
 	return connectRE().MatchString(strings.ToLower(err.Error()))
+}
+
+var loopbackDownRE = sync.OnceValue(func() *regexp.Regexp {
+	const host = `(?:127\.\d+\.\d+\.\d+|localhost|\[::1\])`
+	const down = `connection (?:refused|reset)`
+	return regexp.MustCompile(host + `:\d+.*` + down + `|` + down + `.*` + host)
+})
+
+// loopbackDown is true when err is a refused or reset connection to a loopback address (a dead local proxy).
+func loopbackDown(err error) bool {
+	if op, ok := errors.AsType[*net.OpError](err); ok {
+		if a, ok := op.Addr.(*net.TCPAddr); ok && a.IP.IsLoopback() {
+			return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+		}
+	}
+	return loopbackDownRE().MatchString(strings.ToLower(err.Error()))
 }
 
 func classifyText(err error) (Kind, time.Duration) {
@@ -413,7 +435,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
 	var earlier []*Error
-	fn = p.reroute(fn, &earlier)
+	fn = p.reroute(proxyHop(fn), &earlier)
 	start := time.Now()
 	fail := func() *Error { // every attempt before the last rides on the error returned
 		last.Earlier = earlier
@@ -453,6 +475,24 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	return fail()
 }
 
+// proxyHop gives a dead loopback proxy one immediate retry (the relaunch re-walks the route list), then it is terminal.
+func proxyHop(fn func(context.Context, int) *Error) func(context.Context, int) *Error {
+	spent := false
+	return func(ctx context.Context, attempt int) *Error {
+		e := fn(ctx, attempt)
+		if e == nil || !e.ProxyDown {
+			return e
+		}
+		if spent {
+			e.Terminal = true
+			return e
+		}
+		spent, e.RetryNow = true, true
+		e.Err = fmt.Errorf("scoped proxy unreachable, rerouting to the next route: %w", e.Err)
+		return e
+	}
+}
+
 // reroute wraps fn so the first connection failure is retried at once over the other egress path, never again.
 func (p Policy) reroute(fn func(context.Context, int) *Error, earlier *[]*Error) func(context.Context, int) *Error {
 	tried := false
@@ -490,7 +530,7 @@ func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
 	if last.Kind == KindRateLimit && last.RetryAfter <= 0 {
 		wait = max(wait, RateLimitFloor+time.Duration(jitter*float64(RateLimitFloor)/2))
 	}
-	if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
+	if p.Key != "" && !last.ProxyDown && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
 		CoolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
 	}
 	return wait

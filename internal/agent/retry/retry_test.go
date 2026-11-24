@@ -617,3 +617,32 @@ func TestGenericCodeKeepsPolicyText(t *testing.T) {
 		t.Error("a generic 400 code must not hide an explicit content-policy message")
 	}
 }
+
+func TestDoRetriesOnceWhenALoopbackProxyDies(t *testing.T) {
+	p := fastPolicy(t)
+	p.Key = "proxy-down-key"
+	t.Cleanup(ResetCooldowns)
+	ln, lerr := net.Listen("tcp", "127.0.0.1:0")
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	_, dead := http.Get("http://" + addr)
+	calls := 0
+	err := Do(context.Background(), p, func(context.Context, int) *Error {
+		calls++
+		if calls == 1 {
+			return Classify("pi", dead, false)
+		}
+		return nil
+	})
+	if err != nil || calls != 2 || cooling(p.Key) {
+		t.Fatalf("err=%v calls=%d cooling=%v, want one clean reroute", err, calls, cooling(p.Key))
+	}
+	calls = 0
+	err = Do(context.Background(), p, func(context.Context, int) *Error { calls++; return Classify("pi", dead, false) })
+	if err == nil || calls != 2 || !err.ProxyDown || len(err.Earlier) != 1 {
+		t.Fatalf("a second dead route must stop after one hop: err=%v calls=%d", err, calls)
+	}
+}
