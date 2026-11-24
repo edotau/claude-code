@@ -182,6 +182,7 @@ function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<
     child.stderr.setEncoding("utf8").on("data", add).on("error", () => {})
     const timer = setTimeout(() => { killTree(child); resolve({ code: -1, out, timedOut: true }) }, Math.max(1, ms))
     child.on("error", (err) => { clearTimeout(timer); reject(err) })
+    child.on("exit", () => { if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ } })
     child.on("close", (code) => { clearTimeout(timer); code === null ? reject(new Error("killed")) : resolve({ code, out }) })
   })
 }
@@ -197,7 +198,8 @@ function killTree(child: any) {
 function keepTail(s: string): string {
   if (s.length <= 4 * ERR_CHARS) return s
   const t = s.slice(-4 * ERR_CHARS)
-  return t.slice(t.indexOf("\n") + 1) // no newline in the tail: the whole partial line goes
+  const nl = t.indexOf("\n")
+  return nl < 0 ? "" : t.slice(nl + 1) // no newline in the tail: the whole partial line goes
 }
 
 // masked is s with the proxy token's value cut out, should a step print its inherited env.
