@@ -55,8 +55,9 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - External work agents run directly from the main session via carried asks
   (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20), or as the Agent tool's
-  `codex`, `copilot`, `gemini`, `opencode` types: a Haiku relay that launches one Pi ask, and Pi runs the carried ask
-  the file bakes, waits, checks the diff and writes the verdict (inside Pi the ask is fenced to Pi's Databricks route);
+  `codex`, `copilot`, `gemini`, `opencode` types: a Haiku worker that runs the one typed
+  `agents ask --agent <type> --provider databricks` its file bakes, waits and checks the result; the vendor verbs
+  (`claude-code codex …`) and overlay `{"runner":"own"}` keep each CLI on its own login;
   an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
   runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer's schema exists, its
   dispatch wiring does not (`skills/subagent-workflows/SKILL.md` → Owner layer);
@@ -80,7 +81,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - **Skill file:** start from `docs/templates/skill.md`; one home per procedure, heavy reference in `references/`.
 - **Split** a role only when its expertise, tool grant or authority differs (`Explore` vs `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
-  belongs in a direct carried ask (Pi plain), the four Pi-run relay types aside; saved workflow stages run on `claude`.
+  belongs in a direct carried ask (Pi plain), the four external worker types aside; saved workflow stages run on
+  `claude`.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
   (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` is pinned to `fable`; raise
   one call with the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
@@ -89,7 +91,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A CLI agent is one row in the `agentid` roster table
   (`internal/agentid/agentid.go`) plus its vendor package's `agent.Register` row,
-  subagent types in `agents/`; external agents run via carried asks (direct, or baked into a relay type Pi runs)
+  subagent types in `agents/`; external agents run via carried asks (direct, or baked into the agent's own type)
   and `internal/hooks/leaves.go` holds any leaf whose own background job is still running. Shapes and enforcers:
   `skills/subagent-workflows/references/patterns.md`.
 - Thinking is adaptive: never hand-roll a thinking budget. Mark stable large prefixes with `cache_control`; keep

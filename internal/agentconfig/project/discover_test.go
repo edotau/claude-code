@@ -362,17 +362,16 @@ func TestAgentFilesTie(t *testing.T) {
 	}
 }
 
-// Each external relay type bakes its Pi launch and the one carried ask Pi runs: nobody composes either line.
-func TestRelayFilesBakeTheirAsks(t *testing.T) {
+// Each external worker type bakes its one typed ask, --agent matching the file: nobody composes the line.
+func TestExternalTypesBakeTheirAsk(t *testing.T) {
 	root := repoRoot(t)
-	const piLine = "claude-code agents ask --background --agent pi --provider databricks --model sonnet --tools --timeout 60m - < PATH"
 	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
 		data, err := os.ReadFile(filepath.Join(root, "agents", name+".md"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		carried := "claude-code agents ask --carry --background --agent " + name + " --tools - < <that path>"
-		for _, want := range []string{piLine, carried, "claude-code agents brief --path " + name} {
+		ask := "claude-code agents ask --background --agent " + name + " --provider databricks --tools --timeout 60m - < PATH"
+		for _, want := range []string{ask, "claude-code agents brief --path " + name} {
 			if !strings.Contains(string(data), want) {
 				t.Errorf("agents/%s.md lacks %q", name, want)
 			}
