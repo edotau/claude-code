@@ -97,7 +97,7 @@ func (w forwardWriter) Write(p []byte) (int, error) {
 // emit tags ev for the log; text (already streamed) and the result (the carrier's own) are not forwarded.
 func (w forwardWriter) emit(ev wire.Event) {
 	switch ev.Type {
-	case wire.EventText, wire.EventProgress, wire.EventResult:
+	case wire.EventText, wire.EventProgress, wire.EventUsage, wire.EventResult:
 		return
 	}
 	tool := ""

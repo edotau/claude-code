@@ -25,6 +25,7 @@ const (
 	EventToolResult = "tool_result"
 	EventRetry      = "retry"
 	EventProgress   = "progress" // a bare progress mark: counts as progress; EventLog and Stream drop it, JSONLSink keeps it
+	EventUsage      = "usage"    // cumulative usage so far: not progress, not a tool call; EventLog and Stream drop it
 	EventResult     = "result"
 	EventError      = "error"
 	EventTakeover   = "takeover"
@@ -287,7 +288,7 @@ func (l *EventLog) Emit(ev Event) error {
 	if l.sink == nil {
 		return nil
 	}
-	if ev.Type == EventProgress {
+	if ev.Type == EventProgress || ev.Type == EventUsage {
 		return nil
 	}
 	if ev.Type != EventText {

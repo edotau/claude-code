@@ -69,10 +69,10 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	if err != nil {
 		return res, copilotFatal(err)
 	}
+	opts.OnUsage = liveUsage(sink)
 	out, err := copilotAsk(ctx, opts, prompt, images)
 	res.Transport = out.Transport
-	lg := wire.EventLogFor(ctx)
-	err = markToolRan(out, sink, noResponse(out, err))
+	lg, err := wire.EventLogFor(ctx), markToolRan(out, sink, noResponse(out, err))
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
@@ -92,6 +92,11 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		return emptyText(res, out, sink)
 	}
 	return res, sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text})
+}
+
+// liveUsage emits each cumulative total as an inert usage event; a write failure surfaces on the final emit.
+func liveUsage(sink wire.Sink) func(wire.Usage) {
+	return func(u wire.Usage) { _ = sink.Emit(wire.Event{Type: wire.EventUsage, Usage: &u}) }
 }
 
 // emptyText settles a run with no text: a placeholder answer after tool work, else the empty-answer failure.
@@ -519,7 +524,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native, Permissions: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},
-	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError},
+	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventUsage, wire.EventResult, wire.EventError},
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	ReviewReadOnly: true, CatalogTitle: "GitHub Copilot catalog", ProviderVerb: true,
 	LoginArgv:     []string{"copilot", "login"},

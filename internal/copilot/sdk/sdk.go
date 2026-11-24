@@ -40,6 +40,8 @@ const denyFeedback = "Tool use is disabled for this headless run. Answer from th
 
 // Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type Options struct {
+	// OnUsage gets the cumulative usage after each model call, on the SDK goroutine
+	OnUsage       func(wire.Usage)
 	BudgetCredits *int
 	// resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	CLIPath string
@@ -552,7 +554,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	defer stop()
 	idle := agent.NewIdleTimeout("copilot", agent.IdleLimitFor("copilot"), stop)
 	defer idle.Stop()
-	col := assistantCollector{transport: wire.TransportTracker{Start: started}, idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
+	col := assistantCollector{onUsage: o.OnUsage, transport: wire.TransportTracker{Start: started}, idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
 		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}
 		_, _ = session.RPC.UI.HandlePendingSessionLimitsExhausted(context.WithoutCancel(ctx),
 			&rpc.UIHandlePendingSessionLimitsExhaustedRequest{RequestID: id, Response: cancel})
@@ -587,6 +589,7 @@ type assistantCollector struct {
 	filter  bool
 	limit   *copilot.SessionLimitsExhaustedRequestedData
 	onLimit func(requestID string)
+	onUsage func(wire.Usage)
 	// live activity to the dispatch log: the SDK turn streams nothing else, so a working run looked silent
 	log wire.StreamLog
 	// kills a run silent past the limit; paused while a tool call is open
@@ -677,6 +680,9 @@ func (c *assistantCollector) addUsage(d *copilot.AssistantUsageData) {
 		c.finishR = *d.FinishReason
 	}
 	c.filter = c.filter || (d.ContentFilterTriggered != nil && *d.ContentFilterTriggered)
+	if c.onUsage != nil {
+		c.onUsage(c.usage)
+	}
 }
 
 func (c *assistantCollector) addEdits(d *copilot.ToolExecutionCompleteData) {

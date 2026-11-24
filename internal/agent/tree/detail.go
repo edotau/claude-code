@@ -56,7 +56,7 @@ func eventLine(raw []byte, width int) (string, bool) {
 }
 
 func paneEventLine(ev wire.Event, width int) (string, bool) {
-	if ev.Type == "" || ev.Type == "heartbeat" || ev.Type == wire.EventProgress {
+	if ev.Type == "" || ev.Type == "heartbeat" || ev.Type == wire.EventProgress || ev.Type == wire.EventUsage {
 		return "", false
 	}
 	var parts []string
