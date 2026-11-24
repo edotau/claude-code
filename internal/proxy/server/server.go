@@ -92,12 +92,15 @@ type Router struct {
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
 const quotaDeadFor = 30 * time.Minute
 
-func newRouter(secret string) *Router {
+func newRouter(secret string) *Router { return newRouterWith(secret, newSessionStore) }
+
+// newRouterWith builds a router whose session store comes from mk, so a scoped one never reads the daemon's files.
+func newRouterWith(secret string, mk func(string, func() time.Time) *sessionStore) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, deprecated: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
-	r.sessions = newSessionStore(secret, func() time.Time { return r.now() })
+	r.sessions = mk(secret, func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
 	return r

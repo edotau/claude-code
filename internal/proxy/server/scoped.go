@@ -39,15 +39,15 @@ func Open(ctx context.Context, sc proxy.Scope) (*Scoped, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := newRouter(secret)
-	r.sessions = newMemorySessionStore(secret, func() time.Time { return r.now() })
-	s := &Scoped{port: ln.Addr().(*net.TCPAddr).Port, r: r, done: make(chan struct{}),
-		stopRefresh: acquireRefresh(), cleanup: func() {}}
-	err = ctx.Err() // acquireRefresh can wait on another proxy's last Close
-	if err == nil {
-		err = s.publish(sc)
-	}
+	r := newRouterWith(secret, newMemorySessionStore)
+	stopRefresh, err := acquireRefresh(ctx)
 	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	s := &Scoped{port: ln.Addr().(*net.TCPAddr).Port, r: r, done: make(chan struct{}),
+		stopRefresh: stopRefresh, cleanup: func() {}}
+	if err := s.publish(sc); err != nil {
 		_ = ln.Close()
 		s.stopRefresh()
 		return nil, err
@@ -67,27 +67,49 @@ func Open(ctx context.Context, sc proxy.Scope) (*Scoped, error) {
 	return s, nil
 }
 
-// refresh counts live scoped proxies: providers' refresh admission is process-wide, so the last one out stops it.
+// refresh counts this process's servers: providers' refresh admission is process-wide, so the last one out stops it.
 var refresh struct {
 	sync.Mutex
-	n    int
-	stop func()
+	n        int
+	stop     func()
+	draining chan struct{} // non-nil while the last holder's stop waits on exchanges, with the mutex released
 }
 
-func acquireRefresh() func() {
+// acquireRefresh joins the process's refresh life; it waits out a drain in progress, or ctx.
+func acquireRefresh(ctx context.Context) (func(), error) {
 	refresh.Lock()
+	for refresh.draining != nil {
+		d := refresh.draining
+		refresh.Unlock()
+		select {
+		case <-d:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		refresh.Lock()
+	}
 	defer refresh.Unlock()
 	if refresh.n == 0 {
 		refresh.stop = providers.BackgroundRefresh(context.Background())
 	}
 	refresh.n++
-	return func() {
-		refresh.Lock()
-		defer refresh.Unlock()
-		if refresh.n--; refresh.n == 0 {
-			refresh.stop()
-		}
+	return releaseRefresh, nil
+}
+
+func releaseRefresh() {
+	refresh.Lock()
+	if refresh.n--; refresh.n > 0 {
+		refresh.Unlock()
+		return
 	}
+	stop, d := refresh.stop, make(chan struct{})
+	refresh.draining = d
+	refresh.Unlock()
+	stop()
+	refresh.Lock()
+	refresh.draining = nil
+	refresh.Unlock()
+	close(d)
 }
 
 // publish writes the scope file; an empty ID is a host that keeps no file.
