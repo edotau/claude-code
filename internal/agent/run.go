@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -894,11 +895,53 @@ type tally struct {
 	wire.Sink
 	live                                   *activityLog
 	tools, geminiTools, toolProgress, text atomic.Int64
+	mu                                     sync.Mutex
+	stats                                  map[string]ToolStat
+}
+
+// ToolStat is one tool's calls, failed calls and total run milliseconds in a dispatch.
+type ToolStat struct {
+	Calls  int   `json:"calls"`
+	Errors int   `json:"errors,omitempty"`
+	Ms     int64 `json:"ms,omitempty"`
+}
+
+// ToolStats maps a tool name to its stats; names and numbers only, never arguments.
+type ToolStats map[string]ToolStat
+
+func (t *tally) addStat(ev wire.Event) {
+	if ev.Tool == nil || ev.Tool.Name == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stats == nil {
+		t.stats = map[string]ToolStat{}
+	}
+	s := t.stats[ev.Tool.Name]
+	if ev.Type == wire.EventToolUse {
+		s.Calls++
+	} else {
+		s.Ms += ev.DurationMs
+		if ev.Status == "error" {
+			s.Errors++
+		}
+	}
+	t.stats[ev.Tool.Name] = s
+}
+
+func (t *tally) toolStats() ToolStats {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return maps.Clone(t.stats)
 }
 
 func (t *tally) Emit(ev wire.Event) error {
 	switch ev.Type {
+	case wire.EventToolResult:
+		t.addStat(ev)
 	case wire.EventToolUse:
+		t.addStat(ev)
 		if ev.Agent == "gemini" {
 			t.geminiTools.Add(1)
 		} else {

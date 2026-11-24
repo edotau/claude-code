@@ -1442,3 +1442,20 @@ func TestFinishSaveKeepsStoredReport(t *testing.T) {
 		t.Fatalf("record %+v, %v: report lost on finish", got, err)
 	}
 }
+
+func TestTallyToolStats(t *testing.T) {
+	tl := &tally{Sink: wire.Discard}
+	for _, ev := range []wire.Event{
+		{Type: wire.EventToolUse, Tool: &wire.ToolRef{Name: "read"}},
+		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "read"}, Status: "completed", DurationMs: 30},
+		{Type: wire.EventToolUse, Tool: &wire.ToolRef{Name: "read"}},
+		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "read"}, Status: "error", DurationMs: 12},
+	} {
+		if err := tl.Emit(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := tl.toolStats()["read"], (ToolStat{Calls: 2, Errors: 1, Ms: 42}); got != want {
+		t.Fatalf("read stat %+v, want %+v", got, want)
+	}
+}

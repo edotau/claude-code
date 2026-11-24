@@ -82,6 +82,7 @@ type Record struct {
 	Background     bool        `json:"background,omitempty"`      // set only by the `ask --background` spawn
 	Log            string      `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
 	Activity       *Activity   `json:"activity,omitempty"`        // running only: usage, tool calls and last event time so far
+	ToolStats      ToolStats   `json:"tool_stats,omitempty"`      // per tool name: calls, errors, total ms
 	Progress       string      `json:"progress,omitempty"`        // "part 2/3" or "queued <RFC3339Nano> <pool>"
 	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
@@ -1088,6 +1089,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 	tl := &tally{Sink: sink, live: startActivity(rec.ID)}
 	res, err = run(ctx, tl)
 	tl.live.close()
+	rec.ToolStats = tl.toolStats()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
 	logSink.Close() // flush before the answer, so tail -f never misses the last line
 	if o.Hold {
