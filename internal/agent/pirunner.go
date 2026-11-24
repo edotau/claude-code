@@ -33,14 +33,14 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 	}
 	reg := loadRegistryWarn()
 	lead := c.Dispatches[0]
-	if lead.Agent.Name() != q.Agent || reg == nil || !databricksDispatch(reg, lead) {
-		if typed { // first-party, Copilot and Google logins keep their own CLI
-			return c.noted(q.Agent + ": pi runner skipped: " + hopTarget(lead) + " is not the agent's Databricks hop")
+	if !ownDatabricksHop(reg, q, lead) {
+		if !typed { // first-party, Copilot and Google logins keep their own CLI
+			return c
 		}
-		return c
+		return c.noted(q.Agent + ": pi runner skipped: " + hopTarget(lead) + " is not the agent's Databricks hop")
 	}
 	pi, err := Lookup(agentid.Pi)
-	if err != nil { // a build without the pi driver
+	if err != nil || pi.Available() != nil { // a build without the pi driver, or pi not installed
 		return c
 	}
 	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
@@ -51,6 +51,11 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
 	}
 	return c.ledBy(hops)
+}
+
+// ownDatabricksHop reports lead as the asked agent's own hop on a Databricks row.
+func ownDatabricksHop(reg *providers.Registry, q RouteReq, lead Dispatch) bool {
+	return reg != nil && lead.Agent.Name() == q.Agent && databricksDispatch(reg, lead)
 }
 
 // carriedChild reports this ask as the inner line of a --carry of agent: its parent dispatch record carries agent.
@@ -89,6 +94,9 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	}
 	sibs, skips, why := piSiblings(ctx, reg, q, lead, model)
 	if why != "" {
+		return nil, nil, why
+	}
+	if why := stampedPick(ctx, reg, q, lead, model); why != "" { // stamped last: a refused hop stamps nothing
 		return nil, nil, why
 	}
 	hops := append([]Dispatch{headPiHop(reg, lead, profile, wire)}, sibs...)
@@ -205,9 +213,6 @@ func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lea
 		return "", "", why
 	}
 	wire, why = piWire(reg, profile, model)
-	if why == "" && IsAuto(want) && !q.Preview && !Peeking(ctx) && !stampedPick(ctx, reg, q, profile, model) {
-		why = "the rotation pick moved off " + model
-	}
 	if why != "" {
 		return "", "", "pi on " + profile + ": " + why
 	}
@@ -223,10 +228,17 @@ func piWire(reg *providers.Registry, profile, model string) (wire, why string) {
 	return wire, why
 }
 
-// stampedPick stamps a rotating agent's pick, once its Pi hop is validated, and reports it still being model.
-func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, profile, model string) bool {
+// stampedPick stamps a rotating agent's pick once its Pi hops are all validated; why when the pick moved off model.
+func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, model string) string {
+	if !IsAuto(lead.Model) || q.Preview || Peeking(ctx) {
+		return ""
+	}
+	_, profile, _ := strings.Cut(lead.Account, "·")
 	stamped, why := agentModelOn(ctx, reg, q, AutoModel, profile)
-	return why == "" && models.SameModel(stamped, model)
+	if why != "" || !models.SameModel(stamped, model) {
+		return "pi on " + profile + ": the rotation pick moved off " + model
+	}
+	return ""
 }
 
 // runnerWant is the model word the pi hop resolves: auto only for a rotating agent, whose own pick Pi then runs.

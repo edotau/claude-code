@@ -53,9 +53,9 @@ func skipsRefusedFamily(prev, d Dispatch, req RunOptions, res wire.Result, err e
 	return refused != "" && hopFamily(d) == refused
 }
 
-// refusedModel is the model hop d ran: the request's pick, else the one the result names, else d's own concrete one.
+// refusedModel is the model hop d ran: the result's, else d's own concrete one, else the request's pick.
 func refusedModel(d Dispatch, req RunOptions, res wire.Result) string {
-	for _, m := range []string{ranModel(d, req, res), res.Model, d.Model} {
+	for _, m := range []string{res.Model, d.Model, ranModel(d, req, res)} {
 		if m != "" && !IsAuto(m) {
 			return m
 		}
