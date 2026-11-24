@@ -286,7 +286,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
-		if plan.spends(auto) && !res.NotStarted {
+		if !res.NotStarted && plan.spend(ctx, auto) {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
 		res.Invoked = invoked
@@ -294,11 +294,10 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			noteFailure(disp, lreq, ran, first)
 		}
 	}
-	err = refusedTwice(ctx, hops, err)
 	if auto {
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
-	return res, lreq, hops, err
+	return res, lreq, hops, refusedTwice(ctx, hops, err)
 }
 
 type triedCarryKey struct{}

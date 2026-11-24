@@ -54,6 +54,10 @@ func planRepick(ctx context.Context, in refusedHop) repickPlan {
 		return plan // refusedTwice names both refusals once the loop ends
 	}
 	ids := policyCandsFn(in.disp, in.req.Tools, ranAccount(in.disp.Account, in.res.Provider), ran)
+	tried := askTriedPicks(ctx) // a pick this ask already ran and lost stays out
+	ids = slices.DeleteFunc(ids, func(id string) bool {
+		return slices.ContainsFunc(tried, func(t string) bool { return models.SameModel(t, id) })
+	})
 	switch {
 	case explicitModel(ctx, in):
 		plan.prefusal = fmt.Sprintf("%s (%s) is kept, not replaced; other families: %s", ran, plan.pfrom, namedIDs(ids))
@@ -61,7 +65,6 @@ func planRepick(ctx context.Context, in refusedHop) repickPlan {
 		plan.prefusal = fmt.Sprintf("no model of another family than %s (%s) is available", ran, plan.pfrom)
 	default:
 		plan.pmodel, plan.pto = ids[0], models.FamilyName(ids[0])
-		ask.spend(plan.note())
 	}
 	return plan
 }
@@ -89,10 +92,10 @@ func explicitModel(ctx context.Context, in refusedHop) bool {
 	if req.Fallback == router.FallbackNone || req.Fallback == router.FallbackPin {
 		return true
 	}
-	if pin := agentModelPinContext(valuesContext(ctx, req.Values), in.disp.agentName()); pin != "" && !IsAuto(pin) && !IsAuto(req.Model) {
+	if pin := agentModelPinContext(valuesContext(ctx, req.Values), in.disp.agentName()); pin != "" && !IsAuto(pin) && !IsAuto(req.Model) && !req.AutoModel {
 		return true
 	}
-	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+	ov, _ := agentconfig.LoadOverlayContext(valuesContext(ctx, req.Values), "", nil)
 	return ov.Runner != ""
 }
 
@@ -220,12 +223,10 @@ func refusedTwice(ctx context.Context, hops []wire.Hop, err error) error {
 // keepsCell: an auto re-pick stays an auto cell; a policy pick is a concrete model.
 func (r repickPlan) keepsCell(auto bool) bool { return auto && r.pmodel == "" }
 
-// spends: the re-pick counts against the ask's budget (every auto re-pick, and a policy pick).
-func (r repickPlan) spends(auto bool) bool { return auto || r.pmodel != "" }
-
-// spend records the ask's one policy re-pick; a nil note (no ask context) records nothing.
-func (a *askNote) spend(note string) {
-	if a != nil {
-		a.first = note
+// spend counts a started re-pick against the ask's budget: every auto re-pick, and the ask's one policy pick.
+func (r repickPlan) spend(ctx context.Context, auto bool) bool {
+	if ask, ok := ctx.Value(askKey{}).(*askNote); ok && r.pmodel != "" {
+		ask.first = r.note()
 	}
+	return auto || r.pmodel != ""
 }

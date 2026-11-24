@@ -120,7 +120,9 @@ func servedIDs(p *providers.Provider, now time.Time) []string {
 
 // DifferentFamily reports a and b as models of different vendors' families.
 func DifferentFamily(a, b string) bool {
-	return models.FamilyKind(a) != models.FamilyKind(b) || models.FamilyName(a) != models.FamilyName(b)
+	ka, kb := models.FamilyKind(a), models.FamilyKind(b)
+	named := ka != models.FamilyClaude && ka != models.FamilyGPT && ka != models.FamilyGemini // only other families split by name
+	return ka != kb || named && models.FamilyName(a) != models.FamilyName(b)
 }
 
 // OtherFamily is the pool entries that, as p spells them, belong to another family than ran, in pool order.
