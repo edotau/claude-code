@@ -45,11 +45,16 @@ type sessionStore struct {
 	procStart  func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
 
+// newMemorySessionStore is a store that never persists: no legacy reload, no renewal file.
+func newMemorySessionStore(secret string, now func() time.Time) *sessionStore {
+	return &sessionStore{secret: secret, seen: map[string]*seenSession{},
+		legacy: map[string]legacySession{}, legacyDead: map[string]bool{},
+		renewed: map[string]legacyRenewal{}, now: now, procStart: proc.StartTime}
+}
+
 func newSessionStore(secret string, now func() time.Time) *sessionStore {
-	s := &sessionStore{secret: secret, seen: map[string]*seenSession{},
-		legacy: map[string]legacySession{}, legacyDead: map[string]bool{}, legacyFile: proxy.SessionsFile(),
-		renewed: map[string]legacyRenewal{}, renewFile: proxy.LegacyRenewalsFile(),
-		now: now, procStart: proc.StartTime}
+	s := newMemorySessionStore(secret, now)
+	s.legacyFile, s.renewFile = proxy.SessionsFile(), proxy.LegacyRenewalsFile()
 	s.mu.Lock()
 	s.reloadLegacyLocked()
 	s.mu.Unlock()

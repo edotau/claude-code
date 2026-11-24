@@ -71,6 +71,7 @@ pi-guard | derived | 1 | state/harness/pi/*/runs/*/guard.ts | internal/pi | clea
 pi-packages | derived | 1 | state/harness/pi/packages/*/.spec | internal/pi | keep
 picker-additions | store | 1 | state/vault.db | internal/catalog | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
+proxy-scope | record | 1 | state/harness/proxy/scopes/*.json | internal/proxy | keep
 proxy-teams | wire | 1 | - | internal/proxyteam | keep
 proxy-teams-last-good | cache | 1 | state/harness/proxy/teams.last-good.json | internal/proxyteam | keep
 quota | derived | 0 | state/harness/quota.json | internal/router | keep

@@ -3,4 +3,5 @@ internal/proxy/exehash.go:cachedExeHash	unversioned: runtime: the installed bina
 internal/proxy/ranidentity.go:WriteRanIdentity	unversioned: marker: the identity (sp|user) the proxy served a dispatch, beside its record, no credential
 internal/proxy/restart.go:Hold	unversioned: marker: deliberate proxy stop, watchdog stays off
 internal/proxy/restart.go:claimRestartLocked	unversioned: marker: watchdog proxy restart stamp
+internal/proxy/scope.go:WriteScope	proxy-scope
 internal/proxy/sessions.go:resolveProxyToken	unversioned: runtime: scoped proxy token cache per claude pid, pruned when the pid dies
