@@ -1,0 +1,1 @@
+For web search or fetching a page, run `claude-code network websearch --query "<q>"` or `--extract <url>` in the shell.

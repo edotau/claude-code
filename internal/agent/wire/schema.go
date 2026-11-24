@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -21,7 +22,7 @@ var errSchema = errors.New("schema")
 
 // SchemaInstruction is the one line that asks an agent without a native flag for schema-shaped JSON.
 func SchemaInstruction(schema string) string {
-	return "\n\nAnswer with only a JSON value matching this JSON Schema, no prose or code fence: " + compactJSON(schema)
+	return assets.AgentSchemaInstruction(compactJSON(schema))
 }
 
 func compactJSON(s string) string {

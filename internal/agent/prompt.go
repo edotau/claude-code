@@ -12,21 +12,22 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 // Preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
 func Preamble(text string) string {
-	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
+	return assets.AgentPreamble(text)
 }
 
 // WebViaCLI is the one line an agent with no native web tool on a Databricks row gets for web lookups.
-const WebViaCLI = "For web search or fetching a page, run `claude-code network websearch --query \"<q>\"` or `--extract <url>` in the shell."
+var WebViaCLI = assets.AgentWebViaCLI()
 
 // MaxPromptBytes keeps a prompt passed as one argv element under the kernel's 128 KiB MAX_ARG_STRLEN.
 const MaxPromptBytes = 96 << 10
 
 // rubricLead opens every rubric prompt; a replayed rubric review is recognised by it.
-const rubricLead = "You are reviewing against a fixed standard, quoted in full below.\n\n"
+var rubricLead = assets.AgentRubricLead()
 
 // rubricPrompt frames task against the review standard in file, quoted verbatim.
 func rubricPrompt(file, task string) (string, error) {
@@ -34,13 +35,7 @@ func rubricPrompt(file, task string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("rubric: %w", err)
 	}
-	prompt := rubricLead +
-		"=== BEGIN REVIEW STANDARD (the rubric, NOT the code under review) ===\n" + string(standard) +
-		"\n=== END REVIEW STANDARD ===\n\nTASK: " + task + "\n\nRules for your output:\n" +
-		"- Apply the standard exactly as written, including every exemption it states.\n" +
-		"- Report only violations you can point to, with file and approximate line, quoting the code.\n" +
-		"- Do not report on the standard's own text or examples.\n" +
-		"- If nothing violates the standard, say exactly: no findings.\n"
+	prompt := rubricLead + assets.AgentRubricBody(string(standard), task)
 	if len(prompt) > MaxPromptBytes {
 		return "", fmt.Errorf("rubric: composed prompt is %d bytes, over the %d limit", len(prompt), MaxPromptBytes)
 	}

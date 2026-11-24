@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -178,27 +179,10 @@ func writeBlock(b *strings.Builder, f IncludedFile) {
 func prompt(task string, ctx Context) string {
 	inv := inventoryText(ctx)
 	var b strings.Builder
-	b.Grow(len(task) + len(inv) + blocksSize(ctx) + 512)
-	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
-	b.WriteString("<task>\n")
-	b.WriteString(task)
-	b.WriteString(`
-</task>
-
-<constraints>
-- Use the provided workspace context when it is relevant.
-- Cite file paths when referring to evidence from inline context.
-- Call out when the context is partial, skipped, or truncated (name the last file you saw in full).
-- Do not invent files or data that are not present in the provided payloads.
-</constraints>
-
-<context_inventory>
-`)
-	b.WriteString(inv)
-	b.WriteString("</context_inventory>\n\n<context_files>\n")
+	b.Grow(blocksSize(ctx))
 	writeBlocks(&b, ctx)
-	b.WriteString("\n</context_files>")
-	return b.String()
+	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
+	return assets.PackPrompt(task, inv, b.String())
 }
 
 func blocksSize(ctx Context) (n int) {
@@ -231,7 +215,7 @@ func inventoryText(ctx Context) string {
 // writeBlocks joins the included files' payload blocks.
 func writeBlocks(b *strings.Builder, ctx Context) {
 	if len(ctx.Included) == 0 {
-		b.WriteString("No inline file payloads were collected.")
+		b.WriteString(assets.PackNoFiles())
 		return
 	}
 	for i, f := range ctx.Included {
@@ -291,14 +275,7 @@ func insertPath(root map[string]any, path string, leaf indexLeaf) {
 
 // indexPrompt renders the index as a prompt section, framing it as a routing map, not data to summarize.
 func indexPrompt(ctx Context) string {
-	var b strings.Builder
-	b.WriteString("\n## Repository index (paths only)\n\n")
-	b.WriteString("A nested map of every matched path. `body` says whether that file's contents are in this\n")
-	b.WriteString("prompt (\"inlined\") or why they are not. Use it to name exact paths; if a file you need is\n")
-	b.WriteString("listed but not inlined, say which path you need rather than guessing its contents.\n\n```json\n")
-	b.WriteString(index(ctx))
-	b.WriteString("\n```\n")
-	return b.String()
+	return assets.PackIndex(index(ctx))
 }
 
 // coverageWarning is a one-line summary of what a sweep left out, with its distinct skip reasons; "" when nothing was.
@@ -312,8 +289,8 @@ func coverageWarning(ctx Context) string {
 	}
 	kb /= 1024
 	total := len(ctx.Included) + len(ctx.Skipped)
-	return fmt.Sprintf("pack: inlined %d of %d files (%d KB); skipped %d: %s",
-		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(sortedSkipReasons(ctx), ", "))
+	return assets.PackCoverageWarning(assets.PackCoverage{Included: len(ctx.Included), Total: total, KB: kb,
+		Skipped: len(ctx.Skipped), Reasons: strings.Join(sortedSkipReasons(ctx), ", ")})
 }
 
 // sortedSkipReasons summarizes why files were left out, so an operator can widen the right knob.

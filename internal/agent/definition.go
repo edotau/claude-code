@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -232,11 +233,7 @@ func emulatePersona(c Caps, req RunOptions, dropped []string) (RunOptions, []str
 	if p.MaxTurns > 0 {
 		dropped = append(dropped, fmt.Sprintf("persona.max_turns=%d", p.MaxTurns))
 	}
-	text := "You are the " + p.Name + " agent."
-	if p.Description != "" {
-		text += " " + p.Description
-	}
-	text += "\n\n" + p.Prompt
+	text := assets.AgentPersona(assets.PersonaFrame{Name: p.Name, Description: p.Description, Prompt: p.Prompt})
 	req.Persona = nil
 	if c.AppendSystemPrompt == Emulated {
 		req.Prompt = Preamble(text) + req.Prompt

@@ -119,6 +119,33 @@ var inventory = []struct {
 	{"files/memory/prompts/bank-heading.tmpl", "tmpl", "MemoryBankHeading", func() []byte { return read("files/memory/prompts/bank-heading.tmpl") }},
 	{"files/memory/prompts/native-context.tmpl", "tmpl", "MemoryNativeContext", func() []byte { return read("files/memory/prompts/native-context.tmpl") }},
 	{"files/memory/prompts/transcript-handoff.tmpl", "tmpl", "TranscriptHandoff", func() []byte { return read("files/memory/prompts/transcript-handoff.tmpl") }},
+	{"files/agent/preamble.tmpl", "tmpl", "AgentPreamble", func() []byte { return read("files/agent/preamble.tmpl") }},
+	{"files/agent/web-via-cli.txt", "txt", "AgentWebViaCLI", func() []byte { return read("files/agent/web-via-cli.txt") }},
+	{"files/agent/resume.txt", "txt", "AgentResumePrompt", func() []byte { return read("files/agent/resume.txt") }},
+	{"files/agent/rubric-lead.txt", "txt", "AgentRubricLead", func() []byte { return read("files/agent/rubric-lead.txt") }},
+	{"files/agent/rubric.tmpl", "tmpl", "AgentRubricBody", func() []byte { return read("files/agent/rubric.tmpl") }},
+	{"files/agent/persona.tmpl", "tmpl", "AgentPersona", func() []byte { return read("files/agent/persona.tmpl") }},
+	{"files/agent/mid-run.tmpl", "tmpl", "AgentMidRun", func() []byte { return read("files/agent/mid-run.tmpl") }},
+	{"files/agent/partial.tmpl", "tmpl", "AgentPartial", func() []byte { return read("files/agent/partial.tmpl") }},
+	{"files/agent/reconcile.tmpl", "tmpl", "AgentReconcile", func() []byte { return read("files/agent/reconcile.tmpl") }},
+	{"files/agent/handoff.tmpl", "tmpl", "AgentHandoff", func() []byte { return read("files/agent/handoff.tmpl") }},
+	{"files/agent/recovery.tmpl", "tmpl", "AgentRecovery", func() []byte { return read("files/agent/recovery.tmpl") }},
+	{"files/agent/schema.tmpl", "tmpl", "AgentSchemaInstruction", func() []byte { return read("files/agent/schema.tmpl") }},
+	{"files/agent/pack-prompt.tmpl", "tmpl", "PackPrompt", func() []byte { return read("files/agent/pack-prompt.tmpl") }},
+	{"files/agent/pack-index.tmpl", "tmpl", "PackIndex", func() []byte { return read("files/agent/pack-index.tmpl") }},
+	{"files/agent/pack-coverage.tmpl", "tmpl", "PackCoverageWarning", func() []byte { return read("files/agent/pack-coverage.tmpl") }},
+	{"files/agent/pack-no-files.txt", "txt", "PackNoFiles", func() []byte { return read("files/agent/pack-no-files.txt") }},
+	{"files/hooks/simplicity-header.tmpl", "tmpl", "HookSimplicityHeader", func() []byte { return read("files/hooks/simplicity-header.tmpl") }},
+	{"files/hooks/simplicity-more.tmpl", "tmpl", "HookSimplicityMore", func() []byte { return read("files/hooks/simplicity-more.tmpl") }},
+	{"files/hooks/paths-failed.tmpl", "tmpl", "HookPathFailed", func() []byte { return read("files/hooks/paths-failed.tmpl") }},
+	{"files/hooks/paths-mapped.tmpl", "tmpl", "HookPathMapped", func() []byte { return read("files/hooks/paths-mapped.tmpl") }},
+	{"files/hooks/paths-detail.tmpl", "tmpl", "HookPathDetail", func() []byte { return read("files/hooks/paths-detail.tmpl") }},
+	{"files/hooks/paths-context.tmpl", "tmpl", "HookPathsContext", func() []byte { return read("files/hooks/paths-context.tmpl") }},
+	{"files/hooks/busy-peer.tmpl", "tmpl", "HookBusyPeer", func() []byte { return read("files/hooks/busy-peer.tmpl") }},
+	{"files/hooks/notice-line.tmpl", "tmpl", "HookNoticeLine", func() []byte { return read("files/hooks/notice-line.tmpl") }},
+	{"files/hooks/notice-drain-warn.tmpl", "tmpl", "HookNoticeDrainWarn", func() []byte { return read("files/hooks/notice-drain-warn.tmpl") }},
+	{"files/hooks/notice-diverge-warn.tmpl", "tmpl", "HookNoticeDivergeWarn", func() []byte { return read("files/hooks/notice-diverge-warn.tmpl") }},
+	{"files/hooks/diverged.tmpl", "tmpl", "HookDiverged", func() []byte { return read("files/hooks/diverged.tmpl") }},
 	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
 	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
 	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
@@ -145,6 +172,11 @@ func readers(t *testing.T) map[string][]string {
 	return out
 }
 
+// readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
+var readerDirs = map[string]string{
+	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/",
+}
+
 func readPaths(fn *ast.FuncDecl) []string {
 	var paths []string
 	ast.Inspect(fn, func(n ast.Node) bool {
@@ -154,12 +186,12 @@ func readPaths(fn *ast.FuncDecl) []string {
 		}
 		id, ok := call.Fun.(*ast.Ident)
 		lit, isLit := call.Args[0].(*ast.BasicLit)
-		if ok && (id.Name == "read" || id.Name == "renderMemory") && isLit && lit.Kind == token.STRING {
+		if !ok || !isLit || lit.Kind != token.STRING {
+			return true
+		}
+		if dir, known := readerDirs[id.Name]; known {
 			p, _ := strconv.Unquote(lit.Value)
-			if id.Name == "renderMemory" {
-				p = "files/memory/prompts/" + p
-			}
-			paths = append(paths, p)
+			paths = append(paths, dir+p)
 		}
 		return true
 	})

@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -26,20 +26,12 @@ func RecoveryPrompt(rec Record, capBytes int) (string, error) {
 		return "", err
 	}
 	log = tailLines(log, capBytes)
-	var b strings.Builder
-	b.WriteString(rec.Request.Prompt)
-	fmt.Fprintf(&b, "\n\nAn earlier attempt (dispatch %s, status %s", rec.ID, rec.Status)
-	if rec.Cutoff != "" {
-		fmt.Fprintf(&b, ", cutoff %s", rec.Cutoff)
-	}
-	b.WriteString(") stopped before it finished. The log below is what it did.")
+	frame := assets.RecoveryFrame{Prompt: rec.Request.Prompt, ID: rec.ID, Status: string(rec.Status),
+		Cutoff: string(rec.Cutoff), Log: log}
 	if rec.Wrote != nil && len(*rec.Wrote) > 0 {
-		textutil.WriteStrings(&b, " Files it changed: ", strings.Join(*rec.Wrote, ", "), ".")
+		frame.HasFiles, frame.Files = true, strings.Join(*rec.Wrote, ", ")
 	}
-	b.WriteString(" Check the working tree before redoing any step, then continue from where it stopped" +
-		" and finish with the report the brief asked for.\n\n--- earlier attempt log ---\n")
-	b.WriteString(log)
-	return b.String(), nil
+	return assets.AgentRecovery(frame), nil
 }
 
 // recoveryLog renders the text and tool-use events of the event file at path; empty is an error.

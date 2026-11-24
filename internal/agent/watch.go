@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -33,8 +34,7 @@ const (
 )
 
 // ResumePrompt is the one continuation the watchdog sends a dead job's session.
-const ResumePrompt = "You were interrupted. Continue the task from where you stopped and finish with the report the " +
-	"brief asked for."
+var ResumePrompt = assets.AgentResumePrompt()
 
 // Watch env names (vault env); defaults apply to an unset or unparseable value.
 const (

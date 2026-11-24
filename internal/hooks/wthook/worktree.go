@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -192,12 +193,7 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 	if !first || len(peers) == 0 {
 		return "", err
 	}
-	next := "ask about a linked worktree before editing."
-	if worktreeLanes() {
-		next = "work in a lane: claude-code worktree create <slug>."
-	}
-	return fmt.Sprintf("Peer session (%s pid %d) is editing this checkout (%s); %s", peers[0].Comm, peers[0].PID, branch,
-		next), err
+	return assets.HookBusyPeer(peers[0].Comm, peers[0].PID, branch, worktreeLanes()), err
 }
 
 // notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.
@@ -225,14 +221,14 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 		if n.Kind == n.From {
 			who = n.Kind
 		}
-		lines = append(lines, fmt.Sprintf("notice (%s): %s", who, n.Text))
+		lines = append(lines, assets.HookNoticeLine(who, n.Text))
 	}
 	if drainErr != nil {
-		warn = fmt.Sprintf("notices: WARNING — could not drain this session's inbox (%v); notices may be missing or repeat", drainErr)
+		warn = assets.HookNoticeDrainWarn(drainErr.Error())
 	}
 	line, err := divergedLine(ctx, in, run)
 	if err != nil {
-		warn = strings.TrimSpace(warn + fmt.Sprintf("\nnotices: WARNING — could not check branch divergence (%v); skipped", err))
+		warn = strings.TrimSpace(warn + assets.HookNoticeDivergeWarn(err.Error()))
 	}
 	if line != "" {
 		lines = append(lines, line)
@@ -263,12 +259,7 @@ func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, er
 	if !firstSighting(in.SessionID, "diverged\t"+d.head+"\t"+d.up) {
 		return "", nil
 	}
-	why := "both sides have new commits; merge " + d.upName + " before committing on top"
-	if d.rewritten {
-		why = "a commit was rewritten; do not commit until it is reconciled"
-	}
-	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): %s", d.branch, d.upName, d.ahead, d.behind,
-		why), nil
+	return assets.HookDiverged(d.branch, d.upName, d.ahead, d.behind, d.rewritten), nil
 }
 
 // divergedCheckDue rate-limits the divergence git call to once per busyScanTTL per session, via an empty stamp file.

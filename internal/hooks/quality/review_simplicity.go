@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -114,11 +115,11 @@ func gitHeadContent(path string) (string, bool) {
 func simplicityText(rel string, found []string) string {
 	n := len(found)
 	var b strings.Builder
-	fmt.Fprintf(&b, "review-simplicity: %d new finding(s) in %s:", n, rel)
+	b.WriteString(assets.HookSimplicityHeader(n, rel))
 	for i, f := range found {
 		line := "\n- " + f
 		if i >= simplicityMaxLines || b.Len()+len(line) > simplicityMaxChars {
-			fmt.Fprintf(&b, "\n(+%d more)", n-i)
+			b.WriteString(assets.HookSimplicityMore(n - i))
 			break
 		}
 		b.WriteString(line)

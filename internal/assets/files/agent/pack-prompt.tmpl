@@ -1,0 +1,17 @@
+<task>
+{{.Task}}
+</task>
+
+<constraints>
+- Use the provided workspace context when it is relevant.
+- Cite file paths when referring to evidence from inline context.
+- Call out when the context is partial, skipped, or truncated (name the last file you saw in full).
+- Do not invent files or data that are not present in the provided payloads.
+</constraints>
+
+<context_inventory>
+{{.Inventory}}</context_inventory>
+
+<context_files>
+{{.Blocks}}
+</context_files>

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -227,11 +228,11 @@ func modelContext(reps []pathReport) string {
 	for _, r := range reps {
 		switch {
 		case r.err != "":
-			lines = append(lines, fmt.Sprintf("  %s (client-only path, fetch failed: %s)", r.path, r.err))
+			lines = append(lines, assets.HookPathFailed(r.path, r.err))
 		case r.win != "":
-			lines = append(lines, fmt.Sprintf("  %s -> %s (%s)", r.win, r.path, r.detail))
+			lines = append(lines, assets.HookPathMapped(r.win, r.path, r.detail))
 		case r.isImage || r.large:
-			lines = append(lines, fmt.Sprintf("  %s (%s)", r.path, r.detail))
+			lines = append(lines, assets.HookPathDetail(r.path, r.detail))
 		}
 		if r.isImage {
 			images = append(images, r.path)
@@ -240,12 +241,7 @@ func modelContext(reps []pathReport) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	body := "Paths:\n" + strings.Join(lines, "\n")
-	if len(images) > 0 {
-		body += "\nImage path(s) referenced but NOT attached — Read the path to view the image: " +
-			strings.Join(images, ", ")
-	}
-	return body
+	return assets.HookPathsContext(strings.Join(lines, "\n"), strings.Join(images, ", "))
 }
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
