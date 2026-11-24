@@ -557,7 +557,11 @@ func (opencodeEngine) LaunchEnv() []string {
 		fmt.Fprintln(agent.NoticeOut, "opencode: overlay:", err)
 		return env
 	}
-	return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui, opencodeNoExternalSkills+"=1")
+	env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
+	if len(agentconfig.OpencodeSkillRoots("")) > 0 {
+		env = append(env, opencodeNoExternalSkills+"=1")
+	}
+	return env
 }
 
 func (opencodeEngine) Presence(_ context.Context, c router.Cell) error {

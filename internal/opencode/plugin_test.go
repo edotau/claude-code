@@ -171,7 +171,7 @@ func TestPrunePluginsKeepsCurrentAndRecent(t *testing.T) {
 
 // The TUI launch config appends the plugin to the user's own; a headless one leaves it to Exec.
 func TestInteractiveConfigCarriesPlugin(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	hermeticSkillHome(t)
 	cfg := map[string]any{"plugin": []any{"mine"}}
 	url, err := interactivePlugin(nil)
 	if err != nil {
@@ -185,8 +185,8 @@ func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	if cfg["small_model"] != nil {
 		t.Errorf("small_model = %v with no model pinned, want unset", cfg["small_model"])
 	}
-	if sk, _ := cfg["skills"].(map[string]any); len(sk["paths"].([]string)) == 0 {
-		t.Errorf("skills = %v, want the pinned roots", cfg["skills"])
+	if _, ok := cfg["skills"]; ok {
+		t.Errorf("skills = %v with no skill root, want unset (opencode's own discovery)", cfg["skills"])
 	}
 	pinned := map[string]any{"model": "harness-dev-claude/databricks-claude-opus-5-5"}
 	opencodeHarnessWith(nil, "")(pinned)
@@ -459,5 +459,44 @@ func TestPluginMalformedGuardOutput(t *testing.T) {
 				t.Fatalf("guard verdict = %q, want %q", out, tc.want)
 			}
 		})
+	}
+}
+
+// hermeticSkillHome points HOME, the config dir and the working dir at empty temp dirs and returns the config dir.
+func hermeticSkillHome(t *testing.T) string {
+	t.Helper()
+	cfgDir, home := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Chdir(t.TempDir())
+	return cfgDir
+}
+
+// Skill roots are pinned and opencode's own scan is off only when a root exists; otherwise its discovery is untouched.
+func TestSkillRootsPinnedOnlyWhenPresent(t *testing.T) {
+	cfgDir := hermeticSkillHome(t)
+	cfg := map[string]any{}
+	opencodeSkillsOn(cfg, nil)
+	if _, ok := cfg["skills"]; ok {
+		t.Errorf("no roots: skills = %v, want unset", cfg["skills"])
+	}
+	if slices.Contains((opencodeEngine{}).LaunchEnv(), opencodeNoExternalSkills+"=1") {
+		t.Error("no roots: LaunchEnv disables external skills, want opencode's own discovery")
+	}
+	skill := filepath.Join(cfgDir, "skills", "s")
+	if err := os.MkdirAll(skill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opencodeSkillsOn(cfg, nil)
+	sk, _ := cfg["skills"].(map[string]any)
+	if roots, _ := sk["paths"].([]string); len(roots) == 0 {
+		t.Errorf("roots present: skills = %v, want pinned", cfg["skills"])
+	}
+	if !slices.Contains((opencodeEngine{}).LaunchEnv(), opencodeNoExternalSkills+"=1") {
+		t.Error("roots present: LaunchEnv does not disable external skills")
 	}
 }

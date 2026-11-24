@@ -42,7 +42,9 @@ func applyOpencodeTableModels(cfgBody []byte, models func() (string, string, boo
 	if json.Unmarshal(cfgBody, &doc) != nil {
 		return cfgBody
 	}
-	doc["skills"] = map[string]any{"paths": OpencodeSkillRoots("")}
+	if roots := OpencodeSkillRoots(""); len(roots) > 0 {
+		doc["skills"] = map[string]any{"paths": roots}
+	}
 	if mainModel, smallModel, ok := models(); ok {
 		doc["model"], doc["small_model"] = mainModel, smallModel
 	}

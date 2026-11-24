@@ -63,7 +63,9 @@ func opencodeSkillsOn(cfg map[string]any, h *agent.Headless) {
 	if h != nil && h.WorkDir != "" {
 		dir = h.WorkDir
 	}
-	cfg["skills"] = map[string]any{"paths": agentconfig.OpencodeSkillRoots(dir)}
+	if roots := agentconfig.OpencodeSkillRoots(dir); len(roots) > 0 {
+		cfg["skills"] = map[string]any{"paths": roots}
+	}
 }
 
 // opencodeCommands projects commands/*.md as opencode `command`s; those allowing Claude's Agent tool are skipped.
