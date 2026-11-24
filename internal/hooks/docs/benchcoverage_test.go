@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,33 @@ func TestBenchLandedQueuesEveryBenchedCommit(t *testing.T) {
 	if n := len(benchQueued(state)); n != 2 {
 		t.Fatalf("a commit off the trunk was queued: %d jobs", n)
 	}
+	benchGit(t, dir, "checkout", "-q", "main")
+	assertLongLandingQueued(t, dir, merge, state)
+}
+
+// assertLongLandingQueued lands 21 benched commits then a benchmark deletion: each is judged in its own tree.
+func assertLongLandingQueued(t *testing.T, dir, from, state string) {
+	t.Helper()
+	for i := range 21 {
+		benchCommit(t, dir, "pkg/v"+strconv.Itoa(i)+".go")
+	}
+	benchGit(t, dir, "rm", "-q", "pkg/x_test.go")
+	benchGit(t, dir, "commit", "-qm", "drop benchmarks")
+	BenchLanded(context.Background(), dir, from, benchGit(t, dir, "rev-parse", "HEAD"), "s1")
+	if n := len(benchQueued(state)); n != 2+21 {
+		t.Fatalf("long landing queued %d jobs, want 23", n)
+	}
+}
+
+func TestBenchRetryDueWithoutSession(t *testing.T) {
+	base := filepath.Join(t.TempDir(), strings.Repeat("d", 40))
+	code := 0
+	if err := paths.WriteJSON(base+".marker", benchMarker{Status: "done", Exit: &code, Retry: "wanted"}); err != nil {
+		t.Fatal(err)
+	}
+	if !benchRetryDue(base) {
+		t.Fatal("a run with no session to notify never retries")
+	}
 }
 
 func TestBenchQueuedOldestFirst(t *testing.T) {
@@ -114,10 +142,14 @@ func TestBenchCoverageCounts(t *testing.T) {
 	}
 	writeBenchFixture(t, filepath.Join(state, merge+".json"), strings.ReplaceAll(cannedBench, "-3.00%", "+3.00%"))
 	writeBenchFixture(t, filepath.Join(state, benched+".job.json"), "{}")
-	got := BenchCoverage(context.Background(), dir, 10)
-	want := "last 4 commits: 1 benched, 1 queued, 1 skipped, 1 without benchmarks; latest regression: " +
+	failed := 1
+	if err := paths.WriteJSON(filepath.Join(state, base+".marker"), benchMarker{Status: "failed", Exit: &failed}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := BenchCoverage(context.Background(), dir, 10)
+	want := "last 4 commits: 1 benched, 1 failed, 1 queued, 0 skipped, 1 without benchmarks; latest regression: " +
 		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns +3.00% (p=0.010)"
-	if got != want {
-		t.Fatalf("coverage = %q\nwant %q (base %s)", got, want, base)
+	if got != want || ok {
+		t.Fatalf("coverage = %q ok=%v\nwant %q, not ok", got, ok, want)
 	}
 }

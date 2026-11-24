@@ -379,7 +379,7 @@ func assertQuietRetry(t *testing.T, base string, entered chan string, release ch
 	if !benchRetryDue(base) {
 		t.Fatalf("load-inconclusive run not marked for retry: %+v", readBenchMarker(t, base))
 	}
-	benchLoad1Quiet = func() bool { return true }
+	benchBusy = func() bool { return false }
 	done := make(chan struct{})
 	go func() { benchWorker(base, true); close(done) }()
 	waitBench(t, entered)
@@ -427,11 +427,10 @@ func assertBenchWaiting(t *testing.T, ch <-chan string, message string) {
 
 func stubBenchWorkers(t *testing.T) (chan string, chan struct{}, *atomic.Bool) {
 	t.Helper()
-	spawn, run, busy, poll, open, quiet := benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock, benchLoad1Quiet
+	spawn, run, busy, poll, open := benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock
 	t.Cleanup(func() {
-		benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock, benchLoad1Quiet = spawn, run, busy, poll, open, quiet
+		benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock = spawn, run, busy, poll, open
 	})
-	benchLoad1Quiet = func() bool { return false }
 	lockFile := filepath.Join(t.TempDir(), "measurement.lock")
 	benchMeasurementLock = func() (*os.File, error) { return os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600) }
 	benchSpawn = func([]string, string) int { return 1 }

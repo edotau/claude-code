@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -37,7 +38,6 @@ const (
 	benchMaxLines  = 4
 	benchRetention = 7 * 24 * time.Hour
 	benchDeadline  = 45 * time.Minute
-	benchRangeMax  = 20 // newest first-parent commits one landing queues; older ones are past their review window
 )
 
 // A private detached entry bypasses the hook dispatcher's five-second handler deadline.
@@ -144,8 +144,6 @@ func benchFailNote(result, note string) {
 	_, _ = fmt.Fprintln(f, note) // best-effort: the marker's exit code still records the failure
 }
 
-var benchFuncRe = regexp.MustCompile(`(?m)^func Benchmark`)
-
 // benchOnCommit queues a detached `review bench` for a trunk commit (a leaf's too) that changed a benched package.
 func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
 	if runtime.GOOS == "windows" || !plans.ValidSHA(sha) {
@@ -172,17 +170,21 @@ func BenchLanded(ctx context.Context, top, before, after, session string) {
 	if after = primaryTrunkHead(ctx, top, after); after == "" {
 		return
 	}
-	rng := after
+	shas := []string{after} // no base: only the tip is known to be new
 	if plans.ValidSHA(before) {
-		rng = before + ".." + after
+		out, err := proc.RunGit(ctx, top, "rev-list", "--first-parent", "--reverse", before+".."+after)
+		if err != nil {
+			return
+		}
+		shas = strings.Fields(out)
 	}
-	out, err := proc.RunGit(ctx, top, "rev-list", "--first-parent", "--reverse", "--max-count="+strconv.Itoa(benchRangeMax), rng)
-	if err != nil {
+	if len(shas) == 0 {
 		return
 	}
+	benched := benchedCommits(ctx, top, shas)
 	var jobs []benchJob
-	for sha := range strings.FieldsSeq(out) {
-		if files := benchedFiles(ctx, top, sha); len(files) > 0 {
+	for _, sha := range shas {
+		if files := benched[sha]; len(files) > 0 {
 			jobs = append(jobs, benchJob{top, sha, session, files})
 		}
 	}
@@ -239,9 +241,9 @@ func benchRecover(state string) bool {
 	return true
 }
 
-// benchConsume makes one pass over the queue; load1 is read at most once, and only when a retry is due.
+// benchConsume makes one pass over the queue; the first run's load gate is read once, and only when a retry is due.
 func benchConsume(state string) {
-	quiet := sync.OnceValue(benchLoad1Quiet)
+	quiet := sync.OnceValue(func() bool { return !benchBusy() })
 	for _, base := range benchQueued(state) {
 		if benchPending(base) {
 			benchWorker(base, false)
@@ -287,22 +289,16 @@ func benchQueued(state string) []string {
 	return bases
 }
 
-// benchRetryDue is a delivered, load-inconclusive run whose one retry has not run yet.
+// benchRetryDue is a finished, load-inconclusive run whose one retry has not run; the consumer delivers first.
 func benchRetryDue(base string) bool {
 	m, ok := benchReadMarker(base)
-	return ok && m.Exit != nil && m.Notice != "" && m.Retry == "wanted"
+	return ok && m.Exit != nil && m.Retry == "wanted"
 }
 
 func benchReadMarker(base string) (benchMarker, bool) {
 	var m benchMarker
 	raw, err := os.ReadFile(base + ".marker")
 	return m, err == nil && json.Unmarshal(raw, &m) == nil
-}
-
-// benchLoad1Quiet is one-minute load at or under half the CPUs, the retry's only gate.
-var benchLoad1Quiet = func() bool {
-	quiet, _, err := proc.QuietMachine(context.Background(), 0)
-	return err == nil && quiet
 }
 
 func benchPending(base string) bool {
@@ -401,14 +397,6 @@ func benchNextRetry(retry string, code int, base string) string {
 	return retry
 }
 
-// benchAdmit reports load; the retry was gated on low load1, so dispatch counts alone do not void it.
-func benchAdmit(retry string) bool {
-	if retry == "done" {
-		return !benchLoad1Quiet()
-	}
-	return benchWaitQuiet()
-}
-
 func benchWorker(base string, rerun bool) {
 	raw, err := os.ReadFile(base + ".job.json")
 	var job benchJob
@@ -428,7 +416,7 @@ func benchWorker(base string, rerun bool) {
 	if !rerun && !benchPending(base) {
 		return
 	}
-	busy := benchAdmit(m.Retry)
+	busy := benchWaitQuiet() // a retry passes the same gate; the consumer started it only once that gate was quiet
 	m.UnderLoad = busy
 	m.Status, m.Start = "running", time.Now().UTC()
 	if paths.WriteJSON(base+".marker", m) != nil {
@@ -652,39 +640,69 @@ func primaryTrunkHead(ctx context.Context, top, sha string) string {
 	return rows[0]
 }
 
-// benchedFiles are the commit's changed Go files whose package dir holds a Benchmark func.
+// benchedFiles are the commit's changed Go files whose package dir held a Benchmark func in that commit.
 func benchedFiles(ctx context.Context, top, sha string) []string {
-	// --diff-merges: a merge commit lists what it brought in, not only its conflicts
-	out, err := proc.RunGit(ctx, top, "show", "--name-only", "--no-renames", "--diff-merges=first-parent", "--format=", sha)
-	if err != nil {
-		return nil
-	}
-	known := map[string]bool{}
-	var files []string
-	for n := range strings.SplitSeq(out, "\n") {
-		n = strings.TrimSpace(n)
-		if !strings.HasSuffix(n, ".go") {
-			continue
-		}
-		dir := filepath.Join(top, filepath.Dir(n))
-		ok, seen := known[dir]
-		if !seen {
-			ok = dirHasBenchmarks(dir)
-			known[dir] = ok
-		}
-		if ok {
-			files = append(files, filepath.Join(top, n))
+	for full, files := range benchedCommits(ctx, top, []string{sha}) {
+		if strings.HasPrefix(full, sha) {
+			return files // git show names it by its full sha, whatever form the caller passed
 		}
 	}
-	return files
+	return nil
 }
 
-func dirHasBenchmarks(dir string) bool {
-	tests, _ := filepath.Glob(filepath.Join(dir, "*_test.go"))
-	return slices.ContainsFunc(tests, func(f string) bool {
-		b, err := os.ReadFile(f)
-		return err == nil && benchFuncRe.Match(b)
-	})
+// benchedCommits maps each commit to its benched changed files, judged in the commit's own tree, in two git calls.
+func benchedCommits(ctx context.Context, top string, shas []string) map[string][]string {
+	changed := benchChangedGo(ctx, top, shas)
+	var specs, revs []string // revs are full shas, so grep's "rev:path" prefixes match changed's keys
+	for sha, files := range changed {
+		revs = append(revs, sha)
+		for _, f := range files {
+			if spec := path.Join(path.Dir(f), "*_test.go"); !slices.Contains(specs, spec) {
+				specs = append(specs, spec)
+			}
+		}
+	}
+	out := map[string][]string{}
+	if len(specs) == 0 {
+		return out
+	}
+	args := append(append([]string{"grep", "-l", "^func Benchmark"}, revs...), "--")
+	// exit 1 is "no match": no commit holds a benchmark in a changed dir
+	grep, _ := proc.RunGit(ctx, top, append(args, specs...)...)
+	benched := map[string]bool{} // "sha:dir" pairs whose test files hold a Benchmark
+	for line := range strings.SplitSeq(grep, "\n") {
+		if sha, file, ok := strings.Cut(strings.TrimSpace(line), ":"); ok {
+			benched[sha+":"+path.Dir(file)] = true
+		}
+	}
+	for sha, files := range changed {
+		for _, f := range files {
+			if benched[sha+":"+path.Dir(f)] {
+				out[sha] = append(out[sha], filepath.Join(top, filepath.FromSlash(f)))
+			}
+		}
+	}
+	return out
+}
+
+// benchChangedGo is each commit's changed .go paths; a merge lists what it brought in, not only its conflicts.
+func benchChangedGo(ctx context.Context, top string, shas []string) map[string][]string {
+	args := append([]string{"show", "--name-only", "--no-renames", "--diff-merges=first-parent", "--format=%x01%H"}, shas...)
+	raw, err := proc.RunGit(ctx, top, args...)
+	changed := map[string][]string{}
+	if err != nil {
+		return changed
+	}
+	sha := ""
+	for line := range strings.SplitSeq(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if h, ok := strings.CutPrefix(line, "\x01"); ok {
+			sha = h
+		} else if sha != "" && strings.HasSuffix(line, ".go") {
+			changed[sha] = append(changed[sha], line)
+		}
+	}
+	return changed
 }
 
 type benchDelta struct {

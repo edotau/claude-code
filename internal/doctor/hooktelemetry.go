@@ -3,7 +3,6 @@ package doctor
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/docs"
@@ -41,10 +40,10 @@ func hookTelemetryChecks(now time.Time) []check {
 
 const benchCoverageCommits = 12
 
-// benchCoverageCheck is the post-commit bench row: the R22 trigger's reach; a regression shows as a soft failure.
+// benchCoverageCheck is the post-commit bench row: the R22 trigger's reach; a failure or regression is a soft ✗.
 func benchCoverageCheck(ctx context.Context) check {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	detail := docs.BenchCoverage(ctx, paths.ConfigDir(), benchCoverageCommits)
-	return check{Name: "post-commit bench", OK: !strings.Contains(detail, "; latest regression: "), Detail: detail}
+	detail, ok := docs.BenchCoverage(ctx, paths.ConfigDir(), benchCoverageCommits)
+	return check{Name: "post-commit bench", OK: ok, Detail: detail}
 }
