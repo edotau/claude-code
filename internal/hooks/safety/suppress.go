@@ -38,7 +38,7 @@ func markerIn(l string) []int {
 	for _, m := range suppressMarkers().FindAllStringIndex(l, -1) {
 		var comment bool
 		quote, comment, pos = scanCode(l, pos, m[0], quote)
-		if quote == 0 || comment {
+		if quote == 0 && (!comment || l[m[0]] != '@') { // an annotation is code: it never counts in a comment
 			return m
 		}
 	}
@@ -294,8 +294,8 @@ func notebookCodeAdditions(path, body string) ([]addition, bool) {
 		default:
 			return nil, false
 		}
-		if strings.HasPrefix(one, "%%markdown") { // a cell magic renders prose, not code
-			continue
+		if head := strings.TrimLeft(one, " \t\r\n"); strings.HasPrefix(head, "%%markdown") || strings.HasPrefix(head, "%%html") {
+			continue // a rendering cell magic is prose, not code
 		}
 		out = append(out, addition{path, one, known})
 	}
