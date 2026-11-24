@@ -164,6 +164,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	if o.Fallback == "" && !slices.Contains(router.FallbackModes, fallback) {
 		return o, clientUsageError{fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, raw, strings.Join(router.FallbackModes, "|"))}
 	}
+	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone

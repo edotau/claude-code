@@ -308,7 +308,8 @@ func modeCells(reg *providers.Registry, modes map[string]string, role router.Rol
 // placeRotation leads o with row as a rotated lead minus kept-out rows; a pi sibling hop risk pins row explicitly.
 func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, row string, scope modeScope) (context.Context, RunOptions) {
 	drop := scope.rows(reg)
-	if scope.stay || slices.ContainsFunc(drop, func(r string) bool { return reg.Row(r).Preset == providers.PresetDatabricks }) {
+	workspace := func(r string) bool { p := reg.Row(r); return p != nil && p.Preset == providers.PresetDatabricks }
+	if scope.stay || slices.ContainsFunc(drop, workspace) {
 		o.Provider = row
 		return ctx, o
 	}
