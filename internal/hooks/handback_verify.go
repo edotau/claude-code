@@ -72,7 +72,7 @@ func commitLine(lane, id, planPath string, files []string) string {
 		ids[i] = worktree.FileID(f)
 	}
 	return "commit+tick: " + cd + "claude-code worktree commit --task '" + id + "' --plan " + planPath +
-		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, ids...), " ")
+		` --type <feat|fix|docs|refactor|test|chore>` + strings.Join(append([]string{""}, ids...), " ")
 }
 
 // leafCheckout is the lane the leaf worked in when it belongs to top's repo; "" when none resolves.

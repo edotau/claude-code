@@ -233,13 +233,14 @@ func runWorktreeGate(dir string, scope []string, lintCheck bool) int {
 
 // cmdWorktreeCommit commits the named files (else this session's claimed ones); 1 refused, 2 usage.
 func cmdWorktreeCommit(cwd string, args []string) int {
-	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
+	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message>|--type <t> [flags] [<file>...]",
 		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
 			"Refuses a peer's file or a non-Conventional subject; never pushes.\n" +
 			"--task writes Task: <plan-slug> <id>; a named task ticks once the commit is on main.\n" +
 			"Quote an id with spaces: --task \"Phase 2.1\".\n" +
 			"List the candidates first: claude-code worktree commit --list (no -m)."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
+	typ := fs.String("type", "", "Conventional `type`; with no -m the subject is the one --task's plan title")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
 	list := fs.Bool("list", false, "print each dirty file as @id<TAB>path and exit; no -m needed")
 	var tasks []string
@@ -261,7 +262,7 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 		*plan = resolved
 	}
 	err = worktree.Commit(context.Background(), worktree.CommitRequest{
-		Dir: cwd, Message: *msg, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout, Source: callerClaims(),
+		Dir: cwd, Message: *msg, Type: *typ, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout, Source: callerClaims(),
 	})
 	var ce *worktree.CommitError
 	switch {
@@ -558,7 +559,7 @@ func worktreeSpec() *helptext.Node {
 	sub := map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
-		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
+		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("type"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
