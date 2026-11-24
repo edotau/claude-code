@@ -349,9 +349,6 @@ func relayInput(seg string) (words []string, input string, err error) {
 	at := shell.QuoteAt(seg)
 	redirect := -1
 	for i, c := range []byte(seg) {
-		if at[i] == '\'' {
-			continue
-		}
 		if err := relayByte(seg, at, i); err != nil {
 			return nil, "", err
 		}
@@ -365,6 +362,11 @@ func relayInput(seg string) (words []string, input string, err error) {
 	if redirect < 0 {
 		return shell.Tokens(seg), "", nil
 	}
+	return relayRedirect(seg, at, redirect)
+}
+
+// relayRedirect splits seg at its `< file` redirect into the argv words and the file.
+func relayRedirect(seg string, at []byte, redirect int) ([]string, string, error) {
 	files := shell.Tokens(seg[redirect+1:])
 	if len(files) != 1 || files[0] == "" {
 		return nil, "", errors.New("redirect is not a literal `< file`")
@@ -378,6 +380,9 @@ func relayInput(seg string) (words []string, input string, err error) {
 // relayByte refuses an expansion, or an unquoted operator other than a HOME tilde, at seg[i].
 func relayByte(seg string, at []byte, i int) error {
 	c := seg[i]
+	if at[i] == '\'' {
+		return nil // single-quoted text is literal
+	}
 	if c == '`' || c == '$' {
 		return errors.New("contains `$` or a backtick")
 	}
