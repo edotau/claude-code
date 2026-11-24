@@ -811,3 +811,14 @@ func onAnthropicAPI(base string) bool {
 	u, err := url.Parse(base)
 	return err == nil && strings.EqualFold(u.Hostname(), "api.anthropic.com")
 }
+
+// lastEnv is the value the child gets for name: the last entry of env.
+func lastEnv(env []string, name string) string {
+	v := ""
+	for _, kv := range env {
+		if s, ok := strings.CutPrefix(kv, name+"="); ok {
+			v = s
+		}
+	}
+	return v
+}

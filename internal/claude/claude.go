@@ -187,39 +187,38 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(p.Argv, toolArgs(req)...)
-	cmArgs, err := codemodeSettings(codemodeMode(req))
+	cmArgs, err := codemodeArgs(ctx, req)
 	if err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
-	if len(cmArgs) > 0 {
-		if err := checkCodemodeRoute(launchTarget(ctx, req).Provider, ""); err != nil {
-			return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
-		}
-		args = append(args, cmArgs...)
-	}
+	args = append(args, cmArgs...)
 	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
 	}
-	if len(cmArgs) > 0 {
-		if err := checkCodemodeRoute(launchTarget(ctx, req).Provider, cl.Set[proc.EnvAnthropicBaseURL]); err != nil {
-			return nil, nil, cl, retry.Fatal("claude", err)
-		}
-	}
 	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
 	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
+	if err == nil && len(cmArgs) > 0 { // the child's own env: a shell-kept endpoint counts
+		if err = checkCodemodeRoute(launchTarget(ctx, req).Provider, lastEnv(cmd.Env, proc.EnvAnthropicBaseURL)); err != nil {
+			return nil, nil, cl, retry.Fatal("claude", err)
+		}
+	}
 	return cmd, tail, cl, err
 }
 
-// codemodeMode is the request's code mode, tools only: no tools means no scripts to run.
-func codemodeMode(req agent.RunOptions) string {
+// codemodeArgs is the --settings arg for a code-mode request (tools only), after the profile check; nil when off.
+func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, error) {
 	if !req.Tools {
-		return ""
+		return nil, nil
 	}
-	return req.Codemode
+	args, err := codemodeSettings(req.Codemode)
+	if err != nil || len(args) == 0 {
+		return nil, err
+	}
+	return args, checkCodemodeRoute(launchTarget(ctx, req).Provider, "")
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.

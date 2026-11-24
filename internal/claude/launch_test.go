@@ -1117,3 +1117,9 @@ func TestMergeDocUnionsEnv(t *testing.T) {
 		t.Fatalf("env merge %v", env)
 	}
 }
+
+func TestLastEnvTakesTheLastEntry(t *testing.T) {
+	if got := lastEnv([]string{"A=1", "B=2", "A=3"}, "A"); got != "3" {
+		t.Fatalf("got %q", got)
+	}
+}
