@@ -45,7 +45,11 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 		fmt.Println(empty)
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Detail())
+		detail := r.Detail()
+		if c, err := inspect.ContractOf(r.ID); err == nil && c != nil && c.Note() != "" {
+			detail = "[" + c.Note() + "] " + detail
+		}
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, detail)
 	}
 	return 0
 }

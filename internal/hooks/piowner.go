@@ -1,17 +1,21 @@
 package hooks
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -57,12 +61,37 @@ func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	if c.Scope.Verify != "" { // the owner's typed verify, so a test-repair child's tests term can pass
 		spec["verify"] = c.Scope.Verify
 	}
+	return piSpecArgv(spec, unit)
+}
+
+// piSpecArgv adds a Go-derived report path to spec and builds the ask argv.
+func piSpecArgv(spec map[string]any, unit string) ([]string, error) {
+	report, err := piReportPath(unit)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: %w", err)
+	}
+	spec["report"] = report
 	b, err := json.Marshal(spec)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
 	return []string{"agents", "ask", "--background", "--format", "json", "--spec", string(b)}, nil
 }
+
+// piReportPath is a fresh dated report file under the memory reports dir, so a leaf's report term passes by any tool.
+func piReportPath(unit string) (string, error) {
+	var r [8]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		return "", err
+	}
+	slug := strings.Trim(piSlugRe.ReplaceAllString(strings.ToLower(unit), "-"), "-")
+	if slug == "" {
+		slug = "leaf"
+	}
+	return filepath.Join(paths.MemorySubDir("reports"), fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, r)), nil
+}
+
+var piSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func strOf(v any) string { s, _ := v.(string); return s }
 

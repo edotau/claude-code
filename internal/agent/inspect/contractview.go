@@ -2,7 +2,9 @@ package inspect
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -20,6 +22,23 @@ type ContractView struct {
 	Terms  []TermView      `json:"terms"`
 	Spent  contract.Spent  `json:"spent"`
 	Limits contract.Limits `json:"limits"`
+	Unmet  []contract.Term `json:"unmet,omitempty"`
+}
+
+// Note is the status row's contract text: the leaves spent of the limit, and the terms still unmet.
+func (v ContractView) Note() string {
+	var parts []string
+	if v.Limits.Leaves > 0 {
+		parts = append(parts, fmt.Sprintf("leaves %d/%d", v.Spent.Leaves, v.Limits.Leaves))
+	}
+	if len(v.Unmet) > 0 {
+		names := make([]string, len(v.Unmet))
+		for i, t := range v.Unmet {
+			names[i] = string(t)
+		}
+		parts = append(parts, "unmet "+strings.Join(names, ","))
+	}
+	return strings.Join(parts, " ")
 }
 
 // TermView is one term with its last record's verdict, or pending.
@@ -34,6 +53,9 @@ type TermView struct {
 func ViewContract(c contract.Contract, spent contract.Spent) ContractView {
 	v := ContractView{ID: c.ID, Kind: c.Scope.Kind, Role: c.Owner.Role, State: string(c.State()), Failed: c.Failed,
 		Terms: []TermView{}, Spent: spent, Limits: c.Limits}
+	if c.State() != contract.StateClosed {
+		v.Unmet = c.Unmet()
+	}
 	for _, t := range c.Terms {
 		tv := TermView{Term: t, Verdict: "pending"}
 		for _, r := range c.Records {
