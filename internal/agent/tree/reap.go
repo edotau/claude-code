@@ -351,8 +351,13 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
-		carry: rec.Request.Carry, codeMode: rec.Request.Codemode == "on" || rec.Request.Codemode == "only", takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
+		carry: rec.Request.Carry, codeMode: answeredInCodeMode(rec), routeKind: cmp.Or(rec.RanRoute.Provider, rec.Route.Provider), takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
 	}, rec, now)
+}
+
+// answeredInCodeMode: the record asked pi for codemode and no fallback agent answered instead.
+func answeredInCodeMode(rec agent.Record) bool {
+	return (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && rec.Fallback == "" && rec.RanAs == ""
 }
 
 // buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.

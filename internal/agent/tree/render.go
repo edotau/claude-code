@@ -479,6 +479,11 @@ var claudeAliases = []string{"sonnet", "opus", "haiku"}
 
 // ownRecord is the dispatch record of the vendor run a relay row stands for; in-context Claude rows have none.
 func ownRecord(sub Subagent) (Dispatch, bool) {
+	if sub.own != "" {
+		if i := slices.IndexFunc(sub.Dispatches, func(d Dispatch) bool { return d.ID == sub.own && d.Model != "" }); i >= 0 {
+			return sub.Dispatches[i], true
+		}
+	}
 	if sub.Type == agentid.Claude {
 		return Dispatch{}, false
 	}

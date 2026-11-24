@@ -66,6 +66,7 @@ type Subagent struct {
 	Files       []string   `json:"files,omitempty"`      // --files: still-dirty files this agent wrote, repo-relative
 	Phase       string     `json:"-"`                    // workflowPhase from the sidecar meta, for run grouping
 	Model       string     `json:"-"`                    // transcript's newest message.model; the provider shows in its prefix
+	own         string     `json:"-"`                    // id of the dispatch a relay row stands for, set with its type
 }
 
 // Activity is the newest tool_use and assistant text in a subagent transcript tail; At stamps whichever set last.
@@ -109,12 +110,13 @@ type Dispatch struct {
 	started   time.Time // dispatch start; a matching session must be updated at or after it
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 
-	codeMode bool      // the record's pi codemode is on or only: the row shows pi
-	carry    bool      // the outer record of a carried dispatch: its row folds in the child doing the work
-	takeover bool      // a Pi takeover that finished a cut-off carried child
-	launch   string    // the profile, else provider, the request was launched on; "" when it named none
-	queued   string    // the serve pool the job waits on for admission; "" once admitted
-	queuedAt time.Time // when that admission wait began
+	codeMode  bool      // the answering run had pi codemode on or only: the row shows pi
+	routeKind string    // the route's provider kind (rec.Provider can be a profile name)
+	carry     bool      // the outer record of a carried dispatch: its row folds in the child doing the work
+	takeover  bool      // a Pi takeover that finished a cut-off carried child
+	launch    string    // the profile, else provider, the request was launched on; "" when it named none
+	queued    string    // the serve pool the job waits on for admission; "" once admitted
+	queuedAt  time.Time // when that admission wait began
 }
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
@@ -414,23 +416,17 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scan
 	if act.Tool != "" || act.Text != "" {
 		sub.Activity = &act
 	}
+	if named := namedDispatches(sub); len(named) > 0 {
+		sub.own = named[0].ID
+	}
 	sub.Type = runningAgent(sub)
 	return sub
 }
 
 // runningAgent is the external agent a claude relay row runs: the one its description names among its own dispatches.
 func runningAgent(sub Subagent) string {
-	if sub.Type != agentid.Claude {
-		return sub.Type
-	}
-	words := strings.FieldsFunc(strings.ToLower(sub.Description), func(r rune) bool { return !unicode.IsLetter(r) })
-	var named []Dispatch
-	for _, d := range sub.Dispatches {
-		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) {
-			named = append(named, d)
-		}
-	}
-	if len(named) == 0 || slices.ContainsFunc(named, func(d Dispatch) bool { return d.Agent != named[0].Agent }) {
+	named := namedDispatches(sub)
+	if len(named) == 0 {
 		return sub.Type
 	}
 	t := dispatchType(named[0])
@@ -440,12 +436,30 @@ func runningAgent(sub Subagent) string {
 	return t
 }
 
+// namedDispatches are a claude relay's own dispatches of the one agent its description names; nil for any other row.
+func namedDispatches(sub Subagent) []Dispatch {
+	if sub.Type != agentid.Claude {
+		return nil
+	}
+	words := strings.FieldsFunc(strings.ToLower(sub.Description), func(r rune) bool { return !unicode.IsLetter(r) })
+	var named []Dispatch
+	for _, d := range sub.Dispatches {
+		if d.Agent != agentid.Claude && d.Matched == "" && slices.Contains(words, d.Agent) {
+			named = append(named, d)
+		}
+	}
+	if slices.ContainsFunc(named, func(d Dispatch) bool { return d.Agent != named[0].Agent }) {
+		return nil
+	}
+	return named
+}
+
 // dispatchType is the type of the model the run used (models.AgentType); the asked agent when the id names none.
 func dispatchType(d Dispatch) string {
 	if d.Model == agent.AutoModel {
 		return d.Agent
 	}
-	return cmp.Or(string(models.AgentType(d.Provider, d.Model, d.codeMode)), d.Agent)
+	return cmp.Or(string(models.AgentType(d.routeKind, d.Model, d.codeMode)), d.Agent)
 }
 
 // sessionIDFromPath extracts the session id from <session>.jsonl.

@@ -997,3 +997,15 @@ func TestCodeModeDispatchShowsPiAndKeepsItsModelColumn(t *testing.T) {
 		t.Error("a pi run on a GPT id lost its record for the codex row")
 	}
 }
+
+func TestRelayKeepsItsOwnDispatchWhenClaudeAnswered(t *testing.T) {
+	d := Dispatch{ID: "p", Agent: "pi", Model: "claude-opus-5-5", Status: "ok"}
+	sub := Subagent{Type: "claude", Description: "to pi", Dispatches: []Dispatch{{ID: "c", Agent: "codex", Model: "gpt-5-4-mini"}, d}}
+	sub.own = "p"
+	if got, ok := ownRecord(sub); !ok || got.ID != "p" {
+		t.Errorf("ownRecord = %q, %v, want the pi dispatch", got.ID, ok)
+	}
+	if answeredInCodeMode(agent.Record{Fallback: "pi", Request: agent.RunOptions{Codemode: "on"}}) {
+		t.Error("a fallback answer still counts as codemode")
+	}
+}
