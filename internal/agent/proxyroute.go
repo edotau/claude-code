@@ -176,7 +176,6 @@ func TakeChosenProxy(id string) string {
 	defer routeMu.Unlock()
 	label := chosenByID[id]
 	delete(chosenByID, id)
-	delete(failedByID, id)
 	return label
 }
 
@@ -209,7 +208,7 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 	if id != "" {
-		chosenByID[id] = c.label()
+		chosenByID[id], lastRouteByID[id] = c.label(), c.label()
 	}
 	if c.team.Host == proxyteam.HostDaemon {
 		delete(localBases, base) // a closed scope's port may now be the daemon's
@@ -221,6 +220,9 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 
 // failedByID holds the route labels that died mid-run for each dispatch; the relaunch's walk skips them.
 var failedByID = map[string]map[string]bool{}
+
+// lastRouteByID is each dispatch's latest chosen route; unlike chosenByID, the run's cleanup never clears it.
+var lastRouteByID = map[string]string{}
 
 func failedRoutes(id string) map[string]bool {
 	routeMu.Lock()
@@ -238,7 +240,7 @@ func markRouteFailed(ctx context.Context) {
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
 	routeMu.Lock()
 	defer routeMu.Unlock()
-	label := chosenByID[id]
+	label := lastRouteByID[id]
 	if id == "" || label == "" {
 		return
 	}
@@ -254,14 +256,16 @@ func knownProxyAddr(hostport string) bool {
 	if err != nil {
 		return false
 	}
-	if localProxyBase(proxy.Base(mustPort(port))) {
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return false
+	}
+	if localProxyBase(proxy.Base(n)) {
 		return true
 	}
 	st, ok := proxy.Running(context.Background())
-	return (ok && strconv.Itoa(st.Port) == port) || port == strconv.Itoa(proxy.DefaultPort)
+	return ok && st.Port == n
 }
-
-func mustPort(s string) int { n, _ := strconv.Atoi(s); return n }
 
 // localProxyBase reports whether routerBase (maybe with a /d/ or /via/ suffix) is a registered scope proxy.
 func localProxyBase(routerBase string) bool {
