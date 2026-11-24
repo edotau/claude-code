@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -40,16 +39,9 @@ func applyLaneDiff(ctx context.Context, main, from, to string) error {
 	if out, err := gitApply(ctx, main, patch, "--check"); err != nil {
 		return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, out, ErrLandRefused)
 	}
-	files, err := laneFiles(ctx, main, from, to)
-	if err != nil {
-		return err
-	}
-	saved := snapshot(main, files)
 	if out, err := gitApply(context.WithoutCancel(ctx), main, patch); err != nil {
-		if rerr := saved.restore(main); rerr != nil {
-			return fmt.Errorf("git apply in %s failed (%s) and restoring the live tree failed, it is partly changed: %w", main, out, rerr)
-		}
-		return fmt.Errorf("git apply in %s failed (%s); the live tree was restored: %w", main, out, ErrLandRefused)
+		return fmt.Errorf("git apply in %s failed after a clean --check, so the live tree may be partly changed "+
+			"(the lane and its branch are intact; compare with `git status`): %s: %w", main, out, err)
 	}
 	return nil
 }
@@ -70,54 +62,6 @@ func laneFiles(ctx context.Context, dir, a, b string) ([]string, error) {
 		return nil, fmt.Errorf("git diff --name-only %s..%s: %w", ShortOID(a), ShortOID(b), err)
 	}
 	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
-}
-
-// preimage is one live-tree path before a land: file bytes, a symlink target, or absent.
-type preimage struct {
-	data   []byte
-	link   string
-	mode   os.FileMode
-	exists bool
-}
-
-type preimages map[string]preimage
-
-// snapshot records each path's current state so a failed apply can put it back; an unreadable path counts as absent.
-func snapshot(main string, files []string) preimages {
-	saved := preimages{}
-	for _, f := range files {
-		full := filepath.Join(main, f)
-		info, err := os.Lstat(full)
-		switch {
-		case err != nil:
-			saved[f] = preimage{}
-		case info.Mode()&os.ModeSymlink != 0:
-			link, _ := os.Readlink(full)
-			saved[f] = preimage{link: link, exists: true}
-		default:
-			data, _ := os.ReadFile(full)
-			saved[f] = preimage{data: data, mode: info.Mode().Perm(), exists: true}
-		}
-	}
-	return saved
-}
-
-// restore writes every recorded path back (removing the ones that did not exist) and joins the failures.
-func (p preimages) restore(main string) error {
-	var errs []error
-	for f, pre := range p {
-		full := filepath.Join(main, f)
-		errs = append(errs, os.RemoveAll(full))
-		if !pre.exists {
-			continue
-		}
-		if pre.link != "" {
-			errs = append(errs, os.Symlink(pre.link, full))
-			continue
-		}
-		errs = append(errs, os.MkdirAll(filepath.Dir(full), 0o755), os.WriteFile(full, pre.data, pre.mode))
-	}
-	return errors.Join(errs...)
 }
 
 // afterLand reports the land, then removes the lane's worktree (its branch stays until clean) and starts the audit.
@@ -230,7 +174,8 @@ func landedBranchReason(ctx context.Context, main, branch, oid string) (string, 
 	if err != nil || len(files) == 0 {
 		return "", err
 	}
-	args := append([]string{"--literal-pathspecs", "diff", "--quiet", "--ignore-submodules=none", "HEAD", oid, "--"}, files...)
+	args := append([]string{"--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv",
+		"--ignore-submodules=none", "HEAD", oid, "--"}, files...)
 	if _, err := runGit(ctx, main, nil, args...); err != nil {
 		if code, isExit := asExitErr(err); !isExit || code != 1 {
 			return "", fmt.Errorf("git diff HEAD %s: %w", branch, err)
