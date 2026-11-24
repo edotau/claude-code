@@ -48,6 +48,11 @@ func validateTerms(terms []Term, add func(string, string, ...any)) {
 			add("terms", "missing %q", t)
 		}
 	}
+	for _, p := range [][2]Term{{TermLane, TermLanded}, {TermProxy, TermProxyClosed}} {
+		if slices.Contains(terms, p[0]) != slices.Contains(terms, p[1]) {
+			add("terms", "%q and %q come as a pair", p[0], p[1])
+		}
+	}
 	last := -1
 	for _, t := range terms {
 		i := slices.Index(Terms(), t)
@@ -88,6 +93,27 @@ func validateTree(c Contract, add func(string, string, ...any)) {
 	if len(c.Holders) > 2 {
 		add("holders", "%d holders: a contract is re-assigned once at most", len(c.Holders))
 	}
+	if !distinctIDs(c.Holders, "") {
+		add("holders", "%v holds an empty or repeated id", c.Holders)
+	}
+	if !distinctIDs(c.Children, c.ID) {
+		add("children", "%v holds an empty, repeated or own id", c.Children)
+	}
+}
+
+// distinctIDs reports whether ids are non-empty, unique and never self.
+func distinctIDs(ids []string, self string) bool {
+	seen := map[string]bool{"": true}
+	if self != "" {
+		seen[self] = true
+	}
+	for _, id := range ids {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
 }
 
 // validateResult checks the hand-back a terminal contract carries and the Unmet list Go filled.
