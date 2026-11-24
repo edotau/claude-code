@@ -39,6 +39,10 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
+	if rec.Agent != agentid.Pi && !codeMode {
+		res.Type = cmp.Or(res.Asked, res.Agent) // a typed agent is never relabelled by its model's family
+		return res
+	}
 	model, kind := ranTarget(rec, res)
 	res.Type = cmp.Or(string(models.AgentType(kind, model, codeMode)), res.Asked, res.Agent)
 	if rec.Agent == agentid.Pi && engine == agentid.Pi && res.Type != agentid.Pi {

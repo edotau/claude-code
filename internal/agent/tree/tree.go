@@ -461,8 +461,8 @@ func dispatchType(d Dispatch) string {
 	if d.recType != "" {
 		return d.recType
 	}
-	if d.Model == agent.AutoModel {
-		return d.Agent
+	if d.Model == agent.AutoModel || (d.Agent != "pi" && !d.codeMode) {
+		return d.Agent // a running typed agent keeps its own name, as stampRunner stamps it
 	}
 	return cmp.Or(string(models.AgentType(d.routeKind, d.Model, d.codeMode)), d.Agent)
 }

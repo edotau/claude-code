@@ -11,16 +11,29 @@ import (
 func TestStampRunnerPiCarriesClaude(t *testing.T) {
 	rec := Record{Agent: "claude"}
 	res := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-grok-4-7", Hops: []wire.Hop{{Agent: "pi"}}})
-	if res.Runner != "pi" || res.Asked != "claude" || res.Type != "grok" {
+	if res.Runner != "pi" || res.Asked != "claude" || res.Type != "claude" {
 		t.Fatalf("runner %q asked %q type %q", res.Runner, res.Asked, res.Type)
 	}
 	line := wire.RanOn(res)
-	if !strings.HasPrefix(line, "ran on grok via pi · ") || !strings.HasSuffix(line, "· asked claude") {
+	if !strings.HasPrefix(line, "ran on claude via pi · ") {
 		t.Fatalf("receipt %q", line)
 	}
 	rec.Runner, rec.Type = res.Runner, res.Type
-	if got := RowLabel(rec); got != "grok via pi" {
+	if got := RowLabel(rec); got != "claude via pi" {
 		t.Fatalf("row label %q", got)
+	}
+}
+
+func TestStampRunnerTypedAgentKeepsItsName(t *testing.T) {
+	for _, a := range []string{"opencode", "copilot"} {
+		own := stampRunner(Record{Agent: a}, wire.Result{Agent: a, Model: "databricks-gpt-6-sol"})
+		if own.Type != a || own.Runner != "" {
+			t.Fatalf("%s own run: type %q runner %q", a, own.Type, own.Runner)
+		}
+		pi := stampRunner(Record{Agent: a}, wire.Result{Agent: "pi", Model: "databricks-gpt-6-sol", Hops: []wire.Hop{{Agent: "pi"}}})
+		if pi.Type != a || pi.Runner != "pi" {
+			t.Fatalf("%s via pi: type %q runner %q", a, pi.Type, pi.Runner)
+		}
 	}
 }
 
