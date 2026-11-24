@@ -82,7 +82,7 @@ func runJobLane(id string) {
 	if lane == "" {
 		return
 	}
-	done := func() bool { return rec.PID <= 0 || !proc.Alive(rec.PID) }
+	done := func() bool { return jobFinished(id) }
 	verdict := laneUnfinished
 	if waitUntil(laneExitWait, done) {
 		env, _ := rec.SavedEnvelope()
@@ -92,6 +92,12 @@ func runJobLane(id string) {
 		}
 	}
 	runLaneJob(laneJob{lane: lane, session: os.Getenv(paths.SessionIDEnv), verdict: verdict, task: rec.PlanTask, done: done})
+}
+
+// jobFinished reloads the record each call, so a job resumed later under a new PID is not seen as finished.
+func jobFinished(id string) bool {
+	r, err := agent.LoadRecord(id)
+	return err == nil && (r.PID <= 0 || !proc.Alive(r.PID))
 }
 
 func waitUntil(limit time.Duration, done func() bool) bool {

@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -99,5 +101,24 @@ func TestLaneMergeQueueDropsRemovedLane(t *testing.T) {
 	}
 	if got := worktree.Queued(main); len(got) != 0 {
 		t.Fatalf("a removed lane stays queued: %+v", got)
+	}
+}
+
+func TestJobDoneReloadsRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec.ID, rec.PID = "job-reload", os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if jobFinished(rec.ID) {
+		t.Fatal("live PID reported finished")
+	}
+	rec.PID = 0
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if !jobFinished(rec.ID) {
+		t.Fatal("PID 0 reported unfinished")
 	}
 }
