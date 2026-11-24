@@ -1,0 +1,109 @@
+package contract
+
+import (
+	"fmt"
+	"slices"
+)
+
+const (
+	// SchemaVersion is the contract record's format version.
+	SchemaVersion = 1
+	// MaxDepth is main session → owner (1) → fleet (2); a fleet member never sub-contracts.
+	MaxDepth = 2
+	// MaxTokens caps a contract's token budget (5x the 400k function default).
+	MaxTokens = 2_000_000
+	// MaxLeaves caps a contract's leaf budget (2x the 6-leaf function default).
+	MaxLeaves = 12
+)
+
+// Validate lists every problem of c, one per broken rule; Open runs it on every new contract.
+func Validate(c Contract) []Problem {
+	var ps []Problem
+	add := func(field, format string, a ...any) { ps = append(ps, Problem{field, fmt.Sprintf(format, a...)}) }
+	if c.Schema != SchemaVersion {
+		add("schema", "version %d, want %d", c.Schema, SchemaVersion)
+	}
+	validateScope(c.Scope, add)
+	validateOwner(c.Owner, c.Limits, add)
+	validateLimits(c.Limits, add)
+	for _, t := range c.Terms {
+		if StageOf(t) == "" {
+			add("terms", "unknown term %q (one of %v)", t, Terms())
+		}
+	}
+	for _, r := range c.Records {
+		if err := checkRecord(c.Terms, r); err != "" {
+			add("records", "%s", err)
+		}
+	}
+	if c.state != "" && !slices.Contains(States(), c.state) {
+		add("state", "unknown state %q (one of %v)", c.state, States())
+	}
+	if c.Failed != "" && !slices.Contains(Reasons(), c.Failed) {
+		add("failed", "unknown reason %q (one of %v)", c.Failed, Reasons())
+	}
+	return ps
+}
+
+func validateScope(s Scope, add func(string, string, ...any)) {
+	if s.Unit == "" {
+		add("scope.unit", "empty")
+	}
+	if !slices.Contains(Kinds(), s.Kind) {
+		add("scope.kind", "unknown kind %q (one of %v)", s.Kind, Kinds())
+	}
+	if len(s.Own) == 0 {
+		add("scope.own", "empty: a contract owns at least one file")
+	}
+	if slices.Contains(s.Own, "") {
+		add("scope.own", "holds an empty path")
+	}
+}
+
+func validateOwner(p Party, l Limits, add func(string, string, ...any)) {
+	if p.Agent == "" {
+		add("owner.agent", "empty")
+	}
+	switch p.Role {
+	case RoleOwner:
+		if l.Depth != 1 {
+			add("limits.depth", "an owner runs at depth 1, not %d", l.Depth)
+		}
+	case RoleFleet:
+		if l.Depth != MaxDepth {
+			add("limits.depth", "a fleet member runs at depth %d, not %d", MaxDepth, l.Depth)
+		}
+		if l.Leaves != 0 {
+			add("limits.leaves", "a fleet member dispatches no leaves, not %d", l.Leaves)
+		}
+	default:
+		add("owner.role", "unknown role %q (one of %v)", p.Role, Roles())
+	}
+}
+
+func validateLimits(l Limits, add func(string, string, ...any)) {
+	if l.Depth < 1 || l.Depth > MaxDepth {
+		add("limits.depth", "%d, want 1 to %d", l.Depth, MaxDepth)
+	}
+	if l.Tokens < 0 || l.Tokens > MaxTokens {
+		add("limits.tokens", "%d, want 0 to %d", l.Tokens, MaxTokens)
+	}
+	if l.Leaves < 0 || l.Leaves > MaxLeaves {
+		add("limits.leaves", "%d, want 0 to %d", l.Leaves, MaxLeaves)
+	}
+}
+
+// checkRecord is the empty string for a record c may hold, else what is wrong with it.
+func checkRecord(terms []Term, r TermRecord) string {
+	switch {
+	case !slices.Contains(terms, r.Term):
+		return fmt.Sprintf("term %q is not one of the contract's terms %v", r.Term, terms)
+	case !slices.Contains(Verdicts(), r.Verdict):
+		return fmt.Sprintf("unknown verdict %q (one of %v)", r.Verdict, Verdicts())
+	case r.By == ByOwner && r.Term != TermTests:
+		return fmt.Sprintf("the owner records only %q, not %q", TermTests, r.Term)
+	case r.By != ByGo && r.By != ByOwner:
+		return fmt.Sprintf("by %q, want %q or %q", r.By, ByGo, ByOwner)
+	}
+	return ""
+}
