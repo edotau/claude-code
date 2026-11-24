@@ -338,3 +338,13 @@ func TestTakeCarryVerifyReadsTheSnapshotWhenOneIsInstalled(t *testing.T) {
 		t.Errorf("take = %q, want the snapshot's value", got)
 	}
 }
+
+func TestFencedWorkspaceIsTheConfinementOfAProviderOnlyAsk(t *testing.T) {
+	ctx := proc.WithValues(context.Background(), proc.Values{"COWORKER_OVERLAY": `{"provider":"databricks","profile":"prod"}`})
+	if got := fencedWorkspace(ctx, &askFlags{provider: "databricks"}); got != "prod" {
+		t.Errorf("fenced = %q, want prod", got)
+	}
+	if got := fencedWorkspace(ctx, &askFlags{provider: "databricks", profile: "dev"}); got != "" {
+		t.Errorf("a typed profile keeps its own lead, got %q", got)
+	}
+}

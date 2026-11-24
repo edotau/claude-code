@@ -822,7 +822,7 @@ func (r *askRun) routesItself() bool {
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
 	r.typed = r.f.profile
-	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
+	lead, err := narrowLead(r.ag, r.f, !r.routesItself(), fencedWorkspace(r.ctx, r.f))
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -830,8 +830,19 @@ func (r *askRun) resolveLead() (int, bool) {
 	return 0, false
 }
 
-// narrowLead routes f's --provider/--profile into a lead and f.profile when routed; "" and no change otherwise.
-func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
+// fencedWorkspace is the workspace the run's confinement names for a provider-only --provider databricks ask, else "".
+func fencedWorkspace(ctx context.Context, f *askFlags) string {
+	if f.provider != router.RouteDatabricks || f.profile != "" {
+		return ""
+	}
+	if p := router.ArmProfileContext(ctx); p != route.AutoArm {
+		return p
+	}
+	return ""
+}
+
+// narrowLead routes f's --provider/--profile (a fenced workspace first) into a lead and f.profile when routed.
+func narrowLead(ag string, f *askFlags, routed bool, fenced string) (string, error) {
 	if !routed {
 		return "", nil
 	}
@@ -839,7 +850,7 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 	if f.session != "" { // a resumed session runs one hop
 		fallback = router.FallbackNone
 	}
-	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.profile, Provider: f.provider, Fallback: fallback}
+	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: cmp.Or(f.profile, fenced), Provider: f.provider, Fallback: fallback}
 	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)
 	if err != nil {
 		return "", err
