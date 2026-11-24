@@ -133,16 +133,19 @@ func (p Prices) find(prov string, ids ...string) (ModelPrice, bool) {
 // ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
 func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
 	bare := strings.TrimPrefix(id, provider+"-")
-	if row, ok := p.find(provider, id, provider+"-"+bare, bare); ok {
-		return row, true
+	own, ok := p.find(provider, id, provider+"-"+bare, bare)
+	if ok && own.Priced {
+		return own, true
 	}
 	for prefix, vendor := range vendorOf {
 		if !strings.HasPrefix(bare, prefix) {
 			continue
 		}
-		return p.find(vendor, bare)
+		if row, found := p.find(vendor, bare); found && row.Priced {
+			return row, true
+		}
 	}
-	return ModelPrice{}, false
+	return own, ok
 }
 
 // Rate is Lookup's row when it carries a price; a reader uses it only where options.prices names none.
