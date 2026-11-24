@@ -1,7 +1,6 @@
 package theme
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -13,15 +12,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
-
-//go:embed default_config.json
-var embeddedConfigJSON []byte
-
-//go:embed default_palettes.json
-var embeddedPalettesJSON []byte
 
 // Look is the colour half of the statusline config.json: it decides how every claude-code surface is painted.
 type Look struct {
@@ -40,7 +34,7 @@ type Palettes struct {
 // Decoded on first use: this package links into every claude-code exec, only a few verbs read them.
 var embeddedPalettes = sync.OnceValue(func() Palettes {
 	var p Palettes
-	_ = json.Unmarshal(embeddedPalettesJSON, &p)
+	_ = json.Unmarshal(assets.ThemeDefaultPalettes(), &p)
 	return p
 })
 
@@ -125,7 +119,7 @@ func (p Palettes) Sem(role string) string {
 func StatuslineDir() string { return filepath.Join(paths.ConfigDir(), "state", "statusline") }
 
 // DefaultConfigJSON returns the embedded statusline/config.json default, for callers that must seed an absent file.
-func DefaultConfigJSON() []byte { return embeddedConfigJSON }
+func DefaultConfigJSON() []byte { return assets.ThemeDefaultConfig() }
 
 // LoadPalettes returns palettes.json beside config.json, else the embedded palette.
 func LoadPalettes() Palettes {
@@ -198,7 +192,7 @@ func GradientStops(name string) []ansi.RGB {
 // Theme exposes the status line's color mode, gradient stops and dim tone so other output can match it.
 func Theme() (mode string, stops []ansi.RGB, dim ansi.RGB) {
 	var l Look
-	_ = json.Unmarshal(embeddedConfigJSON, &l)
+	_ = json.Unmarshal(assets.ThemeDefaultConfig(), &l)
 	if data, err := os.ReadFile(filepath.Join(StatuslineDir(), "config.json")); err == nil {
 		user := l
 		if json.Unmarshal(data, &user) == nil { // a malformed file keeps the default look whole, never half-applied

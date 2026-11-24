@@ -2,17 +2,15 @@ package catalog
 
 import (
 	"cmp"
-	_ "embed"
 	"encoding/json"
 	"path"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-)
 
-//go:embed ranks.json
-var ranksJSON []byte
+	"github.com/edotau/claude-code/internal/assets"
+)
 
 // Rank is a model's ordinal facts from ranks.json, each higher-is-more; Known is false when no pattern matched.
 type Rank struct {
@@ -43,7 +41,7 @@ type rankTable struct {
 // loadRanks parses the embedded ranks once; a malformed embed is a build defect, so it panics (tests cover it).
 var loadRanks = sync.OnceValue(func() rankTable {
 	var t rankTable
-	if err := json.Unmarshal(ranksJSON, &t); err != nil {
+	if err := json.Unmarshal(assets.RankTable(), &t); err != nil {
 		panic("catalog: ranks.json: " + err.Error())
 	}
 	for i := range t.Families {
