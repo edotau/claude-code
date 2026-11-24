@@ -32,9 +32,9 @@ const (
 var CodemodeModes = []string{"off", "on", "only"}
 
 // CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
-const CodemodeEnv = "PI_CODEMODE"
+const CodemodeEnv = "CODEMODE"
 
-// ResolveCodemode is the typed --codemode (a typed off stays off), else PI_CODEMODE under --tools; other settings are "".
+// ResolveCodemode is the typed --codemode (a typed off stays off), else CODEMODE under --tools; other settings are "".
 func ResolveCodemode(typed string, tools bool) (string, error) {
 	if typed != "" || !tools {
 		return typed, nil

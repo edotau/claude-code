@@ -98,7 +98,7 @@ paths:
   The record carries per-tool stats.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
-- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `PI_CODEMODE` resolving to on;
+- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `CODEMODE` resolving to on;
   `--codemode off` wraps; Pi sets `HARNESS_CODEMODE` for it): every Pi launch puts `state/harness/rtkwrap/bin`
   first on PATH and, with code mode off, sets `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing
   a line's last command, sourcing the user's own `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one symlink per
@@ -111,7 +111,7 @@ paths:
   while `HARNESS_CODEMODE` is set. Copilot's SDK shell tool rewrites through the same function. agy cannot rewrite
   (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets awareness text only.
   `claude-code doctor` shows one rtk row per agent.
-- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `PI_CODEMODE=off|on|only` per
+- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
   machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`), loads `builtin:codemode`. The
   model writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts.
   The guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode
@@ -289,12 +289,12 @@ vendor CLI untouched.
    - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
      parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
    - A record names one `experiment`: `codemode`, `rtk-wrap` (a bash tool, off Windows) or `none`.
-5. **When to use code mode (`--codemode on|only`, `off` for one call, or `PI_CODEMODE` per machine):** read-heavy
+5. **When to use code mode (`--codemode on|only`, `off` for one call, or `CODEMODE` per machine):** read-heavy
    work that fans out (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not
    single reads or edits: the first runs cost more tokens there.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
    - rtk wrapping is on: review `state/harness/rtkwrap/decisions.jsonl` for a wrap on program-parsed output.
-   - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
+   - Code mode: per call until its trial passes, then `CODEMODE` per machine.
 7. **Don't** lean on Pi's Databricks route on purpose in a carried command (name the route);
    a leaf's default Pi route is intended.
 

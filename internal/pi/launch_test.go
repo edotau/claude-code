@@ -29,7 +29,7 @@ func TestExperimentIsOneTrial(t *testing.T) {
 }
 
 func TestResolveCodemode(t *testing.T) {
-	vaulttest.Use(t) // an unset env falls through to the vault: never this machine's PI_CODEMODE
+	vaulttest.Use(t) // an unset env falls through to the vault: never this machine's CODEMODE
 	for name, c := range map[string]struct {
 		typed, setting, want string
 		tools                bool
