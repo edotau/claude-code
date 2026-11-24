@@ -3,6 +3,7 @@ package worktree
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ import (
 )
 
 func seedWorktree(main, dest string, log io.Writer) {
-	for _, name := range []string{".venv", ".env"} {
+	for _, name := range []string{".venv", "venv", ".env"} {
 		if err := seedPath(main, dest, name); err != nil {
 			fmt.Fprintf(log, "worktree-create: warning: seed %s: %v\n", name, err)
 		}
@@ -37,17 +38,22 @@ func seedPath(main, dest, name string) error {
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		return err
 	}
-	if ignored, err := seedIgnored(dest, name); err != nil || !ignored {
-		return err
-	}
-	if name == ".venv" {
+	if isVenv(name) {
 		if err := os.Symlink(source, target); err != nil {
 			return err
 		}
-		return excludeSymlink(dest, name)
+		if err := excludeSymlink(dest, name); err != nil {
+			return errors.Join(err, os.Remove(target))
+		}
+		return nil
+	}
+	if ignored, err := seedIgnored(dest, name); err != nil || !ignored {
+		return err
 	}
 	return copyEnvFile(source, target, info.Mode().Perm())
 }
+
+func isVenv(name string) bool { return name == ".venv" || name == "venv" }
 
 // seedProbeTimeout bounds the git check-ignore that gates seeding a path into a new worktree.
 const seedProbeTimeout = 10 * time.Second
@@ -56,12 +62,7 @@ const seedProbeTimeout = 10 * time.Second
 func seedIgnored(dest, name string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), seedProbeTimeout)
 	defer cancel()
-	probe := name
-	if name == ".venv" {
-		// a `.venv/` rule only matches paths git treats as directories
-		probe += "/"
-	}
-	return checkIgnored(ctx, dest, probe)
+	return checkIgnored(ctx, dest, name)
 }
 
 // checkIgnored runs git check-ignore for probe in dest: exit 0 is ignored, the clean answer exit 1 is not.
@@ -75,7 +76,7 @@ func checkIgnored(ctx context.Context, dest, probe string) (bool, error) {
 	return true, nil
 }
 
-// excludeSymlink adds /name to the repo's info/exclude when a directory-only rule leaves the seeded symlink untracked.
+// excludeSymlink adds /name to info/exclude when no rule (e.g. a directory-only `.venv/`) ignores the seeded symlink.
 func excludeSymlink(dest, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), seedProbeTimeout)
 	defer cancel()

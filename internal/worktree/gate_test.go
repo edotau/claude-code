@@ -231,9 +231,9 @@ func TestScopedVerifyGateQuotesScope(t *testing.T) {
 		scope             []string
 	}{
 		{"go", "go.mod", "go <build> <./...>\ngo <vet>" + goTargets + "go <test>" + goTargets, scope},
-		{"python", "pyproject.toml,ruff.toml", "ruff <check>" + pyTargets + "pytest <-q>" + pyTargets, scope},
+		{"python", "pyproject.toml,ruff.toml", "ruff <check>" + pyTargets + "pytest" + pyTargets, scope},
 		{"go apostrophe", "go.mod", "go <build> <./...>\ngo <vet> <./quote's/...>\ngo <test> <./quote's/...>\n", []string{"quote's"}},
-		{"python apostrophe", "pyproject.toml,ruff.toml", "ruff <check> <quote's>\npytest <-q> <quote's>\n", []string{"quote's"}},
+		{"python apostrophe", "pyproject.toml,ruff.toml", "ruff <check> <quote's>\npytest <quote's>\n", []string{"quote's"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -273,7 +273,7 @@ func TestScopedVerifyGateRuffTable(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(c.toml), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			want := "pytest -q"
+			want := "(pytest)"
 			if c.wantRuff {
 				want = "ruff check . && " + want
 			}
@@ -528,5 +528,16 @@ func TestEmptyPytestNeedsPyChange(t *testing.T) {
 	}
 	if err := emptyPytest(context.Background(), dir, base, exec.Command("bash", "-c", "exit 1").Run(), &out); errors.Is(err, errNoTests) || err == nil {
 		t.Fatalf("other exit: err=%v, want it unchanged", err)
+	}
+}
+
+func TestIsPytestStep(t *testing.T) {
+	for step, want := range map[string]bool{
+		"(pytest)": true, "(.venv/bin/python -m pytest 'a')": true, "ruff check . && (pytest)": true,
+		"check pytest.ini && make test": false, "make test": false, "(pytest) && make test": false,
+	} {
+		if got := isPytestStep(step); got != want {
+			t.Errorf("isPytestStep(%q) = %v, want %v", step, got, want)
+		}
 	}
 }

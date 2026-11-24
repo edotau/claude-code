@@ -244,7 +244,7 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return fullGoGate, "go.mod"
 	}
 	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
-		return pytestGate, "pyproject"
+		return "(" + venvPython(dir) + "pytest)", "pyproject"
 	}
 	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
 		return "npm test", "package.json"
@@ -254,9 +254,6 @@ func detectVerifyGate(dir string) (gate, source string) {
 	}
 	return "", ""
 }
-
-// pytestGate is a subshell so rtk leaves it bare: rtk pytest adds -q, and with addopts -q reads "No tests collected".
-const pytestGate = "(pytest)"
 
 // pytestNoTestsExit is pytest's exit code for an empty collection.
 const pytestNoTestsExit = 5
@@ -441,17 +438,36 @@ func goScopeGate(dirs []string) string {
 	return "go build ./... && go vet " + p + " && go test " + p
 }
 
+// Pytest gates are subshells so rtk leaves them bare: rtk adds -q, which with addopts -q reads "No tests collected".
+
+// isPytestStep reports whether the last command of step is a "(...pytest...)" subshell, whose exit 5 is pytest's.
+func isPytestStep(step string) bool {
+	_, last, found := strings.Cut(step, " && ")
+	if !found {
+		last = step
+	}
+	return strings.HasPrefix(strings.TrimSpace(last), "(") && strings.Contains(last, "pytest")
+}
+
+// venvPython is the `-m` prefix of dir's .venv or venv interpreter, empty when it has neither.
+func venvPython(dir string) string {
+	for _, v := range []string{".venv", "venv"} {
+		if paths.FileExists(filepath.Join(dir, v, "bin", "python")) {
+			return v + "/bin/python -m "
+		}
+	}
+	return ""
+}
+
 // pythonScopeGate runs pytest (and ruff when configured) over dirs, through .venv when the repo has one.
 func pythonScopeGate(dir string, dirs []string) string {
-	py := ""
-	if info, err := os.Stat(filepath.Join(dir, ".venv")); err == nil && info.IsDir() {
-		py = ".venv/bin/python -m "
-	}
+	py := venvPython(dir)
 	targets := shellQuoteAll(dirs)
-	pytest := py + "pytest -q"
+	pytest := py + "pytest"
 	if targets != "" {
 		pytest += " " + targets
 	}
+	pytest = "(" + pytest + ")"
 	if !hasRuffConfig(dir) {
 		return pytest
 	}
@@ -544,7 +560,7 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 	for i, s := range steps {
 		wg.Go(func() {
 			fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i])
-			if s == pytestGate && fails[i] != nil {
+			if fails[i] != nil && isPytestStep(s) {
 				fails[i] = emptyPytest(ctx, dir, base, fails[i], &outs[i])
 			}
 			if fails[i] != nil {
