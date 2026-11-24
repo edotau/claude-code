@@ -2,6 +2,7 @@ package tree
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,9 +111,19 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-// ContractEnv wires contract.Reap to the dispatch records; Successor stays nil: re-assign is task 11.2's.
+// ContractEnv wires contract.Reap to the dispatch records; Successor re-sends a lost holder's dispatch once.
 func ContractEnv() contract.Env {
-	return contract.Env{Lost: holderLost}
+	return contract.Env{Lost: holderLost, Successor: resendHolder}
+}
+
+// resendHolder is the new dispatch of c's lost holder, "" when it cannot be re-sent (c is then failed owner-dead).
+func resendHolder(c contract.Contract) string {
+	next, err := agent.Resend(context.Background(), c.Holders[len(c.Holders)-1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reap: contract %s: re-send: %v\n", c.ID, err)
+		return ""
+	}
+	return next
 }
 
 // holderLost: the holder's record is pruned, or no longer running while its contract is working (owner gone unsettled).

@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestWatchOnceResendsOnceThenFails(t *testing.T) {
 	if err := next.Save(); err != nil {
 		t.Fatal(err)
 	}
-	send := func(context.Context, contract.Contract) (string, error) { return "d-4", nil }
+	send := func(context.Context, string) (string, error) { return "d-4", nil }
 	watchOnce(context.Background(), "d-1", send)
 	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || k.State() != contract.StateWorking {
 		t.Fatalf("after first loss: holders %v state %s, want re-assigned and working", k.Holders, k.State())
@@ -82,13 +83,27 @@ func TestHeldIDTakesOverResentContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := heldID(agent.Record{ID: "d-5"}); got != "" {
-		t.Fatalf("without the env heldID = %q, want none", got)
+		t.Fatalf("without a marker heldID = %q, want none", got)
 	}
-	t.Setenv(resendEnv, "d-2")
+	markResumed(t, "d-2", "d-5")
+	markResumed(t, "d-1", "d-7")
 	if got := heldID(agent.Record{ID: "d-5"}); got != "d-2" {
 		t.Fatalf("heldID = %q, want d-2", got)
 	}
+	if got := heldID(agent.Record{ID: "d-7"}); got != "d-1" { // a retried owner takes its contract over too
+		t.Fatalf("retried owner heldID = %q, want d-1", got)
+	}
 	if k, _ := contract.Load("d-2"); len(k.Holders) != 2 || k.Holders[1] != "d-5" {
 		t.Fatalf("holders = %v, want d-2 then d-5", k.Holders)
+	}
+}
+
+func markResumed(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.MkdirAll(agent.WatchDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agent.WatchMarker("resumed", from), []byte(to+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

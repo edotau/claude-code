@@ -108,37 +108,22 @@ func piBudget() (leaves, tokens bool) {
 
 // heldContract is the open contract id holds: its own, else one it took over by a re-assign.
 func heldContract(id string) (contract.Contract, bool) {
-	var seen []string
-	for id != "" && !slices.Contains(seen, id) && len(seen) < 64 { // follow the resumed markers back to the holder
-		seen = append(seen, id)
-		c, err := contract.Load(id)
+	if id == "" {
+		return contract.Contract{}, false
+	}
+	for _, try := range append([]string{id}, agent.ResumeChain(id)...) { // a retry: the dispatches it resumed
+		c, err := contract.Load(try)
 		if errors.Is(err, fs.ErrNotExist) {
 			open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
-			if i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) }); i >= 0 {
+			if i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, try) }); i >= 0 {
 				c, err = open[i], nil
 			}
 		}
 		if err == nil {
 			return c, !c.State().Terminal()
 		}
-		id = resumedFrom(id)
 	}
 	return contract.Contract{}, false
-}
-
-// resumedFrom is the dispatch id a `--retry --recover` marker names as the one id was resumed from, else "".
-func resumedFrom(id string) string {
-	ents, _ := os.ReadDir(agent.WatchDir())
-	for _, e := range ents {
-		from, ok := strings.CutPrefix(e.Name(), "resumed-")
-		if !ok {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(agent.WatchDir(), e.Name())); err == nil && strings.TrimSpace(string(b)) == id {
-			return from
-		}
-	}
-	return ""
 }
 
 // piResent is the notice for an owner's re-sent leaf: its id and the dispatch now holding it, "" for none.

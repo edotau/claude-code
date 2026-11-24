@@ -535,20 +535,29 @@ func heldID(rec agent.Record) string {
 	if holdsContract(rec.ID) {
 		return rec.ID
 	}
-	cid := os.Getenv(resendEnv)
-	if cid == "" {
+	chain := agent.ResumeChain(rec.ID) // a --recover run: the dispatches it resumed, nearest first
+	for _, from := range chain {
+		if _, err := contract.Load(from); err != nil {
+			continue
+		}
+		if takeOver(from, rec.ID, chain) {
+			return from
+		}
 		return ""
 	}
+	return ""
+}
+
+// takeOver makes id the holder of working contract cid when its current holder is one id resumed from.
+func takeOver(cid, id string, chain []string) bool {
 	c, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
-		if c.State() != contract.StateWorking || c.Holders[len(c.Holders)-1] == rec.ID {
+		last := c.Holders[len(c.Holders)-1]
+		if c.State() != contract.StateWorking || last == id || (last != cid && !slices.Contains(chain, last)) {
 			return c, nil
 		}
-		return c.Reassign(rec.ID) // the watch re-sent this dispatch: take the contract over before the run starts
+		return c.Reassign(id)
 	})
-	if err != nil || c.State() != contract.StateWorking || c.Holders[len(c.Holders)-1] != rec.ID {
-		return ""
-	}
-	return cid
+	return err == nil && c.State() == contract.StateWorking && c.Holders[len(c.Holders)-1] == id
 }
 
 // holdsContract reports whether dispatch id holds a working contract; most asks have no contract file at all.
