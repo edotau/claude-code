@@ -72,9 +72,15 @@ func scopeStale(sc Scope) bool {
 // startSlot runs under the slot lock: it re-checks, replaces an idle stale proxy, then spawns and waits for a live one.
 func startSlot(ctx context.Context, team, id string) (Scope, error) {
 	if sc, inflight, ok := liveScope(ctx, team, id); ok {
-		if !scopeStale(sc) || inflight > 0 || !stopScope(sc) {
-			return sc, nil // fresh, busy or unstoppable: use it as it is
+		if !scopeStale(sc) || inflight > 0 {
+			return sc, nil // fresh or busy: use it as it is
 		}
+		if err := stopScope(sc); err != nil {
+			return Scope{}, err // a proxy that may be draining is no endpoint: the caller takes its next team
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return Scope{}, err
 	}
 	if err := spawnScope(team, id); err != nil {
 		return Scope{}, err
@@ -82,8 +88,19 @@ func startSlot(ctx context.Context, team, id string) (Scope, error) {
 	return awaitScope(ctx, team, id)
 }
 
-// stopScope SIGTERMs sc and reports whether it exited, so the replacement can take its scope file.
-func stopScope(sc Scope) bool { return terminate(sc.PID) == nil && awaitExit(sc.PID) }
+// stopScope SIGTERMs sc while its start-time identity still holds, and waits for it to exit.
+func stopScope(sc Scope) error {
+	if !scopeLive(sc) {
+		return nil
+	}
+	if err := terminate(sc.PID); err != nil {
+		return err
+	}
+	if !awaitExit(sc.PID) {
+		return fmt.Errorf("proxy %s@%s pid %d signalled but still draining", sc.Team, sc.ID, sc.PID)
+	}
+	return nil
+}
 
 func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 	for deadline := time.Now().Add(scopeStartWait); time.Now().Before(deadline); {
@@ -95,6 +112,9 @@ func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 			return Scope{}, ctx.Err()
 		case <-time.After(50 * time.Millisecond):
 		}
+	}
+	if sc, _, ok := liveScope(ctx, team, id); ok { // it may have turned healthy as the deadline passed
+		return sc, nil
 	}
 	return Scope{}, fmt.Errorf("proxy %s@%s did not become healthy within %s (see %s)", team, id, scopeStartWait, logFile())
 }
@@ -109,7 +129,14 @@ func spawnScopeProcess(team, id string) error {
 	if proc.IsSelfUnderTest(exe) {
 		return ErrTestBinary
 	}
-	lf, err := os.OpenFile(logFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
+		return err
+	}
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	if fi, err := os.Stat(logFile()); err == nil && fi.Size() > maxLogBytes {
+		flags |= os.O_TRUNC
+	}
+	lf, err := os.OpenFile(logFile(), flags, 0o600)
 	if err != nil {
 		return err
 	}

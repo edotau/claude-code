@@ -1,7 +1,6 @@
 internal/proxy/daemon.go:WriteState	router-runtime
 internal/proxy/exehash.go:cachedExeHash	unversioned: runtime: the installed binary's sha256 keyed by path, size and mtime, rehashed on change
 internal/proxy/ranidentity.go:WriteRanIdentity	unversioned: marker: the identity (sp|user) the proxy served a dispatch, beside its record, no credential
-internal/proxy/reserve.go:spawnScopeProcess	unversioned: runtime: a detached scoped proxy's output, appended to proxy.log
 internal/proxy/restart.go:Hold	unversioned: marker: deliberate proxy stop, watchdog stays off
 internal/proxy/restart.go:claimRestartLocked	unversioned: marker: watchdog proxy restart stamp
 internal/proxy/scope.go:WriteScope	proxy-scope

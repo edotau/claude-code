@@ -252,8 +252,8 @@ func (o *proxyOpts) serveCmd(ctx context.Context) int {
 // proxyServeScope runs one scoped proxy for "<team>@<id>" until SIGINT/SIGTERM, then removes its scope file.
 func proxyServeScope(ctx context.Context, spec string) int {
 	team, id, ok := strings.Cut(spec, "@")
-	if !ok {
-		return helptext.Fail("gateway proxy: --scope wants <team>@<id>, got %q", spec)
+	if !ok || !proxy.ValidScopePart(team) || !proxy.ValidScopePart(id) {
+		return helptext.Fail("gateway proxy: --scope wants <team>@<id> (lower-case letters, digits, . _ -), got %q", spec)
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
