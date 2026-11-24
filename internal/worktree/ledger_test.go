@@ -96,11 +96,11 @@ func (fx *ledgerLifecycle) mergeClose(t *testing.T) {
 	fx.wtHead = revParse(t, fx.dest, "HEAD")
 	commitIn(t, fx.main, "merge", "-q", "--no-edit", "worktree-ledgered")
 	mergeSHA := revParse(t, fx.main, "HEAD")
-	if err := CloseLedger(fx.main, "ledgered", LedgerClose{Via: "merge", MergeSHA: mergeSHA, Head: fx.wtHead}); err != nil {
+	if err := CloseLedger(fx.main, "ledgered", LedgerClose{Via: "merge", LandSHA: mergeSHA, Head: fx.wtHead}); err != nil {
 		t.Fatal(err)
 	}
 	requireContains(t, "closed ledger", ledgerFile(t, fx.main, "ledgered"),
-		"- Status: closed\n", "## Closed\n", "- Via: merge\n", "- Merge: "+mergeSHA+"\n", "work on ledger")
+		"- Status: closed\n", "## Closed\n", "- Via: merge\n", "- Land: "+mergeSHA+"\n", "work on ledger")
 }
 
 func (fx *ledgerLifecycle) secondClose(t *testing.T) {
@@ -190,7 +190,7 @@ func mergeKept(t *testing.T, main, dest, name, msg string) {
 	commitIn(t, dest, "commit", "--allow-empty", "-q", "-m", msg)
 	head := revParse(t, dest, "HEAD")
 	commitIn(t, main, "merge", "-q", "--no-edit", "worktree-"+name)
-	if err := CloseLedger(main, name, LedgerClose{Via: "merge", MergeSHA: revParse(t, main, "HEAD"), Head: head}); err != nil {
+	if err := CloseLedger(main, name, LedgerClose{Via: "merge", LandSHA: revParse(t, main, "HEAD"), Head: head}); err != nil {
 		t.Fatal(err)
 	}
 }

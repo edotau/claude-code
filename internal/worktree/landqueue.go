@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// QueuedLane is a lane the lane-merge hook could not merge by itself: a to-do the main session works off.
+// QueuedLane is a lane the lane-land hook could not land by itself: a to-do the main session works off.
 type QueuedLane struct {
 	Lane     string `json:"lane"`
 	Repo     string `json:"repo"`
@@ -24,21 +24,24 @@ type QueuedLane struct {
 	QueuedAt int64  `json:"queued_at"`
 }
 
-type mergeQueue struct {
+type landQueue struct {
 	Schema int          `json:"schema"`
 	Lanes  []QueuedLane `json:"lanes"`
 }
 
-const mergeQueueSchema = 1
+const landQueueSchema = 1
 
 var _ = schemas.Register(schemas.Format{
-	Name: "merge-queue", Owner: "internal/worktree", Kind: schemas.Record, Version: mergeQueueSchema,
-	Glob: MergeQueueFile, New: func() any { return &mergeQueue{} },
-	Keep: "one entry per lane; a merge or the lane's removal drops it",
+	Name: "land-queue", Owner: "internal/worktree", Kind: schemas.Record, Version: landQueueSchema,
+	Glob: LandQueueFile, New: func() any { return &landQueue{} },
+	Keep: "one entry per lane; a land or the lane's removal drops it",
 })
 
-// MergeQueueFile is the one queue file every session reads.
-func MergeQueueFile() string { return filepath.Join(paths.StateDir(), "worktree", "merge-queue.json") }
+// LandQueueFile is the one queue file every session reads.
+func LandQueueFile() string {
+	dir := filepath.Join(paths.StateDir(), "worktree")
+	return paths.MoveLegacy(filepath.Join(dir, "merge-queue.json"), filepath.Join(dir, "land-queue.json"))
+}
 
 // Enqueue adds q or replaces the entry for its lane, keeping the first queued-at.
 func Enqueue(q QueuedLane) error {
@@ -65,7 +68,7 @@ func Dequeue(lane string) error {
 
 // Queued lists main's queued lanes, dropping (and persisting the drop of) entries whose lane no longer exists.
 func Queued(main string) []QueuedLane {
-	q, err := readQueue(MergeQueueFile())
+	q, err := readQueue(LandQueueFile())
 	if err != nil || len(q.Lanes) == 0 {
 		return nil
 	}
@@ -105,7 +108,7 @@ const (
 func editQueue(fn func([]QueuedLane) []QueuedLane) error { return editQueueWithin(queueEditWait, fn) }
 
 func editQueueWithin(wait time.Duration, fn func([]QueuedLane) []QueuedLane) error {
-	file := MergeQueueFile()
+	file := LandQueueFile()
 	return paths.WithFileLockWithin(file, wait, func() error {
 		q, err := readQueue(file)
 		if err != nil {
@@ -118,12 +121,12 @@ func editQueueWithin(wait time.Duration, fn func([]QueuedLane) []QueuedLane) err
 			}
 			return nil
 		}
-		return paths.WriteJSON(file, mergeQueue{Schema: mergeQueueSchema, Lanes: next})
+		return paths.WriteJSON(file, landQueue{Schema: landQueueSchema, Lanes: next})
 	})
 }
 
-func readQueue(file string) (mergeQueue, error) {
-	var q mergeQueue
+func readQueue(file string) (landQueue, error) {
+	var q landQueue
 	raw, err := os.ReadFile(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return q, nil

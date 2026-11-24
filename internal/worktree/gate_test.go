@@ -165,7 +165,7 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
 		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
 		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
-			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path a --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+			lintVerbBase + ` --base "${HARNESS_LAND_BASE:-HEAD}" --path a --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
 		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}

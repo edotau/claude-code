@@ -19,11 +19,11 @@ type ledgerInfo struct {
 	Now                                  time.Time
 }
 
-// LedgerClose records the outcome of a merge or removal without requiring the checkout to still exist.
+// LedgerClose records the outcome of a land or removal without requiring the checkout to still exist.
 type LedgerClose struct {
-	Via, MergeSHA, Head string
-	BranchDeleted       bool
-	Now                 time.Time
+	Via, LandSHA, Head string
+	BranchDeleted      bool
+	Now                time.Time
 }
 
 // ledgerCandidate is a worktrees/ file that may be name's ledger, with its recorded repo.
@@ -277,14 +277,14 @@ func closedLedgerText(main, name, text string, c LedgerClose) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ledger %s: list commits: %w", name, err)
 	}
-	merge := c.MergeSHA
-	if merge == "" {
-		merge = "none"
+	land := c.LandSHA
+	if land == "" {
+		land = "none"
 	}
 	text = strings.Replace(text, "- Status: open\n", "- Status: closed\n", 1)
 	text = ledgerLog(text, "closed via "+c.Via, c.Now)
-	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Merge: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
-		ledgerLine(c.Via), ledgerLine(merge), ledgerTime(c.Now), branch)
+	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Land: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
+		ledgerLine(c.Via), ledgerLine(land), ledgerTime(c.Now), branch)
 	return text + commitLines(strings.TrimSpace(string(out))), nil
 }
 

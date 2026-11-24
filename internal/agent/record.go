@@ -1026,21 +1026,21 @@ func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunR
 		err = rerr
 	}
 	r.finishSave(res, err, took, o.Notify)
-	startLaneMerge(r)
+	startLaneLand(r)
 	return err
 }
 
-// LaneMergeJobArg starts the lane-merge worker (internal/hooks/lanemerge.go) for a finished job's id.
-const LaneMergeJobArg = "--internal-lane-merge-job"
+// LaneLandJobArg starts the lane-land worker (internal/hooks/laneland.go) for a finished job's id.
+const LaneLandJobArg = "--internal-lane-land-job"
 
-// startLaneMerge hands a background job that changed files to the lane-merge worker; it judges the lane itself.
-func startLaneMerge(r *Record) {
+// startLaneLand hands a background job that changed files to the lane-land worker; it judges the lane itself.
+func startLaneLand(r *Record) {
 	wrote := r.Wrote != nil && len(*r.Wrote) > 0 || r.TreeChanged != nil && len(*r.TreeChanged) > 0
 	if !r.Background || r.Tree == "" || !wrote {
 		return
 	}
 	if self, err := paths.SelfBinary(); err == nil {
-		proc.SpawnDetached(self, []string{LaneMergeJobArg, r.ID}, paths.StateDir(), nil)
+		proc.SpawnDetached(self, []string{LaneLandJobArg, r.ID}, paths.StateDir(), nil)
 	}
 }
 

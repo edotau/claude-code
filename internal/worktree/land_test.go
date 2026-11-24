@@ -17,9 +17,9 @@ import (
 )
 
 func TestIntegrateTargetRebaseFailureStopsBeforePromote(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
-	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 	mainBefore, wtBefore := headOf(main), headOf(wt)
 	plan, err := Preflight(t.Context(), repo, "a", "")
 	if err != nil {
@@ -42,9 +42,9 @@ func TestIntegrateTargetRebaseFailureStopsBeforePromote(t *testing.T) {
 }
 
 func TestPromoteLandsUncommittedSkipsSimulation(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	ctx := context.Background()
 	plan, err := Preflight(ctx, repo, "feature", "")
 	if err != nil {
@@ -76,9 +76,9 @@ func TestPromoteLandsUncommittedSkipsSimulation(t *testing.T) {
 
 // Main advancing between integrateTarget and promote must stop promote with a retry hint, never a real merge.
 func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -92,7 +92,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	}
 
 	// Another actor advances main directly, after the plan pinned its OID.
-	mergeFixtureWrite(t, main, "h.txt", "moved on\n", "main moves on")
+	landFixtureWrite(t, main, "h.txt", "moved on\n", "main moves on")
 	movedTo := headOf(main)
 
 	result, err := promote(context.Background(), repo, plan)
@@ -109,9 +109,9 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 
 // A main commit that is not an ancestor of the re-pinned worktree HEAD must make promote refuse rather than merge.
 func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -122,7 +122,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	}
 
 	// main advances past plan.TargetOID with a commit the integrated worktree HEAD never saw.
-	mergeFixtureWrite(t, main, "f.txt", "main diverges\n", "main diverges")
+	landFixtureWrite(t, main, "f.txt", "main diverges\n", "main diverges")
 
 	result, err := promote(context.Background(), repo, plan)
 	if err == nil {
@@ -135,9 +135,9 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 
 // Regression: a commit landing after integrateTarget must never be promoted; only the pinned OID lands.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -152,7 +152,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	}
 
 	// An unreviewed commit lands in the worktree after integration, before promote ever runs.
-	mergeFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
+	landFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
 	unreviewed := headOf(wt)
 
 	result, promoteErr := promote(context.Background(), repo, plan)
@@ -167,10 +167,10 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	}
 }
 
-func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
-	mergeFixtureLockEnv(t)
+func TestPromoteLockHeldRefusesConcurrentLand(t *testing.T) {
+	landFixtureLockEnv(t)
 	repo, _, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -180,9 +180,9 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
-	origWait := mergeLockWait
-	t.Cleanup(func() { mergeLockWait = origWait })
-	mergeLockWait = 100 * time.Millisecond
+	origWait := landLockWait
+	t.Cleanup(func() { landLockWait = origWait })
+	landLockWait = 100 * time.Millisecond
 	release := make(chan struct{})
 	held := make(chan struct{})
 	go func() {
@@ -197,18 +197,18 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 
 	_, err = promote(context.Background(), repo, plan)
 	if err == nil {
-		t.Fatal("promote: want error while another holder has the merge lock")
+		t.Fatal("promote: want error while another holder has the land lock")
 	}
-	if err != errMergeBusy {
-		t.Fatalf("err = %v, want errMergeBusy", err)
+	if err != errLandBusy {
+		t.Fatalf("err = %v, want errLandBusy", err)
 	}
 }
 
 // A preflightAfterResolution plan tolerates untracked tool residue; a plain Preflight plan refuses it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	if err := os.MkdirAll(filepath.Join(wt, ".impeccable"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -233,31 +233,31 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	requireFileContent(t, filepath.Join(main, "g.txt"), "feature only\n")
 }
 
-func TestMergeDirtyTargetOverlap(t *testing.T) {
+func TestLandDirtyTargetOverlap(t *testing.T) {
 	for _, overlap := range []bool{false, true} {
 		name := "non-overlapping"
 		if overlap {
 			name = "overlapping"
 		}
 		t.Run(name, func(t *testing.T) {
-			mergeFixtureLockEnv(t)
+			landFixtureLockEnv(t)
 			repo, main, wt := preflightFixtureSetup(t)
-			mergeFixtureWrite(t, main, "a.txt", "base\n", "main adds a")
-			mergeFixtureWrite(t, wt, "b.txt", "feature\n", "feature adds b")
+			landFixtureWrite(t, main, "a.txt", "base\n", "main adds a")
+			landFixtureWrite(t, wt, "b.txt", "feature\n", "feature adds b")
 			if overlap {
-				mergeFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
+				landFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
 			}
 			before := headOf(main)
 			if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			var plan *MergePlan
-			outcome, err := Merge(context.Background(), repo, MergeRequest{
+			var plan *LandPlan
+			outcome, err := Land(context.Background(), repo, LandRequest{
 				Name: "feature", Verify: "true", NoClean: true, Out: io.Discard, Err: io.Discard,
-				ShowPlan: func(p *MergePlan) { plan = p },
+				ShowPlan: func(p *LandPlan) { plan = p },
 			})
 			if errors.Is(err, ErrLandRefused) != overlap || (!overlap && (err != nil || outcome == nil)) {
-				t.Fatalf("Merge = %+v, %v; want a land refusal=%v", outcome, err, overlap)
+				t.Fatalf("Land = %+v, %v; want a land refusal=%v", outcome, err, overlap)
 			}
 			if overlap {
 				assertDirtyTargetIssue(t, plan, "a.txt")
@@ -282,9 +282,9 @@ func assertTargetEditIntact(t *testing.T, main, wantHead string) {
 }
 
 func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
+	landFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
 	ctx := context.Background()
 	plan, err := Preflight(ctx, repo, "feature", "")
 	if err != nil || len(plan.Issues) != 0 {
@@ -311,14 +311,14 @@ func requireFileContent(t *testing.T, path, want string) {
 	}
 }
 
-func mergeFixtureLockEnv(t *testing.T) {
+func landFixtureLockEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 }
 
 func TestAcquireRunsFnAndReleases(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	ran := false
 	if err := acquire(time.Second, func() error { ran = true; return nil }); err != nil {
 		t.Fatalf("acquire: %v", err)
@@ -332,7 +332,7 @@ func TestAcquireRunsFnAndReleases(t *testing.T) {
 }
 
 func TestAcquirePropagatesFnError(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	sentinel := errFixtureSentinel{}
 	err := acquire(time.Second, func() error { return sentinel })
 	if err != sentinel {
@@ -344,8 +344,8 @@ type errFixtureSentinel struct{}
 
 func (errFixtureSentinel) Error() string { return "fixture sentinel error" }
 
-func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
-	mergeFixtureLockEnv(t)
+func TestAcquireBusyReturnsErrLandBusyWithinWait(t *testing.T) {
+	landFixtureLockEnv(t)
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
@@ -365,8 +365,8 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 		return nil
 	})
 	elapsed := time.Since(start)
-	if err != errMergeBusy {
-		t.Fatalf("err = %v, want errMergeBusy", err)
+	if err != errLandBusy {
+		t.Fatalf("err = %v, want errLandBusy", err)
 	}
 	if elapsed < wait {
 		t.Fatalf("acquire returned after %v, want it to have waited at least %v", elapsed, wait)
@@ -374,13 +374,13 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 }
 
 func TestAfterLandCleanClosesLedgerOnce(t *testing.T) {
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	wantHead := headOf(wt)
-	outcome, err := Merge(context.Background(), repo, MergeRequest{
+	outcome, err := Land(context.Background(), repo, LandRequest{
 		Name: "feature", NoVerify: true, Out: io.Discard, Err: io.Discard,
-		ShowPlan: func(*MergePlan) {},
+		ShowPlan: func(*LandPlan) {},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -389,18 +389,18 @@ func TestAfterLandCleanClosesLedgerOnce(t *testing.T) {
 		t.Fatalf("clean = %+v, want the worktree removed and its branch kept", outcome.Clean)
 	}
 	text := ledgerFile(t, main, "feature")
-	requireContains(t, "closed ledger", text, "- Via: land\n", "- Merge: "+wantHead+"\n", "- Branch: kept\n")
+	requireContains(t, "closed ledger", text, "- Via: land\n", "- Land: "+wantHead+"\n", "- Branch: kept\n")
 	if strings.Count(text, "closed via land") != 1 || strings.Contains(text, "removed via") {
 		t.Fatalf("land and cleanup must close the ledger exactly once:\n%s", text)
 	}
 }
 
-func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
-	mergeFixtureLockEnv(t)
+func TestAcquireZeroWaitDefaultsToLandLockWait(t *testing.T) {
+	landFixtureLockEnv(t)
 	const short = 100 * time.Millisecond
-	origWait := mergeLockWait
-	t.Cleanup(func() { mergeLockWait = origWait })
-	mergeLockWait = short
+	origWait := landLockWait
+	t.Cleanup(func() { landLockWait = origWait })
+	landLockWait = short
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
@@ -416,8 +416,8 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	start := time.Now()
 	err := acquire(0, func() error { return nil })
 	elapsed := time.Since(start)
-	if err != errMergeBusy {
-		t.Fatalf("err = %v, want errMergeBusy", err)
+	if err != errLandBusy {
+		t.Fatalf("err = %v, want errLandBusy", err)
 	}
 	// wait<=0 must fall back to the default wait, not return immediately as a zero wait would imply.
 	if elapsed < short-20*time.Millisecond {
@@ -425,14 +425,14 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	}
 }
 
-func laneMergeFixture(t *testing.T) (*Repo, string, string) {
+func laneLandFixture(t *testing.T) (*Repo, string, string) {
 	t.Helper()
-	mergeFixtureLockEnv(t)
+	landFixtureLockEnv(t)
 	main := paths.Canon(t.TempDir())
-	mergeFixtureRun(t, main, "init", "-q", "-b", "main")
-	mergeFixtureRun(t, main, "config", "user.name", "test")
-	mergeFixtureRun(t, main, "config", "user.email", "test@example.invalid")
-	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+	landFixtureRun(t, main, "init", "-q", "-b", "main")
+	landFixtureRun(t, main, "config", "user.name", "test")
+	landFixtureRun(t, main, "config", "user.email", "test@example.invalid")
+	landFixtureWrite(t, main, "f.txt", "base\n", "base")
 	repo, err := ResolveRepo(main)
 	if err != nil {
 		t.Fatal(err)
@@ -445,21 +445,21 @@ func laneMergeFixture(t *testing.T) (*Repo, string, string) {
 	return repo, main, wt
 }
 
-func laneRequest(name string, out io.Writer) MergeRequest {
-	return MergeRequest{Name: name, NoVerify: true, Out: out, Err: out,
-		ShowPlan: func(*MergePlan) {}, ShowResolved: func(*MergeResult) {}}
+func laneRequest(name string, out io.Writer) LandRequest {
+	return LandRequest{Name: name, NoVerify: true, Out: out, Err: out,
+		ShowPlan: func(*LandPlan) {}, ShowResolved: func(*LandResult) {}}
 }
 
 // The gate sees trunk's file only on the rebased tree; main keeps its head and gets the lane's file uncommitted.
 func TestLaneLandRebasesGatesAndLeavesMainUncommitted(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "f.txt", "A\n", "feat: a")
-	mergeFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk moves")
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "A\n", "feat: a")
+	landFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk moves")
 	trunk := headOf(main)
 	var out bytes.Buffer
 	req := laneRequest("a", &out)
 	req.NoVerify, req.Verify = false, "test -f trunk.txt"
-	outcome, err := Merge(t.Context(), repo, req)
+	outcome, err := Land(t.Context(), repo, req)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
@@ -471,12 +471,12 @@ func TestLaneLandRebasesGatesAndLeavesMainUncommitted(t *testing.T) {
 }
 
 // A real conflict aborts the rebase: the lane keeps its HEAD and a clean tree, trunk stays, the session hears.
-func TestLaneMergeConflictAbortsRebase(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
-	mergeFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
+func TestLaneLandConflictAbortsRebase(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	landFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
 	mainBefore, laneBefore := headOf(main), headOf(wt)
-	_, err := Merge(t.Context(), repo, laneRequest("a", io.Discard))
+	_, err := Land(t.Context(), repo, laneRequest("a", io.Discard))
 	if !errors.Is(err, ErrRebaseConflict) {
 		t.Fatalf("want rebase conflict, got %v", err)
 	}
@@ -487,17 +487,17 @@ func TestLaneMergeConflictAbortsRebase(t *testing.T) {
 	if dirty, derr := isDirty(t.Context(), wt); derr != nil || dirty || headOf(wt) != laneBefore {
 		t.Fatalf("lane changed: dirty=%v head %s want %s (%v)", dirty, headOf(wt), laneBefore, derr)
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	landFixtureAssertMainUntouched(t, main, mainBefore)
 	notices, err := DrainErr("session-a")
 	if err != nil || len(notices) != 1 || notices[0].Kind != "conflict" || !strings.Contains(notices[0].Text, "f.txt") {
 		t.Fatalf("lane session notices = %+v %v, want one conflict notice naming f.txt", notices, err)
 	}
 }
 
-func TestLaneMergeDryRunPreservesEveryRef(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
-	mergeFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk change")
+func TestLaneLandDryRunPreservesEveryRef(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	landFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk change")
 	before, err := runGit(t.Context(), main, nil, "show-ref")
 	if err != nil {
 		t.Fatal(err)
@@ -513,18 +513,18 @@ func TestLaneMergeDryRunPreservesEveryRef(t *testing.T) {
 	requireContains(t, "preview", out.String(), "would: rebase", "apply the lane's diff uncommitted", "remove the lane", "changed files: f.txt")
 }
 
-func TestLaneMergeDirtyOverlapRefusesBeforeRebase(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+func TestLaneLandDirtyOverlapRefusesBeforeRebase(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
 	before := headOf(wt)
 	mainBefore := headOf(main)
 	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("dirty\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var plan *MergePlan
+	var plan *LandPlan
 	req := laneRequest("a", io.Discard)
-	req.ShowPlan = func(p *MergePlan) { plan = p }
-	outcome, err := Merge(t.Context(), repo, req)
+	req.ShowPlan = func(p *LandPlan) { plan = p }
+	outcome, err := Land(t.Context(), repo, req)
 	if !errors.Is(err, ErrLandRefused) || outcome != nil || !strings.Contains(err.Error(), "f.txt") {
 		t.Fatalf("want a land refusal naming f.txt: %+v %v", outcome, err)
 	}
@@ -539,13 +539,13 @@ func TestLaneMergeDirtyOverlapRefusesBeforeRebase(t *testing.T) {
 }
 
 // Trunk moving while the gate runs refuses the fast-forward and says re-run; the lane stays.
-func TestLaneMergeTrunkMovedDuringGateRefuses(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
+func TestLaneLandTrunkMovedDuringGateRefuses(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
 	var out bytes.Buffer
 	req := laneRequest("a", &out)
 	req.NoVerify, req.Verify = false, "git -C "+textutil.ShellQuote(main)+" commit -q --allow-empty -m moved"
-	_, err := Merge(t.Context(), repo, req)
+	_, err := Land(t.Context(), repo, req)
 	if err == nil || !strings.Contains(err.Error(), "target moved") || !strings.Contains(out.String(), "re-run worktree land") {
 		t.Fatalf("want a target-moved refusal naming re-run: %v\n%s", err, out.String())
 	}
@@ -558,10 +558,10 @@ func TestLaneMergeTrunkMovedDuringGateRefuses(t *testing.T) {
 }
 
 // --resolve-agent resolves an aborted rebase's conflict in the lane, then the merge lands.
-func TestLaneMergeResolveAgentResolvesInLane(t *testing.T) {
-	repo, main, wt := laneMergeFixture(t)
-	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
-	mergeFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
+func TestLaneLandResolveAgentResolvesInLane(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	landFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
 	original := runResolveAgent
 	t.Cleanup(func() { runResolveAgent = original })
 	calls := 0
@@ -574,7 +574,7 @@ func TestLaneMergeResolveAgentResolvesInLane(t *testing.T) {
 	}
 	req := laneRequest("a", io.Discard)
 	req.ResolveAgent = "codex"
-	if _, err := Merge(t.Context(), repo, req); err != nil {
+	if _, err := Land(t.Context(), repo, req); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(main, "f.txt"))

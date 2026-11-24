@@ -1,0 +1,1 @@
+{"schema":1,"lanes":[{"lane":"/w/l1","repo":"/r","branch":"worktree-l1","reason":"uncommitted work","detail":"a.go","next":"(cd /w/l1 && claude-code worktree commit --task <id> -m \"<type>: <subject>\" a.go) && claude-code worktree land --resolve-agent pi l1","queued_at":1767323045}]}

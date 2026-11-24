@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// WithWorktreeLease runs fn under the lease serializing resolve, merge and clean per worktree (before the merge lock).
+// WithWorktreeLease runs fn under the lease serializing resolve, land and clean per worktree (before the land lock).
 func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 	leasePath := operationLeasePath(repo.Main, name)
 	// TryFileLock does not create the lease dir, which may not exist yet on a first resolve.
@@ -34,9 +35,86 @@ func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 		return err
 	}
 	if !ran {
-		return fmt.Errorf("worktree %q: another merge, resolve, or clean operation is already active", name)
+		return fmt.Errorf("worktree %q: another land, resolve, or clean operation is already active", name)
 	}
 	return nil
+}
+
+// LandWaitEnv names who runs a land (the lane-land hook sets it); the lease file records it for a waiting land.
+const LandWaitEnv = "HARNESS_LAND_BY"
+
+// LaneLanded reports whether name's worktree is gone and its ledger was closed by a land (not a clean).
+func LaneLanded(repo *Repo, name string) bool {
+	dest, err := resolveWorktreeBounded(repo, name)
+	if err != nil {
+		return false
+	}
+	if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		return false
+	}
+	data, err := os.ReadFile(ledgerPath(repo.Main, name, time.Time{}))
+	if err != nil {
+		return false
+	}
+	return closedByLand(string(data))
+}
+
+// closedByLand reports whether the ledger is closed and its latest Closed section, after the latest Opened, says land.
+func closedByLand(text string) bool {
+	i := strings.LastIndex(text, "\n## Closed\n")
+	if i < 0 || i < strings.LastIndex(text, "\n## Opened\n") || ledgerField(text, "Status") != "closed" {
+		return false
+	}
+	return ledgerField(text[i:], "Via") == "land"
+}
+
+// WithLandLease is WithWorktreeLease that waits (maxLandWait or ctx); fn gets the holder it waited on, "" if none.
+func WithLandLease(ctx context.Context, repo *Repo, name string, log io.Writer, fn func(waitedOn string) error) error {
+	leasePath := operationLeasePath(repo.Main, name)
+	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
+		return err
+	}
+	who := os.Getenv(LandWaitEnv)
+	if who == "" {
+		who = "manual land"
+	}
+	var waitedOn string
+	deadline := nowFn().Add(maxLandWait)
+	for {
+		ran, err := paths.TryFileLock(leasePath, 0, func() error {
+			// attribution only, in its own file so a reader never sees the lock file truncated
+			_ = paths.AtomicWrite(leasePath+".who", []byte(strconv.Itoa(os.Getpid())+"\n"+who+"\n"), 0o600)
+			return fn(waitedOn)
+		})
+		if err != nil || ran {
+			return err
+		}
+		if waitedOn == "" {
+			var pid string
+			pid, waitedOn = leaseHolder(leasePath + ".who")
+			fmt.Fprintf(log, "land %s: waiting for the active land (pid %s, %s)\n", name, pid, waitedOn)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if nowFn().After(deadline) {
+			return fmt.Errorf("worktree %q: another land, resolve, or clean operation is still active after %s", name, maxLandWait)
+		}
+		sleepFn(pollInterval)
+	}
+}
+
+// leaseHolder reads the pid and who the holder recorded; "?" and "another operation" when unrecorded.
+func leaseHolder(whoPath string) (pid, who string) {
+	data, err := os.ReadFile(whoPath)
+	if err != nil {
+		return "?", "another operation"
+	}
+	pid, who, _ = strings.Cut(strings.TrimSpace(string(data)), "\n")
+	if pid == "" || who == "" {
+		return "?", "another operation"
+	}
+	return pid, who
 }
 
 // Bounded-wait knobs and the agent-dispatch seam; tests shrink them so the poll loop runs in milliseconds.
@@ -45,6 +123,8 @@ var (
 	sleepFn        = time.Sleep
 	pollInterval   = 2 * time.Second
 	maxResolveWait = 10 * time.Minute
+	// maxLandWait matches the lane-land hook's land timeout (laneLandTime).
+	maxLandWait = 45 * time.Minute
 	// resolveWaitDelay bounds how long a killed agent's orphaned children may hold its output pipes open.
 	resolveWaitDelay = 5 * time.Second
 )
@@ -109,7 +189,7 @@ const (
 )
 
 // resolveWithAgent drives one agent resolution, taking no lock (the caller holds the lease); op == nil runs fresh.
-func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
+func resolveWithAgent(ctx context.Context, repo *Repo, plan *LandPlan, agentName string, op *Operation) (*Operation, *LandResult, error) {
 	if op != nil {
 		if !op.AgentExitOK {
 			return nil, nil, fmt.Errorf(
@@ -136,7 +216,7 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 	return runAndFinalize(ctx, op, plan, resolvePrompt(plan, conflictPaths))
 }
 
-func newResolveOperation(repo *Repo, plan *MergePlan, agentName string, conflictPaths []string) *Operation {
+func newResolveOperation(repo *Repo, plan *LandPlan, agentName string, conflictPaths []string) *Operation {
 	op := &Operation{
 		ID:                newOperationID(),
 		Repo:              repo.Main,
@@ -154,7 +234,7 @@ func newResolveOperation(repo *Repo, plan *MergePlan, agentName string, conflict
 }
 
 // runAndFinalize runs op's agent once, records the exit receipt, then verifies and commits its edits.
-func runAndFinalize(ctx context.Context, op *Operation, plan *MergePlan, prompt string) (*Operation, *MergeResult, error) {
+func runAndFinalize(ctx context.Context, op *Operation, plan *LandPlan, prompt string) (*Operation, *LandResult, error) {
 	res, runErr := runResolveAgent(ctx, op.Agent, prompt, plan.WorktreePath, maxResolveWait)
 	if runErr != nil {
 		return failOperation(op, fmt.Errorf("resolve: agent %s failed: %w", op.Agent, runErr))
@@ -186,7 +266,7 @@ func abortMaterialized(worktreePath string, saveErr error) error {
 }
 
 // materializeConflict makes the predicted conflict real in the worktree; a clean merge returns Phase "integrate".
-func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, error) {
+func materializeConflict(ctx context.Context, plan *LandPlan) (*LandResult, error) {
 	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, isDirty); err != nil {
 		return nil, err
 	} else if issue != nil {
@@ -202,7 +282,7 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 		if err != nil {
 			return nil, err
 		}
-		return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
+		return &LandResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 	}
 	mergeHead, err := hasMergeHead(plan.WorktreePath)
 	if err != nil {
@@ -211,7 +291,7 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 	if !mergeHead {
 		return nil, fmt.Errorf("git merge inside worktree: %w (%s)", mergeErr, firstNonEmpty(gitErrorDetail(mergeErr), string(out)))
 	}
-	return &MergeResult{Phase: "conflict", BeforeOID: before}, nil
+	return &LandResult{Phase: "conflict", BeforeOID: before}, nil
 }
 
 // defaultMarkerSize is git's conflict-marker width when a path sets no conflict-marker-size attribute.
@@ -334,7 +414,7 @@ func outsideConflictPaths(changed, conflictPaths []string) []string {
 }
 
 // finalizeAgentResolution checks markers are gone and nothing else changed, then add + commit; a failure fails the op.
-func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
+func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath string) (*Operation, *LandResult, error) {
 	clean, badPath, err := conflictMarkersClear(ctx, worktreePath, op.ConflictPaths)
 	if err != nil {
 		return failOperation(op, err)
@@ -364,7 +444,7 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	return markResolved(ctx, op, worktreePath)
 }
 
-func markResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
+func markResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *LandResult, error) {
 	head, err := headOfContext(ctx, worktreePath)
 	if err != nil {
 		return failOperation(op, err)
@@ -373,7 +453,7 @@ func markResolved(ctx context.Context, op *Operation, worktreePath string) (*Ope
 	if err := SaveOperation(op); err != nil {
 		return op, nil, fmt.Errorf("resolve: save resolved checkpoint: %w", err)
 	}
-	return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
+	return op, &LandResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
 }
 
 // agentEditsInScope errors when the agent changed any tracked path beyond op's conflicted paths.
@@ -389,7 +469,7 @@ func agentEditsInScope(ctx context.Context, op *Operation, worktreePath string) 
 }
 
 // pollUntilResolved is the --resume path: it polls checkResolution until resolved, invalid, canceled or op.Deadline.
-func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
+func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *LandResult, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return endOperation(op, "cancelled", fmt.Errorf("resolve: cancelled: %w", err))
@@ -511,12 +591,12 @@ func hasMergeHead(path string) (bool, error) {
 	return markerExists(gitDir, "MERGE_HEAD")
 }
 
-func failOperation(op *Operation, err error) (*Operation, *MergeResult, error) {
+func failOperation(op *Operation, err error) (*Operation, *LandResult, error) {
 	return endOperation(op, "failed", err)
 }
 
 // endOperation saves op at a terminal phase and returns err, joined with any save error so a stale file is reported.
-func endOperation(op *Operation, phase string, err error) (*Operation, *MergeResult, error) {
+func endOperation(op *Operation, phase string, err error) (*Operation, *LandResult, error) {
 	op.Phase = phase
 	if serr := SaveOperation(op); serr != nil {
 		err = errors.Join(err, fmt.Errorf("resolve: save %s checkpoint: %w", phase, serr))
@@ -525,7 +605,7 @@ func endOperation(op *Operation, phase string, err error) (*Operation, *MergeRes
 }
 
 // resolvePrompt has the agent edit the conflicted files only; a sandboxed agent cannot write .git.
-func resolvePrompt(plan *MergePlan, conflictPaths []string) string {
+func resolvePrompt(plan *LandPlan, conflictPaths []string) string {
 	return fmt.Sprintf(
 		"The git worktree at %s has a real merge conflict (MERGE_HEAD is set there), merging branch %q "+
 			"(target commit %s) into it. Resolve every conflict marker in exactly these files, and only these "+

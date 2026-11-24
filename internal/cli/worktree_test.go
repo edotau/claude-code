@@ -230,9 +230,9 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 // forceFixtureDirty makes the "feature" worktree dirty (untracked file) and one commit ahead of main.
 func forceFixtureDirty(t *testing.T) (repo, wt string) {
 	t.Helper()
-	repo = mergeFixtureCLISetup(t)
-	wt = mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	repo = landFixtureCLISetup(t)
+	wt = landFixtureCLIWorktreePath(t, repo)
+	landFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	if err := os.WriteFile(filepath.Join(wt, "scratch.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func forceBranchList(t *testing.T, repo, branch string) string {
 // A plain clean refuses a dirty (even merged) worktree and keeps it and its branch.
 func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
 	repo, wt := forceFixtureDirty(t)
-	mergeFixtureCLIRun(t, repo, "merge", "-q", "--ff-only", "worktree-feature")
+	landFixtureCLIRun(t, repo, "merge", "-q", "--ff-only", "worktree-feature")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
 	if code == 0 || !strings.Contains(out, "refused:") {
 		t.Fatalf("plain clean of a dirty worktree: code=%d out=%q, want a refused: line", code, out)
@@ -285,7 +285,7 @@ func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
 }
 
 func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
+	repo := landFixtureCLISetup(t)
 	for _, name := range []string{"..", "../" + filepath.Base(repo), repo, "."} {
 		code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", name}) })
 		if code == 0 {
@@ -300,17 +300,17 @@ func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
 	}
 }
 
-// mergeFixtureCLIWrite writes and commits a file, with the test identity set in local repo config.
-func mergeFixtureCLIWrite(t *testing.T, dir, file, content, msg string) {
+// landFixtureCLIWrite writes and commits a file, with the test identity set in local repo config.
+func landFixtureCLIWrite(t *testing.T, dir, file, content, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mergeFixtureCLIRun(t, dir, "add", file)
-	mergeFixtureCLIRun(t, dir, "commit", "-q", "-m", msg)
+	landFixtureCLIRun(t, dir, "add", file)
+	landFixtureCLIRun(t, dir, "commit", "-q", "-m", msg)
 }
 
-func mergeFixtureCLIRun(t *testing.T, dir string, args ...string) {
+func landFixtureCLIRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(),
@@ -321,8 +321,8 @@ func mergeFixtureCLIRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// mergeFixtureCLISetup makes a repo plus a "feature" worktree via the CLI create path, with a local git identity.
-func mergeFixtureCLISetup(t *testing.T) (repo string) {
+// landFixtureCLISetup makes a repo plus a "feature" worktree via the CLI create path, with a local git identity.
+func landFixtureCLISetup(t *testing.T) (repo string) {
 	t.Helper()
 	t.Cleanup(worktree.SwapAuditCommand(""))
 	t.Setenv("HOME", t.TempDir())
@@ -340,8 +340,8 @@ func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	return repo
 }
 
-// mergeFixtureCLIWorktreePath resolves the feature worktree via worktree.Root, not a hand-built path.
-func mergeFixtureCLIWorktreePath(t *testing.T, repo string) string {
+// landFixtureCLIWorktreePath resolves the feature worktree via worktree.Root, not a hand-built path.
+func landFixtureCLIWorktreePath(t *testing.T, repo string) string {
 	t.Helper()
 	return filepath.Join(worktree.Root(repo), "feature")
 }
@@ -355,8 +355,8 @@ func cliHeadOf(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// worktreeMergeCase is one `worktree land` run on the "feature" fixture; {wt} in args is the worktree path.
-type worktreeMergeCase struct {
+// worktreeLandCase is one `worktree land` run on the "feature" fixture; {wt} in args is the worktree path.
+type worktreeLandCase struct {
 	name     string
 	commit   [2]string // file, content committed in the worktree first; empty = none
 	conflict bool      // main also edits f.txt, so the plan predicts a conflict
@@ -373,7 +373,7 @@ type worktreeMergeCase struct {
 
 var featureEdit = [2]string{"g.txt", "feature only\n"}
 
-var worktreeMergeCases = []worktreeMergeCase{
+var worktreeLandCases = []worktreeLandCase{
 	{name: "dry-run shows the clean plan", commit: featureEdit, args: []string{"--dry-run"}, ok: true,
 		out: []string{"clean"}, kept: true},
 	{name: "the retired --merge flag is an unknown flag", commit: featureEdit, args: []string{"--no-verify", "--merge"},
@@ -399,9 +399,9 @@ var worktreeMergeCases = []worktreeMergeCase{
 		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true},
 }
 
-func TestCmdWorktreeMerge(t *testing.T) {
-	for _, tc := range worktreeMergeCases {
-		t.Run(tc.name, func(t *testing.T) { runWorktreeMergeCase(t, tc) })
+func TestCmdWorktreeLand(t *testing.T) {
+	for _, tc := range worktreeLandCases {
+		t.Run(tc.name, func(t *testing.T) { runWorktreeLandCase(t, tc) })
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -413,14 +413,14 @@ func TestCmdWorktreeMerge(t *testing.T) {
 	}
 }
 
-func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
+func runWorktreeLandCase(t *testing.T, tc worktreeLandCase) {
+	repo := landFixtureCLISetup(t)
+	wt := landFixtureCLIWorktreePath(t, repo)
 	if tc.commit[0] != "" {
-		mergeFixtureCLIWrite(t, wt, tc.commit[0], tc.commit[1], "feature advances")
+		landFixtureCLIWrite(t, wt, tc.commit[0], tc.commit[1], "feature advances")
 	}
 	if tc.conflict {
-		mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+		landFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	}
 	mainBefore := cliHeadOf(t, repo)
 	if tc.dirty {
@@ -441,7 +441,7 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 }
 
 // requireMainState checks main's HEAD, its g.txt (landed or the owner's own) and whether the worktree remains.
-func requireMainState(t *testing.T, repo, wt string, tc worktreeMergeCase, wantHead string) {
+func requireMainState(t *testing.T, repo, wt string, tc worktreeLandCase, wantHead string) {
 	t.Helper()
 	if cliHeadOf(t, repo) != wantHead {
 		t.Errorf("main HEAD = %s, want unmoved %s", cliHeadOf(t, repo), wantHead)
@@ -489,8 +489,8 @@ func TestWorktreeListJSONWriteError(t *testing.T) {
 }
 
 // An operation saved for another repo must not resume against this checkout.
-func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
+func TestCmdWorktreeLandResumeWrongRepoOperationFails(t *testing.T) {
+	repo := landFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
 	r, err := worktree.ResolveRepo(repo)
 	if err != nil {
@@ -525,13 +525,13 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 }
 
 // Compare the pinned target OID, not only branch names, when resuming an in-flight resolution.
-func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	plan := resolvedMergeOperationFixture(t, repo, "op-target-moved")
+func TestCmdWorktreeLandResumeStopsOnTargetMovedSinceResolutionStarted(t *testing.T) {
+	repo := landFixtureCLISetup(t)
+	plan := resolvedLandOperationFixture(t, repo, "op-target-moved")
 	mainBeforeResume := plan.TargetOID
 
 	// Main advances on the same branch while the resolution is in flight.
-	mergeFixtureCLIWrite(t, repo, "unrelated.txt", "main moved on\n", "main advances during resolution")
+	landFixtureCLIWrite(t, repo, "unrelated.txt", "main moved on\n", "main advances during resolution")
 	movedMain := cliHeadOf(t, repo)
 	if movedMain == mainBeforeResume {
 		t.Fatal("fixture invariant broken: main must have actually moved")
@@ -552,12 +552,12 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 }
 
 // Compare TargetRef too: another branch at the same pinned OID is still target movement.
-func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	plan := resolvedMergeOperationFixture(t, repo, "op-branch-changed")
+func TestCmdWorktreeLandResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
+	repo := landFixtureCLISetup(t)
+	plan := resolvedLandOperationFixture(t, repo, "op-branch-changed")
 
 	// Switch to a new branch without moving the OID.
-	mergeFixtureCLIRun(t, repo, "checkout", "-b", "renamed-main")
+	landFixtureCLIRun(t, repo, "checkout", "-b", "renamed-main")
 	sameOID := cliHeadOf(t, repo)
 	if sameOID != plan.TargetOID {
 		t.Fatal("fixture invariant broken: the checkout-b must not move the OID")
@@ -577,12 +577,12 @@ func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T)
 	}
 }
 
-func resolvedMergeOperationFixture(t *testing.T, repo, id string) *worktree.MergePlan {
+func resolvedLandOperationFixture(t *testing.T, repo, id string) *worktree.LandPlan {
 	t.Helper()
-	wt := mergeFixtureCLIWorktreePath(t, repo)
+	wt := landFixtureCLIWorktreePath(t, repo)
 	// Divergent edits predict exactly the conflict the simulated agent resolves below.
-	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+	landFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	landFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	r, err := worktree.ResolveRepo(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -595,8 +595,8 @@ func resolvedMergeOperationFixture(t *testing.T, repo, id string) *worktree.Merg
 		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
 	}
 	// Record both pinned OIDs as ancestors, satisfying CheckResolution's contract.
-	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
-	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID)
+	landFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	landFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID)
 	op := &worktree.Operation{
 		ID:                id,
 		Repo:              r.Main,
@@ -618,8 +618,8 @@ func resolvedMergeOperationFixture(t *testing.T, repo, id string) *worktree.Merg
 }
 
 // A missing worktree must fail clearly before polling it or changing main.
-func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
+func TestCmdWorktreeLandResumeMissingWorktreeFails(t *testing.T) {
+	repo := landFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
 	r, err := worktree.ResolveRepo(repo)
 	if err != nil {
@@ -691,7 +691,7 @@ func TestCmdWorktreeCreateStdoutFailure(t *testing.T) {
 		defer func() { os.Stdout = stdout }()
 		return cmdWorktree([]string{"create", "feature"})
 	})
-	dest := mergeFixtureCLIWorktreePath(t, repo)
+	dest := landFixtureCLIWorktreePath(t, repo)
 	if code != 1 || !strings.Contains(stderr, "could not print its path") || !strings.Contains(stderr, dest) {
 		t.Fatalf("create with unwritable stdout: code=%d stderr=%q", code, stderr)
 	}

@@ -14,8 +14,8 @@ func TestResumeRejectsCommittedOutOfScopeEdits(t *testing.T) {
 	resolveFixtureFakeAgent(t, func(context.Context, string, string, string, time.Duration) (askEnvelope, error) {
 		regressionWriteFile(t, filepath.Join(wt, "f.txt"), "resolved\n")
 		regressionWriteFile(t, filepath.Join(wt, "outside.txt"), "unauthorized\n")
-		mergeFixtureRun(t, wt, "add", "f.txt", "outside.txt")
-		mergeFixtureRun(t, wt, "commit", "--no-edit")
+		landFixtureRun(t, wt, "add", "f.txt", "outside.txt")
+		landFixtureRun(t, wt, "commit", "--no-edit")
 		return askEnvelope{}, nil
 	})
 	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -38,8 +38,8 @@ func TestResumeRejectsCommittedOutOfScopeEdits(t *testing.T) {
 func TestCheckResolutionRejectsCommittedConflictMarkers(t *testing.T) {
 	repo, _, wt, plan := resolveFixtureConflictSetup(t)
 	op := crashedOperation(t, repo, wt, plan)
-	mergeFixtureRun(t, wt, "add", "f.txt")
-	mergeFixtureRun(t, wt, "commit", "--no-edit")
+	landFixtureRun(t, wt, "add", "f.txt")
+	landFixtureRun(t, wt, "commit", "--no-edit")
 	state, reason, err := checkResolution(context.Background(), op, wt)
 	if err != nil || state != resolutionInvalid || !strings.Contains(reason, "conflict markers") {
 		t.Fatalf("committed markers accepted: state=%v reason=%q err=%v", state, reason, err)

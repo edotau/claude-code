@@ -36,7 +36,7 @@ func TestRequireBranchPreservesGitFailures(t *testing.T) {
 			if !errors.Is(err, tc.want) || errors.Is(err, errDetachedHead) {
 				t.Fatalf("git infrastructure failure misreported as detached HEAD: %v; want %v", err, tc.want)
 			}
-			plan := &MergePlan{}
+			plan := &LandPlan{}
 			stop, err := screenTargetBranch(tc.ctx, repo, plan, "main")
 			if !errors.Is(err, tc.want) || stop || len(plan.Issues) != 0 {
 				t.Fatalf("target screening hid infrastructure failure: stop=%v issues=%v err=%v", stop, plan.Issues, err)

@@ -20,31 +20,31 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// mergeFixtureWrite writes content to file in dir and commits it with msg to build divergent history.
-func mergeFixtureWrite(t *testing.T, dir, file, content, msg string) {
+// landFixtureWrite writes content to file in dir and commits it with msg to build divergent history.
+func landFixtureWrite(t *testing.T, dir, file, content, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mergeFixtureRun(t, dir, "add", file)
-	mergeFixtureRun(t, dir, "commit", "-q", "-m", msg)
+	landFixtureRun(t, dir, "add", file)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
 }
 
-// mergeFixtureRename renames oldName to newName and commits.
-func mergeFixtureRename(t *testing.T, dir, oldName, newName, msg string) {
+// landFixtureRename renames oldName to newName and commits.
+func landFixtureRename(t *testing.T, dir, oldName, newName, msg string) {
 	t.Helper()
-	mergeFixtureRun(t, dir, "mv", oldName, newName)
-	mergeFixtureRun(t, dir, "commit", "-q", "-m", msg)
+	landFixtureRun(t, dir, "mv", oldName, newName)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
 }
 
-// mergeFixtureRemove deletes file and commits the deletion.
-func mergeFixtureRemove(t *testing.T, dir, file, msg string) {
+// landFixtureRemove deletes file and commits the deletion.
+func landFixtureRemove(t *testing.T, dir, file, msg string) {
 	t.Helper()
-	mergeFixtureRun(t, dir, "rm", "-q", file)
-	mergeFixtureRun(t, dir, "commit", "-q", "-m", msg)
+	landFixtureRun(t, dir, "rm", "-q", file)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
 }
 
-func mergeFixtureRun(t *testing.T, dir string, args ...string) {
+func landFixtureRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = gitEnv(
@@ -74,7 +74,7 @@ func buildFixtureTemplate(t *testing.T) {
 		}
 		fixture.dir = paths.Canon(dir)
 		main := hosttest.RepoAt(t, filepath.Join(fixture.dir, "repo"))
-		mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+		landFixtureWrite(t, main, "f.txt", "base\n", "base")
 		fixture.base = headOf(main)
 		_, fixture.err = Create(&Repo{Main: main, Root: filepath.Join(fixture.dir, "worktrees", "repo")}, "feature", CreateOptions{})
 	})
@@ -120,8 +120,8 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	return repo, main, wt
 }
 
-// mergeFixtureAssertMainUntouched checks main's HEAD and index are unchanged and no MERGE_HEAD exists there.
-func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
+// landFixtureAssertMainUntouched checks main's HEAD and index are unchanged and no MERGE_HEAD exists there.
+func landFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	t.Helper()
 	if got := headOf(main); got != wantHEAD {
 		t.Fatalf("main HEAD = %s, want %s (main must stay untouched before promotion)", got, wantHEAD)
@@ -147,7 +147,7 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	plan := &MergePlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
+	plan := &LandPlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
 	stop, err := screenCheckouts(context.Background(), repo, plan, "release", false)
 	if err != nil || !stop {
 		t.Fatalf("target mismatch must stop before inspecting the nonexistent worktree: stop=%v err=%v", stop, err)
@@ -167,7 +167,7 @@ func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
 func TestPreflightFastForward(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -187,8 +187,8 @@ func TestPreflightFastForward(t *testing.T) {
 func TestPreflightDivergentCleanMerge(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
-	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -202,8 +202,8 @@ func TestPreflightDivergentCleanMerge(t *testing.T) {
 func TestPreflightTextConflict(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
+	landFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	mainHEAD := headOf(main)
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -216,14 +216,14 @@ func TestPreflightTextConflict(t *testing.T) {
 	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
 		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
 	}
-	mergeFixtureAssertMainUntouched(t, main, mainHEAD)
+	landFixtureAssertMainUntouched(t, main, mainHEAD)
 }
 
 func TestPreflightBinaryConflict(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "\x00\x01binA", "feature binary")
-	mergeFixtureWrite(t, main, "f.txt", "\x00\x01binB", "main binary")
+	landFixtureWrite(t, wt, "f.txt", "\x00\x01binA", "feature binary")
+	landFixtureWrite(t, main, "f.txt", "\x00\x01binB", "main binary")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -240,8 +240,8 @@ func TestPreflightBinaryConflict(t *testing.T) {
 func TestPreflightDeleteConflict(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature modify\n", "feature modifies f")
-	mergeFixtureRemove(t, main, "f.txt", "main deletes f")
+	landFixtureWrite(t, wt, "f.txt", "feature modify\n", "feature modifies f")
+	landFixtureRemove(t, main, "f.txt", "main deletes f")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -259,8 +259,8 @@ func TestPreflightRenameConflict(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
 	// Rename/rename to two different names conflicts in merge-tree, unlike a rename plus a non-conflicting edit.
-	mergeFixtureRename(t, wt, "f.txt", "g.txt", "feature renames to g")
-	mergeFixtureRename(t, main, "f.txt", "h.txt", "main renames to h")
+	landFixtureRename(t, wt, "f.txt", "g.txt", "feature renames to g")
+	landFixtureRename(t, main, "f.txt", "h.txt", "main renames to h")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -274,7 +274,7 @@ func TestPreflightRenameConflict(t *testing.T) {
 	}
 }
 
-func assertDirtyTargetIssue(t *testing.T, plan *MergePlan, path string) {
+func assertDirtyTargetIssue(t *testing.T, plan *LandPlan, path string) {
 	t.Helper()
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyTarget {
 		t.Fatalf("Issues = %v, want one IssueDirtyTarget", plan.Issues)
@@ -290,8 +290,8 @@ func TestPreflightDirtyTargetNonOverlapping(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			repo, main, wt := preflightFixtureSetup(t)
-			mergeFixtureWrite(t, main, "f.txt", "main edit\n", "main edits f")
-			mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature adds g")
+			landFixtureWrite(t, main, "f.txt", "main edit\n", "main edits f")
+			landFixtureWrite(t, wt, "g.txt", "feature\n", "feature adds g")
 			if err := os.WriteFile(filepath.Join(main, name), []byte("uncommitted"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -311,8 +311,8 @@ func TestPreflightDirtyTargetRename(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			repo, main, wt := preflightFixtureSetup(t)
-			mergeFixtureWrite(t, wt, name, "feature\n", "feature edits path")
-			mergeFixtureRun(t, main, "mv", "f.txt", "renamed\nfile.txt")
+			landFixtureWrite(t, wt, name, "feature\n", "feature edits path")
+			landFixtureRun(t, main, "mv", "f.txt", "renamed\nfile.txt")
 			plan, err := Preflight(context.Background(), repo, "feature", "")
 			if err != nil {
 				t.Fatal(err)
@@ -325,7 +325,7 @@ func TestPreflightDirtyTargetRename(t *testing.T) {
 func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureRename(t, wt, "f.txt", "renamed.txt", "feature renames f")
+	landFixtureRename(t, wt, "f.txt", "renamed.txt", "feature renames f")
 	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
 func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 	t.Parallel()
 	repo, _, wt := preflightFixtureSetup(t)
-	mergeFixtureRun(t, wt, "config", "status.showUntrackedFiles", "no")
+	landFixtureRun(t, wt, "config", "status.showUntrackedFiles", "no")
 	if err := os.WriteFile(filepath.Join(wt, "untracked.txt"), []byte("new file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestPreflightDetachedTarget(t *testing.T) {
 	t.Parallel()
 	repo, main, _ := preflightFixtureSetup(t)
 	head := headOf(main)
-	mergeFixtureRun(t, main, "checkout", "-q", head)
+	landFixtureRun(t, main, "checkout", "-q", head)
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
 	if err != nil {
@@ -424,8 +424,8 @@ func TestPreflightInProgressOperation(t *testing.T) {
 func TestPreflightUnrelatedHistories(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureRun(t, wt, "checkout", "-q", "--orphan", "orphan-base")
-	mergeFixtureRun(t, wt, "commit", "-q", "--allow-empty", "-m", "orphan root")
+	landFixtureRun(t, wt, "checkout", "-q", "--orphan", "orphan-base")
+	landFixtureRun(t, wt, "commit", "-q", "--allow-empty", "-m", "orphan root")
 	_ = main
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -470,12 +470,12 @@ func TestPreflightMissingWorktree(t *testing.T) {
 func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	repo, _, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	orig := runGit
 	runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 		if len(args) > 0 && args[0] == "merge-tree" {
-			return nil, &exec.ExitError{ProcessState: mergeFixtureFakeExitState(129)}
+			return nil, &exec.ExitError{ProcessState: landFixtureFakeExitState(129)}
 		}
 		return orig(ctx, dir, extraEnv, args...)
 	}
@@ -490,8 +490,8 @@ func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	}
 }
 
-// mergeFixtureFakeExitState runs a trivial subprocess to get a real *os.ProcessState, which exec.ExitError requires.
-func mergeFixtureFakeExitState(code int) *os.ProcessState {
+// landFixtureFakeExitState runs a trivial subprocess to get a real *os.ProcessState, which exec.ExitError requires.
+func landFixtureFakeExitState(code int) *os.ProcessState {
 	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
 	_ = cmd.Run()
 	return cmd.ProcessState
@@ -519,7 +519,7 @@ func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
 	main := gitRepo(t)
-	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+	landFixtureWrite(t, main, "f.txt", "base\n", "base")
 	repo, err := ResolveRepo(main)
 	if err != nil {
 		t.Fatal(err)
@@ -528,8 +528,8 @@ func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mergeFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
-	mergeFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
+	landFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
 	return repo
 }
 
@@ -537,7 +537,7 @@ func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
+	landFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
 	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -19,16 +19,16 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// laneMergeArg starts the detached worker (lanemerge_worker.go): `leaf <lane> <session> <transcript>`.
-const laneMergeArg = "--internal-lane-merge"
+// laneLandArg starts the detached worker (laneland_worker.go): `leaf <lane> <session> <transcript>`.
+const laneLandArg = "--internal-lane-land"
 
 // A private detached entry, like the bench worker's: it outlives the hook's budget.
 func init() {
 	switch {
-	case len(os.Args) == 6 && os.Args[1] == laneMergeArg && os.Args[2] == "leaf":
+	case len(os.Args) == 6 && os.Args[1] == laneLandArg && os.Args[2] == "leaf":
 		runLeafLane(os.Args[3], os.Args[4], os.Args[5])
 		os.Exit(0)
-	case len(os.Args) == 3 && os.Args[1] == agent.LaneMergeJobArg:
+	case len(os.Args) == 3 && os.Args[1] == agent.LaneLandJobArg:
 		runJobLane(os.Args[2])
 		os.Exit(0)
 	}
@@ -40,13 +40,13 @@ var laneSpawn = func(args []string) bool {
 	return err == nil && proc.SpawnDetached(self, args, paths.StateDir(), nil)
 }
 
-// LaneMergeQueue (UserPromptSubmit) lists this repo's queued lanes, each with its next command.
-func LaneMergeQueue(in *core.Input) core.Result {
+// LaneLandQueue (UserPromptSubmit) lists this repo's queued lanes, each with its next command.
+func LaneLandQueue(in *core.Input) core.Result {
 	return core.Result{Context: laneQueueContext(in.CWD)}
 }
 
-// LaneMerge (SubagentStop) hands a stopped leaf's lane to the detached worker and returns at once.
-func LaneMerge(in *core.Input) core.Result {
+// LaneLand (SubagentStop) hands a stopped leaf's lane to the detached worker and returns at once.
+func LaneLand(in *core.Input) core.Result {
 	if in.AgentID == "" || in.AgentTranscriptPath == "" {
 		return core.Result{}
 	}
@@ -55,8 +55,8 @@ func LaneMerge(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	_ = os.MkdirAll(paths.StateDir(), 0o700)
-	if !laneSpawn([]string{laneMergeArg, "leaf", lane, in.SessionID, in.AgentTranscriptPath}) {
-		return core.Result{Stderr: "lane-merge: could not start the merge worker for " + lane}
+	if !laneSpawn([]string{laneLandArg, "leaf", lane, in.SessionID, in.AgentTranscriptPath}) {
+		return core.Result{Stderr: "lane-land: could not start the land worker for " + lane}
 	}
 	return core.Result{}
 }
@@ -144,7 +144,7 @@ const laneQueueMax = 5
 
 // laneQueueContext is one line per lane queued for this checkout's repo; "" (one stat) when nothing is queued.
 func laneQueueContext(cwd string) string {
-	if !paths.FileExists(worktree.MergeQueueFile()) {
+	if !paths.FileExists(worktree.LandQueueFile()) {
 		return ""
 	}
 	top, main := paths.CheckoutOf(cmp.Or(cwd, "."))

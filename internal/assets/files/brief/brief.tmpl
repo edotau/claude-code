@@ -11,7 +11,7 @@ Task:
 
 - Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
 - Working in a lane (`~/worktrees/<repo>/<name>`): once verify and review pass, commit your owned files there with
-  `claude-code worktree commit --task <id> -m <msg> <files>` before handing back; `lane-merge` then merges it.
+  `claude-code worktree commit --task <id> -m <msg> <files>` before handing back; `lane-land` then lands it.
 - Never a foreground `sleep`: `run_in_background` and wait for the notification, a background `until` loop, or
   `claude-code agents result -f <id>`; no `sudo` or `git switch`; read history with `git show <rev>:<path>` or `git log`.
 - No `sleep` polling loop: wait with `run_in_background` and its notification, or Monitor.

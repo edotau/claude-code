@@ -37,7 +37,7 @@ type goPkg struct {
 	TestGoFiles, XTestGoFiles                   []string
 }
 
-// scopedGoGate builds the merge gate: build and vet all, test the nChanged changed packages and their direct importers.
+// scopedGoGate builds the land gate: build and vet all, test the nChanged changed packages and their direct importers.
 func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, nChanged int, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
 	if err != nil {
@@ -341,8 +341,8 @@ func noGo(d string) bool {
 	return !found
 }
 
-// mergeBaseEnv carries the merge's pinned target OID into the gate; unset, the lint compares against HEAD.
-const mergeBaseEnv = "HARNESS_MERGE_BASE"
+// landBaseEnv carries the land's pinned target OID into the gate; unset, the lint compares against HEAD.
+const landBaseEnv = "HARNESS_LAND_BASE"
 
 // lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or the scope's changes since the base.
 func lintVerb(dirs []string) []string {
@@ -358,8 +358,8 @@ func lintVerb(dirs []string) []string {
 	return argv
 }
 
-// lintBase is the one word the gate shell expands: the pinned merge base, else HEAD.
-const lintBase = "${" + mergeBaseEnv + ":-HEAD}"
+// lintBase is the one word the gate shell expands: the pinned land base, else HEAD.
+const lintBase = "${" + landBaseEnv + ":-HEAD}"
 
 // lintLine renders the lint argv as gate shell words; only the value of --base stays expandable.
 func lintLine(argv []string) string {
@@ -513,7 +513,7 @@ func hasRuffTable(toml string) bool {
 // runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
 func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+rtkwrap.ForModel(ctx, cmdStr, workDir))
-	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
+	cmd.Dir, cmd.Env = workDir, append(gateEnv(), landBaseEnv+"="+base)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	proc.TreeCancel(cmd, gateCancelGrace) // cancel stops the whole tree, including children in their own groups
