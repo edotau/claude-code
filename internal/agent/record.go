@@ -60,6 +60,8 @@ type Record struct {
 	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
 	Provider       string      `json:"provider,omitempty"`
+	Type           string      `json:"type,omitempty"`           // the agent type of the model that ran (models.AgentType)
+	Runner         string      `json:"runner,omitempty"`         // "pi" when the pi runner carried Agent's run; "" when Agent ran itself
 	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
 	Invoked        string      `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
 	Reported       string      `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
@@ -597,8 +599,8 @@ func (r Record) LogLine() string {
 	if r.Cutoff != "" {
 		tools += " [" + r.Cutoff + "]"
 	}
-	agentCol := r.Agent
-	if r.Fallback != "" {
+	agentCol := RowLabel(r)
+	if r.Fallback != "" && RunnerOf(r) == "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
 	elapsed := r.Elapsed()
@@ -633,7 +635,8 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
 	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
-	if res.Fallback != "" {
+	r.Type, r.Runner = res.Type, res.Runner
+	if res.Fallback != "" || res.Agent != "" && res.Agent != r.Agent { // a fallback, or a runner executed the ask
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
@@ -956,8 +959,7 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status); nearest: %s",
-			id, len(match), strings.Join(nearestIDs(names, id), ", "))
+		return Record{}, noMatch(id, names, len(match))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
 }
@@ -1012,7 +1014,7 @@ func SessionModel(session string) (profile, model string) {
 			return true
 		}
 		model = m
-		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it); the record's row
+		if r.RanAs == "" || r.RanAs == r.Fallback || r.Runner != "" { // ran on the asked agent (Fallback names it); the record's row
 			profile = r.Provider
 		}
 		return false
@@ -1088,6 +1090,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 	}
 	tl := &tally{Sink: sink, live: startActivity(rec.ID)}
 	res, err = run(ctx, tl)
+	res = stampRunner(*rec, res)
 	tl.live.close()
 	rec.ToolStats = tl.toolStats()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
@@ -1118,7 +1121,8 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	}
 	var runErr error
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
-		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason,
+		Type: rec.Type, Runner: rec.Runner, Asked: rec.Agent}
 	if rec.Failed() {
 		runErr, res.Status = fmt.Errorf("%s", rec.Error), rec.Status
 	}

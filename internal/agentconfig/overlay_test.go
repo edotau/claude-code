@@ -309,3 +309,23 @@ func TestOverlayProviderMode(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadOverlayPresets(t *testing.T) {
+	for value, want := range map[string]route.Route{
+		"coworker":      {Provider: "databricks", Profile: "auto"},
+		"databricks:qa": {Provider: "databricks", Profile: "qa"},
+		"anthropic":     {Provider: "anthropic", Profile: "auto"},
+	} {
+		o, err := LoadOverlayContext(t.Context(), value, nil)
+		if err != nil || o.Provider != want.Provider || o.Profile != want.Profile || !o.Empty() {
+			t.Errorf("%s: got %+v, %v", value, o, err)
+		}
+	}
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("coworker", []byte(`{"keep":["X"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if o, err := LoadOverlayContext(t.Context(), "coworker", nil); err != nil || o.Provider != "" || len(o.Keep) != 1 {
+		t.Errorf("a file named like a preset must win: %+v, %v", o, err)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/redact"
 )
@@ -451,6 +452,54 @@ func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
 	for _, bad := range []string{"Error", "refused", "the brief's Run:"} {
 		if strings.Contains(res.Reason, bad) {
 			t.Errorf("hold %q contains %q", res.Reason, bad)
+		}
+	}
+}
+
+func TestBashTimeoutMs(t *testing.T) {
+	for cmd, want := range map[string]int{
+		"claude-code agents result -f abc":              600000,
+		"claude-code agents wait abc --timeout 30s":     40000,
+		"rtk claude-code agents wait abc --timeout=20m": 600000,
+		"claude-code agents ask --agent pi - < BRIEF":   600000,
+		"claude-code agents ask --background - < BRIEF": 0,
+		"claude-code agents result abc":                 0,
+		"go test ./internal/hooks":                      0,
+	} {
+		if got, ok := BashTimeoutMs(cmd); got != want || ok != (want > 0) {
+			t.Errorf("%q: got %d,%v want %d", cmd, got, ok, want)
+		}
+	}
+}
+
+func TestBashTimeoutComposesWithRewrite(t *testing.T) {
+	m := &dispatchMerge{timeoutInput: map[string]any{"command": "old", "timeout": 40000}}
+	m.merged.UpdatedInput = map[string]any{"command": "rtk new"}
+	m.applyTimeout()
+	if got := m.merged.UpdatedInput; got["command"] != "rtk new" || got["timeout"] != 40000 {
+		t.Errorf("composed input = %v", got)
+	}
+	for cmd, want := range map[string]int{
+		"claude-code agents ask --agent pi -- --timeout=1s": 600000,
+		"claude-code agents ask --timeout 30s -":            40000,
+		"claude-code agents ask --background=false -":       600000,
+		"claude-code agents wait j --timeout 2562047h":      600000,
+	} {
+		if got, _ := BashTimeoutMs(cmd); got != want {
+			t.Errorf("%q: got %d want %d", cmd, got, want)
+		}
+	}
+}
+
+func TestHandbackVerdictReadsTypedStatus(t *testing.T) {
+	for h, want := range map[string]wire.Handback{
+		"none":          {Status: "DONE", Summary: "s"},
+		"BLOCKED":       {Status: "BLOCKED", Summary: "s"},
+		"x; y":          {Status: "DONE", Unfixed: []string{"x", "y"}},
+		"NEEDS_CONTEXT": {Status: "NEEDS_CONTEXT", Unfixed: []string{"none."}},
+	} {
+		if got := handbackVerdict(&want); got != h {
+			t.Errorf("handbackVerdict(%+v) = %q, want %q", want, got, h)
 		}
 	}
 }

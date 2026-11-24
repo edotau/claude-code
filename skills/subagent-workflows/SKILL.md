@@ -34,11 +34,13 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 | Leaf | Role | Output |
 | --- | --- | --- |
-| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; dispatches a step it needs another agent for | Status and verification |
+| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (`rules/harness/agent.md` → pi runner); dispatches a step it needs another agent for | Status and verification |
 | `Explore` | Scoped scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type> --provider databricks` its file bakes, waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
+| `pi` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
@@ -57,8 +59,10 @@ root machine's pins and per-call flags select external execution; never overwrit
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
 task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
-model for review, audits and self-tested edits. No external agent has a relay subagent; codex handles cross-family
-review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
+model for review, audits and self-tested edits. To run one as an Agent leaf instead, pick its type (`codex`,
+`copilot`, `gemini`, `opencode`, `agents/<type>.md`): it runs the typed Databricks ask its file bakes, and its own
+CLI on its own login stays reachable here (`claude-code <agent> …`, overlay `{"runner":"own"}`). Codex handles
+cross-family review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
 codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
@@ -183,7 +187,8 @@ at 118 columns. Scratch files only under an absolute `/tmp/<job>/` path, removed
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, the manager making the one integration edit. The manager owns decisions,
-integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed).
+integration and commits; leaves never dispatch subagents, commit (bar the verifier's lane commit) or run the
+suite (an `ask` is allowed); the owner layer below is not built, so today no leaf dispatches a fleet.
 
 ### Phase 2: dispatch
 
@@ -203,10 +208,23 @@ limits are overlapping files, dependency order and an account's own rate limit.
 
 1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
 2. One sign-off gate: `claude-code worktree merge <lane>`; a leaf runs no gate chain of its own.
-3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing.
+3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
+   rounds in a row each finding a new HIGH in one area stop the loop and go to the owner.
 4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
 5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane; main merges.
-6. In a contract (typed-pi-dispatch plan, phases 10-12, not built) the Opus owner runs this fan-out; until then main.
+6. In a contract the Opus owner runs this fan-out; until then main.
+
+##### Owner layer (the contract)
+
+Most tasks are led by an Opus owner with a fleet on Sonnet or Haiku executing, down to one function or a test repair.
+The owner does a unit alone or sub-contracts it, and checks every leaf it dispatched. The fixed checklist (create the
+lane, confirm the dispatch did not die, lint passes with no syntax errors, tick the plan, close the proxy) is to be
+performed and recorded by Go, never written by the model. The eyeball check that tests would pass is the owner's own
+judged verdict, and a test step or test repair still needs executed tests.
+Built so far: the schema and lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state
+transitions). Nothing in dispatch calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is
+no command for it and the rules above still bind: a fleet leaf never dispatches, and no leaf commits (bar the
+verifier's lane commit, step 5) or runs the suite.
 
 #### Wave loop
 
@@ -334,11 +352,12 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, Pi first by default; external work agents run carried, Pi as a plain
-  ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
-  `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
-  no leaf sits waiting on a shell. External agents run via carried asks (`claude-code agents ask --carry --agent <a>`);
-  a long ask started from a leaf puts `--background` on the command: the stop gate holds the leaf until the job ends
+  the Agent tool with a harness type (`claude`, Pi first by default; external work agents as their own type
+  or carried, Pi as a plain ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the
+  main session itself with `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m`
+  and `agents result <id>`: no leaf sits waiting on a shell. External agents run via carried asks
+  (`claude-code agents ask --carry --agent <a>`); a long ask started from a leaf puts `--background` on the command:
+  the stop gate holds the leaf until the job ends
   (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
   `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt; with
   none it passes unattributed, never refused),

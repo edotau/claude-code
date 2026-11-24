@@ -61,7 +61,7 @@ var memoryPlumbing = map[string][2]string{
 	"search":  {"<terms>", "rank blocks for terms, with scores"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
-	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/"},
+	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
 }
@@ -213,7 +213,8 @@ func memorySpec() *helptext.Node {
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n"), helptext.Plain("candidate"),
-			helptext.BoolFlag("approve"), helptext.Plain("enforced")}},
+			helptext.BoolFlag("approve"), helptext.Plain("enforced"),
+			helptext.Plain("propose")}},
 		"promote": {Flags: []helptext.Flag{
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
@@ -514,6 +515,17 @@ func cmdMemoryFmt(args []string) int {
 	return 0
 }
 
+// reviewFlagProblem names the first invalid flag combination of `memory review`, "" when it is valid.
+func reviewFlagProblem(candidate, enforced, propose string, approve, timeline bool) string {
+	switch {
+	case (approve || enforced != "") && (candidate == "" || approve == (enforced != "")):
+		return "--approve or --enforced needs --candidate and takes only one"
+	case propose != "" && (timeline || candidate != ""):
+		return "--propose stands alone"
+	}
+	return ""
+}
+
 // cmdMemoryReview runs the doctor and stats engine calls and prints both output blocks.
 func cmdMemoryReview(args []string) int {
 	fs := memoryFlagSet("review")
@@ -526,11 +538,12 @@ func cmdMemoryReview(args []string) int {
 	candidate := fs.String("candidate", "", "show a feedback candidate and its launch line")
 	approve := fs.Bool("approve", false, "with --candidate: the owner said yes; dream skips it")
 	enforced := fs.String("enforced", "", "with --candidate: close it with a main commit sha or file:line")
+	propose := fs.String("propose", "", "append one feedback candidate, a JSON record without status")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
-	if (*approve || *enforced != "") && (*candidate == "" || *approve == (*enforced != "")) {
-		return helptext.FailUsage("memory review: --approve or --enforced needs --candidate and takes only one")
+	if msg := reviewFlagProblem(*candidate, *enforced, *propose, *approve, *timeline); msg != "" {
+		return helptext.FailUsage("memory review: %s", msg)
 	}
 	if *timeline {
 		if err := memory.TimelineReport(os.Stdout, *n); err != nil {
@@ -539,7 +552,8 @@ func cmdMemoryReview(args []string) int {
 		return 0
 	}
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief,
-		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced})
+		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced,
+		Propose: *propose})
 	if err != nil {
 		return helptext.Fail("memory review: %v", err)
 	}

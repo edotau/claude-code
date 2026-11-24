@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -179,5 +180,86 @@ func TestPassthroughLedgerRowCarriesLabel(t *testing.T) {
 	got := waitLedger(t)
 	if len(got) != 1 || got[0].Model != "(passthrough:embeddings)" || got[0].Input != 9 {
 		t.Fatalf("ledger = %+v, want label model", got)
+	}
+}
+
+func TestLedgerRecordsAskedModelAndCall(t *testing.T) {
+	url, log := swapRig(t)
+	if resp := post(t, url+"/p/databricks%C2%B7dev/v1/messages", `{"model":"claude-opus-5-5","max_tokens":64}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
+	}
+	got := waitLedger(t)
+	if len(got) != 1 || got[0].AskedModel != "claude-opus-5-5" || got[0].Call != "messages_tiny" || got[0].Route != "" {
+		t.Fatalf("ledger = %+v, want asked_model claude-opus-5-5, call messages_tiny, no route", got)
+	}
+	waitLog(log, " 200 ")
+	if out := log.String(); !strings.Contains(out, " asked_model=claude-opus-5-5 call=messages_tiny") ||
+		strings.Contains(out, " route=") {
+		t.Errorf("log lacks the asked_model and call tokens:\n%s", out)
+	}
+}
+
+func TestReqMetaTypedKinds(t *testing.T) {
+	top := func(s string) map[string]json.RawMessage {
+		var m map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(s), &m)
+		return m
+	}
+	for _, c := range []struct {
+		body string
+		want bool
+	}{
+		{`{"max_tokens":64}`, true}, {`{"max_tokens":64,"tools":[]}`, true}, {`{"max_tokens":65}`, false},
+		{`{"max_tokens":8,"tools":[{"name":"x"}]}`, false}, {`{}`, false},
+	} {
+		if got := isTiny(top(c.body)); got != c.want {
+			t.Errorf("isTiny(%s) = %v, want %v", c.body, got, c.want)
+		}
+	}
+	if got := modelToken("a\x00b\n c" + strings.Repeat("x", 300)); len(got) != maxModelToken || strings.ContainsAny(got, "\x00\n ") {
+		t.Errorf("modelToken kept control or over-long input: %q", got)
+	}
+	m := &reqMeta{route: "dev", asked: "m", call: callMessages}
+	if got := m.diag("prod"); got != " asked_model=m call=messages route=dev" {
+		t.Errorf("diag = %q", got)
+	}
+	if got := passthroughCall(providers.ProtocolOpenAI, "v1/chat/completions"); got != callChat {
+		t.Errorf("passthroughCall = %q, want chat", got)
+	}
+}
+
+func TestTinyAndGeminiPathModel(t *testing.T) {
+	var top map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(`{"max_tokens":8,"tools":[ ]}`), &top)
+	if !isTiny(top) {
+		t.Error(`isTiny with "tools":[ ] = false, want true`)
+	}
+	for _, p := range []string{"/p/pt/gemini/v1beta/models/gemini-x:generateContent", "/p/pt/gemini/models/gemini-x:streamGenerateContent"} {
+		if got := geminiPathModel(p, providers.ProtocolGemini); got != "gemini-x" {
+			t.Errorf("geminiPathModel(%s) = %q, want gemini-x", p, got)
+		}
+	}
+}
+
+func TestLedgerRecordsAskedRouteAfterFailover(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusServiceUnavailable) })
+	up2 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":4,"output_tokens":1}}`)
+	})
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	log := &lockedBuf{}
+	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), func(r *Router) { r.log = log })
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus","max_tokens":500}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
+	}
+	got := waitLedger(t)
+	if len(got) != 1 || got[0].Profile != "up2" || got[0].Route != "up1" || got[0].AskedModel != "m1-opus" {
+		t.Fatalf("ledger = %+v, want profile up2 with route up1 and asked_model m1-opus", got)
+	}
+	waitLog(log, " 200 ")
+	if out := log.String(); !strings.Contains(out, " route=up1") {
+		t.Errorf("log lacks route=up1:\n%s", out)
 	}
 }

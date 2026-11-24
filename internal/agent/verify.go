@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -36,20 +36,22 @@ func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, not
 // VerifyRun is the one place a spec's verify runs: opts.Verify in opts.WorkDir, or not run when the work is remote.
 func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyResult {
 	if remote { // the work is on another host's tree: running here would check the wrong files
-		return &wire.VerifyResult{Command: redact.Text(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
+		return &wire.VerifyResult{Command: maskShapes(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
 	}
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+	ctx = valuesContext(ctx, opts.Values)
+	env := slices.DeleteFunc(runEnviron(ctx), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(opts.Unset, name)
 	})
-	env, _ = proc.ScrubAgentCredentials(append(env, opts.Env...), keepSet(ctx, opts.KeepEnv), "") // go test runs edits
+	env = withRTKQuiet(append(env, opts.Env...))
+	env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, opts.KeepEnv), "") // go test runs edits
 	return runVerify(ctx, opts.WorkDir, opts.Verify, env)
 }
 
 // runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.
 func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.VerifyResult {
 	start := time.Now()
-	vr := &wire.VerifyResult{Command: redact.Text(verify)}
+	vr := &wire.VerifyResult{Command: maskShapes(verify)}
 	steps, err := plans.VerifyArgv(verify)
 	if err == nil {
 		err = plans.VerifyShape(verify)
@@ -61,7 +63,7 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 	tail := &tailBuf{}
-	out := redact.Writer(tail) // masks while reading, so the cut below never splits a secret
+	out := redact.Writer(tail) // vault values are masked while streaming
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
 		cmd.WaitDelay = proc.ExecWaitDelay
@@ -73,18 +75,70 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 		}
 	}
 	_ = out.Close()
-	vr.Tail = strings.ToValidUTF8(string(tail.b[max(0, len(tail.b)-verifyTailMax):]), "")
+	vr.Tail = verifyTail(tail)
 	vr.Ms = time.Since(start).Milliseconds()
 	return vr
 }
 
-// tailBuf keeps only the last verifyTailMax bytes written to it.
-type tailBuf struct{ b []byte }
+// verifyTail is the last verifyTailMax bytes of the window, masked before the cut so no secret leaves a suffix.
+func verifyTail(t *tailBuf) string {
+	s := strings.ToValidUTF8(string(t.b), "")
+	if t.cut { // the window starts mid-output
+		s = dropFirstLine(afterOrphanPEM(s))
+	}
+	masked := maskShapes(s)
+	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
+}
+
+// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut window lost.
+func afterOrphanPEM(s string) string {
+	end := strings.Index(s, "-----END ")
+	if end < 0 || strings.Contains(s[:end], "-----BEGIN ") {
+		return s
+	}
+	if nl := strings.IndexByte(s[end:], '\n'); nl >= 0 {
+		return s[end+nl:]
+	}
+	return ""
+}
+
+// dropFirstLine is s from the first line past the cut that is not key-shaped: a cut window may open inside a key.
+func dropFirstLine(s string) string {
+	_, rest, _ := strings.Cut(s, "\n")
+	for header := false; rest != ""; {
+		line, next, _ := strings.Cut(rest, "\n")
+		line = strings.TrimSpace(line)
+		isHeader := strings.HasPrefix(line, "Proc-Type:") || strings.HasPrefix(line, "DEK-Info:")
+		blank := line == "" && header
+		if !isHeader && !blank && !base64Line(line) {
+			break
+		}
+		header, rest = isHeader || blank, next
+	}
+	return rest
+}
+
+const b64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+
+// base64Line reports a line of only base64 characters (no space or other punctuation).
+func base64Line(s string) bool { return s != "" && strings.Trim(s, b64Chars) == "" }
+
+// maskShapes masks credential-shaped runs, then vault values, in s.
+func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
+
+// verifyKeep is the raw window kept: more than the tail plus a 4096-bit PEM key (about 3.3 KiB).
+const verifyKeep = 4 * verifyTailMax
+
+// tailBuf keeps the last verifyKeep to 2*verifyKeep raw bytes; masking happens once, in verifyTail, over all of them.
+type tailBuf struct {
+	b   []byte
+	cut bool // the window's front was dropped
+}
 
 func (t *tailBuf) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
-	if len(t.b) > 2*verifyTailMax {
-		t.b = append(t.b[:0], t.b[len(t.b)-verifyTailMax:]...)
+	if len(t.b) > 2*verifyKeep {
+		t.b, t.cut = append(t.b[:0], t.b[len(t.b)-verifyKeep:]...), true
 	}
 	return len(p), nil
 }

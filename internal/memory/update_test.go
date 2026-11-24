@@ -783,3 +783,63 @@ func TestTagBlockHistoricalFiltersBeforeTheCap(t *testing.T) {
 		t.Fatalf("historical tagBlock = %q, want all decisions and no notes", got)
 	}
 }
+
+// TestFileDecisionEventsGoWritesTheEntry: a recorded DECISION lands in decisionLog.md once and leaves the tag block.
+func TestFileDecisionEventsGoWritesTheEntry(t *testing.T) {
+	tempConfig(t)
+	write(t, TagEventsPath("s7"), `{"event":"decision","text":"use A","at":"2026-11-20T10:00:00Z"}`+"\n"+
+		`{"event":"note","text":"n1","at":"x"}`+"\n")
+	for range 2 {
+		if err := fileDecisionEvents("s7", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, _ := readFile(Path("decisionLog.md"))
+	if n := strings.Count(string(b), "— use A"); n != 1 || !strings.Contains(string(b), "## 2026-11-20 — use A") {
+		t.Fatalf("decisionLog.md = %q, want one dated entry for use A", b)
+	}
+	if got := tagBlock("", "s7", false); strings.Contains(got, "use A") || !strings.Contains(got, "NOTE: n1") {
+		t.Fatalf("tagBlock = %q, want the note and no filed decision", got)
+	}
+}
+
+// TestFiledDecisionsMatchesWholeTitleAndStruckEntries: "use AB" does not file "use A"; a struck title still counts.
+func TestFiledDecisionsMatchesWholeTitleAndStruckEntries(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-20 — use AB <!-- id:12345678 -->\n\n## 2026-11-19 — ~~use C~~ <!-- id:87654321 -->\n")
+	filed := filedDecisions()
+	if filed("use A") || !filed("use AB") || !filed("use C") {
+		t.Fatalf("filed(use A, use AB, use C) = %v %v %v, want false true true", filed("use A"), filed("use AB"), filed("use C"))
+	}
+}
+
+// TestTagBlockFiledDecisionsNeverEvictAPendingBug: decisions already in the log leave before the legacy cap.
+func TestTagBlockFiledDecisionsNeverEvictAPendingBug(t *testing.T) {
+	tempConfig(t)
+	var log, text strings.Builder
+	log.WriteString("# Decision Log\n\n")
+	text.WriteString(`BUG: pending\n`)
+	for i := range tagMaxCount + 1 {
+		log.WriteString("## 2026-11-20 — d" + strconv.Itoa(i) + "\n\n")
+		text.WriteString("DECISION: d" + strconv.Itoa(i) + `\n`)
+	}
+	write(t, Path("decisionLog.md"), log.String())
+	path := filepath.Join(t.TempDir(), "s6.jsonl")
+	write(t, path, `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"`+text.String()+`"}]}}`)
+	if got := tagBlock(path, "s6", false); !strings.Contains(got, "BUG: pending") || strings.Contains(got, "DECISION") {
+		t.Fatalf("tagBlock = %q, want the pending BUG and no filed decision", got)
+	}
+}
+
+// TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle: date, title and id listed; "x" matches "x — why".
+func TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-20 — use X — because Y <!-- id:12345678 -->\n")
+	write(t, TagEventsPath("s5"), `{"event":"decision","text":"use X","at":"x"}`+"\n")
+	if !filedDecisions()("use X") {
+		t.Fatal("bare tag did not match its rationale title")
+	}
+	if got := filedByGoBlock("s5"); !strings.Contains(got, "- 2026-11-20 — use X — because Y (id 12345678)") {
+		t.Fatalf("filedByGoBlock = %q", got)
+	}
+}

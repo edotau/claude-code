@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -32,6 +34,23 @@ func TestLaneMergeLeafReportReadsHandback(t *testing.T) {
 	}
 	if got := laneVerdict(leafReport(tr)); got != "none" {
 		t.Fatalf("verdict from the hand-back = %q, want none", got)
+	}
+}
+
+func TestLaneMergeTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "agent-a.jsonl")
+	if err := os.WriteFile(tr, []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seen := transcriptStamp(tr)
+	f, err := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("b\n")
+	f.Close()
+	if transcriptStamp(tr) == seen {
+		t.Fatal("stamp unchanged after the leaf wrote again")
 	}
 }
 
@@ -82,5 +101,25 @@ func TestLaneMergeQueueDropsRemovedLane(t *testing.T) {
 	}
 	if got := worktree.Queued(main); len(got) != 0 {
 		t.Fatalf("a removed lane stays queued: %+v", got)
+	}
+}
+
+func TestJobDoneReloadsRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec.ID, rec.PID = "job-reload", os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if jobFinished(rec) {
+		t.Fatal("live PID reported finished")
+	}
+	stale := rec
+	rec.PID = 0
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if !jobFinished(stale) {
+		t.Fatal("PID 0 reported unfinished")
 	}
 }

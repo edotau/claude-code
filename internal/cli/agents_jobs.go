@@ -16,6 +16,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -121,19 +124,73 @@ func cmdAgentsStatus(args []string) int {
 	}
 	switch {
 	case *agentName != "":
-		empty := ""
-		if len(pos) == 0 {
-			empty = "no " + *agentName + " dispatches logged yet"
-		}
-		return ask.Status("agents status", *agentName, firstPositional(pos), *all, *format, empty)
+		return statusAgent(*agentName, pos, *all, *format)
 	case len(pos) == 0:
 		return agentsDispatchLog(*format)
 	}
-	rec, err := agent.LoadRecord(pos[0])
+	return statusOne(pos[0], *format)
+}
+
+// statusAgent is one agent's jobs; a single id also gets its contract's terms in text form.
+func statusAgent(agentName string, pos []string, all bool, format string) int {
+	empty := ""
+	if len(pos) == 0 {
+		empty = "no " + agentName + " dispatches logged yet"
+	}
+	code := ask.Status("agents status", agentName, firstPositional(pos), all, format, empty)
+	if code != 0 || len(pos) != 1 || format == helptext.JSON {
+		return code
+	}
+	cwd, _ := os.Getwd()
+	rec, err := agent.ResolveJob(context.Background(), agentName, cwd, pos[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "agents status: contract terms:", err)
+		return code
+	}
+	printContractTerms(rec.ID)
+	return code
+}
+
+// statusOne is one dispatch's status, then its contract's terms in text form.
+func statusOne(id, format string) int {
+	rec, err := agent.LoadRecord(id)
 	if err != nil {
 		return helptext.Fail("agents status: %v", err)
 	}
-	return ask.Status("agents status", rec.Agent, rec.ID, true, *format, "")
+	code := ask.Status("agents status", rec.Agent, rec.ID, true, format, "")
+	if code == 0 && format != helptext.JSON {
+		printContractTerms(rec.ID)
+	}
+	return code
+}
+
+func printContractTerms(id string) {
+	c, err := contract.Load(id)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "agents status: contract:", err)
+		return
+	}
+	for _, l := range contractTermLines(c) {
+		fmt.Println(l)
+	}
+}
+
+// contractTermLines is one line per term with its last record's verdict, or pending.
+func contractTermLines(c contract.Contract) []string {
+	var lines []string
+	for _, t := range c.Terms {
+		verdict, by, ev := "pending", "", ""
+		for _, r := range c.Records {
+			if r.Term == t {
+				verdict, by, ev = string(r.Verdict), r.By, redact.Text(r.Evidence)
+			}
+		}
+		lines = append(lines, strings.TrimRight(fmt.Sprintf("  term %s %s by %s %s", t, verdict, by, ev), " "))
+	}
+	return lines
 }
 
 func agentsDispatchLog(format string) int {
@@ -163,6 +220,7 @@ type resultFlags struct {
 	lines          int
 	format         string
 	after          int64
+	held           string // a leaf's agent id whose held job ids are followed
 }
 
 // check reports why the flag combination is refused, given whether an <id> was named.
@@ -178,7 +236,20 @@ func (o resultFlags) check(hasID bool) error {
 		return errors.New("--after needs a non-negative sequence")
 	case o.events && o.format == helptext.JSON:
 		return errors.New("--events has no JSON form; drop --format json")
-	case !hasID && o.agent == "":
+	}
+	return o.checkTarget(hasID)
+}
+
+func (o resultFlags) heldConflict(hasID bool) bool {
+	return hasID || o.agent != "" || o.save != "" || o.verdict || o.events || o.format == helptext.JSON
+}
+
+// checkTarget reports why the job selection is refused: --held excludes every other selector and sink.
+func (o resultFlags) checkTarget(hasID bool) error {
+	switch {
+	case o.held != "" && o.heldConflict(hasID):
+		return errors.New("--held takes no <id>, --agent, --save, --verdict, --events or --format json")
+	case !hasID && o.agent == "" && o.held == "":
 		return errors.New("name a dispatch <id>, or --agent for that agent's newest job here")
 	}
 	return nil
@@ -219,6 +290,7 @@ func cmdAgentsResult(args []string) int {
 	fs.IntVar(&o.head, "head", 0, "with --save, also print the first N lines of the saved text")
 	fs.BoolVar(&o.verdict, "verdict", false, "print one status line and the last --lines non-empty answer lines")
 	fs.IntVar(&o.lines, "lines", 10, "with --verdict, how many answer lines to print")
+	fs.StringVar(&o.held, "held", "", "follow the held job ids saved for this leaf's agent id (no <id>)")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -244,8 +316,26 @@ func cmdAgentsResult(args []string) int {
 	return runAgentsResult(o, firstPositional(pos))
 }
 
+// resultHeld follows each job id the hook state holds for leaf agentID, stopping at the first failure.
+func resultHeld(o resultFlags) int {
+	ids := hooks.ReadHeldJobs(o.held)
+	if len(ids) == 0 {
+		return helptext.Fail("agents result: no held jobs saved for leaf %q", o.held)
+	}
+	o.held = ""
+	for _, id := range ids {
+		if code := runAgentsResult(o, id); code != 0 {
+			return code
+		}
+	}
+	return 0
+}
+
 // runAgentsResult runs --save and --verdict on the dispatch record, and every other form through ask.Result.
 func runAgentsResult(o resultFlags, id string) int {
+	if o.held != "" {
+		return resultHeld(o)
+	}
 	if o.save == "" && !o.verdict {
 		return ask.Result(ask.ResultOptions{Prefix: "agents result", Agent: o.agent, Ref: id, Format: o.format,
 			Follow: o.follow, Events: o.events, After: o.after})

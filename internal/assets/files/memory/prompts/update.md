@@ -29,10 +29,13 @@ items into What Works; drop shipped items from What's Next. File every BUG tag u
 
 ## Step 4: Decisions → `decisionLog.md`
 
-For each architectural/process decision made this session (every DECISION tag is one): add a dated entry
-at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: save the new
-entry with `claude-code memory remember --type project --supersedes <old id> '<decision> — <rationale>'`; the
-harness strikes the old one.
+Go already filed every recorded DECISION event as a dated entry, listed under "Filed by Go"; never re-add one. For
+each, Edit in a rationale line only when its entry body has none (the digest has it), and a `Supersedes <old id>.`
+line when it reverses an earlier entry. File each other decision of the
+session (a listed DECISION tag, or an untagged one the digest shows) unless decisionLog.md already has it:
+`claude-code memory remember --type project '<decision> — <rationale>'`.
+Supersede, never delete: a decision that replaces an older one carries `--supersedes <old id>` (for a Go-filed entry,
+Edit a `Supersedes <old id>.` line under it); the harness strikes the old one.
 
 ## Step 5: Patterns → `conventions.md`
 
@@ -50,8 +53,8 @@ Omit standard language or framework behavior.
 
 ## Rules
 
-Edit bank files with Edit/Write only; Bash is read-only except `memory remember --supersedes`: no `printf >>`,
-heredocs or Python writes.
+Edit bank files with Edit/Write only; Bash is read-only except `memory remember` (with or without `--supersedes`):
+no `printf >>`, heredocs or Python writes.
 
 Your context is fresh: the transcript digest is your only account of the session. Never invent a summary it
 does not support; when nothing is worth persisting, write nothing rather than touch a file. Don't promote to

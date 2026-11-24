@@ -232,6 +232,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				decisions := paths.MemorySub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
 					write(t, report, previous)
+					report = paths.MemorySub("reports", "2026-11-08-review-2.md") // a taken name gets a suffix
 				}
 				if err := os.MkdirAll(decisions, 0o700); err != nil {
 					t.Fatal(err)
@@ -241,7 +242,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				if err == nil || len(got) != 0 {
 					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", got, err)
 				}
-				assertReportRolledBack(t, report, previous)
+				assertReportRolledBack(t, report, "")
 				if err := os.Remove(decisions); err != nil {
 					t.Fatal(err)
 				}
@@ -250,6 +251,9 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				}
 				assertReportTextOccursOnce(t, report, "Unique report body.")
 				assertReportTextOccursOnce(t, decisions, "Keep it.")
+				if previous != "" {
+					assertReportRolledBack(t, paths.MemorySub("reports", "2026-11-08-review.md"), previous)
+				}
 			})
 		})
 	}

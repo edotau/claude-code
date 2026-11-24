@@ -631,7 +631,7 @@ func costForJSON(entries []tokenledger.Entry, session string, days int) ([]costJ
 	for _, r := range rows {
 		pct, ok, suspect := cacheHit(r)
 		row := costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
-			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, CacheHitSuspect: suspect, USD: knownUSD(r.USD), Source: r.Source}
+			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, CacheHitSuspect: suspect, USD: knownUSD(r.USD), Source: r.label()}
 		if ok {
 			row.CacheHit = &pct
 		}

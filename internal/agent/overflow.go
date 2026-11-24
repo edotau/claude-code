@@ -106,14 +106,6 @@ func (o overflowPlan) note() string {
 	return fmt.Sprintf("context overflow: %s (%d tokens) → %s (%d tokens)", o.ran, o.from, o.model, o.to)
 }
 
-// say is the re-pick's note, or other when the plan holds no re-pick.
-func (o overflowPlan) say(other string) string {
-	if o.model == "" {
-		return other
-	}
-	return o.note()
-}
-
 // refuse is err with the plan's refusal named; err itself when there is none.
 func (o overflowPlan) refuse(err error) error {
 	if o.refusal == "" {

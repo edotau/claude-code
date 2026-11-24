@@ -162,8 +162,25 @@ func ReadJSONSource(label, value string, stdin io.Reader) ([]byte, error) {
 	return raw, nil
 }
 
-// readOverlaySource returns value's error label and bytes: stdin for -, inline JSON, else the file it names.
+// presetDoc is the overlay a preset names: "coworker" (the Databricks arm) or provider[:profile]; routing keys only.
+func presetDoc(value string) (string, bool) {
+	if value = strings.TrimSpace(value); value == "coworker" {
+		value = route.Join(router.RouteDatabricks, "")
+	}
+	provider, profile, err := route.Parse(value)
+	if err != nil || provider == "" {
+		return "", false
+	}
+	return InlineOverlay(provider, cmp.Or(profile, route.AutoArm)), true // a provider needs a profile: auto picks
+}
+
+// readOverlaySource returns value's error label and bytes: a preset, stdin for -, inline JSON, else the file it names.
 func readOverlaySource(value string, stdin io.Reader) (string, []byte, error) {
+	if _, err := os.Lstat(value); errors.Is(err, fs.ErrNotExist) { // a file by that name, even unreadable, still wins
+		if doc, ok := presetDoc(value); ok {
+			return "overlay", []byte(doc), nil
+		}
+	}
 	return readJSONSource("overlay", value, stdin)
 }
 

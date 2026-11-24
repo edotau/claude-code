@@ -3,8 +3,7 @@ description: "Send a task to an agent here under one overlay; Databricks request
 argument-hint: "--agent <codex|copilot|gemini|opencode|claude|pi> [--overlay <json|file>] [--model <m>] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label *), Bash(claude-code agents brief --path *), Read, Write,
-  Bash(claude-code agents ask --carry --background --agent *), Bash(claude-code agents ask --background --agent *),
-  Bash(claude-code agents result -f *)
+  Bash(claude-code agents ask --spec *), Bash(claude-code agents result -f *)
 ---
 
 # /coworker
@@ -27,10 +26,13 @@ Launcher only (a shortcut for `agents ask --overlay`), run by this session with 
 2. Run `claude-code agents brief --path <type>`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label <type> [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).
-4. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
-   `claude-code agents ask --carry --background --agent <type> --overlay '<overlay JSON or file path>' [--model <m>]
-   --tools --autonomous - < <that path>` (codex drops --autonomous with a note; claude and pi drop `--carry`, which
-   refuses them).
-5. Read the id from its `job <id> started` line, then wait with ONE `claude-code agents result -f <id>`.
+4. Run `claude-code agents brief --path <type>` again and Write the spec there, one JSON object with no prompt
+   (the task stays in the first file, any size):
+   `{"agent":"<type>","overlay":<overlay object, or the file path as a string>,"tools":true,"autonomous":true,`
+   `"carry":true,"background":true}` plus `"model"` when given. Codex leaves out `autonomous` (note it); claude
+   and pi leave out `carry`, which refuses them.
+5. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
+   `claude-code agents ask --spec <spec path> - < <task path>`.
+6. Read the id from its `job <id> started` line, then wait with ONE `claude-code agents result -f <id>`.
 
 Relay the report with its `ran on` line; never do the task yourself. A refusal is the answer: relay it.

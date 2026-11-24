@@ -74,11 +74,25 @@ paths:
   judged by `safety-scan`. `make` and the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
-- **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
-  `claude-code gateway resolve <agent> --overlay '{"provider":"databricks","profile":"dev"}'` names the model, then
-  `claude-code agents ask --agent pi --overlay '<same>' --model <id> "<task>"` runs it (about a tenth of the input
-  tokens). The label, record and `ran on` read `pi`; the brief must stand alone (no CLAUDE.md, skills or MCP), and
-  another agent's `--session` or `--retry` id does not carry over. There is no swap inside another agent's dispatch.
+- **pi runner** — a `claude` ask whose first hop is its own Databricks route runs through Pi first, on the model the
+  agent resolves there; the asked agent's own CLI is the later hop. Another agent takes it only with the overlay
+  `runner: pi`; `runner: own` opts a dispatch out. First-party Anthropic, Copilot and Google routes are unchanged, and
+  an auto pick, `--fallback none`, a resumed session and `--native` stay on the own CLI, and an explicit profile pin
+  keeps the Pi hops on that workspace (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`,
+  `staysOnWorkspace`). A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
+  budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens
+  through Pi against 61k on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles,
+  then the agent's own CLI; hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once
+  by context size under `all` or `agents` (a typed model is kept, not replaced);
+  a policy refusal and `x-should-retry` are typed error classes. Fable is refused on Databricks by name, never run
+  as Opus; among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name.
+  A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
+- **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
+  typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
+  its footer line (`internal/pi/stream.go` `handbackStatuses`). A spec's `own`, `report` and `verify` keys on
+  `agents ask --spec` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
+  and records it as the result's `verify` object; a failed verify does not change the run's status.
+  The record carries per-tool stats.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
 - **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `PI_CODEMODE` resolving to on;

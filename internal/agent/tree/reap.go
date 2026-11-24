@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -99,13 +100,83 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		code = 1
 	}
 	orphans, orphanCode := reapOrphans(dryRun, verb, out, errw)
-	code = max(code, sockCode, orphanCode)
-	if records+markers+socks+orphans == 0 {
+	contracts, contractCode := reapContracts(dryRun, out, errw)
+	code = max(code, sockCode, orphanCode, contractCode)
+	if records+markers+socks+orphans+contracts == 0 {
 		fmt.Fprintln(out, "agents cancel --lost: nothing to reap")
 		return code
 	}
 	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets, %d orphans\n", verb, records, markers, socks, orphans)
 	return code
+}
+
+// ContractEnv wires contract.Reap to the dispatch records; Successor stays nil: re-assign is task 11.2's.
+func ContractEnv() contract.Env {
+	return contract.Env{Lost: holderLost}
+}
+
+// holderLost: the holder's record is pruned, or no longer running while its contract is working (owner gone unsettled).
+func holderLost(id string) bool {
+	rec, err := agent.LoadRecord(id)
+	if err != nil {
+		return errors.Is(err, agent.ErrNoRecord)
+	}
+	return rec.Status != "running" || !rec.Alive()
+}
+
+// reapContracts fails or re-assigns the contracts of lost owners; a dry run only lists them.
+func reapContracts(dryRun bool, out, errw io.Writer) (int, int) {
+	if dryRun {
+		orphans, err := contract.Orphans(ContractEnv())
+		for _, c := range orphans {
+			fmt.Fprintf(out, "would reap contract %s (holder %s lost)\n", c.ID, c.Holders[len(c.Holders)-1])
+		}
+		if err != nil {
+			fmt.Fprintln(errw, "agents cancel --lost: contracts:", err)
+			return len(orphans), 1
+		}
+		return len(orphans), 0
+	}
+	done, err := contract.Reap(ContractEnv())
+	for _, r := range done {
+		fmt.Fprintf(out, "reaped contract %s %s (holder %s lost)\n", r.ID, r.Action, r.Holder)
+	}
+	if err != nil {
+		fmt.Fprintln(errw, "agents cancel --lost: contracts:", err)
+		return len(done), 1
+	}
+	return len(done), 0
+}
+
+const percent = 100
+
+// contractNote is the one-line state of the contract id owns, "" when it owns none.
+func contractNote(id string) string {
+	c, err := contract.Load(id)
+	if err != nil {
+		return ""
+	}
+	spent := wire.SpentBy(c)
+	parts := []string{"contract " + string(c.State()), "owner " + c.Owner.Agent,
+		fmt.Sprintf("leaves %d/%d", spent.Leaves, c.Limits.Leaves)}
+	if c.Scope.Lane != "" {
+		parts = append(parts, "lane "+c.Scope.Lane)
+	}
+	if spent.Tokens > 0 && c.Limits.Tokens > 0 {
+		parts = append(parts, fmt.Sprintf("%d%% budget", spent.Tokens*percent/c.Limits.Tokens))
+	}
+	if un := c.Unmet(); len(un) > 0 {
+		parts = append(parts, "unmet "+strings.Join(termNames(un), ","))
+	}
+	return "[" + strings.Join(parts, " · ") + "]"
+}
+
+func termNames(ts []contract.Term) []string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = string(t)
+	}
+	return out
 }
 
 func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
@@ -168,7 +239,10 @@ func settleDead(cur agent.Record) (agent.Record, string) {
 // envelopeResult is the part of env that Record.Finish reads back.
 func envelopeResult(env wire.Envelope) wire.Result {
 	res := wire.Result{Agent: env.Agent, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
-		SessionID: env.SessionID, FallbackReason: env.FallbackReason}
+		SessionID: env.SessionID, FallbackReason: env.FallbackReason, Type: env.Type, Runner: env.Runner}
+	if env.Runner != "" { // the envelope's agent is the asked one; the runner is who executed
+		res.Agent, res.Asked = env.Runner, env.Agent
+	}
 	if env.Fallback != nil {
 		res.Fallback = *env.Fallback
 	}
@@ -347,9 +421,10 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		live := rec.Activity.Usage // a running record has only the 2 s activity snapshot
 		usage = &live
 	}
+	task = strings.TrimSpace(contractNote(rec.ID) + " " + task)
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
-		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
+		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec), recType: rec.Type,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
 		carry: rec.Request.Carry, codeMode: answeredInCodeMode(rec), routeKind: cmp.Or(rec.RanRoute.Provider, rec.Route.Provider), takeover: rec.TakeoverOf != "", launch: launchLabel(rec),

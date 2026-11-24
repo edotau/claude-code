@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
@@ -31,11 +34,12 @@ type piCall struct {
 
 // piVerdict is the whole reply: Block blocks, only Allow runs the tool (on Path or Run); Usage is a tool error.
 type piVerdict struct {
-	Allow bool     `json:"allow,omitempty"`
-	Block string   `json:"block,omitempty"`
-	Path  string   `json:"path,omitempty"`
-	Run   []string `json:"run,omitempty"`
-	Usage string   `json:"usage,omitempty"`
+	Allow  bool     `json:"allow,omitempty"`
+	Block  string   `json:"block,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	Run    []string `json:"run,omitempty"`
+	Usage  string   `json:"usage,omitempty"`
+	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -65,8 +69,51 @@ func dropHookControlEnv() {
 	}
 }
 
-// judgePi normalizes the call, builds the hook payload from canonical fields only, and runs Pi's PreToolUse modules.
+// judgePi judges the call, then adds the owner's budget notice; a dispatch at the budget runs nothing.
 func judgePi(c piCall) piVerdict {
+	v := judgePiCall(c)
+	if !v.Allow {
+		return v
+	}
+	leaves, tokens := piBudget()
+	switch {
+	case c.Tool == "dispatch" && (leaves || tokens):
+		return piVerdict{Allow: true, Notice: contract.BudgetNotice} // a tool result, not an error
+	case tokens:
+		v.Notice = contract.BudgetNotice
+	}
+	return v
+}
+
+// piBudget reports whether this run's owner contract dispatched every leaf, and whether it is past its tokens.
+func piBudget() (leaves, tokens bool) {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
+		return false, false
+	}
+	s := wire.SpentBy(c)
+	return c.LeavesSpent(s), c.TokensSpent(s)
+}
+
+// heldContract is the open contract id holds: its own, else one it took over by a re-assign.
+func heldContract(id string) (contract.Contract, bool) {
+	if id == "" {
+		return contract.Contract{}, false
+	}
+	c, err := contract.Load(id)
+	if errors.Is(err, fs.ErrNotExist) {
+		open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
+		i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) })
+		if i < 0 {
+			return contract.Contract{}, false
+		}
+		c, err = open[i], nil
+	}
+	return c, err == nil && !c.State().Terminal()
+}
+
+// judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
+func judgePiCall(c piCall) piVerdict {
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
 	}

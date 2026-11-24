@@ -97,6 +97,8 @@ type Envelope struct {
 	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
 	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
 	Hops            []Hop           `json:"hops,omitempty"`       // every dispatch tried, in order
+	Type            string          `json:"type,omitempty"`       // the agent type of the model that ran (models.AgentType)
+	Runner          string          `json:"runner,omitempty"`     // the runner that carried Agent's run, "pi"; absent when Agent ran itself
 	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 	Verify          *VerifyResult   `json:"verify,omitempty"`     // --spec verify: what the harness ran after the answer
@@ -158,6 +160,8 @@ func (v VerifyResult) Line() string {
 const (
 	VerifyNotRunRemote = "remote_workdir"
 	VerifyNotRunShape  = "shape"
+	// VerifyNotRunUnread is a carried child's result event that could not be read: it may have run verify itself.
+	VerifyNotRunUnread = "child_result_unread"
 )
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
@@ -165,6 +169,10 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify, Handback: res.Handback}
+	env.Type, env.Runner = res.Type, res.Runner
+	if res.Runner != "" {
+		env.Agent = cmp.Or(res.Asked, res.Agent)
+	}
 	if res.Denials != nil {
 		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
 	}
@@ -248,8 +256,21 @@ func RanOn(res Result) string {
 	if who == "" {
 		return ""
 	}
-	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fallbackText(res)) +
+	typ := cmp.Or(res.Type, who)
+	line := fmt.Sprintf("ran on %s · %s · %s · fallback %s", RunLabel(typ, res.Runner), cmp.Or(acct, "own login"), cmp.Or(model, "default"), fallbackText(res)) +
 		ranOnCost(res)
+	if res.Runner != "" && res.Asked != "" && res.Asked != typ {
+		line += " · asked " + res.Asked
+	}
+	return line
+}
+
+// RunLabel is the label every surface shows for a run: its agent type, "<type> via <runner>" when one carried it.
+func RunLabel(typ, runner string) string {
+	if runner == "" {
+		return typ
+	}
+	return typ + " via " + runner
 }
 
 // RequestedLabel renders a requested target for a reader: "<model> on <profile>", else whichever is known.
@@ -390,6 +411,9 @@ type Result struct {
 	Handback        *Handback       `json:"handback,omitempty"`        // the typed outcome the run's handback call reported
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
+	Asked           string          `json:"-"`                         // the agent the caller asked, set with Runner
+	Runner          string          `json:"runner,omitempty"`          // the runner that carried Asked's run (Agent); "" when Agent ran itself
+	Type            string          `json:"type,omitempty"`            // the agent type of the model that ran
 }
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
@@ -399,6 +423,7 @@ type Hop struct {
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Reported  string `json:"reported_model,omitempty"` // Result.Reported of this hop
+	RunFor    string `json:"run_for,omitempty"`        // the asked agent a pi runner hop executes for
 	ErrorKind string `json:"error_kind,omitempty"`
 	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
 	NotStarted bool `json:"not_started,omitempty"`

@@ -294,7 +294,7 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 	}
 	// the verb needs a Go module and a Makefile lint target (today's probe); other repos get no lint part
 	if lintCheck && paths.FileExists(filepath.Join(dir, "go.mod")) && hasMakeTarget(filepath.Join(dir, "Makefile"), "lint") {
-		gate = lintVerb(dirs) + " && " + gate
+		gate = lintLine(lintVerb(dirs)) + " && " + gate
 	}
 	return gate, source
 }
@@ -319,13 +319,31 @@ func noGo(d string) bool {
 const mergeBaseEnv = "HARNESS_MERGE_BASE"
 
 // lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or the scope's changes since the base.
-func lintVerb(dirs []string) string {
-	const verb = "claude-code agents diff --check --gates lint"
+func lintVerb(dirs []string) []string {
+	argv := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint"}
 	if len(dirs) == 0 {
-		return verb + " --all"
+		return append(argv, "--all")
 	}
 	// a merged lane is committed, so HEAD alone shows no change
-	return verb + ` --base "${` + mergeBaseEnv + `:-HEAD}" --path ` + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
+	argv = append(argv, "--base", lintBase)
+	for _, d := range dirs {
+		argv = append(argv, "--path", d)
+	}
+	return argv
+}
+
+// lintBase is the one word the gate shell expands: the pinned merge base, else HEAD.
+const lintBase = "${" + mergeBaseEnv + ":-HEAD}"
+
+// lintLine renders the lint argv as gate shell words; only the value of --base stays expandable.
+func lintLine(argv []string) string {
+	words := mapStrings(argv, textutil.QuoteSH)
+	for i, w := range argv {
+		if w == lintBase && i > 0 && argv[i-1] == "--base" {
+			words[i] = `"` + w + `"`
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.

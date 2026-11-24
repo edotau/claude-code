@@ -29,7 +29,7 @@ Task:
 - Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
-  before/after run; other cases are proposals in the hand-back (case, what it guards, runtime); need more, say why.
+  before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence in the full report (JSON lines, Go reads it there), e.g. {"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}; need more, say why.
 {{if .Rtk}}- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
   is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
 {{end}}- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
@@ -40,9 +40,9 @@ Task:
 
 ## Reporting contract
 
-Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID --kind review|implementation|audit|research --stdin`
+{{if .Report}}Write the full report to the Report path above.
+{{else}}Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID --kind review|implementation|audit|research --stdin`
 (body on stdin; it prints the path); with no dispatch id, to {{.ReportsDir}}/YYYY-MM-DD-<name>.md.
-{{if .Report}}Use the Report path above.
 {{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added

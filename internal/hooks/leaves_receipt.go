@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -171,11 +173,24 @@ func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRe
 	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s %s(%s). %s", info, idPrefix, how, pollOnce(rec.ID))}
 }
 
+// handbackVerdict is the unfixed verdict of a typed hand-back.
+func handbackVerdict(h *wire.Handback) string {
+	if v := laneVerdict(h.Footer()); v != "none" || h.Status == "DONE" {
+		return v
+	}
+	return h.Status // a decorated "none." item never clears an unfinished run
+}
+
 // endedNote is a finished job's ran-on line and result.
 func endedNote(rec agent.Record, how, output string) receipt {
 	body := jobResult(&rec, output)
-	if line := rec.ResultEnvelope(io.Discard).RanOn; line != "" {
-		return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body}
+	env := rec.ResultEnvelope(io.Discard)
+	if line := env.RanOn; line != "" {
+		note := fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line)
+		if env.Handback != nil && env.Error == nil {
+			note += fmt.Sprintf(" handback: %s, unfixed: %s", env.Handback.Status, handbackVerdict(env.Handback))
+		}
+		return receipt{note, body}
 	}
 	return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body}
 }
@@ -402,6 +417,88 @@ var askValueFlags = strings.Fields("agent agents fallback profile provider as mo
 	"attach keep-env env overlay system-prompt append-system-prompt output-schema timeout host " +
 	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
 	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode tier")
+
+// maxBashTimeout is the host's Bash tool ceiling; waitMargin lets `agents wait` exit 4 before the tool kills it.
+const (
+	maxBashTimeout = 10 * time.Minute
+	waitMargin     = 10 * time.Second
+	bashDefault    = 2 * time.Minute
+)
+
+// BashTimeoutMs is the Bash timeout (ms) a foreground `agents ask|wait|result -f` needs, --timeout + margin, capped.
+func BashTimeoutMs(cmd string) (ms int, ok bool) {
+	var total time.Duration
+	for _, seg := range shell.Segments(cmd) {
+		words := agentCommand(relayWords(seg))
+		if len(words) < 2 || words[0] != "agents" {
+			continue
+		}
+		t, fg := foregroundTimeout(words[1:])
+		if !fg {
+			continue
+		}
+		d := maxBashTimeout
+		if t > 0 {
+			d = min(min(t, maxBashTimeout)+waitMargin, maxBashTimeout)
+		}
+		total, ok = min(total+d, maxBashTimeout), true // chained waits run one after another
+	}
+	return int(total / time.Millisecond), ok
+}
+
+// BashTimeout raises a foreground ask, wait or result -f Bash call's timeout to what it needs; it never blocks.
+func BashTimeout(in *core.Input) core.Result {
+	ms, ok := BashTimeoutMs(in.ToolCommand())
+	updated := in.CloneToolInput()
+	if in.ToolName != "Bash" || !ok || updated == nil {
+		return core.Result{}
+	}
+	have, set := updated["timeout"].(float64)
+	if !set {
+		have = float64(bashDefault.Milliseconds()) // an unset timeout is the host default; never shorten it
+	}
+	if int(have) >= ms {
+		return core.Result{}
+	}
+	updated["timeout"] = ms
+	return core.Result{UpdatedInput: updated}
+}
+
+// foregroundTimeout: words (after `agents`) are a `wait`, `result -f` or ask that stays foreground; t is its --timeout.
+func foregroundTimeout(words []string) (t time.Duration, fg bool) {
+	switch words[0] {
+	case "ask":
+		a, ok := ParseAskWords(words[1:])
+		bg, _ := strconv.ParseBool(a.Value("background"))
+		live, _ := strconv.ParseBool(a.Value("live"))
+		if !ok || bg || live {
+			return 0, false
+		}
+		t, _ = time.ParseDuration(a.Value("timeout"))
+		return t, true
+	case "wait", "result":
+		if i := slices.Index(words, "--"); i >= 0 {
+			words = words[:i]
+		}
+		return timeoutFlag(words), words[0] == "wait" || slices.Contains(words, "-f")
+	}
+	return 0, false
+}
+
+// timeoutFlag is the last parseable `--timeout D` or `--timeout=D` in words, 0 when none.
+func timeoutFlag(words []string) time.Duration {
+	var d time.Duration
+	for i, w := range words {
+		v, has := strings.CutPrefix(w, "--timeout=")
+		if w == "--timeout" && i+1 < len(words) {
+			v, has = words[i+1], true
+		}
+		if t, err := time.ParseDuration(v); has && err == nil {
+			d = t
+		}
+	}
+	return d
+}
 
 // OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
 func OverlayArgs(profile, model, identity, account string) []string {

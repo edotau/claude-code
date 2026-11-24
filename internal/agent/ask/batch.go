@@ -291,7 +291,20 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 		req.Lead = ""
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
+	if ov.Runner != "" { // an explicit runner on the line, seen by the re-pick guards
+		req.Values = req.Values.Merge(nil)
+		req.Values[route.OverlayVar] = withRunner(req.Values[route.OverlayVar], ov.Runner)
+	}
 	return nil
+}
+
+// withRunner is the overlay document doc with its runner key set; the other keys stay.
+func withRunner(doc, runner string) string {
+	keys := map[string]json.RawMessage{}
+	_ = json.Unmarshal([]byte(doc), &keys) // an empty or unreadable document starts from none
+	keys["runner"], _ = json.Marshal(runner)
+	out, _ := json.Marshal(keys)
+	return string(out)
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {

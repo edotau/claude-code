@@ -324,7 +324,7 @@ func derefUsage(u *wire.Usage) wire.Usage {
 }
 
 func resultOf(p loopPart, env wire.Envelope) loopResult {
-	r := loopResult{Part: p, Status: cmp.Or(env.Status, wire.StatusError), Ran: env.Agent, Dispatches: []string{},
+	r := loopResult{Part: p, Status: cmp.Or(env.Status, wire.StatusError), Ran: cmp.Or(env.Runner, env.Agent), Dispatches: []string{},
 		Answer: textutil.TruncateRunes(env.Answer, loopDigestChars), Ms: env.DurationMs}
 	if env.DispatchID != "" {
 		r.Dispatches = append(r.Dispatches, env.DispatchID)

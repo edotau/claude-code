@@ -45,12 +45,24 @@ func laneStateDir() string { return filepath.Join(paths.StateDir(), "worktree", 
 
 // runLeafLane waits for the leaf to finish (a held stop keeps it working), then judges its lane.
 func runLeafLane(lane, session, transcript string) {
-	done := func() bool { return leafFinished(transcript) }
+	finished := func() bool { return leafFinished(transcript) }
 	verdict := laneUnfinished
-	if waitUntil(laneFinishWait, done) {
+	done := finished
+	if waitUntil(laneFinishWait, finished) {
+		seen := transcriptStamp(transcript) // taken before the read, so a write in between holds the lane
 		verdict = laneVerdict(leafReport(transcript))
+		done = func() bool { return finished() && transcriptStamp(transcript) == seen } // a leaf sent back writes more
 	}
 	runLaneJob(laneJob{lane: lane, session: session, verdict: verdict, done: done})
+}
+
+// transcriptStamp is the transcript's mtime and size; it changes when the leaf runs again.
+func transcriptStamp(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fi.ModTime().String() + strconv.FormatInt(fi.Size(), 10)
 }
 
 // leafFinished is Claude Code's finished mark in the leaf's meta.json; no readable mark is not finished.
@@ -70,13 +82,24 @@ func runJobLane(id string) {
 	if lane == "" {
 		return
 	}
-	done := func() bool { return rec.PID <= 0 || !proc.Alive(rec.PID) }
+	done := func() bool { return jobFinished(rec) }
 	verdict := laneUnfinished
 	if waitUntil(laneExitWait, done) {
 		env, _ := rec.SavedEnvelope()
 		verdict = laneVerdict(env.Answer)
+		if env.Handback != nil && env.Error == nil { // the typed outcome wins over the answer's text line
+			verdict = handbackVerdict(env.Handback)
+		}
 	}
 	runLaneJob(laneJob{lane: lane, session: os.Getenv(paths.SessionIDEnv), verdict: verdict, task: rec.PlanTask, done: done})
+}
+
+// jobFinished reloads the record each call, so a job resumed later under a new PID is not seen as finished.
+func jobFinished(rec agent.Record) bool {
+	if r, err := agent.LoadRecord(rec.ID); err == nil { // a pruned record falls back to the one first read
+		rec = r
+	}
+	return rec.PID <= 0 || !proc.Alive(rec.PID)
 }
 
 func waitUntil(limit time.Duration, done func() bool) bool {

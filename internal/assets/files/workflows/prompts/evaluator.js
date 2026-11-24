@@ -42,12 +42,6 @@ function evaluatorGroundTruth() {
   return {...EVALUATOR_GROUND_TRUTH}
 }
 
-/** @param {{ EXT: * }} input */
-function evaluatorPreflightBrief({ EXT }) {
-  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
-}
-
 function evaluatorOffline() {
   return `The user is offline and cannot answer questions: if you need a decision from them, state the question and your recommended assumption in your final report, and only act on your recommendation if the action is safe and reversible. Work ONLY inside the given directory. Your final message is your report to the user.`
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -315,5 +316,35 @@ func TestRunCarryStreamJSONStampsVia(t *testing.T) {
 	if len(got) != 2 || !strings.Contains(got[0], `"via":"`+child+`"`) || !strings.Contains(got[1], `"type":"result"`) ||
 		!strings.Contains(got[1], `"dispatch_id":"`+outer+`"`) || strings.Contains(got[1], `"via"`) {
 		t.Fatalf("stream = %q, want a via-stamped text line then the carrier's one result", got)
+	}
+}
+
+func TestTakeCarryVerifyLeavesEnvAndContext(t *testing.T) {
+	t.Setenv(carryVerifyEnv, "go vet ./x")
+	ctx := proc.WithValues(context.Background(), proc.Values{carryVerifyEnv: "go vet ./x", "A": "1"})
+	ctx, got := takeCarryVerify(ctx)
+	if v, set := os.LookupEnv(carryVerifyEnv); got != "go vet ./x" || set {
+		t.Errorf("take = %q, env still set = %v (%q)", got, set, v)
+	}
+	if values, _ := proc.ValuesFromContext(ctx); values[carryVerifyEnv] != "" || values["A"] != "1" {
+		t.Errorf("ctx values = %v", values)
+	}
+}
+
+func TestTakeCarryVerifyReadsTheSnapshotWhenOneIsInstalled(t *testing.T) {
+	t.Setenv(carryVerifyEnv, "ambient")
+	_, got := takeCarryVerify(proc.WithValues(context.Background(), proc.Values{carryVerifyEnv: "snapshot"}))
+	if got != "snapshot" {
+		t.Errorf("take = %q, want the snapshot's value", got)
+	}
+}
+
+func TestFencedWorkspaceIsTheConfinementOfAProviderOnlyAsk(t *testing.T) {
+	ctx := proc.WithValues(context.Background(), proc.Values{"COWORKER_OVERLAY": `{"provider":"databricks","profile":"prod"}`})
+	if got := fencedWorkspace(ctx, &askFlags{provider: "databricks"}); got != "prod" {
+		t.Errorf("fenced = %q, want prod", got)
+	}
+	if got := fencedWorkspace(ctx, &askFlags{provider: "databricks", profile: "dev"}); got != "" {
+		t.Errorf("a typed profile keeps its own lead, got %q", got)
 	}
 }

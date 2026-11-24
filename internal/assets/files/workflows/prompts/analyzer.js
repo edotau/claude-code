@@ -24,7 +24,7 @@ function analyzerConsolidateDimensions() {
 /** @param {{ CWD: * }} input */
 function analyzerSharedTree({ CWD }) {
   return 'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
-  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
+  (CWD ? 'Run every command in cwd ' + JSON.stringify(CWD) + ' (external agents: ask --workdir ' + CWD + '). ' : '') + 'Comments 1 line ≤120 chars.'
 }
 
 /** @param {{ EXT: * }} input */
@@ -65,7 +65,7 @@ function analyzerRunScopesBrief({ CD, CWD, FILES_MODE, PATHS, RANGE, SPLIT, g })
 
 /** @param {{ CWD: * }} input */
 function analyzerWorkingDirectory({ CWD }) {
-  return CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : ''
+  return CWD ? `Run every command in cwd ${JSON.stringify(CWD)} (external agents: ask --workdir ${CWD}).\n` : ''
 }
 
 function analyzerGateRules() {
@@ -74,8 +74,8 @@ function analyzerGateRules() {
 
 /** @param {{ CD: *, SHARED_TREE: *, dryRun: *, json: *, label: * }} input */
 function analyzerRecordReportBrief({ CD, SHARED_TREE, dryRun, json, label }) {
-  return SHARED_TREE + ' Record this and nothing else. First run `date +%H%M%S` as its own command. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
-    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + '-<that time> --file <that file> --format json </dev/null` ' +
+  return SHARED_TREE + ' Record this and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
+    '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
     'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents ask --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json
 }
 

@@ -82,7 +82,8 @@ type askRun struct {
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
 	// a --job/--retry record's request, for its rotation and fallback-default marks
-	replayed agent.RunOptions
+	replayed    agent.RunOptions
+	carryVerify string // the verify a carrying parent passed, taken once at start
 }
 
 // Run is `agents ask`; verb names the `<verb> ask` page -h prints.
@@ -110,6 +111,7 @@ var Reap = func() func() { return func() {} }
 
 // runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
+	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
 	fs, f, args, pos, code, done := parseAsk(verb, args)
 	if done {
 		return code
@@ -134,7 +136,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
+	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
@@ -706,7 +708,9 @@ func (r *askRun) askState() *askState {
 // request is batchBase plus the single-task fields.
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
-	f.verify = cmp.Or(f.verify, takeCarryVerify()) // before batchBase snapshots the env, so no descendant inherits it
+	if f.retry == "" && f.job == "" { // a replayed record keeps its own verify
+		f.verify = cmp.Or(f.verify, r.carryVerify)
+	}
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
@@ -826,7 +830,7 @@ func (r *askRun) routesItself() bool {
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
 	r.typed = r.f.profile
-	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
+	lead, err := narrowLead(r.ag, r.f, !r.routesItself(), fencedWorkspace(r.ctx, r.f))
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -834,8 +838,19 @@ func (r *askRun) resolveLead() (int, bool) {
 	return 0, false
 }
 
-// narrowLead routes f's --provider/--profile into a lead and f.profile when routed; "" and no change otherwise.
-func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
+// fencedWorkspace is the workspace the run's confinement names for a provider-only --provider databricks ask, else "".
+func fencedWorkspace(ctx context.Context, f *askFlags) string {
+	if f.provider != router.RouteDatabricks || f.profile != "" {
+		return ""
+	}
+	if p := router.ArmProfileContext(ctx); p != route.AutoArm {
+		return p
+	}
+	return ""
+}
+
+// narrowLead routes f's --provider/--profile (a fenced workspace first) into a lead and f.profile when routed.
+func narrowLead(ag string, f *askFlags, routed bool, fenced string) (string, error) {
 	if !routed {
 		return "", nil
 	}
@@ -843,7 +858,7 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 	if f.session != "" { // a resumed session runs one hop
 		fallback = router.FallbackNone
 	}
-	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.profile, Provider: f.provider, Fallback: fallback}
+	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: cmp.Or(f.profile, fenced), Provider: f.provider, Fallback: fallback}
 	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)
 	if err != nil {
 		return "", err

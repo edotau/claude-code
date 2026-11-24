@@ -50,10 +50,10 @@ func agentsSpec() *helptext.Node {
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
-			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
+			flag("head"), boolFlag("verdict"), flag("lines"), flag("held"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), flag("plan-task"), valuedFlag("tier", agent.TierNames), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
@@ -104,7 +104,7 @@ var agentsPage = helptext.Page{
 		{"status", "dispatch state: status [<id>] [--agent A] [--all]"},
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
-		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
+		{"wait", "block until dispatches finish: wait <id>... [--timeout 9m30s]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"serve", "daemon that queues background jobs per pool; --start|--stop"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
@@ -548,7 +548,7 @@ func cmdAgentsWaves(args []string) int {
 // cmdAgentsWait is `agents wait <id>...`: one row per settled dispatch; exit 1 on error or lost, 4 on timeout.
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
-	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
+	timeout := fs.Duration("timeout", waitDefaultTimeout, "give up on unfinished dispatches after this long (under the 10m Bash cap)")
 	progress := fs.Bool("progress", false, "print a stderr line each time a job's activity changes")
 	format := helptext.FormatFlag(fs)
 	ids, err := helptext.ParseArgs(fs, args)
@@ -581,10 +581,17 @@ func cmdAgentsWait(args []string) int {
 	return agent.WaitExit(rows)
 }
 
+// waitDefaultTimeout keeps one wait call under the 600000 ms Bash cap.
+const waitDefaultTimeout = 570 * time.Second
+
 // printResumeHints prints each unfinished or failed wait row's resume line on stderr.
 func printResumeHints(rows []agent.WaitResult) {
 	for _, r := range rows {
 		if r.State == agent.WaitDone {
+			continue
+		}
+		if r.State == agent.WaitTimeout {
+			fmt.Fprintf(os.Stderr, "%s: still running, re-run `claude-code agents result -f %s`\n", r.ID, r.ID)
 			continue
 		}
 		if rec, err := agent.LoadRecord(r.ID); err == nil && agent.ResumeHint(rec) != "" {
@@ -609,6 +616,8 @@ func cmdAgentsBrief(args []string) int {
 	fs.StringVar(&input.Report, "report", "", "where the leaf writes its full report")
 	fs.StringVar(&input.Verify, "verify", "", "how to verify completion")
 	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
+	fs.StringVar(&input.PlanTask, "plan-task", "", "plan task id the brief's Task: line carries")
+	fs.StringVar(&input.Tier, "tier", "", "task tier in the brief header: "+strings.Join(agent.TierNames(), "|"))
 	fs.Func("codemode", "true|false: the target run's code mode (default: this shell's HARNESS_CODEMODE)", func(v string) error {
 		if v != "true" && v != "false" {
 			return fmt.Errorf("want true or false, got %q", v)

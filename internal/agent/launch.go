@@ -288,7 +288,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 		}
 		return tok, nil
 	}
-	scope, err := tokenScope(ctx, profile)
+	scope, err := TokenScope(ctx, profile)
 	if err != nil {
 		return "", err
 	}
@@ -300,13 +300,9 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 }
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
-func TokenScope(profile string, extra ...string) ([]string, error) {
-	return tokenScope(context.Background(), profile, extra...)
-}
-
-func tokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
-	if router.ArmProfileContext(ctx) != "" { // confinement never widens
-		return []string{profile}, nil
+func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
+	if arm := router.ArmProfileContext(ctx); arm != "" { // confinement never widens, nor moves to a sibling workspace
+		return armScope(profile, arm)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -314,6 +310,22 @@ func tokenScope(ctx context.Context, profile string, extra ...string) ([]string,
 	}
 	out := slices.Concat([]string{profile}, extra, reg.Fallback) // Load already refused unknown fallback names
 	return slices.Compact(slices.Sorted(slices.Values(out))), nil
+}
+
+// armScope is profile alone inside databricks:<arm>: the workspace or an own sign-in (guardArm's rule), never another.
+func armScope(profile, arm string) ([]string, error) {
+	if profile == arm {
+		return []string{profile}, nil
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return nil, fmt.Errorf("token scope: %w", err)
+	}
+	p := reg.Row(profile)
+	if p == nil || p.Preset == providers.PresetDatabricks || p.Auth.Login == "" && p.Auth.Method() != providers.AuthCLI {
+		return nil, fmt.Errorf("token scope: %s is outside the confinement databricks:%s", profile, arm)
+	}
+	return []string{profile}, nil
 }
 
 // sessionToken is one router+profile-set token slot; its own lock keeps a slow mint from stalling other sets.

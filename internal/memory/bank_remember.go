@@ -102,6 +102,27 @@ func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 	return id, nil
 }
 
+// rememberDecisionOnce files fact in decisionLog.md unless a title already matches, the check and write under one lock.
+func rememberDecisionOnce(fact string, now time.Time) (string, error) {
+	fact = strings.Join(strings.Fields(fact), " ")
+	if fact == "" {
+		return "", errors.New("empty fact")
+	}
+	if err := EnsureBank(""); err != nil {
+		return "", err
+	}
+	var id string
+	err := withFlatLock(BankLockWait, func() error {
+		if filedDecisions()(fact) {
+			return nil
+		}
+		var werr error
+		id, werr = rememberLocked("decisionLog.md", "project", fact, "", now)
+		return werr
+	})
+	return id, err
+}
+
 // rememberLocked is RememberSupersedes' write under the bank lock; every touched bank file rolls back on error.
 func rememberLocked(file, kind, fact, old string, now time.Time) (string, error) {
 	if old != "" { // a peer may have replaced it since the check before the lock
@@ -327,7 +348,7 @@ var labelUnsafe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`[^A-Za-z0-9._-]`)
 })
 
-// appendReport appends in's report to reports/<date>-<label>.md and its decisions to <date>-decisions.md; returns both.
+// appendReport writes in's report to a new reports/<date>-<label>[-N].md, its decisions to <date>-decisions.md.
 func appendReport(label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")
@@ -354,22 +375,18 @@ func appendReportLocked(label string, in ReportInput) ([]string, error) {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath := paths.MemorySub("reports", day+"-"+label+".md")
 	decisionsPath := paths.MemorySub("reports", day+"-decisions.md")
-	report, err := snapshotFile(reportPath)
-	if err != nil {
-		return nil, err
-	}
 	decisions, err := snapshotFile(decisionsPath)
 	if err != nil {
 		return nil, err
 	}
-	// rollback undoes both appends so a retry never writes the report or its decisions twice.
-	rollback := func(err error) ([]string, error) {
-		return nil, errors.Join(err, report.restore(), decisions.restore())
+	reportPath, err := createUnique(day+"-"+label, []byte(strings.TrimRight(in.Report, "\n")+"\n\n"))
+	if err != nil {
+		return nil, err
 	}
-	if err := appendText(reportPath, "", strings.TrimRight(in.Report, "\n")+"\n\n"); err != nil {
-		return rollback(err)
+	// rollback undoes the new report and the decisions append so a retry never writes either twice.
+	rollback := func(err error) ([]string, error) {
+		return nil, errors.Join(err, os.Remove(reportPath), decisions.restore())
 	}
 	if err := appendText(decisionsPath, "# Decisions\n\n", decisionLines(day, label, in.Decisions)); err != nil {
 		return rollback(err)

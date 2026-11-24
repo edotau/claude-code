@@ -40,7 +40,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	}
 	c = dropRunner(c, req, notify)
 	c.Dispatches = slices.Clone(c.Dispatches)
-	ctx = context.WithValue(ctx, triedCarryKey{}, new([]string))
+	ctx = withAsk(context.WithValue(ctx, triedCarryKey{}, new([]string)), req)
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -270,8 +270,8 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(disp, lreq, res)
-		plan := planOverflow(disp, lreq, res, ran, err)
-		next := cmp.Or(plan.model, retryModel(ctx, disp, lreq, ran, err))
+		plan := planRepick(ctx, refusedHop{disp, lreq, res, err, hops})
+		next := cmp.Or(plan.pick(), retryModel(ctx, disp, lreq, ran, err))
 		if next == "" {
 			err = plan.refuse(err)
 			break
@@ -282,11 +282,11 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			notify(plan.say(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err))))
 		}
 		first := err
-		lreq = repickTo(lreq, next, auto)
+		lreq = repickTo(lreq, next, plan.keepsCell(auto))
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
-		if auto && !res.NotStarted {
+		if !res.NotStarted && plan.spend(ctx, auto) {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
 		res.Invoked = invoked
@@ -297,7 +297,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	if auto {
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
-	return res, lreq, hops, err
+	return res, lreq, hops, refusedTwice(ctx, hops, err)
 }
 
 type triedCarryKey struct{}
@@ -627,7 +627,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 }
 
 func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
-	if disp.Agent.Name() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
+	if disp.agentName() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
 		return disp
 	}
 	if !strings.HasPrefix(c.Dispatches[0].Account, "databricks·") {
@@ -661,7 +661,7 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
+		if !ok || d.agentName() != c.Want || d.runFor != disp.runFor || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}

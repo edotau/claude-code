@@ -436,6 +436,10 @@ type Row struct {
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
 	Usage  *wire.Usage `json:"usage,omitempty"`
+
+	Type      string    `json:"type,omitempty"`
+	Runner    string    `json:"runner,omitempty"`
+	ToolStats ToolStats `json:"tool_stats,omitempty"`
 }
 
 // NoteQueued marks admission waits in Progress; an empty pool clears only an admission mark.
@@ -675,7 +679,8 @@ func toRow(r Record) Row {
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
-		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report}
+		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report,
+		Type: r.Type, Runner: r.Runner, ToolStats: r.ToolStats}
 }
 
 // interrupt sends SIGINT to pid's process group and pid.
