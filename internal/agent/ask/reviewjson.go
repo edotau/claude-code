@@ -40,16 +40,7 @@ func reduceFindings(fs []hooks.Finding, unjudged bool) reviewVerdict {
 	for _, f := range fs {
 		v.Counts[f.Severity]++
 	}
-	switch c := v.Counts; {
-	case c["CRITICAL"] > 0:
-		v.Computed = "BLOCK"
-	case c["HIGH"] > 0:
-		v.Computed = "FIX REQUIRED"
-	case unjudged:
-		v.Computed = "unjudged" // findings the parser could not read never pass
-	case c["MEDIUM"]+c["LOW"] > 0:
-		v.Computed, v.Mergeable = "FIX REQUIRED", true
-	}
+	v.Computed, v.Mergeable = hooks.ComputeVerdict(fs, unjudged)
 	return v
 }
 
@@ -96,7 +87,12 @@ func reviewNoteLine(answer string) string {
 // envJudged judges an envelope: its structured findings when it has them, else its prose answer.
 func envJudged(env reviewEnvelope) judged {
 	if len(env.Findings) == 0 {
-		return judgeReport(env.Answer)
+		j := judgeReport(env.Answer)
+		if env.Computed == "unjudged" { // set when the findings failed their schema
+			j.Unjudged = true
+			j.reviewVerdict = reduceFindings(j.Findings, true)
+		}
+		return j
 	}
 	var rows []struct {
 		File, Severity, Claim string
@@ -193,7 +189,7 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 		if _, err := fmt.Fprintln(note, "review: invalid findings; keeping prose answer"); err != nil {
 			return env, err
 		}
-		env.Structured = nil
+		env.Structured, env.Computed = nil, "unjudged" // schema-invalid findings never pass as SHIP
 		return env, nil
 	}
 	var rows struct{ Findings json.RawMessage }
