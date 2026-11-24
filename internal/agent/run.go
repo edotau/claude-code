@@ -231,7 +231,7 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
 		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools,
-		FallbackDefaulted: o.FallbackDefaulted})
+		FallbackDefaulted: o.FallbackDefaulted, Opts: o})
 	return chain, err
 }
 

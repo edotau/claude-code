@@ -149,7 +149,7 @@ func staysOnWorkspace(ctx context.Context, q RouteReq, lead Dispatch) bool {
 	return explicit || router.ArmProfileContext(ctx) != "" || agentid.Routing(q.Agent).NoWorkspaceFallback
 }
 
-// piRunnerBarred is why q keeps its own CLI: one named hop, a resumed session, --native, a carried ask (Pi takes over).
+// piRunnerBarred is why q keeps its own CLI: one named hop, a resumed session, --native, a carried ask, or a Pi gap.
 func piRunnerBarred(ctx context.Context, q RouteReq) string {
 	switch {
 	case q.Fallback == router.FallbackNone:
@@ -161,7 +161,11 @@ func piRunnerBarred(ctx context.Context, q RouteReq) string {
 	case carriedChild(ctx, q.Agent):
 		return "a carried ask runs " + q.Agent + "'s own CLI"
 	}
-	return ""
+	engine, err := Lookup(agentid.Pi)
+	if err != nil {
+		return ""
+	}
+	return runnerLoses(engine.Caps(), q.Opts)
 }
 
 // headPiHop is the pi runner dispatch on lead's own workspace: lead's route flags on the wire piRunnerModel validated.

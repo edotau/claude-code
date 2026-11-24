@@ -188,7 +188,9 @@ func TestWithPiSiblings(t *testing.T) {
 func registerPiForTest(t *testing.T) {
 	t.Helper()
 	registryMu.Lock()
-	addRow(Schema{Name: "pi", CLI: CLI{Binary: "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}}})
+	piCaps := Caps{Model: Native, Provider: Native, Effort: Native, SessionID: Native, Tools: Native, Autonomous: Native,
+		NoPersist: Native, Env: Native, SystemPrompt: Native, AppendSystemPrompt: Native, WorkDir: Emulated} // internal/pi/register.go
+	addRow(Schema{Name: "pi", CLI: CLI{Binary: "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}, Caps: piCaps}})
 	drivers["pi"] = fixtureDriver{NewBaseEngine("pi")}
 	registryMu.Unlock()
 	t.Cleanup(func() {
@@ -244,5 +246,24 @@ func TestFallbackUnsetSources(t *testing.T) {
 	vaulttest.Put(t, vault.Env, router.EnvFallback, "pin")
 	if fallbackUnset(ctx) {
 		t.Error("a vault fallback reads as unset")
+	}
+}
+
+// The ask's runner capabilities bar the pi runner before a rotation pick is stamped.
+func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
+	setConfigDir(t)
+	registerPiForTest(t)
+	ctx := context.Background()
+	budget := 1.0
+	for name, o := range map[string]RunOptions{
+		"carry": {Carry: true}, "debug file": {DebugFile: "x"}, "fleet": {Fleet: true}, "memory": {EnableMemory: true},
+		"budget": {BudgetUSD: &budget},
+	} {
+		if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Opts: o}); why == "" {
+			t.Errorf("%s: want a reason", name)
+		}
+	}
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
+		t.Errorf("plain ask barred: %q", why)
 	}
 }
