@@ -3,10 +3,13 @@ package agentconfig
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -28,6 +31,8 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 // The cfg file's model/small_model come from the routing table; every other field matches the embedded template.
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/fix-sonnet"},"haiku":{"model":"github-copilot/fix-haiku"}}}}}`)
 	cfg, tui, err := WriteOpencodeOverlay(router.OpencodeTableModels)
@@ -49,6 +54,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want["model"], want["small_model"] = "github-copilot/fix-sonnet", "github-copilot/fix-haiku"
+	want["skills"] = map[string]any{"paths": []any{filepath.Join(paths.ConfigDir(), "skills")}}
 
 	raw, err := os.ReadFile(cfg)
 	if err != nil {
@@ -72,5 +78,33 @@ func TestApplyOpencodeTableModelsKeepsUnparsableTemplate(t *testing.T) {
 	bad := []byte("not json")
 	if got := applyOpencodeTableModels(bad, router.OpencodeTableModels); string(got) != string(bad) {
 		t.Errorf("applyOpencodeTableModels = %s, want the input unchanged", got)
+	}
+}
+
+// Each skill is reachable by one root: the config dir's own, then only the ~/.agents/skills entries it lacks.
+func TestOpencodeSkillRootsListEachSkillOnce(t *testing.T) {
+	cfgDir, home := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	own, shared := filepath.Join(cfgDir, "skills"), filepath.Join(home, ".agents", "skills")
+	for _, d := range []string{filepath.Join(own, "dup"), shared, filepath.Join(shared, "only"), filepath.Join(shared, "b-only")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(shared, "file.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(own, "dup"), filepath.Join(shared, "dup")); err != nil {
+		t.Log("symlinks unavailable, using a copy:", err)
+		if err := os.Mkdir(filepath.Join(shared, "dup"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{own, filepath.Join(shared, "b-only"), filepath.Join(shared, "only")}
+	got := opencodeSkillRoots()
+	if !slices.Equal(got, want) {
+		t.Errorf("roots = %v, want %v", got, want)
 	}
 }

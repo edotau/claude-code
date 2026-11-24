@@ -335,6 +335,9 @@ const opencodePermissionEnv = "OPENCODE_PERMISSION"
 // opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
 const opencodeNoModelsFetch = "OPENCODE_DISABLE_MODELS_FETCH"
 
+// opencodeNoExternalSkills stops opencode's own ~/.claude and ~/.agents scan; the overlay's skills.paths replaces it.
+const opencodeNoExternalSkills = "OPENCODE_DISABLE_EXTERNAL_SKILLS"
+
 // modelsDefined adds opencodeNoModelsFetch=1 unless the user's shell already sets it (their value wins).
 func modelsDefined(env []string) []string {
 	if _, set := os.LookupEnv(opencodeNoModelsFetch); set {
@@ -548,7 +551,7 @@ func (opencodeEngine) LaunchEnv() []string {
 		fmt.Fprintln(agent.NoticeOut, "opencode: overlay:", err)
 		return env
 	}
-	return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
+	return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui, opencodeNoExternalSkills+"=1")
 }
 
 func (opencodeEngine) Presence(_ context.Context, c router.Cell) error {

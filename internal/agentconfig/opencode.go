@@ -34,22 +34,43 @@ func OpencodeOverlayRendered(models func() (string, string, bool)) (cfgPath stri
 	return cfgPath, cfgBody, tuiPath, tuiBody, nil
 }
 
-// applyOpencodeTableModels overwrites model/small_model from the routing table; a load error keeps the template's.
+// applyOpencodeTableModels sets model/small_model from the routing table and skills.paths.
 func applyOpencodeTableModels(cfgBody []byte, models func() (string, string, bool)) []byte {
-	mainModel, smallModel, ok := models()
-	if !ok {
-		return cfgBody
-	}
 	var doc map[string]any
 	if json.Unmarshal(cfgBody, &doc) != nil {
 		return cfgBody
 	}
-	doc["model"], doc["small_model"] = mainModel, smallModel
+	doc["skills"] = map[string]any{"paths": opencodeSkillRoots()}
+	if mainModel, smallModel, ok := models(); ok {
+		doc["model"], doc["small_model"] = mainModel, smallModel
+	}
 	out, ok := encodeOverlayJSON(doc)
 	if !ok {
 		return cfgBody
 	}
 	return out
+}
+
+// opencodeSkillRoots lists each skill under one root: <config>/skills, then ~/.agents/skills entries it lacks.
+func opencodeSkillRoots() []string {
+	own := filepath.Join(paths.ConfigDir(), "skills")
+	roots := []string{own}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return roots
+	}
+	shared := filepath.Join(home, ".agents", "skills")
+	entries, _ := os.ReadDir(shared)
+	for _, e := range entries {
+		dir := filepath.Join(shared, e.Name())
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() || e.Name()[0] == '.' {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(own, e.Name())); err != nil {
+			roots = append(roots, dir)
+		}
+	}
+	return roots
 }
 
 // encodeOverlayJSON renders doc as the overlay files' two-space JSON (trailing newline) without HTML escaping.
