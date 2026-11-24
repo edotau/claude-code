@@ -41,3 +41,9 @@ func TestActionChildKeepsStderrOutOfAnswer(t *testing.T) {
 		t.Errorf("stdout %q stderr %q err %v, want the streams apart", out, errb, err)
 	}
 }
+
+func TestActionArgvGatewayNeverFallsBack(t *testing.T) {
+	if got := strings.Join(actionArgv("gateway", nil, "", ""), " "); !strings.Contains(got, "--fallback none") {
+		t.Errorf("gateway argv %q lacks --fallback none", got)
+	}
+}

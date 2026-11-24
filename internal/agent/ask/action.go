@@ -45,7 +45,7 @@ func actionArgv(action string, own []string, agentName, model string) []string {
 		}
 		return argv
 	case "gateway":
-		argv := []string{"gateway", "--format", "json"}
+		argv := []string{"gateway", "--format", "json", "--fallback", "none"}
 		if agentName != "" {
 			argv = append(argv, "--agent", agentName)
 		}
