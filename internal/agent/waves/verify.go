@@ -528,12 +528,16 @@ func lookPathIn(env []string, dir, name string) (path string, set bool) {
 		if !filepath.IsAbs(d) {
 			d = filepath.Join(dir, d)
 		}
-		p := filepath.Join(d, name)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+		if p := filepath.Join(d, name); isExecFile(p) {
 			return p, true
 		}
 	}
 	return "", true
+}
+
+func isExecFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
 }
 
 // runGroup runs cmd in its own process group, killed whole on cancel, so a child holding the pipes cannot outlive ctx.
