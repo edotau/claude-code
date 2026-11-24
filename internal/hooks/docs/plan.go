@@ -253,8 +253,8 @@ var taskHeadingWord = sync.OnceValue(func() *regexp.Regexp {
 var planCloseout = []string{
 	"Live check on the real surface",
 	"Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)",
-	"Review — `claude-code codex review --adversarial --base <branch>` — leaf: codex, read-only",
-	"Fix review findings — `/code-review high --max-findings all --fix \"<every finding>\"` to the R28 bar — leaf: claude",
+	"Review — `claude-code codex review --adversarial --base <branch>`",
+	"Fix review findings — `/code-review high --max-findings all --fix \"<every finding>\"` to the R28 bar",
 	"Full suite once",
 	"Commit, `make install`, push per task (named files only)",
 	"Handoff / `claude-code memory update`",
