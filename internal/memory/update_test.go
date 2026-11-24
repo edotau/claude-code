@@ -802,3 +802,13 @@ func TestFileDecisionEventsGoWritesTheEntry(t *testing.T) {
 		t.Fatalf("tagBlock = %q, want the note and no filed decision", got)
 	}
 }
+
+// TestFiledDecisionsMatchesWholeTitleAndStruckEntries: "use AB" does not file "use A"; a struck title still counts.
+func TestFiledDecisionsMatchesWholeTitleAndStruckEntries(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-20 — use AB <!-- id:12345678 -->\n\n## 2026-11-19 — ~~use C~~ <!-- id:87654321 -->\n")
+	filed := filedDecisions()
+	if filed("use A") || !filed("use AB") || !filed("use C") {
+		t.Fatalf("filed(use A, use AB, use C) = %v %v %v, want false true true", filed("use A"), filed("use AB"), filed("use C"))
+	}
+}

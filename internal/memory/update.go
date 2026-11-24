@@ -333,8 +333,9 @@ func tagBlock(transcript, session string, historical bool) string {
 		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
 		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
-	filed := filedDecisions()
-	tags := slices.DeleteFunc(mergeTags(typed, legacy), func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) })
+	filed := filedDecisions() // before the cap, so filed decisions never push a pending tag out
+	isFiled := func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) }
+	tags := mergeTags(slices.DeleteFunc(typed, isFiled), slices.DeleteFunc(legacy, isFiled))
 	if len(tags) == 0 {
 		return ""
 	}
@@ -348,16 +349,19 @@ func tagBlock(transcript, session string, historical bool) string {
 // filedDecisions reports whether a decision's text already heads an entry in decisionLog.md.
 func filedDecisions() func(text string) bool {
 	b, _ := readFile(Path("decisionLog.md"))
-	var heads []string
+	titles := map[string]bool{} // a struck (superseded) title still counts: replaying must not revive it
 	for ln := range strings.SplitSeq(string(b), "\n") {
-		if strings.HasPrefix(ln, "## ") {
-			heads = append(heads, strings.Join(strings.Fields(ln), " "))
+		if _, title, ok := strings.Cut(ln, " — "); ok && strings.HasPrefix(ln, "## ") {
+			titles[normTitle(title)] = true
 		}
 	}
-	return func(text string) bool {
-		want := "— " + strings.Join(strings.Fields(text), " ")
-		return slices.ContainsFunc(heads, func(h string) bool { return strings.Contains(h, want) })
-	}
+	return func(text string) bool { return titles[normTitle(text)] }
+}
+
+// normTitle is a decision title without its id marker, strike marks and spacing differences.
+func normTitle(s string) string {
+	s = strings.ReplaceAll(idMarker().ReplaceAllString(s, ""), "~~", "")
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // fileDecisionEvents writes each recorded DECISION event not yet in decisionLog.md; Go, not the model, owns the entry.
