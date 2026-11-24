@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -27,20 +26,24 @@ func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, not
 	if cmd == "" || err != nil || res.Status != wire.StatusOK || res.Verify != nil {
 		return res
 	}
-	if p.remote != nil { // the work is on another host's tree: running here would check the wrong files
-		res.Verify = &wire.VerifyResult{Command: redact.Text(cmd), Exit: -1, Reason: wire.VerifyNotRunRemote}
-	} else {
-		env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-			name, _, _ := strings.Cut(kv, "=")
-			return slices.Contains(p.Opts.Unset, name)
-		})
-		env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, p.Opts.KeepEnv), "") // go test runs the agent's edits
-		res.Verify = runVerify(ctx, p.Opts.WorkDir, cmd, append(env, p.Opts.Env...))
-	}
+	res.Verify = VerifyRun(ctx, p.Opts, p.remote != nil)
 	if notify != nil {
-		notify(fmt.Sprintf("verify: exit %d %s (%s)", res.Verify.Exit, res.Verify.Reason, res.Verify.Command))
+		notify(res.Verify.Line())
 	}
 	return res
+}
+
+// VerifyRun is the one place a spec's verify runs: opts.Verify in opts.WorkDir, or not run when the work is remote.
+func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyResult {
+	if remote { // the work is on another host's tree: running here would check the wrong files
+		return &wire.VerifyResult{Command: redact.Text(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
+	}
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(opts.Unset, name)
+	})
+	env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, opts.KeepEnv), "") // go test runs the agent's edits
+	return runVerify(ctx, opts.WorkDir, opts.Verify, append(env, opts.Env...))
 }
 
 // runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.

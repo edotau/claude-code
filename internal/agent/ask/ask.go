@@ -701,7 +701,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
-	o.AutoArm, o.Verify = r.auto != "", f.verify
+	o.AutoArm, o.Verify = r.auto != "", cmp.Or(f.verify, takeCarryVerify())
 	return o
 }
 

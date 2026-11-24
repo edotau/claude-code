@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ func resultText(rec agent.Record, log string) string {
 	if log != "" && env.Answer != "" && !strings.Contains(log, env.Answer) { // the log's event lines cap each answer at 300 runes
 		fmt.Fprintln(&b, env.Answer)
 	}
-	if line := env.RanOn; line != "" {
+	for _, line := range askLines(env) {
 		fmt.Fprintln(&b, "ask:", line)
 	}
 	if line := agent.ObservedLine(rec); line != "" {
@@ -48,6 +49,15 @@ func resultText(rec agent.Record, log string) string {
 		fprintResumeHint(&b, rec.Agent, rec.SessionID)
 	}
 	return b.String()
+}
+
+// askLines are the envelope's "ran on" line and, when its spec had one, the verify line.
+func askLines(env wire.Envelope) []string {
+	lines := []string{env.RanOn}
+	if env.Verify != nil {
+		lines = append(lines, env.Verify.Line())
+	}
+	return slices.DeleteFunc(lines, func(l string) bool { return l == "" })
 }
 
 // loadResult re-reads rec's job and its log text from the working directory.

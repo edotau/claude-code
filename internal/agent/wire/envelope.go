@@ -110,6 +110,14 @@ type VerifyResult struct {
 	Reason  string `json:"reason,omitempty"` // why the steps did not run: a VerifyNotRun* value
 }
 
+// Line is the one-line receipt every output shows: the exit, or why the steps did not run.
+func (v VerifyResult) Line() string {
+	if v.Reason != "" {
+		return fmt.Sprintf("verify: not run (%s): %s", v.Reason, v.Command)
+	}
+	return fmt.Sprintf("verify: exit %d (%s)", v.Exit, v.Command)
+}
+
 // The reasons a verify did not run; the run's own status and exit code are unaffected.
 const (
 	VerifyNotRunRemote = "remote_workdir"

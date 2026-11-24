@@ -154,7 +154,7 @@ func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	_, values := agent.RunValues(r.ctx, nil)
 	typed := f.modelTyped || slices.Contains(folded, "--model") && !agent.IsAuto(f.model) // the child types it
 	req := agent.RunOptions{Prompt: prompt, Agent: f.name, Model: f.model, ModelTyped: typed, Tools: f.tools,
-		WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped,
+		WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, Verify: f.verify,
 		Carry: true, CarryArgv: slices.Insert(argv, len(argv)-1, folded...), Values: values}
 	rec, err := agent.ClaimAskRecord(r.ctx, f.name, req, f.workdir, f.background)
 	if err != nil {
@@ -498,7 +498,22 @@ func overlayCaps(ctx context.Context, value string) ([]string, error) {
 func carryEnv(ctx context.Context, rec agent.Record) []string {
 	_, values := agent.RunValues(ctx, nil)
 	values = values.Merge(proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)})
+	if rec.Request.Verify != "" {
+		values = values.Merge(proc.Values{carryVerifyEnv: rec.Request.Verify})
+	}
 	return agent.EnvSpec{Mode: agent.EnvClaude}.Environ(proc.WithValues(ctx, values))
+}
+
+// carryVerifyEnv hands a carried child the spec's verify (ask has no flag for it); the child takes it once.
+const carryVerifyEnv = "HARNESS_CARRY_VERIFY"
+
+// takeCarryVerify is the verify a carrying parent passed, cleared so the child's own children never inherit it.
+func takeCarryVerify() string {
+	v := os.Getenv(carryVerifyEnv)
+	if v != "" {
+		_ = proc.Unsetenv(carryVerifyEnv)
+	}
+	return v
 }
 
 // finishCarry gives rec the final child's result event, answer and outcome; children carry the usage, so it holds none.
@@ -539,6 +554,10 @@ func carryEnvelope(rec, final agent.Record, found bool, code int, took time.Dura
 	}
 	env := final.ResultEnvelope(io.Discard)
 	env.DispatchID, env.DurationMs = rec.ID, took.Milliseconds()
+	if v := rec.Request.Verify; v != "" && env.Verify == nil && env.Status == wire.StatusOK && env.Error == nil {
+		env.Verify = agent.VerifyRun(context.Background(), rec.Request, rec.Host != "") // the child has no verify flag: once, here
+		fmt.Fprintln(os.Stderr, "ask:", env.Verify.Line())
+	}
 	if env.Agent != rec.Agent && env.Fallback == nil {
 		env.Fallback, env.FallbackReason = &rec.Agent, cmp.Or(env.FallbackReason, "pi takeover of "+final.TakeoverOf)
 	}
