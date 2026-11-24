@@ -77,8 +77,9 @@ func briefTarget(argv []string) (name string, codeMode bool, err error) {
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
 	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag
-	if f.batchSrc != "" || f.loop || f.live || f.waves != "" {
-		return "", false, errors.New("spec own, report and verify apply to one dispatch: not with --batch, --loop, --live or --waves")
+	if f.batchSrc != "" || f.loop || f.live || f.waves != "" || f.retry != "" || f.job != "" {
+		return "", false, errors.New("spec own, report and verify are for one new dispatch: not with --batch, --loop, " +
+			"--live, --waves, --retry or --job")
 	}
 	defaultTools(fs, f)
 	name = f.name
