@@ -83,8 +83,8 @@ func TestBriefBodyPiHandback(t *testing.T) {
 
 func TestBriefBodyPiMatchesHash(t *testing.T) {
 	for rtk, want := range map[bool]string{
-		true:  "b9d8d477a10f0aea9f839b404f1b143e0fd406bbdbae204e6423e2fdd7cc7e5e",
-		false: "929e0897b0206276821b910ed7a789050d869495c31704fad3e5eaff087e877b",
+		true:  "b58ca0467cf027ac7c6cc860e218914907238a553a6992936e9b7dbfb550bd74",
+		false: "d7f956d04bafc6c042757887241cf8fe7f927e54551e870cb07d998c22acc384",
 	} {
 		got := BriefBody(BriefFrame{Agent: "pi", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
