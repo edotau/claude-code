@@ -3,16 +3,16 @@
     "runner": {
       "use": "agent",
       "why": "The CLI doing the work is an agent, separate from the provider hosting its endpoint.",
-      "source": "memory/archive/decisionLog-2026-10.md#3c7419d8"
+      "source": "rules/harness/providers-reference.md#naming"
     },
     "vendor": {
       "use": "agent",
       "why": "The CLI doing the work is an agent, separate from the provider hosting its endpoint.",
-      "source": "memory/archive/decisionLog-2026-10.md#3c7419d8"
+      "source": "rules/harness/providers-reference.md#naming"
     },
     "slot": {
       "use": "model alias",
-      "why": "A model selector names an alias rather than a slot.",
+      "why": "Slot implied fixed positions; models are chosen by alias (opus, sonnet), resolved per provider.",
       "source": "rules/harness/providers-reference.md#naming"
     },
     "tier": {
@@ -23,12 +23,12 @@
     "leg": {
       "use": "dispatch",
       "why": "Dispatch is the chosen name for a unit of agent work, including its fallback chain.",
-      "source": "memory/archive/decisionLog-2026-11-01-dream.md#5d08a3f6"
+      "source": "rules/harness/providers-reference.md#naming"
     },
     "family": {
       "use": "provider",
       "why": "Provider names the platform hosting the endpoint; profile names the account on it.",
-      "source": "memory/archive/conventions-2026-11.md#669b5855"
+      "source": "rules/harness/providers-reference.md#naming"
     }
   },
   "exceptions": {
