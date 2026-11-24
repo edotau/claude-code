@@ -111,7 +111,7 @@ func fetchFold(prev catalog.Prices, now time.Time) (catalog.Prices, catalog.Pric
 	}
 	owner, err := ownerPriced()
 	if err != nil {
-		return catalog.Prices{}, catalog.PriceReport{}, fmt.Errorf("skipped, owner prices unreadable (%w)", err)
+		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); the owner count is omitted\n", err)
 	}
 	next, rep, err := catalog.FoldSnapshot(raw, owner, prev, now)
 	if err != nil {

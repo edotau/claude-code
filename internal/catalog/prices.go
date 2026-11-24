@@ -208,11 +208,12 @@ func (m snapModel) row() (ModelPrice, error) {
 	}
 	out.Priced, out.Input, out.Output, out.CacheRead, out.CacheWrite = true, v[0], v[1], v[2], v[3]
 	var err error
-	out.Tiers, err = contextTiers(m.Cost.Tiers)
+	out.Tiers, err = contextTiers(m.Cost.Tiers, v)
 	return out, err
 }
 
-func contextTiers(in []snapTier) ([]TierPrice, error) {
+// contextTiers validates the context tiers; a tier that omits a cache rate inherits the base row's.
+func contextTiers(in []snapTier, base [4]float64) ([]TierPrice, error) {
 	var out []TierPrice
 	for _, t := range in {
 		if t.Tier.Type != "context" {
@@ -221,6 +222,12 @@ func contextTiers(in []snapTier) ([]TierPrice, error) {
 		v, listed, ok := t.vals()
 		if t.Tier.Size <= 0 || !tokensOK(t.Tier.Size) || !ok || !listed {
 			return nil, errors.New("tier incomplete, negative or absurd")
+		}
+		if t.CacheRead == nil {
+			v[2] = base[2]
+		}
+		if t.CacheWrite == nil {
+			v[3] = base[3]
 		}
 		out = append(out, TierPrice{t.Tier.Size, v[0], v[1], v[2], v[3]})
 	}
@@ -260,8 +267,8 @@ func FoldSnapshot(raw []byte, ownerPriced map[string]bool, prev Prices, now time
 			f.add(name+"/"+id, id, provs[name].Models[id])
 		}
 	}
-	if len(f.out.Models) == 0 {
-		return Prices{}, f.rep, errors.New("not a models.dev snapshot: no usable model rows")
+	if !slices.ContainsFunc(slices.Collect(maps.Values(f.out.Models)), func(r ModelPrice) bool { return r.Priced || r.Context > 0 }) {
+		return Prices{}, f.rep, errors.New("not a models.dev snapshot: no model row with a price or limit")
 	}
 	f.finish(prev)
 	return f.out, f.rep, nil

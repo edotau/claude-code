@@ -91,7 +91,7 @@ func TestFoldSnapshotFillsAndKeeps(t *testing.T) {
 // An empty refreshed row keeps its old price, and a retained row's owner-outranked price is counted.
 func TestFoldSnapshotRefreshKeepsAndCounts(t *testing.T) {
 	prev := Prices{Models: map[string]ModelPrice{"m-1": {Priced: true, Input: 3, Context: 7}, "gone": {Priced: true, Input: 7}}}
-	p, rep, err := FoldSnapshot([]byte(`{"a":{"models":{"m-1":{}}}}`), map[string]bool{"gone": true}, prev, pricesT0)
+	p, rep, err := FoldSnapshot([]byte(`{"a":{"models":{"m-1":{},"m-2":{"limit":{"context":5}}}}}`), map[string]bool{"gone": true}, prev, pricesT0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +100,19 @@ func TestFoldSnapshotRefreshKeepsAndCounts(t *testing.T) {
 	}
 	if _, ok := p.Rate("gone"); !ok || rep.OwnerKept != 1 {
 		t.Errorf("gone priced = %v, owner kept %d, want the retained price kept and counted", ok, rep.OwnerKept)
+	}
+}
+
+// A refreshed price replaces the old one, and a tier without cache rates inherits the base row's.
+func TestFoldSnapshotRefreshReplacesAndTierInherits(t *testing.T) {
+	prev := Prices{Models: map[string]ModelPrice{"m-1": {Priced: true, Input: 3, Output: 3}}}
+	raw := `{"a":{"models":{"m-1":{"cost":{"input":1,"output":2,"cache_read":0.5,"tiers":[{"input":4,"output":5,"tier":{"type":"context","size":9}}]}}}}}`
+	p, _, err := FoldSnapshot([]byte(raw), nil, prev, pricesT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := p.Models["m-1"]; m.Input != 1 || m.Output != 2 || len(m.Tiers) != 1 || m.Tiers[0].CacheRead != 0.5 {
+		t.Errorf("m-1 = %+v, want the new price and a tier inheriting cache_read 0.5", m)
 	}
 }
 
@@ -115,7 +128,7 @@ func TestFoldSnapshotPrefersOriginator(t *testing.T) {
 // Fetch failure and a non-snapshot body error out; prices.json round-trips and goes stale after the window.
 func TestPricesFileAndFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, body := range []string{`[1]`, `{"error":{}}`, `{"p":{"models":{"m":null}}}`} {
+	for _, body := range []string{`[1]`, `{"error":{}}`, `{"p":{"models":{"m":null}}}`, `{"p":{"models":{"m":{}}}}`} {
 		if _, _, err := FoldSnapshot([]byte(body), nil, Prices{}, pricesT0); err == nil {
 			t.Errorf("%s accepted as a snapshot", body)
 		}
