@@ -52,7 +52,7 @@ type call struct {
 
 // gate is the Pi tool-shell command c runs within and "" to wrap it, else the reason code that keeps c raw.
 func (c call) gate() (cmd, reason string) {
-	if c.codemode != "" {
+	if codemodeOn(c.codemode) {
 		return "", "codemode"
 	}
 	if !c.pipe {
@@ -324,7 +324,7 @@ func rtkMain(args []string) int {
 	real := rtkBinary(dirs, self)
 	env := withPath(os.Environ(), dirs)
 	name, rest, strip := stripRtk(args[1:])
-	if os.Getenv(CodemodeEnv) == "" {
+	if !CodeMode() {
 		strip = false
 	}
 	if strip {
@@ -338,7 +338,7 @@ func rtkMain(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtkwrap: %s: %v\n", name, err)
 		return exitNoExec
 	}
-	if os.Getenv(CodemodeEnv) != "" {
+	if CodeMode() {
 		logVerdict(rtkName, "raw", "rtk-verb", args[1:])
 	}
 	if real == "" {

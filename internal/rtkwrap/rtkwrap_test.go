@@ -67,3 +67,12 @@ func TestLaunchSetsBashEnvOnlyWhenWrapping(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeModeOffAndEmptyReadFalse(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "off": false, "on": true, "only": true, "ON": true, "1": true, "no": false} {
+		t.Setenv(CodemodeEnv, v)
+		if got := CodeMode(); got != want {
+			t.Errorf("%s=%q: CodeMode() = %v, want %v", CodemodeEnv, v, got, want)
+		}
+	}
+}

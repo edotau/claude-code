@@ -13,11 +13,19 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CodemodeEnv is set by every code-mode launcher (Pi: on|only); no shim, hook or ForModel adds rtk under it.
-const CodemodeEnv = "HARNESS_CODEMODE"
+// CodemodeEnv (off|on|only) is set by the launcher for a dispatched run; on/only: no shim, hook or ForModel adds rtk.
+const CodemodeEnv = "CODEMODE"
 
-// CodeMode reports whether this process runs inside a code-mode agent run.
-func CodeMode() bool { return os.Getenv(CodemodeEnv) != "" }
+// CodeMode reports whether this process runs inside a code-mode agent run: off and empty are false.
+func CodeMode() bool { return codemodeOn(os.Getenv(CodemodeEnv)) }
+
+func codemodeOn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "only", "1", "true":
+		return true
+	}
+	return false
+}
 
 // Names are the shimmed commands: rtk_rewrite_words entries that are real command heads (TestNamesAreRTKWords).
 var Names = []string{"curl", "df", "diff", "docker", "du", "find", "gh", "git", "go", "golangci-lint", "grep", "jq",
@@ -64,7 +72,7 @@ func Ensure(dir, bin string) error {
 
 // Launch puts Dir first on PATH, sets CodemodeEnv and, outside code mode, BASH_ENV; a failure notes, env unchanged.
 func Launch(env []string, codemode string, notice io.Writer) []string {
-	if codemode != "" { // set even when the shims are unusable: the hook and ForModel read it too
+	if codemode != "" { // off included, so a vault CODEMODE never reaches the child; set even when the shims are unusable: the hook and ForModel read it too
 		env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 			return strings.HasPrefix(kv, CodemodeEnv+"=")
 		}), CodemodeEnv+"="+codemode)
@@ -88,7 +96,7 @@ func Launch(env []string, codemode string, notice io.Writer) []string {
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
 	out = append(out, "PATH="+dir+string(os.PathListSeparator)+path, CodemodeEnv+"="+codemode)
 	file := filepath.Join(dir, bashEnvName)
-	if codemode != "" {
+	if codemodeOn(codemode) {
 		return withoutBashEnv(out, file)
 	}
 	return withBashEnv(out, file)

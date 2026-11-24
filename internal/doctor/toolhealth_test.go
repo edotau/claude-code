@@ -90,7 +90,7 @@ func TestRTKHookRows(t *testing.T) {
 
 	t.Setenv(rtkwrap.CodemodeEnv, "on")
 	for _, row := range rtkHookRows() {
-		if row.Name != "rtk PATH" && row.Detail != "off in code mode (HARNESS_CODEMODE)" {
+		if row.Name != "rtk PATH" && row.Detail != "off in code mode (CODEMODE)" {
 			t.Errorf("%s in code mode = %q", row.Name, row.Detail)
 		}
 	}

@@ -618,7 +618,7 @@ func cmdAgentsBrief(args []string) int {
 	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
 	fs.StringVar(&input.PlanTask, "plan-task", "", "plan task id the brief's Task: line carries")
 	fs.StringVar(&input.Tier, "tier", "", "task tier in the brief header: "+strings.Join(agent.TierNames(), "|"))
-	fs.Func("codemode", "true|false: the target run's code mode (default: this shell's HARNESS_CODEMODE)", func(v string) error {
+	fs.Func("codemode", "true|false: the target run's code mode (default: this shell's CODEMODE)", func(v string) error {
 		if v != "true" && v != "false" {
 			return fmt.Errorf("want true or false, got %q", v)
 		}

@@ -13,7 +13,7 @@ func TestRTKPreToolUseRewritesBashOutsideCodeMode(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	in := copilot.PreToolUseHookInput{ToolName: "bash", WorkingDirectory: t.TempDir(),
 		ToolArgs: map[string]any{"command": "git log --oneline -3", "description": "d"}}
-	for mode, want := range map[string]string{"": textutil.QuoteSH(bin) + " git log --oneline -3", "1": ""} {
+	for mode, want := range map[string]string{"": textutil.QuoteSH(bin) + " git log --oneline -3", "on": ""} {
 		t.Setenv(rtkwrap.CodemodeEnv, mode)
 		out, err := rtkPreToolUse(in, copilot.HookInvocation{})
 		if err != nil || out.PermissionDecision != "" {

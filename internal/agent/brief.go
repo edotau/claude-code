@@ -27,7 +27,7 @@ type BriefInput struct {
 	Verify string
 	// PlanTask is the plan task id the header's `Task:` line carries; Tier is one of TierNames.
 	PlanTask, Tier string
-	// CodeMode is the target run's code mode; nil reads the rendering session's HARNESS_CODEMODE.
+	// CodeMode is the target run's code mode; nil reads the rendering session's CODEMODE.
 	CodeMode *bool
 }
 

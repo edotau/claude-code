@@ -304,7 +304,7 @@ func rtkAgentRow(a string) check {
 	row := check{Name: "rtk hook " + a, OK: true}
 	switch {
 	case rtkwrap.CodeMode():
-		row.Detail = "off in code mode (HARNESS_CODEMODE)"
+		row.Detail = "off in code mode (CODEMODE)"
 	case a == "gemini":
 		row.Detail = "awareness text only"
 	case paths.RTKBinary() == "":
