@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -27,11 +28,14 @@ const (
 	lineCap       = 16 << 10
 )
 
+var realSid = regexp.MustCompile(`^(ses_[0-9a-f]{4}|[0-9a-f]{8})$`)
+
 type signalRow struct {
 	Module  string         `json:"module"`
 	Rule    string         `json:"rule"`
 	Verdict string         `json:"verdict"`
 	Outcome string         `json:"outcome"`
+	Sid     string         `json:"sid"`
 	MS      jsontext.Value `json:"ms"`
 	N       int            `json:"n"`
 }
@@ -41,6 +45,7 @@ type signalRule struct{ rule, module string }
 type Report struct {
 	Start     string
 	Dropped   int
+	Probes    int // Activity rows from synthetic probe session ids, skipped and counted
 	Truncated bool
 	modules   map[string]*moduleStats
 	rules     map[string]map[signalRule]int
@@ -128,6 +133,7 @@ func (s *Report) scanLines(data []byte, view View) {
 
 func (s *Report) mergeActivity(p *Report) {
 	s.Dropped += p.Dropped
+	s.Probes += p.Probes
 	for name, next := range p.modules {
 		m := s.modules[name]
 		if m == nil {
@@ -160,6 +166,11 @@ func signalName(s string) bool {
 func (s *Report) add(line []byte, view View) {
 	var row signalRow
 	if jsonv2.Unmarshal(line, &row) != nil {
+		return
+	}
+	// A real session's sid is 8 chars: 8 hex, or OpenCode's ses_ plus 4 hex; any other non-empty sid is a probe.
+	if view == Activity && row.Sid != "" && !realSid.MatchString(row.Sid) {
+		s.Probes++
 		return
 	}
 	s.addRow(row, view)

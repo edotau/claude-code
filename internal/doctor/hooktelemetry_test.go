@@ -11,6 +11,26 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+func TestHookTelemetryChecksSkipsProbeRows(t *testing.T) {
+	const dayFile = "telemetry-20261118.jsonl"
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(paths.StateDir(), "hooks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rows := `{"module":"guard","outcome":"deny","ms":1,"sid":"s1","verdict":"block"}` + "\n" +
+		`{"module":"guard","outcome":"ok","ms":1,"sid":"probe-le"}` + "\n" +
+		`{"module":"guard","outcome":"ok","ms":2,"sid":"a1b2c3d4"}` + "\n" +
+		`{"module":"guard","outcome":"ok","ms":3,"sid":"ses_1a2b"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, dayFile), []byte(rows), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := hookTelemetryChecks(time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC))
+	if len(got) != 2 || got[1].Detail != "2 | 0 | 0 | 3.00" || !strings.HasSuffix(got[0].Detail, "(+2 probe rows skipped)") {
+		t.Fatalf("probe rows not skipped: %+v", got)
+	}
+}
+
 func TestHookTelemetryChecks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)

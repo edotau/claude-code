@@ -14,6 +14,9 @@ func hookTelemetryChecks(now time.Time) []check {
 	if len(modules) == 0 {
 		detail = "no runs recorded"
 	}
+	if report.Probes > 0 {
+		detail += fmt.Sprintf(" (+%d probe rows skipped)", report.Probes)
+	}
 	if report.Dropped > 0 {
 		detail += fmt.Sprintf("; incomplete (%d cap markers)", report.Dropped)
 	}
