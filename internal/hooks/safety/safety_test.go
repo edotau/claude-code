@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -760,7 +761,7 @@ func TestSettingsReadDenyAnchorsGlobs(t *testing.T) {
 // A deny glob written through a symlink also covers the real path, for Read and Edit alike.
 func TestSettingsDenyGlobCanonicalized(t *testing.T) {
 	cfg := t.TempDir()
-	root, err := os.MkdirTemp(".", "canon") // outside the temp dirs Edit may always write
+	root, err := os.MkdirTemp(nonTempBase(), "canon") // outside the temp dirs Edit may always write
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +798,7 @@ func canonRoot(t *testing.T) (cfg, root string) {
 	t.Helper()
 	cfg = t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir, err := os.MkdirTemp(".", "canon")
+	dir, err := os.MkdirTemp(nonTempBase(), "canon")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1011,4 +1012,18 @@ func TestMatchesProtectedWildcardPrefixRoot(t *testing.T) {
 			t.Errorf("matchesProtected(%q) = %v, want %v", path, got, want)
 		}
 	}
+}
+
+// nonTempBase is a writable dir outside every temp root, even when the repo and $HOME sit under one (audit, TestMain).
+func nonTempBase() string {
+	cands := []string{"."}
+	if u, err := user.Current(); err == nil {
+		cands = append([]string{filepath.Join(u.HomeDir, ".cache"), u.HomeDir}, cands...)
+	}
+	for _, dir := range cands {
+		if abs, err := filepath.Abs(dir); err == nil && !underTemp(paths.Real(abs)) && os.MkdirAll(abs, 0o755) == nil {
+			return abs
+		}
+	}
+	return "."
 }
