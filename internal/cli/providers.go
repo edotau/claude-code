@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -307,9 +308,11 @@ func armedProxyToken(tok, profile string, pid int) (string, error) {
 	} else if route == "" { // unverifiable claims: only the route is trusted, never --profile
 		return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
 	}
-	for _, p := range profiles { // the launcher-set overlay env fences the re-mint like the launch itself
-		if _, err := agent.TokenScope(context.Background(), p); err != nil {
-			return "", fmt.Errorf("resolve --proxy: %w; relaunch it", err)
+	if router.ArmProfileContext(context.Background()) != "" { // an unconfined re-mint loads no registry
+		for _, p := range profiles { // the launcher-set overlay env fences the re-mint like the launch itself
+			if _, err := agent.TokenScope(context.Background(), p); err != nil {
+				return "", fmt.Errorf("resolve --proxy: %w; relaunch it", err)
+			}
 		}
 	}
 	return remintExact(profiles, failover, remint)
