@@ -270,8 +270,8 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(disp, lreq, res)
-		plan := planOverflow(disp, lreq, res, ran, err)
-		next := cmp.Or(plan.model, retryModel(ctx, disp, lreq, ran, err))
+		plan := planRepick(ctx, refusedHop{disp, lreq, res, err, hops})
+		next := cmp.Or(plan.pick(), retryModel(ctx, disp, lreq, ran, err))
 		if next == "" {
 			err = plan.refuse(err)
 			break
@@ -294,6 +294,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			noteFailure(disp, lreq, ran, first)
 		}
 	}
+	err = refusedTwice(hops, err)
 	if auto {
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
@@ -495,15 +496,7 @@ func fallsThroughContext(ctx context.Context, r Engine) bool {
 }
 
 // HopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
-func HopFailed(res wire.Result, err error) bool {
-	if err == nil || res.Answer != "" || requestFault(err) || autoStopped(err) {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return false
-	}
-	return !retry.Progressed(err)
-}
+func HopFailed(res wire.Result, err error) bool { return !retryBarred(err) && hopFailed(res, err) }
 
 func cutOffMidRunContext(ctx context.Context, r Engine, err error) bool {
 	e, ok := errors.AsType[*retry.Error](err)
@@ -597,9 +590,9 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 }
 
 // movesOn: the previous dispatch was unavailable.
-func (s *fallbackState) movesOn(ctx context.Context) bool {
-	return runnerRefused(s.prevDispatch, s.res, s.err) ||
-		!typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
+func (s *fallbackState) movesOn(ctx context.Context, next Dispatch) bool {
+	return runnerRefused(s.prevDispatch, s.res, s.err) || !typedModelGone(s.req, s.err) &&
+		(dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err) || crossFamilyMove(ctx, s.prevDispatch, next, s.res, s.err))
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
@@ -609,7 +602,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 		s.stopped = true
 		return true, nil
 	}
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx))) {
+	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx, disp))) {
 		s.stopped = true
 		return true, nil
 	}
@@ -627,7 +620,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 }
 
 func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
-	if disp.Agent.Name() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
+	if disp.agentName() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
 		return disp
 	}
 	if !strings.HasPrefix(c.Dispatches[0].Account, "databricks·") {
@@ -661,7 +654,7 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
+		if !ok || d.agentName() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}

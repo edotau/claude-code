@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/copilotauth"
+	"github.com/edotau/claude-code/internal/models"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
@@ -112,6 +113,22 @@ func servedIDs(p *providers.Provider, now time.Time) []string {
 	for _, m := range s.Models {
 		if m.IsReady() {
 			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// DifferentFamily reports a and b as models of different vendors' families.
+func DifferentFamily(a, b string) bool {
+	return models.FamilyKind(a) != models.FamilyKind(b) || models.FamilyName(a) != models.FamilyName(b)
+}
+
+// OtherFamily is the pool entries that, as p spells them, belong to another family than ran, in pool order.
+func OtherFamily(p *providers.Provider, ran string, pool []string) []string {
+	var out []string
+	for _, entry := range pool {
+		if id := providers.SpellPin(p, entry); DifferentFamily(id, ran) && rePickable(p, id, ran) {
+			out = append(out, entry)
 		}
 	}
 	return out
