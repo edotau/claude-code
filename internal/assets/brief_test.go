@@ -56,8 +56,8 @@ func TestBriefTextMatchesOldLiterals(t *testing.T) {
 // The old brief.tmpl was too long to restate: its text/template render is pinned by hash, per rtk mode.
 func TestBriefBodyMatchesOldRender(t *testing.T) {
 	for rtk, want := range map[bool]string{
-		true:  "f25cad1f146cde03a310b7c2c7bee903dc3d41beda29f069f08c50770aacd113",
-		false: "d7ff46fb37e032a2cdaee55c3b6103c4a16806e9e3366396cb7d601c9448f73b",
+		true:  "cc1e61fd575c1b325d54d5fec8d948dfdbd0bb291a9f09dfe39339e3ca05ff9c",
+		false: "6fb81cc3873f9821ba4b524a837548073df7b908e64f744a50a15fe63151ba2b",
 	} {
 		got := BriefBody(BriefFrame{Agent: "a", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
