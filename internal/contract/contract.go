@@ -177,6 +177,7 @@ type Contract struct {
 	Holders  []string     `json:"holders"`            // dispatch ids that held it; two after a re-assign
 	Children []string     `json:"children,omitempty"` // sub-contract ids
 	Failed   Reason       `json:"failed,omitempty"`
+	Executed bool         `json:"executed_tests,omitempty"` // only an executed run (by go) passes the tests term
 	state    State        // only the transition functions change it; JSON key "state"
 }
 
@@ -303,7 +304,7 @@ func (c Contract) Fields() []Field {
 		{"terms", strings.Join(terms, ",")}, {"unmet", strconv.Itoa(len(c.Unmet()))},
 		{"depth", strconv.Itoa(c.Limits.Depth)}, {"tokens", strconv.Itoa(c.Limits.Tokens)},
 		{"leaves", strconv.Itoa(len(c.Children)) + "/" + strconv.Itoa(c.Limits.Leaves)},
-		{"holders", strings.Join(c.Holders, ",")},
+		{"holders", strings.Join(c.Holders, ",")}, {"executed_tests", strconv.FormatBool(c.Executed)},
 	}
 }
 

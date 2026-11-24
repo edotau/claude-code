@@ -26,23 +26,79 @@ func Validate(c Contract) []Problem {
 	validateScope(c.Scope, add)
 	validateOwner(c.Owner, c.Limits, add)
 	validateLimits(c.Limits, add)
-	for _, t := range c.Terms {
-		if StageOf(t) == "" {
-			add("terms", "unknown term %q (one of %v)", t, Terms())
-		}
+	validateTerms(c.Terms, add)
+	if c.Scope.Kind == KindTestRepair && !c.Executed {
+		add("executed_tests", "a %s contract needs an executed test run", KindTestRepair)
 	}
 	for _, r := range c.Records {
-		if err := checkRecord(c.Terms, r); err != "" {
+		if err := checkRecord(c, r); err != "" {
 			add("records", "%s", err)
 		}
 	}
-	if c.state != "" && !slices.Contains(States(), c.state) {
-		add("state", "unknown state %q (one of %v)", c.state, States())
+	validateState(c, add)
+	return ps
+}
+
+// alwaysTerms are in every TermsFor list, so a contract without one was not built by Open.
+var alwaysTerms = []Term{TermGate, TermTests, TermHandback, TermReport}
+
+func validateTerms(terms []Term, add func(string, string, ...any)) {
+	for _, t := range alwaysTerms {
+		if !slices.Contains(terms, t) {
+			add("terms", "missing %q", t)
+		}
 	}
-	if c.Failed != "" && !slices.Contains(Reasons(), c.Failed) {
+	last := -1
+	for _, t := range terms {
+		i := slices.Index(Terms(), t)
+		switch {
+		case i < 0:
+			add("terms", "unknown term %q (one of %v)", t, Terms())
+		case i <= last:
+			add("terms", "%q is repeated or out of stage order", t)
+		default:
+			last = i
+		}
+	}
+}
+
+// validateState checks the invariants each state's entering transition guarantees.
+func validateState(c Contract, add func(string, string, ...any)) {
+	s := c.state
+	if s != "" && !slices.Contains(States(), s) {
+		add("state", "unknown state %q (one of %v)", s, States())
+		return
+	}
+	validateFailed(c, add)
+	if s != "" && s != StateOpened && (c.ID == "" || len(c.Holders) == 0) {
+		add("holders", "state %q needs an id and a holder", s)
+	}
+	if s.Terminal() && c.Result == nil {
+		add("result", "state %q needs a result", s)
+	}
+	if miss := c.missing(entryTerms(s, c)...); len(miss) > 0 {
+		add("records", "state %q with no pass record for %v", s, miss)
+	}
+}
+
+func validateFailed(c Contract, add func(string, string, ...any)) {
+	switch {
+	case (c.Failed != "") != (c.state == StateFailed):
+		add("failed", "reason %q in state %q", c.Failed, c.state)
+	case c.Failed != "" && !slices.Contains(Reasons(), c.Failed):
 		add("failed", "unknown reason %q (one of %v)", c.Failed, Reasons())
 	}
-	return ps
+}
+
+// entryTerms are the terms that must have passed for c to be in s.
+func entryTerms(s State, c Contract) []Term {
+	switch s {
+	case StateVerified:
+		return verifyTerms
+	case StateClosed:
+		return append(slices.Clone(verifyTerms), c.closeTerms()...)
+	}
+	return nil
 }
 
 func validateScope(s Scope, add func(string, string, ...any)) {
@@ -94,10 +150,12 @@ func validateLimits(l Limits, add func(string, string, ...any)) {
 }
 
 // checkRecord is the empty string for a record c may hold, else what is wrong with it.
-func checkRecord(terms []Term, r TermRecord) string {
+func checkRecord(c Contract, r TermRecord) string {
 	switch {
-	case !slices.Contains(terms, r.Term):
-		return fmt.Sprintf("term %q is not one of the contract's terms %v", r.Term, terms)
+	case !slices.Contains(c.Terms, r.Term):
+		return fmt.Sprintf("term %q is not one of the contract's terms %v", r.Term, c.Terms)
+	case r.By == ByOwner && c.Executed:
+		return fmt.Sprintf("only an executed run (by %q) passes %q here", ByGo, TermTests)
 	case !slices.Contains(Verdicts(), r.Verdict):
 		return fmt.Sprintf("unknown verdict %q (one of %v)", r.Verdict, Verdicts())
 	case r.By == ByOwner && r.Term != TermTests:

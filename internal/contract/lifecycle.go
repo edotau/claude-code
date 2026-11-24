@@ -59,7 +59,8 @@ func (c Contract) guard(op string, from ...State) error {
 
 // Open builds an opened contract with the fixed terms for f; on a problem it returns the zero Contract.
 func Open(scope Scope, owner Party, lim Limits, f Facts) (Contract, []Problem) {
-	c := Contract{Schema: SchemaVersion, Scope: scope, Owner: owner, Terms: TermsFor(f), Limits: lim}.clone()
+	c := Contract{Schema: SchemaVersion, Scope: scope, Owner: owner, Terms: TermsFor(f), Limits: lim,
+		Executed: NeedsExecutedTests(f) || scope.Kind == KindTestRepair}.clone()
 	if ps := Validate(c); len(ps) > 0 {
 		return Contract{}, ps
 	}
@@ -123,7 +124,7 @@ func (c Contract) Verify(children []Contract) (Contract, error) {
 	if err := c.guard("verify", StateWorking); err != nil {
 		return c, err
 	}
-	if miss := c.missing(TermGate, TermTests); len(miss) > 0 {
+	if miss := c.missing(verifyTerms...); len(miss) > 0 {
 		return c, refuse("verify", c.state, ErrTerms, "no pass record for %v", miss)
 	}
 	for _, id := range c.Children {
@@ -145,13 +146,10 @@ func (c Contract) Close(r Result) (Contract, error) {
 	if err := checkResult(r); err != "" {
 		return c, refuse("close", c.state, ErrInput, "%s", err)
 	}
-	need := []Term{TermHandback}
-	for _, t := range c.Terms {
-		if StageOf(t) == StageClose {
-			need = append(need, t)
-		}
+	if c.Executed && r.Tests != TestsExecuted {
+		return c, refuse("close", c.state, ErrInput, "tests %q, this contract needs %q", r.Tests, TestsExecuted)
 	}
-	if miss := c.missing(need...); len(miss) > 0 {
+	if miss := c.missing(append(slices.Clone(verifyTerms), c.closeTerms()...)...); len(miss) > 0 {
 		return c, refuse("close", c.state, ErrTerms, "no pass record for %v", miss)
 	}
 	n := c.clone()
@@ -181,12 +179,29 @@ func (c Contract) WithRecord(r TermRecord) (Contract, error) {
 	if err := c.guard("record", StateOpened, StateWorking, StateVerified); err != nil {
 		return c, err
 	}
-	if err := checkRecord(c.Terms, r); err != "" {
+	if c.state == StateVerified && slices.Contains(verifyTerms, r.Term) {
+		return c, refuse("record", c.state, ErrState, "%q was settled by verify", r.Term)
+	}
+	if err := checkRecord(c, r); err != "" {
 		return c, refuse("record", c.state, ErrInput, "%s", err)
 	}
 	n := c.clone()
 	n.Records = append(n.Records, r)
 	return n, nil
+}
+
+// verifyTerms must pass before Verify and stay passed until Close.
+var verifyTerms = []Term{TermGate, TermTests}
+
+// closeTerms are the hand-back and c's close-stage terms, which must pass before Close.
+func (c Contract) closeTerms() []Term {
+	out := []Term{TermHandback}
+	for _, t := range c.Terms {
+		if StageOf(t) == StageClose {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // missing lists the terms of want that c holds and has not passed; a term c does not hold never blocks.
@@ -230,7 +245,7 @@ type alias Contract
 // MarshalJSON writes the contract with its state under the key "state".
 func (c Contract) MarshalJSON() ([]byte, error) { return json.Marshal(wire{alias(c), c.state}) }
 
-// UnmarshalJSON reads a contract; an unknown state is an error, never a silent zero.
+// UnmarshalJSON reads a contract and validates it; an unknown state or a broken invariant is an error.
 func (c *Contract) UnmarshalJSON(b []byte) error {
 	var w wire
 	if err := json.Unmarshal(b, &w); err != nil {
@@ -239,7 +254,11 @@ func (c *Contract) UnmarshalJSON(b []byte) error {
 	if !slices.Contains(States(), w.State) {
 		return fmt.Errorf("contract: unknown state %q (one of %v)", w.State, States())
 	}
-	*c = Contract(w.alias)
-	c.state = w.State
+	n := Contract(w.alias)
+	n.state = w.State
+	if ps := Validate(n); len(ps) > 0 {
+		return fmt.Errorf("contract %q: %v", n.ID, ps)
+	}
+	*c = n
 	return nil
 }
