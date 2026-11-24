@@ -132,3 +132,14 @@ func TestSpecTaskKeysRenderBrief(t *testing.T) {
 		}
 	}
 }
+
+func TestSpecTaskKeysNeedInlinePrompt(t *testing.T) {
+	f := &askFlags{spec: `{"own":["a.go"],"prompt":"p"}`}
+	if _, err := withSpec(f, nil, []string{"other"}); err == nil {
+		t.Error("withSpec accepted a positional task beside own")
+	}
+	f.spec = `{"own":["a.go"],"prompt":"-"}`
+	if _, err := withSpec(f, nil, nil); err == nil {
+		t.Error("withSpec accepted a stdin prompt beside own")
+	}
+}

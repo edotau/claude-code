@@ -54,7 +54,7 @@ func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, e
 
 // specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.
 func specBrief(prompt, agentName string, t askspec.Task) (string, error) {
-	if len(t.Own) == 0 && t.Report == "" && t.Verify == "" {
+	if !t.Set() {
 		return prompt, nil
 	}
 	if t.Verify != "" && plans.VerifyShape(t.Verify) != nil {
@@ -79,6 +79,9 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 		return nil, err
 	}
 	out := append(argv, dropSpec(args)...)
+	if task.Set() && (len(pos) > 0 || strings.TrimSpace(prompt) == "" || prompt == "-") {
+		return nil, errors.New("spec own, report and verify wrap the spec's own inline prompt: set prompt, no positional task")
+	}
 	if prompt, err = specBrief(prompt, specAgent(out), task); err != nil {
 		return nil, err
 	}

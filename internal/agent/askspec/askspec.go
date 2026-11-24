@@ -48,6 +48,9 @@ type Task struct {
 	Verify string   `json:"verify"`
 }
 
+// Set reports whether any contract key was given.
+func (t Task) Set() bool { return len(t.Own) > 0 || t.Report != "" || t.Verify != "" }
+
 // TaskKeys are the spec keys Argv reads into Task instead of argv.
 var TaskKeys = []string{"own", "report", "verify"}
 
