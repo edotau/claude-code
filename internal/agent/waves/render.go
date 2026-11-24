@@ -167,8 +167,8 @@ func (r *runner) preview(p plans.WavePlan) {
 		}
 		specs, manual := r.specs(w)
 		for i := range specs {
-			if _, enforced := scopeFlags(specs[i], LaunchOptions{Wave: specs, Route: r.o.Route}); len(specs) > 1 {
-				specs[i].Scope = map[bool]string{true: "scoped", false: "detect-only"}[enforced]
+			if len(specs) > 1 { // siblings run one at a time, watched for foreign writes
+				specs[i].Scope = "detect-only"
 			}
 		}
 		specs = dryOrder(specs, r.waits(w))

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 )
 
@@ -92,10 +91,10 @@ func TestBatchLineOverlayRoute(t *testing.T) {
 	}
 }
 
-// Replaying a failed batch leg retains its session and task, applies the exact repair, and leaves siblings alone.
-func TestPermissionBatchLegReplay(t *testing.T) {
+// Replaying a failed batch leg retains its session and task and leaves siblings alone.
+func TestBatchLegReplay(t *testing.T) {
 	failed := failBatchLeg(t)
-	code, out, stderr := runCLI(t, "ask", "--retry", failed.ID, "--permissions", `{"allow":["Bash(make lint)"]}`, "--format", "json")
+	code, out, stderr := runCLI(t, "ask", "--retry", failed.ID, "--format", "json")
 	if code != 0 {
 		t.Fatalf("replay: %d, %s, %s", code, out, stderr)
 	}
@@ -106,13 +105,13 @@ func TestPermissionBatchLegReplay(t *testing.T) {
 	assertReplayedLeg(t, failed, replayed[0].Request)
 }
 
-// failBatchLeg runs a two-leg permission batch and saves its newest leg as a refused failure.
+// failBatchLeg runs a two-leg batch and saves its newest leg as a failure.
 func failBatchLeg(t *testing.T) agent.Record {
 	t.Helper()
 	cliEnv(t)
 	cliFakes(t)
 	file := batchFile(t, cliTask(t, "a", "first"), cliTask(t, "b", "second"))
-	code, out, stderr := runCLI(t, "ask", "--batch", file, "--agent", "claude", "--fallback", "none", "--permissions", `{"allow":["Read"],"deny":["Bash(rm *)"]}`)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--agent", "claude", "--fallback", "none")
 	if code != 0 {
 		t.Fatalf("batch: %d, %s, %s", code, out, stderr)
 	}
@@ -121,7 +120,7 @@ func failBatchLeg(t *testing.T) agent.Record {
 		t.Fatalf("batch records = %d", len(recs))
 	}
 	failed := recs[0]
-	failed.Status, failed.Error = "error", "permission refused"
+	failed.Status, failed.Error = "error", "leg failed"
 	if failed.SessionID == "" {
 		t.Fatal("batch leg did not retain its returned session")
 	}
@@ -131,14 +130,11 @@ func failBatchLeg(t *testing.T) agent.Record {
 	return failed
 }
 
-// assertReplayedLeg checks a replay kept the failed leg's task, session and route and adds the repair.
+// assertReplayedLeg checks a replay kept the failed leg's task, session and route.
 func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) {
 	t.Helper()
 	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt || got.Provider != failed.Request.Provider || got.Lead != failed.Request.Lead {
 		t.Fatalf("replay lost task/session/route: %+v", got)
-	}
-	if got.Permissions.Decide("Bash", "make lint") != permission.Allow || got.Permissions.Decide("Bash", "rm x") != permission.Deny {
-		t.Fatalf("replay lost exact repair or deny: %+v", got.Permissions)
 	}
 }
 

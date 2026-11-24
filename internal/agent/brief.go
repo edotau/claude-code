@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/json"
@@ -17,8 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // BriefInput supplies the authored task and the leaf's execution contract.
@@ -57,7 +54,7 @@ func reviewLoopCandidate(req RunOptions) bool {
 		!strings.HasPrefix(p, rubricLead) // a rubric run is a review, kept so on replay
 }
 
-// WithReviewLoop is req.Prompt plus ReviewLoopRule, once, when the run can write code under its inherited policy too.
+// WithReviewLoop is req.Prompt plus ReviewLoopRule, once, when the run can write code.
 func WithReviewLoop(req RunOptions) string {
 	p := WithoutReviewLoop(req.Prompt)
 	if strings.Contains(p, ReviewLoopRule) || !reviewLoopCandidate(req) || !writesCode(req) {
@@ -66,26 +63,17 @@ func WithReviewLoop(req RunOptions) string {
 	return p + reviewLoopBlock
 }
 
-// hopPrompt is the prompt with the rule iff ask marked it and this hop's effective policy (checkRun's) can write.
+// hopPrompt is the prompt with the rule iff ask marked it and this hop can write.
 func hopPrompt(req RunOptions) string {
 	p := WithoutReviewLoop(req.Prompt)
-	if !req.ReviewLoop || !req.Tools || req.NoTools || req.Permissions.Mode == permission.PermPlan ||
-		strings.Contains(p, ReviewLoopRule) {
+	if !req.ReviewLoop || !req.Tools || req.NoTools || strings.Contains(p, ReviewLoopRule) {
 		return p
 	}
 	return p + reviewLoopBlock
 }
 
-// writesCode reports whether req has write tools once defaults and the outer policy layer as in checkRun.
-func writesCode(req RunOptions) bool {
-	if !req.Tools || req.NoTools {
-		return false
-	}
-	vctx := valuesContext(context.Background(), req.Values)
-	p, err := InheritPermissions(vctx, req.Permissions)
-	outer := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
-	return err == nil && p.Mode != permission.PermPlan && outer.Mode != permission.PermPlan
-}
+// writesCode reports whether req has write tools.
+func writesCode(req RunOptions) bool { return req.Tools && !req.NoTools }
 
 //go:embed brief.tmpl
 var briefTemplate string

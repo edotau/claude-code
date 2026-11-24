@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -321,7 +320,6 @@ type agyRequest struct {
 	PrintTimeout                  time.Duration // --print-timeout; 0 omits it (live sessions)
 	OutputSchema                  string        // --json-schema
 	SettingsArgv                  []string      // RenderSettings' --effort and --settings fragment, inserted before -p=
-	Permissions                   permission.Permissions
 	Env, KeepEnv                  []string
 }
 
@@ -425,10 +423,9 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 		return wire.Result{}, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	dn := &agyDenier{p: r.Permissions, cwd: r.Cwd}
 	idle := agent.NewIdleTimeout("gemini", agent.IdleLimitFor("gemini"), nil)
 	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
-		return parseAgyEvents(bufio.NewReader(&beatReader{r: br, idle: idle}), &idleSink{Sink: sink, idle: idle}, false, wire.PickLog(logs), dn)
+		return parseAgyEvents(bufio.NewReader(&beatReader{r: br, idle: idle}), &idleSink{Sink: sink, idle: idle}, false, wire.PickLog(logs))
 	}
 	start := time.Now()
 	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{Idle: idle})
@@ -616,8 +613,8 @@ type agyEvent struct {
 }
 
 // parseAgyEvents reads agy stream-json; once stops at the first result, keeping buffered lines for the next turn.
-func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog, dn *agyDenier) (res wire.Result, _ error) {
-	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res, dn: dn}
+func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog) (res wire.Result, _ error) {
+	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
 	onBad := func(err error) { t.flush(); _ = wire.EmitError(lg, sink, err.Error()) } // the decode error aborts
 	tr, err := wire.DecodeEvents(br, lg, "decode agy stream-json", true, onBad, func(ev agyEvent, _ *wire.TransportTracker) (bool, error) {
 		return t.handle(ev)
@@ -643,8 +640,7 @@ type agyTurn struct {
 	lg        wire.StreamLog
 	once      bool
 	res       *wire.Result
-	dn        *agyDenier // nil: refused calls are not explained
-	refused   []permission.Rule
+	refused   []string // the hook tool names of steps agy refused for want of a grant
 	actions   []string // denied_actions names from the result event
 	ans       wire.Answer
 	pending   strings.Builder
@@ -675,8 +671,8 @@ func (t *agyTurn) handle(ev agyEvent) (done bool, _ error) {
 
 func (t *agyTurn) step(ev agyEvent) error {
 	noteAgyStep(ev, &t.lastStep, &t.openStep, t.lg)
-	if call, ok := agyRefusedCall(ev); ok {
-		t.refused = append(t.refused, call)
+	if tool, ok := agyRefusedTool(ev); ok {
+		t.refused = append(t.refused, tool)
 	}
 	u := ev.StepUpdate.Usage
 	t.sofar.InputTokens += u.InputTokens
@@ -698,7 +694,6 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 	t.flush()
 	t.actions = agyDeniedActions(ev)
 	err := applyAgyResult(t.res, ev)
-	t.dn.report(t.refused)
 	if err != nil {
 		_ = wire.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
 		if t.once {
@@ -712,11 +707,17 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 
 // deniedTools names every tool a refusal hit this turn: the refused steps' tools, then the result's denied actions.
 func (t *agyTurn) deniedTools() []string {
-	var names []string
-	for _, r := range t.refused {
-		names = append(names, r.Tool)
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(t.refused, t.actions))))
+}
+
+// agyRefusedTool is the hook tool name of a step agy refused for want of a grant.
+func agyRefusedTool(ev agyEvent) (string, bool) {
+	u := ev.StepUpdate
+	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
+		return "", false
 	}
-	return slices.Compact(slices.Sorted(slices.Values(append(names, t.actions...))))
+	tool, ok := map[string]string{"run_command": "Bash", "read_file": "Read", "write_file": "Write", "edit_file": "Edit"}[u.ToolName]
+	return tool, ok
 }
 
 // agyDeniedActions is the display name (else action) of each action agy reports denied.
@@ -825,7 +826,7 @@ func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response s
 		return res, emitErr
 	}
 	if !once && res.Answer == "" && len(res.Structured) == 0 && len(denied) > 0 {
-		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools or --permissions '{\"allow\":[\"<Tool>\"]}'"
+		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools"
 		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Err: errors.New(hint)}
 	}
 	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {
@@ -921,7 +922,7 @@ func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-		SettingsArgv: p.Argv, Permissions: req.Permissions,
+		SettingsArgv: p.Argv,
 	}
 }
 
@@ -929,7 +930,6 @@ func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 type agyLive struct {
 	tools   bool
 	cwd     string // every turn's shell dir
-	dn      *agyDenier
 	intro   string // emulated system prompts, owed to the first turn only
 	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
 	prev    wire.Usage
@@ -953,7 +953,7 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	if areq.Tools && p.Target.Provider != nil {
 		b.intro += agent.WebViaCLI + "\n\n"
 	}
-	b.tools, b.cwd, b.resumed, b.dn = areq.Tools, areq.Cwd, req.SessionID != "", &agyDenier{p: areq.Permissions, cwd: areq.Cwd}
+	b.tools, b.cwd, b.resumed = areq.Tools, areq.Cwd, req.SessionID != ""
 	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
 		b.intro += agent.Preamble(req.SystemPrompt)
 	}
@@ -979,7 +979,7 @@ func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 
 // Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
 func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
-	res, err := parseAgyEvents(dec, sink, true, lg, b.dn)
+	res, err := parseAgyEvents(dec, sink, true, lg)
 	if err != nil && !agent.IsResultError(err) {
 		return res, err
 	}
@@ -1011,8 +1011,7 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 		"--dangerously-skip-permissions", "--add-dir", "--log-file", "--settings", "--print-timeout"},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
-		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
-		Permissions: agent.Native},
+		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError}, Cost: true,
 	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
 	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},

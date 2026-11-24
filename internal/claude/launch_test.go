@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -961,8 +960,7 @@ func TestClaudeArgvFlagsAreDeclared(t *testing.T) {
 		for _, tools := range []bool{false, true} {
 			req.Tools, req.NoTools = tools, !tools
 			argv := append(claudeStreamArgs(req, live), toolArgs(req)...)
-			st := agent.Settings{Headless: true, Tools: tools, Effort: "high",
-				Permissions: permission.Permissions{Allow: []permission.Rule{{Tool: "Read"}}, Deny: []permission.Rule{{Tool: "Edit"}}}}
+			st := agent.Settings{Headless: true, Tools: tools, Effort: "high"}
 			_, argv, _, cleanup, err := claudeAgent.RenderSettings(t.Context(), st, nil, argv)
 			cleanup()
 			if err != nil {

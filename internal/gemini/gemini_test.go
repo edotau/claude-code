@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -99,11 +97,9 @@ func agyWant(in []string, workDir string) []string {
 	return out
 }
 
-// Effort and --settings ride just before -p=; a flag beats the record; a suffixed model's effort is emulated.
+// Effort rides just before -p=; a flag beats the record; a suffixed model's effort is emulated.
 func TestAgyArgvSettings(t *testing.T) {
 	stream := []string{"--input-format", "stream-json", "--output-format", "stream-json"}
-	settings := `{"permissions":{"deny":["command(rm -rf /)","command(rm -rf ~)","write_file(/w/x.txt)","edit_file(/w/x.txt)"]}}`
-	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Write", Arg: "x.txt"}}}
 	high := &vault.AgentRecord{Effort: "high"}
 	for _, c := range []struct {
 		name         string
@@ -119,10 +115,6 @@ func TestAgyArgvSettings(t *testing.T) {
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream, []string{"--effort", "low", "-p="}), nil},
 		{"suffixed model", high, agent.RunOptions{Model: "gemini-4-hydrogen-high"}, slices.Concat([]string{"--model", "gemini-4-hydrogen-high"}, stream, []string{"-p="}),
 			[]string{"effort high: model gemini-4-hydrogen-high carries its own"}},
-		{"settings before -p=", high, agent.RunOptions{Model: "gemini-3.8-flash", Tools: true, WorkDir: "/w", Permissions: deny},
-			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream,
-				[]string{"--dangerously-skip-permissions", "--add-dir", "PACKDIR", "ROOTS", "--effort", "high", "--settings", settings,
-					"-p="}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			agyFixture(t, c.rec)
@@ -264,7 +256,7 @@ func TestAgyPrintTimeoutLeavesOtherErrors(t *testing.T) {
 func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi"}}
 {"event":123}`
-	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
+	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
 	if err == nil || res.Answer != "hi" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with the text kept", res, err)
 	}
@@ -284,7 +276,7 @@ func TestParseAgyToolStepMarksProgress(t *testing.T) {
 		sink := &agySinkRec{}
 		var normalized strings.Builder
 		out := wire.Multi(sink, wire.NewJSONLSink(&normalized, "fixture"))
-		if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), out, false, nil, nil); err == nil {
+		if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), out, false, nil); err == nil {
 			t.Fatal("want the decode error")
 		}
 		if stepType == "tool" && (!strings.Contains(normalized.String(), `"agent":"gemini"`) ||
@@ -310,7 +302,7 @@ func TestAgyToolProgressIsPastFirstOutput(t *testing.T) {
 	idle := agent.NewIdleTimeout("gemini", time.Hour, nil)
 	defer idle.Stop()
 	sink := &idleSink{Sink: wire.Discard, idle: idle}
-	if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), sink, false, nil, nil); err == nil {
+	if _, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), sink, false, nil); err == nil {
 		t.Fatal("expected missing result")
 	}
 	idle.Beat("stdout")
@@ -329,7 +321,7 @@ func TestAgyToolProgressIsPastFirstOutput(t *testing.T) {
 // A result carrying only structured_output (no response text) is a success and keeps the structure.
 func TestParseAgyStructuredOnlySucceeds(t *testing.T) {
 	stream := `{"event":"result","result":{"status":"SUCCESS","structured_output":{"k":1}}}`
-	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
+	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
 	if err != nil || string(res.Structured) != `{"k":1}` {
 		t.Fatalf("res = %+v, err = %v; want no error and Structured kept", res, err)
 	}
@@ -339,7 +331,7 @@ func TestParseAgyStructuredOnlySucceeds(t *testing.T) {
 func TestParseAgyResponseSurvivesLaterDecodeError(t *testing.T) {
 	stream := `{"event":"result","result":{"status":"SUCCESS","response":"R"}}
 {"event":123}`
-	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
+	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
 	if err == nil || res.Answer != "R" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with Answer R", res, err)
 	}
@@ -350,7 +342,7 @@ func TestParseAgyRefusedToolStepIsNotPartial(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE"}}
 {"event":"step_update","step_update":{"step_type":"tool","state":"ERROR"}}
 {"event":"result","result":{"status":"SUCCESS","response":"blocked as asked"}}`
-	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
+	res, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
 	if err != nil || res.Answer != "blocked as asked" {
 		t.Fatalf("res.Answer = %q, err = %v; want the answer and no partial error", res.Answer, err)
 	}
@@ -785,53 +777,16 @@ func TestGeminiNoToolsIsRefused(t *testing.T) {
 	}
 }
 
-// A resumed conversation carries the policy chosen for this launch, not the one it started under.
-func TestAgyResumeReloadsPermissions(t *testing.T) {
-	for _, deny := range []string{"a.txt", "b.txt"} {
-		agyFixture(t, nil)
-		req := agent.RunOptions{Prompt: "hi", Tools: true, WorkDir: "/w", SessionID: "conv-1",
-			Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Write", Arg: deny}}}}
-		p, err := agent.PrepareCLI(context.Background(), "gemini", req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		argv := agyArgv(newAgyRequest(p, req))
-		i := slices.Index(argv, "--settings")
-		if !slices.Contains(argv, "conv-1") || i < 0 || !strings.Contains(argv[i+1], "write_file(/w/"+deny+")") {
-			t.Errorf("deny %s: argv = %q, want --conversation conv-1 and this policy's --settings", deny, argv)
-		}
-	}
-}
-
-// A refused tool step in the stream reaches the stderr note with its exact allow rule.
-func TestParseAgyRefusalNamesAllow(t *testing.T) {
-	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"make lint"},"error":{"message":"user denied permission to run command"}}}}
-{"event":"result","result":{"status":"SUCCESS","response":""}}`
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	orig := os.Stderr
-	os.Stderr = w
-	_, _ = parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, &agyDenier{cwd: "/w"})
-	os.Stderr = orig
-	w.Close()
-	out, _ := io.ReadAll(r)
-	if !strings.Contains(string(out), `--permissions '{"allow":["Bash(make lint)"]}'`) {
-		t.Errorf("stderr = %q, want the exact allow for make lint", out)
-	}
-}
-
-// An empty answer after denied tools errors naming each denied tool with the --tools/--permissions hint.
+// An empty answer after denied tools errors naming each denied tool with the --tools hint.
 func TestParseAgyEmptyAnswerNamesDeniedTools(t *testing.T) {
 	for name, stream := range map[string]string{
 		"refused step": `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"ls"},"error":{"message":"user denied permission to run command"}}}}
 {"event":"result","result":{"status":"SUCCESS","response":""}}`,
 		"denied action": `{"event":"result","result":{"status":"SUCCESS","response":"","denied_actions":[{"action":"run_command","display_name":"Bash"}]}}`,
 	} {
-		_, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "tool(s) were denied: Bash") || !strings.Contains(err.Error(), "--tools or --permissions") {
-			t.Errorf("%s: err = %v; want the denied tool and the --tools/--permissions hint", name, err)
+		_, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
+		if err == nil || !strings.Contains(err.Error(), "tool(s) were denied: Bash") || !strings.Contains(err.Error(), "rerun with --tools") {
+			t.Errorf("%s: err = %v; want the denied tool and the --tools hint", name, err)
 		}
 	}
 }

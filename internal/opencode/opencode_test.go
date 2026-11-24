@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -253,42 +252,6 @@ func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
 	}
 }
 
-// Effort becomes --variant on `run` only; a policy becomes --auto plus OPENCODE_PERMISSION.
-func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
-	fakeOpencode(t, "1.19.3", "", nil)
-	vaulttest.Use(t)
-	t.Setenv(opencodeAPIKeyEnv, "")
-	perms, err := permission.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := opencodeEngine{agent.NewBaseEngine("opencode")}
-	run := []string{"run", "--format", "json", "hi"}
-	render := func(s agent.Settings, argv []string) ([]string, []string) {
-		t.Helper()
-		env, out, _, _, err := e.RenderSettings(context.Background(), s, nil, argv)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return env, out
-	}
-	if _, got := render(agent.Settings{Agent: "opencode", Headless: true}, run); !slices.Equal(got, run) {
-		t.Errorf("no settings: argv = %q, want %q unchanged", got, run)
-	}
-	env, got := render(agent.Settings{Agent: "opencode", Headless: true, Effort: "high", Tools: true, Permissions: perms}, run)
-	if want := []string{"run", "--auto", "--variant", "high", "--format", "json", "hi"}; !slices.Equal(got, want) {
-		t.Errorf("argv = %q, want %q", got, want)
-	}
-	if !slices.ContainsFunc(env, func(kv string) bool {
-		return strings.HasPrefix(kv, opencodePermissionEnv+"=") && strings.Contains(kv, `"rm *":"deny"`)
-	}) {
-		t.Errorf("env = %d, want %s carrying the rm deny", len(env), opencodePermissionEnv)
-	}
-	if _, got := render(agent.Settings{Agent: "opencode", Effort: "high"}, nil); len(got) != 0 {
-		t.Errorf("interactive argv = %q, want no --variant (the TUI has no such flag)", got)
-	}
-}
-
 // TestOpencodeToolsOffPinsPermission pins the env override an inherited OPENCODE_PERMISSION=allow would otherwise win.
 func TestOpencodeToolsOffPinsPermission(t *testing.T) {
 	t.Setenv(opencodePermissionEnv, `"allow"`)
@@ -479,21 +442,6 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
-
-func TestOpencodeChildPermissionRefusals(t *testing.T) {
-	for name, req := range map[string]agent.RunOptions{
-		"--no-tools":   {NoTools: true},
-		"NotebookEdit": {Tools: true, Permissions: permission.Permissions{Allow: []permission.Rule{{Tool: "NotebookEdit"}}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/never-launch", nil, nil, "probe", req)
-			requireFatal(t, err, name)
-			if cmd != nil || strings.Contains(err.Error(), "--permissions") {
-				t.Fatalf("refusal must precede child creation without allow remedy: cmd=%v err=%v", cmd, err)
-			}
-		})
-	}
-}
 
 func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
 	for _, session := range []string{"", "s1"} {

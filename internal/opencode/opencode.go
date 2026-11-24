@@ -410,7 +410,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err := agent.CheckCapabilities(e.Name(), req); err != nil {
 		return p.Result, err
 	}
-	if err := refusePolicyEnv(req); err != nil {
+	if err := refuseToolsOffEnv(req); err != nil {
 		return p.Result, err
 	}
 	bin, err := e.Bin()
@@ -420,7 +420,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	return (hubDispatch{agent: e.Name()}).runStream(ctx, bin, p, req, sink)
 }
 
-// RenderSettings applies launch env, run-only effort --variant, and permission config with --auto.
+// RenderSettings applies launch env and the run-only effort --variant.
 func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
 	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	if err != nil {
@@ -429,21 +429,13 @@ func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, en
 	if s.Effort != "" && len(argv) > 0 && argv[0] == "run" && !slices.Contains(flagsOnly(argv), "--variant") {
 		argv = slices.Insert(slices.Clone(argv), 1, "--variant", s.Effort)
 	}
-	req := agent.RunOptions{Tools: s.Tools, Permissions: s.Permissions, WorkDir: s.WorkDir}
-	if env, err = opencodeApplyPermissions(env, req, false); err != nil {
-		return nil, nil, emulated, cleanup, err
-	}
-	return env, opencodePolicyArgv(argv, req), emulated, cleanup, nil
+	return env, argv, emulated, cleanup, nil
 }
 
 // opencodeChild loads the plugin and hook host over env/argv and builds the child; its errors are Fatal for name.
 func opencodeChild(ctx context.Context, name, bin string, env, argv []string, prompt string, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, *hookHost, error) {
 	if err := agent.CheckCapabilities(name, req); err != nil {
 		return nil, nil, nil, err
-	}
-	var err error
-	if env, err = opencodeApplyPermissions(env, req, req.Tools); err != nil { // the plugin follows
-		return nil, nil, nil, retry.Fatal(name, err)
 	}
 	env, plugged, err := opencodeApplyPlugin(env, req)
 	if err != nil {
@@ -459,7 +451,6 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 	if err != nil {
 		return nil, nil, nil, retry.Fatal(name, err)
 	}
-	ctx = agent.WithPermissionsEnv(ctx, GatePolicy(req))
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	return cmd, tail, host, nil
 }
@@ -704,4 +695,30 @@ func OpencodeOwnLoginPresent() bool {
 			return err == nil, nil
 		})
 	return ok
+}
+
+// nativeWebOff denies opencode's native web tools so a Databricks row's web use goes through the web_search MCP.
+func nativeWebOff() map[string]any {
+	return map[string]any{"webfetch": "deny", "websearch": "deny"}
+}
+
+// refuseToolsOffEnv refuses --env setting a name a toolless run's config owns: --env goes last and would replace it.
+func refuseToolsOffEnv(req agent.RunOptions) error {
+	if req.Tools {
+		return nil
+	}
+	for _, kv := range req.Env {
+		if k, _, _ := strings.Cut(kv, "="); k == opencodePermissionEnv || k == opencodeConfigEnv {
+			return retry.Fatal("opencode", fmt.Errorf("--env %s: the tools-off config owns it; drop it from --env", k))
+		}
+	}
+	return nil
+}
+
+// flagsOnly is argv up to the "--" separator: a prompt after it is data, never a flag.
+func flagsOnly(argv []string) []string {
+	if i := slices.Index(argv, "--"); i >= 0 {
+		return argv[:i]
+	}
+	return argv
 }

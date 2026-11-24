@@ -15,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
@@ -105,12 +104,9 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	return strings.Join(append(w, remoteScriptTail(req)...), " "), nil
 }
 
-// remoteScriptTail is remoteScript's permission and switch flags, each value single-quoted.
+// remoteScriptTail is remoteScript's codemode and switch flags, each value single-quoted.
 func remoteScriptTail(req RunOptions) []string {
-	p := req.Permissions
-	policy := permission.PolicyArg(p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Ask),
-		permission.RuleStrings(p.Deny))
-	w := appendOpt(appendOpt(nil, "--permissions", policy), "--codemode", req.Codemode)
+	w := appendOpt(nil, "--codemode", req.Codemode)
 	for _, b := range []struct {
 		on   bool
 		flag string
@@ -138,9 +134,6 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(req), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
-	for _, rules := range [][]permission.Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
-		vals = append(vals, permission.RuleStrings(rules)...)
-	}
 	for _, v := range vals {
 		if strings.ContainsRune(v, 0) {
 			return errors.New("remote ask: a NUL byte cannot cross the remote argv")

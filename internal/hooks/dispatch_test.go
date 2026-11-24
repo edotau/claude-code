@@ -183,12 +183,6 @@ func guardBindingProbes() map[string]bindingProbe {
 			bin := hosttest.FakeRTK(t)
 			return hosttest.RTKBashIn("git status"), func(r core.Result) bool { return r.UpdatedInput["command"] == bin+" git status" }
 		},
-		"permission-gate": func(t *testing.T, _ string) (string, func(core.Result) bool) {
-			t.Setenv("HARNESS_HOOK_AGENT", "gemini")
-			t.Setenv("HARNESS_DISPATCH_PERMISSIONS", `{"deny":[{"Tool":"Bash","Arg":"ls"}]}`)
-			return `{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`,
-				func(r core.Result) bool { return r.Decision == core.Block }
-		},
 		"docs-placement": func(t *testing.T, _ string) (string, func(core.Result) bool) {
 			repo := hosttest.Repo(t)
 			return writeProbe(repo, filepath.Join(repo, "NOTES.md"), "# n\n"),

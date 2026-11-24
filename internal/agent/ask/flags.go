@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -43,8 +42,6 @@ type askFlags struct {
 	agents                                                                                                                                                                       agentsFlag
 	attach                                                                                                                                                                       attachFlag
 	keepEnv                                                                                                                                                                      []string
-	permAllow, permAsk, permDeny, permKeys                                                                                                                                       []string
-	permMode                                                                                                                                                                     string
 	codemode                                                                                                                                                                     string
 	provider                                                                                                                                                                     string
 	env                                                                                                                                                                          []string
@@ -60,14 +57,10 @@ type askFlags struct {
 func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
 	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
-		"permissions": func() []string { return permModes }, "format": nil,
+		"format":   nil,
 		"fallback": func() []string { return router.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
 }
 
-// permModes are the --permissions values.
-var permModes = []string{permission.PermAllow, permission.PermDefault, permission.PermAuto, permission.PermPlan}
-
-// engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
 func engineNames() []string {
 	var out []string
 	for _, r := range agent.Engines() {
@@ -91,7 +84,6 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "tool use where the agent can gate it (default: on; --tools=false or --no-tools turns it off)")
-	registerPermFlags(fs, f)
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
 	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
@@ -102,68 +94,9 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	return fs, f
 }
 
-// registerFallbackFlag, registerPermFlags and registerOverlayFlag are the flag definitions ask and dispatch share.
+// registerFallbackFlag and registerOverlayFlag are the flag definitions ask and dispatch share.
 func registerFallbackFlag(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
-}
-
-func registerPermFlags(fs *flag.FlagSet, f *askFlags) {
-	fs.Var(&permValue{f}, "permissions", `allow (dev: runs every call; deny holds)|default|auto|plan, `+
-		`or {"mode":..,"allow":[..],"ask":[..],"deny":[..]}; repeats add rules`)
-}
-
-// permValue is --permissions: a mode word, or a policy object whose rules add and whose mode replaces.
-type permValue struct{ f *askFlags }
-
-func (v *permValue) Placeholder() string { return "MODE|JSON" }
-
-func (v *permValue) String() string {
-	if v == nil || v.f == nil {
-		return ""
-	}
-	f := v.f
-	if len(f.permKeys) == 0 {
-		return permission.PolicyArg(f.permMode, f.permAllow, f.permAsk, f.permDeny)
-	}
-	// A typed key replaces the logged list on re-parse, so an explicit empty list must survive the write-back.
-	obj := map[string]any{}
-	if f.permMode != "" {
-		obj["mode"] = f.permMode
-	}
-	for key, list := range map[string][]string{"allow": f.permAllow, "ask": f.permAsk, "deny": f.permDeny} {
-		if len(list) > 0 || slices.Contains(f.permKeys, key) {
-			obj[key] = append([]string{}, list...)
-		}
-	}
-	b, _ := json.Marshal(obj)
-	return string(b)
-}
-
-func (v *permValue) Set(s string) error {
-	f := v.f
-	if !strings.HasPrefix(strings.TrimSpace(s), "{") {
-		if _, err := permission.ParsePermissions(s, nil, nil, nil); err != nil {
-			return err
-		}
-		f.permMode = s
-		return nil
-	}
-	p, err := permission.ParsePolicy(s)
-	if err != nil {
-		return err
-	}
-	f.permMode = cmp.Or(p.Mode, f.permMode)
-	for _, l := range []struct {
-		key string
-		in  []string
-		out *[]string
-	}{{"allow", p.Allow, &f.permAllow}, {"ask", p.Ask, &f.permAsk}, {"deny", p.Deny, &f.permDeny}} {
-		if l.in != nil && !slices.Contains(f.permKeys, l.key) {
-			f.permKeys = append(f.permKeys, l.key)
-		}
-		*l.out = append(*l.out, l.in...)
-	}
-	return nil
 }
 
 func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {
@@ -207,7 +140,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.loopResume, "loop-resume", "", "continue the saved loop <id>")
 	registerOverlayFlag(fs, f)
 	fs.StringVar(&f.spec, "spec", "", "the whole ask as JSON: file, inline {...} or -")
-	fs.BoolVar(&f.dryRun, "dry-run", false, "print route, permissions and argv; no model call")
+	fs.BoolVar(&f.dryRun, "dry-run", false, "print route and argv; no model call")
 	registerWavesFlags(fs, f)
 }
 
@@ -469,9 +402,6 @@ type askTarget struct {
 	Persona                                                   **agent.Schema
 	Pack                                                      **pack.Spec
 	Attach, KeepEnv                                           *[]string
-	PermMode                                                  *string
-	PermAllow, PermAsk, PermDeny                              *[]string
-	permKeys                                                  *[]string
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
@@ -483,8 +413,6 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
-	p := rec.Request.Permissions
-	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Ask), permission.RuleStrings(p.Deny)
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy
@@ -678,12 +606,6 @@ func clearTyped(fs *flag.FlagSet, s *askState) {
 			*s.Attach = nil
 		case "keep-env":
 			*s.KeepEnv = nil
-		case "permissions": // each rule list the typed object names replaces the record's; the rest stay
-			for key, list := range map[string]*[]string{"allow": s.PermAllow, "ask": s.PermAsk, "deny": s.PermDeny} {
-				if slices.Contains(*s.permKeys, key) {
-					*list = nil
-				}
-			}
 		case "env":
 			*s.env = nil
 		}

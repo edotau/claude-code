@@ -9,14 +9,11 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -76,11 +73,11 @@ func treeHolds(top, workdir string) bool {
 	return err == nil && paths.Within(real, realTop)
 }
 
-// watchWrites observes the workdir and allowed write roots; nil means observation was incomplete.
-func watchWrites(ctx context.Context, workdir, top string, allow ...permission.Rule) func() (changed, touched *[]string) {
+// watchWrites observes the workdir's repo, else the workdir; nil means observation was incomplete.
+func watchWrites(ctx context.Context, workdir, top string) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
-	roots, plain, ok := writeRoots(ctx, workdir, top, allow)
-	if !ok || len(roots)+len(plain) == 0 {
+	roots, plain := writeRoots(ctx, workdir, top)
+	if len(roots)+len(plain) == 0 {
 		return unobserved
 	}
 	before, err := snapTrees(ctx, roots, nil)
@@ -123,7 +120,7 @@ func watchWrites(ctx context.Context, workdir, top string, allow ...permission.R
 }
 
 // writeRoots returns the repos to watch and, when workdir sits in no repo, workdir itself as a plain directory.
-func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rule) ([]string, string, bool) {
+func writeRoots(ctx context.Context, workdir, top string) ([]string, string) {
 	root := top
 	if !treeHolds(root, workdir) { // a resumed or re-run job can carry another directory's tree
 		gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
@@ -134,19 +131,10 @@ func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rul
 	if root != "" {
 		roots = append(roots, root)
 	}
-	extras, ok := allowedWriteRoots(ctx, workdir, allow)
-	if !ok {
-		return nil, "", false
-	}
-	for _, extra := range extras {
-		if !slices.Contains(roots, extra) {
-			roots = append(roots, extra)
-		}
-	}
 	if root != "" {
-		return roots, "", true
+		return roots, ""
 	}
-	return roots, plainDir(workdir), true
+	return roots, plainDir(workdir)
 }
 
 // plainDir is workdir (the cwd when empty) as an absolute real directory, or "" when it is none.
@@ -203,87 +191,6 @@ func diffPlain(before, after treeSnap) []string {
 		}
 	}
 	return out
-}
-
-func allowedWritePath(workdir, arg string) string {
-	arg = permission.ExpandHome("Write", arg)
-	if arg == "" || strings.HasPrefix(arg, "~") {
-		return ""
-	}
-	if !filepath.IsAbs(arg) {
-		base, err := filepath.Abs(workdir)
-		if err != nil {
-			return ""
-		}
-		arg = filepath.Join(base, arg)
-	}
-	return arg
-}
-
-func allowedWriteRoots(ctx context.Context, workdir string, allow []permission.Rule) ([]string, bool) {
-	var roots []string
-	byDir := map[string]string{}
-	byRoot := map[string][]string{}
-	for _, r := range allow {
-		if r.Tool != "Edit" && r.Tool != "Write" {
-			continue
-		}
-		anchor, dir := allowedWriteAnchor(workdir, r.Arg)
-		if dir == "" {
-			return nil, false
-		}
-		root := byDir[dir]
-		if root == "" {
-			gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
-			root = paths.GitTop(gctx, dir)
-			cancel()
-			byDir[dir] = root
-		}
-		if root == "" {
-			return nil, false
-		}
-		if _, ok := byRoot[root]; !ok {
-			roots = append(roots, root)
-		}
-		byRoot[root] = append(byRoot[root], anchor, anchor+string(filepath.Separator))
-	}
-	for _, root := range roots {
-		if !unignoredWrites(ctx, root, byRoot[root]) {
-			return nil, false
-		}
-	}
-	return roots, true
-}
-
-func allowedWriteAnchor(workdir, arg string) (string, string) {
-	arg = allowedWritePath(workdir, arg)
-	if arg == "" {
-		return "", ""
-	}
-	anchor := arg
-	if i := strings.IndexAny(arg, "*?["); i >= 0 {
-		anchor = filepath.Dir(arg[:i] + "_")
-	}
-	dir := anchor
-	for {
-		fi, err := os.Stat(dir)
-		if err == nil && fi.IsDir() {
-			break
-		}
-		if err != nil && !os.IsNotExist(err) {
-			return "", ""
-		}
-		dir = filepath.Dir(dir)
-	}
-	return anchor, dir
-}
-
-func unignoredWrites(ctx context.Context, root string, anchors []string) bool {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
-	defer cancel()
-	_, err := proc.RunGitRaw(ctx, root, append([]string{"check-ignore", "--"}, anchors...)...)
-	var exit *exec.ExitError
-	return errors.As(err, &exit) && exit.ExitCode() == 1
 }
 
 func snapTrees(ctx context.Context, roots []string, also treeSnap) (treeSnap, error) {

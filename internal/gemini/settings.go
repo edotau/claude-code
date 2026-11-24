@@ -7,14 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -126,26 +122,14 @@ func mergeAgyDeny(existing []any, rules []string) []string {
 
 var loadAgentConfig = agentconfig.LoadConfig
 
-// RenderSettings adds --effort and, headless, the per-run --settings after the default launch env and args.
+// RenderSettings adds --effort after the default launch env and args.
 func (e geminiEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
 	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	if argv, emulated, err = agyEffortArgv(s, argv, emulated); err != nil || !s.Headless {
-		return env, argv, emulated, cleanup, err
-	}
-	settings, notes, err := agyPermissionSettings(s.Permissions, s.Record.Extras[extraUseGuardRules] != "false", s.Tools, s.WorkDir)
-	if err != nil {
-		return env, argv, emulated, cleanup, err
-	}
-	if settings != "" {
-		argv = append(argv, "--settings", settings)
-	}
-	for _, n := range notes {
-		emulated = append(emulated, "permissions:"+n)
-	}
-	return env, argv, emulated, cleanup, nil
+	argv, emulated, err = agyEffortArgv(s, argv, emulated)
+	return env, argv, emulated, cleanup, err
 }
 
 // agyEffortArgv sets --effort to s.Effort; beside an effort-suffixed --model (agy refuses both) it is emulated.
@@ -174,220 +158,12 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 	return append(argv, "--effort", s.Effort), emulated, nil
 }
 
-// agyPermissionSettings renders p as agy's per-run --settings JSON (plus guard denies when guard)
-func agyPermissionSettings(p permission.Permissions, guard, tools bool, cwd string) (settings string, notes []string, err error) {
-	if p.IsZero() {
-		return "", nil, nil
-	}
-	if err := agyPlanRefusal(p, tools, cwd); err != nil {
-		return "", nil, err
-	}
-	deny, err := agyDenyRules(p, guard, cwd)
-	if err != nil {
-		return "", nil, err
-	}
-	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
-	for _, r := range p.Ask {
-		notes = append(notes, "ask "+r.String()+" runs as allow (agy has no headless judge)")
-	}
-	perms := map[string][]string{"deny": mergeAgyDeny(nil, deny)}
-	if len(allow) > 0 {
-		perms["allow"] = mergeAgyDeny(nil, allow)
-	}
-	b, err := json.Marshal(map[string]any{"permissions": perms})
-	if err != nil {
-		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
-	}
-	return string(b), append(notes, permission.RuleStrings(unAllow)...), nil
-}
-
-// agyDenyRules is the guard denies (when guard) plus p.Deny; a deny the gate hook leaves uncovered is refused.
-func agyDenyRules(p permission.Permissions, guard bool, cwd string) ([]string, error) {
-	cfg, err := loadAgentConfig()
-	if err != nil {
-		return nil, fmt.Errorf("agy: guard denies for --settings: %w", err)
-	}
-	var deny []string
-	if guard {
-		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
-	}
-	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express, is the gate hook's.
-	deny, unDeny := appendAgyRules(deny, p.Deny, cwd)
-	var unenforced []permission.Rule
-	for _, r := range p.Deny {
-		if (r.Tool == "Bash" || slices.Contains(unDeny, r)) && !agyGateCovers(cwd, agyGateTools[r.Tool]...) {
-			unenforced = append(unenforced, r)
-		}
-	}
-	if len(unenforced) > 0 {
-		home, _ := agentconfig.HomeOr("")
-		return nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
-			strings.Join(permission.RuleStrings(unenforced), ", "), agyHooksPath(home))
-	}
-	return deny, nil
-}
-
-func agyPlanRefusal(p permission.Permissions, tools bool, cwd string) error {
-	switch {
-	case p.Mode != "plan":
-		return nil
-	case tools:
-		return retry.Fatal("gemini", errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools; drop --tools or --permissions plan"))
-	case !agyGateCovers(cwd, "read_file"):
-		home, _ := agentconfig.HomeOr("")
-		return retry.Fatal("gemini", fmt.Errorf("permission mode plan needs the permission-gate hook on read_file in %s, which agy otherwise runs; run `claude-code configure --restore --agents --agent gemini`", agyHooksPath(home)))
-	}
-	return nil
-}
-
-// agyDenier explains agy's refusals of calls the run's policy did not grant natively.
-type agyDenier struct {
-	p   permission.Permissions
-	cwd string
-}
-
-// agyRefusedCall is the call a tool step agy refused for want of a grant; a deny rule's refusal reads differently.
-func agyRefusedCall(ev agyEvent) (permission.Rule, bool) {
-	u := ev.StepUpdate
-	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
-		return permission.Rule{}, false
-	}
-	var args struct{ CommandLine, Path string }
-	if json.Unmarshal(u.ToolInfo.Parameters, &args) != nil {
-		return permission.Rule{}, false
-	}
-	switch u.ToolName {
-	case "run_command":
-		return permission.Rule{Tool: "Bash", Arg: args.CommandLine}, args.CommandLine != ""
-	case "read_file":
-		return permission.Rule{Tool: "Read", Arg: args.Path}, args.Path != ""
-	case "write_file":
-		return permission.Rule{Tool: "Write", Arg: args.Path}, args.Path != ""
-	case "edit_file":
-		return permission.Rule{Tool: "Edit", Arg: args.Path}, args.Path != ""
-	}
-	return permission.Rule{}, false
-}
-
-func (d *agyDenier) report(calls []permission.Rule) {
-	for _, n := range d.notes(calls) {
-		fmt.Fprintln(os.Stderr, n)
-	}
-}
-
-// notes names, per refused call, the exact allow rule that repairs it; a denied call gets none.
-func (d *agyDenier) notes(calls []permission.Rule) []string {
-	if d == nil {
-		return nil
-	}
-	var out []string
-	for _, c := range calls {
-		switch {
-		case d.p.Explain(c.Tool, c.Arg).Source == "permissions.deny":
-			out = append(out, "agy: refused "+c.String()+": a permission deny rule matches it; no allow offered")
-		case agyRules(c, d.cwd) == nil:
-			out = append(out, "agy: refused "+c.String()+": agy has no native rule for it; no allow offered")
-		default:
-			out = append(out, "agy: refused "+c.String()+": retry with "+permission.AllowFlag(c.String()))
-		}
-	}
-	return out
-}
-
-// appendAgyRules appends each rule agy can express natively to dst and names the rest.
-func appendAgyRules(dst []string, rules []permission.Rule, cwd string) ([]string, []permission.Rule) {
-	var unmapped []permission.Rule
-	for _, r := range rules {
-		if s := agyRules(r, cwd); len(s) > 0 {
-			dst = append(dst, s...)
-		} else {
-			unmapped = append(unmapped, r)
-		}
-	}
-	return dst, unmapped
-}
-
-// agyRules maps an exact Bash command or glob-free path; Write and Edit give write_file and edit_file; nil if no map.
-func agyRules(r permission.Rule, cwd string) []string {
-	if r.Arg == "" || strings.ContainsAny(r.Arg, "*?[") {
-		return nil
-	}
-	if r.Tool == "Bash" {
-		return []string{"command(" + strings.TrimSpace(r.Arg) + ")"}
-	}
-	fns := map[string][]string{"Read": {"read_file"}, "Write": {"write_file", "edit_file"}, "Edit": {"write_file", "edit_file"}}[r.Tool]
-	p := r.Arg
-	if !filepath.IsAbs(p) {
-		if cwd == "" {
-			return nil
-		}
-		p = filepath.Join(cwd, p)
-	}
-	var out []string
-	for _, fn := range fns {
-		out = append(out, fn+"("+filepath.Clean(p)+")")
-	}
-	return out
-}
-
-// agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
+// agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the hooks.
 func agyHooksPath(home string) string { return filepath.Join(home, ".gemini", "config", "hooks.json") }
 
 // agySettingsPath is agy's settings.json, where renderGeminiSettings writes the guard denies.
 func agySettingsPath(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
-}
-
-// agyGateTools are the agy tools the gate must judge to enforce a Deny on each rule tool (none: unenforceable).
-var agyGateTools = map[string][]string{"Bash": {"run_command"}, "Read": {"read_file"}, "Write": {"write_file", "edit_file"}, "Edit": {"write_file", "edit_file"}}
-
-// agyGateCovers reports whether the global or workspace hooks.json runs the permission gate on every tool.
-func agyGateCovers(cwd string, tools ...string) bool {
-	if len(tools) == 0 {
-		return false
-	}
-	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
-	var files []string
-	if home, err := agentconfig.HomeOr(""); err == nil { // no home: never fall back to a CWD-relative hooks.json
-		files = append(files, agyHooksPath(home))
-	}
-	if cwd != "" {
-		files = append(files, filepath.Join(cwd, ".agents", "hooks.json"))
-	}
-	for _, p := range files {
-		groups := agyPreToolGroups(p)
-		if !slices.ContainsFunc(tools, func(tool string) bool { return !agyGroupsRunGate(groups, command, tool) }) {
-			return true
-		}
-	}
-	return false
-}
-
-// agyPreToolGroups is every PreToolUse group in the hooks.json at path; nil when it cannot be read or decoded.
-func agyPreToolGroups(path string) []settings.MatcherGroup {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var sets map[string]struct {
-		Enabled    *bool                   `json:"enabled"` // a set with enabled false does not run; a non-boolean fails the decode
-		PreToolUse []settings.MatcherGroup `json:"PreToolUse"`
-	}
-	if json.Unmarshal(b, &sets) != nil {
-		return nil
-	}
-	var groups []settings.MatcherGroup
-	for _, set := range sets {
-		if set.Enabled != nil && !*set.Enabled {
-			continue
-		}
-		groups = append(groups, set.PreToolUse...)
-	}
-	return groups
-}
-
-func agyGroupsRunGate(groups []settings.MatcherGroup, command, tool string) bool {
-	return slices.ContainsFunc(groups, func(g settings.MatcherGroup) bool { return g.RunsGate("gemini", command, tool) })
 }
 
 // agyHookName is the one named hook in agy's hooks.json the harness owns; every render replaces it.

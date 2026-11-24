@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 const (
@@ -381,40 +379,8 @@ func catchupDoneCount() int {
 	return n
 }
 
-// blockedNotePath holds the one quiet line a detached update leaves for the next SessionStart to show.
-func blockedNotePath() string { return filepath.Join(paths.MemoryStateDir(), "update-blocked-note") }
-
-// noteOut is where a foreground update's quiet note goes; a var for tests.
-var noteOut io.Writer = os.Stderr
-
-// noteBlocked tells the user quietly: dim on stderr for a person's run, a persisted line for a detached worker.
-func noteBlocked(log string, blocks int) {
-	line := fmt.Sprintf("memory: this session's update was not saved (the permission gate refused %d write(s))", blocks)
-	if log != "" {
-		line += "; details: " + log
-	}
-	if v := os.Getenv(DetachedEnv); v != "" && v != "0" {
-		_ = paths.AtomicWrite(blockedNotePath(), []byte(line+"\n"), 0o600)
-		return
-	}
-	fmt.Fprintln(noteOut, ansi.Style(ansi.Enabled(noteOut), ansi.Dim, line))
-}
-
-// ConsumeCatchupNote is the quiet SessionStart note (read once): a finished sweep's saved count, a blocked update.
-func ConsumeCatchupNote() string {
-	return cmp.Or(strings.Join(slices.DeleteFunc([]string{consumeSavedNote(), consumeBlockedNote()},
-		func(s string) bool { return s == "" }), "; "))
-}
-
-// consumeBlockedNote returns and deletes the line a detached update left when the gate refused its writes.
-func consumeBlockedNote() string {
-	b, err := os.ReadFile(blockedNotePath())
-	if err != nil {
-		return ""
-	}
-	_ = os.Remove(blockedNotePath())
-	return strings.TrimSpace(string(b))
-}
+// ConsumeCatchupNote is the quiet SessionStart note (read once): a finished sweep's saved count.
+func ConsumeCatchupNote() string { return consumeSavedNote() }
 
 // consumeSavedNote is the one quiet line for a finished sweep (read once), or "" with nothing saved.
 func consumeSavedNote() string {

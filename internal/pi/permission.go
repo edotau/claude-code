@@ -9,11 +9,8 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// refuseRequest refuses what the guard cannot judge: an Ask rule (no one to ask) and a --env that replaces the guard's wiring.
+// refuseRequest refuses a --env or overlay entry that replaces the guard's wiring or could turn the guard off.
 func refuseRequest(req agent.RunOptions) error {
-	if len(req.Permissions.Ask) > 0 {
-		return fmt.Errorf("pi cannot enforce ask rule %s: the guard only allows or blocks; make it a deny rule", req.Permissions.Ask[0])
-	}
 	for _, kv := range req.Env {
 		k, _, _ := strings.Cut(kv, "=")
 		if guardWiring(k) {
@@ -37,7 +34,7 @@ func refuseRequest(req agent.RunOptions) error {
 // guardWiring is an env name the pi guard sets itself; neither --env nor an overlay may replace it.
 func guardWiring(k string) bool {
 	k = strings.ToUpper(k)
-	return k == strings.ToUpper(agentDirEnv) || k == strings.ToUpper(agent.DispatchPermissionsEnv) || strings.HasPrefix(k, "HARNESS_PI_")
+	return k == strings.ToUpper(agentDirEnv) || strings.HasPrefix(k, "HARNESS_PI_")
 }
 
 // withoutHookControl drops every hook-control variable from a child env: pi's own process never inherits one.

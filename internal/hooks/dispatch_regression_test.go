@@ -101,7 +101,7 @@ func TestRunModuleGateBlocksUnparseablePayload(t *testing.T) {
 		t.Errorf("rtk-rewrite ran %d times, want %d", ran, len(unparseable))
 	}
 	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
-	if code, out, _ := runFlags("PreToolUse", strings.NewReader(""), "--permission-gate"); code != core.ExitProceed ||
+	if code, out, _ := runFlags("PreToolUse", strings.NewReader(""), "--safety-scan"); code != core.ExitProceed ||
 		!strings.Contains(out, `"deny"`) {
 		t.Errorf("gemini empty payload: exit %d stdout %q; want the JSON deny agy blocks on", code, out)
 	}

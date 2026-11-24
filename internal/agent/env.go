@@ -3,8 +3,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 
@@ -61,9 +58,6 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	}
 	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
 	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
-	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
-		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
-	}
 	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents cancel --lost` can find it once orphaned
 		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
 		env = append(slices.DeleteFunc(env, func(e string) bool {
@@ -185,50 +179,6 @@ func keptLogin(ctx context.Context) string {
 	}
 	agentName, _ := ctx.Value(launchAgentKey{}).(string)
 	return agentName
-}
-
-// DispatchPermissionsEnv carries a dispatch's Permissions as JSON to every agent child, for the permission-gate.
-const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
-
-type permissionsKey struct{}
-
-// InheritPermissions is p under the outer dispatch's policy in ctx's values: a nested run can only narrow it.
-func InheritPermissions(ctx context.Context, p permission.Permissions) (permission.Permissions, error) {
-	raw := proc.Value(ctx, DispatchPermissionsEnv)
-	if raw == "" {
-		return p, nil
-	}
-	var outer permission.Permissions
-	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
-		return p, fmt.Errorf("unreadable %s from the outer dispatch: %w", DispatchPermissionsEnv, err)
-	}
-	return layerOuter(p, outer), nil
-}
-
-// layerOuter is the outer dispatch's policy exactly (mode, allow, ask, deny), plus p's own deny and ask rules (R30).
-func layerOuter(p, outer permission.Permissions) permission.Permissions {
-	out := outer
-	out.Allow = slices.Clone(outer.Allow)
-	out.Deny, out.Ask = permission.Union(outer.Deny, p.Deny), permission.Union(outer.Ask, p.Ask)
-	return out
-}
-
-// WithPermissionsEnv exports p to children and snapshots the policy on the dispatch record, including an empty policy.
-func WithPermissionsEnv(ctx context.Context, p permission.Permissions) context.Context {
-	if id := DispatchIDOf(ctx); id != "" {
-		_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-			r.ExportedPolicy = &p
-			return r, true
-		})
-		if err != nil {
-			fmt.Fprintf(NoticeOut, "claude-code: dispatch %s exported policy not saved: %v\n", id, err)
-		}
-	}
-	if p.IsZero() {
-		return ctx
-	}
-	raw, _ := json.Marshal(p) // strings and string slices always marshal
-	return context.WithValue(ctx, permissionsKey{}, DispatchPermissionsEnv+"="+string(raw))
 }
 
 type unsetKey struct{}

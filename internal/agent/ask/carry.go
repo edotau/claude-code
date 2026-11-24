@@ -155,7 +155,7 @@ func carryAgent(name string, persona bool) error {
 	return nil
 }
 
-// carryRecord claims and saves the outer record: request.carry, the inner line (task on stdin), the permissions.
+// carryRecord claims and saves the outer record: request.carry and the inner line (task on stdin).
 func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	f := r.f
 	if err := r.fs.Set("agent", f.name); err != nil { // the inner line names the agent even under an `<agent> ask` verb
@@ -166,7 +166,7 @@ func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	_, values := agent.RunValues(r.ctx, nil)
 	typed := f.modelTyped || slices.Contains(folded, "--model") && !agent.IsAuto(f.model) // the child types it
 	req := agent.RunOptions{Prompt: prompt, Agent: f.name, Model: f.model, ModelTyped: typed, Tools: f.tools,
-		WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, Permissions: r.perms,
+		WorkDir: f.workdir, Timeout: f.timeout, TimeoutTyped: f.timeoutTyped,
 		Carry: true, CarryArgv: slices.Insert(argv, len(argv)-1, folded...), Values: values}
 	rec, err := agent.ClaimAskRecord(r.ctx, f.name, req, f.workdir, f.background)
 	if err != nil {
@@ -325,7 +325,7 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 	markTyped(fs, f)
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.resolveRecord,
-		r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+		r.checkArm, r.resolveLead, r.export} {
 		if code, done := phase(); done {
 			return agent.ModelRoute{}, fmt.Errorf("resolve inner ask: exit %d", code)
 		}
@@ -422,7 +422,7 @@ func takeoverDecision(child agent.Record, found bool, policy string, modelTyped 
 	return true, ""
 }
 
-// runTakeover starts Pi under the inner line's tools and permissions on the fixed brief; false: Pi left no record.
+// runTakeover starts Pi under the inner line's tools on the fixed brief; false: Pi left no record.
 func runTakeover(ctx context.Context, rec, child agent.Record, partial string, out io.Writer, log wire.StreamLog) (int, agent.Record, bool) {
 	argv, err := takeoverArgv(ctx, rec.Request.CarryArgv)
 	if err != nil {
@@ -465,7 +465,7 @@ func carryErr(rec agent.Record, out io.Writer) io.Writer {
 	return os.Stderr
 }
 
-// takeoverArgv is Pi's line: the inner line's tools tier, permission, workdir, format and overlay-cap flags.
+// takeoverArgv is Pi's line: the inner line's tools tier, workdir, format and overlay-cap flags.
 func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 	fs, f := askFlagSet()
 	fs.SetOutput(io.Discard)
@@ -475,9 +475,6 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 	if _, err := helptext.ParseArgs(fs, inner[3:]); err != nil {
 		return nil, err
 	}
-	if len(f.permAsk) > 0 {
-		return nil, errors.New(`pi refuses "ask" permission rules (its guard only allows or blocks)`)
-	}
 	argv := []string{"claude-code", "agents", "ask", "--agent", agentid.Pi, "--format", f.format}
 	defaultTools(fs, f)
 	if f.tools {
@@ -485,7 +482,7 @@ func takeoverArgv(ctx context.Context, inner []string) ([]string, error) {
 	} else {
 		argv = append(argv, "--tools=false") // a toolless carried run gets a toolless Pi
 	}
-	for _, kv := range [][2]string{{"permissions", (&permValue{f}).String()}, {"workdir", f.workdir}, {"rubric", f.rubric}} {
+	for _, kv := range [][2]string{{"workdir", f.workdir}, {"rubric", f.rubric}} {
 		if kv[1] != "" {
 			argv = append(argv, "--"+kv[0], kv[1])
 		}

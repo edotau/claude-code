@@ -159,7 +159,7 @@ func withHostedMarker(env []string, h *hookHost) []string {
 }
 
 // pluginFailClosed are the plugin modules whose timeout or crash blocks the call; the rest fail open with a note.
-var pluginFailClosed = []string{"permission-gate", "safety-scan"}
+var pluginFailClosed = []string{"safety-scan"}
 
 // pluginAsClaude names the modules sent an untagged payload: tagged, docs-placement would deny the plan-path rewrite.
 var pluginAsClaude = []string{"docs-placement"}

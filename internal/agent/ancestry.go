@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 )
@@ -57,11 +56,6 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 	set := proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)}
 	if doc := agentconfig.InlineOverlay(rec.Route.Provider, rec.Route.Profile); doc != "" { // the parent's fence beats any ambient one
 		set[route.OverlayVar] = doc
-	}
-	p, err := InheritPermissions(proc.WithValues(context.Background(), values), chainPolicy(rec))
-	if err == nil && !p.IsZero() { // leave a malformed inherited policy intact so checkRun refuses it
-		raw, _ := json.Marshal(p) // strings and string slices always marshal
-		set[DispatchPermissionsEnv] = string(raw)
 	}
 	return values.Merge(set).Merge(inheritedCaps(values, rec))
 }
@@ -239,18 +233,4 @@ func dispatchAncestors() map[int]int {
 		}
 	}
 	return chain
-}
-
-// chainPolicy prefers the complete launch snapshot; legacy levels reconstruct defaults and requests until a snapshot.
-func chainPolicy(rec Record) permission.Permissions {
-	var p permission.Permissions
-	seen := map[string]bool{}
-	for ok := true; ok && !seen[rec.ID] && len(seen) < maxAncestorWalk; rec, ok = parentRecord(rec.Parent) {
-		seen[rec.ID] = true
-		if rec.ExportedPolicy != nil {
-			return layerOuter(p, *rec.ExportedPolicy)
-		}
-		p = layerOuter(p, rec.Request.Permissions)
-	}
-	return p
 }

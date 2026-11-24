@@ -537,7 +537,6 @@ func watchFirstOutput(r Engine) Engine {
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, DebugFile, Direct Level
 	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                         Level
-	Permissions                                                                                                          Level // reads RunOptions.Permissions
 }
 
 // Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).

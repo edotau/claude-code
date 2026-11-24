@@ -128,13 +128,9 @@ var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode", "pi"}},
 	}},
-	// Copilot has no permission-gate: its edit tools reach safety-scan for the Edit deny globs.
+	// Every agent's edit tools reach safety-scan for the settings.json Edit deny globs.
 	{Name: "safety-edit", Gate: true, AgentOnly: true, Events: []EventSpec{
-		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"copilot"}},
-	}},
-	// AgentOnly: Claude enforces a dispatch's Permissions natively, so settings.json never renders the gate.
-	{Name: "permission", Gate: true, AgentOnly: true, Events: []EventSpec{
-		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, AlwaysOn: true, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode", "pi"}},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode", "pi"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten through rtk (Claude, Codex, OpenCode; agy judges rules post-rewrite).

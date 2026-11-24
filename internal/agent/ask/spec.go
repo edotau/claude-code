@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -31,9 +30,9 @@ func init() { askspec.Register(askSchema) }
 func askSchema() askspec.Schema {
 	fs, _ := askFlagSet()
 	return askspec.FromFlagSet(fs, askspec.Opts{
-		Choices: map[string][]string{"fallback": router.FallbackModes, "permissions": permModes,
+		Choices: map[string][]string{"fallback": router.FallbackModes,
 			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes},
-		JSON: []string{"overlay", "agents", "output-schema", "permissions"},
+		JSON: []string{"overlay", "agents", "output-schema"},
 	})
 }
 
@@ -263,15 +262,14 @@ type dryKey struct{}
 
 // dryDoc is what --dry-run prints.
 type dryDoc struct {
-	Agent       string              `json:"agent"`
-	Model       string              `json:"model"`
-	Route       string              `json:"route"`
-	Hops        []string            `json:"hops"`
-	Permissions string              `json:"permissions"`
-	Overlay     agentconfig.Overlay `json:"overlay"`
-	Argv        string              `json:"argv"`
-	Preflight   []string            `json:"preflight,omitempty"`
-	Skipped     []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
+	Agent     string              `json:"agent"`
+	Model     string              `json:"model"`
+	Route     string              `json:"route"`
+	Hops      []string            `json:"hops"`
+	Overlay   agentconfig.Overlay `json:"overlay"`
+	Argv      string              `json:"argv"`
+	Preflight []string            `json:"preflight,omitempty"`
+	Skipped   []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
 }
 
 // dryRun fills base (overlay, argv) with what the run would do; it stops before any record, claim, spawn or model call.
@@ -281,11 +279,7 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))
 	}
 	doc := base
-	perms, err := agent.InheritPermissions(ctx, o.Permissions) // the run layers the outer dispatch's rules in checkRun
-	if err != nil {
-		return failAskCode(format, req.Agent, err, 2)
-	}
-	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(perms)
+	doc.Agent, doc.Model, doc.Hops = o.Agent, o.Model, ch.Hops()
 	doc.Skipped = ch.Skipped
 	r, ok, err := dryRoute(ctx, o, req)
 	if err != nil {
@@ -351,7 +345,6 @@ func (d dryDoc) print(format string, out io.Writer) int {
 	row("route", d.Route)
 	row("hops", strings.Join(d.Hops, "; "))
 	row("skipped", strings.Join(d.Skipped, "; "))
-	row("permissions", d.Permissions)
 	if !d.Overlay.Empty() {
 		b, _ := json.Marshal(d.Overlay)
 		row("overlay", string(b))
@@ -361,18 +354,4 @@ func (d dryDoc) print(format string, out io.Writer) int {
 		row("preflight", l)
 	}
 	return 0
-}
-
-// permLine is the mode plus each rule list, as --permissions takes them.
-func permLine(p permission.Permissions) string {
-	parts := []string{cmp.Or(p.Mode, "default")}
-	for _, l := range []struct {
-		name  string
-		rules []permission.Rule
-	}{{"allow", p.Allow}, {"ask", p.Ask}, {"deny", p.Deny}} {
-		if len(l.rules) > 0 {
-			parts = append(parts, l.name+" "+strings.Join(permission.RuleStrings(l.rules), ", "))
-		}
-	}
-	return strings.Join(parts, "; ")
 }

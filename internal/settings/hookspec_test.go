@@ -301,16 +301,16 @@ func TestSpecsFor(t *testing.T) {
 		{"codex", "native", -1, "rtk-rewrite", "worktree-busy", nil},
 		{"gemini", "native", 12, "safety-scan", "rtk-rewrite", []string{
 			"docs-placement", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-tick", "format-stop", "memory-start",
-			"memory-update", "permission-gate", "review-simplicity", "safety-scan", "worktree-claim", "worktree-claim-check"}},
+			"memory-update", "review-simplicity", "safety-scan", "safety-scan", "worktree-claim", "worktree-claim-check"}},
 		{"copilot", "native", -1, "memory-end", "memory-compact", nil},
 		{"opencode", "plugin", -1, "worktree-claim", "memory-end", nil},
 		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan-mirror", "docs-plan-reminder",
 			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
-			"paths-resolve", "review-simplicity", "safety-scan"}},
+			"paths-resolve", "review-simplicity", "safety-scan", "safety-scan"}},
 		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},
-		{"pi", "plugin", 2, "safety-scan", "docs-placement", []string{"permission-gate", "safety-scan"}},
+		{"pi", "plugin", 2, "safety-scan", "docs-placement", []string{"safety-scan", "safety-scan"}},
 		{"claude", "bogus", 0, "", "", nil},
 	}
 	for _, tc := range tests {

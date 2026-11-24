@@ -1,13 +1,12 @@
 package agent
 
 import (
-	"cmp"
 	"errors"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 )
 
-// CheckCapabilities refuses an unenforceable --no-tools or permission feature; other unsupported flags run, dropped.
+// CheckCapabilities refuses an unenforceable --no-tools or persona; other unsupported flags run, dropped.
 func CheckCapabilities(name string, req RunOptions) error {
 	r, err := Lookup(name)
 	if err == nil {
@@ -21,7 +20,7 @@ func CheckCapabilities(name string, req RunOptions) error {
 
 // capabilityRefusal is the first capability c cannot honor for req, or nil.
 func capabilityRefusal(c Caps, name string, req RunOptions) error {
-	if err := cmp.Or(refusePersona(c, name, req.Persona), refusePermissions(c, name, req.Permissions)); err != nil {
+	if err := refusePersona(c, name, req.Persona); err != nil {
 		return err
 	}
 	switch {

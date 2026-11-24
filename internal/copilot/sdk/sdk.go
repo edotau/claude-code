@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -57,9 +56,6 @@ type Options struct {
 	Context          string
 	WorkingDirectory string
 	AllowAllTools    bool
-	// with AllowAllTools: approve only file reads and URL fetches
-	// with AllowAllTools: Deny rejects; anything else falls to the tier
-	Permissions permission.Permissions
 	// always explicit: unset, the SDK silently falls back to the GitHub subscription
 	UseLoggedInUser bool
 	GitHubToken     string

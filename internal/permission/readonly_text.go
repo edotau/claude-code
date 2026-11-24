@@ -108,9 +108,7 @@ func literalReaderOperands(name string, files []string) []string {
 // (past Read denies, through symlinks) and spools a device or fifo to a temp file.
 func (p Permissions) diffNotRegular(seg string, at opDir) bool {
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
-	if toks = rtkPlain(toks); len(toks) == 0 || toks[0] != "diff" || !slices.ContainsFunc(p.Allow, func(r Rule) bool {
-		return r == ReadOnlyAllow || r == Rule{Tool: "Bash", Arg: VerifyShellArg}
-	}) {
+	if toks = rtkPlain(toks); len(toks) == 0 || toks[0] != "diff" || !slices.Contains(p.Allow, readOnlyAllow) {
 		return false
 	}
 	ops, _ := literalArgs(toks[1:], "-u", "-q", "-s", "-w", "-b", "-B", "-i")

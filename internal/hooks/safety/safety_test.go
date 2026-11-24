@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -681,6 +680,24 @@ func TestProtectedWritesFollowLiveSettingsDeny(t *testing.T) {
 	}
 }
 
+// A settings.json Edit deny blocks an opencode or pi edit tool call and leaves an unlisted path alone.
+func TestSettingsEditDenyBlocksOpencodeAndPiEdits(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"permissions":{"deny":["Edit(//opt/probe/**)"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []string{"opencode", "pi"} {
+		for path, want := range map[string]core.Decision{"/opt/probe/a.txt": core.Block, "/opt/other/a.txt": core.Allow} {
+			payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Edit", "harness_agent": agent,
+				"cwd": "/tmp", "tool_input": map[string]string{"file_path": path}})
+			if got := scanPayload(bytes.NewReader(payload)).Decision; got != want {
+				t.Errorf("%s edit of %s: %v, want %v", agent, path, got, want)
+			}
+		}
+	}
+}
+
 // The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
 func TestCitedHardRule3Exists(t *testing.T) {
 	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))
@@ -731,7 +748,6 @@ func benchSettings(b *testing.B) string {
 	cfg := b.TempDir()
 	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	b.Setenv("HOME", cfg)
-	b.Setenv(agent.DispatchPermissionsEnv, "")
 	file := filepath.Join(cfg, "settings.json")
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		b.Fatal(err)

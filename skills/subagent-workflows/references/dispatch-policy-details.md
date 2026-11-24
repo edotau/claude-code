@@ -38,25 +38,6 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
 The `ask --format json` bullet continues here (its envelope and isolation flags stay in the rule). An ask with no
 tools flag gets tools on.
 
-  An allow rule adds but can never reopen a matching deny.
-  copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
-  approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
-  returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit policy:
-  no Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs under
-  `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
-  `--permissions` rules gate with only those rules and no judge, so an ask rule becomes a deny;
-  that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch).
-
-## Permission modes per agent
-
-`--permissions MODE|JSON` (`{"mode":..,"allow":[..],"ask":[..],"deny":[..]}`) maps its mode per agent; deny rules hold
-in every mode. Writable roots are `agent.WritableRoots` (`internal/agent/job.go`): `~/.claude` plus the cwd's repo.
-
-| Agent | `allow` | `default` and `auto` |
-| --- | --- | --- |
-| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `default` or `auto` with `--tools` adds `--add-dir` per root; off it the gated launch above |
-| codex | rules only, the agents.json sandbox | `auto` (or any ask rule) swaps the sandbox for codex's approval reviewer |
-| copilot | the SDK approves every request the rules allow | as `allow` |
-| gemini | `--tools` runs `--dangerously-skip-permissions` plus `--add-dir` per root | as `allow` |
-| opencode | `*` allow, roots as `external_directory` allow | `default` sends `*` to opencode's `--auto` judge; `auto` as `allow` |
+A dispatch carries no permission policy. `--tools` runs every agent unprompted, and `safety-scan` (the `settings.json`
+deny rules, the AI-attribution block) applies to all of them. claude `--tools` off Anthropic runs under
+`bypassPermissions` with the same hook.

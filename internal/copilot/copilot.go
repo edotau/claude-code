@@ -215,7 +215,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
-		// relToWorkDir needs a non-empty root
+		// the session runs in an explicit directory
 		var err error
 		if workDir, err = os.Getwd(); err != nil {
 			return sdk.Options{}, fmt.Errorf("resolve working directory: %w", err)
@@ -227,7 +227,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		// --effort over the record; there is no per-call --context, so the record decides it
 		ReasoningEffort: effort,
 		Context:         s.Record.Context, WorkingDirectory: workDir,
-		AllowAllTools: req.Tools, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
+		AllowAllTools: req.Tools, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
 	}
@@ -289,9 +289,6 @@ func joinNames(dir string, names []string) []string {
 
 // copilotPrompt inlines text attachments; the SDK never resolves @<path>, so images ride as absolute file paths.
 func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err error) {
-	if err = agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
-		return "", nil, err
-	}
 	images, rest := agent.SplitImages(req.Attach)
 	if images, err = absPaths(images); err != nil {
 		return "", nil, err
@@ -522,7 +519,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	MinVersion: sdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native, Permissions: agent.Native,
+		Tools: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventUsage, wire.EventResult, wire.EventError},
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,

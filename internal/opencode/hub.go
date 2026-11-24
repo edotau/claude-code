@@ -210,14 +210,11 @@ func (s *idleState) onSpeak() {
 }
 
 func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, model string) (string, []string, []string, error) {
-	if err := refusePolicyEnv(req); err != nil {
+	if err := refuseToolsOffEnv(req); err != nil {
 		return "", nil, nil, err
 	}
 	bin, err := paths.AgentBin("opencode")
 	if err != nil {
-		return "", nil, nil, err
-	}
-	if err := agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
 		return "", nil, nil, err
 	}
 	h := agent.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
@@ -238,7 +235,6 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 	if err := agent.CheckRouteNames(env, req.OverlaySet, req.OverlayUnset); err != nil {
 		return "", nil, nil, err
 	}
-	argv = opencodePolicyArgv(argv, req)
 	// --env goes last so it wins
 	env = append(env, req.Env...)
 	return bin, env, argv, nil

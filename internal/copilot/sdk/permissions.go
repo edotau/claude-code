@@ -3,13 +3,8 @@
 package sdk
 
 import (
-	"fmt"
-	"path/filepath"
-	"slices"
-	"strings"
 	"sync/atomic"
 
-	"github.com/edotau/claude-code/internal/permission"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -31,144 +26,15 @@ func permissionHandler(o Options, approved *atomic.Bool) copilot.PermissionHandl
 }
 
 func baseHandler(o Options) copilot.PermissionHandlerFunc {
-	switch {
-	case !o.AllowAllTools:
+	if !o.AllowAllTools {
 		return denyAllTools
 	}
-	return withPermissions(o, approveToolOnce)
-}
-
-// withPermissions rejects Deny first; headless Ask intentionally falls through to approval (O1).
-func withPermissions(o Options, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
-	if o.Permissions.IsZero() {
-		return next
-	}
-	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-		if d, handled := ruleDecision(o, req, ruleCalls(req, o.WorkingDirectory)); handled {
-			return d, nil
-		}
-		return next(req, inv)
-	}
-}
-
-// ruleDecision rejects when o.Permissions refuses any group of calls; handled is false when next should decide.
-func ruleDecision(o Options, req copilot.PermissionRequest, groups [][]permission.Rule) (rpc.PermissionDecision, bool) {
-	if len(groups) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
-		feedback := "Refused by permissions.mode (plan): this request has no supported rule mapping; use a supported read tool."
-		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
-	}
-	for _, group := range groups {
-		if call, refused := refusedCall(o.Permissions, req, group); refused {
-			feedback := denialFeedback(o.Permissions.Explain(call.Tool, call.Arg))
-			return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
-		}
-	}
-	return nil, false
-}
-
-// denialFeedback names the refused call, its deciding source and rule, and the repair the owner can replay.
-func denialFeedback(d permission.Denial) string {
-	by := d.Source
-	if d.Rule != (permission.Rule{}) {
-		by += " " + d.Rule.String()
-	}
-	remedy := d.Remedy
-	if d.Replay != "" {
-		remedy = "re-run with " + d.Replay
-	}
-	return fmt.Sprintf("Refused %s by %s: %s", d.Call, by, remedy)
-}
-
-// refusedCall is the call a Deny names in group, else group[0] when none is allowed (plan passes reads unless denied).
-func refusedCall(p permission.Permissions, req copilot.PermissionRequest, group []permission.Rule) (permission.Rule, bool) {
-	for _, call := range group {
-		if (permission.Permissions{Deny: p.Deny}).Decide(call.Tool, call.Arg) == permission.Deny {
-			return call, true
-		}
-	}
-	if slices.ContainsFunc(group, func(c permission.Rule) bool { return p.Decide(c.Tool, c.Arg) != permission.Deny }) {
-		return permission.Rule{}, false
-	}
-	if p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) {
-		return permission.Rule{}, false
-	}
-	return group[0], true
-}
-
-// ruleCalls are the Tool(arg) names a request is judged as: Deny on any spelling refuses, Allow on any grants.
-func ruleCalls(req copilot.PermissionRequest, workDir string) [][]permission.Rule {
-	switch r := requestValue(req).(type) {
-	case rpc.PermissionRequestShell:
-		return [][]permission.Rule{{{Tool: "Bash", Arg: r.FullCommandText}}}
-	case rpc.PermissionRequestWrite:
-		return [][]permission.Rule{pathCalls([]string{"Edit", "Write"}, workDir, r.FileName)}
-	case rpc.PermissionRequestRead:
-		return [][]permission.Rule{pathCalls([]string{"Read"}, workDir, r.Path)}
-	case rpc.PermissionRequestURL:
-		return [][]permission.Rule{{{Tool: "WebFetch", Arg: r.URL}}}
-	case rpc.PermissionRequestMCP:
-		return mcpCalls(r.ServerName, r.ToolName)
-	}
-	return nil
-}
-
-// pathCalls is path under each tool name, as given and (when inside workDir) workdir-relative.
-func pathCalls(tools []string, workDir, path string) []permission.Rule {
-	args := []string{path}
-	if rel := relToWorkDir(workDir, path); rel != path {
-		args = append(args, rel)
-	}
-	var calls []permission.Rule
-	for _, tool := range tools {
-		for _, arg := range args {
-			calls = append(calls, permission.Rule{Tool: tool, Arg: arg})
-		}
-	}
-	return calls
-}
-
-// requestValue is req with a pointer to one of ruleCalls' kinds dereferenced, so each kind is matched once.
-func requestValue(req copilot.PermissionRequest) any {
-	switch r := req.(type) {
-	case *rpc.PermissionRequestShell:
-		return *r
-	case *rpc.PermissionRequestWrite:
-		return *r
-	case *rpc.PermissionRequestRead:
-		return *r
-	case *rpc.PermissionRequestURL:
-		return *r
-	case *rpc.PermissionRequestMCP:
-		return *r
-	}
-	return req
-}
-
-// mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
-func mcpCalls(server, tool string) [][]permission.Rule {
-	return [][]permission.Rule{{{Tool: "mcp__" + server + "__" + tool}}, {{Tool: "mcp__" + server}}}
-}
-
-// relToWorkDir is p relative to workDir when inside it, else p unchanged.
-func relToWorkDir(workDir, p string) string {
-	if rel, err := filepath.Rel(workDir, p); workDir != "" && err == nil && filepath.IsLocal(rel) {
-		return filepath.ToSlash(rel)
-	}
-	return p
+	return approveToolOnce
 }
 
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	feedback := denyFeedback
 	return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
-}
-
-// readOnlyKinds are the requests a plan-mode run approves: file reads and URL fetches, never write or memory.
-var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
-
-// isWebSearchMCP is the harness web_search server's one tool; the request has no command, so name and tool must match.
-func isWebSearchMCP(req copilot.PermissionRequest) bool {
-	r, ok := requestValue(req).(rpc.PermissionRequestMCP)
-	return ok && r.ServerName == webSearchServer && r.ToolName == webSearchTool
 }
 
 // approveToolOnce is the explicit opt-in; managed org settings still win.
@@ -178,30 +44,3 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 	}
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
-
-// DecideCall is the SDK handler's verdict (allow, deny or ask) for one Tool(arg) call, for the doctor report.
-func DecideCall(p permission.Permissions, workDir, tool, arg string) string {
-	var req copilot.PermissionRequest
-	switch tool {
-	case "Bash":
-		req = &rpc.PermissionRequestShell{FullCommandText: arg, HasWriteFileRedirection: strings.Contains(arg, " > ")}
-	case "Edit", "Write":
-		req = &rpc.PermissionRequestWrite{FileName: arg}
-	default:
-		req = &rpc.PermissionRequestRead{Path: arg}
-	}
-	d, _ := baseHandler(Options{AllowAllTools: true, Permissions: p, WorkingDirectory: workDir})(req, copilot.PermissionInvocation{})
-	switch d.(type) {
-	case *rpc.PermissionDecisionApproveOnce:
-		return "allow"
-	case *rpc.PermissionDecisionReject:
-		return "deny"
-	}
-	return "ask"
-}
-
-// webSearchServer is the harness Tavily MCP server (`network websearch`), the one a plan-mode run may call.
-const webSearchServer = "web_search"
-
-// webSearchTool is the only tool that server exposes.
-const webSearchTool = "web_search"

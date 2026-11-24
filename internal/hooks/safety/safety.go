@@ -1,4 +1,4 @@
-// Package safety is the command-safety hook area: safety-scan, permission-gate and the rtk rewrite.
+// Package safety is the command-safety hook area: safety-scan and the rtk rewrite.
 package safety
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// isAskLessEdit marks a non-Bash tool on an agent with no permission-gate ask path (Copilot's edit tools).
+// isAskLessEdit marks a non-Bash tool on an agent with no ask path (every non-Claude agent's edit tools).
 func isAskLessEdit(in *core.Input) bool {
 	return in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") && !core.SupportsAsk(in.Agent())
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -40,19 +39,13 @@ var _ agent.Engine = claudeAgent
 func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
-	if err := refusePermissionCapabilities(req); err != nil {
+	if err := refuseCapabilities(req); err != nil {
 		return wire.Result{}, err
 	}
 	if req.NoTools {
 		if res, done, err := runNoTools(ctx, req, sink); done {
 			return res, err
 		}
-	}
-	if err := refuseUnmappedDeny(req.Permissions); err != nil {
-		return wire.Result{}, err
-	}
-	if err := agent.CheckAttachReadable(req.Permissions, req.Attach); err != nil {
-		return wire.Result{}, retry.Fatal("claude", err)
 	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
@@ -72,7 +65,6 @@ func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire
 
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
 func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink wire.Sink) (wire.Result, error) {
-	ctx, req = gateOffAnthropic(ctx, req)
 	args := claudeStreamArgs(req, false)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
@@ -98,7 +90,7 @@ func claudeStreamArgs(req agent.RunOptions, live bool) []string {
 	return claudeArgs(argv, req)
 }
 
-// claudeArgs appends the request's option flags to base; effort and permissions are RenderSettings', tools toolArgs'.
+// claudeArgs appends the request's option flags to base; effort is RenderSettings', tools toolArgs'.
 func claudeArgs(args []string, req agent.RunOptions) []string {
 	if req.BudgetUSD != nil {
 		args = append(args, "--max-budget-usd", strconv.FormatFloat(*req.BudgetUSD, 'g', -1, 64))
@@ -113,7 +105,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
 		{req.OutputSchema != "", []string{"--json-schema", req.OutputSchema}},
 		{req.SessionID != "", []string{"--resume", req.SessionID}},
-		{req.Tools && (req.Gate || req.Autonomous && req.Permissions.IsZero()), []string{"--permission-mode", "bypassPermissions"}},
+		{req.Tools, []string{"--permission-mode", "bypassPermissions"}}, // a --tools leaf holds its tools whole
 	} {
 		if f.on {
 			args = append(args, f.flag...)
@@ -136,10 +128,7 @@ func toolArgs(req agent.RunOptions) []string {
 	return []string{"--exclude-dynamic-system-prompt-sections"} // per-session sections defeat the prompt cache
 }
 
-// planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, unlike bare plan mode.
-var planDeny = []permission.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
-
-// RenderSettings adds --effort and, headless, the permission flags after the base launch env/args.
+// RenderSettings adds --effort after the base launch env/args.
 func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
 	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	if err != nil {
@@ -152,33 +141,7 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	if effort != "" {
 		argv = append(argv, "--effort", effort)
 	}
-	if !s.Headless { // an interactive launch keeps the user's own permission settings
-		return env, argv, emulated, cleanup, nil
-	}
-	if s.Gate { // bypassPermissions plus the gate hook (gateArgs) replace claude's own rules
-		return env, argv, emulated, cleanup, nil
-	}
-	if err := refuseUnmappedDeny(s.Permissions); err != nil {
-		return env, argv, emulated, cleanup, err
-	}
-	argv = append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, onAnthropic(s.Target))...)
-	dirs, err := addDirArgs(s.Permissions.Mode, s.Tools, s.WorkDir)
-	return env, append(argv, dirs...), emulated, cleanup, err
-}
-
-// addDirArgs widens an auto or default --tools run's reach to agent.WritableRoots, the plan's one cross-agent contract.
-func addDirArgs(mode string, tools bool, workDir string) ([]string, error) {
-	if (mode != permission.PermAuto && mode != permission.PermDefault) || !tools {
-		return nil, nil
-	}
-	if workDir == "" { // claude runs in the process cwd
-		workDir, _ = os.Getwd() // a Getwd error still runs, with the harness-only roots (never a new refusal)
-	}
-	var args []string
-	for _, d := range agent.WritableRoots(workDir) {
-		args = append(args, "--add-dir", d)
-	}
-	return args, nil
+	return env, argv, emulated, cleanup, nil
 }
 
 // claudeEffort spells e for claude's CLI and Messages API; "" stays "" and an unknown effort is refused.
@@ -188,59 +151,6 @@ func claudeEffort(e string) (string, error) {
 	}
 	native, _ := agentid.NativeEffort(agentid.Claude, agentid.Effort(e))
 	return native, nil
-}
-
-func permissionArgs(p permission.Permissions, tools, autonomous, anthropic bool) []string {
-	switch {
-	case tools && !anthropic && p.Mode != "plan" && (!autonomous || !p.IsZero()): // dontAsk: the request's rules only add
-		p.Allow = slices.Concat(gatewayAllow(), p.Allow)
-	case p.IsZero():
-		return nil
-	}
-	if p.Mode == "plan" && tools {
-		p.Deny = append(slices.Clone(p.Deny), planDeny...)
-	}
-	return append(append(ruleArgs(p), permissionModeArgs(p.Mode, anthropic)...), "--permission-prompts", "none")
-}
-
-// ruleArgs is --allowedTools and --disallowedTools with their rules, each omitted when empty.
-func ruleArgs(p permission.Permissions) []string {
-	var args []string
-	for _, l := range []struct {
-		flag  string
-		rules []permission.Rule
-	}{{"--allowedTools", p.Allow}, {"--disallowedTools", p.Deny}} {
-		if len(l.rules) > 0 {
-			args = append(args, l.flag)
-			for _, r := range l.rules {
-				args = append(args, r.String())
-			}
-		}
-	}
-	return args
-}
-
-func permissionModeArgs(mode string, anthropic bool) []string {
-	switch {
-	case mode == "plan":
-		return nil
-	case mode == permission.PermAllow: // the development override: every call runs; --disallowedTools still holds
-		return []string{"--permission-mode", "bypassPermissions"}
-	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
-		return []string{"--permission-mode", "auto"}
-	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied
-		return []string{"--permission-mode", "dontAsk"}
-	}
-}
-
-// refuseUnmappedDeny fails closed: claude takes any "Tool(arg)" rule, so only a nameless Deny rule cannot be enforced.
-func refuseUnmappedDeny(p permission.Permissions) error {
-	for _, r := range p.Deny {
-		if r.Tool == "" {
-			return retry.Fatal("claude", fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String()))
-		}
-	}
-	return nil
 }
 
 // launchProvider is the profile claudeCmd launches req on: the cell's row, the request's, else the session profile.
@@ -275,21 +185,10 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(p.Argv, toolArgs(req)...)
-	if req.Gate {
-		args = append(args, gateArgs...)
-	}
-	if err := refuseUngatedBypass(args, req); err != nil {
-		return nil, nil, agent.ClaudeLaunch{}, err
-	}
 	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
-	}
-	if req.Gate {
-		if cl.Argv, err = injectGate(cl.Argv, req); err != nil {
-			return nil, nil, cl, err
-		}
 	}
 	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
@@ -298,9 +197,9 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	return cmd, tail, cl, err
 }
 
-// refuseClaudeCmd is claudeCmd's refusal before any resolution: an unenforceable permission or no launcher.
+// refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.
 func refuseClaudeCmd(req agent.RunOptions) error {
-	if err := refusePermissionCapabilities(req); err != nil {
+	if err := refuseCapabilities(req); err != nil {
 		return err
 	}
 	if req.Launcher == nil {
@@ -309,25 +208,14 @@ func refuseClaudeCmd(req agent.RunOptions) error {
 	return nil
 }
 
-// claudeChild is the unstarted child for the resolved launch, its --env applied last, refused if the gate env leaked.
+// claudeChild is the unstarted child for the resolved launch, its --env applied last.
 func claudeChild(ctx context.Context, req agent.RunOptions, cl agent.ClaudeLaunch, launchEnv []string, prompt string) (*exec.Cmd, *retry.TailBuffer, error) {
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
 	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), proc.Values(cl.Set).Env())
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: set, Extra: req.Env}.Environ(ctx) // --env last, so it wins
-	if err := refuseGateEnv(req, cmd.Env); err != nil {
-		return nil, nil, err
-	}
 	return cmd, tail, nil
 }
-
-var gateExe = os.Executable
-
-// gateTools is the only built-in tool set a gated child gets: the permission-gate judges exactly these.
-const gateTools = "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"
-
-// gateArgs are the launch flags of a gated child: no MCP and only the tools the gate judges.
-var gateArgs = []string{"--strict-mcp-config", "--tools", gateTools}
 
 // readSettings is a --settings value: inline JSON when it starts with "{", else a file path.
 func readSettings(v string) (map[string]any, error) {
@@ -340,42 +228,6 @@ func readSettings(v string) (map[string]any, error) {
 	}
 	doc := map[string]any{}
 	return doc, json.Unmarshal(raw, &doc)
-}
-
-// injectGate merges the permission-gate hook into the launch's one --settings (a second flag would replace it).
-func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
-	// the hook exits 2 on any failure, so a gate that cannot run blocks the call; no policy or binary refuses the launch
-	refuse := func(err error) ([]string, error) {
-		return nil, retry.Fatal("claude", fmt.Errorf("gated launch refused: %w", err))
-	}
-	if err := refuseGate(req); err != nil {
-		return refuse(err)
-	}
-	exe, err := gateExe()
-	if err == nil {
-		_, err = os.Stat(exe)
-	}
-	if err != nil {
-		return refuse(fmt.Errorf("permission-gate binary: %w", err))
-	}
-	doc := map[string]any{}
-	at := slices.Index(argv, "--settings")
-	if at >= 0 && at+1 < len(argv) {
-		if doc, err = readSettings(argv[at+1]); err != nil {
-			return refuse(fmt.Errorf("launch settings: %w", err))
-		}
-	}
-	doc["hooks"] = map[string]any{"PreToolUse": []any{map[string]any{"hooks": []any{map[string]any{
-		"type": "command", "timeout": 5, "command": textutil.ShellQuote(exe) + " hook PreToolUse --permission-gate || exit 2"}}}}}
-	merged, err := json.Marshal(doc)
-	if err != nil {
-		return refuse(fmt.Errorf("gate settings: %w", err))
-	}
-	if at < 0 {
-		return append(slices.Clone(argv), "--settings", string(merged)), nil
-	}
-	out := append(slices.Clone(argv[:at+1]), string(merged)) // a bare trailing --settings gets the document as its value
-	return append(out, argv[min(at+2, len(argv)):]...), nil
 }
 
 type claudeEvent struct {
@@ -580,8 +432,6 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 		}
 		s.log.Emit("result", ev.Result)
 		return untilResult, s.emitResultOnly(ev)
-	case "user":
-		s.res.GateBlocks += ev.gateBlocks()
 	case "error":
 		if t := ev.text(); t != "" {
 			_ = wire.EmitError(s.log, s.sink, t)
@@ -644,49 +494,6 @@ func (f fileEdits) block(b editBlock, res *wire.Result) {
 		}
 		delete(f, b.ToolUseID)
 	}
-}
-
-// gateBlockPrefix starts every Reason the permission-gate hook blocks with (internal/hooks/safety/permission.go).
-const gateBlockPrefix = "permission-gate: BLOCKED"
-
-// gateBlocks counts a top-level user event's is_error tool_results whose text (string or text parts) is a gate block.
-func (ev claudeEvent) gateBlocks() (n int) {
-	if ev.ParentToolUseID != "" {
-		return 0
-	}
-	var m struct {
-		Content []struct {
-			Type    string          `json:"type"`
-			IsError bool            `json:"is_error"`
-			Content json.RawMessage `json:"content"`
-		} `json:"content"`
-	}
-	if json.Unmarshal(ev.Message, &m) != nil { // a string or odd message carries no blocks
-		return 0
-	}
-	for _, b := range m.Content {
-		if b.Type == "tool_result" && b.IsError && strings.Contains(toolResultText(b.Content), gateBlockPrefix) {
-			n++
-		}
-	}
-	return n
-}
-
-// toolResultText flattens a tool_result's content, a string or an array of text parts.
-func toolResultText(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var parts []struct {
-		Text string `json:"text"`
-	}
-	_ = json.Unmarshal(raw, &parts) // best-effort: an odd shape counts as no text
-	var sb strings.Builder
-	for _, p := range parts {
-		sb.WriteString(p.Text)
-	}
-	return sb.String()
 }
 
 var errNoResult = errors.New("claude: stream ended without a result event")
@@ -809,11 +616,10 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 		"--max-budget-usd", "--no-session-persistence", "--debug-file", "--system-prompt",
 		"--append-system-prompt", "--json-schema", "--resume", "--permission-mode", "--tools", "--setting-sources",
 		"--strict-mcp-config", "--mcp-config", "--exclude-dynamic-system-prompt-sections", "--effort",
-		"--permission-prompts", "--allowedTools", "--disallowedTools", "--agents", "--agent", "--settings"},
+		"--agents", "--agent", "--settings"},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, DebugFile: agent.Native,
-		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
-		Permissions: agent.Native},
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
 	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 }}
@@ -855,7 +661,6 @@ type claudeLive struct {
 }
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
-	ctx, req = gateOffAnthropic(ctx, req)
 	args := claudeStreamArgs(req, true)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
 	b.cmd, b.row = cmd, cl.Set[providers.EnvSessionProfile]
@@ -917,4 +722,12 @@ func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 		return providers.VerdictOK, strings.TrimSuffix("logged in "+strings.Trim(plan, " ()"), " ")
 	}
 	return providers.VerdictNeedsLogin, ""
+}
+
+// refuseCapabilities rejects a tool combination the launch cannot supply before invoking its launcher.
+func refuseCapabilities(req agent.RunOptions) error {
+	if req.Tools && req.NoTools {
+		return retry.Fatal("claude", errors.New("--no-tools and --tools are exclusive"))
+	}
+	return agent.CheckCapabilities("claude", req)
 }

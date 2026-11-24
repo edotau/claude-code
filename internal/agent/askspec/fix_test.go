@@ -22,7 +22,7 @@ func TestFix(t *testing.T) {
 		{"hosts", []string{"--hosts", "h", "hi"}, []string{"--hosts", "h", "hi"}, false},
 		{"envs", []string{"--envs=A=1", "hi"}, []string{"--envs=A=1", "hi"}, false},
 		{"permission", []string{"--permission", "plan", "hi"}, []string{"--permission", "plan", "hi"}, false},
-		{"permissions all", []string{"--permissions", "all"}, []string{"--permissions", "all"}, false},
+		{"hosts all", []string{"--hosts", "all"}, []string{"--hosts", "all"}, false},
 	}
 	for _, c := range cases {
 		got, notes, changed := fixSchema().Fix(c.args, roster)

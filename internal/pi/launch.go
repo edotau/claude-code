@@ -51,7 +51,7 @@ func codemodeOn(mode string) bool { return mode != "" && mode != "off" }
 
 // Experiment is the trial a run of req carries: code mode, else rtk wrapping wherever its bash tool runs shimmed.
 func (piEngine) Experiment(req agent.RunOptions) string {
-	return experiment(req.Codemode, req.Tools && slices.Contains(guardTools(req), "bash"))
+	return experiment(req.Codemode, req.Tools)
 }
 
 // experiment is the one trial a run carries; the shims never wrap under code mode, nor on Windows (no shims).

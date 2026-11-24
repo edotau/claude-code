@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -240,8 +239,8 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 	}
 }
 
-// A hub dispatch with a Deny launches opencode with the permission pin and the gate plugin.
-func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
+// A hub dispatch launches opencode with the hooks plugin.
+func TestHubRunCarriesPlugin(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
@@ -249,18 +248,11 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 	pathstest.FakeVendor(t, "opencode", `{ echo "PERM=$OPENCODE_PERMISSION"; echo "CFG=$OPENCODE_CONFIG_CONTENT"; } > `+seen)
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
 	l := hubDispatch{agent: "opencode", provider: p}
-	if l.Caps().Permissions != agent.Native {
-		t.Fatal("hub Caps.Permissions must be Native once Run enforces them")
-	}
-	deny, err := permission.ParseRule("Bash(rm *)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := agent.RunOptions{Prompt: "hi", Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{deny}}}
+	req := agent.RunOptions{Prompt: "hi", Tools: true}
 	// the fake prints nothing, so an empty-answer error is expected
 	_, _ = l.Run(context.Background(), req, wire.Discard)
 	got, _ := os.ReadFile(seen)
-	for _, want := range []string{`PERM={`, `"bash"`, `harness-hooks-`} {
+	for _, want := range []string{`harness-hooks-`} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("launch env lacks %s:\n%s", want, got)
 		}

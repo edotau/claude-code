@@ -26,59 +26,14 @@ func scopeWave(agents ...string) []Spec {
 	return wave
 }
 
-func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
-	wave := scopeWave("opencode", "opencode")
-	flags, enforced := scopeFlags(wave[0], LaunchOptions{Wave: wave})
-	if !enforced {
-		t.Fatal("opencode must enforce")
-	}
-	if piWave := scopeWave("pi", "pi"); func() bool {
-		f, ok := scopeFlags(piWave[0], LaunchOptions{Wave: piWave})
-		return !ok || !strings.Contains(strings.Join(f, " "), "Edit(/r/b.go)")
-	}() {
-		t.Fatal("pi must enforce")
-	}
-	got := strings.Join(flags, " ")
-	for _, want := range []string{`"Edit(/r/b.go)"`, `"Write(/r/b.go)"`, `"Edit(/r/b_test.go)"`, `"Write(/r/b.go/**)"`,
-		`--permissions {"mode":"auto","deny":[`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("flags %q lack %q", got, want)
-		}
-	}
-	if strings.Contains(got, "/r/a.go") || strings.Contains(got, "/r/a_test.go") {
-		t.Errorf("flags %q deny the package's own file", got)
-	}
-	if flags, _ = scopeFlags(wave[0], LaunchOptions{Wave: wave, Route: []string{"--permissions", "plan"}}); strings.Contains(strings.Join(flags, " "), "auto") {
-		t.Errorf("a caller's --permissions must stand: %v", flags)
-	}
-}
-
-func TestScopeFlagsFallBackToDetection(t *testing.T) {
-	wave := scopeWave("codex", "opencode")
-	if flags, enforced := scopeFlags(wave[0], LaunchOptions{Wave: wave}); enforced || len(flags) != 0 {
-		t.Errorf("codex cannot hold a path rule, got %v enforced=%v", flags, enforced)
-	}
-	if flags, enforced := scopeFlags(wave[0], LaunchOptions{Wave: wave[:1]}); !enforced || len(flags) != 0 {
-		t.Errorf("a package alone needs no scope, got %v enforced=%v", flags, enforced)
-	}
-	overlap := []Spec{{ID: "1.1", Agent: "claude", Owns: []string{"/r/pkg"}}, {ID: "1.2", Agent: "claude", Owns: []string{"/r/pkg/x.go"}}}
-	if flags, enforced := scopeFlags(overlap[0], LaunchOptions{Wave: overlap}); enforced || strings.Contains(strings.Join(flags, " "), "pkg/x.go") {
-		t.Errorf("overlapping owns must not deny the own file and must not count as enforced: %v %v", flags, enforced)
-	}
-}
-
-func TestLaunchBatchesRunUnscopedOnesAlone(t *testing.T) {
-	wave := scopeWave("opencode", "codex", "claude", "codex")
+func TestLaunchBatchesRunSiblingsAlone(t *testing.T) {
+	wave := scopeWave("opencode", "codex", "claude")
 	together, alone := launchBatches(wave, LaunchOptions{Wave: wave})
-	if len(together) != 2 || len(alone) != 2 || alone[0].idx[0] != 1 || alone[1].idx[0] != 3 {
+	if len(together) != 0 || len(alone) != 3 || alone[1].idx[0] != 1 {
 		t.Fatalf("together %+v alone %+v", together, alone)
 	}
-	args := askArgs(1, LaunchOptions{Route: []string{"--overlay", "{}"}}, together[0].flags)
-	if i := slices.Index(args, "--overlay"); i < 0 || !slices.Contains(args[i:], "--permissions") {
-		t.Fatalf("scope flags must follow the route flags: %v", args)
-	}
-	if t2, a2 := launchBatches(wave[:1], LaunchOptions{Wave: wave[:1]}); len(t2) != 1 || len(a2) != 0 {
-		t.Fatalf("a single package is one batch: %+v %+v", t2, a2)
+	if t2, a2 := launchBatches(wave[:1], LaunchOptions{Wave: wave[:1]}); len(t2) != 1 || len(a2) != 0 || !t2[0].enforced {
+		t.Fatalf("a single package is one scoped batch: %+v %+v", t2, a2)
 	}
 }
 
@@ -127,7 +82,7 @@ func TestScopeHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestLaunchScopesEachPackageAndRunsUnscopedAlone(t *testing.T) {
+func TestLaunchRunsSiblingsAloneUnscoped(t *testing.T) {
 	aloneGap = 0
 	t.Cleanup(func() { aloneGap = checkSlack })
 	exe := scopeExecutable(t)
@@ -137,19 +92,13 @@ func TestLaunchScopesEachPackageAndRunsUnscopedAlone(t *testing.T) {
 	if err != nil || len(envelopes) != 3 {
 		t.Fatalf("launch: %+v %v", envelopes, err)
 	}
-	for i, want := range []bool{true, true, false} {
-		if envelopes[i].Scoped != want || envelopes[i].TaskID != "toy-"+wave[i].ID {
-			t.Errorf("envelope %d: %+v, want scoped=%v", i, envelopes[i], want)
+	for i := range wave {
+		if envelopes[i].Scoped || envelopes[i].TaskID != "toy-"+wave[i].ID {
+			t.Errorf("envelope %d: %+v, want unscoped", i, envelopes[i])
 		}
-	}
-	for i, want := range map[string]string{"toy-1.1": `"Edit(/r/b.go)"`, "toy-1.2": `"Write(/r/a.go)"`, "toy-1.3": "json"} {
-		got, err := os.ReadFile(filepath.Join(dir, i+".args"))
-		if err != nil || !strings.Contains(string(got), want) {
-			t.Errorf("%s args %q (%v) lack %q", i, got, err, want)
+		if got, _ := os.ReadFile(filepath.Join(dir, "toy-"+wave[i].ID+".args")); strings.Contains(string(got), "--permissions") {
+			t.Errorf("%s launched with a permission flag: %q", wave[i].ID, got)
 		}
-	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "toy-1.3.args")); strings.Contains(string(got), "--permissions") {
-		t.Errorf("codex must launch with no scope flags: %q", got)
 	}
 }
 
@@ -165,9 +114,6 @@ func TestLaunchKeepsEnvelopesOfBatchesThatSucceeded(t *testing.T) {
 	}
 	if got := [3]string{envelopes[0].TaskID, envelopes[0].Status, envelopes[1].TaskID}; got != [3]string{"toy-1.1", "error", "toy-1.2"} {
 		t.Fatalf("batch failure lost a sibling: %+v", envelopes)
-	}
-	if !envelopes[1].Scoped {
-		t.Fatalf("sibling lost scope: %+v", envelopes[1])
 	}
 }
 
@@ -197,7 +143,7 @@ func TestLaunchAllContainsPanic(t *testing.T) {
 	aloneGap = 0
 	for _, agents := range [][]string{{"opencode", "claude", "opencode"}, {"codex", "codex", "codex"}} {
 		wave := scopeWave(agents...)
-		scopeBatchRun = func(_ context.Context, _ string, part []Spec, _ []string, _ LaunchOptions) ([]Envelope, error) {
+		scopeBatchRun = func(_ context.Context, _ string, part []Spec, _ LaunchOptions) ([]Envelope, error) {
 			if part[0].ID == wave[1].ID {
 				panic("batch exploded")
 			}

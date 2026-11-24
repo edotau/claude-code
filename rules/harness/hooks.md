@@ -42,7 +42,7 @@ one, edit both and run `make install` for projections; an existing Claude `setti
   returns at once and the note reaches the model a turn later. A `settings.json` without that entry keeps them
   synchronous; a headless `claude -p` that exits first kills the run.
 - **No per-group switch**: every declared group runs. Dev override, one launch only: `HARNESS_HOOK_SKIP=<module>[,…]`
-  or `all` in the hook's own env (`all` spares `safety-scan` and `permission-gate` unless named); output notes each
+  or `all` in the hook's own env (`all` spares `safety-scan` unless named); output notes each
   skip. Fix a misfiring module narrowly; delete an unwanted one (spec and handler), never skip it from the vault.
 
 **Telemetry**: each module run appends one row to `state/harness/hooks/telemetry-YYYYMMDD.jsonl` (14 days, capped):
@@ -61,24 +61,24 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 | Agent · surface | Modules | Mode |
 | --- | --- | --- |
 | claude · native | every group that isn't agent-only | **block** (`safety-scan` asks only on an interpreter script that may write a protected path); post/prompt hooks inject context |
-| codex · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
+| codex · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
 | copilot · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`; PostToolUse `worktree-claim`; sessionStart `memory-start`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** |
-| gemini (agy) · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check` (no `rtk-rewrite`: agy judges its own rules on the rewritten text); PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
+| gemini (agy) · native | `safety-scan`, `docs-placement`, `worktree-claim-check` (no `rtk-rewrite`: agy judges its own rules on the rewritten text); PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
 | opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory**; `--pure` loads no plugin, so it is refused while a PreToolUse gate is bound; Stop and SessionEnd run only after a watched tool call |
-| opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; then `rtk-rewrite` once the guards allow; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the rewrite sets `args.command`; the claim is a detached, non-blocking spawn per edit |
+| opencode · plugin | `safety-scan`, `docs-placement`, `worktree-claim-check`; then `rtk-rewrite` once the guards allow; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the rewrite sets `args.command`; the claim is a detached, non-blocking spawn per edit |
 
-**Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension, which registers the only
+**Pi · plugin** (`pi`): only `safety-scan`, run by the guard extension, which registers the only
 tools Pi has and sends each raw call to `claude-code hook PreToolUse --pi-guard`. That entry ignores every
 `HARNESS_HOOK_*` variable (a skip, a changed agent), normalizes the path as Pi does, builds a Claude-shaped payload
-from canonical fields only with `"harness_agent":"pi"`, and runs the two modules. Pi has no ask, so an ask is a block,
-and a dispatch `ask` rule is refused. Reply: one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
+from canonical fields only with `"harness_agent":"pi"`, and runs the module. Pi has no ask, so an ask is a block. Reply:
+one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
 that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
-Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini: file edits meet `permission-gate`.
+Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini.
 Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-tools`, and the guard's seven tools are
 the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked (the guard compares
 real paths, so a run dir reached through a symlink still matches its own tools). The guard fails
 closed: one that fails to load leaves Pi no tools, it refuses any Pi but the pinned one, and each dispatch checks a
-load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Pi tool to hook tool name:
+load nonce. `safety-scan` judges bash. Pi tool to hook tool name:
 
 | Pi tool | `bash` | `edit` | `write` | `read` | `grep` | `find` | `ls` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -87,9 +87,6 @@ load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Pi t
 The path is normalized as Pi would: a leading `@`, `~` and Unicode spaces; `file://` and other forms the harness
 cannot reproduce are blocked. Both the typed and the on-disk spelling are judged. Full description:
 `/Users/edotau/.claude/rules/harness/agent.md` (Pi bullets).
-
-`permission-gate` judges each call with `Permissions.Decide` against `HARNESS_DISPATCH_PERMISSIONS`; how each agent
-reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permission-gate`.
 
 ## Event → hook matrix
 
@@ -113,9 +110,8 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 | Hook | Event | What it does |
 | --- | --- | --- |
 | `safety-scan` ¶ | PreToolUse (Bash) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path |
-| `permission-gate` | PreToolUse (Bash\|Write\|Edit\|Read\|WebFetch\|Glob\|Grep) | **Block** a call outside the dispatch's `Permissions` (5s); `apply_patch` is judged as an Edit per file; agent-only |
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place in every mode (auto included) with no permission decision, so auto mode's classifier still judges it; codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
-| `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
+| `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note; redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
 | `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Gates the type (`coworker:<agent>` → `<agent>`), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput` |
 | dispatch cap | within `dispatch-effort` | **24 in flight per available account** (a profile's `concurrency` overrides), machine-wide `24 × accounts` clamped to **4 × CPUs**; a blocked dispatch claims nothing; infra errors fail open; `doctor` shows `in-flight`. Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type>`); a wrong label is rewritten, never denied; an auto ask's label is a peek |
 | `dispatch-failure` · `dispatch-workflow` · `dispatch-stop` ¶ | PostToolUseFailure · PostToolUse (Workflow\|Bash) · SubagentStop | Retire the spawn's slots; `dispatch-stop` holds a leaf's stop while its job runs (≤2 h); for an external-type leaf with no receipt, attaches finished jobs or passes with a relay note; saves a held report |
@@ -140,7 +136,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 | `worktree-busy` ¶ | UserPromptSubmit | Applies vault env `HARNESS_WORKTREE` (`worktree-git.md` → Worktrees); drains this session's notices (≤5), reports each finished post-merge audit once (`audit of <sha> passed\|FAILED`) and shared-checkout divergence |
 | stuck-leaf watchdog ¶ | within `worktree-busy` and `docs-plan-reminder`, main Claude session only | ≤1/min, one line per stale job and reason: dead while its record runs, past `HARNESS_WATCH_AGE` (10m, scaled by `Tier:`) and silent past `HARNESS_WATCH_SILENCE` (5m), running after its relay finished, or finished 5m uncollected; a dead job with a session id is resumed once, never restarted or cancelled; while healthy jobs run, one `running: Task <id>\|Job <id> (agent, age); …` line (≤4, ≤200 chars); vault env `HARNESS_WATCH=off\|false\|0` disables, `dry` only names the resume |
 | `worktree-claim` ¶ | PostToolUse (Write\|Edit\|MultiEdit; Bash async) | Never blocks: appends written or staged paths still dirty to `state/harness/hooks/claims/<pid>-<session>.jsonl`; synchronous on Codex, Copilot and Gemini (no async entry; about 10 ms per call) |
-| `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes an edit of a dirty file another live session or sibling leaf claims; **asks** on staging or committing it, in a leaf under `~/.claude` the block becomes allow + note for Bash (Write/Edit stay blocked unless `--permissions allow`); `HARNESS_WORKTREE=lanes` extends it to tracked-file edits in the live checkout (`worktree-git.md` → Worktrees); infra errors allow with a warning |
+| `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes an edit of a dirty file another live session or sibling leaf claims; **asks** on staging or committing it, in a leaf under `~/.claude` the block becomes allow + note for Bash; `HARNESS_WORKTREE=lanes` extends it to tracked-file edits in the live checkout (`worktree-git.md` → Worktrees); infra errors allow with a warning |
 
 **`dispatch-effort` and a spawn mod.** A mod that rewrites at `agent.spawn` calls `hook PreToolUse --dispatch-effort`
 with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker

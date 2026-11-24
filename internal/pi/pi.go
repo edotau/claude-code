@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/rtkwrap"
@@ -252,22 +250,8 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	return append(append(g.Argv(), "--no-builtin-tools"), codemodeArgv(req.Codemode)...), nil
 }
 
-// guardTools drops writers under plan, bash and grep under a Read/Glob/Grep deny, and find and ls under Glob/Grep.
-func guardTools(req agent.RunOptions) []string {
-	drop := []string{}
-	if req.Permissions.Mode == permission.PermPlan {
-		drop = append(drop, "bash", "edit", "write")
-	}
-	for _, r := range req.Permissions.Deny {
-		switch r.Tool {
-		case "Read":
-			drop = append(drop, "bash", "grep") // find and ls show names, which Read denies do not hide for any agent
-		case "Glob", "Grep":
-			drop = append(drop, "bash", "grep", "find", "ls")
-		}
-	}
-	return slices.DeleteFunc([]string{"read", "bash", "edit", "write", "grep", "find", "ls"}, func(t string) bool { return slices.Contains(drop, t) })
-}
+// guardTools are the tools the guard registers on a --tools run.
+const guardTools = "read,bash,edit,write,grep,find,ls"
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
 func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
@@ -282,7 +266,7 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
-			p.Env = append(p.Env, guardToolsEnv+"="+strings.Join(guardTools(req), ","))
+			p.Env = append(p.Env, guardToolsEnv+"="+guardTools)
 			if codemodeOn(req.Codemode) {
 				p.Env = append(p.Env, guardCodemodeEnv+"=1")
 				p.Env = codemodeLaunchEnv(p.Env, req.Codemode) // the shim strips rtk prefixes and never wraps

@@ -111,13 +111,13 @@ func containPanic(res batchResult, specs []Spec) error {
 	return fmt.Errorf("leaves %s: launcher panicked (stack on stderr)", strings.Join(ids, ","))
 }
 
-// launchBatchRun runs one `agents ask --batch` over specs with the extra scope flags, saving each leaf's result.
-func launchBatchRun(ctx context.Context, executable string, specs []Spec, scope []string, options LaunchOptions) ([]Envelope, error) {
+// launchBatchRun runs one `agents ask --batch` over specs, saving each leaf's result.
+func launchBatchRun(ctx context.Context, executable string, specs []Spec, options LaunchOptions) ([]Envelope, error) {
 	lines, err := launchLines(specs, options)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, executable, askArgs(len(specs), options, scope)...)
+	cmd := exec.CommandContext(ctx, executable, askArgs(len(specs), options)...)
 	cmd.Stdin = bytes.NewReader(lines)
 	var stdout bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, os.Stderr
@@ -126,26 +126,13 @@ func launchBatchRun(ctx context.Context, executable string, specs []Spec, scope 
 	return envelopes, errors.Join(runErr, parseErr, launchSave(ctx, executable, envelopes))
 }
 
-// askArgs is the `agents ask` batch command line (without the executable) for n leaves, scope flags last.
-func askArgs(n int, options LaunchOptions, scope []string) []string {
+// askArgs is the `agents ask` batch command line (without the executable) for n leaves, route flags last.
+func askArgs(n int, options LaunchOptions) []string {
 	args := []string{"agents", "ask", "--batch", "-", "--jobs", strconv.Itoa(min(n, 24)), "--format", "json"}
 	if options.Provider != "" {
 		args = append(args, "--provider", options.Provider)
 	}
-	return append(append(args, options.Route...), scope...)
-}
-
-// LeafLaunch exposes the actual ask arguments, tools setting and rendered brief for the permission doctor.
-func LeafLaunch(options LaunchOptions, owned, verify string) (args []string, tools *bool, brief string, err error) {
-	spec := Spec{ID: "1.1", Agent: "opencode", Task: "task", Owns: []string{owned}, Verify: verify}
-	sibling := Spec{ID: "1.2", Agent: "opencode", Owns: []string{owned + ".sibling"}}
-	options.Wave, options.ReportsDir = []Spec{spec, sibling}, "reports" // a leaf with one sibling shows the scope flags
-	line, err := launchLineFor(0, "leaf-1.1", spec, options)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	scope, _ := scopeFlags(spec, options)
-	return askArgs(1, options, scope), line.Tools, line.Prompt, nil
+	return append(args, options.Route...)
 }
 
 func launchSave(ctx context.Context, executable string, envelopes []Envelope) error {

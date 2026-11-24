@@ -30,7 +30,7 @@ var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
 	MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.Native, Direct: agent.Native, Env: agent.Native,
-		SystemPrompt: agent.Native, Permissions: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
 	ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
 	PromptVia: agent.PromptArgv, OwnLoginProfile: OwnLogin, PinIDs: providers.RouteOpencodeSubIDs, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},

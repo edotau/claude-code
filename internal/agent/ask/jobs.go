@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
@@ -501,16 +500,16 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 }
 
 // liveRequest is the RunOptions a live holder keeps for its whole session.
-func liveRequest(ctx context.Context, s *askState, perms permission.Permissions, name string) agent.RunOptions {
+func liveRequest(ctx context.Context, s *askState, name string) agent.RunOptions {
 	_, cprof := router.ConfinedContext(ctx) // a live holder runs one hop with no chain: it starts on the confinement's profile
 	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, TimeoutTyped: *s.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
-		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist,
+		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
 }
 
-func startLive(ctx context.Context, s *askState, perms permission.Permissions, name, as, format string) int {
-	req := liveRequest(ctx, s, perms, name)
+func startLive(ctx context.Context, s *askState, name, as, format string) int {
+	req := liveRequest(ctx, s, name)
 	req.Identity = as
 	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
@@ -530,9 +529,6 @@ func startLive(ctx context.Context, s *askState, perms permission.Permissions, n
 		return failAsk(format, name, err)
 	}
 	rec.Live = true
-	if p, err := agent.InheritPermissions(ctx, perms); err == nil { // agents send reads the holder's env-only policy here
-		rec.ExportedPolicy = &p
-	}
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}

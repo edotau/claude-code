@@ -46,9 +46,10 @@ func TestLaunchToolsDefaultAndExplicitMode(t *testing.T) {
 		{enabled: true}, {options: LaunchOptions{Tools: &no}},
 		{options: LaunchOptions{Route: []string{"--no-tools"}}},
 	} {
-		_, tools, _, err := LeafLaunch(tc.options, "/tmp/a", "check")
-		if err != nil || (tools != nil && *tools) != tc.enabled {
-			t.Fatalf("tools %v err %v", tools, err)
+		tc.options.ReportsDir = "reports"
+		line, err := launchLineFor(0, "leaf-1.1", Spec{ID: "1.1", Agent: "opencode", Task: "task", Owns: []string{"/tmp/a"}, Verify: "check"}, tc.options)
+		if err != nil || (line.Tools != nil && *line.Tools) != tc.enabled {
+			t.Fatalf("tools %v err %v", line.Tools, err)
 		}
 	}
 }

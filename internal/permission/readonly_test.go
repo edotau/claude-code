@@ -203,119 +203,6 @@ func TestReadOnlyShell(t *testing.T) {
 	})
 }
 
-// verifyAllowed are the forms a Pi leaf under a file deny runs: builds, vet, scoped tests, format checks and reads.
-var verifyAllowed = []string{
-	"go build ./...", "rtk go build ./...", "GOOS=linux go build ./...", "GOOS=windows go vet ./...",
-	"CGO_ENABLED=0 GOARCH=arm64 go build ./...", "time go test ./pkg", "go vet ./internal/pi", "go test ./pkg",
-	"go test -run '^TestX$' -count=1 ./pkg ./other", "go test -run=X -count 1 ./pkg", "go test -v -race ./pkg",
-	"go test ./internal/hooks/...", "rtk go test ./pkg 2>&1 | tail -5", "go test ./pkg 2>&1", "cd /repo && go test ./pkg",
-	"gofmt -l pkg", "gofmt -d -s a.go", "gofmt -l -e a.go b.go",
-	"go build -o /dev/null ./...", "go build -o=/dev/null ./x",
-	"git status", "rtk git diff", "cat a.go", "cat a.go 2>&1", "sed -n 1,5p a.go",
-	"claude-code agents diff --check --path a.go", "claude-code agents diff --check --path a.go --path b.go",
-	"go test -run '2>&1' ./pkg",
-	// quoted operands keep their boundaries (second review, finding 6)
-	"cd \"a b\"", "go test -run 'Test A' ./pkg", "go test -run 'a<b' ./pkg", "cd '2>&1'", "gofmt -l '2>&1'",
-	"go test -count=1 -count=2 ./pkg", "go test ./pkg -run X", "go test -run ./pkg ./other", "time time go test ./x",
-	"time rtk go test ./x", "GOOS= go build ./x", "cd ~", "cd a && cd .. && go test ./x/...", "rtk read a.go",
-	"git --no-pager log -1", "git diff", "claude-code agents diff", "claude-code agents diff --check",
-	"go list ./...", "claude-code agents find x",
-}
-
-// verifyDenied are every write, wrapper, whole-module test and look-alike the verify shell refuses.
-var verifyDenied = []string{
-	// whole module and package spellings (R16, finding 5)
-	"go test ./...", "go test", "go test .", "go test ../...", "go test ./../x", "go test ./a/../b", "go test ./.../x",
-	"go test github.com/edotau/claude-code/...", "go test all", "go test std", "go test cmd", "go test /abs/pkg",
-	"go test example.com/m/pkg", "go vet ../...", "go build all", "go build ./", "go vet ./a//b",
-	"cd /Users/x/.claude/internal && go test ../...",
-	// flags: unknown, passthrough, missing values, booleans with values
-	"go test -exec /bin/sh ./pkg", "go test -toolexec x ./pkg", "go test -c ./pkg", "go test -json ./pkg",
-	"go test -o /tmp/x.test ./pkg", "go test -C /x ./pkg", "go test -overlay o.json ./pkg", "go test -modfile m ./pkg",
-	"go test -coverprofile=c.out ./pkg", "go test -cpuprofile c ./pkg", "go test --count 1 ./pkg", "go test -- ./pkg",
-	"go test ./pkg -args -test.coverprofile=x", "go test ./pkg -run", "go test -count ./pkg", "go test -count=x ./pkg",
-	"go test -run= ./pkg", "go test -v=true ./pkg", "go test -race=false ./pkg", "go vet -vettool=/bin/sh ./pkg",
-	"go vet -v ./pkg", "go build -v ./...", "go build -C /x ./...", "go build -toolexec x ./...",
-	// -o: only the null device (finding 3)
-	"go build -o pkg/bin ./...", "go build -o /tmp/x ./...", "go build -o /tmp/link/../x ./...", "go build -o ~/x ./...",
-	"go build -o /dev/stdout ./...", "go build -o ./...", "go build -o '2>&1' ./x", "go test ./pkg '2>&1'",
-	// gofmt (finding 8)
-	"gofmt a.go", "gofmt -s a.go", "gofmt -w pkg", "gofmt -l -w pkg", "gofmt -lw pkg", "gofmt -w=true pkg", "gofmt -l",
-	"gofmt -r 'a->b' -l a.go",
-	// prefixes and wrappers
-	"GOFLAGS=-exec=/bin/sh go test ./pkg", "FOO=1 go build ./...", "env GOOS=linux go build ./...", "LANG=C cat a.go",
-	"TMPDIR=/x go build ./...", "rtk rtk go build ./...", "rtk bypass go build ./...", "rtk proxy go build ./...",
-	"time -o t go test ./pkg", "time -p go test ./pkg", "nice go test ./pkg", "timeout 5 go test ./pkg",
-	"sudo go test ./pkg", "echo pkg | xargs go build", "bash -c 'go build ./...'", "sh -c 'go build ./...'",
-	"eval go build ./...", "exec go test ./pkg",
-	// redirects, expansions, globs (findings 6, 7)
-	"echo hi > other/a.txt", "go test ./pkg > out.txt", "go test ./pkg >> out", "go test ./pkg &> out", "cat * ",
-	"cat a.go >/dev/null", "cat a.go 3>&1", "go test ./pkg 2>/dev/null", "go test ./pkg 1>&2", "go test ./pkg 2>&1>f",
-	"go test ./pkg | tee out", "cat < a.go", "cat <<EOF", "cat <<< x", "diff <(cat a) b", "go build $(echo ./...)",
-	"go test ./pkg; echo exit=$?", "go test $PKG", "go test ${PKG}", "go test `echo ./pkg`", "go test ./p{a,b}",
-	"gofmt -l *.go", "go test ./pk?", "go test ./[ab]", "go test ./pkg \\\n> x",
-	// separators keep every segment judged
-	"go build ./... ; rm -rf pkg", "go vet ./... && touch other/x", "go test ./pkg || rm x", "go test ./pkg & rm x",
-	"go test ./pkg\nrm x", "go test ./pkg # ok\nrm x", "(go test ./pkg; rm x)", "{ go test ./pkg; rm x; }",
-	// writers and other programs, read-only writer options included
-	"rm -rf pkg", "touch x", "cp a b", "mv a b", "go run ./pkg", "go generate ./...", "go install ./...",
-	"go mod tidy", "go get x", "go clean -cache", "make test", "rtk make lint", "git commit -m x", "git checkout x",
-	"curl https://example.com", "sed -i s/a/b/ f", "find . -delete", "find . -exec rm {} ;", "rg --pre cat x",
-	"tail -f log", "git diff --output=x", "git -c core.pager=sh log", "sort -o x y", "awk '{print}' a",
-	"'go' test ./...", "g\\o test ./...", "$'go' test ./pkg", "./go test ./pkg", "/usr/bin/go run x",
-	// claude-code: only agents diff (findings 1, 2)
-	"claude-code agents ask --dry-run --agent pi x", "claude-code agents ask --dry-run --dry-run=false --agent pi x",
-	"claude-code agents ask --system-prompt --dry-run --agent pi x", "claude-code agents ask --agent pi -- --dry-run",
-	"claude-code agents ask --dry-run=true --agent pi x", "claude-code codex -- exec -- --print-env",
-	"claude-code pi ask --tools --system-prompt --print-env x", "claude-code gemini --print-env",
-	"claude-code agents diff --check --fix", "claude-code agents diff --check --path -x",
-	"claude-code agents fix --path a",
-	"claude-code agents diff --check --path a --secret", "claude-code vault get x --secret",
-	// second review: shells behind a help flag (1), caller-chosen repositories (2), agents diff flags (3)
-	"echo 'touch denied.txt' | bash -h", "bash -h", "sh -h", "zsh --version", "python3 -h", "mytool --help",
-	"node --version", "python3 --version", "make --version", "bash --help", "cat a | sh --version",
-	"git -C ./fixture diff", "git -C ./fixture log -p -1", "git -C. status", "git --git-dir=x log",
-	"git --work-tree=x status", "git --namespace=x log", "git -c diff.external=x diff", "git --config-env=a=b log",
-	"git --exec-path=x log", "rtk git -C x status", "git --no-pager -C x diff", "git -p log", "git --paginate log",
-	"claude-code agents diff --verify x", "claude-code agents diff --base HEAD", "claude-code agents diff --gates test",
-	"claude-code agents diff --check --gates test", "claude-code agents diff --check --base HEAD",
-	"rtk claude-code agents diff --verify x",
-	// go list fetches (5)
-	"go list -m golang.org/x/text@latest", "go list -m -versions golang.org/x/text", "go list -m -retracted x",
-	"go list -u -m all", "go list x@v1.0.0",
-	// 2>&1 placement (6c) and glued forms
-	"go test -run 2>&1 TestX ./pkg", "go build -o 2>&1 /dev/null ./x", "go test 2>&1 ./pkg", "go test ./pkg2>&1",
-	"go test ./pkg 2>&12", "go test ./pkg 12>&1", "go test ./pkg 2>&1 >f", "go test ./pkg 2>&1 2>&1",
-	// gofmt flags after a path (7) and write or profile forms
-	"gofmt a.go -l", "gofmt -l a.go -w", "gofmt -d -w a.go", "gofmt -r 'a -> b' -w a.go", "gofmt -cpuprofile f -l a.go",
-	// package edges, null-device variants, flag values
-	"go test ./.", "go test .//x", "go test ./x/../y", "go test ./x/....", "go test ./...x", "go test ./x/",
-	"go test '.\\x'", "go test \"./a b\"", "go build -o /dev/null/ ./x", "go build -o /dev/../dev/null ./x",
-	"go build -o NUL ./x", "go build ./x -o", "go test -run ./pkg", "go test -count=-1 ./pkg", "go test -vet=off ./pkg",
-	// prefixes, env, cd
-	"rtk time go test ./x", "rtk gain", "GOOS=linux FOO=1 go build ./x", "GOOS=$(x) go build ./x", "cd -", "cd $HOME",
-}
-
-// VerifyShell reports every segment of line is a read-only or verify command (the rule pair's judge).
-func VerifyShell(line string) bool {
-	allow, deny := Rule{Tool: "Bash", Arg: VerifyShellArg}, Rule{Tool: "Bash", Arg: NotVerifyShellArg}
-	return Permissions{Allow: []Rule{allow}, Deny: []Rule{deny}}.Decide("Bash", line) == Allow
-}
-
-// The verify shell builds, vets and runs scoped tests; any write, wrapper or whole-module test is refused.
-func TestVerifyShell(t *testing.T) {
-	for _, cmd := range verifyAllowed {
-		if !VerifyShell(cmd) {
-			t.Errorf("VerifyShell(%q) = false, want true", cmd)
-		}
-	}
-	for _, cmd := range verifyDenied {
-		if VerifyShell(cmd) {
-			t.Errorf("VerifyShell(%q) = true, want false", cmd)
-		}
-	}
-}
-
 func TestReadOnlyRtkPrefix(t *testing.T) {
 	checkReadOnly(t, []roCase{
 		{"rtk git status", true}, {"rtk git -C /abs/repo status --short | wc -l", true},
@@ -333,7 +220,7 @@ func TestReadOnlyRtkPrefix(t *testing.T) {
 
 // With a Read deny present, a read-only shell command may not reach the denied path, or must be listable to prove it.
 func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
-	p := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: ".env"}}, ReadOnlyDeny...)}
+	p := Permissions{Allow: []Rule{readOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: ".env"}}, readOnlyDeny...)}
 	for cmd, want := range map[string]Decision{
 		"cat README.md": Allow, "cat .env": Deny, "cat sub/.env": Deny, "head -3 ./.env": Deny, "cat *.env": Deny,
 		"cat $HOME/x": Deny, "wc -l a.go b.go": Allow, "git log -1": Allow, "git status": Allow, "git diff": Deny,
@@ -346,7 +233,7 @@ func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 			t.Errorf("%q = %v, want %v", cmd, got, want)
 		}
 	}
-	if got := (Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: ReadOnlyDeny}).Decide("Bash", "rg foo"); got != Allow {
+	if got := (Permissions{Allow: []Rule{readOnlyAllow}, Deny: readOnlyDeny}).Decide("Bash", "rg foo"); got != Allow {
 		t.Errorf("rg with no Read deny = %v, want Allow", got)
 	}
 }
@@ -355,8 +242,8 @@ func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 	root := filepath.ToSlash(t.TempDir())
 	store, secret := root+"/memory", root+"/state/vault.db"
-	base := []Rule{ReadOnlyAllow, {Tool: "Bash", Arg: "echo *"}, {Tool: "Bash", Arg: "printf *"}, {Tool: "Bash", Arg: "pwd"},
-		{Tool: "Bash", Arg: "true"}, CdRule("/")}
+	base := []Rule{readOnlyAllow, {Tool: "Bash", Arg: "echo *"}, {Tool: "Bash", Arg: "printf *"}, {Tool: "Bash", Arg: "pwd"},
+		{Tool: "Bash", Arg: "true"}, cdRule("/")}
 	rows := map[string][2]Decision{ // command: {with the Read deny, without it}
 		"cd " + store + " && wc -l f && echo done":    {Allow, Allow},
 		"cd " + store + " && pwd && true && printf x": {Allow, Allow},
@@ -368,8 +255,8 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 		"cd " + store + " && cat ../state/vault.db":    {Deny, Allow},
 		"git -C " + secret + " status":                 {Deny, Allow},
 		"git -C " + store + " status":                  {Allow, Allow},
-		"cd memory && cat f":                           {Deny, Deny},
-		"cd $HOME && cat f":                            {Deny, Deny},
+		"cd memory && cat f":                           {Deny, Ask},
+		"cd $HOME && cat f":                            {Deny, Ask},
 		"cat $(echo " + secret + ")":                   {Deny, Ask},
 		"cat " + root + "/state/vault$(git log -0).db": {Deny, Ask},
 		"cat " + root + "/state/vault$(echo).db":       {Deny, Ask},
@@ -377,28 +264,28 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 		"grep x " + secret:                             {Deny, Allow},
 		"grep -v '^$' f && grep -c '[0-9]' f":          {Allow, Allow},
 		"grep '^$' '" + secret + "'":                   {Deny, Allow},
-		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Deny},
-		"grep \"$X\" f":                                {Deny, Deny},
+		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Ask},
+		"grep \"$X\" f":                                {Deny, Ask},
 		"cat ../x && head -5 memory/../memory/a.md":    {Allow, Allow},
 	}
 	for name, deny := range map[string]Rule{"absolute": {Tool: "Read", Arg: secret}, "glob": {Tool: "Read", Arg: "**/state/vault.db"}} {
 		for cmd, want := range rows {
-			with := Permissions{Mode: "plan", Allow: base, Deny: []Rule{deny}}
+			with := Permissions{Allow: base, Deny: []Rule{deny}}
 			if got := with.Decide("Bash", cmd); got != want[0] {
 				t.Errorf("%s deny: %q = %v, want %v", name, cmd, got, want[0])
 			}
-			if got := (Permissions{Mode: "plan", Allow: base}).Decide("Bash", cmd); got != want[1] {
+			if got := (Permissions{Allow: base}).Decide("Bash", cmd); got != want[1] {
 				t.Errorf("no deny: %q = %v, want %v", cmd, got, want[1])
 			}
 		}
-		if got := (Permissions{Mode: "plan", Allow: base, Deny: []Rule{deny}}).DecideAt(root, "Bash", "cat state/vault.db"); got != Deny {
+		if got := (Permissions{Allow: base, Deny: []Rule{deny}}).DecideAt(root, "Bash", "cat state/vault.db"); got != Deny {
 			t.Errorf("%s deny: DecideAt(root, cat state/vault.db) = %v, want Deny", name, got)
 		}
 	}
 }
 
 func TestReadOnlyBeatsAllow(t *testing.T) {
-	p := Permissions{Allow: []Rule{{Tool: "Bash"}, ReadOnlyAllow}, Deny: ReadOnlyDeny}
+	p := Permissions{Allow: []Rule{{Tool: "Bash"}, readOnlyAllow}, Deny: readOnlyDeny}
 	if got := p.Decide("Bash", "rm x"); got != Deny {
 		t.Errorf("rm under a blanket allow = %v, want Deny", got)
 	}
@@ -657,27 +544,6 @@ func TestReadOnlyLiteralReaders(t *testing.T) {
 	checkReadOnly(t, []roCase{{"jq leak", false}, {"jq . f", false}}) // jq sources ~/.jq; no option turns it off
 }
 
-// The verify shell takes a literal reader's own flag forms; a diff after a cd judges its operands in that dir.
-func TestVerifyShellLiteralReaders(t *testing.T) {
-	d := t.TempDir()
-	for _, n := range []string{"x", "-"} { // diff - reads stdin even beside a file named -
-		if err := os.WriteFile(filepath.Join(d, n), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, cmd := range []string{"date -u", "sort -c", "uniq -c", "date +%s", "cd " + d + " && diff x x"} {
-		if !VerifyShell(cmd) {
-			t.Errorf("VerifyShell(%q) = false, want true", cmd)
-		}
-	}
-	for _, cmd := range []string{"uniq /dev/null -c", "diff - readonly.go", "node --version x",
-		"cd " + d + " && diff x readonly.go", "cd " + d + " && diff . x", "cd " + d + " && diff - x"} {
-		if VerifyShell(cmd) {
-			t.Errorf("VerifyShell(%q) = true, want false", cmd)
-		}
-	}
-}
-
 // A literal reader's file operands meet Read denies; diff takes only regular files, so no directory walk.
 func TestLiteralReadersHonorReadDeny(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -690,7 +556,7 @@ func TestLiteralReadersHonorReadDeny(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/r/state/vault.db"}}, ReadOnlyDeny...)}
+	p := Permissions{Allow: []Rule{readOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/r/state/vault.db"}}, readOnlyDeny...)}
 	for cmd, want := range map[string]Decision{
 		"jq . /r/state/vault.db": Deny, "jq '.vault' /r/a.json": Allow, "uniq /r/state/vault.db": Deny,
 		"stat /r/state/vault.db": Deny, "diff /r/state /tmp/x": Deny, "diff " + d + "/a/x " + d + "/b/x": Allow,
@@ -701,19 +567,9 @@ func TestLiteralReadersHonorReadDeny(t *testing.T) {
 			t.Errorf("%q = %v, want %v", cmd, got, want)
 		}
 	}
-	v := Permissions{Allow: []Rule{{Tool: "Bash", Arg: VerifyShellArg}},
-		Deny: []Rule{{Tool: "Bash", Arg: NotVerifyShellArg}, {Tool: "Read", Arg: "/audit/private.txt"}}}
-	for cmd, want := range map[string]Decision{
-		"cat /audit/private.txt": Deny, "head -n 1 /audit/private.txt": Deny, "grep x /audit/private.txt": Deny,
-		"cat /audit/other.txt": Allow, "grep x /audit/other.txt": Allow, "go build ./...": Allow, "go test ./internal/x": Allow,
-	} {
-		if got := v.Decide("Bash", cmd); got != want {
-			t.Errorf("verify %q = %v, want %v", cmd, got, want)
-		}
-	}
 }
 
-// The read-only check runs on every Bash call of a plan-mode agent.
+// The read-only check runs on every relayed leaf Bash call.
 func BenchmarkReadOnlyShell(b *testing.B) {
 	var script []string
 	for i := range 40 {

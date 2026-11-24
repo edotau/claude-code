@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
@@ -197,23 +196,6 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 	}
 }
 
-// TestParseClaudeStreamCountsGateBlocks counts is_error tool_results carrying the gate's prefix (not a live capture).
-func TestParseClaudeStreamCountsGateBlocks(t *testing.T) {
-	user := func(parent, results string) string {
-		return `{"type":"user","parent_tool_use_id":` + parent + `,"message":{"role":"user","content":[` + results + `]}}` + "\n"
-	}
-	str := `{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"permission-gate: BLOCKED — Edit denied"}`
-	parts := `{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":[{"type":"text","text":"permission-gate: BLOCKED — x"}]}`
-	plain := `{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"File not found"}`
-	okGate := `{"type":"tool_result","tool_use_id":"t4","is_error":false,"content":"permission-gate: BLOCKED quoted by a file"}`
-	stream := user("null", str+","+parts+","+plain+","+okGate) + user(`"toolu_9"`, str) +
-		`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s"}` + "\n"
-	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(io.Discard))
-	if err != nil || res.GateBlocks != 2 {
-		t.Fatalf("GateBlocks = %d, err = %v, want 2 (string + parts; plain error, non-error and subagent ignored)", res.GateBlocks, err)
-	}
-}
-
 // TestParseClaudeStreamErrorEventText surfaces an "error"-type event's string message as the returned error.
 func TestParseClaudeStreamErrorEventText(t *testing.T) {
 	stream := `{"type":"error","message":"fatal: connection reset","session_id":"sess-3"}` + "\n"
@@ -298,87 +280,7 @@ func TestParseClaudeStreamErrorResultKeepsAssistantText(t *testing.T) {
 	}
 }
 
-func TestClaudeArgsPermissions(t *testing.T) {
-	rules := func(s ...string) (r []permission.Rule) {
-		for _, x := range s {
-			p, err := permission.ParseRule(x)
-			if err != nil {
-				t.Fatal(err)
-			}
-			r = append(r, p)
-		}
-		return r
-	}
-	tail := []string{"--exclude-dynamic-system-prompt-sections"}
-	wd := t.TempDir()
-	roots := agent.WritableRoots(wd)
-	var autoTail []string
-	for _, r := range roots {
-		autoTail = append(autoTail, "--add-dir", r)
-	}
-	autoTail = append(autoTail, tail...)
-	cases := []struct {
-		name string
-		req  agent.RunOptions
-		want []string
-	}{
-		{"empty keeps today", agent.RunOptions{Tools: true}, tail},
-		{"empty autonomous keeps bypass", agent.RunOptions{Tools: true, Autonomous: true}, append([]string{"--permission-mode", "bypassPermissions"}, tail...)},
-		{"empty no tools", agent.RunOptions{}, []string{"--tools", "", "--setting-sources", ""}},
-		{"allow", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Allow: rules("Bash(git *)", "Edit")}},
-			append([]string{"--allowedTools", "Bash(git *)", "Edit", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"deny with auto", agent.RunOptions{Tools: true, WorkDir: wd, Permissions: permission.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
-			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, autoTail...)},
-		{"ask", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Ask: rules("Write")}},
-			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"plan denies writes, sets no mode", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "plan", Ask: rules("Write")}},
-			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-prompts", "none"}, tail...)},
-		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, WorkDir: wd, Permissions: permission.Permissions{Mode: "auto"}},
-			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, autoTail...)},
-	}
-	for _, c := range cases {
-		if got := renderedArgs(t, c.req, anthropicTarget); !slices.Equal(got, c.want) {
-			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
-		}
-	}
-	err := refuseUnmappedDeny(permission.Permissions{Deny: []permission.Rule{{Arg: "x"}}})
-	var ae *retry.Error
-	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "(x)") {
-		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
-	}
-}
-
-// Auto mode's judge calls a fixed Anthropic model a Databricks endpoint does not serve
-func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
-	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	allow := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash"}}}
-	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"ultra", "auto", "dontAsk"}} {
-		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
-		got := strings.Join(renderedArgs(t, req, launchTarget(context.Background(), req)), " ")
-		if !strings.Contains(got, "--permission-mode "+c.want) || strings.Contains(got, "--permission-mode "+c.not) {
-			t.Errorf("profile %s: args %q, want --permission-mode %s", c.profile, got, c.want)
-		}
-	}
-	// No rules: off Anthropic the leaf allow list replaces defaultMode auto; on Anthropic nothing is added.
-	tail := []string{"--exclude-dynamic-system-prompt-sections"}
-	if got := renderedArgs(t, agent.RunOptions{Tools: true, Provider: "ultra"}, anthropicTarget); !slices.Equal(got, tail) {
-		t.Errorf("ultra, no rules: args %q, want %q", got, tail)
-	}
-	req := agent.RunOptions{Tools: true, Provider: "qa"}
-	got := strings.Join(renderedArgs(t, req, launchTarget(context.Background(), req)), " ")
-	for _, want := range []string{"--allowedTools Edit Write Read Grep Glob Bash(go build *)", "Bash(go test *)", "Bash(git diff *)",
-		"Bash(rtk go test *)", "Bash(rtk read *) --permission-mode dontAsk --permission-prompts none"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("qa, no rules: args %q, want %q", got, want)
-		}
-	}
-	bypass := agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa"}
-	if got := renderedArgs(t, bypass, providers.Target{}); slices.Contains(got, "dontAsk") || !slices.Contains(got, "bypassPermissions") {
-		t.Errorf("qa autonomous, no rules: args %q, want bypassPermissions only", got)
-	}
-}
-
-// The record's effort, permissions and launch env reach a headless child; off Anthropic the mode stays dontAsk.
+// The record's effort and launch env reach a headless child; a --tools child runs bypassPermissions everywhere.
 func TestClaudeCmdRendersRecord(t *testing.T) {
 	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	launch := &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1", "ANTHROPIC_SMALL_FAST_MODEL=elsewhere"}, Args: []string{"--launch-arg"}}
@@ -389,10 +291,10 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 		want, not map[string][]string // per profile: argv substrings
 	}{
 		{"no record", vault.AgentRecord{}, "",
-			map[string][]string{"qa": {"--allowedTools Edit Write Read", "--permission-mode dontAsk"}},
-			map[string][]string{"ultra": {"--effort", "--permission-mode"}, "qa": {"--effort"}}},
+			map[string][]string{"ultra": {"--permission-mode bypassPermissions"}, "qa": {"--permission-mode bypassPermissions"}},
+			map[string][]string{"ultra": {"--effort", "--allowedTools"}, "qa": {"--effort", "--allowedTools"}}},
 		{"record effort", vault.AgentRecord{Effort: "high"}, "",
-			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high", "--permission-mode dontAsk"}}, nil},
+			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high", "--permission-mode bypassPermissions"}}, nil},
 		{"flag over record", vault.AgentRecord{Effort: "high"}, "low",
 			map[string][]string{"ultra": {"--effort low"}, "qa": {"--effort low"}},
 			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high"}}},
@@ -463,21 +365,6 @@ func checkArgv(t *testing.T, name string, args, want, not []string) {
 			t.Errorf("%s: argv %q must not carry %q", name, argv, n)
 		}
 	}
-}
-
-// anthropicTarget is a first-party Anthropic launch, the one that serves auto mode's judge.
-var anthropicTarget = providers.Target{Provider: &providers.Provider{Provider: "anthropic"}}
-
-// renderedArgs is claudeArgs plus claude's RenderSettings for req on t, composed as claudeCmd does.
-func renderedArgs(t *testing.T, req agent.RunOptions, tgt providers.Target) []string {
-	t.Helper()
-	s := agent.Settings{Agent: "claude", Effort: req.Effort, Permissions: req.Permissions, Target: tgt, Tools: req.Tools,
-		Autonomous: req.Autonomous, Headless: true, WorkDir: req.WorkDir}
-	_, argv, _, _, err := claudeAgent.RenderSettings(context.Background(), s, nil, claudeArgs(nil, req))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return append(argv, toolArgs(req)...)
 }
 
 type goldenSink func(wire.Event)
@@ -983,25 +870,6 @@ func sendTailTurn(t *testing.T, id, prompt, answer string) {
 	env, err := agent.SendLive(context.Background(), id, prompt, wire.Discard)
 	if err != nil || env.Status != wire.StatusOK || !strings.HasPrefix(env.Answer, answer) {
 		t.Fatalf("live turn = %+v, %v; want answer starting %q", env, err, answer)
-	}
-}
-
-func TestPermissionNoToolsProcessIsolation(t *testing.T) {
-	hermetic(t, dbxProfiles)
-	for _, profile := range []string{"ultra", "qa"} {
-		_, args, _ := launchOf(t, agent.RunOptions{NoTools: true, Provider: profile, SessionID: "resume-id"})
-		for flag, want := range map[string]string{"--tools": "", "--mcp-config": `{"mcpServers":{}}`, "--resume": "resume-id"} {
-			at := slices.Index(args, flag)
-			if at < 0 || at+1 >= len(args) || args[at+1] != want {
-				t.Fatalf("%s: missing isolation %s=%q in %q", profile, flag, want, args)
-			}
-		}
-		if !slices.Contains(args, "--strict-mcp-config") {
-			t.Fatalf("%s: ambient MCP configs remain enabled: %q", profile, args)
-		}
-	}
-	if slices.Contains(toolArgs(agent.RunOptions{}), "--strict-mcp-config") {
-		t.Fatal("no-flag default changed")
 	}
 }
 

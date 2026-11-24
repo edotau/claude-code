@@ -4,10 +4,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // placementRun and claimCheckRun keep the leaf lift: a leaf's Bash block or ask from the module is allowed with a note.
@@ -20,7 +20,7 @@ func leafBashAllow(run core.Runner, in *core.Input) core.Result {
 	if r.Decision == core.Allow || r.Floor || !strings.EqualFold(in.CanonicalTool(), "bash") {
 		return r
 	}
-	if in.AgentID == "" && os.Getenv(agent.DispatchPermissionsEnv) == "" {
+	if in.AgentID == "" && os.Getenv(proc.DispatchIDEnv) == "" {
 		return r
 	}
 	note := strings.TrimSpace(r.Reason)

@@ -15,7 +15,7 @@ import (
 func (r *askRun) execute() int {
 	f := r.f
 	if f.live {
-		return startLive(r.ctx, r.state, r.perms, f.name, f.as, f.format)
+		return startLive(r.ctx, r.state, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
 		return agent.RunHolder(r.jobRec, newClient().Launcher)

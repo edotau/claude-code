@@ -1,11 +1,9 @@
 package permission
 
 import (
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"os/user"
@@ -20,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Decision is a permission verdict; the zero value is Deny so an unset result fails closed.
@@ -66,15 +63,6 @@ type Permissions struct {
 	Deny  []Rule `json:"deny,omitempty"`
 }
 
-// Each visits rules in strictness order: Deny, Ask, then Allow.
-func (p Permissions) Each(fn func(decision Decision, r Rule)) {
-	for decision, rules := range [][]Rule{p.Deny, p.Ask, p.Allow} {
-		for _, r := range rules {
-			fn(Decision(decision), r)
-		}
-	}
-}
-
 // IsZero reports a request with no policy: no mode and no rules.
 func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
 
@@ -84,15 +72,6 @@ func (r Rule) String() string {
 		return r.Tool
 	}
 	return r.Tool + "(" + r.Arg + ")"
-}
-
-// RuleStrings renders rules back to their flag form, "Tool" or "Tool(arg)".
-func RuleStrings(rules []Rule) []string {
-	var out []string
-	for _, r := range rules {
-		out = append(out, r.String())
-	}
-	return out
 }
 
 // ParseRule parses "Tool" or "Tool(arg)".
@@ -144,114 +123,10 @@ func ExpandHome(tool, arg string) string {
 	return filepath.Join(home, rest)
 }
 
-// Permission modes for --permissions: allow is the development override (every call runs unless a rule denies it).
-const (
-	PermAllow   = "allow"
-	PermDefault = "default"
-	PermAuto    = "auto"
-	PermPlan    = "plan"
-)
+// PermAllow is the mode where every call runs unless a rule denies it; any other mode asks on no match.
+const PermAllow = "allow"
 
-// ParsePermissions builds a validated Permissions from a mode and rule strings.
-func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, error) {
-	switch mode {
-	case "", PermAllow, PermDefault, PermAuto, PermPlan:
-	default:
-		return Permissions{}, fmt.Errorf("unknown permission mode %q (want allow, default, auto or plan)", mode)
-	}
-	p := Permissions{Mode: mode}
-	for _, set := range []struct {
-		in  []string
-		out *[]Rule
-	}{{allow, &p.Allow}, {ask, &p.Ask}, {deny, &p.Deny}} {
-		for _, s := range set.in {
-			r, err := ParseRule(s)
-			if err != nil {
-				return Permissions{}, err
-			}
-			*set.out = append(*set.out, r)
-		}
-	}
-	return p, nil
-}
-
-// ParsePolicy reads a policy JSON object ({"mode","allow","ask","deny"}), refusing unknown keys and bad rules.
-func ParsePolicy(val string) (*vault.AgentPolicy, error) {
-	if val == "" {
-		return nil, nil
-	}
-	var policy *vault.AgentPolicy
-	dec := json.NewDecoder(strings.NewReader(val))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&policy); err != nil {
-		return nil, fmt.Errorf("permissions: want a JSON object with mode, allow, ask, deny: %w", err)
-	}
-	if policy == nil {
-		return nil, errors.New("permissions: want a JSON object")
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("permissions: trailing JSON: %v", err)
-	}
-	if _, err := ParsePermissions(policy.Mode, policy.Allow, policy.Ask, policy.Deny); err != nil {
-		return nil, fmt.Errorf("permissions: %w", err)
-	}
-	return policy, nil
-}
-
-// PolicyArg is the --permissions value for a policy: the bare mode when it has no rules, else its JSON object.
-func PolicyArg(mode string, allow, ask, deny []string) string {
-	if len(allow)+len(ask)+len(deny) == 0 {
-		return mode
-	}
-	b, _ := json.Marshal(vault.AgentPolicy{Mode: mode, Allow: allow, Ask: ask, Deny: deny})
-	return string(b)
-}
-
-// AllowFlag is the shell-quoted `--permissions` flag that allows rule, as a refusal's remedy names it.
-func AllowFlag(rule string) string {
-	return "--permissions " + textutil.ShellQuote(PolicyArg("", []string{rule}, nil, nil))
-}
-
-// Resolve layers defaults, role, request: rules add, last mode wins, widened names what a layer grants (D3).
-func Resolve(layers ...Permissions) (out Permissions, widened []string) {
-	for i, l := range layers {
-		if i > 0 { // the first layer is the baseline the others widen
-			widened = append(widened, Widening(out, l)...)
-		}
-		ask := slices.DeleteFunc(slices.Clone(out.Ask), func(r Rule) bool { return slices.Contains(l.Allow, r) })
-		out = Permissions{Mode: cmp.Or(l.Mode, out.Mode), Allow: Union(out.Allow, l.Allow), Ask: Union(ask, l.Ask),
-			Deny: Union(out.Deny, l.Deny)}
-	}
-	return out, widened
-}
-
-// Widening is what l grants beyond base: an allow neither layer denies, or a mode that leaves plan.
-func Widening(base, l Permissions) []string {
-	var out []string
-	for _, r := range l.Allow {
-		if !slices.Contains(base.Allow, r) && !slices.Contains(base.Deny, r) && !slices.Contains(l.Deny, r) {
-			out = append(out, "allow "+r.String())
-		}
-	}
-	if base.Mode == "plan" && l.Mode != "" && l.Mode != "plan" {
-		out = append(out, "mode "+l.Mode)
-	}
-	return out
-}
-
-// Union is a followed by b's rules not already in a.
-func Union(a, b []Rule) []Rule {
-	out := slices.Clone(a)
-	for _, r := range b {
-		if !slices.Contains(out, r) {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, other modes ask (auto: the agent's judge).
+// Decide applies Deny > Ask > Allow, then the mode fallback: allow allows, other modes ask.
 func (p Permissions) Decide(tool, arg string) Decision { return p.DecideAt("", tool, arg) }
 
 // DecideAt is Decide for a command run in cwd: a static relative cd is also judged as its absolute target.
@@ -261,7 +136,7 @@ func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	}
 	code := shellCode(arg) // judge what bash runs: a comment can hide a quote that ends one
 	d := p.decideBash(code, 0, cwd)
-	if d == Allow || p.Mode != PermPlan && !slices.Contains(p.Deny, ReadOnlyDeny[0]) { // loosen only a catch-all refusal
+	if d == Allow || !slices.Contains(p.Deny, readOnlyDeny[0]) { // loosen only a catch-all refusal
 		return d
 	}
 	unrolled, ok := unrollFor(code)
@@ -574,7 +449,7 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 		return Deny
 	}
 	outer, subs := shell.ExtractSubstitutions(cmd)
-	if len(subs) > 0 && (slices.Contains(p.Deny, ReadOnlyDeny[0]) || p.spliceReadDenied(cmd)) { // read-only never runs one
+	if len(subs) > 0 && (slices.Contains(p.Deny, readOnlyDeny[0]) || p.spliceReadDenied(cmd)) { // read-only never runs one
 		return Deny
 	}
 	worst, seen, start := Allow, false, cwd
@@ -849,13 +724,10 @@ func (p Permissions) decideSegment(raw string, rawToks, toks []string) Decision 
 	return p.fallback()
 }
 
-// fallback is the mode's verdict on a call no rule matched: allow allows, plan denies, the rest ask.
+// fallback is the mode's verdict on a call no rule matched: allow allows, the rest ask.
 func (p Permissions) fallback() Decision {
-	switch p.Mode {
-	case PermAllow:
+	if p.Mode == PermAllow {
 		return Allow
-	case PermPlan:
-		return Deny
 	}
 	return Ask
 }
@@ -875,9 +747,6 @@ func sedPrintMatches(cmd string) bool {
 }
 
 const cdPrefix = "cd:"
-
-// CdRule allows a segment that is exactly `cd <absolute path>` naming dir or a directory under it.
-func CdRule(dir string) Rule { return Rule{Tool: "Bash", Arg: cdPrefix + dir} }
 
 // cdMatches is a bare `cd <abs>` whose expansion-free target is dir or below it, cleaned or symlink-resolved.
 func cdMatches(dir, cmd string) bool {
@@ -965,7 +834,7 @@ func skipsNormalized(r Rule, norm bool) bool {
 	return norm && r.Arg == RedirectFileArg
 }
 
-// readOnlyRuleHit judges the read-only and verify shell rules on a normalized spelling, whose quotes are gone.
+// readOnlyRuleHit judges the read-only shell rules on a normalized spelling, whose quotes are gone.
 func readOnlyRuleHit(r Rule, tool, arg string, norm bool) (hit, handled bool) {
 	if !norm || tool != "Bash" || r.Tool != tool {
 		return false, false
@@ -973,9 +842,7 @@ func readOnlyRuleHit(r Rule, tool, arg string, norm bool) (hit, handled bool) {
 	switch r.Arg {
 	case ReadOnlyShellArg:
 		return readOnlySegment(arg, false), true
-	case VerifyShellArg:
-		return verifySegment(arg, false), true
-	case NotReadOnlyShellArg, NotVerifyShellArg:
+	case NotReadOnlyShellArg:
 		return false, true
 	}
 	return false, false
@@ -1003,8 +870,6 @@ var shellRuleForms = sync.OnceValue(func() map[string]func(string) bool {
 		SedPrintArg:         sedPrintMatches,
 		ReadOnlyShellArg:    func(c string) bool { return readOnlySegment(c, true) },
 		NotReadOnlyShellArg: func(c string) bool { return !readOnlySegment(c, true) },
-		VerifyShellArg:      func(c string) bool { return verifySegment(c, true) },
-		NotVerifyShellArg:   func(c string) bool { return !verifySegment(c, true) },
 	}
 })
 
@@ -1071,5 +936,5 @@ func pathMatches(pattern, p string) bool {
 	return path.IsAbs(pattern) && path.IsAbs(p) && paths.GlobMatch(paths.CanonDeep(pattern), paths.CanonDeep(p))
 }
 
-// ReadOnlyDeny is the plan-mode read-only policy spelled as deny rules.
-var ReadOnlyDeny = []Rule{{Tool: "Bash", Arg: NotReadOnlyShellArg}, {Tool: "Write"}, {Tool: "Edit"}}
+// readOnlyDeny is the read-only shell policy spelled as deny rules.
+var readOnlyDeny = []Rule{{Tool: "Bash", Arg: NotReadOnlyShellArg}, {Tool: "Write"}, {Tool: "Edit"}}

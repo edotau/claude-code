@@ -146,7 +146,7 @@ func TestTakeoverDecision(t *testing.T) {
 	}
 }
 
-// A cut-off carried child is finished by Pi under the inner line's deny, given the task and partial output.
+// A cut-off carried child is finished by Pi under the inner line's tools, given the task and partial output.
 func TestRunCarryTakesOverCutOffChild(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	oldAdmit := admitJob
@@ -156,7 +156,7 @@ func TestRunCarryTakesOverCutOffChild(t *testing.T) {
 		return serve.Direct
 	}
 	const outer, child, piID = "20261122T010000.000-gemini", "20261122T010000.001-gemini", "20261122T010000.002-pi"
-	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--tools", "--permissions", `{"deny":["Write"]}`, "-"}
+	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--tools", "-"}
 	rec := agent.Record{ID: outer, Agent: "gemini", Status: "running", FallbackPolicy: "all",
 		Request: agent.RunOptions{Prompt: "the task", Carry: true, CarryArgv: inner}}
 	if err := rec.Save(); err != nil {
@@ -253,10 +253,10 @@ func checkOuter(t *testing.T, outer, child, piID string) {
 	}
 }
 
-// A toolless carried run gets a toolless Pi, and an allow rule holding a comma rides the lines as one rule.
-func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
+// A toolless carried run gets a toolless Pi.
+func TestCarryLinesKeepToolsTier(t *testing.T) {
 	fs, f := askFlagSet()
-	if err := fs.Parse([]string{"--agent", "gemini", "--tools=false", "--permissions", `{"allow":["Bash(foo,bar)"],"deny":["Write"]}`}); err != nil {
+	if err := fs.Parse([]string{"--agent", "gemini", "--tools=false"}); err != nil {
 		t.Fatal(err)
 	}
 	inner := canonicalArgv(fs, f.listValues(), "task", true, nil)
@@ -264,22 +264,17 @@ func TestCarryLinesKeepToolsTierAndCommaRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range [][]string{inner, pi} {
-		if i := slices.Index(line, "--permissions"); i < 0 || line[i+1] != `{"allow":["Bash(foo,bar)"],"deny":["Write"]}` {
-			t.Errorf("line %q: want --permissions with Bash(foo,bar) as one rule", line)
-		}
-	}
 	if slices.Contains(pi, "--tools") || !slices.Contains(pi, "--tools=false") {
 		t.Errorf("toolless carried run: pi line %q grants tools", pi)
 	}
 }
 
-// checkTakeover asserts Pi's line keeps --tools and the inner deny, and its brief has the task and partial output.
+// checkTakeover asserts Pi's line keeps --tools, and its brief has the task and partial output.
 func checkTakeover(t *testing.T, argv []string, stdin io.Reader) {
 	t.Helper()
 	in, _ := io.ReadAll(stdin)
-	if !slices.Contains(argv, "pi") || !slices.Contains(argv, "--tools") || !slices.Contains(argv, `{"deny":["Write"]}`) {
-		t.Errorf("takeover argv %q: want --agent pi --tools and the deny Write policy", argv)
+	if !slices.Contains(argv, "pi") || !slices.Contains(argv, "--tools") {
+		t.Errorf("takeover argv %q: want --agent pi --tools", argv)
 	}
 	if !strings.Contains(string(in), "the task") || !strings.Contains(string(in), "partial words") {
 		t.Errorf("takeover brief %q lacks the task or the partial output", in)

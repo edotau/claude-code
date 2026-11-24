@@ -10,7 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -19,17 +18,15 @@ import (
 
 // Settings is one launch's resolved agent settings: the merged record under the request's flags.
 type Settings struct {
-	Values      proc.Values `json:"-"`
-	LaunchEnv   proc.Values `json:"-"`
-	LaunchArgs  []string
-	Agent       string
-	Record      vault.AgentRecord      // agentconfig.Settings(Agent)
-	Effort      string                 // request (flag or routed cell) > Record.Effort; "" = the CLI's default
-	Permissions permission.Permissions // permission.Resolve(record policy, request)
-	Target      providers.Target       // the resolved profile row and model; Provider nil on the agent's own login
+	Values     proc.Values `json:"-"`
+	LaunchEnv  proc.Values `json:"-"`
+	LaunchArgs []string
+	Agent      string
+	Record     vault.AgentRecord // agentconfig.Settings(Agent)
+	Effort     string            // request (flag or routed cell) > Record.Effort; "" = the CLI's default
+	Target     providers.Target  // the resolved profile row and model; Provider nil on the agent's own login
 
 	Tools, Autonomous bool
-	Gate              bool // claude: the permission-gate hook enforces permission.Permissions, so no permission flags render
 	Headless          bool // false for an interactive launch
 	WorkDir           string
 }
@@ -69,8 +66,7 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	rec = rec.Clone()
 	st.Agent, st.Record, st.Target = agentName, rec, t
 	st.Effort = cmp.Or(req.Effort, rec.Effort)
-	st.Permissions, _ = permission.Resolve(permission.Permissions{}, req.Permissions)
-	st.Tools, st.Autonomous, st.Gate = req.Tools, req.Autonomous, req.Gate
+	st.Tools, st.Autonomous = req.Tools, req.Autonomous
 	st.Headless, st.WorkDir = headless, req.WorkDir
 	if req.Values != nil {
 		st.Values = req.Values.Merge(nil)

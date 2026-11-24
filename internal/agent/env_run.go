@@ -91,9 +91,6 @@ func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.V
 		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
 		values[proc.DispatchIDEnv], values[proc.DispatchDepthEnv] = id, strconv.Itoa(depth)
 	}
-	if kv, ok := ctx.Value(permissionsKey{}).(string); ok {
-		values[DispatchPermissionsEnv] = strings.TrimPrefix(kv, DispatchPermissionsEnv+"=")
-	}
 	if fromEnv {
 		values = withAncestorDispatch(values) // an env wipe inside a leaf must not make a top-level dispatch
 	}

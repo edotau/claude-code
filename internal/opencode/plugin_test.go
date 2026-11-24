@@ -55,14 +55,18 @@ func pluginModulesIn(t *testing.T, body string) map[string]pluginModule {
 // assertPluginGuards pins the guard modules' fail-closed and tagging flags.
 func assertPluginGuards(t *testing.T, mods map[string]pluginModule) {
 	t.Helper()
-	if g := mods["permission-gate"]; !g.FailClosed || !g.AsOpencode || !strings.Contains(g.Matcher, "Bash") {
-		t.Errorf("permission-gate = %+v; want a fail-closed, opencode-tagged Bash gate", g)
+	if _, ok := mods["permission-gate"]; ok {
+		t.Error("the removed permission-gate still rides the plugin")
 	}
 	if d, ok := mods["docs-placement"]; !ok || d.FailClosed || d.AsOpencode {
 		t.Errorf("docs-placement = %+v (present %v); want fail-open and untagged", d, ok)
 	}
-	if s := mods["safety-scan"]; !s.FailClosed || !strings.Contains(s.Matcher, "Bash") {
-		t.Errorf("safety-scan = %+v; want the fail-closed Bash floor in every tools-on plugin", s)
+	for _, matcher := range []string{"Bash", "Write|Edit"} {
+		if !slices.ContainsFunc(pluginModules(), func(m pluginModule) bool {
+			return m.Name == "safety-scan" && m.FailClosed && m.Matcher == matcher
+		}) {
+			t.Errorf("want the fail-closed safety-scan %s guard in every tools-on plugin", matcher)
+		}
 	}
 }
 

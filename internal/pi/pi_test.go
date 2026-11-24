@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -121,34 +120,6 @@ func TestToolsArgv(t *testing.T) {
 	}
 }
 
-// The guard registers exactly these tools, and Pi has no builtin one: each deny kind removes what the gate cannot judge.
-func TestGuardTools(t *testing.T) {
-	deny := func(tool string) permission.Permissions {
-		return permission.Permissions{Deny: []permission.Rule{{Tool: tool, Arg: "x"}}}
-	}
-	all := "read,bash,edit,write,grep,find,ls"
-	for name, c := range map[string]struct {
-		req  agent.RunOptions
-		want string
-	}{
-		"bare":      {agent.RunOptions{Tools: true}, all},
-		"plan mode": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}, "read,grep,find,ls"},
-		"bash deny": {agent.RunOptions{Tools: true, Permissions: deny("Bash")}, all},
-		"edit deny": {agent.RunOptions{Tools: true, Permissions: deny("Edit")}, all}, // bash stays as the verify shell
-		"notebook":  {agent.RunOptions{Tools: true, Permissions: deny("NotebookEdit")}, all},
-		"read+write": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{
-			{Tool: "Read", Arg: "x"}, {Tool: "Write", Arg: "x"}}}}, "read,edit,write,find,ls"},
-		"read deny": {agent.RunOptions{Tools: true, Permissions: deny("Read")}, "read,edit,write,find,ls"},
-		"grep deny": {agent.RunOptions{Tools: true, Permissions: deny("Grep")}, "read,edit,write"},
-		"glob deny": {agent.RunOptions{Tools: true, Permissions: deny("Glob")}, "read,edit,write"},
-		"read+plan": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan, Deny: deny("Read").Deny}}, "read,find,ls"},
-	} {
-		if got := strings.Join(guardTools(c.req), ","); got != c.want {
-			t.Errorf("%s: tools = %s, want %s", name, got, c.want)
-		}
-	}
-}
-
 // No guard, no tools: without the guard env every tools request fails and yields no argv at all.
 func TestToolsArgvWithoutGuardOffersNoTools(t *testing.T) {
 	_, g := guardedEnv(t)
@@ -206,22 +177,19 @@ func TestGuardWatchKillsWhenNotReady(t *testing.T) {
 }
 
 func TestRefuseRequest(t *testing.T) {
-	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "secret.txt"}}, Allow: []permission.Rule{{Tool: "Bash", Arg: "ls"}}, Mode: permission.PermPlan}
 	for name, c := range map[string]struct {
 		req  agent.RunOptions
 		want string
 	}{
-		"deny, allow, plan": {agent.RunOptions{Tools: true, Permissions: deny}, ""},
-		"ask rule":          {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Ask: []permission.Rule{{Tool: "Bash", Arg: "git push"}}}}, "ask rule Bash(git push)"},
+		"tools":             {agent.RunOptions{Tools: true}, ""},
 		"nonce env":         {agent.RunOptions{Env: []string{"HARNESS_PI_GUARD_NONCE=x"}}, "HARNESS_PI_GUARD_NONCE"},
 		"agent dir env":     {agent.RunOptions{Env: []string{agentDirEnv + "=/x"}}, agentDirEnv},
-		"hook skip env":     {agent.RunOptions{Env: []string{"HARNESS_HOOK_SKIP=permission-gate"}}, "HARNESS_HOOK_SKIP"},
+		"hook skip env":     {agent.RunOptions{Env: []string{"HARNESS_HOOK_SKIP=safety-scan"}}, "HARNESS_HOOK_SKIP"},
 		"hook env, cased":   {agent.RunOptions{Env: []string{"harness_hook_agent=x"}}, "harness_hook_agent"},
 		"agent dir, lower":  {agent.RunOptions{Env: []string{strings.ToLower(agentDirEnv) + "=/x"}}, strings.ToLower(agentDirEnv)},
 		"overlay lower":     {agent.RunOptions{OverlaySet: []string{"harness_pi_guard_nonce"}}, "harness_pi_guard_nonce"},
 		"overlay hook set":  {agent.RunOptions{OverlaySet: []string{"HARNESS_HOOK_SKIP"}}, "HARNESS_HOOK_SKIP"},
 		"overlay agent dir": {agent.RunOptions{OverlaySet: []string{agentDirEnv}}, agentDirEnv},
-		"policy env":        {agent.RunOptions{Env: []string{agent.DispatchPermissionsEnv + "={}"}}, agent.DispatchPermissionsEnv},
 		"other env":         {agent.RunOptions{Env: []string{"FOO=1"}}, ""},
 	} {
 		err := refuseRequest(c.req)
@@ -267,14 +235,11 @@ func TestWithoutHookControl(t *testing.T) {
 func TestRowRegistered(t *testing.T) {
 	s, ok := agent.LookupSchema("pi")
 	c := s.CLI.Caps
-	if !ok || s.CLI.Binary != "pi" || c.Permissions != agent.Native || c.WorkDir != agent.Emulated {
+	if !ok || s.CLI.Binary != "pi" || c.WorkDir != agent.Emulated {
 		t.Errorf("pi row = %+v (found %v)", s.CLI, ok)
 	}
-	for _, req := range []agent.RunOptions{{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "x"}}}},
-		{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}} {
-		if err := agent.CheckCapabilities("pi", req); err != nil {
-			t.Errorf("pi refuses a rule its guard enforces: %v", err)
-		}
+	if err := agent.CheckCapabilities("pi", agent.RunOptions{Tools: true}); err != nil {
+		t.Errorf("pi refuses a tools run: %v", err)
 	}
 	if agent.IdleLimitFor("pi") == 0 {
 		t.Error("pi has no idle limit")
@@ -282,7 +247,7 @@ func TestRowRegistered(t *testing.T) {
 }
 
 func TestChildCmdCarriesNoHookControl(t *testing.T) {
-	t.Setenv("HARNESS_HOOK_SKIP", "permission-gate")
+	t.Setenv("HARNESS_HOOK_SKIP", "safety-scan")
 	t.Setenv("HARNESS_KEEP_ENV", "HARNESS_HOOK_SKIP")
 	cmd, _ := childCmd(t.Context(), "pi", agent.CLIPrep{Env: []string{"HARNESS_HOOK_AGENT=x", "KEEP=1"}}, agent.RunOptions{KeepEnv: []string{"HARNESS_HOOK_SKIP"}})
 	for _, kv := range cmd.Env {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -200,23 +199,6 @@ func TestRemoteHomePath(t *testing.T) {
 	}
 	if strings.Contains(script, "/Users/me") || !strings.Contains(script, `"$HOME"/'.claude'`) {
 		t.Fatalf("local home leaked into the remote script: %s", script)
-	}
-}
-
-// The policy crosses to the remote as one quoted --permissions word, so spaces in a rule cannot split it.
-func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
-	perms, err := permission.ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	script, err := remoteScript("claude-code", "claude", "", RunOptions{Permissions: perms})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{` --permissions '{"mode":"auto","allow":["Bash(git log:*)","Read"],"deny":["Bash(rm:*)"]}'`} {
-		if !strings.Contains(script, want) {
-			t.Errorf("script lacks %q: %s", want, script)
-		}
 	}
 }
 

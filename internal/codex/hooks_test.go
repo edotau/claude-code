@@ -150,10 +150,12 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 		t.Fatal(err)
 	}
 	rendered := map[string]string{}
+	matchers := map[string][]string{}
 	for _, groups := range doc.Hooks {
 		for _, g := range groups {
 			for _, h := range g.Hooks {
 				rendered[h.Command] = g.Matcher
+				matchers[h.Command] = append(matchers[h.Command], g.Matcher)
 			}
 		}
 	}
@@ -162,8 +164,8 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 		if slices.ContainsFunc(strings.Split(s.Matcher, "|"), func(a string) bool { return a == "Write" || a == "Edit" }) {
 			want += "|apply_patch"
 		}
-		if got, ok := rendered[settings.AgentCommand("codex", s)]; !ok || got != want {
-			t.Errorf("%s: rendered matcher = %q (present %v), want %q", s.Name, got, ok, want)
+		if got := matchers[settings.AgentCommand("codex", s)]; !slices.Contains(got, want) {
+			t.Errorf("%s: rendered matchers = %q, want %q", s.Name, got, want)
 		}
 	}
 	for _, s := range settings.SpecsFor("codex", "native") {

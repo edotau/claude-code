@@ -149,7 +149,7 @@ func claudeCodeCheck(w []string) bool {
 	return len(w) >= 4 && w[1] == "agents" && w[2] == "diff" && diffArgsOK(w[3:])
 }
 
-// doctorArgsOK is at most one of --prompts, --mcp, --permissions plus --format; --fix, --scan and the rest write.
+// doctorArgsOK is at most one of --prompts, --mcp plus --format; --fix, --scan and the rest write.
 func doctorArgsOK(args []string) bool {
 	modes := 0
 	for i := 0; i < len(args); i++ {
@@ -157,7 +157,7 @@ func doctorArgsOK(args []string) bool {
 		case a == "--format" && i+1 < len(args) && slices.Contains([]string{"json", "text"}, args[i+1]):
 			i++
 		case a == "--format=json" || a == "--format=text":
-		case slices.Contains([]string{"--prompts", "--mcp", "--permissions"}, a):
+		case slices.Contains([]string{"--prompts", "--mcp"}, a):
 			modes++
 		default:
 			return false

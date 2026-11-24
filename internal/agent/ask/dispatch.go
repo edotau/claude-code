@@ -13,14 +13,13 @@ import (
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
 
-// RouteFlags holds the ask flags the wave runner shares: --overlay, --fallback and the permission flags.
+// RouteFlags holds the ask flags the wave runner shares: --overlay and --fallback.
 type RouteFlags struct{ f askFlags }
 
 // RegisterRouteFlags adds those flags to fs through ask's own definitions.
 func RegisterRouteFlags(fs *flag.FlagSet) *RouteFlags {
 	r := &RouteFlags{}
 	registerFallbackFlag(fs, &r.f)
-	registerPermFlags(fs, &r.f)
 	registerOverlayFlag(fs, &r.f)
 	return r
 }
@@ -32,7 +31,7 @@ func (r *RouteFlags) Args() ([]string, error) {
 		return nil, errors.New("--overlay - reads stdin, which a batch child needs; pass a file or inline JSON")
 	}
 	var out []string
-	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}, {"permissions", (&permValue{f}).String()}} {
+	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}} {
 		if kv[1] != "" {
 			out = append(out, "--"+kv[0], kv[1])
 		}

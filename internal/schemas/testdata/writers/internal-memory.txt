@@ -16,7 +16,6 @@ internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report
 internal/memory/bank_settle.go:rotateSessionHistory	unversioned: memory-bank: sessionHistory rotation
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router
 internal/memory/bank_supersede.go:writeDirtyDocs	unversioned: memory-bank: replaced-entry pointers
-internal/memory/catchup.go:noteBlocked	unversioned: text: one quiet blocked-update note line
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
 internal/memory/catchup.go:save	memory-catchup-heads
 internal/memory/compact_handoff.go:WriteCompactHandoff	unversioned: text: PreCompact's fact-only handoff markdown in memory/handoffs

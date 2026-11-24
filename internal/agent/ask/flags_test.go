@@ -133,7 +133,6 @@ func newAskTarget() *askTarget {
 		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
 		Host: s(), Fallback: s(), Codemode: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
-		PermMode: s(), PermAllow: new([]string), PermAsk: new([]string), PermDeny: new([]string),
 		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema)}
 }
 

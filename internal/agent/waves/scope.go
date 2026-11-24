@@ -1,4 +1,4 @@
-// Write scope of a wave's leaves: each leaf launches denied Edit and Write on every other package's files.
+// Write scope of a wave's leaves: a lone leaf runs scoped; siblings run one at a time, watched for foreign writes.
 
 package waves
 
@@ -10,83 +10,29 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/permission"
 )
 
-// scopeEnforcers hold a path-scoped Edit/Write deny; codex's OS sandbox reads no harness rule.
-var scopeEnforcers = map[string]bool{"claude": true, "copilot": true, "gemini": true, "opencode": true, "pi": true}
-
-// ScopeEnforced reports whether agent refuses a write outside its package's files when launched with scopeFlags.
-func ScopeEnforced(agent string) bool { return scopeEnforcers[agent] }
-
-// scopeRules denies Edit/Write on the other packages' files; clean is false when one overlaps spec's own (left out).
-func scopeRules(spec Spec, wave []Spec) (rules []string, clean bool) {
-	own, clean := checkScope(spec.Owns), true
-	for _, other := range wave {
-		if other.ID == spec.ID {
-			continue
-		}
-		for _, p := range checkScope(other.Owns) {
-			if slices.ContainsFunc(own, func(o string) bool { return scopeOverlap(o, p) }) {
-				clean = false
-				continue
-			}
-			for _, arg := range []string{p, p + "/**"} {
-				for _, tool := range []string{"Edit", "Write"} {
-					if rule := tool + "(" + arg + ")"; !slices.Contains(rules, rule) {
-						rules = append(rules, rule)
-					}
-				}
-			}
-		}
-	}
-	return rules, clean
+// scoped reports whether spec has no sibling in its wave, so it cannot have written another package's files.
+func scoped(spec Spec, o LaunchOptions) bool {
+	return !slices.ContainsFunc(o.Wave, func(s Spec) bool { return s.ID != spec.ID })
 }
 
-func scopeOverlap(a, b string) bool {
-	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
-}
-
-// scopeFlags is the ask flags confining spec to its own files, and whether that is enforced (else detection only).
-func scopeFlags(spec Spec, o LaunchOptions) (flags []string, enforced bool) {
-	if !slices.ContainsFunc(o.Wave, func(s Spec) bool { return s.ID != spec.ID }) {
-		return nil, true
-	}
-	if !ScopeEnforced(spec.Agent) {
-		return nil, false
-	}
-	rules, clean := scopeRules(spec, o.Wave)
-	mode := ""
-	if !slices.Contains(o.Route, "--permissions") { // a denied launch with no mode asks for the rest: opencode's judge would
-		mode = "auto"
-	}
-	if arg := permission.PolicyArg(mode, nil, nil, rules); arg != "" {
-		flags = []string{"--permissions", arg}
-	}
-	return flags, clean
-}
-
-// launchBatch is the specs (by index) that one `agents ask --batch` runs, with their shared scope flags.
+// launchBatch is the specs (by index) that one `agents ask --batch` runs, and whether they run scoped.
 type launchBatch struct {
 	idx      []int
-	flags    []string
 	enforced bool
 }
 
-// launchBatches splits specs into batches run together (scoped) and run alone (unscoped, so windows name the writer).
+// launchBatches splits specs into the scoped batch run together and the unscoped ones run alone.
 func launchBatches(specs []Spec, o LaunchOptions) (together, alone []launchBatch) {
-	byFlags := map[string]int{}
 	for i, spec := range specs {
-		flags, enforced := scopeFlags(spec, o)
-		key := strings.Join(flags, "\x00")
-		switch at, seen := byFlags[key]; {
-		case !enforced:
+		switch {
+		case !scoped(spec, o):
 			alone = append(alone, launchBatch{idx: []int{i}})
-		case seen:
-			together[at].idx = append(together[at].idx, i)
+		case len(together) > 0:
+			together[0].idx = append(together[0].idx, i)
 		default:
-			byFlags[key] = len(together)
-			together = append(together, launchBatch{idx: []int{i}, flags: flags, enforced: true})
+			together = append(together, launchBatch{idx: []int{i}, enforced: true})
 		}
 	}
 	return together, alone
@@ -168,7 +114,7 @@ func launchAll(ctx context.Context, executable string, specs []Spec, o LaunchOpt
 		for j, i := range b.idx {
 			part[j] = specs[i]
 		}
-		do := func() { res.envelopes, res.err = scopeBatchRun(ctx, executable, part, b.flags, o) }
+		do := func() { res.envelopes, res.err = scopeBatchRun(ctx, executable, part, o) }
 		if b.enforced {
 			do()
 		} else {

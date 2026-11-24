@@ -23,10 +23,10 @@ var doctorChecks = func(ctx context.Context) ([]check, bool) {
 }
 
 type doctorOpts struct {
-	format                                                                 *string
-	auditMode, scan, gitScan, refresh, all, fix, prompts, mcp, permissions bool
-	days, since                                                            int
-	rev, agent                                                             string
+	format                                                    *string
+	auditMode, scan, gitScan, refresh, all, fix, prompts, mcp bool
+	days, since                                               int
+	rev                                                       string
 }
 
 var doctorPage = helptext.Page{
@@ -38,8 +38,7 @@ var doctorPage = helptext.Page{
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
 		"and exit 1 on any finding. --secrets --fix masks idle transcript stores in place; paths restrict this pass. --mcp prints every MCP server's live health, cross-scope drift " +
 		"and inline secrets; exits 1 on a failed server, an inline secret or an unreadable config. " +
-		"--prompts audits the instruction path. --permissions checks every agent's launch policy against the jobs " +
-		"its definition needs, with no model call; exits 1 on a missed expectation. The mode flags cannot be combined.",
+		"--prompts audits the instruction path. The mode flags cannot be combined.",
 }
 
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
@@ -56,8 +55,6 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.fix, "fix", false, "with --secrets: mask idle transcript files in place")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
-	fs.BoolVar(&o.permissions, "permissions", false, "check each agent's launch policy against its jobs")
-	fs.StringVar(&o.agent, "agent", "", "with --permissions: only this agent")
 	return fs, o
 }
 
@@ -88,7 +85,7 @@ func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
 		on         bool
 	}{
 		{"days", "--audit or --secrets", o.auditMode || o.all}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
-		{"agent", "--permissions", o.permissions}, {"fix", "--secrets", o.all},
+		{"fix", "--secrets", o.all},
 	} {
 		if helptext.Explicit(fs, f.name) && !f.on {
 			return fmt.Sprintf("--%s only applies with %s; add it or drop --%s", f.name, f.mode, f.name), true
@@ -104,7 +101,7 @@ func conflictingModes(o *doctorOpts) (string, bool) {
 		on   bool
 		name string
 	}{
-		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.permissions, "--permissions"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
+		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
 		{o.scan || o.gitScan || o.all, "--scan/--git/--secrets"},
 	} {
 		if m.on {
@@ -125,9 +122,6 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.prompts {
 		return runPrompts(o)
-	}
-	if o.permissions {
-		return doctorPermissions(os.Stdout, o.agent, *o.format == helptext.JSON)
 	}
 	if o.mcp {
 		return doctorMCP(os.Stdout, mcpOptions(*o.format == helptext.JSON))
@@ -219,5 +213,5 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.BoolFlag("permissions"), helptext.Plain("agent"), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.CompletionFormatFlag()}}
 }

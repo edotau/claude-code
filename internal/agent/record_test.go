@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -702,19 +701,6 @@ func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
 	}
 }
 
-// The dispatch record logs what the request grants (D3); no agent has a default of its own (R30).
-func TestNewRecordLogsWidening(t *testing.T) {
-	setConfigDir(t)
-	p, err := permission.ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
-	if want := []string{"allow Read", "allow Bash(touch:*)"}; !slices.Equal(rec.Widened, want) {
-		t.Errorf("Widened = %q, want %q", rec.Widened, want)
-	}
-}
-
 func TestRunRecordedFinalAnswerWriteError(t *testing.T) {
 	for _, want := range []error{io.ErrClosedPipe, io.ErrShortWrite} {
 		t.Run(want.Error(), func(t *testing.T) {
@@ -1283,7 +1269,7 @@ func countReplaces(b *testing.B, path string, step func()) int {
 	return 1
 }
 
-// BenchmarkUpdateRecordAskPreExec: an ask's pre-exec writes, startPrepared's Save then NotePick and WithPermissionsEnv.
+// BenchmarkUpdateRecordAskPreExec: an ask's pre-exec writes, startPrepared's Save then NotePick.
 func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 	setConfigDir(b)
 	rec := benchAskRecord(time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC), 0)
@@ -1292,8 +1278,6 @@ func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 		b.Fatal(err)
 	}
 	ctx := withDispatchID(context.Background(), rec.ID, 0)
-	perms := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash", Arg: "go test:*"}, {Tool: "Edit"}},
-		Deny: []permission.Rule{{Tool: "Bash", Arg: "git push:*"}}}
 	models := [2]string{"gpt-5.4", "gpt-5.4-mini"} // NotePick writes nothing for an unchanged pick
 	i := 0
 	steps := []struct {
@@ -1302,15 +1286,14 @@ func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 	}{
 		{"Save", func() { _ = rec.Save() }},
 		{"NotePick", func() { i++; NotePick(ctx, models[i%2]) }},
-		{"WithPermissionsEnv", func() { _ = WithPermissionsEnv(ctx, perms) }},
 	}
 	path := filepath.Join(paths.DispatchDir(), rec.ID+".json")
 	writes := 0
 	for _, s := range steps {
 		writes += countReplaces(b, path, s.run)
 	}
-	if writes != 3 {
-		b.Fatalf("pre-exec sequence made %d AtomicWrite replacements, want 3", writes)
+	if writes != 2 {
+		b.Fatalf("pre-exec sequence made %d AtomicWrite replacements, want 2", writes)
 	}
 	for _, s := range steps {
 		b.Run(s.name, func(b *testing.B) {

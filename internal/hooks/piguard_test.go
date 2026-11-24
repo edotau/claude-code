@@ -7,22 +7,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/agent"
 )
-
-const piDeny = `{"deny":[{"Tool":"Write","Arg":"denied.txt"},{"Tool":"Edit","Arg":"denied.txt"},{"Tool":"Read","Arg":"private.txt"}]}`
 
 func piGuard(t *testing.T, tool string, input map[string]any) piVerdict {
 	t.Helper()
-	return piGuardIn(t, t.TempDir(), piDeny, tool, input)
+	return piGuardIn(t, t.TempDir(), tool, input)
 }
 
-func piGuardIn(t *testing.T, cwd, policy, tool string, input map[string]any) piVerdict {
+func piGuardIn(t *testing.T, cwd, tool string, input map[string]any) piVerdict {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", cwd)
-	t.Setenv(agent.DispatchPermissionsEnv, policy)
 	in, _ := json.Marshal(piCall{Tool: tool, Input: input, CWD: cwd})
 	var out, errb bytes.Buffer
 	if code := runPiGuard(bytes.NewReader(in), &out, &errb); code != 0 {
@@ -36,21 +31,6 @@ func piGuardIn(t *testing.T, cwd, policy, tool string, input map[string]any) piV
 		v.Path = strings.TrimPrefix(v.Path, cwd+string(filepath.Separator))
 	}
 	return v
-}
-
-func TestPiGuardJudgesThePathPiWillTouch(t *testing.T) {
-	for name, path := range map[string]string{"@ prefix": "@denied.txt", "tilde": "~/denied.txt", "dot segments": "x/../denied.txt",
-		"plain": "denied.txt"} {
-		if v := piGuard(t, "write", map[string]any{"path": path, "content": "x"}); v.Allow || !strings.Contains(v.Block, "denied.txt") {
-			t.Errorf("%s: %+v, want a block naming denied.txt", name, v)
-		}
-	}
-	if v := piGuard(t, "write", map[string]any{"path": "a b.txt", "content": "x"}); !v.Allow || v.Path != "a b.txt" {
-		t.Errorf("unicode space: %+v, want allow on the ASCII-space path Pi writes", v)
-	}
-	if v := piGuard(t, "write", map[string]any{"path": "@ok.txt", "content": "x"}); !v.Allow || v.Path != "ok.txt" {
-		t.Errorf("allowed @ path: %+v", v)
-	}
 }
 
 func TestPiGuardRefusesFormsItCannotReproduce(t *testing.T) {
@@ -67,23 +47,11 @@ func TestPiGuardRefusesFormsItCannotReproduce(t *testing.T) {
 	}
 }
 
-// Model-supplied extra keys never reach the hooks: a patch header naming another file must not redirect the check.
-func TestPiGuardIgnoresExtraKeys(t *testing.T) {
-	in := map[string]any{"path": "denied.txt", "content": "x", "patch": "*** Update File: allowed.txt", "patchText": "*** Update File: allowed.txt",
-		"input": "*** Update File: allowed.txt", "command": "*** Update File: allowed.txt"}
-	if v := piGuard(t, "write", in); v.Allow {
-		t.Errorf("extra keys redirected the check: %+v", v)
-	}
-	ti, _, why := piToolInput(piCall{Tool: "edit", Input: in, CWD: "/w"})
-	if _, ok := ti["patch"]; ok || why != "" || len(ti) != 1 {
-		t.Errorf("edit tool_input = %v (%s), want file_path only", ti, why)
-	}
-}
-
 func TestPiGuardIgnoresHookSkipEnv(t *testing.T) {
-	t.Setenv("HARNESS_HOOK_SKIP", "safety-scan,permission-gate,all")
+	t.Setenv("HARNESS_HOOK_SKIP", "safety-scan,all")
 	t.Setenv("harness_hook_agent", "codex")
-	if v := piGuard(t, "write", map[string]any{"path": "denied.txt", "content": "x"}); v.Allow {
+	cmd := `git commit -m x -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
+	if v := piGuard(t, "bash", map[string]any{"command": cmd}); v.Allow {
 		t.Errorf("an inherited HARNESS_HOOK_SKIP disabled the guard: %+v", v)
 	}
 	if os.Getenv("HARNESS_HOOK_SKIP") != "" {
@@ -96,26 +64,6 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 	runPiGuard(strings.NewReader("not json"), &out, &bytes.Buffer{})
 	if strings.Contains(out.String(), `"allow"`) || !strings.Contains(out.String(), "blocked") {
 		t.Errorf("reply = %s", out.String())
-	}
-}
-
-func TestPiGuardJudgesTheOnDiskSpelling(t *testing.T) {
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	nfc, nfd := "caf\u00e9.txt", "cafe\u0301.txt"
-	if err := os.WriteFile(filepath.Join(dir, nfc), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got, why := diskSpelling(filepath.Join(dir, nfd)); why == "" && got != filepath.Join(dir, nfc) {
-		t.Errorf("diskSpelling = %q, want the listed NFC name or a refusal", got)
-	}
-	deny, _ := json.Marshal(map[string]any{"deny": []map[string]string{{"Tool": "Write", "Arg": filepath.Join(dir, nfc)}}})
-	for _, name := range []string{nfc, nfd} {
-		if v := piGuardIn(t, dir, string(deny), "write", map[string]any{"path": name, "content": "x"}); v.Allow {
-			t.Errorf("write %q allowed past a deny on the NFC spelling: %+v", name, v)
-		}
 	}
 }
 

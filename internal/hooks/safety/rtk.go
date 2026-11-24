@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
@@ -72,7 +71,7 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 func rtkAgentEligible(in *core.Input, bin, cmd string) bool {
 	return os.Getenv(rtkwrap.CodemodeEnv) == "" && bin != "" &&
 		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
-		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkCodexRuleHit(in, cmd) && !rtkOpencodeEnvHit(in)
+		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkOpencodeEnvHit(in)
 }
 
 // rtkOpencodeEnvHit: opencode's env layers (rtk reads only its files) hold a bash rule other than allow-all.
@@ -182,8 +181,7 @@ func rtkMatchesBash(matcher string) bool {
 
 // rtkJudges are side-effect-free stand-ins for the Bash PreToolUse modules; a module missing here stops the rewrite.
 var rtkJudges = map[string]func(*core.Input) bool{
-	"safety-scan":     func(in *core.Input) bool { return Verdict(in) == core.Allow },
-	"permission-gate": func(in *core.Input) bool { return PermissionGate(in).Decision == core.Allow },
+	"safety-scan": func(in *core.Input) bool { return Verdict(in) == core.Allow },
 	"docs-placement": func(in *core.Input) bool {
 		r := docs.Placement(in) // its Bash path only reads git state
 		return r.Decision == core.Allow && r.UpdatedInput == nil
@@ -212,24 +210,6 @@ func rtkWithCommand(in *core.Input, cmd string) *core.Input {
 		return nil
 	}
 	return judged
-}
-
-// rtkCodexRuleHit: codex enforces dispatch Ask and Allow rules as .rules prefixes, which `rtk <cmd>` no longer matches.
-func rtkCodexRuleHit(in *core.Input, cmd string) bool {
-	if in.Agent() != core.AgentCodex {
-		return false
-	}
-	p, set, err := dispatchPolicy()
-	if err != nil || !set {
-		return err != nil
-	}
-	if (permission.Permissions{Mode: permission.PermAllow, Ask: p.Ask}).DecideAt(in.CWD, "Bash", cmd) != permission.Allow {
-		return true
-	}
-	allow := permission.Permissions{Mode: permission.PermDefault, Allow: p.Allow}
-	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
-		return allow.DecideAt(in.CWD, "Bash", seg) == permission.Allow
-	})
 }
 
 // rtkCodexFilesDiffer: under codex's rules a raw and rewritten segment differ, one prompts or forbids, or checks fail.

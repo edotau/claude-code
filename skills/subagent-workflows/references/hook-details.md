@@ -6,8 +6,7 @@ each, and the guardrails an agent needs before acting).
 ## safety-scan
 
 The order and the two rules live in `rules/harness/hooks.md`; this is the detail. A leaf's edit-tool write to a
-protected file is refused by `permission-gate` on codex, agy, opencode and gated Claude launches, and by `safety-scan`
-itself on Copilot.
+protected file is refused by `safety-scan` on codex, gemini, opencode, pi and copilot.
 
 **Attribution footer.** `Co-Authored-By:` naming Claude, Anthropic, Codex, Copilot, Gemini, OpenCode or agy, or
 `Generated with|by` one of them, blocks on every agent when it opens a line of a message: a commit, merge or tag
@@ -64,7 +63,7 @@ Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed out
 (else PATH); for Claude in place with no permission decision, or in auto mode a block naming the form when that form
 passes the hook itself. codex and opencode (plugin, after the guards allow) run `rtk hook
 <agent>` instead, never with `HARNESS_PI_CODEMODE` set; the rewrite
-is offered only when every Bash PreToolUse gate the agent runs (`safety-scan`, `permission-gate`, `docs-placement`,
+is offered only when every Bash PreToolUse gate the agent runs (`safety-scan`, `docs-placement`,
 `worktree-claim-check`; an unknown one stops it) allows both the raw and the rewritten command, any error runs the
 command as typed, and copilot and agy are not hooked (agy judges its own rules on the rewritten text). On codex a
 matching dispatch ask or allow rule means no rewrite, and so does any `*.rules` file in `$CODEX_HOME/rules`,
@@ -85,7 +84,7 @@ Besides Write/Edit targets it checks `apply_patch` headers and Bash write target
 in `docs/` is rewritten to the dated plans home (denied with the fix where the host cannot rewrite). A Claude first
 write to a native plan draft that lacks only `# Plan:` or `## Tasks` is rewritten with a note; any other first write
 lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's Bash block becomes allow + note
-(Write/Edit stay blocked unless `--permissions allow`). `HARNESS_HOOK_SKIP=docs-placement` skips both
+. `HARNESS_HOOK_SKIP=docs-placement` skips both
 the placement block and the plan checks.
 
 ## dispatch-effort
@@ -163,7 +162,7 @@ shell's own env is invisible to the hook).
 Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
 (owner pid alive) or sibling leaf (transcript fresh) and not committed or seen clean since; asks on a `git add`/`commit`
 that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude` (a leaf's Bash block becomes
-allow + note; Write/Edit stay blocked unless `--permissions allow`); a sibling leaf counts until it
+allow + note); a sibling leaf counts until it
 ends, is interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a
 file under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git`
 command also gets the drained notices and divergence line. Under vault env `HARNESS_WORKTREE=lanes` it also asks (a
@@ -252,7 +251,7 @@ its upstream, adds one line per HEAD/upstream pair, whatever the mode
 ## pi-guard
 
 Pi has no prompts and no sandbox: its only tools are the guard extension's seven (read, bash, edit, write, grep, find,
-ls), each judged by `claude-code hook PreToolUse --pi-guard` (`permission-gate` for every tool, `safety-scan` for
+ls), each judged by `claude-code hook PreToolUse --pi-guard` (`safety-scan` for
 bash). Only an explicit allow runs the tool, on the judged path; `HARNESS_HOOK_*` is ignored there. Mapping, path
 rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi ask runs with the
 dispatch's permissions like any agent (R30); `make` and the live check stay with the main session.

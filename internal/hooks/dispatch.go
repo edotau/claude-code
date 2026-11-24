@@ -434,7 +434,6 @@ var native = map[string]core.Runner{
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": claimCheckRun,
 	"worktree-clean-end":   wthook.CleanEnd,
-	"permission-gate":      safety.PermissionGate,
 	"secrets-out":          SecretsOut,
 	"secrets-end":          SecretsEnd,
 	"web-tavily":           WebTavily,

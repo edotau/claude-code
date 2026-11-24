@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -200,8 +199,8 @@ func refusePersona(c Caps, agentName string, p *Schema) error {
 	if p == nil || c.Persona != Emulated || p.Tools == nil {
 		return nil
 	}
-	for _, r := range permission.ReadOnlyDeny {
-		if !slices.Contains(p.Tools, r.Tool) {
+	for _, tool := range []string{"Bash", "Write", "Edit"} {
+		if !slices.Contains(p.Tools, tool) {
 			return fmt.Errorf("persona %q limits tools to %q and %s cannot enforce that; run it on claude", p.Name, strings.Join(p.Tools, ","), agentName)
 		}
 	}
@@ -269,7 +268,6 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
-	drop(c.Permissions, !req.Permissions.IsZero(), "--permissions", func() { req.Permissions = permission.Permissions{} })
 	drop(c.Persona, req.Persona != nil, "persona="+personaName(req.Persona), func() { req.Persona = nil })
 	if req.Persona != nil && c.Persona == Emulated {
 		req, dropped = emulatePersona(c, req, dropped)

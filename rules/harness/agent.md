@@ -29,9 +29,8 @@ paths:
 
 ## Dispatch behavior
 
-- Permissions (R30): a nested dispatch runs with its parent's policy exactly (mode, allow, ask, deny, from
-  `HARNESS_DISPATCH_PERMISSIONS`); its own `--permissions` only adds deny and ask rules, and no agent has a
-  default policy of its own. A top-level ask runs with its own `--permissions`.
+- Permissions (R30): no agent or memory job carries a permission policy; every dispatch runs with its tools whole,
+  and only `safety-scan` (`settings.json` deny rules, the AI-attribution block) judges its calls.
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
   `invoked_model` is the plain model asked (`auto` or the selector; the profile is the route's) and `model` the model
@@ -48,23 +47,20 @@ paths:
   request, gemini is only instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude
   only (others exit 2). An allow rule never reopens a deny; claude `--tools` off Anthropic gates only explicit
   rules. Grants and gates:
-  `skills/subagent-workflows/references/dispatch-policy-details.md` → Tools; each agent's
-  `--permissions` modes: same file → Permission modes per agent.
+  `skills/subagent-workflows/references/dispatch-policy-details.md` → Tools.
 - **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
   `agents ask --agent pi`, on a Databricks profile through the loopback proxy, with no own login. It runs the models on
   the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
   `--tools=false` it runs with no tools. Any tools run runs Pi with `--no-builtin-tools` plus the harness's guard
   extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
   `hook PreToolUse --pi-guard` (path normalized as Pi does and judged as typed and as the disk spells it,
-  `safety-scan` and `permission-gate`) and fails closed (a guard that fails to load leaves Pi no tools; it refuses any
+  `safety-scan`) and fails closed (a guard that fails to load leaves Pi no tools; it refuses any
   Pi but the pinned one); a cancelled or timed-out run gets SIGTERM, a 2 s grace, then every descendant is killed
   (Pi's bash groups included), and the idle watch is held while any tool call runs; Pi proves it loaded by writing the
   run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
   refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
-  rule tool names match in any case (`write` is `Write`). A Deny on Read drops bash and grep, on Glob or
-  Grep bash, grep, find and ls. `--permissions` (mode and allow/deny rules) rides `HARNESS_DISPATCH_PERMISSIONS` to the
-  gate as for opencode; an `ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
-  `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission
+  rule tool names match in any case (`write` is `Write`). An `--env` naming `PI_CODING_AGENT_DIR`, `HARNESS_PI_*` or
+  `HARNESS_HOOK_*` is refused. Pi has no permission
   prompts or sandbox of its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
   so a repo's own `.pi` never runs code with your privileges, `--no-approve --no-extensions --no-skills
   --no-prompt-templates --no-themes`; `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier
@@ -74,9 +70,7 @@ paths:
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
   reasons and cut-off streams fail). Pi may be a fallback for write work. Its
-  policy comes only from the ask and the dispatch above (R30), never from the caller's type, so a main-session
-  or `claude`-leaf ask gets the same guard; bash is judged by `safety-scan` and `permission-gate`. One editing a
-  worktree adds `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'`; `make` and
+  run carries no permission policy (R30), whoever the caller is; bash is judged by `safety-scan`. `make` and
   the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
@@ -103,8 +97,8 @@ paths:
 - **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `PI_CODEMODE=off|on|only` per
   machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`), loads `builtin:codemode`. The
   model writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts.
-  The guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan` and
-  `permission-gate`. Code mode never wraps (see Pi carrier and experiments, rule 4).
+  The guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode
+  never wraps (see Pi carrier and experiments, rule 4).
   Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
@@ -131,7 +125,7 @@ paths:
   owner's approval is the only control over what that code does. The content of a local-path package can change
   after approval and is not hashed: each launch re-reviews it (new code needs approval), but approved code that
   changes, or changes during a run (`/reload`), loads unchecked.
-- `claude-code doctor --permissions` lists pi, the wave owned-files gate covers pi, and `doctor` has the rows
+- The wave owned-files gate covers pi, and `doctor` has the rows
   `pi route`, `tool pi` and `pi packages`.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
@@ -245,9 +239,6 @@ vendor CLI untouched.
 
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
-- `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through each agent's real
-  launch policy per mode (`--tools=false`, `--tools`) with no model call; exit 1 on a missed expectation. Cells
-  only a vendor runtime judges are listed apart, uncounted.
 
 ## Pi carrier and experiments
 
@@ -258,8 +249,8 @@ vendor CLI untouched.
    `--batch`, `--loop`, `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
    Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
    - **Takeover.** A child cut off (deadline, stall, idle, auth-retry, or a partial/stalled record) is finished by
-     `agents ask --agent pi --tools` under the inner line's `--permissions` (minus ask rules),
-     `--workdir` and overlay caps, on a fixed brief: the task, the last 16 KiB of output, "continue and finish; say what
+     `agents ask --agent pi` under the inner line's tools tier, `--workdir` and overlay caps, on a fixed brief: the
+     task, the last 16 KiB of output, "continue and finish; say what
      you changed". Its record has `takeover_of: <child id>`; the receipt prints the child's, then
      `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `ask`
      rule refuses it too (Pi has no ask).
@@ -320,27 +311,11 @@ vendor CLI untouched.
   (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.
-- **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
-  claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
-  it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
-  `--workdir` is no write boundary for any agent; scope writes with `--permissions` deny rules.
-- **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
-  rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
-  runs it from the plugin's `tool.execute.before`, codex and agy
-  as a native hook (agy also runs `safety-scan` on `run_command`). Modes: `hooks.md` → Applicability. A live codex or
-  agy home gets the hooks from `agents sync` or `configure --restore --agents --agent codex|gemini`; until then those
-  agents refuse a Bash deny.
-- **Memory jobs (claude, gated).** `memory update`/`dream`/catch-up run claude with `RunOptions.Gate`:
-  `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
-  limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and `permission-gate` merged into the launch's one
-  `--settings` (never `settings.json`; `exit 2` on any failure). Policy: Edit/Write under the job's bank
-  dirs, Bash only dream's `claude-code memory review|index|promote` plus `cd` into the store; file redirects are
-  refused, `2>&1` is not; Read is denied on `state/vault.db`, `.credentials.json`, `.env` and `*.pem`, which also binds
-  Bash: a path spliced in by a substitution is denied, a comment cannot hide a command from the check, and
-  `cd` and `echo` are not caught by it; no policy, binary or policy env refuses the launch. A dream whose gate refused
-  calls and edited nothing fails and retries in 6 h instead of stamping success. Dream may also run
-  `claude-code plan task * --done --sha * --plan <plans>/*` and `… --strike * --plan <plans>/*` (`<plans>` the
-  checkout's plans home); `plan task *-reopen*`, `plan tick*` and Edit/Write under `plans/**` (update too) are denied.
+- **No policy (R30).** No dispatch carries a permission policy: `--tools` gives the agent its tools whole
+  (claude runs `bypassPermissions`), `--tools=false` turns them off, and only `safety-scan` (settings.json deny rules
+  and the AI-attribution block) judges calls. `--workdir` is no write boundary for any agent.
+- **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools for a known job kind
+  (`memory.JobTools`) and no fallback to another vendor.
 
 ## Codex child routing
 

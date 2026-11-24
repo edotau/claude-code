@@ -2,19 +2,15 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 )
@@ -157,42 +153,5 @@ func garbleKeepingStat(t *testing.T, path string) {
 	}
 	if err := os.Chtimes(path, fi.ModTime(), fi.ModTime()); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestChainPolicyKeepsExportedLaunchPolicy(t *testing.T) {
-	hermetic(t, "")
-	rec := NewRecord("fake", RunOptions{Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Write"}}}}, time.Now())
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	req, err := checkRun(&fakeRunner{caps: Caps{Permissions: Native}}, rec.Request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := WithPermissionsEnv(withDispatchID(context.Background(), rec.ID, rec.Depth), req.Permissions)
-	saved, err := LoadRecord(rec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var exported permission.Permissions
-	values := proc.ValuesFromEnv((EnvSpec{Mode: EnvPrescrubbed}).Environ(ctx))
-	if err := json.Unmarshal([]byte(values[DispatchPermissionsEnv]), &exported); err != nil {
-		t.Fatal(err)
-	}
-	if got := chainPolicy(saved); !reflect.DeepEqual(got, exported) || got.Decide("Write", "x") != permission.Deny {
-		t.Fatalf("recovered = %+v, exported = %+v", got, exported)
-	}
-	rec.finishSave(wire.Result{}, nil, 0, nil)
-	saved, err = LoadRecord(rec.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(chainPolicy(saved), exported) {
-		t.Fatalf("finished snapshot = %+v, %v", saved.ExportedPolicy, err)
-	}
-	legacy := Record{ID: "legacy", Agent: "fake", Request: RunOptions{Permissions: req.Permissions}}
-	if chainPolicy(legacy).Decide("Write", "x") != permission.Deny {
-		t.Fatal("legacy request policy lost")
 	}
 }

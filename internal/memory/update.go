@@ -54,7 +54,7 @@ const (
 	updatePending = "pending"
 	updateOK      = "ok"
 	updateFailed  = "failed"
-	updateBlocked = "blocked" // the gate refused every write, twice: honest, not a failure, never retried again
+	updateBlocked = "blocked" // a past update the removed permission gate refused; read from old records only
 )
 
 // updateGrace must exceed the worker's lock waits plus its own timeout, or a healthy queued update reads as lost.
@@ -395,7 +395,7 @@ func update(o updateOptions) error {
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
-	return record(run.okStatus(prior.Log), run.updated)
+	return record(updateOK, run.updated)
 }
 
 func auditUpdatePlans(o updateOptions) {
@@ -418,15 +418,6 @@ func auditUpdatePlans(o updateOptions) {
 	if err != nil {
 		fmt.Fprintf(o.Out, "memory update: plans audit: %s\n", strings.Join(strings.Fields(err.Error()), " "))
 	}
-}
-
-// okStatus is ok, or blocked (with its quiet note) when the gate refused writes and no bank file changed.
-func (r *updateRun) okStatus(log string) string {
-	if r.blocks > 0 && !r.updated {
-		noteBlocked(log, r.blocks)
-		return updateBlocked
-	}
-	return updateOK
 }
 
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
@@ -467,7 +458,6 @@ type updateRun struct {
 	before            time.Time
 	runErr, settleErr error
 	updated           bool
-	blocks            int // gate refusals counted on the last agent attempt
 }
 
 // finish settles under the writer lock and reports whether the update wrote the bank.
@@ -486,17 +476,11 @@ func (r *updateRun) touched() bool {
 	return newestMtime().After(r.before)
 }
 
-// runAgent runs the agent, once more when the gate refused calls and no bank file changed.
+// runAgent runs the agent, then completes the session's handoff when it succeeded.
 func (r *updateRun) runAgent(ctx context.Context, o updateOptions) {
-	for range 2 {
-		r.blocks = 0
-		r.runErr = runAgentUpdate(context.WithValue(ctx, gateBlocksKey{}, &r.blocks), o)
-		if r.runErr != nil || r.blocks == 0 || r.touched() {
-			if r.runErr == nil && o.Handoff.block != "" && (r.blocks == 0 || r.touched()) {
-				r.runErr = completeHandoff(o.Session, o.Handoff)
-			}
-			return
-		}
+	r.runErr = runAgentUpdate(ctx, o)
+	if r.runErr == nil && o.Handoff.block != "" {
+		r.runErr = completeHandoff(o.Session, o.Handoff)
 	}
 }
 
@@ -539,15 +523,6 @@ func withChildEnv(ctx context.Context, env ...string) context.Context {
 func ChildEnv(ctx context.Context) []string {
 	env, _ := ctx.Value(childEnvKey{}).([]string)
 	return env
-}
-
-type gateBlocksKey struct{}
-
-// NoteGateBlocks reports to the job how many tool calls the gate refused; a no-op when the job did not ask.
-func NoteGateBlocks(ctx context.Context, n int) {
-	if p, ok := ctx.Value(gateBlocksKey{}).(*int); ok {
-		*p = n
-	}
 }
 
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.

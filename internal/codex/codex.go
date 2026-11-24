@@ -61,7 +61,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
 	if codexJSON {
 		sandbox, _ := codexSandbox(req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
-		denials := &denialSink{next: sink, p: req.Permissions, tools: req.Tools, sandbox: sandbox, commands: map[string]string{}}
+		denials := &denialSink{next: sink, tools: req.Tools, sandbox: sandbox, commands: map[string]string{}}
 		return denials.runStream(ctx, e.Name(), cmd, tail, res)
 	}
 	var answer strings.Builder
@@ -94,11 +94,6 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	req := agent.RunOptions{Permissions: s.Permissions, Tools: s.Tools}
-	argv, env, remove, err := codexApplyPermissions(req, argv, env)
-	if err != nil {
-		return env, argv, emulated, func() { remove(); cleanup() }, err
-	}
 	env, notes, rmCache, err := codexToolsEnv(ctx, env, s.Tools, sandbox)
 	if err == nil && !s.Tools {
 		env, argv, rmCache, err = codexReadOnlyGo(env, argv) // tools-off left rmCache a no-op
@@ -108,7 +103,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 			fmt.Fprintln(agent.NoticeOut, "ask:", note)
 		}
 	}
-	return env, codexCacheArgv(argv, env), append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
+	return env, codexCacheArgv(argv, env), append(emulated, notes...), func() { rmCache(); cleanup() }, err
 }
 
 // codexEffortArgv adds s.Effort, in codex's spelling, before exec's own flags; a plain launch has no route to tune.

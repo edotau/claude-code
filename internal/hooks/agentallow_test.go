@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func allowInput(t *testing.T, tool, agentID, cwd string, in map[string]any) *core.Input {
@@ -29,7 +29,7 @@ func allowInput(t *testing.T, tool, agentID, cwd string, in map[string]any) *cor
 
 // A leaf's Bash block from docs-placement or worktree-claim-check is allowed with a note; the module still blocks.
 func TestLeafBashAllowLiftsPlacementAndClaimCheck(t *testing.T) {
-	t.Setenv(agent.DispatchPermissionsEnv, "")
+	t.Setenv(proc.DispatchIDEnv, "")
 	repo, _ := filepath.EvalSymlinks(hosttest.Repo(t))
 	t.Setenv("CLAUDE_CONFIG_DIR", repo) // the repo is the live config tree, where a leaf's claim check blocks
 	cases := []struct {
@@ -53,7 +53,7 @@ func TestLeafBashAllowLiftsPlacementAndClaimCheck(t *testing.T) {
 
 // The lift is Bash-only and never lifts a Floor block (the Plan agent's plans-home confinement).
 func TestLeafBashAllowSkipsEditsAndFloor(t *testing.T) {
-	t.Setenv(agent.DispatchPermissionsEnv, "")
+	t.Setenv(proc.DispatchIDEnv, "")
 	block := func(floor bool) core.Runner {
 		return func(*core.Input) core.Result {
 			return core.Result{Decision: core.Block, Reason: "no", Rule: "r", Floor: floor}
@@ -75,7 +75,7 @@ func TestLeafBashAllowSkipsEditsAndFloor(t *testing.T) {
 	if r := leafBashAllow(block(false), main); r.Decision != core.Block {
 		t.Errorf("main Bash block lifted: %+v", r)
 	}
-	t.Setenv(agent.DispatchPermissionsEnv, `{"allow":[{"Tool":"Edit","Arg":"x"}]}`) // a dispatched agent has no agent_id
+	t.Setenv(proc.DispatchIDEnv, "20261124T000000.000-codex") // a dispatched agent has no agent_id
 	if r := leafBashAllow(block(false), main); r.Decision != core.Allow {
 		t.Errorf("dispatched Bash block not lifted: %+v", r)
 	}

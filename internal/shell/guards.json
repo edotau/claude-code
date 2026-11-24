@@ -238,10 +238,6 @@
     "words": ["log", "show", "diff", "status", "blame", "ls-files", "rev-parse", "grep", "branch", "remote", "worktree",
       "stash", "clean", "reflog"]
   },
-  "git_read_only_gated_verbs": {
-    "purpose": "read-only git verbs that also write, so only the read forms their argument check names pass",
-    "words": ["branch", "remote", "worktree", "stash", "clean", "reflog"]
-  },
   "git_read_only_banned_long": {
     "purpose": "git long flags, abbreviations too, that pick a program, config, repo or output (drift X6)",
     "words": ["--output", "--exec-path", "--open-files-in-pager", "--config-env", "--config", "--git-dir",

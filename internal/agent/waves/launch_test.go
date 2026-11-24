@@ -296,7 +296,7 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WAVES_LAUNCH_STDIN", filepath.Join(dir, "stdin.jsonl"))
 	t.Setenv("WAVES_LAUNCH_JOBS", "1")
-	route := []string{"--overlay", `{"fallback":"none"}`, "--permissions", `{"mode":"plan","allow":["Bash(ls:*)"],"deny":["Edit"]}`}
+	route := []string{"--overlay", `{"fallback":"none"}`, "--profile", "qa"}
 	t.Setenv("WAVES_LAUNCH_ROUTE", strings.Join(route, "\x1f"))
 	options := LaunchOptions{Slug: "toy", ReportsDir: dir, Route: route}
 	envelopes, err := Launch(t.Context(), executable, []Spec{{ID: "1.1", Agent: "codex", Task: "only", Owns: []string{"/tmp/first.go"}}}, options)
@@ -324,7 +324,7 @@ func TestLaunchEnvelopesReportAndResultNames(t *testing.T) {
 func TestLaunchPanicErrorHasNoValueOrStack(t *testing.T) {
 	original := scopeBatchRun
 	t.Cleanup(func() { scopeBatchRun = original })
-	scopeBatchRun = func(context.Context, string, []Spec, []string, LaunchOptions) ([]Envelope, error) {
+	scopeBatchRun = func(context.Context, string, []Spec, LaunchOptions) ([]Envelope, error) {
 		panic("secret-value")
 	}
 	wave := scopeWave("claude", "claude")

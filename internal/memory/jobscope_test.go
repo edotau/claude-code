@@ -3,7 +3,6 @@ package memory_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,164 +11,21 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// permissions is the conversion ask.memoryRunOptions applies to a Scope: plan mode, bank writes, no redirects.
-func permissions(s memory.Scope) permission.Permissions {
-	p := permission.Permissions{Mode: "plan", Deny: []permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}}}
-	for _, tool := range []string{"Edit", "Write"} {
-		for _, d := range s.NoWrite {
-			p.Deny = append(p.Deny, permission.Rule{Tool: tool, Arg: d})
-		}
-		for _, w := range s.Write {
-			p.Allow = append(p.Allow, permission.Rule{Tool: tool, Arg: w})
-		}
-	}
-	for _, d := range s.CdDirs {
-		p.Allow = append(p.Allow, permission.CdRule(d))
-	}
-	for _, b := range s.Bash {
-		p.Allow = append(p.Allow, permission.Rule{Tool: "Bash", Arg: b})
-	}
-	for _, b := range s.NoBash {
-		p.Deny = append(p.Deny, permission.Rule{Tool: "Bash", Arg: b})
-	}
-	return p
-}
-
-func TestJobScopeBankAndDreamWrites(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	store := paths.MemoryStoreDir()
-	if err := os.MkdirAll(store, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(store, ".layout"), []byte("flat 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	work := filepath.Join(t.TempDir(), "proj")
-	if err := os.Mkdir(work, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	home := paths.MemoryStoreDir()
-	claudeMD := filepath.Join(paths.ConfigDir(), "CLAUDE.md")
-	other := filepath.Join(store, "other-repo", "progress.md")
-	tests := []struct {
-		kind, tool, arg string
-		want            permission.Decision
-	}{
-		{memory.JobUpdate, "Write", memory.Path("progress.md"), permission.Allow},
-		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), permission.Allow},
-		{memory.JobUpdate, "Write", other, permission.Deny},
-		{memory.JobUpdate, "Write", claudeMD, permission.Deny},
-		{memory.JobUpdate, "Write", filepath.Join(home, "handoffs", "2026-11-23-session-88fba51b.md"), permission.Allow},
-		{memory.JobUpdate, "Edit", filepath.Join(home, "handoffs", "sub", "x.md"), permission.Deny},
-		{memory.JobUpdate, "Write", filepath.Join(store, ".git", "config"), permission.Deny},
-		{memory.JobUpdate, "Bash", "claude-code memory promote x", permission.Deny},
-		{memory.JobUpdate, "Bash", "cd " + store, permission.Allow},
-		{memory.JobUpdate, "Bash", "cd " + t.TempDir(), permission.Deny},
-		{memory.JobDream, "Write", other, permission.Allow},
-		{memory.JobDream, "Edit", claudeMD, permission.Allow},
-		{memory.JobDream, "Write", filepath.Join(store, ".git", "config"), permission.Deny},
-		{memory.JobDream, "Write", filepath.Join(t.TempDir(), "x.md"), permission.Deny},
-		{memory.JobDream, "Bash", "claude-code memory promote --to claude-md x", permission.Allow},
-		{memory.JobDream, "Bash", "claude-code memory review --timeline --n 3", permission.Allow},
-		{memory.JobDream, "Bash", "claude-code memory review --brief", permission.Allow},
-		{memory.JobDream, "Bash", "rm -rf " + store, permission.Deny},
-		{memory.JobDream, "Bash", "echo x > " + other, permission.Deny},
-	}
-	for _, tc := range tests {
-		p := permissions(memory.JobScope(tc.kind, work))
-		if got := p.Decide(tc.tool, tc.arg); got != tc.want {
-			t.Errorf("%s: Decide(%s, %q) = %v, want %v", tc.kind, tc.tool, strings.TrimPrefix(tc.arg, store), got, tc.want)
-		}
-	}
-}
-
-func TestJobScopeUnknownHoldsNoTools(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+func TestJobToolsUnknownHoldsNone(t *testing.T) {
 	for _, kind := range []string{"digest", "nonsense", ""} {
-		s := memory.JobScope(kind, t.TempDir())
-		if s.Tools || len(s.Write)+len(s.Bash)+len(s.CdDirs) != 0 {
-			t.Errorf("JobScope(%q) = %+v, want no tools and no grants", kind, s)
+		if memory.JobTools(kind) {
+			t.Errorf("JobTools(%q) = true, want false", kind)
 		}
 	}
-	if s := memory.JobScope(memory.JobUpdate, t.TempDir()); !s.Tools {
-		t.Errorf("update scope reports no tools: %+v", s)
+	if !memory.JobTools(memory.JobUpdate) || !memory.JobTools(memory.JobDream) {
+		t.Error("update or dream reports no tools")
 	}
 }
 
-// planRow is one plan call: the gate's verdict and, where the gate allows a hostile --plan, the verb's own refusal.
-type planRow struct {
-	kind, tool, arg string
-	want            permission.Decision
-	plan            string // the --plan the verb would act on; "" when the gate alone decides
-}
-
-func planRows(home, plan string) []planRow {
-	task := "claude-code plan task 'Phase 1.1' "
-	done := task + "--done --sha abc1234 --plan "
-	escape := home + "/../../../etc/2026-11-18-x.md"
-	return []planRow{
-		{memory.JobDream, "Bash", done + plan, permission.Allow, plan},
-		{memory.JobDream, "Bash", task + "--strike 'gone — evidence: decision:ab12cd34' --plan " + plan, permission.Allow, plan},
-		{memory.JobDream, "Bash", task + "--reopen --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", task + "-reopen --done --sha abc1234 --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", "FOO=bar " + task + "--done --sha abc1234 --reopen --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", "bash -c \"" + task + "--reopen --plan " + plan + "\"", permission.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan tick --audit", permission.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan tick --range a..b --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan claim x --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", task + "--done --plan " + plan, permission.Deny, ""},
-		{memory.JobDream, "Bash", done + "2026-11-18-a.md", permission.Deny, ""},
-		{memory.JobDream, "Bash", done + home + "-evil/2026-11-18-a.md", permission.Deny, ""},
-		{memory.JobDream, "Bash", done + plan + " > /tmp/x", permission.Deny, ""},
-		{memory.JobDream, "Bash", done + plan + "; rm -rf " + home, permission.Deny, ""},
-		{memory.JobDream, "Bash", done + escape, permission.Allow, escape},                                                // `*` spans `..`: the verb refuses
-		{memory.JobDream, "Bash", done + plan + " --plan /etc/2026-11-18-x.md", permission.Allow, "/etc/2026-11-18-x.md"}, // the last --plan wins
-		{memory.JobDream, "Write", plan, permission.Deny, ""},
-		{memory.JobUpdate, "Bash", done + plan, permission.Deny, ""},
-		{memory.JobUpdate, "Edit", plan, permission.Deny, ""},
-	}
-}
-
-// Dream may tick or strike a plan task only through the verb, in this checkout's plans home; update may not at all.
-func TestJobScopePlanRules(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	work := filepath.Join(t.TempDir(), "proj")
-	if out, err := exec.Command("git", "init", "-q", work).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	home := plans.Home(work)
-	plan := filepath.Join(home, "2026-11-18-a.md")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(plan, []byte("- [ ] Phase 1.1 x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range planRows(home, plan) {
-		if got := permissions(memory.JobScope(r.kind, work)).Decide(r.tool, r.arg); got != r.want {
-			t.Errorf("%s: Decide(%s, %q) = %v, want %v", r.kind, r.tool, r.arg, got, r.want)
-		}
-		if _, err := plans.ResolvePlan(work, r.plan); r.plan != "" && (err == nil) != (r.plan == plan) {
-			t.Errorf("ResolvePlan(%q) err = %v: only the home's dated plan resolves", r.plan, err)
-		}
-	}
-	wide := memory.JobScope(memory.JobDream, work) // the denies survive a later, broader grant
-	wide.Bash, wide.Write = append(wide.Bash, "claude-code plan *"), append(wide.Write, home+"/**")
-	for _, call := range [][2]string{{"Bash", "claude-code plan task x --reopen --plan " + plan}, {"Bash", "claude-code plan tick --audit"}, {"Write", plan}} {
-		if got := permissions(wide).Decide(call[0], call[1]); got != permission.Deny {
-			t.Errorf("widened Decide(%s, %q) = %v, want deny", call[0], call[1], got)
-		}
-	}
-}
-
-// planCall is one plan command a fake dream issues and what the verb would do once the gate allows it.
+// planCall is one plan command a fake dream issues and what the verb does.
 type planCall struct {
 	cmd string
 	do  func() error
@@ -197,7 +53,7 @@ func planFixture(t *testing.T) (work, plan, good, side string) {
 	return work, plan, good, side
 }
 
-// A fake dream's plan calls pass the gate or not; Go keeps the proven ones, reopens the bad sha and logs each.
+// A fake dream's plan calls all run; Go keeps the proven ones, reopens the bad sha and logs each.
 func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 	work, plan, good, side := planFixture(t)
 	task := "claude-code plan task "
@@ -206,16 +62,12 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		{task + "'Phase 1.2' --strike 'moot — evidence: note:feedback/x.md' --plan " + plan,
 			func() error { return plans.Strike(plan, "Phase 1.2", "moot — evidence: note:feedback/x.md") }},
 		{task + "'Phase 1.3' --done --sha " + side + " --plan " + plan, func() error { return plans.MarkDone(plan, "Phase 1.3", side) }},
-		{task + "'Phase 1.4' --reopen --plan " + plan, func() error { return plans.Reopen("", plan, "Phase 1.4") }},
 	}
-	denied, prompt := 0, ""
-	run := func(ctx context.Context, p, cwd string) (string, error) {
+	prompt := ""
+	run := func(_ context.Context, p, _ string) (string, error) {
 		prompt = p
-		gate := permissions(memory.JobScope(memory.JobKind(ctx), cwd))
 		for _, c := range calls {
-			if gate.Decide("Bash", c.cmd) != permission.Allow {
-				denied++
-			} else if err := c.do(); err != nil {
+			if err := c.do(); err != nil {
 				t.Error(err)
 			}
 		}
@@ -226,8 +78,8 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(plan)
-	if !strings.Contains(prompt, `"id":"Phase 1.3"`) || denied != 1 || !strings.Contains(out.String(), "plans: kept 2, reverted 1") {
-		t.Fatalf("prompt lists open tasks %v, denied %d, out:\n%s", strings.Contains(prompt, "Open plan tasks"), denied, out.String())
+	if !strings.Contains(prompt, `"id":"Phase 1.3"`) || !strings.Contains(out.String(), "plans: kept 2, reverted 1") {
+		t.Fatalf("prompt lists open tasks %v, out:\n%s", strings.Contains(prompt, "Open plan tasks"), out.String())
 	}
 	for _, want := range []string{"[x] Phase 1.1 One — owns: a.go (" + good + ")", "~~Phase 1.2 Two~~ — superseded: moot",
 		"[ ] Phase 1.3 Three — owns: b.go\n", "[x] Phase 1.4 Four"} {
@@ -238,38 +90,5 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 	if log, _ := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "plans-audit.jsonl")); strings.Count(string(log), `"verdict":"kept"`) != 2 ||
 		!strings.Contains(string(log), `"verdict":"reverted: sha is not on the trunk branch"`) {
 		t.Errorf("log:\n%s", log)
-	}
-}
-
-// A dream job cannot approve or close a candidate, nor tick or reopen a plan, by any spelling of the command.
-func TestJobScopeDreamOwnerVerbsRefusedInEveryShape(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	work := t.TempDir()
-	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	p := permissions(memory.JobScope(memory.JobDream, work))
-	review := "claude-code memory review --candidate fc-x "
-	for _, c := range []string{
-		review + "--approve", review + "--enforced abc1234",
-		"claude-code memory review --approve --candidate fc-x", "claude-code memory review --candidate=fc-x --approve",
-		"CLAUDE_MEMORY_DREAM_CHILD=0 " + review + "--approve", "X=0 " + review + "--approve",
-		"env X=0 " + review + "--approve", "bash -c '" + review + "--approve'", "sh -c \"" + review + "--enforced abc1234\"",
-		"/usr/local/bin/claude-code memory review --candidate fc-x --approve",
-		"~/.claude/bin/claude-code memory review --candidate fc-x --approve",
-		"CLAUDE_MEMORY_DREAM_CHILD=0 claude-code plan task 1 --reopen", "X=0 claude-code plan task 1 --reopen",
-		"env X=0 claude-code plan task 1 --reopen", "bash -c 'claude-code plan task 1 --reopen'",
-		"/usr/local/bin/claude-code plan task 1 --reopen",
-		"X=0 claude-code plan tick --audit", "env X=0 claude-code plan tick --audit",
-		"bash -c 'claude-code plan tick --audit'", "/usr/local/bin/claude-code plan tick --audit",
-	} {
-		if got := p.Decide("Bash", c); got != permission.Deny {
-			t.Errorf("Decide(Bash, %q) = %v, want Deny", c, got)
-		}
-	}
-	for _, c := range []string{"claude-code memory review --candidate fc-x", "X=0 claude-code memory review --brief"} {
-		if got := p.Decide("Bash", c); got != permission.Allow {
-			t.Errorf("Decide(Bash, %q) = %v, want Allow", c, got)
-		}
 	}
 }

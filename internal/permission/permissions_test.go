@@ -1,13 +1,11 @@
 package permission
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -16,9 +14,18 @@ import (
 
 func mustPerms(t *testing.T, mode string, allow, ask, deny []string) Permissions {
 	t.Helper()
-	p, err := ParsePermissions(mode, allow, ask, deny)
-	if err != nil {
-		t.Fatalf("ParsePermissions: %v", err)
+	p := Permissions{Mode: mode}
+	for _, set := range []struct {
+		in  []string
+		out *[]Rule
+	}{{allow, &p.Allow}, {ask, &p.Ask}, {deny, &p.Deny}} {
+		for _, in := range set.in {
+			r, err := ParseRule(in)
+			if err != nil {
+				t.Fatalf("ParseRule(%q): %v", in, err)
+			}
+			*set.out = append(*set.out, r)
+		}
 	}
 	return p
 }
@@ -35,62 +42,6 @@ func TestPermissionParseRule(t *testing.T) {
 			t.Errorf("ParseRule(%q) = %+v, %v; want %+v", in, got, err, want)
 		}
 	}
-}
-
-// Given an unknown mode or a bad rule, Then ParsePermissions fails.
-func TestPermissionParsePermissionsErrors(t *testing.T) {
-	if _, err := ParsePermissions("yolo", nil, nil, nil); err == nil {
-		t.Error("unknown mode must error")
-	}
-	if _, err := ParsePermissions("auto", []string{"Bash()"}, nil, nil); err == nil {
-		t.Error("bad rule must error")
-	}
-}
-
-// Given a --permissions JSON value, Then ParsePolicy keeps a mode and rules and refuses an unknown key or bad mode.
-func TestParsePolicyModeObjectAndRefusals(t *testing.T) {
-	for _, tc := range []struct {
-		in   string
-		mode string
-		ok   bool
-	}{
-		{`{"mode":"auto"}`, "auto", true},
-		{`{"mode":"default","allow":["Read"],"deny":["Bash(rm:*)"]}`, "default", true},
-		{`{"alow":[]}`, "", false},
-		{`{"mode":"yolo"}`, "", false},
-	} {
-		p, err := ParsePolicy(tc.in)
-		if (err == nil) != tc.ok || (tc.ok && p.Mode != tc.mode) {
-			t.Errorf("ParsePolicy(%s) = %+v, %v; want ok=%v mode=%q", tc.in, p, err, tc.ok, tc.mode)
-		}
-	}
-}
-
-func TestPermissionEach(t *testing.T) {
-	p := Permissions{
-		Allow: []Rule{{Tool: "Read", Arg: "allowed.txt"}},
-		Ask:   []Rule{{Tool: "Bash", Arg: "git push:*"}},
-		Deny:  []Rule{{Tool: "Edit", Arg: ".env"}},
-	}
-	type visit struct {
-		decision Decision
-		rule     Rule
-	}
-	var got []visit
-	p.Each(func(decision Decision, r Rule) {
-		got = append(got, visit{decision, r})
-	})
-	want := []visit{
-		{Deny, Rule{Tool: "Edit", Arg: ".env"}},
-		{Ask, Rule{Tool: "Bash", Arg: "git push:*"}},
-		{Allow, Rule{Tool: "Read", Arg: "allowed.txt"}},
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("Each visits = %+v, want %+v", got, want)
-	}
-	(Permissions{}).Each(func(decision Decision, r Rule) {
-		t.Errorf("empty Permissions visited decision %v, rule %+v", decision, r)
-	})
 }
 
 // Given the same call in Allow, Ask and Deny, Then Deny wins, then Ask, then Allow.
@@ -112,13 +63,13 @@ func TestPermissionPrecedence(t *testing.T) {
 	}
 }
 
-// Given an unset Decision or no matching rule, Then it is never Allow; plan denies, other modes ask.
+// Given an unset Decision or no matching rule, Then it is never Allow; allow allows, other modes ask.
 func TestPermissionFailClosedAndModeFallback(t *testing.T) {
 	var zero Decision
 	if zero == Allow {
 		t.Fatal("zero Decision must not be Allow")
 	}
-	for mode, want := range map[string]Decision{"": Ask, "default": Ask, "auto": Ask, "plan": Deny} {
+	for mode, want := range map[string]Decision{"": Ask, "default": Ask, PermAllow: Allow} {
 		if got := mustPerms(t, mode, []string{"Read(x)"}, nil, nil).Decide("Read", "y"); got != want {
 			t.Errorf("mode %q unmatched: got %v, want %v", mode, got, want)
 		}
@@ -137,13 +88,13 @@ func checkBash(t *testing.T, p Permissions, cases map[string]Decision) {
 
 // Given the file-redirect deny, Then only a write to a file is refused: stream merges and a quoted `>` pass.
 func TestPermissionFileRedirectDeny(t *testing.T) {
-	p := Permissions{Mode: "plan", Deny: []Rule{{"Bash", RedirectFileArg}},
+	p := Permissions{Deny: []Rule{{"Bash", RedirectFileArg}},
 		Allow: []Rule{{"Bash", "go test *"}, {"Bash", "tail *"}, {"Bash", "echo *"}, {"Bash", "cat *"}}}
 	checkBash(t, p, map[string]Decision{
 		"go test ./x 2>&1 | tail -5": Allow, "go test ./x 2>&-": Allow, "go test ./x >&2": Allow, "go test ./x 1>&2": Allow,
 		`echo "a > b"`: Allow, "echo 'x>y'": Allow, `echo a\>b`: Allow,
 		"go test ./x > o": Deny, "go test ./x >> o": Deny, "go test ./x >| o": Deny, "go test ./x &> o": Deny,
-		"go test ./x 2> o": Deny, "go test ./x >&o": Deny, "go test ./x 2>&1 > o": Deny, "go test ./x >(tee o)": Deny,
+		"go test ./x 2> o": Deny, "go test ./x >&o": Deny, "go test ./x 2>&1 > o": Deny, "go test ./x >(tee o)": Ask,
 		"cat <<EOF > f\nx\nEOF": Deny, "echo $(go test > f)": Deny, "go test ./x 2>&1 >o | tail": Deny,
 		"env FOO=1 go test ./x > o": Deny, "time go test ./x >> o": Deny, "env FOO=1 go test ./x 2>&1 | tail": Allow,
 		"cat <<< hi": Ask,
@@ -152,27 +103,27 @@ func TestPermissionFileRedirectDeny(t *testing.T) {
 
 // Given a cd rule for the workdir, Then only a bare absolute cd into it or below passes.
 func TestPermissionCdInsideWorkdir(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{CdRule("/work/repo"), {"Bash", "go test *"}}}
+	p := Permissions{Allow: []Rule{cdRule("/work/repo"), {"Bash", "go test *"}}}
 	checkBash(t, p, map[string]Decision{
 		"cd /work/repo": Allow, "cd /work/repo/internal/x": Allow, "cd /work/repo && go test ./...": Allow,
 		`cd "/work/repo/a"`: Allow, "cd /work/repo/": Allow,
-		"cd /work": Deny, "cd /work/repo/../other": Deny, "cd /work/repository": Deny, "cd /": Deny, "cd": Deny,
-		"cd internal": Deny, "cd ~": Deny, "cd $HOME": Deny, "cd /work/repo/$X": Deny, "cd /work/repo/a*": Deny,
-		"cd -P /work/repo": Deny, "cd /work/repo /etc": Deny, "cd /work/repo; cd /etc": Deny, "pushd /work/repo": Deny,
-		"cd /work/repo/..": Deny, "cd /work/repo/./..": Deny, "cd /work/repo/a/../..": Deny,
+		"cd /work": Ask, "cd /work/repo/../other": Ask, "cd /work/repository": Ask, "cd /": Ask, "cd": Ask,
+		"cd internal": Ask, "cd ~": Ask, "cd $HOME": Ask, "cd /work/repo/$X": Ask, "cd /work/repo/a*": Ask,
+		"cd -P /work/repo": Ask, "cd /work/repo /etc": Ask, "cd /work/repo; cd /etc": Ask, "pushd /work/repo": Ask,
+		"cd /work/repo/..": Ask, "cd /work/repo/./..": Ask, "cd /work/repo/a/../..": Ask,
 		"cd /work/repo/..x": Allow, "cd /work/repo/a/..": Allow, "cd /work/repo//a": Allow,
 	})
 	// an empty workdir must allow no cd at all, not every absolute one
-	checkBash(t, Permissions{Mode: "plan", Allow: []Rule{CdRule("")}}, map[string]Decision{"cd /": Deny, "cd /etc": Deny})
+	checkBash(t, Permissions{Allow: []Rule{cdRule("")}}, map[string]Decision{"cd /": Ask, "cd /etc": Ask})
 	// a home-normalized store path still matches its cd rule (commandWords spells $HOME as ~)
 	home, _ := os.UserHomeDir()
-	store := Permissions{Mode: "plan", Allow: []Rule{CdRule(filepath.ToSlash(home) + "/.claude/memory")}}
-	checkBash(t, store, map[string]Decision{"cd ~/.claude/memory": Allow, "cd ~/.claude/memory/x": Allow, "cd ~/.claude": Deny, "cd ~": Deny})
+	store := Permissions{Allow: []Rule{cdRule(filepath.ToSlash(home) + "/.claude/memory")}}
+	checkBash(t, store, map[string]Decision{"cd ~/.claude/memory": Allow, "cd ~/.claude/memory/x": Allow, "cd ~/.claude": Ask, "cd ~": Ask})
 }
 
 // Given a Bash deny, Then rtk, path-named and $HOME spellings meet it; `rtk read` stays unstripped.
 func TestPermissionCommandWordsNormalize(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "*"}}, Deny: []Rule{{"Bash", "rm -rf ~"}}}
+	p := Permissions{Allow: []Rule{{"Bash", "*"}}, Deny: []Rule{{"Bash", "rm -rf ~"}}}
 	checkBash(t, p, map[string]Decision{
 		"rm -rf ~": Deny, "rtk rm -rf ~": Deny, "/bin/rm -rf $HOME": Deny, "rtk rm -rf ${HOME}": Deny,
 		"rm -rf /tmp/x": Allow, "rtk read f": Allow,
@@ -181,22 +132,22 @@ func TestPermissionCommandWordsNormalize(t *testing.T) {
 
 // Given go test allowed, Then a bare env or time prefix is granted by the normalized form; unsafe prefixes are not.
 func TestPermissionWrapperNormalizationGrants(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "go test *"}}, Deny: []Rule{{"Bash", "rm:*"}, {"Bash", "FOO=9 *"}}}
+	p := Permissions{Allow: []Rule{{"Bash", "go test *"}}, Deny: []Rule{{"Bash", "rm:*"}, {"Bash", "FOO=9 *"}}}
 	checkBash(t, p, map[string]Decision{
 		"FOO=1 go test ./x": Allow, "env FOO=1 go test ./x": Allow, "time go test ./x": Allow, "time FOO=1 go test": Allow,
 		"GOOS=linux go test ./x": Allow, "A=1 B=2 go test ./x": Allow,
-		"PATH=/tmp go test": Deny, "NODE_OPTIONS=--x go test": Deny, "HTTPS_PROXY=x go test": Deny, "HARNESS_X=1 go test": Deny,
-		"OPENAI_API_KEY=x go test": Deny, "GOFLAGS=-toolexec=x go test": Deny, "LD_PRELOAD=x go test": Deny,
-		"env -i go test": Deny, "sudo go test": Deny, "/usr/bin/env FOO=1 go test": Deny, "time -p go test": Deny,
-		"nohup go test": Deny, "FOO=1 rm x": Deny, "time rm x": Deny, "env FOO=1 rm x": Deny, "FOO=9 go test": Deny,
-		"path=/tmp go test": Deny, "Ld_Preload=x go test": Deny,
-		"PATH= go test": Deny, "FOO= go test": Allow, "time": Deny, "env": Deny, "FOO=1": Deny, "time FOO=1": Deny,
+		"PATH=/tmp go test": Ask, "NODE_OPTIONS=--x go test": Ask, "HTTPS_PROXY=x go test": Ask, "HARNESS_X=1 go test": Ask,
+		"OPENAI_API_KEY=x go test": Ask, "GOFLAGS=-toolexec=x go test": Ask, "LD_PRELOAD=x go test": Ask,
+		"env -i go test": Ask, "sudo go test": Ask, "/usr/bin/env FOO=1 go test": Ask, "time -p go test": Ask,
+		"nohup go test": Ask, "FOO=1 rm x": Deny, "time rm x": Deny, "env FOO=1 rm x": Deny, "FOO=9 go test": Deny,
+		"path=/tmp go test": Ask, "Ld_Preload=x go test": Ask,
+		"PATH= go test": Ask, "FOO= go test": Allow, "time": Ask, "env": Ask, "FOO=1": Ask, "time FOO=1": Ask,
 	})
 }
 
 // Given a curl deny, Then the command xargs runs is judged, past its options and their values; a plain grep stays allowed.
 func TestPermissionXargsUnwrapped(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "echo *"}, {"Bash", "xargs *"}, {"Bash", "grep *"}}, Deny: []Rule{{"Bash", "curl *"}}}
+	p := Permissions{Allow: []Rule{{"Bash", "echo *"}, {"Bash", "xargs *"}, {"Bash", "grep *"}}, Deny: []Rule{{"Bash", "curl *"}}}
 	checkBash(t, p, map[string]Decision{
 		"echo u | xargs curl x": Deny, "echo u | xargs -n 1 curl x": Deny, "echo u | xargs -I {} curl {}": Deny,
 		"echo u | xargs --max-args 1 curl x": Deny, "echo u | xargs -P4 -0 curl x": Deny, "echo u | xargs nice curl x": Deny,
@@ -209,21 +160,21 @@ func TestPermissionXargsUnwrapped(t *testing.T) {
 
 // A segment that only assigns or only prints the environment is judged like any command; an empty one is skipped.
 func TestPermissionWordlessSegmentJudged(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "grep *"}, {"Bash", "wc *"}}}
+	p := Permissions{Allow: []Rule{{"Bash", "grep *"}, {"Bash", "wc *"}}}
 	checkBash(t, p, map[string]Decision{
-		"env | grep TOKEN": Deny, "env | wc -l": Deny, "x=1; grep a f": Deny, "nohup env | grep x": Deny, "exec env | wc -l": Deny,
+		"env | grep TOKEN": Ask, "env | wc -l": Ask, "x=1; grep a f": Ask, "nohup env | grep x": Ask, "exec env | wc -l": Ask,
 		"grep a f;": Allow, "grep a f\n\ngrep b f": Allow, "grep a f; ; wc -l f": Allow,
 	})
 }
 
 // Given the sed print rule, Then only `sed -n <range>p FILE` passes: no -i, -e, w/e commands or extra options.
 func TestPermissionSedPrintOnly(t *testing.T) {
-	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", SedPrintArg}}, Deny: []Rule{{"Bash", RedirectFileArg}}}
+	p := Permissions{Allow: []Rule{{"Bash", SedPrintArg}}, Deny: []Rule{{"Bash", RedirectFileArg}}}
 	checkBash(t, p, map[string]Decision{
 		"sed -n 5p f.go": Allow, "sed -n '10,20p' a b": Allow, "sed -n '$p' f": Allow, "sed -n 3,$p f": Allow,
-		"sed -i 5p f": Deny, "sed -n -i 5p f": Deny, "sed -n 5p -i f": Deny, "sed -n 'w out' f": Deny,
-		"sed -n '5p;w out' f": Deny, "sed -n '1e id' f": Deny, "sed -n 5p": Deny, "sed -n -e 5p f": Deny,
-		"sed 5p f": Deny, "sed -n 5w f": Deny, "sed -n 5p f > o": Deny, "sed -n 5p -- f": Deny,
+		"sed -i 5p f": Ask, "sed -n -i 5p f": Ask, "sed -n 5p -i f": Ask, "sed -n 'w out' f": Ask,
+		"sed -n '5p;w out' f": Ask, "sed -n '1e id' f": Ask, "sed -n 5p": Ask, "sed -n -e 5p f": Ask,
+		"sed 5p f": Ask, "sed -n 5w f": Ask, "sed -n 5p f > o": Deny, "sed -n 5p -- f": Ask,
 	})
 }
 
@@ -255,10 +206,10 @@ func TestPermissionBashSegments(t *testing.T) {
 
 // Given a Read deny, a write or an Ask rule hidden behind a `.` operand, a function header or a loop, Then it stands.
 func TestPermissionConfiguredRuleStands(t *testing.T) {
-	ro := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/secret.env"}}, ReadOnlyDeny...)}
-	ask := Permissions{Allow: []Rule{ReadOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "for *"}}, Deny: ReadOnlyDeny}
-	askcat := Permissions{Allow: []Rule{ReadOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "cat *"}},
-		Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/.env"}}, ReadOnlyDeny...)}
+	ro := Permissions{Allow: []Rule{readOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/secret.env"}}, readOnlyDeny...)}
+	ask := Permissions{Allow: []Rule{readOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "for *"}}, Deny: readOnlyDeny}
+	askcat := Permissions{Allow: []Rule{readOnlyAllow}, Ask: []Rule{{Tool: "Bash", Arg: "cat *"}},
+		Deny: append([]Rule{{Tool: "Read", Arg: "/work/repo/.env"}}, readOnlyDeny...)}
 	cases := []struct {
 		p    Permissions
 		cmd  string
@@ -268,7 +219,7 @@ func TestPermissionConfiguredRuleStands(t *testing.T) {
 		{ro, "> /tmp/pwn function a; git status", Deny}, {askcat, "cat .env", Deny},
 		{askcat, "for x in .env; do cat $x; done", Deny}, {ask, "for x in a b; do git status; done", Ask},
 		{ro, "for f in =ls; do cat $f; done", Deny}, {ro, "grep cd f; cat secret.env", Deny},
-		{Permissions{Allow: []Rule{ReadOnlyAllow}}, "for f in a b; do cat $f; done", Ask}, {ro, "cat .; cat ../x", Allow},
+		{Permissions{Allow: []Rule{readOnlyAllow}}, "for f in a b; do cat $f; done", Ask}, {ro, "cat .; cat ../x", Allow},
 		{ro, "for f in a b; do cat $f; done", Allow}, {ro, "git status; git status", Allow},
 	}
 	for _, c := range cases {
@@ -310,10 +261,7 @@ func TestPermissionWebFetchDomain(t *testing.T) {
 
 // Given Claude Code's Bash wildcard rules, Then "*" spans text and a trailing " *" keeps the word boundary.
 func TestPermissionBashWildcard(t *testing.T) {
-	p, err := ParsePermissions("", nil, nil, []string{"Bash(rm *)", "Bash(git * --force)"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := mustPerms(t, "", nil, nil, []string{"Bash(rm *)", "Bash(git * --force)"})
 	for cmd, want := range map[string]Decision{
 		"rm -rf x": Deny, "rm": Deny, "rmdir x": Ask, "git push origin --force": Deny, "git push": Ask,
 	} {
@@ -342,44 +290,6 @@ func TestPermissionUnicodePathDeny(t *testing.T) {
 		if got := p.Decide("Read", "public.txt"); got != Allow {
 			t.Errorf("Read(public.txt) = %v, want Allow", got)
 		}
-	}
-}
-
-func permsJSON(t *testing.T, p Permissions) string {
-	t.Helper()
-	b, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
-// Layers add up; widened lists only what a later layer grants beyond the earlier ones, never a denied rule.
-func TestResolvePermissionsWidening(t *testing.T) {
-	def := mustPerms(t, "plan", []string{"Read"}, []string{"Bash(git push:*)"}, []string{"Bash(rm:*)"})
-	cases := []struct {
-		name    string
-		req     Permissions
-		want    string
-		widened string
-	}{
-		{"no request keeps the default", Permissions{}, permsJSON(t, def), ""},
-		{"narrowing is free", mustPerms(t, "plan", nil, []string{"Edit"}, []string{"WebFetch"}),
-			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""}],"ask":[{"Tool":"Bash","Arg":"git push:*"},{"Tool":"Edit","Arg":""}],"deny":[{"Tool":"Bash","Arg":"rm:*"},{"Tool":"WebFetch","Arg":""}]}`, ""},
-		{"allowing a default ask widens it", mustPerms(t, "", []string{"Bash(git push:*)"}, nil, nil),
-			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""},{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, "allow Bash(git push:*)"},
-		{"a denied allow is no Widening", mustPerms(t, "", []string{"Bash(rm:*)"}, nil, nil),
-			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""},{"Tool":"Bash","Arg":"rm:*"}],"ask":[{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, ""},
-		{"leaving plan widens the mode", mustPerms(t, "auto", nil, nil, nil),
-			`{"mode":"auto","allow":[{"Tool":"Read","Arg":""}],"ask":[{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, "mode auto"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, widened := Resolve(def, c.req)
-			if permsJSON(t, got) != c.want || strings.Join(widened, "; ") != c.widened {
-				t.Errorf("got %s widened %q\nwant %s widened %q", permsJSON(t, got), widened, c.want, c.widened)
-			}
-		})
 	}
 }
 
@@ -416,7 +326,7 @@ func TestPermissionHomePaths(t *testing.T) {
 		for _, want := range []Decision{Allow, Deny, Ask} {
 			sets := make([][]string, 3)
 			sets[want] = []string{"Read(" + c.rule + ")"}
-			p := mustPerms(t, "plan", sets[Allow], sets[Ask], sets[Deny])
+			p := mustPerms(t, "", sets[Allow], sets[Ask], sets[Deny])
 			if want != Allow {
 				p.Allow = []Rule{{Tool: "Read"}}
 			}
@@ -437,7 +347,7 @@ func TestPermissionHomePaths(t *testing.T) {
 func gatedPerms(t *testing.T, extraAllow ...string) Permissions {
 	t.Helper()
 	allow := append([]string{"Bash(python3 *)", "Bash(go run *)", "Bash(go test *)", "Bash(cat *)", "Bash(git commit *)"}, extraAllow...)
-	return mustPerms(t, "plan", allow, nil, []string{"Bash(rm:*)", "Bash(git push:*)", "Bash(" + RedirectFileArg + ")"})
+	return mustPerms(t, "", allow, nil, []string{"Bash(rm:*)", "Bash(git push:*)", "Bash(" + RedirectFileArg + ")"})
 }
 
 // Given a heredoc fed to a data consumer, Then its body is stdin, not commands; a shell-fed or expanded body still is.
@@ -466,7 +376,7 @@ func TestPermissionHeredocBodyIsData(t *testing.T) {
 		"cat > run.sh <<'EOF'\nrm x\nEOF":            Deny,
 		"cat <<'EOF' >> x.sh\nrm x\nEOF\n. x.sh":     Deny,
 		"python3 - <<'EOF' && ./run\nrm x\nEOF":      Deny,
-		"python3 - <<'EOF' | sh\nprint('rm x')\nEOF": Deny,
+		"python3 - <<'EOF' | sh\nprint('rm x')\nEOF": Ask,
 	})
 	// a deny-only policy: the body no longer denies, the heredoc head still asks
 	codex := mustPerms(t, "default", nil, nil, []string{"Bash(rm:*)"})
@@ -508,7 +418,7 @@ func TestPermissionShellComments(t *testing.T) {
 		"go test ./x \"a #\"; rm y":           Deny,
 		"go test a#b; rm y":                   Deny,
 		"go test ${x:- #}; rm y":              Deny,
-		"go test \"$(echo \"x #y\"); rm z)\"": Deny,
+		"go test \"$(echo \"x #y\"); rm z)\"": Ask,
 		"go test $(# c\nrm x)":                Deny,
 		"go test ./x # c\nrm y":               Deny,
 		"go test ./x \\# c; rm y":             Deny,
@@ -521,7 +431,7 @@ func TestPermissionShellComments(t *testing.T) {
 		"go test ./x # \"q\nrm y #\"":     Deny,
 	})
 	// the same shapes hiding an allowed command stay allowed
-	rmOK := mustPerms(t, "plan", []string{"Bash(go test *)", "Bash(rm *)"}, nil, nil)
+	rmOK := mustPerms(t, "", []string{"Bash(go test *)", "Bash(rm *)"}, nil, nil)
 	checkBash(t, rmOK, map[string]Decision{"go test ./x # it's\nrm -rf y #'": Allow, "go test ./x #c\\\nrm y": Allow})
 	codex := mustPerms(t, "default", nil, nil, []string{"Bash(rm:*)"})
 	checkBash(t, codex, map[string]Decision{"go test ./x # it's\nrm -rf y #'": Deny, "go test ./x #c\\\nrm y": Deny,
@@ -542,21 +452,21 @@ func TestPermissionCdCanonicalSpelling(t *testing.T) {
 	}
 	slash := filepath.ToSlash
 	for _, c := range []struct{ rule, spelled string }{{link, real}, {real, link}} {
-		p := Permissions{Mode: "plan", Allow: []Rule{CdRule(slash(c.rule)), {"Bash", "go test *"}}}
+		p := Permissions{Allow: []Rule{cdRule(slash(c.rule)), {"Bash", "go test *"}}}
 		checkBash(t, p, map[string]Decision{
 			"cd " + slash(c.spelled):                         Allow,
 			"cd " + slash(c.spelled) + "/sub && go test ./x": Allow,
 			"cd " + slash(c.rule):                            Allow,
 			// controls
-			"cd " + slash(filepath.Dir(real)):   Deny,
-			"cd " + slash(other):                Deny,
-			"cd " + slash(c.spelled) + "/..":    Deny,
-			"cd " + slash(c.spelled) + "x":      Deny,
-			"cd " + slash(c.spelled) + "/$X":    Deny,
-			"cd " + slash(c.spelled) + "; rm x": Deny,
-			"cd sub":                            Deny,
-			"cd /":                              Deny,
-			"cd " + slash(c.spelled) + " /etc":  Deny,
+			"cd " + slash(filepath.Dir(real)):   Ask,
+			"cd " + slash(other):                Ask,
+			"cd " + slash(c.spelled) + "/..":    Ask,
+			"cd " + slash(c.spelled) + "x":      Ask,
+			"cd " + slash(c.spelled) + "/$X":    Ask,
+			"cd " + slash(c.spelled) + "; rm x": Ask,
+			"cd sub":                            Ask,
+			"cd /":                              Ask,
+			"cd " + slash(c.spelled) + " /etc":  Ask,
 		})
 	}
 }
@@ -573,7 +483,7 @@ func checkBashAt(t *testing.T, p Permissions, cases map[[2]string]Decision) {
 
 // Given a cd rule and the hook cwd, Then a relative cd is judged as its absolute target, chains left to right.
 func TestPermissionCdRelativeToCwd(t *testing.T) {
-	p := mustPerms(t, "plan", []string{"Bash(cd:/work/repo)", "Bash(go test *)"}, nil, []string{"Bash(cd:/work/repo/secret)"})
+	p := mustPerms(t, "", []string{"Bash(cd:/work/repo)", "Bash(go test *)"}, nil, []string{"Bash(cd:/work/repo/secret)"})
 	const repo = "/work/repo"
 	checkBashAt(t, p, map[[2]string]Decision{
 		{repo, "cd sub"}: Allow, {repo, "cd sub/deeper"}: Allow, {repo, "cd ./sub"}: Allow, {repo, "cd sub/.."}: Allow,
@@ -582,20 +492,20 @@ func TestPermissionCdRelativeToCwd(t *testing.T) {
 		{"/work", "cd repo"}: Allow, {"/work", "cd repo && cd internal"}: Allow, {repo, "cd sub && cd .."}: Allow,
 		{repo + "/", "cd sub"}: Allow, {repo, "cd 'sub'"}: Allow,
 		// controls: escapes, denied targets, dynamic targets, broken chains, no usable cwd
-		{repo, "cd .."}: Deny, {repo, "cd ../other"}: Deny, {repo, "cd sub/../.."}: Deny, {repo, "cd ../repository"}: Deny,
+		{repo, "cd .."}: Ask, {repo, "cd ../other"}: Ask, {repo, "cd sub/../.."}: Ask, {repo, "cd ../repository"}: Ask,
 		{repo, "cd secret"}: Deny, {repo, "cd ./secret/x"}: Deny, {repo, "cd a/../secret"}: Deny,
-		{repo, "cd sub && cd ../secret"}: Deny, {repo, "cd sub && cd ../.."}: Deny,
-		{repo, `cd "$X"`}: Deny, {repo, "cd -"}: Deny, {repo, "cd $(pwd)"}: Deny, {repo, "cd `pwd`"}: Deny,
-		{repo, "cd sub$(pwd)"}: Deny, {repo, "cd ~"}: Deny, {repo, "cd sub*"}: Deny, {repo, "cd"}: Deny,
-		{repo, "cd -P sub"}: Deny, {repo, "env cd sub"}: Deny, {repo, "cd sub; cd b"}: Deny, {repo, "cd x || cd b"}: Deny,
-		{repo, `bash -c "cd sub"`}: Deny, {"repo", "cd sub"}: Deny, {"", "cd sub"}: Deny, {"/work", "cd repo/.."}: Deny,
+		{repo, "cd sub && cd ../secret"}: Deny, {repo, "cd sub && cd ../.."}: Ask,
+		{repo, `cd "$X"`}: Ask, {repo, "cd -"}: Ask, {repo, "cd $(pwd)"}: Ask, {repo, "cd `pwd`"}: Ask,
+		{repo, "cd sub$(pwd)"}: Ask, {repo, "cd ~"}: Ask, {repo, "cd sub*"}: Ask, {repo, "cd"}: Ask,
+		{repo, "cd -P sub"}: Ask, {repo, "env cd sub"}: Ask, {repo, "cd sub; cd b"}: Ask, {repo, "cd x || cd b"}: Ask,
+		{repo, `bash -c "cd sub"`}: Ask, {"repo", "cd sub"}: Ask, {"", "cd sub"}: Ask, {"/work", "cd repo/.."}: Ask,
 	})
 	// outside plan mode a wildcard allow must not let a relative spelling reach a denied directory
 	open := mustPerms(t, "default", []string{"Bash(cd *)"}, nil, []string{"Bash(cd:/work/repo/secret)"})
 	checkBashAt(t, open, map[[2]string]Decision{{repo, "cd secret"}: Deny, {repo, "cd sub/../secret/x"}: Deny,
 		{repo, "cd sub"}: Allow, {"/work/repo/secret", "cd ."}: Deny})
 	// a Read deny binds a relative cd exactly as the absolute one
-	ro := Permissions{Mode: "plan", Allow: []Rule{ReadOnlyAllow, CdRule(repo)}, Deny: []Rule{{"Read", repo + "/secret/**"}}}
+	ro := Permissions{Allow: []Rule{readOnlyAllow, cdRule(repo)}, Deny: []Rule{{"Read", repo + "/secret/**"}}}
 	checkBashAt(t, ro, map[[2]string]Decision{{repo, "cd sub"}: Allow, {repo, "cd secret"}: Deny, {repo, "cd .."}: Deny})
 	if got := ro.Decide("Bash", "cd /work/repo/secret"); got != Deny {
 		t.Errorf("absolute spelling under the Read deny: got %v, want Deny", got)
@@ -615,7 +525,7 @@ func TestPermissionCdRelativeSymlink(t *testing.T) {
 		t.Skipf("symlink: %v", err)
 	}
 	slash := filepath.ToSlash
-	p := Permissions{Mode: "plan", Allow: []Rule{CdRule(slash(real))},
+	p := Permissions{Allow: []Rule{cdRule(slash(real))},
 		Deny: []Rule{{"Bash", cdPrefix + slash(secret)}}}
 	checkBashAt(t, p, map[[2]string]Decision{
 		{slash(other), "cd link"}: Allow, {slash(other), "cd link/sub"}: Allow, {slash(other), "cd link && cd sub"}: Allow,
@@ -649,3 +559,5 @@ func BenchmarkShellCode(b *testing.B) {
 		})
 	}
 }
+
+func cdRule(dir string) Rule { return Rule{Tool: "Bash", Arg: cdPrefix + dir} }

@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
@@ -107,10 +106,8 @@ func settingsView(t *testing.T, agentName string, req RunOptions) string {
 	if s.Record.Launch != nil {
 		args = s.Record.Launch.Args
 	}
-	p := s.Permissions
-	return fmt.Sprintf("effort=%s args=%v mode=%s allow=%v deny=%v extras=%v tools=%v workdir=%s model=%s headless=%v",
-		s.Effort, args, p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Deny), s.Record.Extras, s.Tools, s.WorkDir,
-		s.Target.Model, s.Headless)
+	return fmt.Sprintf("effort=%s args=%v extras=%v tools=%v workdir=%s model=%s headless=%v",
+		s.Effort, args, s.Record.Extras, s.Tools, s.WorkDir, s.Target.Model, s.Headless)
 }
 
 // storeCopilotRecord stores an effort and a launch block for copilot.
@@ -125,7 +122,7 @@ func storeCopilotRecord(t *testing.T) {
 // With no record, agents.json is the whole answer.
 func TestResolveSettingsBuiltIn(t *testing.T) {
 	vaulttest.Use(t)
-	want := "effort= args=[--allow-all] mode= allow=[] deny=[] extras=map[defaultPermissionMode:allow-all] tools=false " +
+	want := "effort= args=[--allow-all] extras=map[defaultPermissionMode:allow-all] tools=false " +
 		"workdir= model=m headless=true"
 	if got := settingsView(t, "copilot", RunOptions{}); got != want {
 		t.Errorf("built-in:\n got %s\nwant %s", got, want)
@@ -136,19 +133,19 @@ func TestResolveSettingsBuiltIn(t *testing.T) {
 func TestResolveSettingsRecordOverBuiltIn(t *testing.T) {
 	vaulttest.Use(t)
 	storeCopilotRecord(t)
-	want := "effort=medium args=[--banner] mode= allow=[] deny=[] extras=map[defaultPermissionMode:allow-all] " +
+	want := "effort=medium args=[--banner] extras=map[defaultPermissionMode:allow-all] " +
 		"tools=false workdir= model=m headless=true"
 	if got := settingsView(t, "copilot", RunOptions{}); got != want {
 		t.Errorf("record over built-in:\n got %s\nwant %s", got, want)
 	}
 }
 
-// The request's effort and mode win over the record; its rules add to the record's.
+// The request's effort wins over the record.
 func TestResolveSettingsFlagOverRecord(t *testing.T) {
 	vaulttest.Use(t)
 	storeCopilotRecord(t)
-	req := RunOptions{Effort: "high", Tools: true, WorkDir: "/w", Permissions: permission.Permissions{Mode: "default", Allow: []permission.Rule{{Tool: "Read"}}}}
-	want := "effort=high args=[--banner] mode=default allow=[Read] deny=[] extras=map[defaultPermissionMode:allow-all] " +
+	req := RunOptions{Effort: "high", Tools: true, WorkDir: "/w"}
+	want := "effort=high args=[--banner] extras=map[defaultPermissionMode:allow-all] " +
 		"tools=true workdir=/w model=m headless=true"
 	if got := settingsView(t, "copilot", req); got != want {
 		t.Errorf("flag over record:\n got %s\nwant %s", got, want)

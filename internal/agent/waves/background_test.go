@@ -17,7 +17,7 @@ import (
 )
 
 func TestBackgroundArgsPreserveFlags(t *testing.T) {
-	args := []string{"--waves", "plan", "--background=true", "--permissions", `{"allow":["Bash(go test *)"]}`, "--profiles", "qa", "--profiles", "prod", "--format=json"}
+	args := []string{"--waves", "plan", "--background=true", "--overlay", `{"fallback":"none"}`, "--profiles", "qa", "--profiles", "prod", "--format=json"}
 	want := append([]string{"agents", "ask"}, args...)
 	want = append(want, "--background=false", "--job", "id")
 	if got := backgroundArgs(args, "id"); !reflect.DeepEqual(got, want) {

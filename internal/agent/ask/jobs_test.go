@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
@@ -119,20 +117,13 @@ func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 	}
 }
 
-// A live session keeps its flags and the permission rules.
-func TestLiveRequestCarriesFlagsAndPermissions(t *testing.T) {
-	perms, err := permission.ParsePermissions("plan", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
-	if err != nil {
-		t.Fatal(err)
-	}
+// A live session keeps its flags.
+func TestLiveRequestCarriesFlags(t *testing.T) {
 	f := askFlags{tools: true, noTools: true, fleet: true, enableMemory: true}
 	s := (&askRun{f: &f}).askState()
-	got := liveRequest(t.Context(), s, perms, "claude")
+	got := liveRequest(t.Context(), s, "claude")
 	if !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
 		t.Errorf("live request lost a flag: %+v", got)
-	}
-	if !reflect.DeepEqual(got.Permissions, perms) {
-		t.Errorf("Permissions = %+v, want %+v", got.Permissions, perms)
 	}
 }
 
@@ -149,7 +140,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 			t.Setenv(route.OverlayVar, "")
 		}
 		f := askFlags{profile: tc.typed}
-		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), permission.Permissions{}, "gemini").Provider; got != tc.want {
+		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), "gemini").Provider; got != tc.want {
 			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
 		}
 	}
@@ -171,7 +162,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	}
 	f := askFlags{}
 	s := (&askRun{f: &f}).askState()
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, permission.Permissions{}, "claude", "sp", "json") }); code != 1 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
 	recs := agent.RecentRecords(1)
@@ -219,7 +210,7 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		if mode == "live" {
 			f := askFlags{noTools: true}
-			return startLive(t.Context(), (&askRun{f: &f}).askState(), permission.Permissions{}, "codex", "", "json")
+			return startLive(t.Context(), (&askRun{f: &f}).askState(), "codex", "", "json")
 		}
 		fs, _ := askFlagSet()
 		var job *agent.Record
@@ -447,12 +438,8 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no agent binary: the resume is recorded, then fails to start
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "outer")
-	perms, err := permission.ParsePermissions("", []string{"Read"}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cwd, _ := os.Getwd()
-	req := agent.RunOptions{Prompt: "first", Tools: true, Effort: "low", WorkDir: cwd, Permissions: perms}
+	req := agent.RunOptions{Prompt: "first", Tools: true, Effort: "low", WorkDir: cwd}
 	fin := agent.NewRecord("claude", req, time.Now().Add(-3*time.Hour))
 	fin.Finish(wire.Result{SessionID: "sess-1"}, nil, time.Second)
 	bare := agent.NewRecord("claude", req, time.Now().Add(-2*time.Hour))
@@ -489,9 +476,8 @@ func assertSendRefused(t *testing.T, id, want string, timeout time.Duration, cou
 
 func assertResumedPosture(t *testing.T, r agent.RunOptions, cwd string) {
 	t.Helper()
-	if !strings.HasPrefix(r.Prompt, "follow up") || r.SessionID != "sess-1" || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
-		!reflect.DeepEqual(permission.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
-		t.Errorf("resume request = %+v; want the record's session, tools, effort, workdir and permissions with the new prompt", r)
+	if !strings.HasPrefix(r.Prompt, "follow up") || r.SessionID != "sess-1" || !r.Tools || r.Effort != "low" || r.WorkDir != cwd {
+		t.Errorf("resume request = %+v; want the record's session, tools, effort and workdir with the new prompt", r)
 	}
 }
 

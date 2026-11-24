@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -77,7 +76,6 @@ type askRun struct {
 	jobRec      *agent.Record
 	prompt      string
 	state       *askState
-	perms       permission.Permissions
 	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.profile
 	typedProv   string // --provider as typed, kept for the --dry-run argv: poolValue clears f.provider
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
@@ -137,7 +135,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
-	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -501,17 +499,6 @@ func recordConfinement(own, rec string) (string, error) {
 	return rec, nil
 }
 
-// parsePerms validates --permissions into r.perms; it reruns after a --retry record fills them.
-func (r *askRun) parsePerms() (int, bool) {
-	f := r.f
-	p, err := permission.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
-	if err != nil {
-		return r.fail(err, 2)
-	}
-	r.perms = p
-	return 0, false
-}
-
 // dispatchMode handles --batch, which ends the run before a single task is built.
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
@@ -576,7 +563,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values}
 }
 
 // resumeModel keeps a resumed session's model and row; a typed --model wins, a replay keeps the record's own route.
@@ -692,7 +679,6 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode,
-		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny, permKeys: &f.permKeys,
 		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
 }
 

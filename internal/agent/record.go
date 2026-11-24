@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -106,11 +105,6 @@ type Record struct {
 	MaxChildren   *int        `json:"max_children,omitempty"`
 	MaxTreeTokens *int        `json:"max_tree_tokens,omitempty"`
 	Usage         *wire.Usage `json:"usage,omitempty"`
-
-	// A nil policy is a legacy record; an empty policy is a recorded launch with no rules.
-	ExportedPolicy *permission.Permissions `json:"exported_policy,omitempty"`
-
-	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 
 	// PreDirtyTouched: files dirty before the run that differ after it; advisory, may be the dispatcher's own work.
 	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"`
@@ -284,14 +278,13 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	if req.Values != nil {
 		req.Values = req.Values.Merge(nil)
 	}
-	_, widened := permission.Resolve(permission.Permissions{}, req.Permissions)
 	ctx := valuesContext(context.Background(), req.Values)
 	parent := proc.Value(ctx, proc.DispatchIDEnv)
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.OverlayRoute(ctx)
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens, Widened: widened,
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens,
 		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req)}
 }
 
@@ -350,32 +343,6 @@ func parentRecord(id string) (Record, bool) {
 	}
 	rec, err := readRecord(filepath.Join(paths.DispatchDir(), id+".json"))
 	return rec, err == nil
-}
-
-// maxAncestorWalk bounds ancestorPolicy; past it only the rules collected so far and the env policy apply.
-const maxAncestorWalk = 32
-
-// ancestorPolicy unions the deny and ask rules, and plan mode of parent and every recorded ancestor.
-func ancestorPolicy(parent string) (p permission.Permissions) {
-	seen := map[string]bool{}
-	for id := parent; id != "" && !seen[id] && len(seen) < maxAncestorWalk; {
-		seen[id] = true
-		rec, ok := parentRecord(id)
-		if !ok {
-			break
-		}
-		req := rec.Request
-		policy := req.Permissions
-		if rec.ExportedPolicy != nil {
-			policy = *rec.ExportedPolicy
-		}
-		p.Deny, p.Ask = permission.Union(p.Deny, policy.Deny), permission.Union(p.Ask, policy.Ask)
-		if policy.Mode == "plan" {
-			p.Mode = "plan"
-		}
-		id = rec.Parent
-	}
-	return p
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
@@ -843,7 +810,6 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	r.Error = ""
 	r.Finish(res, err, took)
 	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
-		r.ExportedPolicy = current.ExportedPolicy
 		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
 		if err != nil && current.Failed() && current.Error != "" && current.Error != r.Error {
 			r.Error += "; " + current.Error
