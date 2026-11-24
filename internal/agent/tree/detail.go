@@ -8,8 +8,10 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -305,24 +307,41 @@ func transcriptStream(path string) streamFunc {
 			return err
 		}
 		defer f.Close()
-		r, enc, names := bufio.NewReaderSize(f, 64<<10), json.NewEncoder(w), map[string]string{}
+		r, enc, names := bufio.NewReaderSize(f, readBuf), json.NewEncoder(w), map[string]string{}
+		emit := func(line []byte, cut bool) error {
+			evs := transcriptEvents(line, names)
+			if cut {
+				evs = []wire.Event{{Type: wire.EventText, Text: "…(line truncated)\n"}}
+			}
+			for _, ev := range evs {
+				if err := enc.Encode(ev); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		var partial []byte
+		var cut bool
 		for {
 			settled := transcriptFinished(path) // read before the drain, so the last lines are never missed
 			for {
-				chunk, err := r.ReadBytes('\n')
-				partial = append(partial, chunk...)
-				if err != nil {
+				if done, _ := readCapped(r, &partial, &cut); !done { // EOF: the rest of the line has not landed yet
 					break
 				}
-				for _, ev := range transcriptEvents(partial, names) {
-					if err := enc.Encode(ev); err != nil {
+				if err := emit(partial, cut); err != nil {
+					return err
+				}
+				partial, cut = partial[:0], false
+				if cap(partial) > 2*readBuf {
+					partial = nil
+				}
+			}
+			if settled {
+				if len(partial) > 0 {
+					if err := emit(partial, cut); err != nil {
 						return err
 					}
 				}
-				partial = partial[:0]
-			}
-			if settled {
 				return enc.Encode(wire.Event{Type: wire.EventResult, Status: "finished"})
 			}
 			select {
@@ -334,13 +353,36 @@ func transcriptStream(path string) streamFunc {
 	}
 }
 
+// readBuf is the transcript reader's buffer size.
+const readBuf = 64 << 10
+
+// readCapped adds r's next line chunks to partial, keeping at most paneLineBytes and flagging cut past that;
+// it reports true once the newline was read, false at EOF with the rest still to land.
+func readCapped(r *bufio.Reader, partial *[]byte, cut *bool) (bool, error) {
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if room := paneLineBytes - len(*partial); len(chunk) <= room {
+			*partial = append(*partial, chunk...)
+		} else {
+			*partial, *cut = append(*partial, chunk[:room]...), true
+		}
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		}
+		return false, err
+	}
+}
+
 func transcriptFinished(path string) bool {
 	raw, err := os.ReadFile(metaPath(path))
 	if err != nil {
 		return false
 	}
 	m, _ := parseMeta(raw)
-	return m.Finished
+	return m.Finished || readJournal(filepath.Dir(path))[subagentIDFromPath(path)].Resulted
 }
 
 // transcriptLine is the record subset the pane summarises; content is a string or an array of blocks.
@@ -398,6 +440,7 @@ func blockEvent(b transcriptBlock, names map[string]string, home string) (wire.E
 	case "tool_result":
 		ev := wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: names[b.ToolUseID], ID: b.ToolUseID},
 			Text: firstLine(blockText(b.Content))}
+		delete(names, b.ToolUseID)
 		if b.IsError {
 			ev.Status = "error"
 		}

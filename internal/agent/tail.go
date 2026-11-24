@@ -132,17 +132,27 @@ func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time)
 	return lastBeat, nil
 }
 
+// eventLineMax caps one event line held while following; a longer line is dropped.
+const eventLineMax = 1 << 20
+
 // copyEventLines writes each complete line br has to w, holding a partial tail in pend.
 func copyEventLines(br *bufio.Reader, pend *[]byte, after int64, w io.Writer) (int, error) {
 	n := 0
 	for {
-		chunk, rerr := br.ReadBytes('\n')
-		*pend = append(*pend, chunk...)
+		chunk, rerr := br.ReadSlice('\n')
+		*pend = append(*pend, chunk[:min(len(chunk), max(eventLineMax-len(*pend), 0))]...)
+		if errors.Is(rerr, bufio.ErrBufferFull) {
+			continue
+		}
 		if rerr != nil { // EOF: the rest of the line has not landed yet
 			if errors.Is(rerr, io.EOF) {
 				return n, nil
 			}
 			return n, rerr
+		}
+		if len(*pend) >= eventLineMax { // an oversized event line is dropped whole
+			*pend = nil
+			continue
 		}
 		if after > 0 {
 			var event struct{ Seq int64 }
