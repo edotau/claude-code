@@ -838,31 +838,6 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	pruneDispatches(paths.DispatchDir(), r.ID) // claimRecord pre-creates the file, so Save never sees a new record
 }
 
-// pruneDispatches trims the oldest records past dispatchKeep, never the ids in keep nor an active record.
-func pruneDispatches(dir string, keep ...string) {
-	names, err := recordNames(dir)
-	if err != nil || len(names) <= dispatchKeep+dispatchPruneMargin { // best-effort: a failed listing skips this prune
-		return
-	}
-	excess := len(names) - dispatchKeep
-	for _, name := range names {
-		if excess <= 0 {
-			return
-		}
-		if slices.Contains(keep, strings.TrimSuffix(name, ".json")) || activeRecord(filepath.Join(dir, name)) {
-			continue
-		}
-		_ = os.Remove(filepath.Join(dir, name))
-		_ = os.Remove(filepath.Join(dir, name+".lock"))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log"))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
-		_ = os.Remove(AgyLogPath(strings.TrimSuffix(name, ".json")))
-		_ = os.Remove(ranIdentityPath(strings.TrimSuffix(name, ".json")))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))
-		excess--
-	}
-}
-
 // activeRecord keeps a live dispatch (see Record.Alive) and any record it cannot read out of the prune.
 func activeRecord(path string) bool {
 	r, err := readRecord(path)
