@@ -101,6 +101,7 @@ type SkippedFile struct {
 type Context struct {
 	Included []IncludedFile
 	Skipped  []SkippedFile
+	Omitted  int // skipped paths cut from the inventory to fit the prompt cap
 }
 
 // isRegularFile reports whether path exists and is a regular file.

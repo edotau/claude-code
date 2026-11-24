@@ -71,6 +71,9 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 	if w := coverageWarning(collected); w != "" {
 		p.Notes = append(p.Notes, w)
 	}
+	if collected.Omitted > 0 {
+		p.Notes = append(p.Notes, fmt.Sprintf("pack: path inventory over %d KB; listed %d paths, left %d out", budget/1024, len(collected.Skipped), collected.Omitted))
+	}
 	if len(dropped) > 0 {
 		p.Notes = append(p.Notes, fmt.Sprintf("pack: prompt over %d KB; left out whole files: %s", budget/1024, strings.Join(dropped, ", ")))
 	}
@@ -130,6 +133,10 @@ func fit(task func(Context) string, ctx Context, limit int) (string, Context, []
 	for {
 		prompt := prompt(task(ctx), ctx)
 		excess := len(prompt) - limit
+		if excess > 0 && len(ctx.Included) == 0 && len(ctx.Skipped) > 0 {
+			ctx = trimSkipped(ctx, excess)
+			continue
+		}
 		if excess > 0 && len(ctx.Included) == 0 {
 			return prompt, ctx, dropped, fmt.Errorf("pack: task and file inventory alone are %d bytes, over the %d byte cap; shorten the task or pack fewer paths", len(prompt), limit)
 		}
@@ -147,6 +154,17 @@ func fit(task func(Context) string, ctx Context, limit int) (string, Context, []
 		}
 		ctx.Included, ctx.Skipped = inc, skipped
 	}
+}
+
+// trimSkipped cuts trailing skipped paths from the inventory, about excess bytes of them, and counts them in Omitted.
+func trimSkipped(ctx Context, excess int) Context {
+	n := len(ctx.Skipped)
+	for freed := 0; freed < excess && n > 0; n-- {
+		freed += len(ctx.Skipped[n-1].Path) + len(ctx.Skipped[n-1].Reason) + 6
+	}
+	ctx.Omitted += len(ctx.Skipped) - n
+	ctx.Skipped = ctx.Skipped[:n]
+	return ctx
 }
 
 func inventoryLine(f IncludedFile) string {
@@ -208,6 +226,9 @@ func inventoryText(ctx Context) string {
 		for _, s := range ctx.Skipped {
 			fmt.Fprintf(&inv, "- %s (%s)\n", s.Path, s.Reason)
 		}
+	}
+	if ctx.Omitted > 0 {
+		fmt.Fprintf(&inv, "%d more skipped paths are not listed; list them with your file tools.\n", ctx.Omitted)
 	}
 	return inv.String()
 }

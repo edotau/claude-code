@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -223,5 +224,19 @@ func TestChangedFilesCancellationMessageEndsInCause(t *testing.T) {
 	want := "git -C " + root + " diff --name-only --diff-filter=d -z --relative HEAD: context canceled"
 	if err == nil || err.Error() != want {
 		t.Fatalf("changedFiles error = %v, want %q", err, want)
+	}
+}
+
+// A directory whose path inventory alone exceeds the cap degrades to a trimmed inventory plus a note, not an error.
+func TestBuildHugeDirTrimsInventory(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 3000 {
+		write(t, filepath.Join(dir, "d", fmt.Sprintf("sub%d", i%40), fmt.Sprintf("file_number_%d.txt", i)), "hello")
+	}
+	for _, s := range []Spec{{Dirs: []string{"d"}, MaxFiles: -1}, {Dirs: []string{"d"}, IndexOnly: true}} {
+		got, err := Build(t.Context(), s, "task", dir, 64<<10)
+		if err != nil || len(got.Prompt) > 64<<10 || len(got.Notes) == 0 || !strings.Contains(got.Prompt, "more skipped paths are not listed") {
+			t.Errorf("spec %+v: %d bytes, err %v, notes %v", s, len(got.Prompt), err, got.Notes)
+		}
 	}
 }
