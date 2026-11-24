@@ -630,23 +630,27 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 			r.Children = append(r.Children, cc)
 		}
 	}
-	uses := subtreeUses(rec.ID, spentTokens(&res.Usage))
-	if len(c.Holders) > 1 { // a re-sent leaf is charged for the dead attempt too
-		first := 0
-		if dead, err := agent.LoadRecord(c.Holders[0]); err == nil {
-			u := dead.Usage
-			if u == nil && dead.Activity != nil {
-				u = &dead.Activity.Usage
-			}
-			first = spentTokens(u)
-		}
-		uses = append(uses, subtreeUses(c.Holders[0], first)...)
-	}
-	r.Spent = contract.SpentOf(c, uses)
+	r.Spent = contract.SpentOf(c, append(subtreeUses(rec.ID, spentTokens(&res.Usage)), deadUses(c)...))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
 	}
 	return r
+}
+
+// deadUses is the first holder's subtree of a re-sent contract, so a re-sent leaf is charged for the dead attempt.
+func deadUses(c contract.Contract) []contract.Use {
+	if len(c.Holders) < 2 {
+		return nil
+	}
+	first := 0
+	if dead, err := agent.LoadRecord(c.Holders[0]); err == nil {
+		u := dead.Usage
+		if u == nil && dead.Activity != nil {
+			u = &dead.Activity.Usage
+		}
+		first = spentTokens(u)
+	}
+	return subtreeUses(c.Holders[0], first)
 }
 
 // settleGateTimeout bounds the settle gate so a 9m30s run plus the gate stays under the 10m Bash cap.
