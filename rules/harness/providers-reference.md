@@ -49,7 +49,8 @@ claude-code --profile example --model sonnet         # this launch only
 ```
 
 Precedence: `--profile` → the claude agent record's `profile` → registry `default`. Model: `--model` → the record's
-`aliases` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
+`aliases` (`models --pin`) → the profile's `models`. A pin steers its slot on every provider; an unpinned Databricks
+slot is Claude Code's own id, mapped by the proxy. Settings live in one vault record per agent; an exported
 `CLAUDE_PROFILE` marks the session, it is not a setting.
 
 `models discover` uses authenticated live listing only, with bounded pagination/timeouts and

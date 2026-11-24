@@ -421,14 +421,16 @@ func configDirEnvIsDefault() bool {
 	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
 }
 
-// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per alias, except on Databricks (the proxy maps its ids).
+// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per alias; Databricks only for explicitly pinned slots.
 func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
-	if sel.Provider.SpellingRule() != "databricks-serving" {
-		for _, alias := range models.AliasNames {
-			if m := sel.ClientModel(alias); m != "" {
-				plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
-			}
+	dbx := sel.Provider.SpellingRule() == "databricks-serving"
+	for _, alias := range models.AliasNames {
+		m := sel.ClientModel(alias)
+		// Databricks: an unpinned slot is Claude Code's own id; the Fable slot never takes a non-Fable id
+		if m == "" || dbx && (!sel.Aliases[alias].Pinned || alias == models.Fable && models.FamilyOf(m) != models.Fable) {
+			continue
 		}
+		plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 	}
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m

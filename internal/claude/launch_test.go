@@ -902,33 +902,36 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 	}
 }
 
-// Databricks keeps Claude Code's own /model lineup: no slot env, so a Fable request reaches the proxy's refusal (R8).
+// Databricks: an unpinned slot sets no env, a pinned one is steered, Fable never takes another family's id.
 func TestAliasEnvOnDatabricks(t *testing.T) {
 	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
-		"models": {"opus": "databricks-claude-opus-5-5"}}},
+		"models": {"opus": "databricks-claude-opus-5-5", "sonnet": "databricks-claude-sonnet-5-5"}}},
 		"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "claude-opus-4-6", "fable": "claude-fable-5-2"}}}}}`)
-	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-opus-5-5")
-	for _, c := range []struct {
-		profile string
-		want    map[string]string
-	}{
-		{"dbx", map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "", "ANTHROPIC_DEFAULT_FABLE_MODEL": "", "ANTHROPIC_DEFAULT_SONNET_MODEL": "",
-			"ANTHROPIC_DEFAULT_HAIKU_MODEL": "", "CLAUDE_CODE_AUTO_MODE_MODEL": "databricks-claude-opus-5-5"}},
-		{"gw", map[string]string{"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-5"}}, // unchanged
-	} {
-		sel, err := providers.Select(mustRegistry(t), c.profile)
+	rows := func(profile string) map[string]string {
+		sel, err := providers.Select(mustRegistry(t), profile)
 		if err != nil {
 			t.Fatal(err)
 		}
 		plan := agent.Plan{Set: map[string]string{}}
 		setModelAliasEnv(&plan, sel)
-		for k, want := range c.want {
-			if got := plan.Set[k]; got != want {
-				t.Errorf("%s: %s = %q, want %q", c.profile, k, got, want)
-			}
-		}
+		delete(plan.Set, "CLAUDE_CODE_AUTO_MODE_MODEL")
+		return plan.Set
+	}
+	if got := rows("dbx"); len(got) != 0 {
+		t.Errorf("no pins: %v, want no slot rows", got)
+	}
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "databricks-claude-sonnet-5-5")
+	if got := rows("dbx"); len(got) != 1 || got["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "databricks-claude-sonnet-5-5" {
+		t.Errorf("sonnet pin: %v, want only SONNET", got)
+	}
+	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-opus-5-5")
+	if got := rows("dbx"); len(got) != 3 || got["ANTHROPIC_DEFAULT_FABLE_MODEL"] != "" {
+		t.Errorf("all-slot pin: %v, want 3 rows and no FABLE", got)
+	}
+	if got := rows("gw"); got["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "claude-opus-5-5" || len(got) != 4 {
+		t.Errorf("gw: %v, want all four slots", got)
 	}
 }
 

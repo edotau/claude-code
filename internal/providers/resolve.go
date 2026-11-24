@@ -18,6 +18,8 @@ type Target struct {
 	Model    string
 	// ContextTokens is the window the model runs at on Provider; 0 = unknown.
 	ContextTokens int
+	// Pinned marks a target the owner pinned (a slot or all-slot pin), not one taken from the profile's models.
+	Pinned bool
 }
 
 // ClientModel is t's id on its own provider: [1m]-marked only as the user typed it.
@@ -78,11 +80,14 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	rec := recs["claude"]
 	all := strings.TrimSpace(rec.Model)
 	for _, alias := range models.AliasNames {
-		spec := cmp.Or(SessionPin(reg, rec.Aliases[alias]), SessionPin(reg, all), p.Models[alias])
+		pin := cmp.Or(SessionPin(reg, rec.Aliases[alias]), SessionPin(reg, all))
+		spec := cmp.Or(pin, p.Models[alias])
 		if spec == "" {
 			continue
 		}
-		sel.Aliases[alias] = PlainTarget(p, spec)
+		t := PlainTarget(p, spec)
+		t.Pinned = pin != ""
+		sel.Aliases[alias] = t
 	}
 	if _, ok := sel.Aliases[models.Opus]; !ok {
 		return sel, fmt.Errorf("provider %s: no opus model (pin one with `claude-code models --pin opus=<id>`)", p.Name)
