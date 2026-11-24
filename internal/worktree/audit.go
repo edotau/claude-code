@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -32,8 +33,18 @@ var auditHungAfter = 20 * time.Minute
 // auditRecord is the start record <short-sha>.json; the exit file <short-sha>.exit ("<code> <seconds>") ends it.
 type auditRecord struct {
 	SHA     string `json:"sha"`
+	Repo    string `json:"repo"`
 	Log     string `json:"log"`
 	Started int64  `json:"started"`
+}
+
+// auditTarget matches an `audit:` rule line, not an `audit :=` variable assignment.
+var auditTarget = regexp.MustCompile(`(?m)^audit\s*:($|[^=])`)
+
+// hasAuditTarget reports whether the repo's Makefile defines an audit target.
+func hasAuditTarget(repo string) bool {
+	data, err := os.ReadFile(filepath.Join(repo, "Makefile"))
+	return err == nil && auditTarget.Match(data)
 }
 
 func auditDir() string { return filepath.Join(paths.StateDir(), "worktree", "audit") }
@@ -51,10 +62,12 @@ func StartAudit(main, sha string) string {
 	if auditCommand == "" {
 		return ""
 	}
+	if !hasAuditTarget(main) {
+		return "audit: skipped, no audit target in " + main
+	}
 	base := auditBase(sha)
-	if rec, err := readAuditRecord(base); err == nil && !paths.FileExists(base+".exit") &&
-		time.Since(time.Unix(rec.Started, 0)) < auditStale {
-		return "audit: already running on " + ShortOID(sha) + " (log " + rec.Log + ")"
+	if line := auditInFlight(base, sha); line != "" {
+		return line
 	}
 	if err := os.MkdirAll(auditDir(), 0o700); err != nil {
 		return "audit: not started: " + err.Error()
@@ -67,7 +80,7 @@ func StartAudit(main, sha string) string {
 		return "audit: not started: " + err.Error()
 	}
 	defer logFile.Close()
-	data, err := json.Marshal(auditRecord{SHA: sha, Log: base + ".log", Started: time.Now().Unix()})
+	data, err := json.Marshal(auditRecord{SHA: sha, Repo: main, Log: base + ".log", Started: time.Now().Unix()})
 	if err == nil {
 		err = paths.AtomicWrite(base+".json", data, 0o600)
 	}
@@ -78,6 +91,15 @@ func StartAudit(main, sha string) string {
 		return "audit: not started: cannot spawn bash"
 	}
 	return "audit: started on " + ShortOID(sha) + " (log " + base + ".log)"
+}
+
+// auditInFlight returns the already-running line for a fresh start record without an exit file, else "".
+func auditInFlight(base, sha string) string {
+	rec, err := readAuditRecord(base)
+	if err != nil || paths.FileExists(base+".exit") || time.Since(time.Unix(rec.Started, 0)) >= auditStale {
+		return ""
+	}
+	return "audit: already running on " + ShortOID(sha) + " (log " + rec.Log + ")"
 }
 
 func readAuditRecord(base string) (auditRecord, error) {
@@ -101,7 +123,7 @@ func AuditReports() []string {
 		}
 		code, secs, ok := readAuditExit(base + ".exit")
 		if !ok && auditHung(rec) && claimAuditReport(base+".hung") {
-			lines = append(lines, fmt.Sprintf("audit of %s hung (no log output for %s): %s", ShortOID(rec.SHA), auditHungAfter, rec.Log))
+			lines = append(lines, fmt.Sprintf("audit of %s hung in %s (no log output for %s): %s", ShortOID(rec.SHA), rec.Repo, auditHungAfter, rec.Log))
 			continue
 		}
 		if !ok || !claimAuditReport(base+".reported") {
@@ -110,7 +132,7 @@ func AuditReports() []string {
 		if code == 0 {
 			lines = append(lines, fmt.Sprintf("audit of %s passed (%ds)", ShortOID(rec.SHA), secs))
 		} else {
-			lines = append(lines, fmt.Sprintf("audit of %s FAILED (exit %d): %s — fix on main now", ShortOID(rec.SHA), code, rec.Log))
+			lines = append(lines, fmt.Sprintf("audit of %s FAILED (exit %d) in %s: %s — fix on main now", ShortOID(rec.SHA), code, rec.Repo, rec.Log))
 		}
 	}
 	return lines
