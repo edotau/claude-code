@@ -24,6 +24,13 @@ func TestTestProposalsDedupeCap(t *testing.T) {
 	if n, err := AppendTestProposals(f, one); err != nil || n != 1 {
 		t.Fatalf("first append kept %d, %v", n, err)
 	}
+	if err := os.WriteFile(f, []byte("{bad\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AppendTestProposals(f, one); err == nil {
+		t.Fatal("a malformed existing line must fail, not be erased")
+	}
+	_ = os.Remove(f)
 	var many []TestProposal
 	for i := range 50 {
 		many = append(many, TestProposal{Pkg: "p", Case: strings.Repeat("c", i+1), Reason: "r"})

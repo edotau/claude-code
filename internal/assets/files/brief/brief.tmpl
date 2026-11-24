@@ -29,7 +29,7 @@ Task:
 - Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
-  before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence of JSON lines {"pkg","case","reason","runtime"}; need more, say why.
+  before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence of JSON lines, e.g. {"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}; need more, say why.
 {{if .Rtk}}- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
   is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
 {{end}}- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.

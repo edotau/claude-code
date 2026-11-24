@@ -54,7 +54,7 @@ func ParseTestProposals(report, source string) ([]TestProposal, error) {
 	return out, nil
 }
 
-func mergeProposals(add []TestProposal, old []byte) []TestProposal {
+func mergeProposals(add []TestProposal, old []byte) ([]TestProposal, error) {
 	seen := map[string]bool{}
 	var kept []TestProposal
 	push := func(p TestProposal) {
@@ -67,21 +67,39 @@ func mergeProposals(add []TestProposal, old []byte) []TestProposal {
 		push(p)
 	}
 	for _, line := range bytes.Split(old, []byte("\n")) {
-		var p TestProposal
-		if len(bytes.TrimSpace(line)) > 0 && json.Unmarshal(line, &p) == nil {
-			push(p)
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
 		}
+		var p TestProposal
+		if err := json.Unmarshal(line, &p); err != nil {
+			return nil, fmt.Errorf("existing proposal line %q: %w", line, err)
+		}
+		push(p)
 	}
-	return kept
+	return kept, nil
 }
 
 // AppendTestProposals puts add first in the file (newest first), drops repeats of pkg+case, keeps 40 lines.
-func AppendTestProposals(file string, add []TestProposal) (int, error) {
+func AppendTestProposals(file string, add []TestProposal) (n int, err error) {
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return 0, err
+	}
+	err = paths.WithFileLock(file, func() error {
+		n, err = appendLocked(file, add)
+		return err
+	})
+	return n, err
+}
+
+func appendLocked(file string, add []TestProposal) (int, error) {
 	old, err := os.ReadFile(file)
 	if err != nil && !os.IsNotExist(err) {
 		return 0, err
 	}
-	kept := mergeProposals(add, old)
+	kept, err := mergeProposals(add, old)
+	if err != nil {
+		return 0, err
+	}
 	var buf bytes.Buffer
 	for _, p := range kept {
 		b, err := json.Marshal(p)
@@ -89,9 +107,6 @@ func AppendTestProposals(file string, add []TestProposal) (int, error) {
 			return 0, err
 		}
 		buf.Write(append(b, '\n'))
-	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return 0, err
 	}
 	return len(kept), paths.AtomicWrite(file, buf.Bytes(), 0o644)
 }
