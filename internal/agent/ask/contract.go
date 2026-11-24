@@ -632,14 +632,14 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
 	}
 	r.Report = reportOf(rec, c)
-	for _, ch := range c.Children {
-		if cc, err := contract.Load(ch); err == nil {
-			r.Children = append(r.Children, cc)
-		}
-	}
 	r.Spent = contract.SpentOf(c, append(subtreeUses(rec.ID, spentTokens(&res.Usage)), deadUses(c)...))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
+	}
+	for _, ch := range c.Children { // read after the gate: a leaf may close while it runs
+		if cc, err := contract.Load(ch); err == nil {
+			r.Children = append(r.Children, cc)
+		}
 	}
 	return r
 }

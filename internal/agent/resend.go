@@ -68,14 +68,17 @@ func Resend(ctx context.Context, holder string) (string, error) {
 	cmd := exec.CommandContext(ctx, self, "agents", "ask", "--retry", holder, "--recover", "--background", "--format", "json")
 	cmd.Env = append(os.Environ(), proc.DispatchIDEnv+"="+rec.Parent)
 	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
 	var got struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(out, &got); err != nil || got.ID == "" {
-		return "", fmt.Errorf("no dispatch id in %d bytes of output", len(out))
+	if err == nil && (json.Unmarshal(out, &got) != nil || got.ID == "") {
+		err = fmt.Errorf("no dispatch id in %d bytes of output", len(out))
+	}
+	if err != nil { // a recovery that launched anyway (timeout, lost claim) is named by its marker: follow it
+		if won, ok := ResumedAs(holder); ok {
+			return won, nil
+		}
+		return "", err
 	}
 	return got.ID, nil
 }

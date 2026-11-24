@@ -66,12 +66,8 @@ func resendLeaf(ctx context.Context, k contract.Contract, send sendFunc) {
 		return
 	}
 	next, err := send(ctx, holder)
-	if err != nil {
-		if won, ok := agent.ResumedAs(holder); ok { // another recovery launched first: follow its dispatch
-			next, err = won, nil
-		} else if agent.ResendClaimed(holder) { // a recovery is starting: let it finish before judging the leaf
-			return
-		}
+	if err != nil && agent.ResendClaimed(holder) { // a recovery is starting: let it finish before judging the leaf
+		return
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: leaf %s: re-send: %v\n", k.ID, err)

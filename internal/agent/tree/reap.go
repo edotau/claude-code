@@ -118,7 +118,11 @@ func ContractEnv() contract.Env {
 
 // resendHolder is the new dispatch of c's lost holder, "" when it cannot be re-sent (c is then failed owner-dead).
 func resendHolder(c contract.Contract) string {
-	next, err := agent.Resend(context.Background(), c.Holders[len(c.Holders)-1])
+	holder := c.Holders[len(c.Holders)-1]
+	if rec, err := agent.LoadRecord(holder); err == nil && rec.Status == wire.StatusOK {
+		return "" // it finished: only its settle failed, and a re-run would repeat its edits
+	}
+	next, err := agent.Resend(context.Background(), holder)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "reap: contract %s: re-send: %v\n", c.ID, err)
 		return ""
