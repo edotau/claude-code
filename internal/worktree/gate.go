@@ -335,11 +335,11 @@ func lintVerb(dirs []string) []string {
 // lintBase is the one word the gate shell expands: the pinned merge base, else HEAD.
 const lintBase = "${" + mergeBaseEnv + ":-HEAD}"
 
-// lintLine renders the lint argv as gate shell words; only lintBase stays expandable.
+// lintLine renders the lint argv as gate shell words; only the value of --base stays expandable.
 func lintLine(argv []string) string {
 	words := mapStrings(argv, textutil.QuoteSH)
 	for i, w := range argv {
-		if w == lintBase {
+		if w == lintBase && i > 0 && argv[i-1] == "--base" {
 			words[i] = `"` + w + `"`
 		}
 	}

@@ -496,4 +496,7 @@ func TestLintVerbArgv(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("lintVerb = %q, want %q", got, want)
 	}
+	if line := lintLine(lintVerb([]string{lintBase})); !strings.HasSuffix(line, `--path '`+lintBase+`'`) {
+		t.Fatalf("a path named like the base must stay literal: %s", line)
+	}
 }
