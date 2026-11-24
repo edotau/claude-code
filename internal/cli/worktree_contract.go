@@ -1,31 +1,34 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
-// contractStore is the contract persistence the close-term recording needs (task 10.3 supplies the real one).
+// contractStore is the part of the contract store the close-term recording needs.
 type contractStore interface {
-	Pending() ([]contract.Contract, error) // every non-terminal contract
-	Save(contract.Contract) error
+	Pending() ([]contract.Contract, error)
+	Update(id string, fn func(contract.Contract) (contract.Contract, error)) (contract.Contract, error)
 }
 
-const revListTimeout = 10 * time.Second
+type diskContracts struct{}
 
-// openContractStore is the one call site that plugs the real store; nil means no contracts exist.
-var openContractStore = func() contractStore { return nil }
+func (diskContracts) Pending() ([]contract.Contract, error) { return contract.Pending() }
 
-// recordCloseTerms records tick (and landed after a merge) on pending contracts whose task a commit in shas ticked.
-func recordCloseTerms(top string, shas func() ([]string, error), landed string, warn io.Writer) {
+func (diskContracts) Update(id string, fn func(contract.Contract) (contract.Contract, error)) (contract.Contract, error) {
+	return contract.Update(id, fn)
+}
+
+// openContractStore is the one place the real store is plugged in.
+var openContractStore = func() contractStore { return diskContracts{} }
+
+// recordCloseTerms records tick (and landed after a merge) on each verified contract match accepts, then closes it.
+func recordCloseTerms(match func(contract.Contract) bool, landed string, warn io.Writer) {
 	st := openContractStore()
 	if st == nil {
 		return
@@ -33,73 +36,77 @@ func recordCloseTerms(top string, shas func() ([]string, error), landed string, 
 	pending, err := st.Pending()
 	if err != nil {
 		fmt.Fprintf(warn, "worktree: warning: contracts: %v\n", err)
-		return
 	}
-	var full []string
 	for _, c := range pending {
-		if !takesCloseTerms(c) {
+		if c.State() != contract.StateVerified || !match(c) {
 			continue
 		}
-		if full == nil {
-			if full, err = shas(); err != nil {
-				fmt.Fprintf(warn, "worktree: warning: contracts: %v\n", err)
-				return
-			}
-		}
-		sha := tickedBy(top, c.Scope.PlanTask, full)
-		if sha == "" {
-			continue
-		}
-		if err := saveTerms(st, c, sha, landed); err != nil {
-			fmt.Fprintf(warn, "worktree: warning: contract %s: %v\n", c.ID, err)
-		}
+		closeOne(st, c.ID, landed, warn)
 	}
 }
 
-// takesCloseTerms is true for a verified contract with a plan task to tick; earlier states refuse close records.
-func takesCloseTerms(c contract.Contract) bool {
-	return c.State() == contract.StateVerified && c.Scope.PlanTask != "" && slices.Contains(c.Terms, contract.TermTick)
-}
-
-// tickedBy is the full sha in shas that the plan records as having ticked task, or "".
-func tickedBy(top, task string, shas []string) string {
-	var landed string
-	plans.TaskPlans(plans.Home(top), plans.MirrorDests(), task, func(t plans.Task) bool {
-		if t.Done && len(t.Sha) >= 7 && landed == "" {
-			for _, s := range shas {
-				if strings.HasPrefix(s, strings.ToLower(t.Sha)) {
-					landed = s
-				}
-			}
+// closeOne records c's close terms under its lock and closes it with the held hand-back once every term passed.
+func closeOne(st contractStore, id, landed string, warn io.Writer) {
+	held := true
+	_, err := st.Update(id, func(c contract.Contract) (contract.Contract, error) {
+		n, err := withCloseTerms(c, landed)
+		if err != nil || len(n.Unmet()) > 0 {
+			return n, err
 		}
-		return false
+		if held = n.Handback != nil; !held {
+			return n, nil
+		}
+		return n.Close(*n.Handback)
 	})
-	return landed
+	if err != nil {
+		fmt.Fprintf(warn, "worktree: warning: contract %s: %v\n", id, err)
+	} else if !held {
+		fmt.Fprintf(warn, "worktree: warning: contract %s: no hand-back held, left verified\n", id)
+	}
 }
 
-// saveTerms records tick (and landed after a merge) as Go's pass, skipping terms already passed, then saves once.
-func saveTerms(st contractStore, c contract.Contract, tickSha, landed string) error {
-	for _, rec := range []struct {
-		term     contract.Term
-		evidence string
-	}{{contract.TermTick, tickSha}, {contract.TermLanded, landed}} {
-		if rec.evidence == "" || !slices.Contains(c.Unmet(), rec.term) {
+// withCloseTerms adds the tick pass (its sha from the plan) and the landed pass (landed sha) c still lacks.
+func withCloseTerms(c contract.Contract, landed string) (contract.Contract, error) {
+	evidence := map[contract.Term]string{contract.TermTick: tickSha(c), contract.TermLanded: landed}
+	for _, term := range []contract.Term{contract.TermTick, contract.TermLanded} {
+		if evidence[term] == "" || !slices.Contains(c.Unmet(), term) {
 			continue
 		}
 		var err error
-		c, err = c.WithRecord(contract.TermRecord{Term: rec.term, Verdict: contract.VerdictPass, By: contract.ByGo,
-			Evidence: rec.evidence, At: time.Now().UTC()})
+		c, err = c.WithRecord(contract.TermRecord{Term: term, Verdict: contract.VerdictPass, By: contract.ByGo,
+			Evidence: evidence[term], At: time.Now().UTC()})
 		if err != nil {
-			return err
+			return c, err
 		}
 	}
-	return st.Save(c)
+	return c, nil
 }
 
-// revList is the commit shas of rng; it has its own bounded context so an interrupt after promotion cannot skip it.
-func revList(dir, rng string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), revListTimeout)
-	defer cancel()
-	out, err := proc.RunGit(ctx, dir, "rev-list", rng)
-	return strings.Fields(out), err
+// tickSha is the sha the contract's plan records for its ticked task, or "" while the task is open.
+func tickSha(c contract.Contract) string {
+	if c.Scope.Plan == "" || c.Scope.PlanTask == "" {
+		return ""
+	}
+	p, err := plans.Parse(c.Scope.Plan)
+	if err != nil {
+		return ""
+	}
+	for _, t := range p.Tasks {
+		if t.ID == c.Scope.PlanTask && t.Done {
+			return t.Sha
+		}
+	}
+	return ""
+}
+
+// onLane matches contracts held by the named lane.
+func onLane(name string) func(contract.Contract) bool {
+	return func(c contract.Contract) bool { return name != "" && c.Scope.Lane == name }
+}
+
+// forTasks matches contracts of a lane's commit: its lane, or a named plan task.
+func forTasks(lane string, tasks []string) func(contract.Contract) bool {
+	return func(c contract.Contract) bool {
+		return onLane(lane)(c) || c.Scope.PlanTask != "" && slices.Contains(tasks, c.Scope.PlanTask)
+	}
 }

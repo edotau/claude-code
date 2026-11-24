@@ -774,12 +774,7 @@ func TestCmdWorktreeGateRunPrintsObservedJSON(t *testing.T) {
 	}
 }
 
-type fakeContracts struct{ saved []contract.Contract }
-
-func (f *fakeContracts) Pending() ([]contract.Contract, error) { return f.saved, nil }
-func (f *fakeContracts) Save(c contract.Contract) error        { f.saved = []contract.Contract{c}; return nil }
-
-// A ticked plan task whose sha is in the range records tick and landed once, with the real shas as evidence.
+// A verified lane contract with its plan task ticked records tick and landed, then closes with its hand-back.
 func TestRecordCloseTerms(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := gitRepoCLI(t)
@@ -788,8 +783,10 @@ func TestRecordCloseTerms(t *testing.T) {
 	hosttest.In(t, repo, "commit", "-qm", "chore: base")
 	head := hosttest.In(t, repo, "rev-parse", "HEAD")
 	hosttest.WriteRel(t, plans.Home(repo), "2026-01-01-x.md", "## Tasks\n- [x] Phase 1.1 — do it (verify: true) ("+head[:7]+")\n")
+	plan := plans.Home(repo) + "/2026-01-01-x.md"
 
-	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.txt"}, PlanTask: "Phase 1.1"},
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.txt"},
+		PlanTask: "Phase 1.1", Plan: plan, Lane: "l1"},
 		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: 1000, Leaves: 1},
 		contract.Facts{Lane: true, PlanTask: true})
 	if len(ps) > 0 {
@@ -806,20 +803,24 @@ func TestRecordCloseTerms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake := &fakeContracts{saved: []contract.Contract{c}}
-	old := openContractStore
-	openContractStore = func() contractStore { return fake }
-	t.Cleanup(func() { openContractStore = old })
+	c.Handback = &contract.Result{Status: contract.StatusDone, Tests: contract.TestsExecuted, Method: contract.MethodSolo}
+	if err := contract.Save(c); err != nil {
+		t.Fatal(err)
+	}
 
 	var warn strings.Builder
-	recordCloseTerms(repo, func() ([]string, error) { return []string{head}, nil }, head, &warn)
-	got := fake.saved[0]
-	if warn.Len() > 0 || len(got.Unmet()) != 0 {
-		t.Fatalf("warn %q, unmet %v", warn.String(), got.Unmet())
+	recordCloseTerms(onLane("other"), head, &warn)
+	if got, _ := contract.Load("d1"); got.State() != contract.StateVerified {
+		t.Fatalf("another lane's merge changed the contract: %s", got.State())
+	}
+	recordCloseTerms(onLane("l1"), head, &warn)
+	got, err := contract.Load("d1")
+	if err != nil || warn.Len() > 0 || got.State() != contract.StateClosed || len(got.Unmet()) != 0 {
+		t.Fatalf("err %v, warn %q, state %s, unmet %v", err, warn.String(), got.State(), got.Unmet())
 	}
 	for _, r := range got.Records[len(got.Records)-2:] {
-		if r.Evidence != head || r.By != contract.ByGo {
-			t.Errorf("record %+v, want evidence %s", r, head)
+		if r.By != contract.ByGo || !strings.HasPrefix(head, r.Evidence) {
+			t.Errorf("record %+v, want evidence from %s", r, head)
 		}
 	}
 }
