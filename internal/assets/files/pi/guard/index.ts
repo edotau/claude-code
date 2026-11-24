@@ -72,7 +72,7 @@ const ACTIONS: Record<string, any> = {
 function stopTree(child: any) {
   if (!child?.pid) return
   if (process.platform !== "win32") { child.kill("SIGTERM"); return }
-  try { execFileSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" }) } catch { child.kill() }
+  execFile("taskkill", ["/T", "/F", "/PID", String(child.pid)], { timeout: BUDGET_MS }, (err) => { if (err) child.kill() })
 }
 
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
@@ -82,17 +82,21 @@ function action(name: string) {
     const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
     if (v.block) throw new Error(v.block)
     if (v.usage) throw new Error(name + ": " + v.usage)
-    let text = "recorded"
-    if (v.run) { // async and abortable: a cancelled call kills the child; a failed launch or exit is a tool error
-      const p = execFileAsync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
-      const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
-      signal?.addEventListener("abort", stop, { once: true })
-      try { text = (await p).stdout }
-      catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
-      finally { signal?.removeEventListener("abort", stop) }
-    }
+    if (signal?.aborted) throw new Error(name + ": cancelled")
+    const text = v.run ? await runAction(name, v.run, cwd, signal) : "recorded"
     return { content: [{ type: "text", text }], details: {} }
   } }
+}
+
+// runAction runs Go's argv abortably: a cancelled call stops the tree; a failed launch or exit is a tool error.
+async function runAction(name: string, run: string[], cwd: string, signal: any): Promise<string> {
+  const p = execFileAsync(BIN, run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
+  const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
+  signal?.addEventListener("abort", stop, { once: true })
+  if (signal?.aborted) stop() // cancelled before the listener existed
+  try { return (await p).stdout }
+  catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
+  finally { signal?.removeEventListener("abort", stop) }
 }
 
 export default function (pi: any) {
