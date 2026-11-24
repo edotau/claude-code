@@ -90,7 +90,7 @@ func TestReplaceStaleDaemon(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !replaceStaleDaemon(context.Background()) || restarts != want {
+		if err := replaceStaleDaemon(context.Background()); err != nil || restarts != want {
 			t.Errorf("exe %q: restarts = %d, want %d", exe, restarts, want)
 		}
 		cleanup()

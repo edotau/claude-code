@@ -116,8 +116,13 @@ func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int
 	}
 	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: fence, Open: open}
 	tok, err := mintFenced(ctx, req)
-	if errors.Is(err, errNoFenceSupport) && replaceStaleDaemon(ctx) { // an old daemon cannot fence: swap it, retry once
-		tok, err = mintFenced(ctx, req)
+	if !errors.Is(err, errNoFenceSupport) {
+		return tok, err
+	}
+	// an old daemon cannot fence: swap it and retry once, even after a failed swap (Ensure respawns a dead one)
+	rerr := replaceStaleDaemon(ctx)
+	if tok, err = mintFenced(ctx, req); err != nil && rerr != nil {
+		err = errors.Join(err, rerr)
 	}
 	return tok, err
 }
@@ -138,23 +143,19 @@ func mintFenced(ctx context.Context, req SessionRequest) (string, error) {
 	return out.Token, nil
 }
 
-// replaceStaleDaemon swaps a daemon running another build for this one (in-flight streams drain); false when it cannot.
-func replaceStaleDaemon(ctx context.Context) bool {
-	replaced := false
-	err := paths.WithFileLock(filepath.Join(paths.StateDir(), "router.replace"), func() error {
+// replaceStaleDaemon swaps a daemon running another build for this one; in-flight streams drain as in --force.
+func replaceStaleDaemon(ctx context.Context) error {
+	// the swap outlives a cancelled mint: a daemon stopped and never respawned would strand every dispatch
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	return paths.WithFileLock(filepath.Join(paths.StateDir(), "router.replace"), func() error {
 		st, ok := Running(ctx)
-		if !ok {
-			return nil
-		}
-		if !Stale(st) { // a peer already replaced it: the retry meets the new daemon
-			replaced = true
+		if !ok || !Stale(st) { // down, or a peer already replaced it: the retry starts or meets the new daemon
 			return nil
 		}
 		_, err := restartDaemon(ctx, st)
-		replaced = err == nil
 		return err
 	})
-	return err == nil && replaced
 }
 
 // restartDaemon is the replacement seam of replaceStaleDaemon.
