@@ -78,28 +78,61 @@ func startSlot(ctx context.Context, team, id string) (Scope, error) {
 	if ok && (!ScopeStale(sc) || inflight > 0) {
 		return sc, nil // fresh or busy: use it as it is
 	}
-	if _, err := os.Stat(heldPath()); err == nil {
-		return Scope{}, errors.New("proxy: held down by `gateway proxy --stop`; `gateway proxy --start` lifts it")
+	if held() {
+		return Scope{}, heldErr()
 	}
-	if err := retireSlot(team, id); err != nil {
-		return Scope{}, err
+	if err := retireSlot(ctx, team, id); err != nil {
+		return keepBusy(ctx, team, id, err)
 	}
+	return spawnSlot(ctx, team, id)
+}
+
+// keepBusy maps a retire refusal: a proxy that answered busy stays the endpoint; any other error stands.
+func keepBusy(ctx context.Context, team, id string, err error) (Scope, error) {
+	if cur, _, ok := liveScope(ctx, team, id); errors.Is(err, errSlotBusy) && ok {
+		return cur, nil
+	}
+	return Scope{}, err
+}
+
+// spawnSlot starts the slot's proxy and waits for it, honoring a --stop hold that lands before or during the start.
+func spawnSlot(ctx context.Context, team, id string) (Scope, error) {
 	if err := ctx.Err(); err != nil {
 		return Scope{}, err
+	}
+	if held() { // a --stop may have landed during the retire
+		return Scope{}, heldErr()
 	}
 	kill, err := spawnScope(team, id)
 	if err != nil {
 		return Scope{}, err
 	}
-	sc, err = awaitScope(ctx, team, id)
+	sc, err := awaitScope(ctx, team, id)
 	if err != nil {
 		kill()
+		return sc, err
 	}
-	return sc, err
+	if held() { // a --stop landed while it started: it would outlive the hold
+		_ = stopScope(sc)
+		return Scope{}, heldErr()
+	}
+	return sc, nil
 }
 
+func held() bool {
+	_, err := os.Stat(heldPath())
+	return err == nil
+}
+
+func heldErr() error {
+	return errors.New("proxy: held down by `gateway proxy --stop`; `gateway proxy --start` lifts it")
+}
+
+// errSlotBusy means the slot's proxy answered the drain request busy, so it is not retired.
+var errSlotBusy = errors.New("proxy: slot is busy")
+
 // retireSlot stops a stale idle or wedged (alive, not answering) proxy; an asker's scope is never signalled.
-func retireSlot(team, id string) error {
+func retireSlot(ctx context.Context, team, id string) error {
 	rec, err := ReadScope(team, id)
 	if err != nil || !scopeLive(rec) {
 		return nil
@@ -107,10 +140,28 @@ func retireSlot(team, id string) error {
 	if rec.Host != HostDetached {
 		return fmt.Errorf("proxy %s@%s is held by a process that is not a detached proxy", team, id)
 	}
+	if idle, answered := drainIfIdle(ctx, rec); answered && !idle {
+		return errSlotBusy
+	}
 	return stopScope(rec) // a proxy that may be draining is no endpoint: the caller takes its next team
 }
 
-// stopScope SIGTERMs sc while its start-time identity still holds, and waits for it to exit.
+// killGrace is how long a SIGKILLed scope gets to vanish.
+const killGrace = 5 * time.Second
+
+// scopeGone polls up to d for sc's process to be gone, by identity so a reused pid does not count as alive.
+func scopeGone(sc Scope, d time.Duration) bool {
+	for deadline := time.Now().Add(d); ; time.Sleep(100 * time.Millisecond) {
+		if !scopeLive(sc) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+	}
+}
+
+// stopScope SIGTERMs sc while its start-time identity still holds, escalates to SIGKILL, and waits for it to exit.
 func stopScope(sc Scope) error {
 	if !scopeLive(sc) {
 		return nil
@@ -121,10 +172,14 @@ func stopScope(sc Scope) error {
 		}
 		return err
 	}
-	if !awaitExit(sc.PID) {
-		return fmt.Errorf("proxy %s@%s pid %d signalled but still draining", sc.Team, sc.ID, sc.PID)
+	if scopeGone(sc, ShutdownDrain+5*time.Second) {
+		return nil
 	}
-	return nil
+	_ = kill(sc.PID)
+	if scopeGone(sc, killGrace) {
+		return nil
+	}
+	return fmt.Errorf("proxy %s@%s pid %d signalled but still draining", sc.Team, sc.ID, sc.PID)
 }
 
 func awaitScope(ctx context.Context, team, id string) (Scope, error) {
@@ -134,6 +189,11 @@ func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 		}
 		select {
 		case <-ctx.Done():
+			pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			defer cancel()
+			if sc, _, ok := liveScope(pctx, team, id); ok { // it came up as the caller gave up: keep it
+				return sc, nil
+			}
 			return Scope{}, ctx.Err()
 		case <-time.After(50 * time.Millisecond):
 		}

@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -47,16 +49,52 @@ func DetachedScopes() []Scope {
 	return out
 }
 
-// StopDetached SIGTERMs every live detached scope and waits for each to exit; asker-hosted scopes are never touched.
+// StopDetached stops every live detached scope of any id, re-scans once for late starts, and never touches an asker's.
 func StopDetached() (stopped int, err error) {
-	for _, sc := range DetachedScopes() {
-		if e := stopScope(sc); e != nil {
-			err = errors.Join(err, e)
-			continue
+	done := map[string]bool{}
+	for range 2 {
+		for _, sc := range DetachedScopes() {
+			if k := sc.Team + "@" + sc.ID; !done[k] {
+				done[k] = true
+				if e := stopScope(sc); e != nil {
+					err = errors.Join(err, e)
+					continue
+				}
+				stopped++
+			}
 		}
-		stopped++
 	}
 	return stopped, err
+}
+
+// drainIfIdle is the seam of retireSlot's drain request.
+var drainIfIdle = DrainIfIdle
+
+// DrainIfIdle: 200 idle (now draining), 409 busy; answered is false on an error, 401 or an older build's 404.
+func DrainIfIdle(ctx context.Context, sc Scope) (idle, answered bool) {
+	secret, err := ClientSecret()
+	if err != nil {
+		return false, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, Base(sc.Port)+DrainPath, nil)
+	if err != nil {
+		return false, false
+	}
+	req.Header.Set(ClientHeader, secret)
+	resp, err := sessionClient.Do(req)
+	if err != nil {
+		return false, false
+	}
+	_ = resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, true
+	case http.StatusConflict:
+		return false, true
+	}
+	return false, false
 }
 
 // ScopeLine describes one live detached scope for status and doctor.

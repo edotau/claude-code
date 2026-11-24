@@ -47,6 +47,7 @@ type Router struct {
 	sessions *sessionStore // signed per-profile tokens, valid on every daemon of this config
 	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
+	draining atomic.Bool    // set by drain-if-idle: new requests are refused
 	bg       sync.WaitGroup // background state writes (cooling, quota-dead)
 
 	regLoad  sync.Mutex // serializes providers.Load outside mu
@@ -113,6 +114,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	r.inflight.Add(1)
 	defer r.inflight.Add(-1)
+	if r.draining.Load() { // after the increment: a drain sees this request or this request sees the drain
+		r.refuse(w, req, http.StatusServiceUnavailable, "proxy: draining")
+		return
+	}
 	req = r.admit(req)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
@@ -173,11 +178,39 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		}
 		return true
 	}
+	if req.URL.Path == proxy.DrainPath {
+		serveDrain(r, w, req)
+		return true
+	}
 	if !r.authorized(req) {
 		r.refuseUnauthorized(w, req)
 		return true
 	}
 	return false
+}
+
+// serveDrain answers POST DrainPath: 200 when idle (and now draining for good), 409 when busy.
+func serveDrain(r *Router, w http.ResponseWriter, req *http.Request) {
+	switch {
+	case req.Method != http.MethodPost:
+		r.refuse(w, req, http.StatusMethodNotAllowed, "proxy: POST only")
+	case !r.secretOK(req):
+		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+	case !drainIfIdle(r):
+		r.refuse(w, req, http.StatusConflict, "proxy: busy")
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// drainIfIdle starts refusing requests when none is in flight; a busy router is left serving.
+func drainIfIdle(r *Router) bool {
+	r.draining.Store(true)
+	if r.inflight.Load() > 0 {
+		r.draining.Store(false)
+		return false
+	}
+	return true
 }
 
 // helloProbe reports a HEAD or GET of /p/<profile>/api/hello.

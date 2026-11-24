@@ -253,6 +253,9 @@ const sessionTimeout = 5 * time.Second
 // SessionPath is the POST mint endpoint, requiring the router secret.
 const SessionPath = "/internal/session"
 
+// DrainPath is the POST endpoint that makes an idle scoped proxy refuse new requests, requiring the router secret.
+const DrainPath = "/internal/drain-if-idle"
+
 // proxyTokenMaxAge re-mints inside the router's 7-day idle lifetime, as agent.SessionToken does.
 const proxyTokenMaxAge = time.Hour
 

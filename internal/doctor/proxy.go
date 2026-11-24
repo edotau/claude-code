@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	bolterrors "go.etcd.io/bbolt/errors"
 
@@ -68,22 +70,56 @@ func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
 		}
 		lines = append(lines, "team "+strings.Join(parts, " "))
 	}
-	return append(lines, detachedLines(context.Background())...), problems
+	scopes, _ := scopeReport(context.Background(), cfg, false)
+	return append(lines, scopes...), problems
 }
 
-// detachedLines sweeps dead scope files, then lists each live standing proxy with its build state and in-flight count.
-func detachedLines(ctx context.Context) []string {
-	var lines []string
-	for _, sc := range proxy.DetachedScopes() {
-		h, _ := proxy.Holder(ctx, sc.Port)
-		lines = append(lines, proxy.ScopeLine(sc, h.Inflight))
+// probeWorkers bounds the concurrent /healthz probes of scopeReport.
+const probeWorkers = 4
+
+// scopeOverReserved: sc's id is at or past its detached team's Reserved, or the team is not a detached one (reserve 0).
+func scopeOverReserved(sc proxy.Scope, cfg proxyteam.Config) (reserved int, over bool) {
+	for _, t := range cfg.Teams {
+		if t.Name == sc.Team && t.Host == proxyteam.HostDetached {
+			n, err := strconv.Atoi(sc.ID)
+			return t.Reserved, err != nil || n >= t.Reserved
+		}
 	}
-	return lines
+	return 0, true
 }
 
-// proxyTeamsStatus summarizes the team config for the doctor row.
-func proxyTeamsStatus() (detail string, bad bool) {
-	cfg, problems, busy := loadTeams()
+// scopeReport probes the live detached scopes concurrently and returns one line each plus the over-reserved count.
+func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []string, over int) {
+	scopes := proxy.DetachedScopes()
+	lines = make([]string, len(scopes))
+	flagged := make([]bool, len(scopes))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, probeWorkers)
+	for i, sc := range scopes {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			h, _ := proxy.Holder(ctx, sc.Port)
+			lines[i] = proxy.ScopeLine(sc, h.Inflight)
+			if n, bad := scopeOverReserved(sc, cfg); bad && !busy {
+				lines[i] += fmt.Sprintf(" over reserved=%d: unmanaged; gateway proxy --stop stops it", n)
+				flagged[i] = true
+			}
+		}()
+	}
+	wg.Wait()
+	for _, f := range flagged {
+		if f {
+			over++
+		}
+	}
+	return lines, over
+}
+
+// proxyTeamsStatus summarizes the loaded team config for the doctor row.
+func proxyTeamsStatus(cfg proxyteam.Config, problems []proxyteam.Problem, busy bool) (detail string, bad bool) {
 	if busy {
 		return vaultBusyNote, false
 	}
@@ -104,11 +140,22 @@ func proxyTeamsStatus() (detail string, bad bool) {
 // proxyStatus is the daemon status plus the team summary.
 func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	detail, bad = proxyDaemonStatus(ctx)
-	td, tbad := proxyTeamsStatus()
-	if n := len(detachedLines(ctx)); n > 0 {
+	cfg, problems, busy := loadTeams()
+	td, tbad := proxyTeamsStatus(cfg, problems, busy)
+	lines, over := scopeReport(ctx, cfg, busy)
+	if n := len(lines); n > 0 {
 		td += fmt.Sprintf("; %d standing proxies live", n)
 	}
+	if over > 0 {
+		td += fmt.Sprintf("; %d over reserved: %s", over, strings.Join(overLines(lines), " | "))
+		tbad = true
+	}
 	return detail + "; teams: " + td, bad || tbad
+}
+
+// overLines keeps the lines scopeReport flagged as over reserved.
+func overLines(lines []string) []string {
+	return slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return !strings.Contains(l, " over reserved=") })
 }
 
 func proxyDaemonStatus(ctx context.Context) (detail string, bad bool) {
