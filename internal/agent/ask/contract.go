@@ -152,17 +152,15 @@ func gateRecord(g *worktree.GateRun, now time.Time) contract.TermRecord {
 	return observed(contract.TermGate, *g.Exit == 0, exitEvidence(*g.Exit), exitEvidence(*g.Exit), now)
 }
 
-// testsRecord fails on any red verify run; else an executed run passes it, or the judged verdict where none is needed.
+// testsRecord is the verify run's exit when one ran, else its not-run reason, else the judged verdict where allowed.
 func testsRecord(c contract.Contract, v *wire.VerifyResult, hb *handback, now time.Time) contract.TermRecord {
-	needRun := c.Executed || hb.claims(contract.TestsExecuted)
-	if ran(v) && (v.Exit != 0 || needRun) {
+	switch {
+	case ran(v):
 		return observed(contract.TermTests, v.Exit == 0, exitEvidence(v.Exit), exitEvidence(v.Exit), now)
-	}
-	if !needRun && hb.claims(contract.TestsJudged) {
-		return contract.TermRecord{Term: contract.TermTests, Verdict: contract.VerdictPass, By: contract.ByOwner, At: now}
-	}
-	if v != nil && v.Reason != "" {
+	case v != nil && v.Reason != "":
 		return failed(contract.TermTests, v.Reason, now)
+	case !c.Executed && hb.claims(contract.TestsJudged):
+		return contract.TermRecord{Term: contract.TermTests, Verdict: contract.VerdictPass, By: contract.ByOwner, At: now}
 	}
 	return failed(contract.TermTests, missUnexecuted, now)
 }
@@ -286,17 +284,19 @@ func isLane(dir, name string) bool {
 }
 
 // isProxyScope reports whether p is a scope file in the contained proxy's scopes dir; the caller binds it.
-func isProxyScope(p string) bool { return fileIn(filepath.Join(paths.StateDir(), "proxy", "scopes"), p) }
+func isProxyScope(p string) bool {
+	return fileIn(filepath.Join(paths.StateDir(), "proxy", "scopes"), p)
+}
 
 // isReport reports whether p is a filed report in the memory bank; the caller passes the path JobReport returned.
 func isReport(p string) bool { return fileIn(paths.MemorySubDir("reports"), p) }
 
-// fileIn reports whether p is an absolute regular file, not a symlink, below dir.
+// fileIn reports whether p is an absolute regular file, not a symlink, whose resolved parent is below dir.
 func fileIn(dir, p string) bool {
 	if !filepath.IsAbs(p) {
 		return false
 	}
-	if _, in := paths.RelWithin(dir, filepath.Clean(p)); !in {
+	if _, in := paths.RelWithin(paths.Canon(dir), paths.Canon(filepath.Dir(p))); !in {
 		return false
 	}
 	fi, err := os.Lstat(p)
