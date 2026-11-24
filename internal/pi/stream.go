@@ -88,13 +88,12 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 	defer t.flushLog()
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
-	if err != nil {
-		res.Answer = t.answerText()
-		return res, err
+	if err == nil {
+		err = t.finish(false)
 	}
-	err = t.finish(false)
-	res.Answer = t.answerText()
-	if h := t.verdict(); h != nil && err == nil { // once the stream is over no later work can void it
+	res.Answer = t.text()
+	if h := t.verdict(); h != nil && err == nil { // a settled, clean stream: no later work can void it
+		res.Answer = strings.TrimSpace(res.Answer + "\n\n" + h.block())
 		err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.block(), Sep: true})
 	}
 	return res, err
@@ -144,21 +143,14 @@ func (h handback) block() string {
 	}
 	if len(items) > 0 {
 		unfixed = strings.Join(items, "; ")
+	} else if h.Status == "BLOCKED" || h.Status == "NEEDS_CONTEXT" {
+		unfixed = h.Status // an unfinished task is never "UNFIXED: none"
 	}
 	head := h.Status
 	if s := one(h.Summary); s != "" {
 		head += ": " + s
 	}
 	return head + "\nUNFIXED: " + unfixed
-}
-
-// answerText is the final text, then the typed handback block last, so its status and UNFIXED line decide.
-func (t *piTurn) answerText() string {
-	text := t.text()
-	if h := t.verdict(); h != nil {
-		return strings.TrimSpace(text + "\n\n" + h.block())
-	}
-	return text
 }
 
 // piTurn is parseEvents' state across one run's events.

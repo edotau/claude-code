@@ -468,3 +468,17 @@ func TestParseEventsMalformedSecondHandbackVoidsTheFirst(t *testing.T) {
 		t.Fatalf("the earlier handback survived a malformed later one: %q", res.Answer)
 	}
 }
+
+func TestParseEventsHandbackNeedsSettledRunAndBlockedHolds(t *testing.T) {
+	call := func(a string) string {
+		return `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":` + a + `}` + "\n" +
+			`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
+	}
+	blocked := call(`{"status":"BLOCKED","summary":"s","unfixed":[]}`)
+	if res, _, _, err := parseFixture(t, blocked+msgEnd("stop", "")); err == nil || strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("an unsettled stream exposed a verdict: %q err %v", res.Answer, err)
+	}
+	if res, _, _, _ := parseFixture(t, blocked+msgEnd("stop", "")+settled); !strings.HasSuffix(res.Answer, "BLOCKED: s\nUNFIXED: BLOCKED") {
+		t.Fatalf("BLOCKED with no items must not read as UNFIXED: none: %q", res.Answer)
+	}
+}
