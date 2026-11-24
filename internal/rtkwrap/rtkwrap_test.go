@@ -68,8 +68,17 @@ func TestLaunchSetsBashEnvOnlyWhenWrapping(t *testing.T) {
 	}
 }
 
+func clearCodeModeVars(t *testing.T) {
+	t.Helper()
+	t.Setenv(CodemodeEnv, "")
+	for _, v := range vendorVars() {
+		t.Setenv(v, "")
+	}
+}
+
 func TestCodeModeOffAndEmptyReadFalse(t *testing.T) {
-	for v, want := range map[string]bool{"": false, "off": false, "on": true, "only": true, "ON": true, "1": true, "no": false} {
+	for v, want := range map[string]bool{"": false, "off": false, "on": true, "only": true, "ON": true, "1": true, "true": true, "no": false} {
+		clearCodeModeVars(t)
 		t.Setenv(CodemodeEnv, v)
 		if got := CodeMode(); got != want {
 			t.Errorf("%s=%q: CodeMode() = %v, want %v", CodemodeEnv, v, got, want)
@@ -88,11 +97,17 @@ func TestLaunchPinsCodemodeOverInherited(t *testing.T) {
 }
 
 func TestCodeModeReadsVendorVariable(t *testing.T) {
-	t.Setenv(CodemodeEnv, "")
-	for v, want := range map[string]bool{"on": true, "1": true, "off": false, "": false} {
-		t.Setenv("CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", v)
-		if got := CodeMode(); got != want {
-			t.Errorf("vendor var %q: CodeMode() = %v, want %v", v, got, want)
+	for _, vendor := range []string{"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", "OPENCODE_EXPERIMENTAL_CODE_MODE"} {
+		for _, tc := range []struct{ codemode, vendor, src string }{
+			{"", "on", vendor}, {"", "1", vendor}, {"", "true", vendor}, {"", "ON", vendor}, {"", "off", ""}, {"", "", ""},
+			{"on", "off", CodemodeEnv}, {"off", "on", vendor}, {"on", "on", CodemodeEnv},
+		} {
+			clearCodeModeVars(t)
+			t.Setenv(CodemodeEnv, tc.codemode)
+			t.Setenv(vendor, tc.vendor)
+			if got, src := CodeMode(), CodeModeSource(); got != (tc.src != "") || src != tc.src {
+				t.Errorf("%s=%q %s=%q: CodeMode() = %v, source %q, want %q", CodemodeEnv, tc.codemode, vendor, tc.vendor, got, src, tc.src)
+			}
 		}
 	}
 }
