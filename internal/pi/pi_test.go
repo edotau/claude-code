@@ -278,6 +278,46 @@ func TestToolIdleResumesOnlyWhenNoToolRuns(t *testing.T) {
 	}
 }
 
+func TestToolIdleHoldsCompactionAndRetryWaits(t *testing.T) {
+	const (
+		limit = 60 * time.Millisecond
+		wait  = 3 * limit
+	)
+	run := func(maxHold time.Duration, evs ...piEvent) (*agent.IdleTimeout, *toolIdle) {
+		idle := agent.NewIdleTimeout("pi", limit, nil)
+		ti := newToolIdle(idle)
+		ti.maxHold = maxHold
+		for _, ev := range evs {
+			ti.beat(ev)
+		}
+		return idle, ti
+	}
+	idle, ti := run(time.Minute, piEvent{Type: "compaction_start"})
+	time.Sleep(3 * limit)
+	if err := idle.Err(); err != nil {
+		t.Fatalf("killed during compaction: %v", err)
+	}
+	ti.beat(piEvent{Type: "compaction_end"})
+	time.Sleep(3 * limit)
+	if idle.Err() == nil {
+		t.Error("silence after compaction_end was not killed")
+	}
+	idle, _ = run(time.Minute, piEvent{Type: "auto_retry_start", DelayMs: int(wait.Milliseconds())})
+	time.Sleep(wait - limit)
+	if err := idle.Err(); err != nil {
+		t.Fatalf("killed inside the announced retry wait: %v", err)
+	}
+	time.Sleep(wait)
+	if idle.Err() == nil {
+		t.Error("not killed after the retry wait plus the limit")
+	}
+	idle, _ = run(wait, piEvent{Type: "compaction_start"})
+	time.Sleep(wait + 3*limit)
+	if idle.Err() == nil {
+		t.Error("a never-ending compaction held the watch past its bound")
+	}
+}
+
 // setPackages writes the Pi record's pin extras into the test vault.
 func setPackages(t *testing.T, packages, approved string) {
 	t.Helper()

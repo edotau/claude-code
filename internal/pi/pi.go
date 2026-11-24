@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -393,30 +394,79 @@ func (w *guardWatch) check() error {
 // cause outranks the idle and exit errors the kill produces.
 func (w *guardWatch) cause() error { return w.err }
 
-// toolIdle keeps the idle watch honest: any running tool holds it off, other progress restarts it.
+// toolIdle keeps the idle watch honest: a tool, a compaction or a retry wait holds it off, other progress restarts it.
 type toolIdle struct {
 	idle   *agent.IdleTimeout
-	active map[string]bool // tool call ids between start and end; Pi runs calls in parallel
+	mu     sync.Mutex             // the hold timers fire on their own goroutines
+	active map[string]bool        // tool call ids between start and end; Pi runs calls in parallel
+	holds  map[string]*time.Timer // "compaction" and "retry" holds; a compaction that never ends lapses at maxHold
+	// maxHold bounds a compaction hold (a tool hold is unbounded) and any announced retry wait
+	maxHold time.Duration
 }
 
 func newToolIdle(idle *agent.IdleTimeout) *toolIdle {
-	return &toolIdle{idle: idle, active: map[string]bool{}}
+	return &toolIdle{idle: idle, active: map[string]bool{}, holds: map[string]*time.Timer{}, maxHold: agent.DefaultToolsTimeout}
 }
 
 func (t *toolIdle) beat(ev piEvent) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	switch ev.Type {
 	case "tool_execution_start":
 		t.active[ev.ToolCallID] = true
 		t.idle.Pause()
 	case "tool_execution_end":
 		delete(t.active, ev.ToolCallID) // an end with no start changes nothing
-		if len(t.active) == 0 {
-			t.idle.Beat(ev.Type)
-		}
+		t.resume(ev.Type)
 	case "message_update", "turn_start":
-		if len(t.active) == 0 {
-			t.idle.Beat(ev.Type)
+		t.resume(ev.Type)
+	case "compaction_start":
+		t.hold("compaction", t.maxHold)
+	case "compaction_end":
+		t.release("compaction", ev.Type)
+	case "auto_retry_start", "summarization_retry_scheduled":
+		t.hold("retry", min(time.Duration(ev.DelayMs)*time.Millisecond, t.maxHold))
+	case "auto_retry_end":
+		t.release("retry", ev.Type)
+	}
+}
+
+// resume restarts the idle window unless a tool or a hold is still open; the caller holds mu.
+func (t *toolIdle) resume(what string) {
+	if len(t.active) == 0 && len(t.holds) == 0 {
+		t.idle.Beat(what)
+	}
+}
+
+// hold pauses the watch for d, replacing an open hold of the same kind; d <= 0 only restarts the window.
+func (t *toolIdle) hold(kind string, d time.Duration) {
+	t.drop(kind)
+	if d <= 0 {
+		t.resume(kind)
+		return
+	}
+	t.idle.Pause()
+	var tm *time.Timer
+	tm = time.AfterFunc(d, func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.holds[kind] == tm { // a newer hold of this kind owns the slot
+			delete(t.holds, kind)
+			t.resume(kind + "_wait_over")
 		}
+	})
+	t.holds[kind] = tm
+}
+
+func (t *toolIdle) release(kind, what string) {
+	t.drop(kind)
+	t.resume(what)
+}
+
+func (t *toolIdle) drop(kind string) {
+	if tm, ok := t.holds[kind]; ok {
+		tm.Stop()
+		delete(t.holds, kind)
 	}
 }
 
