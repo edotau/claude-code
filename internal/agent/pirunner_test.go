@@ -135,6 +135,8 @@ func TestPiChainModeDefault(t *testing.T) {
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackPin, FallbackDefaulted: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents}, router.FallbackAgents},
 	} {
 		if got := piChainMode(ctx, c.q); got != c.want {
