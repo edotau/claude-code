@@ -30,7 +30,7 @@ func piOwner() (contract.Contract, error) {
 	return c, nil
 }
 
-// piDispatchArgv builds `agents ask --background --spec <object>`: Go writes the object, the model picks typed values.
+// piDispatchArgv builds `agents ask --background --format json --spec <object>`; Go writes the object.
 func piDispatchArgv(input map[string]any) ([]string, error) {
 	c, err := piOwner()
 	if err != nil {
@@ -58,7 +58,7 @@ func piDispatchArgv(input map[string]any) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
-	return []string{"agents", "ask", "--background", "--spec", string(b)}, nil
+	return []string{"agents", "ask", "--background", "--format", "json", "--spec", string(b)}, nil
 }
 
 func strOf(v any) string { s, _ := v.(string); return s }

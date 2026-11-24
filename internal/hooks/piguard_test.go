@@ -193,7 +193,7 @@ func TestPiDispatchAtBudget(t *testing.T) {
 	saveOwnerContract(t, owner, 1000)
 	call := piCall{Tool: "dispatch", CWD: dir, Input: map[string]any{"unit": "func y", "kind": "function",
 		"own": []any{"a.go"}, "tier": "fast", "prompt": "reply ok"}}
-	if v := judgePi(call); !v.Allow || len(v.Run) < 4 || v.Run[2] != "--background" || v.Notice != "" {
+	if v := judgePi(call); !v.Allow || len(v.Run) < 6 || v.Run[2] != "--background" || v.Notice != "" {
 		t.Fatalf("under budget: %+v, want an ask argv", v)
 	}
 	if _, err := contract.Update(owner, func(c contract.Contract) (contract.Contract, error) { return c.AddChild("k1") }); err != nil {

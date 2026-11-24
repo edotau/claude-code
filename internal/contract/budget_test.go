@@ -34,8 +34,8 @@ func TestBudgetReachedAndFailReason(t *testing.T) {
 	switch {
 	case c.LeavesSpent(Spent{Leaves: 1}) || !c.LeavesSpent(Spent{Leaves: 2}):
 		t.Error("leaves: want reached at 2 of 2 only")
-	case c.TokensSpent(Spent{Tokens: testTokens}) || !c.TokensSpent(Spent{Tokens: testTokens + 1}):
-		t.Error("tokens: want reached only past the limit")
+	case c.TokensSpent(Spent{Tokens: testTokens - 1}) || !c.TokensSpent(Spent{Tokens: testTokens}):
+		t.Error("tokens: want reached at the limit only")
 	case c.FailReason(Spent{Leaves: 2}) != ReasonLimit || c.FailReason(Spent{}) != ReasonTerm:
 		t.Error("fail reason: want limit at the budget with return terms unmet, term below it")
 	}
