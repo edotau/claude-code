@@ -93,8 +93,7 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
     'options.prices={"<model-id>":{"input":0,"output":0,"cache_read":0,"cache_write":0}}'
   ```
 
-- `configure provider --list dev` shows them; an empty `warehouse_id=` or `options.prices={}` clears. Doctor has a
-  `cost report` row.
+- `configure provider --list dev` shows them; an empty `warehouse_id=` or `options.prices={}` clears.
 - The figure is labelled `est.`: local ledger tokens times your price table, not an invoice. With no prices set,
   `usage --cost` prints one hint line.
 - A billed report from `system.billing` is not available yet: it needs `USE SCHEMA` and `SELECT` on `system.billing`

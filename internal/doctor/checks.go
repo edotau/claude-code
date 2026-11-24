@@ -127,8 +127,6 @@ func checkProviderHealth(ctx context.Context, check func(bool, bool, string, str
 	checkModelStrings(reg, check)
 	driftOK, driftDetail := overlayDriftDetail()
 	check(driftOK, false, "provider overlay drift", driftDetail)
-	cost := costReportCheck(reg)
-	check(cost.OK, cost.Hard, cost.Name, cost.Detail)
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, c := range providerCredentialChecks(ctx, reg, sel, serr, reg.Names()) {
