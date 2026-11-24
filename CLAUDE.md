@@ -24,7 +24,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
-| `plans/` | Implementation plans (native `plansDirectory`), gitignored, under `plans/<repo>/` named by the launch dir's git repo (`@home` outside any repo); the root holds only plan-mode drafts |
+| `plans/` | Implementation plans (native `plansDirectory`), gitignored; home and naming: `rules/harness/docs-placement.md` |
 | `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
 | `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (`<repo>` = checkout dir without a leading dot: `~/worktrees/claude/`) |
@@ -46,8 +46,8 @@ Claude Code reads these source files directly; external CLI projections refresh 
    follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
    `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then install and
    live-check on the Mac (the required check; WSL is a periodic sync, R19). Under `HARNESS_WORKTREE=lanes` a verified
-   lane merges without asking unless its diff adds a restriction. Full `make audit` runs on main after each
-   worktree merge (automatic) and at session end; `make install` after pulls.
+   lane merges without asking unless its diff adds a restriction. `make audit` runs at session end (a worktree merge
+   starts its own); `make install` after pulls.
 
 ## Behavioral guidelines
 
