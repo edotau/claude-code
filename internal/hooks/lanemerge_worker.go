@@ -49,8 +49,8 @@ func runLeafLane(lane, session, transcript string) {
 	verdict := laneUnfinished
 	done := finished
 	if waitUntil(laneFinishWait, finished) {
+		seen := transcriptStamp(transcript) // taken before the read, so a write in between holds the lane
 		verdict = laneVerdict(leafReport(transcript))
-		seen := transcriptStamp(transcript)
 		done = func() bool { return finished() && transcriptStamp(transcript) == seen } // a leaf sent back writes more
 	}
 	runLaneJob(laneJob{lane: lane, session: session, verdict: verdict, done: done})
@@ -87,7 +87,7 @@ func runJobLane(id string) {
 	if waitUntil(laneExitWait, done) {
 		env, _ := rec.SavedEnvelope()
 		verdict = laneVerdict(env.Answer)
-		if env.Handback != nil { // the typed outcome wins over the answer's text line
+		if env.Handback != nil && env.Error == nil { // the typed outcome wins over the answer's text line
 			verdict = handbackVerdict(env.Handback)
 		}
 	}
