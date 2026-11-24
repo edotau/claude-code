@@ -747,11 +747,11 @@ type WindowPick struct {
 	Window int
 }
 
-// LargerWindow lists what may replace ran on p once its window overflowed: its 1M variant, same family, then the rest.
-func LargerWindow(p *providers.Provider, ran string, pool []string, floor int) []WindowPick {
+// LargerWindow lists what may replace ran on p after an overflow: its 1M variant (allow1M), same family, the rest.
+func LargerWindow(p *providers.Provider, ran string, pool []string, floor int, allow1M bool) []WindowPick {
 	need := max(providers.Window(p, ran)+1, floor)
 	var out, same, other []WindowPick
-	if bigger := models.Strip1M(ran) + "[1m]"; !models.Has1M(ran) && providers.Window(p, bigger) >= need {
+	if bigger := models.Strip1M(ran) + "[1m]"; allow1M && !models.Has1M(ran) && providers.Window(p, bigger) >= need {
 		out = append(out, WindowPick{bigger, providers.Window(p, bigger)})
 	}
 	for _, entry := range pool {

@@ -15,9 +15,21 @@ func TestPlanOverflowRepicksByWindow(t *testing.T) {
 	over := errors.New("opencode: prompt is too long: 230000 tokens > 200000 maximum")
 	cell := RunOptions{Model: "databricks-claude-sonnet-4-6", CellModel: true, Fallback: router.FallbackAll}
 	plan := planOverflow(disp, cell, cell.Model, over)
-	if plan.model == "" || plan.to <= plan.from || plan.refusal != "" {
-		t.Fatalf("cell plan = %+v, want a larger-window re-pick", plan)
+	if plan.model == "" || plan.to <= plan.from || plan.refusal != "" || strings.HasSuffix(plan.model, "[1m]") {
+		t.Fatalf("opencode plan = %+v, want a larger pool model (it drops [1m])", plan)
 	}
+	disp.Agent = &fakeRunner{name: "pi"}
+	if plan = planOverflow(disp, cell, cell.Model, over); !strings.HasSuffix(plan.model, "[1m]") || plan.to <= plan.from {
+		t.Fatalf("pi plan = %+v, want the 1M variant first", plan)
+	}
+}
+
+// A kept model (typed or --fallback none), the largest window and a rate limit never re-pick.
+func TestPlanOverflowRefuses(t *testing.T) {
+	autoFixture(t)
+	disp := Dispatch{Agent: &fakeRunner{name: "pi"}, Account: router.ProviderAccount("dev")}
+	over := errors.New("pi: prompt is too long: 230000 tokens > 200000 maximum")
+	cell := RunOptions{Model: "databricks-claude-sonnet-4-6", CellModel: true, Fallback: router.FallbackAll}
 	for name, req := range map[string]RunOptions{"none": {Model: cell.Model, CellModel: true, Fallback: router.FallbackNone},
 		"typed": {Model: cell.Model, ModelTyped: true, Fallback: router.FallbackAll}} {
 		kept := planOverflow(disp, req, req.Model, over)

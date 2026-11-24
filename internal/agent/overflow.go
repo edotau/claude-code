@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -43,7 +44,7 @@ func overflowRefusal(err error) string {
 }
 
 // overflowCands is the windows larger than ran's on disp's profile that fit the refused prompt, and ran's own window.
-func overflowCands(disp Dispatch, ran, low string) ([]router.WindowPick, int) {
+func overflowCands(disp Dispatch, tools bool, ran, low string) ([]router.WindowPick, int) {
 	_, row, _ := strings.Cut(disp.Account, "·")
 	p := loadRegistryWarn().Row(row)
 	if p == nil {
@@ -54,7 +55,9 @@ func overflowCands(disp Dispatch, ran, low string) ([]router.WindowPick, int) {
 		n, _ := strconv.Atoi(m[1])
 		floor = n * overflowFit / 10
 	}
-	return router.LargerWindow(p, ran, rotationPool(disp.Agent.Name(), "", p, false, time.Now()), floor), providers.Window(p, ran)
+	name := disp.Agent.Name()
+	pool := rotationPool(name, "", p, tools, time.Now())
+	return router.LargerWindow(p, ran, pool, floor, name != agentid.OpenCode), providers.Window(p, ran) // opencode drops [1m]
 }
 
 // planOverflow decides the re-pick of a non-auto request whose prompt overflowed ran's window; zero otherwise.
@@ -63,7 +66,7 @@ func planOverflow(disp Dispatch, lreq RunOptions, ran string, err error) overflo
 	if ran == "" || IsAuto(lreq.Model) || low == "" {
 		return overflowPlan{}
 	}
-	cands, from := overflowCands(disp, ran, low)
+	cands, from := overflowCands(disp, lreq.Tools, ran, low)
 	plan := overflowPlan{ran: ran, from: from}
 	switch {
 	case len(cands) == 0:
