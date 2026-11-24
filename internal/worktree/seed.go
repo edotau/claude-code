@@ -39,21 +39,26 @@ func seedPath(main, dest, name string) error {
 		return err
 	}
 	if isVenv(name) {
-		if !info.IsDir() {
-			return nil
-		}
-		if err := os.Symlink(source, target); err != nil {
-			return err
-		}
-		if err := excludeSymlink(dest, name); err != nil {
-			return errors.Join(err, os.Remove(target))
-		}
-		return nil
+		return linkVenv(source, target, dest, name, info.IsDir())
 	}
 	if ignored, err := seedIgnored(dest, name); err != nil || !ignored {
 		return err
 	}
 	return copyEnvFile(source, target, info.Mode().Perm())
+}
+
+// linkVenv symlinks a primary venv directory into the lane and excludes it, undoing the link when the exclude fails.
+func linkVenv(source, target, dest, name string, isDir bool) error {
+	if !isDir {
+		return nil
+	}
+	if err := os.Symlink(source, target); err != nil {
+		return err
+	}
+	if err := excludeSymlink(dest, name); err != nil {
+		return errors.Join(err, os.Remove(target))
+	}
+	return nil
 }
 
 func isVenv(name string) bool { return name == ".venv" || name == "venv" }
