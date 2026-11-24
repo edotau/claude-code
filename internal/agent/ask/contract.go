@@ -520,11 +520,15 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 	}
 	var got contract.Contract
 	var err error
-	if ctx.Err() != nil {
-		got, err = abandonContract(id, contract.ReasonCancelled)
-	} else {
-		got, err = settleContract(id, returnOf(ctx, p.Record, res, runErr))
+	if ctx.Err() == nil {
+		ret := returnOf(ctx, p.Record, res, runErr)
+		if ctx.Err() == nil { // a cancel during the settle gate is a cancel, not an unmet gate
+			got, err = settleContract(id, ret)
+			reportSettled(id, got, err)
+			return
+		}
 	}
+	got, err = abandonContract(id, contract.ReasonCancelled)
 	reportSettled(id, got, err)
 }
 
