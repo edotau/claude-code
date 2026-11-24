@@ -63,7 +63,8 @@ func overflowCands(disp Dispatch, tools bool, account, ran, low string) ([]route
 	pool := slices.DeleteFunc(served, func(m string) bool {
 		return router.HeldUntil(entry, name, m, now) != nil // a quota-held or skipped model stays out
 	})
-	return router.LargerWindow(p, ran, pool, floor, name != agentid.OpenCode), providers.Window(p, ran) // opencode drops [1m]
+	allow1M := name != agentid.OpenCode && router.HeldUntil(entry, name, ran, now) == nil // opencode drops [1m]
+	return router.LargerWindow(p, ran, pool, floor, allow1M), providers.Window(p, ran)
 }
 
 // planOverflow decides the re-pick of a non-auto request whose prompt overflowed ran's window; zero otherwise.
