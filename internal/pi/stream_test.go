@@ -369,3 +369,22 @@ func TestParseEventsMalformedUsageKeepsStream(t *testing.T) {
 	}
 	wantUsage(t, res, wire.Usage{InputTokens: 4, OutputTokens: 9})
 }
+
+func TestParseEventsCompactionAndRetryPhases(t *testing.T) {
+	data := `{"type":"compaction_start","reason":"overflow"}` + "\n" +
+		`{"type":"compaction_end","result":{"tokensBefore":150000,"estimatedTokensAfter":32000}}` + "\n" +
+		`{"type":"compaction_end","errorMessage":"too big"}` + "\n" +
+		`{"type":"summarization_retry_scheduled","attempt":1,"maxAttempts":3,"delayMs":2000}` + "\n" +
+		`{"type":"auto_retry_end","success":true}` + "\n" +
+		`{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n"
+	_, sink, _, _ := parseFixture(t, data)
+	var got []string
+	for _, ev := range sink.evs {
+		got = append(got, ev.Type+"|"+ev.Status+"|"+ev.Text)
+	}
+	want := []string{"progress|compacting|overflow", "progress|running|compacted 150000→32000", "progress|warning|too big",
+		"retry||attempt 1/3 retry_in=2000ms", "progress|running|", "progress|warning|429"}
+	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
+		t.Fatalf("events %q, want prefix %q", got, want)
+	}
+}

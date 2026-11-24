@@ -34,7 +34,11 @@ type piEvent struct {
 	MaxAttempts  int    `json:"maxAttempts"`
 	DelayMs      int    `json:"delayMs"`
 	ErrorMessage string `json:"errorMessage"`
-	Message      *struct {
+	// compaction_start: why; auto_retry_end: whether the retries won and the last error
+	Reason     string `json:"reason"`
+	Success    *bool  `json:"success"`
+	FinalError string `json:"finalError"`
+	Message    *struct {
 		Role         string          `json:"role"`
 		Model        string          `json:"model"`
 		StopReason   string          `json:"stopReason"`
@@ -60,6 +64,15 @@ func (ev piEvent) durationMs() int64 {
 	var d int64
 	_ = json.Unmarshal(ev.DurationMs, &d)
 	return max(d, 0)
+}
+
+// compactedLine is "compacted 150000→32000" from compaction_end's result, bare "compacted" without both numbers.
+func (ev piEvent) compactedLine() string {
+	var r struct{ TokensBefore, EstimatedTokensAfter int }
+	if json.Unmarshal(ev.Result, &r) != nil || r.TokensBefore <= 0 || r.EstimatedTokensAfter <= 0 {
+		return "compacted"
+	}
+	return fmt.Sprintf("compacted %d→%d", r.TokensBefore, r.EstimatedTokensAfter)
 }
 
 func (u piUsage) zero() bool {
@@ -161,12 +174,8 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.sink.Emit(use)
 	case "tool_execution_end":
 		return t.toolEnd(ev)
-	case "auto_retry_start":
-		t.flushLog()
-		ts.Retry(nil)
-		text := fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxAttempts, ev.DelayMs)
-		t.lg.Emit("retry", text)
-		return t.sink.Emit(wire.Event{Type: wire.EventRetry, Text: text})
+	case "auto_retry_start", "summarization_retry_scheduled", "compaction_start", "compaction_end", "auto_retry_end":
+		return t.phase(ev, ts)
 	case "message_end":
 		return t.messageEnd(ev)
 	case "agent_settled":
@@ -175,6 +184,43 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.finish(true)
 	}
 	return nil
+}
+
+func (t *piTurn) phase(ev piEvent, ts *wire.TransportTracker) error {
+	t.flushLog()
+	switch ev.Type {
+	case "auto_retry_start", "summarization_retry_scheduled":
+		if ev.Type == "auto_retry_start" {
+			ts.Retry(nil)
+		}
+		return t.retry(ev)
+	}
+	return t.sink.Emit(phaseEvent(ev))
+}
+
+func (t *piTurn) retry(ev piEvent) error {
+	text := fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxAttempts, ev.DelayMs)
+	t.lg.Emit("retry", text)
+	return t.sink.Emit(wire.Event{Type: wire.EventRetry, Text: text})
+}
+
+// phaseEvent marks a compaction or a retry sequence starting, ending well ("running") or ending badly ("warning").
+func phaseEvent(ev piEvent) wire.Event {
+	out := wire.Event{Type: wire.EventProgress, Status: "running"}
+	switch ev.Type {
+	case "compaction_start":
+		out.Status, out.Text = "compacting", ev.Reason
+	case "compaction_end":
+		out.Text = ev.compactedLine()
+		if ev.ErrorMessage != "" {
+			out.Status, out.Text = "warning", ev.ErrorMessage
+		}
+	case "auto_retry_end":
+		if ev.Success != nil && !*ev.Success || ev.FinalError != "" {
+			out.Status, out.Text = "warning", ev.FinalError
+		}
+	}
+	return out
 }
 
 func (t *piTurn) toolEnd(ev piEvent) error {
