@@ -408,7 +408,7 @@ func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, b
 	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: cmp.Or(req.Model, o.Model), Profile: cmp.Or(req.Provider, req.Lead, o.Provider, o.Lead), Account: req.Account,
 		Effort: req.Effort, Fallback: o.Fallback, Task: o.Prompt, Tools: o.Tools,
 		Held: req.Background || req.SessionID != "" || req.Host != ""})
-	hop, note, err := agent.RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(agent.WithoutReviewLoop(o.Prompt)))
+	hop, note, err := agent.RunQuery(ctx, reg, q, agent.HopAlias(o.Prompt, router.RuleClassifier{}.Alias))
 	if err != nil {
 		return agent.ModelRoute{}, false, err
 	}

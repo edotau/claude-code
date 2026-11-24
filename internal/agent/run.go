@@ -236,8 +236,16 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 }
 
 func (c *Client) alias(prompt string) string {
-	if c.Alias != nil {
-		return c.Alias(WithoutReviewLoop(prompt))
+	return HopAlias(prompt, c.Alias)
+}
+
+// HopAlias is the tier alias every hop of a dispatch takes: TaskTier's (the lead's), else classify's, else "".
+func HopAlias(prompt string, classify func(string) string) string {
+	if alias, _ := TaskTier(prompt); alias != "" {
+		return alias
+	}
+	if classify != nil {
+		return classify(WithoutReviewLoop(prompt))
 	}
 	return ""
 }
