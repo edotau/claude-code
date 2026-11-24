@@ -43,32 +43,6 @@
     "purpose": "the Conventional Commits types a subject may open with",
     "words": ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert"]
   },
-  "git_sdk_read_only_verbs": {
-    "purpose": "git verbs the Copilot SDK read-only gate allows (drift X6: the agent list has 14)",
-    "words": ["status", "diff", "log", "show", "blame", "rev-parse", "branch", "grep"]
-  },
-  "git_sdk_banned_flags": {
-    "purpose": "flags, abbreviations too, the SDK gate refuses: a program, config or driver, or --no-index (X6)",
-    "words": ["--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager", "--textconv", "--remerge-diff",
-      "--diff-merges", "--submodule", "--no-index"]
-  },
-  "git_sdk_leading_flags": {
-    "purpose": "verb -> flags that must open its args: later, a value option or -- swallows them",
-    "tools": {
-      "diff": ["--no-ext-diff", "--no-textconv"],
-      "log": ["--no-ext-diff", "--no-textconv"],
-      "show": ["--no-ext-diff", "--no-textconv"],
-      "blame": ["--no-textconv"]
-    }
-  },
-  "git_sdk_verb_flags": {
-    "purpose": "verb -> its only dash args: branch must list, and git status -v runs textconv",
-    "tools": {
-      "branch": ["--list", "-l", "-a", "--all", "-r", "--remotes", "-v", "-vv"],
-      "status": ["--short", "-s", "--branch", "-b", "--long", "--porcelain", "--porcelain=v2", "-z", "--ignored",
-        "-uno", "-uall", "--"]
-    }
-  },
   "pure_readers": {
     "purpose": "commands that read, filter or copy their input and never run it (not awk, mysql or sed without -n)",
     "words": ["cat", "tee", "wc", "grep", "egrep", "fgrep", "rg", "head", "tail", "sort", "uniq", "jq", "tr", "base64",
@@ -106,10 +80,6 @@
   "c_string_commands": {
     "purpose": "commands that run the string after their -c flag through a shell",
     "words": ["su", "script", "flock"]
-  },
-  "git_path_flags": {
-    "purpose": "git flags, abbreviations too, whose value is a file git reads",
-    "words": ["--contents", "--ignore-revs-file"]
   },
   "pipe_filters": {
     "purpose": "commands that only read stdin and print it: none runs, writes or forwards its input",

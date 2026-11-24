@@ -449,7 +449,7 @@ var gitPlainVerbs = sync.OnceValue(func() []string { return shell.GuardWords("gi
 // gitGatedVerbs are the gitPlainVerbs that also write, so only the read forms their arg check names pass.
 var gitGatedVerbs = sync.OnceValue(func() []string { return shell.GuardWords("git_read_only_gated_verbs") })
 
-// gitBannedLong lets the caller pick a program, config, repo or output file (abbreviations too); not shell.ReadOnlyGit.
+// gitBannedLong lets the caller pick a program, config, repo or output file (abbreviations too).
 var gitBannedLong = sync.OnceValue(func() []string { return shell.GuardWords("git_read_only_banned_long") })
 
 // readOnlyGit is plain git: configured drivers are the owner's; the caller picks no program, config, repo or output.

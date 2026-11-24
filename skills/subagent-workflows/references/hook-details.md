@@ -17,8 +17,8 @@ itself on Copilot.
 exists (`-F`, `-t`, `--body-file`) and one the same command writes first (redirect, `tee`, an interpreter). A message a
 substitution or variable builds at run time blocks when the command also names a footer. A footer named mid-subject
 (`docs: forbid Co-Authored-By: Claude footers`) passes, as do `git log --grep`, `echo` of the phrase,
-`gh pr comment` and a human co-author. It follows wrappers, `rtk`, `cd`, `git -C`, `bash -c` and `eval`; a command nested past four levels
-blocks when its text holds a footer.
+`gh pr comment` and a human co-author. It follows wrappers, `rtk`, `cd`, `git -C`, `bash -c` and `eval`; a command
+nested past four levels blocks when its text holds a footer.
 
 **Deny rules.** The live `~/.claude/settings.json` `permissions.deny` (the template's when it is unreadable) blocks a
 command a `Bash(...)` rule covers, `sudo`/`doas` in command position when `Bash(sudo:*)` is denied (also inside
