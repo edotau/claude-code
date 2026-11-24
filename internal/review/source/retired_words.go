@@ -1,7 +1,6 @@
 package source
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -13,14 +12,13 @@ import (
 	"strings"
 	"sync"
 	"unicode"
-)
 
-//go:embed retired_words.json
-var retiredWordsJSON []byte
+	"github.com/edotau/claude-code/internal/assets"
+)
 
 var retiredWords = sync.OnceValue(func() vocabulary {
 	var v vocabulary
-	if err := json.Unmarshal(retiredWordsJSON, &v); err != nil {
+	if err := json.Unmarshal(assets.RetiredWords(), &v); err != nil {
 		panic(fmt.Errorf("decode embedded retired words: %w", err))
 	}
 	return v

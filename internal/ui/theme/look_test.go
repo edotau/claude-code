@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,15 @@ func near(a, b ansi.RGB) bool {
 		}
 	}
 	return true
+}
+
+func TestDefaultConfigJSONIsolated(t *testing.T) {
+	b := DefaultConfigJSON()
+	want := bytes.Clone(b)
+	clear(b)
+	if !bytes.Equal(DefaultConfigJSON(), want) {
+		t.Fatal("mutating DefaultConfigJSON's result changed the next call")
+	}
 }
 
 func TestLiftIdentityAtZero(t *testing.T) {

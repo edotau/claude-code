@@ -47,8 +47,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   workflow steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;
   what `auto` resolves to: `rules/harness/network.md`.
 - `--model auto` (or overlay `model: auto`, a record pin `auto`; model strings carry no profile: `providers.md`)
-  ranks the models that one profile serves by the brief's tier from `internal/catalog/ranks.json`, over a pinned
-  model; the label shows the pick.
+  ranks the models that one profile serves by the brief's tier from `internal/assets/files/catalog/ranks.json`, over a
+  pinned model; the label shows the pick.
   `auto`, typed or pinned, replaces a ladder cell's model on that cell's row; with nothing to rank it runs the
   agent's untyped default with a note, and it is never refused (`--fallback none` refuses only a typed concrete
   model).
