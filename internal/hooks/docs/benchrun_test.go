@@ -119,8 +119,8 @@ func TestBenchOnCommitQueuesBusyAndDeduplicates(t *testing.T) {
 	benchOnCommit(context.Background(), leaf, dir, sha)
 	benchOnCommit(context.Background(), in, dir, sha[:7])
 	benchOnCommit(context.Background(), in, dir, sha[:7])
-	if spawned != 2 {
-		t.Fatalf("spawned %d, want recovery checked on both submissions", spawned)
+	if spawned != 3 {
+		t.Fatalf("spawned %d, want recovery checked on every submission, a leaf's included", spawned)
 	}
 	jobs, err := filepath.Glob(filepath.Join(paths.StateDir(), "bench", "post-commit", "*.job.json"))
 	if err != nil || len(jobs) != 1 {
@@ -225,6 +225,7 @@ func TestBenchRunDeadlineReleasesInheritedLock(t *testing.T) {
 	if code == 0 || time.Since(start) > time.Second {
 		t.Fatalf("deadline exit=%d elapsed=%s", code, time.Since(start))
 	}
+	assertBenchErr(t, filepath.Join(dir, "run.json.err"), "deadline")
 	next, err := os.OpenFile(lockPath, os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -369,6 +370,31 @@ func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
 		t.Fatal("busy worker did not finish")
 	}
 	assertBusyBenchRun(t, base, checks)
+	assertQuietRetry(t, base, entered, release)
+}
+
+// assertQuietRetry runs the one retry a load-inconclusive run earns and checks it is quiet, final and clean.
+func assertQuietRetry(t *testing.T, base string, entered chan string, release chan struct{}) {
+	t.Helper()
+	if !benchRetryDue(base) {
+		t.Fatalf("load-inconclusive run not marked for retry: %+v", readBenchMarker(t, base))
+	}
+	benchLoad1Quiet = func() bool { return true }
+	done := make(chan struct{})
+	go func() { benchWorker(base, true); close(done) }()
+	waitBench(t, entered)
+	release <- struct{}{}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("retry did not finish")
+	}
+	if m := readBenchMarker(t, base); m.Retry != "done" || m.UnderLoad || m.Status != "done" || benchRetryDue(base) {
+		t.Fatalf("quiet retry still loaded or due again: %+v", m)
+	}
+	if _, err := os.Stat(base + ".json.err"); !os.IsNotExist(err) {
+		t.Fatalf("successful run kept its progress-only .err: %v", err)
+	}
 }
 
 func assertBusyBenchRun(t *testing.T, base string, checks int) {
@@ -401,10 +427,11 @@ func assertBenchWaiting(t *testing.T, ch <-chan string, message string) {
 
 func stubBenchWorkers(t *testing.T) (chan string, chan struct{}, *atomic.Bool) {
 	t.Helper()
-	spawn, run, busy, poll, open := benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock
+	spawn, run, busy, poll, open, quiet := benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock, benchLoad1Quiet
 	t.Cleanup(func() {
-		benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock = spawn, run, busy, poll, open
+		benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock, benchLoad1Quiet = spawn, run, busy, poll, open, quiet
 	})
+	benchLoad1Quiet = func() bool { return false }
 	lockFile := filepath.Join(t.TempDir(), "measurement.lock")
 	benchMeasurementLock = func() (*os.File, error) { return os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600) }
 	benchSpawn = func([]string, string) int { return 1 }
@@ -424,6 +451,9 @@ func stubBenchWorkers(t *testing.T) (chan string, chan struct{}, *atomic.Bool) {
 		entered <- args[4]
 		<-release
 		if err := os.WriteFile(args[4], []byte(cannedBench), 0o600); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(args[4]+".err", []byte("review bench: internal/memory\n"), 0o600); err != nil {
 			t.Error(err)
 		}
 		return 0
@@ -570,6 +600,13 @@ func TestBenchAnnotatePreservesRunnerEvidence(t *testing.T) {
 	}
 	if document.Packages[0].Before.Commit != "old1234" || document.Packages[0].Future.Epoch != "keep" {
 		t.Fatalf("lost provenance or runner evidence: %s %v", got, err)
+	}
+}
+
+func assertBenchErr(t *testing.T, path, want string) {
+	t.Helper()
+	if raw, err := os.ReadFile(path); err != nil || !strings.Contains(string(raw), want) {
+		t.Fatalf(".err lacks the failure %q: %q (%v)", want, raw, err)
 	}
 }
 

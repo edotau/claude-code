@@ -1,10 +1,14 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooktelemetry"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func hookTelemetryChecks(now time.Time) []check {
@@ -33,4 +37,14 @@ func hookTelemetryChecks(now time.Time) []check {
 			Detail: fmt.Sprintf("%d | %d | %d | %s", m.Fires, m.Denies, m.Overruns, p95)})
 	}
 	return rows
+}
+
+const benchCoverageCommits = 12
+
+// benchCoverageCheck is the post-commit bench row: the R22 trigger's reach; a regression shows as a soft failure.
+func benchCoverageCheck(ctx context.Context) check {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	detail := docs.BenchCoverage(ctx, paths.ConfigDir(), benchCoverageCommits)
+	return check{Name: "post-commit bench", OK: !strings.Contains(detail, "; latest regression: "), Detail: detail}
 }

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/serve"
@@ -36,6 +37,7 @@ const (
 	benchMaxLines  = 4
 	benchRetention = 7 * 24 * time.Hour
 	benchDeadline  = 45 * time.Minute
+	benchRangeMax  = 20 // newest first-parent commits one landing queues; older ones are past their review window
 )
 
 // A private detached entry bypasses the hook dispatcher's five-second handler deadline.
@@ -46,8 +48,8 @@ func init() {
 		if filepath.Dir(base) == state && plans.ValidSHA(filepath.Base(base)) {
 			if os.Args[1] == benchWorkerArg {
 				benchWorker(base, true)
-			} else {
-				benchRecover(state)
+			} else if benchRecover(state) {
+				os.Exit(1) // a reinstalled binary: the shell wrapper's loop restarts the consumer on the new code
 			}
 		}
 		os.Exit(0)
@@ -76,9 +78,9 @@ leader=$$
   kill -KILL -- "-$leader"
 ) & watchdog=$!
 trap '[ -z "${w:-}" ] || { git -C "$top" worktree remove --force "$w" >/dev/null 2>&1; rm -rf "$w"; }; kill "$watchdog" 2>/dev/null' EXIT
-w=$(mktemp -d "$r.wt.XXXXXX") || exit 1
-git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" ||
-  exit 1
+w=$(mktemp -d "$r.wt.XXXXXX") || { echo "bench worker: mktemp failed" >"$r.err"; exit 1; }
+git -C "$top" worktree add -q --detach "$w" "$sha" >"$r.err" 2>&1 && cd "$w" ||
+  { echo "bench worker: git worktree add $sha failed" >>"$r.err"; exit 1; }
 HARNESS_BENCH_UNDER_LOAD=$load nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
 exit $?`
 
@@ -96,6 +98,7 @@ type benchMarker struct {
 	Exit      *int      `json:"exit"`
 	Notice    string    `json:"notice,omitempty"`
 	Loop      string    `json:"loop,omitempty"`
+	Retry     string    `json:"retry,omitempty"` // "wanted" after a load-inconclusive run, "done" once retried
 }
 
 var benchRun = func(args []string, top string, lock *os.File) int {
@@ -103,6 +106,7 @@ var benchRun = func(args []string, top string, lock *os.File) int {
 	defer cancel()
 	shim, err := benchSnapshot(strings.TrimSuffix(args[4], ".json"))
 	if err != nil {
+		benchFailNote(args[4], "benchstat snapshot: "+err.Error())
 		return -1
 	}
 	cmd := exec.CommandContext(ctx, "sh", args...)
@@ -115,20 +119,36 @@ var benchRun = func(args []string, top string, lock *os.File) int {
 	if cmd.Process != nil {
 		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a straggler holding fd 3 keeps the measurement lock
 	}
-	if err != nil {
-		if cmd.ProcessState != nil {
-			return cmd.ProcessState.ExitCode()
-		}
-		return -1
+	if err == nil {
+		return 0
 	}
-	return 0
+	code := -1
+	if cmd.ProcessState != nil {
+		code = cmd.ProcessState.ExitCode()
+	}
+	note := fmt.Sprintf("bench worker: exit %d: %v", code, err)
+	if ctx.Err() != nil {
+		note += " (deadline " + benchRunTimeout.String() + ")"
+	}
+	benchFailNote(args[4], note)
+	return code
+}
+
+// benchFailNote appends the failure to the run's .err, so the file always names why a run failed.
+func benchFailNote(result, note string) {
+	f, err := os.OpenFile(result+".err", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintln(f, note) // best-effort: the marker's exit code still records the failure
 }
 
 var benchFuncRe = regexp.MustCompile(`(?m)^func Benchmark`)
 
-// benchOnCommit spawns one detached `review bench` for a main-session commit that changed a benched package.
+// benchOnCommit queues a detached `review bench` for a trunk commit (a leaf's too) that changed a benched package.
 func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
-	if runtime.GOOS == "windows" || in.AgentID != "" || !plans.ValidSHA(sha) {
+	if runtime.GOOS == "windows" || !plans.ValidSHA(sha) {
 		return
 	}
 	top := toplevel(dir)
@@ -144,52 +164,145 @@ func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
 	}
 }
 
-// Admission and lock waits belong to the detached worker, never the tool's hook process.
-func benchStart(_ context.Context, in *core.Input, top, sha string, files []string) {
-	state := filepath.Join(paths.StateDir(), "bench", "post-commit")
-	if os.MkdirAll(state, 0o700) != nil {
+// BenchLanded queues every benched first-parent commit a merge or fast-forward moved the primary trunk across.
+func BenchLanded(ctx context.Context, top, before, after, session string) {
+	if runtime.GOOS == "windows" || !plans.ValidSHA(after) {
 		return
 	}
-	base := filepath.Join(state, sha)
+	if after = primaryTrunkHead(ctx, top, after); after == "" {
+		return
+	}
+	rng := after
+	if plans.ValidSHA(before) {
+		rng = before + ".." + after
+	}
+	out, err := proc.RunGit(ctx, top, "rev-list", "--first-parent", "--reverse", "--max-count="+strconv.Itoa(benchRangeMax), rng)
+	if err != nil {
+		return
+	}
+	var jobs []benchJob
+	for sha := range strings.FieldsSeq(out) {
+		if files := benchedFiles(ctx, top, sha); len(files) > 0 {
+			jobs = append(jobs, benchJob{top, sha, session, files})
+		}
+	}
+	benchEnqueue(top, jobs)
+}
+
+// Admission and lock waits belong to the detached worker, never the tool's hook process.
+func benchStart(_ context.Context, in *core.Input, top, sha string, files []string) {
+	benchEnqueue(top, []benchJob{{top, sha, in.SessionID, files}})
+}
+
+// benchEnqueue publishes jobs in landing order; one consumer runs them oldest first, so none is dropped.
+func benchEnqueue(top string, jobs []benchJob) {
+	state := filepath.Join(paths.StateDir(), "bench", "post-commit")
+	if len(jobs) == 0 || os.MkdirAll(state, 0o700) != nil {
+		return
+	}
 	bin, err := paths.SelfBinary()
 	if err != nil {
 		return
 	}
 	// Start recovery before publishing: a hook killed after the atomic write cannot strand its job.
-	args := []string{"-c", `while :; do "$1" "$2" "$3" && exit; sleep 1; done`, "sh", bin, benchQueueArg, base}
+	args := []string{"-c", `while :; do "$1" "$2" "$3" && exit; sleep 1; done`, "sh", bin, benchQueueArg,
+		filepath.Join(state, jobs[0].SHA)}
 	if benchSpawn(args, top) == 0 {
 		return
 	}
-	raw, err := os.ReadFile(base + ".job.json")
-	var job benchJob
-	if errors.Is(err, os.ErrNotExist) || err == nil && json.Unmarshal(raw, &job) != nil {
-		_ = paths.WriteJSON(base+".job.json", benchJob{top, sha, in.SessionID, files})
+	for _, job := range jobs {
+		base := filepath.Join(state, job.SHA)
+		raw, err := os.ReadFile(base + ".job.json")
+		var prior benchJob
+		if errors.Is(err, os.ErrNotExist) || err == nil && json.Unmarshal(raw, &prior) != nil {
+			_ = paths.WriteJSON(base+".job.json", job)
+		}
 	}
 }
 
-// One persistent detached consumer per config reclaims jobs even when no later commit arrives.
-func benchRecover(state string) {
+// One persistent detached consumer per config reclaims jobs even when no later commit arrives; true asks a restart.
+func benchRecover(state string) bool {
 	lock, err := os.OpenFile(filepath.Join(state, "queue.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		os.Exit(1)
+		return true
 	}
 	defer lock.Close()
 	if !paths.TryLock(lock) {
-		return
+		return false
 	}
-	for {
+	self := benchBinaryStamp()
+	for self == "" || benchBinaryStamp() == self {
 		benchReconcile(state)
-		jobs, _ := filepath.Glob(filepath.Join(state, "*.job.json"))
-		for _, file := range jobs {
-			base := strings.TrimSuffix(file, ".job.json")
-			if benchPending(base) {
-				benchWorker(base, false)
-			} else if job, ok := benchUndelivered(base); ok {
-				benchDeliver(base, job)
-			}
-		}
+		benchConsume(state)
 		time.Sleep(benchPollWait)
 	}
+	return true
+}
+
+// benchConsume makes one pass over the queue; load1 is read at most once, and only when a retry is due.
+func benchConsume(state string) {
+	quiet := sync.OnceValue(benchLoad1Quiet)
+	for _, base := range benchQueued(state) {
+		if benchPending(base) {
+			benchWorker(base, false)
+		} else if job, ok := benchUndelivered(base); ok {
+			benchDeliver(base, job)
+		} else if benchRetryDue(base) && quiet() {
+			benchWorker(base, true)
+		}
+	}
+}
+
+// benchBinaryStamp identifies the installed binary, so a consumer never outlives a reinstall on old code.
+func benchBinaryStamp() string {
+	bin, err := paths.SelfBinary()
+	if err != nil {
+		return ""
+	}
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+// benchQueued lists job bases oldest published first, so a landed range runs in commit order.
+func benchQueued(state string) []string {
+	files, _ := filepath.Glob(filepath.Join(state, "*.job.json"))
+	type queued struct {
+		base string
+		at   time.Time
+	}
+	jobs := make([]queued, 0, len(files))
+	for _, file := range files {
+		if fi, err := os.Stat(file); err == nil {
+			jobs = append(jobs, queued{strings.TrimSuffix(file, ".job.json"), fi.ModTime()})
+		}
+	}
+	slices.SortStableFunc(jobs, func(a, b queued) int { return a.at.Compare(b.at) })
+	bases := make([]string, len(jobs))
+	for i, j := range jobs {
+		bases[i] = j.base
+	}
+	return bases
+}
+
+// benchRetryDue is a delivered, load-inconclusive run whose one retry has not run yet.
+func benchRetryDue(base string) bool {
+	m, ok := benchReadMarker(base)
+	return ok && m.Exit != nil && m.Notice != "" && m.Retry == "wanted"
+}
+
+func benchReadMarker(base string) (benchMarker, bool) {
+	var m benchMarker
+	raw, err := os.ReadFile(base + ".marker")
+	return m, err == nil && json.Unmarshal(raw, &m) == nil
+}
+
+// benchLoad1Quiet is one-minute load at or under half the CPUs, the retry's only gate.
+var benchLoad1Quiet = func() bool {
+	quiet, _, err := proc.QuietMachine(context.Background(), 0)
+	return err == nil && quiet
 }
 
 func benchPending(base string) bool {
@@ -272,13 +385,37 @@ func (m benchMarker) abandoned() bool {
 	return time.Since(m.Start) > time.Minute
 }
 
+// benchRetryState is "done" when a prior run asked for or used its retry: this run is that retry, or a manual rerun.
+func benchRetryState(base string) string {
+	if prior, _ := benchReadMarker(base); prior.Retry != "" {
+		return "done"
+	}
+	return ""
+}
+
+// benchNextRetry asks for the one retry when a first run measured fine but the load gate voided it.
+func benchNextRetry(retry string, code int, base string) string {
+	if retry == "" && code == 0 && benchResultLoaded(base+".json") {
+		return "wanted"
+	}
+	return retry
+}
+
+// benchAdmit reports load; the retry was gated on low load1, so dispatch counts alone do not void it.
+func benchAdmit(retry string) bool {
+	if retry == "done" {
+		return !benchLoad1Quiet()
+	}
+	return benchWaitQuiet()
+}
+
 func benchWorker(base string, rerun bool) {
 	raw, err := os.ReadFile(base + ".job.json")
 	var job benchJob
 	if err != nil || json.Unmarshal(raw, &job) != nil || !plans.ValidSHA(job.SHA) {
 		return
 	}
-	m := benchMarker{Status: "queued", PID: os.Getpid(), Start: time.Now().UTC()}
+	m := benchMarker{Status: "queued", PID: os.Getpid(), Start: time.Now().UTC(), Retry: benchRetryState(base)}
 	lock, err := benchMeasurementLock()
 	if err != nil {
 		_ = benchComplete(base, m, -1)
@@ -291,13 +428,14 @@ func benchWorker(base string, rerun bool) {
 	if !rerun && !benchPending(base) {
 		return
 	}
-	busy := benchWaitQuiet()
+	busy := benchAdmit(m.Retry)
 	m.UnderLoad = busy
 	m.Status, m.Start = "running", time.Now().UTC()
 	if paths.WriteJSON(base+".marker", m) != nil {
 		return
 	}
 	code := benchMeasure(base, job, lock, busy)
+	m.Retry = benchNextRetry(m.Retry, code, base)
 	if benchComplete(base, m, code) != nil {
 		return
 	}
@@ -414,6 +552,7 @@ var benchBusy = func() bool {
 func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int {
 	bin, err := paths.SelfBinary()
 	if err != nil {
+		benchFailNote(base+".json", "bench worker: binary lookup: "+err.Error())
 		return -1
 	}
 	top, sha, files := job.Top, job.SHA, job.Files
@@ -431,7 +570,26 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 	if code != 0 {
 		return code
 	}
-	return benchAnnotate(base, benchBaselines(job, base+".baseline"), underLoad)
+	if code = benchAnnotate(base, benchBaselines(job, base+".baseline"), underLoad); code != 0 {
+		benchFailNote(base+".json", "bench worker: result missing or not a bench report")
+		return code
+	}
+	_ = os.Remove(base + ".json.err") // success: its stderr held only progress lines
+	return 0
+}
+
+// benchResultLoaded reports a run whose comparisons the load gate voids: the case a quiet retry can fix.
+func benchResultLoaded(result string) bool {
+	raw, err := os.ReadFile(result)
+	var rep benchReport
+	if err != nil || json.Unmarshal(raw, &rep) != nil {
+		return false
+	}
+	return slices.ContainsFunc(rep.Packages, rep.loaded)
+}
+
+func (r benchReport) loaded(p benchPackage) bool {
+	return r.NoisyRun || r.CPUs > 0 && max(p.Stats.LoadBefore, p.Stats.LoadAfter) > float64(r.CPUs)/2
 }
 
 // A deadline SIGKILL skips the script's EXIT trap, so the worker removes the detached worktrees it left.
@@ -496,7 +654,8 @@ func primaryTrunkHead(ctx context.Context, top, sha string) string {
 
 // benchedFiles are the commit's changed Go files whose package dir holds a Benchmark func.
 func benchedFiles(ctx context.Context, top, sha string) []string {
-	out, err := proc.RunGit(ctx, top, "show", "--name-only", "--no-renames", "--format=", sha)
+	// --diff-merges: a merge commit lists what it brought in, not only its conflicts
+	out, err := proc.RunGit(ctx, top, "show", "--name-only", "--no-renames", "--diff-merges=first-parent", "--format=", sha)
 	if err != nil {
 		return nil
 	}
@@ -757,8 +916,7 @@ func benchNoticeLines(raw []byte) []string {
 			if reason != "" {
 				flags = append(flags, reason)
 			}
-			loaded := rep.NoisyRun || rep.CPUs > 0 && max(p.Stats.LoadBefore, p.Stats.LoadAfter) > float64(rep.CPUs)/2
-			parts := benchParts(loaded, flags, b.Deltas)
+			parts := benchParts(rep.loaded(p), flags, b.Deltas)
 			name := benchSuffix.ReplaceAllString(b.Name, "")
 			lines = append(lines, prefix+name+" "+strings.Join(parts, "; "))
 		}
