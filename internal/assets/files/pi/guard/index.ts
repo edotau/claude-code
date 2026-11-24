@@ -40,7 +40,8 @@ function judge(tool: string, input: any, cwd: string, sid: string): { block?: st
     if (v.allow !== true) return stuck("unrecognized verdict")
     const run = strArray(v.run) ? v.run : undefined
     const steps = Array.isArray(v.steps) && v.steps.every(isStep) ? v.steps : undefined
-    return { path: typeof v.path === "string" ? v.path : "", run, steps, unset: strArray(v.unset) ? v.unset : [] }
+    if (v.unset !== undefined && !strArray(v.unset)) return stuck("malformed unset") // fail closed: never run with it
+    return { path: typeof v.path === "string" ? v.path : "", run, steps, unset: v.unset ?? [] }
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
@@ -141,7 +142,7 @@ async function runAction(name: string, run: string[], cwd: string, signal: any):
   finally { signal?.removeEventListener("abort", stop) }
 }
 
-// VERIFY_MS keeps the in-run verify under the harness's 5-minute idle watch; post-run verify covers a slower one.
+// VERIFY_MS plus BUDGET_MS stays under the 5-minute idle watch (pi_test pins it); post-run verify covers the rest.
 const VERIFY_MS = 4 * 60_000
 // PROXY_KEY is the proxy session token's env (internal/pi KeyRef): verify steps run edited code, so they never get it.
 const PROXY_KEY = "HARNESS_PROXY_API_KEY"
@@ -154,15 +155,15 @@ function verifyEnv(step: Step, unset: string[]): Record<string, string> {
   return env
 }
 
-// runStep runs one argv in its own process group (spawn: execFile drops detached); launch failure or timeout throws.
+// runStep runs one argv in its own group (execFile drops detached); launch failure (rtk on Windows) or timeout throws.
 function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(step.argv[0], step.argv.slice(1), { cwd, env: verifyEnv(step, unset), detached: process.platform !== "win32",
       windowsHide: true, stdio: ["ignore", "pipe", "pipe"] })
     let out = ""
-    const add = (s: string) => { out = (out + s).slice(-4 * ERR_CHARS) }
-    child.stdout.setEncoding("utf8").on("data", add)
-    child.stderr.setEncoding("utf8").on("data", add)
+    const add = (s: string) => { out = masked(out + s).slice(-4 * ERR_CHARS) } // mask before the cut: no key fragment
+    child.stdout.setEncoding("utf8").on("data", add).on("error", () => {}) // a pipe error must not crash Pi mid-settle
+    child.stderr.setEncoding("utf8").on("data", add).on("error", () => {})
     const timer = setTimeout(() => { killTree(child); reject(new Error("timed out")) }, Math.max(1, ms))
     child.on("error", (err) => { clearTimeout(timer); reject(err) })
     child.on("close", (code) => { clearTimeout(timer); code === null ? reject(new Error("killed")) : resolve({ code, out }) })
@@ -198,7 +199,7 @@ async function verifyFailure(line: string, cwd: string, sid: string): Promise<st
     }
     if (r.code !== 0) {
       return "The run's verify check failed (exit " + r.code + "). Fix the cause without changing the check, then finish.\n$ " +
-        line + "\n" + masked(r.out).slice(-ERR_CHARS)
+        line + "\n" + r.out.slice(-ERR_CHARS)
     }
   }
   return ""
