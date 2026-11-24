@@ -163,6 +163,10 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 	if env.Fallback != nil {
 		res.Fallback = *env.Fallback
 	}
+	res.Type, res.Runner = env.Type, env.Runner
+	if env.Runner != "" { // the envelope's agent is the asked one; the runner executed
+		res.Agent, res.Asked = env.Runner, env.Agent
+	}
 	if res.Transport == nil {
 		res.Transport = &wire.Transport{Attempts: 1}
 	}

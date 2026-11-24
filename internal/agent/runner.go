@@ -33,7 +33,10 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 	if model == AutoModel {
 		model = ""
 	}
-	kind := cmp.Or(ranRoute(res).Provider, rec.Route.Provider)
+	kind := ranRoute(res).Provider
+	if len(res.Hops) == 0 {
+		kind = rec.Route.Provider // no hop ran: the launch route is all there is
+	}
 	res.Type = cmp.Or(string(models.AgentType(kind, model, codeMode)), res.Asked, res.Agent)
 	return res
 }
@@ -43,11 +46,11 @@ func RowLabel(r Record) string { return wire.RunLabel(cmp.Or(r.Type, r.Agent), R
 
 // RunnerOf is the runner that carried r's run: the recorded one, else Pi read from the attempts of an older record.
 func RunnerOf(r Record) string {
-	if r.Runner != "" || r.Fallback != "" || len(r.Attempts) == 0 {
+	if r.Runner != "" || len(r.Attempts) == 0 || r.Agent == agentid.Pi {
 		return r.Runner
 	}
-	if last := r.Attempts[len(r.Attempts)-1].Agent; last == agentid.Pi && r.Agent != agentid.Pi {
-		return last
+	if slices.ContainsFunc(r.Attempts, func(h wire.Hop) bool { return h.Agent != agentid.Pi }) {
+		return ""
 	}
-	return ""
+	return agentid.Pi
 }
