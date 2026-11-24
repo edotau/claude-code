@@ -357,16 +357,34 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
+	}
+}
+
+// Each external relay type bakes its Pi launch and the one carried ask Pi runs: nobody composes either line.
+func TestRelayFilesBakeTheirAsks(t *testing.T) {
+	root := repoRoot(t)
+	const piLine = "claude-code agents ask --background --agent pi --provider databricks --model sonnet --tools --timeout 60m - < PATH"
+	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+		data, err := os.ReadFile(filepath.Join(root, "agents", name+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		carried := "claude-code agents ask --carry --background --agent " + name + " --tools - < <that path>"
+		for _, want := range []string{piLine, carried, "claude-code agents brief --path " + name} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("agents/%s.md lacks %q", name, want)
+			}
+		}
 	}
 }
 
 func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 	root := repoRoot(t)
 	for _, name := range []string{"codex", "copilot", "opencode", "pi"} {
-		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); !os.IsNotExist(err) {
-			t.Fatalf("%s relay file should be absent: %v", name, err)
+		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); name == "pi" && !os.IsNotExist(err) {
+			t.Fatalf("pi relay file should be absent: %v", err) // the external relays are Pi-run types; /<agent> stays carried
 		}
 		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
