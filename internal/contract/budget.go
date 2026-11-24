@@ -73,7 +73,7 @@ func (c Contract) LeavesSpent(s Spent) bool {
 
 // TokensSpent reports whether an owner's subtree is at its token limit; every tool result then gets BudgetNotice.
 func (c Contract) TokensSpent(s Spent) bool {
-	return c.Owner.Role == RoleOwner && s.Tokens >= c.Limits.Tokens
+	return c.Owner.Role == RoleOwner && c.Limits.Tokens > 0 && s.Tokens >= c.Limits.Tokens
 }
 
 // FailReason is limit when c's budget is reached with a return term unmet, else term.
