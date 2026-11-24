@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	bolterrors "go.etcd.io/bbolt/errors"
+
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/vault"
@@ -35,11 +37,14 @@ func readOverlay() (overlay []byte, err error) {
 	return overlay, err
 }
 
-// loadTeams skips Load when the vault stays unreadable (busy, not a problem) so last-good stays intact.
+// loadTeams skips Load on a vault error so last-good stays intact: a lock timeout is busy, any other error a problem.
 func loadTeams() (cfg proxyteam.Config, problems []proxyteam.Problem, busy bool) {
 	overlay, err := readOverlay()
-	if err != nil {
+	if errors.Is(err, bolterrors.ErrTimeout) {
 		return proxyteam.Config{}, nil, true
+	}
+	if err != nil {
+		return proxyteam.Config{}, []proxyteam.Problem{{Field: "overlay", Detail: "vault unreadable: " + err.Error()}}, false
 	}
 	cfg, problems = proxyteam.Load(overlay)
 	return cfg, problems, false

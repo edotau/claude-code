@@ -106,7 +106,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@out="$$($(BIN) gateway proxy --restart --if-changed 2>&1)"; case "$$out" in \
 		*unchanged*|*"not running"*) ;; *restarted*) echo "$$out" ;; \
 		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line replaces it once no request is in flight" ;; esac
-	@out="$$($(BIN) gateway proxy --status 2>&1 || true)"; if echo "$$out" | grep -q '^problem ' || ! echo "$$out" | grep -q '^teams: '; then echo "$$out"; exit 1; fi
+	@out="$$($(BIN) gateway proxy --status 2>&1 || true)"; n="$$(printf '%s\n' "$$out" | grep -c '^problem ' || true)"; t="$$(printf '%s\n' "$$out" | grep -c '^teams: ' || true)"; \
+		if [ "$$n" != 0 ] || [ "$$t" = 0 ]; then echo "$$out"; exit 1; fi
 	@if $(BIN) agents serve --status >/dev/null 2>&1; then \
 		$(BIN) agents serve --restart || echo -e "$(C_NOTE)agents serve did not restart (install itself succeeded)"; fi
 
