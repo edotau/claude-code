@@ -165,7 +165,7 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
 		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
 		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
-			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path 'a' --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path a --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
 		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}
@@ -489,39 +489,11 @@ func TestRunScopedGateCarriesIDs(t *testing.T) {
 	}
 }
 
-// A shell-free gate runs as argv, with the lint base placeholder filled in and no bash.
-func TestRunVerifyArgvFillsLintBase(t *testing.T) {
-	for base, want := range map[string]string{"abc123": "<--base><abc123>", "": "<--base><HEAD>"} {
-		var out strings.Builder
-		if err := runVerify(context.Background(), t.TempDir(), "/usr/bin/printf '<%s>' "+lintBaseArg, base, &out, &out); err != nil {
-			t.Fatal(err)
-		}
-		if out.String() != want {
-			t.Errorf("base %q: got %q, want %q", base, out.String(), want)
-		}
-	}
-}
-
-// A line the shell reads differently (an assignment prefix, a builtin) stays on bash.
-func TestRunVerifyKeepsBashForBuiltins(t *testing.T) {
-	var out strings.Builder
-	if err := runVerify(context.Background(), t.TempDir(), "FOO=bar /usr/bin/printf '<%s>' x && export Y=1", "", &out, &out); err != nil || out.String() != "<x>" {
-		t.Fatalf("out %q err %v", out.String(), err)
-	}
-}
-
-// The lint base fills only outside single quotes; a shebang-less executable still runs, under bash.
-func TestFillLintBaseAndNoShebang(t *testing.T) {
-	lit := `x '` + lintBaseArg + `' ` + lintBaseArg
-	if got, want := fillLintBase(lit, "abc"), `x '`+lintBaseArg+`' --base 'abc'`; got != want {
-		t.Errorf("fillLintBase = %q, want %q", got, want)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "noshebang"), []byte("echo ran\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var out strings.Builder
-	if err := runVerify(context.Background(), dir, "./noshebang", "", &out, &out); err != nil || out.String() != "ran\n" {
-		t.Fatalf("out %q err %v", out.String(), err)
+// The lint verb is a typed argv: a path with a space stays one word, and the base is the only expandable word.
+func TestLintVerbArgv(t *testing.T) {
+	got := lintVerb([]string{"a", "b c"})
+	want := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint", "--base", lintBase, "--path", "a", "--path", "b c"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lintVerb = %q, want %q", got, want)
 	}
 }

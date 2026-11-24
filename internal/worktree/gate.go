@@ -294,7 +294,7 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 	}
 	// the verb needs a Go module and a Makefile lint target (today's probe); other repos get no lint part
 	if lintCheck && paths.FileExists(filepath.Join(dir, "go.mod")) && hasMakeTarget(filepath.Join(dir, "Makefile"), "lint") {
-		gate = lintVerb(dirs) + " && " + gate
+		gate = lintLine(lintVerb(dirs)) + " && " + gate
 	}
 	return gate, source
 }
@@ -319,13 +319,31 @@ func noGo(d string) bool {
 const mergeBaseEnv = "HARNESS_MERGE_BASE"
 
 // lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or the scope's changes since the base.
-func lintVerb(dirs []string) string {
-	const verb = "claude-code agents diff --check --gates lint"
+func lintVerb(dirs []string) []string {
+	argv := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint"}
 	if len(dirs) == 0 {
-		return verb + " --all"
+		return append(argv, "--all")
 	}
 	// a merged lane is committed, so HEAD alone shows no change
-	return verb + ` --base "${` + mergeBaseEnv + `:-HEAD}" --path ` + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
+	argv = append(argv, "--base", lintBase)
+	for _, d := range dirs {
+		argv = append(argv, "--path", d)
+	}
+	return argv
+}
+
+// lintBase is the one word the gate shell expands: the pinned merge base, else HEAD.
+const lintBase = "${" + mergeBaseEnv + ":-HEAD}"
+
+// lintLine renders the lint argv as gate shell words; only lintBase stays expandable.
+func lintLine(argv []string) string {
+	words := mapStrings(argv, textutil.QuoteSH)
+	for i, w := range argv {
+		if w == lintBase {
+			words[i] = `"` + w + `"`
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
@@ -447,25 +465,12 @@ func hasRuffTable(toml string) bool {
 	return false
 }
 
-// runVerify runs cmdStr as argv steps when shell-free, else `bash -c`; a nonzero exit stops promotion.
+// runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
 func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr io.Writer) error {
-	env := append(gateEnv(), mergeBaseEnv+"="+base)
-	if steps, ok := verifySteps(cmdStr, base); ok {
-		for _, s := range steps {
-			argv := rtkwrap.ArgvForModel(ctx, s.Argv, workDir)
-			run := func(cmd *exec.Cmd) error { return runGateCmd(cmd, workDir, slices.Concat(env, s.Env), stdout, stderr) }
-			if err := runArgvStep(ctx, argv, run); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+rtkwrap.ForModel(ctx, cmdStr, workDir))
-	return runGateCmd(cmd, workDir, env, stdout, stderr)
-}
-
-func runGateCmd(cmd *exec.Cmd, dir string, env []string, stdout, stderr io.Writer) error {
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, stdout, stderr
+	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	proc.TreeCancel(cmd, gateCancelGrace) // cancel stops the whole tree, including children in their own groups
 	// orphans holding the output pipes must not block Wait after cancel
 	cmd.WaitDelay = gateWaitDelay

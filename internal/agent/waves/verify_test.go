@@ -464,14 +464,3 @@ func TestGateBashRunsPinnedRTKUnderChildPath(t *testing.T) {
 		t.Fatalf("exit = %d, err = %v, output = %q", exit, err, out.String())
 	}
 }
-
-// A PATH in the gate env picks the binary, not the parent's PATH.
-func TestGateBashResolvesOnGateEnvPath(t *testing.T) {
-	bin := t.TempDir()
-	hosttest.WriteExec(t, filepath.Join(bin, "gatetool"), "#!/bin/sh\necho from-gate-path\n")
-	var out strings.Builder
-	exit, err := verifyArgv(context.Background(), t.TempDir(), "gatetool", []string{"PATH=" + bin}, &out)
-	if err != nil || exit != 0 || !strings.Contains(out.String(), "from-gate-path") {
-		t.Fatalf("exit = %d, err = %v, output = %q", exit, err, out.String())
-	}
-}

@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -23,8 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.
@@ -466,13 +463,7 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 	return GateResult{Exit: exit, Tail: tail.lines(), Saved: in.OutPath}, err
 }
 
-func needsShell(s plans.VerifyStep) bool { return worktree.NeedsShell(s.Argv[0]) }
-
-// gateBash runs a shell-free script as argv steps (verifyArgv); only a line with shell syntax goes to `bash -c`.
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
-	if steps, err := plans.VerifyArgv(script); err == nil && !slices.ContainsFunc(steps, needsShell) {
-		return verifyArgv(ctx, dir, script, env, out)
-	}
 	cmd := exec.CommandContext(ctx, "bash", "-c", rtkwrap.ForModel(ctx, script, dir))
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), env...), out, out
 	return runGroup(ctx, cmd)
@@ -486,58 +477,13 @@ func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Wr
 	}
 	for _, s := range steps {
 		argv := rtkwrap.ArgvForModel(ctx, s.Argv, dir)
-		cmdEnv := slices.Concat(os.Environ(), env, s.Env)
-		run := func(cmd *exec.Cmd) (int, error) {
-			cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, cmdEnv, out, out
-			return runGroup(ctx, cmd)
-		}
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-		if p, set := lookPathIn(env, dir, argv[0]); set {
-			if p == "" {
-				return -1, fmt.Errorf("%s: not found on the gate PATH", argv[0])
-			}
-			cmd.Path, cmd.Err = p, nil
-		}
-		code, err := run(cmd)
-		if errors.Is(err, syscall.ENOEXEC) { // a script without a shebang: bash ran it before
-			code, err = run(exec.CommandContext(ctx, "bash", "-c", textutil.ShellJoin(argv)))
-		}
-		if code != 0 || err != nil {
+		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, slices.Concat(os.Environ(), env, s.Env), out, out
+		if code, err := runGroup(ctx, cmd); code != 0 || err != nil {
 			return code, err
 		}
 	}
 	return 0, nil
-}
-
-// lookPathIn finds name on the PATH env sets (relative entries under dir); set is false when env has no PATH.
-func lookPathIn(env []string, dir, name string) (path string, set bool) {
-	var list string
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			list, set = v, true
-		}
-	}
-	if !set || strings.Contains(name, "/") {
-		return "", false
-	}
-	dirs := filepath.SplitList(list)
-	if list == "" {
-		dirs = []string{""} // an empty PATH searches the current directory
-	}
-	for _, d := range dirs {
-		if !filepath.IsAbs(d) {
-			d = filepath.Join(dir, d)
-		}
-		if p := filepath.Join(d, name); isExecFile(p) {
-			return p, true
-		}
-	}
-	return "", true
-}
-
-func isExecFile(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
 }
 
 // runGroup runs cmd in its own process group, killed whole on cancel, so a child holding the pipes cannot outlive ctx.
