@@ -143,7 +143,7 @@ func (t *ocTurn) text(ev openCodeEvent) error {
 }
 
 func (t *ocTurn) tool(ev openCodeEvent) error {
-	if err := emitOpenCodeTool(t.sink, ev, t.seenTools); err != nil {
+	if err := emitOpenCodeTool(t.sink, ev, t.seenTools, t.res.Usage); err != nil {
 		return err
 	}
 	if ev.Part.State.Status != "completed" {
@@ -197,14 +197,18 @@ func (t *ocTurn) errorEvent(ev openCodeEvent) error {
 }
 
 // emitOpenCodeTool emits tool_use once per call id, then tool_result when that call completes or errors.
-func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool) error {
+func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool, sofar wire.Usage) error {
 	p := ev.Part
 	if p.Tool == "" {
 		return nil
 	}
 	if !seen[p.CallID] {
 		seen[p.CallID] = true
-		if err := sink.Emit(wire.ToolEvent(p.Tool, p.CallID)); err != nil {
+		use := wire.ToolEvent(p.Tool, p.CallID)
+		if sofar != (wire.Usage{}) {
+			use.Usage = &sofar // total through the last step_finish, so a running row shows live tokens
+		}
+		if err := sink.Emit(use); err != nil {
 			return err
 		}
 	}
