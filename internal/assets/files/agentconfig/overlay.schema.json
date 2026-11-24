@@ -132,6 +132,12 @@
     "remote": {
       "type": "string"
     },
+    "runner": {
+      "enum": [
+        "pi",
+        "own"
+      ]
+    },
     "schema": {
       "maximum": 1,
       "minimum": 0,

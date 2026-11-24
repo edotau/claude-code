@@ -38,6 +38,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if sink == nil {
 		sink = wire.Discard
 	}
+	c = dropRunner(c, req, notify)
 	c.Dispatches = slices.Clone(c.Dispatches)
 	ctx = context.WithValue(ctx, triedCarryKey{}, new([]string))
 	reasons := slices.Clone(c.Skipped)
@@ -90,13 +91,13 @@ func (s *fallbackState) noteSkips(notify func(string)) {
 
 // fallsBack reports d standing in for the wanted agent: another agent, another route or the pin.
 func (d Dispatch) fallsBack(want string) bool {
-	return d.otherRoute || d.swap || d.Agent.Name() != want
+	return d.otherRoute || d.swap || d.agentName() != want
 }
 
 // leadFallsBack is fallsBack for the first hop, except the wanted agent on the router's own row, none skipped.
 func (c Chain) leadFallsBack() bool {
 	d := c.Dispatches[0]
-	if d.routerChose && !d.swap && d.Agent.Name() == c.Want && len(askedSkips(c.Skipped, c.Want)) == 0 {
+	if d.routerChose && !d.swap && d.agentName() == c.Want && len(askedSkips(c.Skipped, c.Want)) == 0 {
 		return false
 	}
 	return d.fallsBack(c.Want)
@@ -409,18 +410,18 @@ func envelopeErrors(attempts ...*retry.Error) []wire.EnvelopeError {
 // hopLabel is dispatchLabel plus the hop's account, "codex (openai·chatgpt)".
 func hopLabel(l Dispatch) string {
 	if l.Account == "" {
-		return dispatchLabel(l.Agent)
+		return runnerLabel(l)
 	}
-	return dispatchLabel(l.Agent) + " (" + l.Account + ")"
+	return runnerLabel(l) + " (" + l.Account + ")"
 }
 
 // hopTarget is hopLabel plus the hop's model, "codex (openai·chatgpt, gpt-6.1-sol)".
 func hopTarget(l Dispatch) string {
 	parts := slices.DeleteFunc([]string{l.Account, l.Model}, func(s string) bool { return s == "" })
 	if len(parts) == 0 {
-		return dispatchLabel(l.Agent)
+		return runnerLabel(l)
 	}
-	return dispatchLabel(l.Agent) + " (" + strings.Join(parts, ", ") + ")"
+	return runnerLabel(l) + " (" + strings.Join(parts, ", ") + ")"
 }
 
 // everyHopFailed wraps the last failure with every skip and failed hop, keeping its Kind.
@@ -601,13 +602,14 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 
 // movesOn: the previous dispatch was unavailable.
 func (s *fallbackState) movesOn(ctx context.Context) bool {
-	return !typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
+	return runnerRefused(s.prevDispatch, s.res, s.err) ||
+		!typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && typedModelGone(s.req, s.err) {                               // R8: a typed model unserved is never swapped
+	if i > 0 && s.modelGone() {                                              // R8: a typed model unserved is never swapped
 		s.stopped = true
 		return true, nil
 	}
@@ -624,7 +626,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	}
 	panicked := s.dispatch(ctx, c, i, disp, sink, notify)
 	// Bookkeeping precedes panic handling so a panicking fallback is still reported as the fallback.
-	s.stopped = panicked || (i == 0 && explicitBackend(s.req))
+	s.stopped = panicked || c.explicitStop(i, s.req)
 	return s.stopped, nil
 }
 
@@ -729,7 +731,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	if replacement && s.req.Repicks >= MaxAutoRepicks {
 		return true
 	}
-	lreq := dispatchRequest(s.req, disp, i == 0 && disp.Agent.Name() == c.Want)
+	lreq := dispatchRequest(s.req, disp, c.leads(i) && disp.Agent.Name() == c.Want)
 	ctx, disp = freezeCopilot(ctx, disp, lreq) // the gate's actual target precedes the permit and cooldown key
 	disp = ownLoginActual(disp, lreq)
 	key := cmp.Or(disp.Account, disp.Agent.Name()+"·own")
@@ -757,7 +759,7 @@ func overflowFollows(c Chain, i int, req RunOptions, err error) bool {
 
 // lastHop reports that no dispatch can follow hop i.
 func lastHop(c Chain, i int, req RunOptions) bool {
-	return i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req))
+	return i+1 >= len(c.Dispatches) || c.explicitStop(i, req)
 }
 
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the permit is released.
@@ -1185,7 +1187,7 @@ func (c Chain) yieldsFallback(req RunOptions, res wire.Result, err error) bool {
 func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.Result, error) bool {
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
-			(i+1 < len(c.Dispatches) && (i != 0 || !explicitBackend(req)) &&
+			(i+1 < len(c.Dispatches) && !c.explicitStop(i, req) &&
 				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
 	}
 }

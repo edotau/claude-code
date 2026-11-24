@@ -99,7 +99,7 @@ var settingLimits = map[string]obj{
 func routeKeyEnums() map[string][]string {
 	return map[string][]string{
 		"provider": providers.ProviderKeys(), "effort": agentid.EffortNames(),
-		"fallback": router.FallbackModes, "identity": identityModes,
+		"fallback": router.FallbackModes, "identity": identityModes, "runner": Runners,
 	}
 }
 

@@ -42,6 +42,7 @@ type Overlay struct {
 	Model         string            `json:"model,omitempty"`
 	Effort        string            `json:"effort,omitempty"`
 	Fallback      string            `json:"fallback,omitempty"`
+	Runner        string            `json:"runner,omitempty"`
 	Set           map[string]string `json:"set,omitempty"`
 	Unset         []string          `json:"unset,omitempty"`
 	Keep          []string          `json:"keep,omitempty"`
@@ -73,12 +74,22 @@ var routeKeys = []routeKey{
 		"want " + strings.Join(agentid.EffortNames(), ", ")},
 	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, in(router.FallbackModes),
 		"want " + strings.Join(router.FallbackModes, ", ")},
+	{"runner", "", func(o Overlay) string { return o.Runner }, in(Runners), "want " + strings.Join(Runners, ", ")},
 	{"host", "host", func(o Overlay) string { return o.Host }, sshHost, "not a valid ssh host"},
 	{"remote", "", func(o Overlay) string { return o.Remote }, sshHost, "not a valid ssh host"},
 	{"account", "", func(o Overlay) string { return o.Account }, nil, ""},
 	{"identity", "", func(o Overlay) string { return o.Identity }, in(identityModes),
 		"want " + strings.Join(identityModes, ", ")},
 }
+
+// Runner values: who executes a typed agent's Databricks hop; unset is pi where it can run, else own.
+const (
+	RunnerPi  = "pi"
+	RunnerOwn = "own"
+)
+
+// Runners lists the runner key's values.
+var Runners = []string{RunnerPi, RunnerOwn}
 
 // identityModes are the Databricks identity values: the --as pair plus auto (the profile's own setting).
 var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
@@ -355,10 +366,10 @@ func (o Overlay) Confinement() string { return route.Join(o.Provider, o.Profile)
 // InlineOverlay carries confinement and inherited dispatch caps without the parent's env or vendor budget.
 func InlineOverlay(provider, profile string, limits ...Overlay) string {
 	o := Overlay{Provider: provider, Profile: profile}
-	if len(limits) > 0 {
-		o.MaxChildren, o.MaxTreeTokens = limits[0].MaxChildren, limits[0].MaxTreeTokens
+	if len(limits) > 0 { // the runner rides along: the confinement replaces the document the route reads it from
+		o.MaxChildren, o.MaxTreeTokens, o.Runner = limits[0].MaxChildren, limits[0].MaxTreeTokens, limits[0].Runner
 	}
-	if provider == "" && o.MaxChildren == nil && o.MaxTreeTokens == nil {
+	if provider == "" && o.MaxChildren == nil && o.MaxTreeTokens == nil && o.Runner == "" {
 		return ""
 	}
 	doc, _ := json.Marshal(o) // Scalars only: Marshal cannot fail.
