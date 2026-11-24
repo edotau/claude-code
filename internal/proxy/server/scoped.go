@@ -40,6 +40,7 @@ func Open(ctx context.Context, sc proxy.Scope) (*Scoped, error) {
 		return nil, err
 	}
 	r := newRouterWith(secret, newMemorySessionStore)
+	r.scoped = true
 	stopRefresh, err := acquireRefresh(ctx)
 	if err != nil {
 		_ = ln.Close()

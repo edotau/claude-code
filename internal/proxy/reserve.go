@@ -81,18 +81,17 @@ func startSlot(ctx context.Context, team, id string) (Scope, error) {
 	if held() {
 		return Scope{}, heldErr()
 	}
-	if err := retireSlot(ctx, team, id); err != nil {
-		return keepBusy(ctx, team, id, err)
+	err := retireSlot(ctx, team, id)
+	if !errors.Is(err, errSlotBusy) {
+		if err != nil {
+			return Scope{}, err
+		}
+		return spawnSlot(ctx, team, id)
 	}
-	return spawnSlot(ctx, team, id)
-}
-
-// keepBusy maps a retire refusal: a proxy that answered busy stays the endpoint; any other error stands.
-func keepBusy(ctx context.Context, team, id string, err error) (Scope, error) {
-	if cur, _, ok := liveScope(ctx, team, id); errors.Is(err, errSlotBusy) && ok {
-		return cur, nil
+	if cur, rerr := ReadScope(team, id); rerr == nil && scopeLive(cur) {
+		return cur, nil // it answered busy a moment ago: it stays the endpoint
 	}
-	return Scope{}, err
+	return spawnSlot(ctx, team, id) // it exited since: start a fresh one
 }
 
 // spawnSlot starts the slot's proxy and waits for it, honoring a --stop hold that lands before or during the start.
@@ -113,8 +112,7 @@ func spawnSlot(ctx context.Context, team, id string) (Scope, error) {
 		return sc, err
 	}
 	if held() { // a --stop landed while it started: it would outlive the hold
-		_ = stopScope(sc)
-		return Scope{}, heldErr()
+		return Scope{}, errors.Join(heldErr(), stopScope(sc))
 	}
 	return sc, nil
 }
@@ -140,7 +138,11 @@ func retireSlot(ctx context.Context, team, id string) error {
 	if rec.Host != HostDetached {
 		return fmt.Errorf("proxy %s@%s is held by a process that is not a detached proxy", team, id)
 	}
-	if idle, answered := drainIfIdle(ctx, rec); answered && !idle {
+	idle, answered := drainIfIdle(ctx, rec)
+	if err := ctx.Err(); err != nil { // an unfinished drain request proves nothing: never signal on a cancelled probe
+		return err
+	}
+	if answered && !idle {
 		return errSlotBusy
 	}
 	return stopScope(rec) // a proxy that may be draining is no endpoint: the caller takes its next team
@@ -175,6 +177,9 @@ func stopScope(sc Scope) error {
 	if scopeGone(sc, ShutdownDrain+5*time.Second) {
 		return nil
 	}
+	if !scopeLive(sc) { // the pid may be reused since the last check
+		return nil
+	}
 	_ = kill(sc.PID)
 	if scopeGone(sc, killGrace) {
 		return nil
@@ -189,19 +194,25 @@ func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 		}
 		select {
 		case <-ctx.Done():
-			pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-			defer cancel()
-			if sc, _, ok := liveScope(pctx, team, id); ok { // it came up as the caller gave up: keep it
+			if sc, ok := lastProbe(ctx, team, id); ok { // it came up as the caller gave up: keep it
 				return sc, nil
 			}
 			return Scope{}, ctx.Err()
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	if sc, _, ok := liveScope(ctx, team, id); ok { // it may have turned healthy as the deadline passed
+	if sc, ok := lastProbe(ctx, team, id); ok { // it may have turned healthy as the deadline passed
 		return sc, nil
 	}
 	return Scope{}, fmt.Errorf("proxy %s@%s did not become healthy within %s (see %s)", team, id, scopeStartWait, logFile())
+}
+
+// lastProbe is awaitScope's final probe, which a cancelled ctx must not fail before the caller kills the child.
+func lastProbe(ctx context.Context, team, id string) (Scope, bool) {
+	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	sc, _, ok := liveScope(pctx, team, id)
+	return sc, ok
 }
 
 var spawnScope = spawnScopeProcess

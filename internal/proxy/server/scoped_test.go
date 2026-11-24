@@ -37,8 +37,8 @@ func TestScopedDrainIfIdle(t *testing.T) {
 	if got := do(http.MethodPost, proxy.DrainPath); got != http.StatusOK {
 		t.Fatalf("drain = %d, want 200", got)
 	}
-	if got := do(http.MethodGet, "/healthz"); got != http.StatusOK {
-		t.Fatalf("healthz while draining = %d, want 200", got)
+	if got := do(http.MethodGet, "/healthz"); got != http.StatusServiceUnavailable {
+		t.Fatalf("healthz while draining = %d, want 503", got)
 	}
 	if got := do(http.MethodPost, "/p/x/v1/messages"); got != http.StatusServiceUnavailable {
 		t.Fatalf("request while draining = %d, want 503", got)

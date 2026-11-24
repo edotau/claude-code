@@ -48,6 +48,8 @@ type Router struct {
 	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
 	draining atomic.Bool    // set by drain-if-idle: new requests are refused
+	drainMu  sync.Mutex     // serializes drain-if-idle calls, so a busy one never clears another's drain
+	scoped   bool           // a scoped proxy answers DrainPath; the shared daemon never drains
 	bg       sync.WaitGroup // background state writes (cooling, quota-dead)
 
 	regLoad  sync.Mutex // serializes providers.Load outside mu
@@ -178,7 +180,7 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		}
 		return true
 	}
-	if req.URL.Path == proxy.DrainPath {
+	if r.scoped && req.URL.Path == proxy.DrainPath {
 		serveDrain(r, w, req)
 		return true
 	}
@@ -205,6 +207,14 @@ func serveDrain(r *Router, w http.ResponseWriter, req *http.Request) {
 
 // drainIfIdle starts refusing requests when none is in flight; a busy router is left serving.
 func drainIfIdle(r *Router) bool {
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
+	if r.draining.Load() { // an earlier call drained it; rejected requests count in flight only for an instant
+		return true
+	}
+	if r.inflight.Load() > 0 { // busy: leave admission open, so a busy proxy never refuses a request
+		return false
+	}
 	r.draining.Store(true)
 	if r.inflight.Load() > 0 {
 		r.draining.Store(false)

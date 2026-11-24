@@ -469,6 +469,11 @@ func (r *Router) health(w http.ResponseWriter) {
 	if c := proxy.CacheSummary(); c != "" {
 		w.Header().Set(proxy.HeaderCache, c)
 	}
+	if r.draining.Load() { // a drained proxy is no endpoint: health callers see it as down
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, "draining\n")
+		return
+	}
 	_, _ = io.WriteString(w, "ok\n")
 }
 

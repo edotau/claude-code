@@ -51,18 +51,20 @@ func DetachedScopes() []Scope {
 
 // StopDetached stops every live detached scope of any id, re-scans once for late starts, and never touches an asker's.
 func StopDetached() (stopped int, err error) {
-	done := map[string]bool{}
+	failed := map[string]error{} // the last attempt per scope: the re-scan retries a failed stop, and a late one wins
 	for range 2 {
 		for _, sc := range DetachedScopes() {
-			if k := sc.Team + "@" + sc.ID; !done[k] {
-				done[k] = true
-				if e := stopScope(sc); e != nil {
-					err = errors.Join(err, e)
-					continue
-				}
-				stopped++
+			k := sc.Team + "@" + sc.ID
+			if e := stopScope(sc); e != nil {
+				failed[k] = e
+				continue
 			}
+			delete(failed, k)
+			stopped++
 		}
+	}
+	for _, e := range failed {
+		err = errors.Join(err, e)
 	}
 	return stopped, err
 }

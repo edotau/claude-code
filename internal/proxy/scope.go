@@ -190,7 +190,7 @@ func readScopeFile(file string) (Scope, error) {
 	_, err = schemas.Decode(scopeFormat, b, &sc)
 	if errors.Is(err, schemas.ErrNewer) { // a newer build's record: read what we know, like ReadState
 		var lenient Scope
-		if json.Unmarshal(b, &lenient) == nil && lenient.PID != 0 && lenient.Port != 0 {
+		if json.Unmarshal(b, &lenient) == nil && lenient.PID != 0 && lenient.Port != 0 && lenient.Start != "" {
 			return lenient, nil
 		}
 	}
