@@ -655,3 +655,19 @@ func TestOkDispatchMarkerAndTint(t *testing.T) {
 		t.Errorf("markerTint(ok) = %q, want ansi.Dim", got)
 	}
 }
+
+func TestJobRowNarrowWidthsKeepTail(t *testing.T) {
+	d := Dispatch{Agent: "codex-long-agent-name", Task: "refactor the parser", Status: statusRunning, Duration: "2m43s", Quiet: true, LastSignal: time.Now().Add(-time.Minute)}
+	for _, w := range []int{20, 40, 80, 200} {
+		var l layout
+		addJobRow(&l, levelJob, append([]string{jobMarker(d)}, jobCells(d, time.Now(), nil)...), d, false)
+		for _, ln := range l.lines(w, "") {
+			if textutil.DisplayWidth(ln) > w {
+				t.Errorf("width %d: line %q too wide", w, ln)
+			}
+			if !strings.Contains(ln, "2m43s") || !strings.Contains(ln, "↓") {
+				t.Errorf("width %d: tail missing in %q", w, ln)
+			}
+		}
+	}
+}

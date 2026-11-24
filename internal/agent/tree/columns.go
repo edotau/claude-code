@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -22,7 +23,7 @@ const (
 )
 
 // jobCols are a dispatch row's columns: marker, agent, description, since (lost, quiet, queued), elapsed · ↓tokens.
-var jobCols = []col{{}, {max: 18}, {flex: true, max: 60}, {right: true}, {right: true}}
+var jobCols = []col{{}, {max: 18, clip: true}, {flex: true, max: 60}, {right: true, shed: true}, {right: true}}
 
 // minFlex is the narrowest a flex column is clipped to before it is hidden.
 const minFlex = 6
@@ -36,6 +37,8 @@ type col struct {
 	max      int  // widest the column may grow on a terminal; 0 = unlimited
 	optional bool // dropped for the whole level when keeping it would leave the text under minText
 	fit      bool // a model id: whole unless the text would fall under minFitText, then clipped with an ellipsis
+	shed     bool // hidden once the flex column is gone and the row still overflows
+	clip     bool // clipped with an ellipsis, to minFitWidth at most, when the row still overflows
 	flex     bool // takes the room the other columns leave, clipped with an ellipsis, so later columns end the row
 }
 
@@ -238,7 +241,47 @@ func flexCols(rows []row, ws [levelCount][]int, width int) {
 				}
 			}
 		}
+		shedOverflow(rows, ws, level, width)
 	}
+}
+
+// shedOverflow drops a level's shed column, then clips its clip column, while its fixed columns exceed width.
+func shedOverflow(rows []row, ws [levelCount][]int, level, width int) {
+	if !noText[level] {
+		return
+	}
+	for c, k := range levelCols[level] {
+		if k.shed && !hasSpan(rows, level) && fixedOver(ws, level, width) > 0 {
+			ws[level][c] = 0 // a queued row's span lives in this column, so it stays
+		}
+	}
+	clipOverflow(rows, ws, level, width)
+}
+
+// clipOverflow clips a level's clip column by what its fixed columns still run past width.
+func clipOverflow(rows []row, ws [levelCount][]int, level, width int) {
+	for c, k := range levelCols[level] {
+		o := fixedOver(ws, level, width)
+		if !k.clip || o <= 0 || ws[level][c] == 0 {
+			continue
+		}
+		ws[level][c] = max(ws[level][c]-o, min(2, ws[level][c])) // down to "x…" so the tail fits
+		for i, r := range rows {
+			if r.level == level {
+				rows[i].cells[c] = textutil.TruncateCells(r.cells[c], ws[level][c], "…")
+			}
+		}
+	}
+}
+
+// fixedOver is how many cells a text-less level's fixed columns run past width.
+func fixedOver(ws [levelCount][]int, level, width int) int {
+	return prefixWidth(ws[level], levelIndent[level]) - len(gap) - width
+}
+
+// hasSpan reports whether any row of level is a span row.
+func hasSpan(rows []row, level int) bool {
+	return slices.ContainsFunc(rows, func(r row) bool { return r.level == level && r.span })
 }
 
 // prefixWidth is the columns the indent and the visible fixed columns take, each followed by a gap.
