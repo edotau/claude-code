@@ -311,6 +311,15 @@ func TestToolIdleHoldsCompactionAndRetryWaits(t *testing.T) {
 	if idle.Err() == nil {
 		t.Error("not killed after the retry wait plus the limit")
 	}
+	idle, ti = run(time.Minute, piEvent{Type: "summarization_retry_scheduled", DelayMs: 60000}, piEvent{Type: "summarization_retry_finished"})
+	time.Sleep(wait)
+	if idle.Err() == nil {
+		t.Error("an early summarization_retry_finished left the watch held")
+	}
+	ti.stop()
+	if len(ti.holds) != 0 {
+		t.Error("stop left a hold timer open")
+	}
 	idle, _ = run(wait, piEvent{Type: "compaction_start"})
 	time.Sleep(wait + 3*limit)
 	if idle.Err() == nil {

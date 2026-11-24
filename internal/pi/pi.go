@@ -345,6 +345,7 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { ti.beat(ev); return w.check() }, logs...)
 	}
 	res, err := agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
+	ti.stop()
 	if cmd.Process != nil {
 		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a fork in flight at cancel escapes the group kill
 	}
@@ -426,8 +427,17 @@ func (t *toolIdle) beat(ev piEvent) {
 		t.release("compaction", ev.Type)
 	case "auto_retry_start", "summarization_retry_scheduled":
 		t.hold("retry", min(time.Duration(ev.DelayMs)*time.Millisecond, t.maxHold))
-	case "auto_retry_end":
+	case "auto_retry_end", "summarization_retry_attempt_start", "summarization_retry_finished":
 		t.release("retry", ev.Type)
+	}
+}
+
+// stop cancels the open hold timers once the run ends.
+func (t *toolIdle) stop() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for kind := range t.holds {
+		t.drop(kind)
 	}
 }
 
