@@ -29,10 +29,10 @@ items into What Works; drop shipped items from What's Next. File every BUG tag u
 
 ## Step 4: Decisions → `decisionLog.md`
 
-For each architectural/process decision made this session (every DECISION tag is one): add a dated entry
-at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: save the new
-entry with `claude-code memory remember --type project --supersedes <old id> '<decision> — <rationale>'`; the
-harness strikes the old one.
+Go already filed every recorded DECISION event as a dated entry; never re-add one. File only a DECISION tag still
+listed in the prompt (one the recorder missed): `claude-code memory remember --type project '<decision> — <rationale>'`.
+Supersede, never delete: a decision that replaces an older one carries `--supersedes <old id>` (for a Go-filed entry,
+Edit a `Supersedes <old id>.` line under it); the harness strikes the old one.
 
 ## Step 5: Patterns → `conventions.md`
 

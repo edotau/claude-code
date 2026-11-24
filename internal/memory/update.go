@@ -333,7 +333,8 @@ func tagBlock(transcript, session string, historical bool) string {
 		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
 		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
-	tags := mergeTags(typed, legacy)
+	filed := filedDecisions()
+	tags := slices.DeleteFunc(mergeTags(typed, legacy), func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) })
 	if len(tags) == 0 {
 		return ""
 	}
@@ -342,6 +343,39 @@ func tagBlock(transcript, session string, historical bool) string {
 		lines = append(lines, t.Kind+": "+t.Text)
 	}
 	return assets.MemorySessionTags(lines)
+}
+
+// filedDecisions reports whether a decision's text already heads an entry in decisionLog.md.
+func filedDecisions() func(text string) bool {
+	b, _ := readFile(Path("decisionLog.md"))
+	var heads []string
+	for ln := range strings.SplitSeq(string(b), "\n") {
+		if strings.HasPrefix(ln, "## ") {
+			heads = append(heads, strings.Join(strings.Fields(ln), " "))
+		}
+	}
+	return func(text string) bool {
+		want := "— " + strings.Join(strings.Fields(text), " ")
+		return slices.ContainsFunc(heads, func(h string) bool { return strings.Contains(h, want) })
+	}
+}
+
+// fileDecisionEvents writes each recorded DECISION event not yet in decisionLog.md; Go, not the model, owns the entry.
+func fileDecisionEvents(session string, now time.Time) error {
+	var errs []error
+	for _, e := range ReadTagEvents(session) {
+		if e.Event != "decision" || filedDecisions()(e.Text) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, e.At)
+		if err != nil {
+			at = now
+		}
+		if _, err := Remember("project", e.Text, at); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // typedTags is the session's recorded tag events as tags; an empty session reads none.
@@ -518,16 +552,20 @@ func (r *updateRun) locked(o updateOptions) error {
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
 func runAgentUpdate(ctx context.Context, o updateOptions) error {
+	var fileErr error
+	if o.Session != "" {
+		fileErr = fileDecisionEvents(o.Session, time.Now())
+	}
 	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
 	if err != nil {
-		return err
+		return errors.Join(fileErr, err)
 	}
 	prompt += o.Handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
-	return err
+	return errors.Join(fileErr, err)
 }
 
 type childEnvKey struct{}
