@@ -69,9 +69,9 @@ paths:
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
-  reasons and cut-off streams fail). Pi may be a fallback for write work. Its
-  run carries no permission policy (R30), whoever the caller is; bash is judged by `safety-scan`. `make` and
-  the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
+  reasons and cut-off streams fail). Pi is the default leaf route (claude in-context on a Pi refusal) and
+  may be a fallback for write work. Its run carries no permission policy (R30), whoever the caller is; bash is
+  judged by `safety-scan`. `make` and the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
@@ -276,7 +276,8 @@ vendor CLI untouched.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
    - rtk wrapping is on: review `state/harness/rtkwrap/decisions.jsonl` for a wrap on program-parsed output.
    - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
-7. **Don't** lean on Pi's Databricks route on purpose (name the route in the carried command).
+7. **Don't** lean on Pi's Databricks route on purpose in a carried command (name the route);
+   a leaf's default Pi route is intended.
 
 ## Skills and instructions parity
 

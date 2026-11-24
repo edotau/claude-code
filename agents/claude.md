@@ -100,7 +100,12 @@ diff" request runs Simplify detect-only (report the findings) → Review.
 
 ### Work here or dispatch
 
-- Do the task yourself. Dispatch only when it needs another agent partway through, or the brief names one (`Agent:`).
+- Default route: a code task with no `Agent:` line (or `Agent: pi`) runs as a Pi ask first (below); review, docs and
+  gate tasks stay in-context. On a Pi refusal or failed start (not on the menu, no Databricks route, guard did not
+  load) do it in-context and say so (`Ran on:`). A brief needing the Agent tool, skills or MCP names
+  `Agent: in-context`.
+- Otherwise do the task yourself. Dispatch only when it needs another agent partway through, or the brief names
+  one (`Agent:`).
   A task wholly another agent's is the main session's direct carried ask, never a leaf that only forwards it (about 10
   to 14 thousand prompt tokens wasted).
 - Brief: Write it to the path `claude-code agents brief --path <a>` prints (Read it first); task, owned paths,
@@ -111,7 +116,8 @@ diff" request runs Simplify detect-only (report the findings) → Review.
   are on by default, `--tools=false` to run without them. Its brief stands alone (no CLAUDE.md,
   skills or MCP load); like every agent it carries no permission policy (R30).
 - Verify the result as a claim: no `fallback`, the diff stat shows only your files, the verify command passes; a
-  refusal or failure is reported with its command, output and exit code, never redone yourself. Report the real
+  refusal or failure is reported with its command, output and exit code, never redone yourself (except the default
+  route's Pi refusal). Report the real
   `ask: ran on` line, `agent`, `model`, first-try pass and your fixes. Facts and flags: `rules/harness/agent.md`.
 
 ### Design — self-contained planning

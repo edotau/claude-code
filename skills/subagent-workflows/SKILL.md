@@ -34,7 +34,7 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 | Leaf | Role | Output |
 | --- | --- | --- |
-| `claude` | In-context work on Sonnet unless the call names a model; dispatches a step it needs another agent for | Status and verification |
+| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; dispatches a step it needs another agent for | Status and verification |
 | `Explore` | Scoped scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
@@ -68,6 +68,11 @@ claude-code agents result -f <id>
 
 The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
 ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
+**Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line (or names `Agent: pi`, which a wave or
+plan line must, since it requires one) runs the task as a Pi ask first; review, docs and gate leaves stay in-context.
+A Pi refusal or failed start (not on the profile's menu, no Databricks route, guard did not load) counts as the one
+refusal below: it does the task in-context, `Ran on:` naming the failed Pi attempt and what then ran. A brief needing
+the Agent tool, skills or MCP says `Agent: in-context`; `Agent: claude` in a wave plan runs a headless claude ask.
 Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
 `rules/standards/worktree-git.md` → LAST-MILE. Both need `--tools`.
 
@@ -81,7 +86,7 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
      `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
      flag or start another ask.
   2. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
-     output and exit code.
+     output and exit code (the default Pi route above is the one exception).
   3. Always end with `SubagentHandback`, even on failure.
 - Background only via `agents ask --background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
@@ -104,7 +109,8 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
 - The final answer always goes through `SubagentHandback`, never plain text. An unattributed note is not fixed by
   retrying: hand back once, with the id and `agents result -f <id>` in your text.
 - Run only the stage's prescribed `agents diff --verify <id>` after the ask; the manager verifies at fan-in.
-  Report a dispatch error; never repair it in-context or silently pick another agent.
+  Report a dispatch error; never repair it in-context or silently pick another agent
+  (one exception: the default route's Pi refusal).
 - Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual
   `ask: ran on` line and job/session ids, plus a `Relay note:` for a dispatch error. Stop gate:
   `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt.
@@ -316,8 +322,8 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`; external work agents run carried, Pi as a plain ask). A job
-  expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
+  the Agent tool with a harness type (`claude`, Pi first by default; external work agents run carried, Pi as a plain
+  ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. External agents run via carried asks (`claude-code agents ask --carry --agent <a>`);
   a long ask started from a leaf puts `--background` on the command: the stop gate holds the leaf until the job ends
