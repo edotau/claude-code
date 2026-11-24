@@ -93,7 +93,7 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(MAKE) compile mdsmith rtk typos
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@dest="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}/bin"; mkdir -p "$$dest"; \
-		if ! [ bin/typos -ef "$$dest/typos" ]; then install -m 0755 bin/typos "$$dest/typos"; fi
+		if [ -f bin/typos ] && ! [ bin/typos -ef "$$dest/typos" ]; then install -m 0755 bin/typos "$$dest/typos"; fi
 	@$(if $(TOOLS),$(BIN) install --tools$(if $(filter-out 1,$(TOOLS)),=$(TOOLS)) && $(BIN) doctor,\
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
@@ -356,21 +356,21 @@ rtk:  # (folded into `install`) pinned rtk release in bin/; a warning, never a f
 	else echo -e "$(C_NOTE)rtk $(RTK_VERSION) skipped: download or checksum failed"; fi; rm -rf $$t
 
 .PHONY: typos
-typos:  # pinned release for the docs gate
+typos:  # (folded into `install`) pinned typos release in bin/; a warning, never a failure
 	@if bin/typos --version 2>/dev/null | grep -qxF 'typos-cli $(TYPOS_VERSION:v%=%)'; then exit 0; fi; \
 	case "$$(uname -s)-$$(uname -m)" in \
 		Darwin-arm64) a=aarch64-apple-darwin; s=b8e7b8b81f28cc808fd763b6d935536e15ba1ef72613bbb6d628b58a891da7ef;; \
 		Darwin-x86_64) a=x86_64-apple-darwin; s=2c1e5cd3be644005d27543d7d83a32dbba36eb285bc12678818709938a63a988;; \
 		Linux-aarch64|Linux-arm64) a=aarch64-unknown-linux-musl; s=f2f54b567f5f4688f000f1bf85c585ee22cce3b55befc9418bcdd4c5adc16595;; \
 		Linux-x86_64) a=x86_64-unknown-linux-musl; s=3b13d1291281d39d01822e54035636487a7a0f228e70097899b1e33aeb0e7e93;; \
-		*) echo "typos: unsupported platform $$(uname -s)-$$(uname -m)" >&2; exit 1;; esac; \
+		*) echo -e "$(C_NOTE)typos skipped: unsupported platform $$(uname -s)-$$(uname -m)"; exit 0;; esac; \
 	t=$$(mktemp -d "$${TMPDIR:-/tmp}/typos.XXXXXXXX"); trap 'rm -rf "$$t"' EXIT; \
 	u="https://github.com/crate-ci/typos/releases/download/$(TYPOS_VERSION)/typos-$(TYPOS_VERSION)-$$a.tar.gz"; \
-	curl -fsSL -o "$$t/typos.tar.gz" "$$u"; \
+	curl -fsSL -o "$$t/typos.tar.gz" "$$u" || { echo -e "$(C_NOTE)typos skipped: download failed"; exit 0; }; \
 	if command -v sha256sum >/dev/null; then actual=$$(sha256sum "$$t/typos.tar.gz" | cut -d' ' -f1); \
 	else actual=$$(shasum -a 256 "$$t/typos.tar.gz" | cut -d' ' -f1); fi; \
-	[ "$$actual" = "$$s" ] || { echo "typos: checksum mismatch" >&2; exit 1; }; \
-	tar -xzf "$$t/typos.tar.gz" -C "$$t" typos; mkdir -p bin; install -m 0755 "$$t/typos" bin/typos
+	[ "$$actual" = "$$s" ] || { echo -e "$(C_NOTE)typos skipped: checksum mismatch"; exit 0; }; \
+	tar -xzf "$$t/typos.tar.gz" -C "$$t" typos && mkdir -p bin && install -m 0755 "$$t/typos" bin/typos
 
 .PHONY: verify
 verify: audit  ## audit + doctor + proxy status
