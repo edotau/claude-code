@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -175,7 +176,7 @@ func contractTermLines(c contract.Contract) []string {
 		verdict, by, ev := "pending", "", ""
 		for _, r := range c.Records {
 			if r.Term == t {
-				verdict, by, ev = string(r.Verdict), r.By, r.Evidence
+				verdict, by, ev = string(r.Verdict), r.By, redact.Text(r.Evidence)
 			}
 		}
 		lines = append(lines, strings.TrimRight(fmt.Sprintf("  term %s %s by %s %s", t, verdict, by, ev), " "))
