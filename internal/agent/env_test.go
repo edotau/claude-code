@@ -25,6 +25,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -386,5 +387,14 @@ func TestEnvironDispatchProxyKeepsInheritedAndTypedEnv(t *testing.T) {
 	typed := dispatchProxyEnv + "=mine:x"
 	if env := (EnvSpec{Mode: EnvClaude, Extra: []string{typed}}).Environ(ctx); !slices.Contains(env, typed) {
 		t.Fatal("a typed --env value must survive")
+	}
+}
+
+func TestParentTeamFirst(t *testing.T) {
+	cfg, _ := proxyteam.Load(nil)
+	t.Setenv(dispatchProxyEnv, "phase:g1")
+	got := parentTeamFirst(cfg, cfg.Routes(proxyteam.KindNested))
+	if len(got) == 0 || got[0].Name != "phase" || got[len(got)-1].Name != "shared" {
+		t.Fatalf("routes = %v", got)
 	}
 }

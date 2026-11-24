@@ -66,6 +66,17 @@ func proxyGroupID(ctx context.Context, team string) string {
 	return ""
 }
 
+// parentTeamFirst puts the phase team HARNESS_DISPATCH_PROXY names first; it only reorders teams the config lists.
+func parentTeamFirst(cfg proxyteam.Config, routes []proxyteam.Team) []proxyteam.Team {
+	name, _, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":")
+	i := slices.IndexFunc(cfg.Teams, func(t proxyteam.Team) bool { return t.Name == name && t.Host == proxyteam.HostPhase })
+	if !ok || i < 0 || routes[0].Name == name {
+		return routes
+	}
+	rest := slices.DeleteFunc(slices.Clone(routes), func(t proxyteam.Team) bool { return t.Name == name })
+	return append([]proxyteam.Team{cfg.Teams[i]}, rest...)
+}
+
 // routeCands is the ordered team route list for this dispatch, each with its scope.
 func routeCands(ctx context.Context) []routeCand {
 	var rec Record
@@ -79,7 +90,11 @@ func routeCands(ctx context.Context) []routeCand {
 	}
 	cfg, _ := proxyteam.Load(proxy.TeamOverlay())
 	var out []routeCand
-	for _, t := range cfg.Routes(proxyteam.KindOf(facts)) {
+	routes := cfg.Routes(proxyteam.KindOf(facts))
+	if rec.ID != "" {
+		routes = parentTeamFirst(cfg, routes)
+	}
+	for _, t := range routes {
 		sc := proxy.Scope{Team: t.Name}
 		if t.Host == proxyteam.HostPhase {
 			sc.ID = proxyGroupID(ctx, t.Name)

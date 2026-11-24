@@ -253,10 +253,26 @@ func PreviewRouterBase(ctx context.Context) string {
 	return proxy.ViaBaseContext(ctx, base)
 }
 
+// previewScopedBase is the router base a scoped dispatch would walk to, stamped so the preview env shows its proxy.
+func previewScopedBase(ctx context.Context) string {
+	if scoped, _ := ctx.Value(scopedProxyKey{}).(bool); scoped {
+		preview := func(ctx context.Context) (string, error) { return PreviewRouterBase(ctx), nil }
+		if c, base, _, err := chooseRoute(ctx, routeCands(ctx), preview); err == nil {
+			if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" {
+				routeMu.Lock()
+				chosenByID[id] = c.label()
+				routeMu.Unlock()
+			}
+			return base
+		}
+	}
+	return PreviewRouterBase(ctx)
+}
+
 // launchRouter previews routing without starting a daemon or minting a credential.
 func launchRouter(ctx context.Context, profile string) (string, string, error) {
 	if dry, _ := ctx.Value(launchDryKey{}).(bool); dry {
-		return PreviewRouterBase(ctx), "<redacted>", nil
+		return previewScopedBase(ctx), "<redacted>", nil
 	}
 	base, err := EnsureRouter(ctx)
 	if err != nil {
