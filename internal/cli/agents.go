@@ -53,7 +53,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), flag("plan-task"), valuedFlag("tier", agent.TierNames), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
@@ -609,6 +609,8 @@ func cmdAgentsBrief(args []string) int {
 	fs.StringVar(&input.Report, "report", "", "where the leaf writes its full report")
 	fs.StringVar(&input.Verify, "verify", "", "how to verify completion")
 	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
+	fs.StringVar(&input.PlanTask, "plan-task", "", "plan task id the brief's Task: line carries")
+	fs.StringVar(&input.Tier, "tier", "", "task tier in the brief header: "+strings.Join(agent.TierNames(), "|"))
 	fs.Func("codemode", "true|false: the target run's code mode (default: this shell's HARNESS_CODEMODE)", func(v string) error {
 		if v != "true" && v != "false" {
 			return fmt.Errorf("want true or false, got %q", v)
