@@ -138,7 +138,14 @@ func newReports(since time.Time) ([]string, error) {
 	mod := map[string]time.Time{}
 	var names []string
 	for _, e := range ents {
-		if fi, err := e.Info(); err == nil && !e.IsDir() && strings.HasSuffix(e.Name(), ".md") && fi.ModTime().After(since) {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		if err == nil && fi.ModTime().After(since) {
 			mod[e.Name()] = fi.ModTime()
 			names = append(names, e.Name())
 		}

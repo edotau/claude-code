@@ -148,7 +148,8 @@ func dreamDue(now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	return newestMtime().After(stamp)
+	names, _ := newReports(stamp)
+	return newestMtime().After(stamp) || len(names) > 0
 }
 
 // dreamOptions drive one consolidation.

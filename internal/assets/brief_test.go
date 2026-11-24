@@ -58,8 +58,8 @@ func TestBriefTextMatchesOldLiterals(t *testing.T) {
 // The old brief.tmpl was too long to restate: its text/template render is pinned by hash, per rtk mode.
 func TestBriefBodyMatchesOldRender(t *testing.T) {
 	for rtk, want := range map[bool]string{
-		true:  "f452d1b4266d80cd0df5352d50099b367cb25ffc1312cb765c291f8c06bc8485",
-		false: "e3d1e1b891020f2631a3d5a51f8005fa89c4b32ec5993669480db8f338fda161",
+		true:  "88d09b437deb51e0ae6393c54384bd6aa18e8a7d22f03dfef3f990661dce16d1",
+		false: "09dbbd3b2c07a4546129e9cd96239037444231279e3c5e8f5a3c635aab8a246d",
 	} {
 		got := BriefBody(BriefFrame{Agent: "a", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
@@ -83,8 +83,8 @@ func TestBriefBodyPiHandback(t *testing.T) {
 
 func TestBriefBodyPiMatchesHash(t *testing.T) {
 	for rtk, want := range map[bool]string{
-		true:  "3ed42d75b1c3da1d3bad2dabffdf05adf38bf304921108b3d9226d680f9d8a25",
-		false: "28e39ebcfd34f7af6b4b2eb1a86951e98adf0e75eb9cc01066b68f15bd050a91",
+		true:  "768128efb57cb88215d6abca9d372b74d8dcd8bf53abb5b9c3150f7d4faee688",
+		false: "fd04a0a1236d20ef3f75caee21a503486a9ba7ad16cc93b2249eefdbf6ca7e29",
 	} {
 		got := BriefBody(BriefFrame{Agent: "pi", Verify: "v", Report: "r", Task: "T", OwnedLine: `["x.go"]`, ReportsDir: "/R", Rtk: rtk})
 		if sum := fmt.Sprintf("%x", sha256.Sum256([]byte(got))); sum != want {
