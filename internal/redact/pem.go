@@ -35,10 +35,12 @@ const pemLook = 40
 func PEMOpenAfterDrop(b []byte, drop int, open bool) bool {
 	seen := b[:min(len(b), drop+pemLook)] // a marker split by the cut still counts
 	begin := -1
-	if all := pemKeyBegin.FindAllIndex(seen, -1); len(all) > 0 {
-		begin = all[len(all)-1][0]
+	for _, m := range pemKeyBegin.FindAllIndex(seen, -1) {
+		if m[0] < drop { // a marker starting in the window is the window's, not the dropped front's
+			begin = m[0]
+		}
 	}
-	if end := bytes.LastIndex(seen, []byte(PEMEnd)); begin != end {
+	if end := bytes.LastIndex(b[:min(len(b), drop+len(PEMEnd)-1)], []byte(PEMEnd)); begin != end {
 		return begin > end // neither marker in drop: the state from earlier drops stands
 	}
 	return open
