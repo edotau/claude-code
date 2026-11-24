@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestTestProposalsParse(t *testing.T) {
@@ -41,5 +44,23 @@ func TestTestProposalsDedupeCap(t *testing.T) {
 	b, _ := os.ReadFile(f)
 	if err != nil || n != maxTestProposals || strings.Count(string(b), "\n") != maxTestProposals {
 		t.Fatalf("capped append kept %d (%v), lines %d", n, err, strings.Count(string(b), "\n"))
+	}
+}
+
+func TestIngestTestProposalsFromScratchReports(t *testing.T) {
+	isolatedConfig(t)
+	if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# r\n```proposed_tests\n{\"pkg\":\"a\",\"case\":\"c\",\"reason\":\"r\"}\n```\n"
+	if err := os.WriteFile(paths.MemorySub("reports", "x.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	ingestTestProposals(time.Time{}, &out)
+	ingestTestProposals(time.Time{}, &out)
+	b, _ := os.ReadFile(testProposalsFile())
+	if strings.Count(string(b), "\n") != 1 || !strings.Contains(string(b), `"source":"reports/x.md"`) {
+		t.Fatalf("list = %q, out %q", b, out.String())
 	}
 }

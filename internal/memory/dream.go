@@ -241,6 +241,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	}
 	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
+	ingestTestProposals(since, o.Out)
 	prompt, err := agentDreamPrompt(changed)
 	if err != nil {
 		return err, archiveErr

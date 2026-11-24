@@ -74,8 +74,8 @@ fenced block). Each line of the block is one JSON object with exactly these fiel
 Go keeps the proposed-test list (`techdebt/tests.jsonl`: deduped on package plus case, newest first, capped at 40);
 do not write it. Reports carry proposals as a ```proposed_tests fence of JSON lines
 (`{"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}`) and Go
-appends them. For a proposal found only as prose in `reports/`,
-`handoffs/` or `sessionHistory.md`, list it in your report in that same fence. The owner picks from the list.
+appends them from the reports before your run. Prose-only proposals and the older `techdebt/tests.md` stay as they
+are (read only, the owner's second source). The owner picks from both.
 
 ## Phase 5d: Plans audit
 

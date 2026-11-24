@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -122,4 +123,36 @@ func appendLocked(file string, add []TestProposal) (int, error) {
 		buf.Write(append(b, '\n'))
 	}
 	return len(kept), paths.AtomicWrite(file, buf.Bytes(), 0o644)
+}
+
+// testProposalsFile is the Go-kept list under the store; techdebt/tests.md stays the owner's, read only.
+func testProposalsFile() string { return paths.MemorySub("techdebt", "tests.jsonl") }
+
+// ingestTestProposals appends the proposed_tests of every report newer than since; a bad report is noted on out.
+func ingestTestProposals(since time.Time, out io.Writer) {
+	ents, _ := os.ReadDir(paths.MemorySubDir("reports"))
+	var found []TestProposal
+	for _, e := range ents {
+		fi, err := e.Info()
+		if err != nil || e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || !fi.ModTime().After(since) {
+			continue
+		}
+		body, err := os.ReadFile(paths.MemorySub("reports", e.Name()))
+		if err != nil {
+			continue
+		}
+		got, err := ParseTestProposals(string(body), "reports/"+e.Name())
+		if err != nil {
+			fmt.Fprintf(out, "memory dream: reports/%s: %v\n", e.Name(), err)
+		}
+		found = append(found, got...)
+	}
+	if len(found) == 0 {
+		return
+	}
+	if n, err := AppendTestProposals(testProposalsFile(), found); err != nil {
+		fmt.Fprintln(out, "memory dream: test proposals:", err)
+	} else {
+		fmt.Fprintf(out, "memory dream: %d proposed test(s) kept\n", n)
+	}
 }
