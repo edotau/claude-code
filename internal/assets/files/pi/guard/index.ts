@@ -68,6 +68,13 @@ const ACTIONS: Record<string, any> = {
         summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } } } } },
 }
 
+// stopTree ends the action's process tree: taskkill /T on Windows, SIGTERM (the gate reaps its tree) elsewhere.
+function stopTree(child: any) {
+  if (!child?.pid) return
+  if (process.platform !== "win32") { child.kill("SIGTERM"); return }
+  try { execFileSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" }) } catch { child.kill() }
+}
+
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
 function action(name: string) {
   return { name, ...ACTIONS[name], async execute(_id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
@@ -77,8 +84,12 @@ function action(name: string) {
     if (v.usage) throw new Error(name + ": " + v.usage)
     let text = "recorded"
     if (v.run) { // async and abortable: a cancelled call kills the child; a failed launch or exit is a tool error
-      try { text = (await execFileAsync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20, signal })).stdout }
+      const p = execFileAsync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
+      const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
+      signal?.addEventListener("abort", stop, { once: true })
+      try { text = (await p).stdout }
       catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
+      finally { signal?.removeEventListener("abort", stop) }
     }
     return { content: [{ type: "text", text }], details: {} }
   } }
