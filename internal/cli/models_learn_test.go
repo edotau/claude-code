@@ -34,7 +34,7 @@ func TestFoldPricesUnreachableLeavesFile(t *testing.T) {
 	if rep := foldPrices(now, false); rep == nil || rep.Priced != 1 || rep.Limits != 1 {
 		t.Fatalf("report = %+v, want one priced row with a limit", rep)
 	}
-	if p, _ := catalog.ReadPrices(); len(p.Models) != 1 {
+	if p, _ := catalog.ReadPrices(); len(p.Models) != 2 {
 		t.Errorf("prices.json = %+v", p)
 	}
 }

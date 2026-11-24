@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -233,10 +234,12 @@ type snapFold struct {
 	out   Prices
 	rep   PriceReport
 	owner map[string]bool
+	// ownerHit are the owner keys whose snapshot price was left out
+	ownerHit map[string]bool
 }
 
-// FoldSnapshot decodes raw; an ownerPriced key loses its snapshot price (limits stay); a row that fails is rejected.
-func FoldSnapshot(raw []byte, ownerPriced map[string]bool, now time.Time) (Prices, PriceReport, error) {
+// FoldSnapshot decodes raw; an owner key loses its snapshot price; a bad row is rejected; prev rows persist.
+func FoldSnapshot(raw []byte, ownerPriced map[string]bool, prev Prices, now time.Time) (Prices, PriceReport, error) {
 	var provs map[string]struct {
 		Models map[string]json.RawMessage `json:"models"`
 	}
@@ -246,15 +249,17 @@ func FoldSnapshot(raw []byte, ownerPriced map[string]bool, now time.Time) (Price
 	if len(provs) == 0 {
 		return Prices{}, PriceReport{}, errors.New("not a models.dev snapshot: no providers")
 	}
-	f := snapFold{out: Prices{Schema: pricesSchema, Fetched: now, Models: map[string]ModelPrice{}}, owner: ownerPriced}
+	f := snapFold{out: Prices{Schema: pricesSchema, Fetched: now, Models: map[string]ModelPrice{}}, owner: ownerPriced,
+		ownerHit: map[string]bool{}}
 	for _, name := range snapOrder(slices.Collect(maps.Keys(provs))) {
 		for _, id := range slices.Sorted(maps.Keys(provs[name].Models)) {
 			f.add(name+"/"+id, id, provs[name].Models[id])
 		}
 	}
-	if f.rep.Models = len(f.out.Models); f.rep.Models == 0 {
+	if len(f.out.Models) == 0 {
 		return Prices{}, f.rep, errors.New("not a models.dev snapshot: no usable model rows")
 	}
+	f.finish(prev)
 	return f.out, f.rep, nil
 }
 
@@ -281,25 +286,45 @@ func (f *snapFold) add(label, id string, raw json.RawMessage) {
 		return
 	}
 	key := models.ModelKey(id)
-	if _, seen := f.out.Models[key]; seen || key == "" {
+	if key == "" {
 		return
 	}
 	if f.owner[key] && row.Priced {
 		row.Priced, row.Input, row.Output, row.CacheRead, row.CacheWrite, row.Tiers = false, 0, 0, 0, 0, nil
-		f.rep.OwnerKept++
+		f.ownerHit[key] = true
 	}
-	f.count(row)
+	if cur, seen := f.out.Models[key]; seen {
+		row = fillGaps(cur, row)
+	}
 	f.out.Models[key] = row
 }
 
-func (f *snapFold) count(row ModelPrice) {
-	if row.Priced {
-		f.rep.Priced++
+// fillGaps is a with the price and limits it lacks taken from b; a's status stays.
+func fillGaps(a, b ModelPrice) ModelPrice {
+	if !a.Priced && b.Priced {
+		a.Priced, a.Input, a.Output, a.CacheRead, a.CacheWrite, a.Tiers = true, b.Input, b.Output, b.CacheRead, b.CacheWrite, b.Tiers
 	}
-	if row.Context > 0 || row.MaxOutput > 0 {
-		f.rep.Limits++
+	a.Context, a.MaxOutput = cmp.Or(a.Context, b.Context), cmp.Or(a.MaxOutput, b.MaxOutput)
+	return a
+}
+
+func (f *snapFold) finish(prev Prices) {
+	for k, v := range prev.Models {
+		if _, ok := f.out.Models[k]; !ok {
+			f.out.Models[k] = v
+		}
 	}
-	if row.Status == "deprecated" {
-		f.rep.Deprecated++
+	f.rep.Models, f.rep.OwnerKept = len(f.out.Models), len(f.ownerHit)
+	for _, row := range f.out.Models {
+		f.rep.Priced += btoi(row.Priced)
+		f.rep.Limits += btoi(row.Context > 0 || row.MaxOutput > 0)
+		f.rep.Deprecated += btoi(row.Status == "deprecated")
 	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

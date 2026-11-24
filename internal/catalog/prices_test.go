@@ -17,7 +17,7 @@ func fixtureFold(t *testing.T, owner map[string]bool) (Prices, PriceReport) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, rep, err := FoldSnapshot(raw, owner, pricesT0)
+	p, rep, err := FoldSnapshot(raw, owner, Prices{}, pricesT0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,11 +72,27 @@ func TestFoldSnapshotOwnerWins(t *testing.T) {
 	}
 }
 
+// A later provider fills what an earlier, emptier row lacks; a model missing from a new snapshot keeps its old row.
+func TestFoldSnapshotFillsAndKeeps(t *testing.T) {
+	raw := `{"a":{"models":{"m-1":{"limit":{"context":5}}}},"b":{"models":{"m-1":{"cost":{"input":1,"output":2},"limit":{"context":9}}}}}`
+	prev := Prices{Models: map[string]ModelPrice{"gone": {Input: 7, Priced: true}}}
+	p, rep, err := FoldSnapshot([]byte(raw), nil, prev, pricesT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := p.Models["m-1"]; !m.Priced || m.Output != 2 || m.Context != 5 {
+		t.Errorf("m-1 = %+v, want a's limit and b's price", m)
+	}
+	if !p.Models["gone"].Priced || rep.Models != 2 || rep.Priced != 2 {
+		t.Errorf("kept = %+v, report = %+v", p.Models["gone"], rep)
+	}
+}
+
 // Fetch failure and a non-snapshot body error out; prices.json round-trips and goes stale after the window.
 func TestPricesFileAndFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, body := range []string{`[1]`, `{"error":{}}`, `{"p":{"models":{"m":null}}}`} {
-		if _, _, err := FoldSnapshot([]byte(body), nil, pricesT0); err == nil {
+		if _, _, err := FoldSnapshot([]byte(body), nil, Prices{}, pricesT0); err == nil {
 			t.Errorf("%s accepted as a snapshot", body)
 		}
 	}

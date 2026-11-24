@@ -61,7 +61,7 @@ func foldPrices(now time.Time, dry bool) *catalog.PriceReport {
 	prev, err := catalog.ReadPrices()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: %v; refetching the price snapshot\n", err)
-	} else if !dry && prev.Fresh(now) {
+	} else if prev.Fresh(now) {
 		return nil
 	}
 	raw, err := catalog.FetchSnapshot(context.Background())
@@ -74,7 +74,7 @@ func foldPrices(now time.Time, dry bool) *catalog.PriceReport {
 		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); prices.json unchanged\n", err)
 		return nil
 	}
-	next, rep, err := catalog.FoldSnapshot(raw, owner, now)
+	next, rep, err := catalog.FoldSnapshot(raw, owner, prev, now)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: price snapshot ignored (%v); prices.json unchanged\n", err)
 		return nil
