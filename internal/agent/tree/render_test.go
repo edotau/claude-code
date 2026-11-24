@@ -661,7 +661,7 @@ func TestOkDispatchMarkerAndTint(t *testing.T) {
 }
 
 func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
-	d := Dispatch{Agent: "codex-long-agent-name", Model: "gpt-6-astra", launch: "dev", Status: statusRunning, Duration: "2m43s",
+	d := Dispatch{Agent: "codex-long-agent-name", Model: "gpt-6-astra", launch: "dev", Route: "databricks:dev", Status: statusRunning, Duration: "2m43s",
 		Usage: &wire.Usage{OutputTokens: 9100}, Quiet: true, LastSignal: time.Now().Add(-time.Minute)}
 	for _, w := range []int{40, 80, 200} {
 		var l layout
@@ -670,7 +670,7 @@ func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
 			if textutil.DisplayWidth(ln) > w {
 				t.Errorf("width %d: line %q too wide", w, ln)
 			}
-			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · dev") {
+			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · databricks·dev") {
 				t.Errorf("width %d: elapsed or model · profile missing in %q", w, ln)
 			}
 		}

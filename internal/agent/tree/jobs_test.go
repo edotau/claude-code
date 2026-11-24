@@ -13,14 +13,14 @@ import (
 // A carried pair is one row: the carry id and elapsed, the child's model, tokens and route; Pi shows as "codex→pi".
 func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	now := time.Now()
-	outer := Dispatch{ID: "1-codex", Agent: "codex", Model: "auto", Status: statusRunning, Duration: "2m43s", carry: true, launch: "dev"}
+	outer := Dispatch{ID: "1-codex", Agent: "codex", Model: "auto", Status: statusRunning, Duration: "2m43s", carry: true, launch: "dev", Route: "databricks:dev"}
 	child := Dispatch{ID: "2-codex", Agent: "codex", Model: "databricks-gpt-6-astra", Status: statusRunning, Parent: "1-codex",
 		Usage: &wire.Usage{InputTokens: 1_200_000, OutputTokens: 9100}, LastSignal: now.Add(-7 * time.Second)}
 	rows := jobRows([]Dispatch{outer, child})
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "gpt-6-astra · dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
+	want := []string{"codex", "gpt-6-astra · databricks·dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}

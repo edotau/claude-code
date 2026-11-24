@@ -154,7 +154,7 @@ func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []strin
 	if d.Fallback != "" && d.Runner == "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}
-	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where()
+	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.routeText()
 	up, down := d.tokenCells()
 	if d.queued != "" {
 		up, down = queueText(d, now, pools), ""
