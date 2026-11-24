@@ -136,18 +136,18 @@ func TestPiChainModeDefault(t *testing.T) {
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, router.FallbackAgents},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackPin, FallbackDefaulted: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackPin, FallbackDefaulted: true}, router.FallbackPin},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents, Native: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents}, router.FallbackAgents},
 	} {
-		if got := piChainMode(ctx, c.q); got != c.want {
+		if got, _ := piChainMode(ctx, c.q); got != c.want {
 			t.Errorf("piChainMode(%+v) = %q, want %q", c.q, got, c.want)
 		}
 	}
 	t.Setenv(router.EnvFallback, router.FallbackNone)
-	if got := piChainMode(ctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
+	if got, _ := piChainMode(ctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
 		t.Errorf("an env none gave mode %q, want a one-hop chain", got)
 	}
 }
@@ -223,6 +223,26 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	if sib := got.Dispatches[1]; sib.Model != "databricks-gemini-3-8-flash" {
 		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
 	}
+	pinned, err := piChainMode(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin})
+	if pinned != router.FallbackPin || err != nil {
+		t.Fatalf("plain pin ask mode = %q, %v", pinned, err)
+	}
+	var pseq []string
+	for _, d := range withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}, c).Dispatches {
+		pseq = append(pseq, d.Agent.Name()+" "+d.Account)
+	}
+	if pwant := []string{"pi databricks·dev", "claude databricks·dev"}; !slices.Equal(pseq, pwant) {
+		t.Fatalf("pin hops = %v, want %v", pseq, pwant)
+	}
+	stray := Chain{Dispatches: []Dispatch{c.Dispatches[0], {Agent: pi, Account: "databricks·qa"}}}
+	if got := withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}, stray); len(got.Dispatches) != 2 {
+		t.Fatalf("pin kept a stray workspace hop: %+v", got.Dispatches)
+	}
+	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{bad`})
+	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, c)
+	if len(one.Dispatches) != 1 || one.Preflight == nil || !strings.Contains(strings.Join(one.Preflight.Notes, "\n"), "overlay unreadable") {
+		t.Fatalf("a malformed overlay widened or went unnoted: %+v", one)
+	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
 	if got := withPiClaudeHop(armed, q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
 		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
@@ -234,17 +254,20 @@ func TestFallbackUnsetSources(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.Use(t)
 	ctx := context.Background()
-	if !fallbackUnset(ctx) {
-		t.Fatal("nothing set anywhere reads as set")
+	if u, err := fallbackUnset(ctx); !u || err != nil {
+		t.Fatalf("nothing set anywhere = %v, %v", u, err)
 	}
-	if fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{"fallback":"agents"}`})) {
+	if u, err := fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{bad`})); u || err == nil {
+		t.Errorf("a malformed overlay = %v, %v, want false with an error", u, err)
+	}
+	if u, _ := fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{"fallback":"agents"}`})); u {
 		t.Error("an overlay fallback reads as unset")
 	}
-	if fallbackUnset(proc.WithValues(ctx, proc.Values{router.EnvFallback: "agents"})) {
+	if u, _ := fallbackUnset(proc.WithValues(ctx, proc.Values{router.EnvFallback: "agents"})); u {
 		t.Error("a process env fallback reads as unset")
 	}
 	vaulttest.Put(t, vault.Env, router.EnvFallback, "pin")
-	if fallbackUnset(ctx) {
+	if u, _ := fallbackUnset(ctx); u {
 		t.Error("a vault fallback reads as unset")
 	}
 }

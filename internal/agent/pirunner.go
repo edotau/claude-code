@@ -303,34 +303,51 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 }
 
 // fallbackUnset reports no fallback mode set anywhere: not the overlay, the process env nor the vault.
-func fallbackUnset(ctx context.Context) bool {
-	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+func fallbackUnset(ctx context.Context) (bool, error) {
+	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return false, err // unreadable overlay: treated as set
+	}
 	return ov.Fallback == "" && strings.TrimSpace(proc.Value(ctx, router.EnvFallback)) == "" &&
-		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) == ""
+		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) == "", nil
 }
 
-// piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none, pin or model).
-func piChainMode(ctx context.Context, q RouteReq) string {
+// piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none or model).
+func piChainMode(ctx context.Context, q RouteReq) (string, error) {
 	switch {
-	case q.Model != "" || q.AutoModel || q.Resumed || q.Native || q.Fallback == router.FallbackPin:
-		return ""
-	case q.Fallback == router.FallbackNone && q.FallbackDefaulted && fallbackUnset(ctx):
-		return router.FallbackAgents // nothing set anywhere: pi's own default (other workspaces, then claude on this one)
+	case q.Model != "" || q.AutoModel || q.Resumed || q.Native:
+		return "", nil
+	case q.Fallback == router.FallbackNone && q.FallbackDefaulted:
+		unset, err := fallbackUnset(ctx)
+		if unset {
+			return router.FallbackAgents, nil // nothing set anywhere: pi's own default
+		}
+		return "", err
 	case q.Fallback == router.FallbackNone:
-		return ""
+		return "", nil
 	}
-	return q.Fallback
+	return q.Fallback, nil
 }
 
 // withPiClaudeHop is a plain pi ask's chain: pi on the workspaces, then claude on the lead's Databricks workspace.
 func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
-	lead, mode := c.Dispatches[0], piChainMode(ctx, q)
+	lead := c.Dispatches[0]
+	mode, modeErr := piChainMode(ctx, q)
+	if modeErr != nil {
+		c = c.noted("fallback default not applied: overlay unreadable: " + modeErr.Error())
+	}
 	reg := loadRegistryWarn()
 	cl, err := Lookup(agentid.Claude)
 	if mode == "" || err != nil || !ownDatabricksHop(reg, q, lead) {
 		return c
 	}
-	c = withPiSiblings(ctx, reg, q, c, mode)
+	if mode == router.FallbackPin { // pin stays on its workspace: drop any other pi hop
+		c.Dispatches = slices.DeleteFunc(slices.Clone(c.Dispatches), func(d Dispatch) bool {
+			return d.Agent.Name() == lead.Agent.Name() && d.Account != lead.Account
+		})
+	} else {
+		c = withPiSiblings(ctx, reg, q, c, mode)
+	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
 	alias := cmp.Or(q.AliasHint, models.Sonnet)
 	if _, why := agentModelOn(PeekContext(ctx), reg, RouteReq{Agent: agentid.Claude, AliasHint: alias, Tools: q.Tools}, alias, profile); why != "" {
