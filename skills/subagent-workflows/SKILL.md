@@ -68,7 +68,7 @@ claude-code agents result -f <id>
 
 The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
 ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
-`agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase in place of `quiet`; the idle limit still applies.
+`agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase instead of `quiet`; the idle limit applies.
 **Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line (or names `Agent: pi`, which a wave or
 plan line must, since it requires one) runs the task as a Pi ask first; review, docs and gate leaves stay in-context.
 A Pi refusal or failed start (not on the profile's menu, no Databricks route, guard did not load) counts as the one
