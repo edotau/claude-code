@@ -597,21 +597,25 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 }
 
 // movesOn: the previous dispatch was unavailable.
-func (s *fallbackState) movesOn(ctx context.Context) bool {
+func (s *fallbackState) movesOn(ctx context.Context, c Chain) bool {
 	return runnerRefused(s.prevDispatch, s.res, s.err) ||
-		!typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
+		!typedModelGone(s.req, s.err) && c.hopMoves(ctx, s.ran, s.req, s.res, s.err)
+}
+
+// stopsBefore: the chain ends before the next hop (R8: a typed model unserved is never swapped; a caller yields).
+func (s *fallbackState) stopsBefore(ctx context.Context, c Chain, midRun bool) bool {
+	return s.modelGone() || c.yieldsFallback(s.req, s.res, s.err) || !midRun && !s.movesOn(ctx, c)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && s.modelGone() {                                              // R8: a typed model unserved is never swapped
+	if i > 0 && s.stopsBefore(ctx, c, midRun) {
 		s.stopped = true
 		return true, nil
 	}
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx))) {
-		s.stopped = true
-		return true, nil
+	if i > 0 && skipsRefusedFamily(s.prevDispatch, disp, s.req, s.res, s.err) { // refused again, so the chain moves past it
+		return false, nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		return true, s.cancelled(i, disp, cerr)
@@ -774,7 +778,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 		trip()
 		return
 	}
-	if disp := c.Dispatches[i].Agent; dispatchUnavailableContext(ctx, disp, res, err) || cutOffMidRunContext(ctx, disp, err) {
+	if c.hopMoves(ctx, i, req, res, err) || cutOffMidRunContext(ctx, c.Dispatches[i].Agent, err) {
 		return
 	}
 	trip()
@@ -1184,7 +1188,7 @@ func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
 			(i+1 < len(c.Dispatches) && !c.explicitStop(i, req) &&
-				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
+				c.hopMoves(ctx, i, req, res, err))
 	}
 }
 
