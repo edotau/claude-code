@@ -488,7 +488,7 @@ func TestHandbackTestsAndMethodAreTypedAndOptional(t *testing.T) {
 	if h, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[]}`)); !ok || h.Tests != "" || h.Method != "" {
 		t.Fatalf("a hand-back without them: %+v ok %v", h, ok)
 	}
-	for _, bad := range []string{`"tests":"passed"`, `"method":"duo"`} {
+	for _, bad := range []string{`"tests":"passed"`, `"method":"duo"`, `"tests":null`, `"method":5`} {
 		if _, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],` + bad + `}`)); ok {
 			t.Errorf("%s accepted", bad)
 		}

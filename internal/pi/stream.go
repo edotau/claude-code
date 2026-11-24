@@ -103,22 +103,35 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 // handbackStatuses is the schema's status enum: the verdict words.
 var handbackStatuses = []string{"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"}
 
+// optionalEnum is "" for an absent field; a stated one (null included) must be a string listed in allowed.
+func optionalEnum[T ~string](raw json.RawMessage, allowed []T) (T, bool) {
+	if raw == nil {
+		return "", true
+	}
+	var s T
+	if json.Unmarshal(raw, &s) != nil || !slices.Contains(allowed, s) {
+		return "", false
+	}
+	return s, true
+}
+
 // parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
 func parseHandback(args json.RawMessage) (h wire.Handback, ok bool) {
 	var raw struct {
 		Status  string    `json:"status"`
 		Summary *string   `json:"summary"`
 		Unfixed *[]string `json:"unfixed"`
-		Tests   string    `json:"tests"`
-		Method  string    `json:"method"`
+		Tests   json.RawMessage `json:"tests"`
+		Method  json.RawMessage `json:"method"`
 	}
 	// sampling is only "preferred" strict, so every required field is checked here
 	if json.Unmarshal(args, &raw) != nil || !slices.Contains(handbackStatuses, raw.Status) || raw.Summary == nil || raw.Unfixed == nil {
 		return wire.Handback{}, false
 	}
-	tests, method := contract.Tests(raw.Tests), contract.Method(raw.Method)
-	if (tests != "" && !slices.Contains(contract.TestsValues(), tests)) || (method != "" && !slices.Contains(contract.Methods(), method)) {
-		return wire.Handback{}, false // tests and method are optional, but a stated one is in its enum
+	tests, okT := optionalEnum(raw.Tests, contract.TestsValues())
+	method, okM := optionalEnum(raw.Method, contract.Methods())
+	if !okT || !okM {
+		return wire.Handback{}, false
 	}
 	return wire.Handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed, Tests: tests, Method: method}, true
 }
