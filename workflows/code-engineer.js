@@ -79,7 +79,7 @@ const stepExt = (name, v, d, f) => {
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
     task: (p) => `Agent: ${who}\n${how}` +
-      (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
+      (edit ? '' : ' The task is to report: tell the agent to report its findings.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },
     done: (label, r) => (stepRecord(name, who, label, r) ? r : null),
@@ -137,7 +137,7 @@ async function stSnap(ctx, label, paths) {
     properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } },
     required: ['path', 'added', 'deleted'] } }, outside: ST_LIST }, required: ['files', 'outside'] }
   const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', ctx.cd +
-    'Read-only: run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
+    'Run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -204,14 +204,14 @@ async function stageDetect(ctx, st, scope) {
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
-// stLoopCheck folds detection, routing pressure and the first observed check into one read-only leaf.
+// stLoopCheck folds detection, routing pressure and the first observed check into one leaf.
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const detect = 'claude-code worktree gate --dir ' + JSON.stringify(ctx.cwd || '.') +
     ' --scope ' + paths.join(',') + ' --format json'
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
   return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd +
-    'Read-only: edit nothing. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
+    'Report the check result. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
     ' Run the gate exactly once with pipefail; capture the real process exit code. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
@@ -239,7 +239,7 @@ async function stLoopFix(ctx, o, groups, iteration) {
   const run = async ([file, fs]) => {
     const dir = fs[0].file !== file
     const prompt = ctx.cd + ctx.rules + ' Fix only this owned ' + (dir ? 'package directory (its files, not subdirectories; a failing test line may have its cause in the code under test): ' : 'file: ') + file +
-      '. Never run the gate, tests, or self-checks; the read-only check owns verification. Other failures are not yours.\n' +
+      '. Never run the gate, tests, or self-checks; the check leaf owns verification. Other failures are not yours.\n' +
       fs.map((f) => f.file + ':' + (f.line || 0) + ': ' + f.text).join('\n').slice(0, 1500)
     const label = (o.label || 'gate') + ':fix:' + iteration + ':' + file
     return await stageAsk(ctx, o.fix || ctx.S.fix, label, 'Fix', prompt, ST_WORK) ||
@@ -308,7 +308,7 @@ async function stageLoop(ctx, o) {
 const ST_MERGE = ' These are consolidation findings (duplicates, dead code, legacy, stale or redundant tests), not bugs: merge and delete; behaviour, messages and exit codes stay identical.'
 const ST_FIX_HOW = ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage repairs tests; that is not unfinished work, so report done. ' +
     'Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). Root cause first, smallest correct change, functions < 50 lines, 1-line comments. ' +
-    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). ' +
+    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (report them, change nothing outside your files). ' +
   'Run the repo formatter and linter on what you touched'
 const stList = (x, k) => (x && x[k]) || []
 const stFixItem = (ctx, f) => '- ' + stRel(ctx, f.file) + ':' + (f.line || 0) + ' (' + (f.symbol || '?') + ', ' + f.severity + (stCost(f) ? ', ' + f.kind : '') + '): ' + (f.symptom || f.title) + (f.scenario ? '\n  scenario: ' + f.scenario : '') + (f.evidence ? '\n  evidence: ' + f.evidence : '')
@@ -352,7 +352,7 @@ const stChanged = (pre, snap) => Object.keys(snap || {}).filter((f) => pre && JS
 async function stShrink(ctx, o, w, net, snap) {
   const shrink = await stageAsk(ctx, ctx.S.fix, 'shrink:' + o.label, 'Fix', ctx.rules + ' Line budget ' + ctx.lineBudget + ': production net must be ≤ ' + ST_BUDGET[ctx.lineBudget] + ' lines in ' + o.pkg +
       '; your fix measured ' + net + ' (git diff --numstat). Shrink it or justify it: cut what the fix does not need (reuse an existing helper, drop a new abstraction, delete what it made dead) and keep the fix.' +
-      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, edit nothing and put the reason in summary.' + w.task, ST_WORK)
+      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, leave it as is and put the reason in summary.' + w.task, ST_WORK)
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
@@ -401,7 +401,7 @@ async function stPolishPass(ctx, P, key, title, brief) {
 }
 async function stReview(ctx, P) {
   phase('Review')
-  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
+  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Report your findings; never run go test. Review the final diff with the ' + ctx.cwd +
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
@@ -554,7 +554,7 @@ const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agen
 let HOME = '' // from the preflight, else read once by runChild
 if (EXT.length) {
   const pf = await agent(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. First run `echo $HOME` and report it as home.\n' +
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. First run `echo $HOME` and report it as home.\n' +
       EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['home', 'routes'], properties: { home: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
@@ -612,7 +612,7 @@ let KIND = a.kind || '' // args.kind wins over the size agent and the task-verb 
 // A git range with a task, paths or packages becomes the changed Go files (non-test); a bare one goes to code-analyzer.
 if (RANGE && !ANALYZE) {
   const ch = S.size.done('range', await agent(
-    S.size.task(RULES + ' Read-only. Run `git diff --name-only ' + RANGE + " -- '*.go'` and return the files that still exist and are not *_test.go, " +
+    S.size.task(RULES + ' Report only: run `git diff --name-only ' + RANGE + " -- '*.go'` and return the files that still exist and are not *_test.go, " +
       'repo-relative. Return {paths: []} when there are none.'),
     { phase: 'Size', label: 'range', schema: S.size.schema(RECORDED), model: S.size.model, effort: S.size.effort, ...S.size.type },
   ).catch(() => null))
@@ -638,7 +638,7 @@ if (PLAN_FILE) {
   decisions.push('sized as ' + tier + ': no task, ' + (PKGS.length ? 'a package list is an audit' : 'only named paths'))
 } else if (!tier) {
   const sz = S.size.done('size', await agent(
-    S.size.task(RULES + ' Read-only: edit nothing. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
+    S.size.task(RULES + ' Report your findings. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
       'existing behavior, feature = add behavior, refactor = change structure keeping existing behavior, audit = review packages for bugs, consolidate = merge duplicates and delete dead code, legacy paths or stale tests keeping behavior, architecture = a multi-session design change); the ' +
       'non-test source FILES that must change (repo-relative, one entry per file, never a directory, tests excluded); the Go package dirs ' +
       'only for an audit or consolidate; a one-line focus; and a one-line reason. Use `git status --short` and `go list ./...` only as needed.\nTask: ' + TASK +
@@ -669,7 +669,7 @@ phase('Route')
 // runChild runs a child a level down from harness scripts (a target's workflows/ is unreadable); no ~ expansion
 const scriptsDir = async () => {
   if (a.scripts) return String(a.scripts).replace(/\/$/, '')
-  if (!HOME) HOME = ((await agent('Run `echo $HOME` and return it as home. Edit nothing.', { label: 'home', phase: 'Route', model: 'haiku', effort: 'low', schema: { type: 'object', required: ['home'], properties: { home: { type: 'string' } } } }).catch(() => null)) || {}).home || ''
+  if (!HOME) HOME = ((await agent('Run `echo $HOME` and return it as home.', { label: 'home', phase: 'Route', model: 'haiku', effort: 'low', schema: { type: 'object', required: ['home'], properties: { home: { type: 'string' } } } }).catch(() => null)) || {}).home || ''
   return HOME + '/.claude/workflows'
 }
 const runChild = async (child, cargs) => workflow({ scriptPath: (await scriptsDir()) + '/' + child + '.js' }, cargs).catch((e) => ({ exit: 'error', error: child + ' threw: ' + e.message }))
@@ -682,7 +682,7 @@ if (EVAL_ONLY) {
 }
 if (tier === 'EPIC') {
   const p = S.plan.done('plan', await agent(
-    S.plan.task(RULES + ' Read-only: edit nothing. Draft an implementation plan for this task in the shape of ' + CWD + '/docs/templates/plan.md (read it first), with the ' +
+    S.plan.task(RULES + ' Report your plan. Draft an implementation plan for this task in the shape of ' + CWD + '/docs/templates/plan.md (read it first), with the ' +
       'real files and phases found in the repo. Return the markdown in `plan`.\nTask: ' + TASK),
     { phase: 'Route', label: 'plan', schema: S.plan.schema(PLAN), model: S.plan.model, effort: S.plan.effort, ...S.plan.type },
   ).catch(() => null))
@@ -698,7 +698,7 @@ const target = tier === 'HIGH' ? { packages: topDirs(PKGS.length ? PKGS : dirsOf
 const sized = [...(target.paths || [])] // the files the task names; intel may add context, never new packages to a fix
 if (tier === 'MEDIUM' && TASK) {
   const intel = S.intel.done('intel', await agent(
-    S.intel.task(RULES + ' Read-only: edit nothing. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
+    S.intel.task(RULES + ' Report your findings. Codebase intel for this task: structure, conventions, and the exact files to change with their callers. ' +
       'Return `paths` (repo-relative files to change or audit) and `focus` (the task plus the conventions and callers that matter).\nTask: ' + TASK +
       (PATHS.length ? '\nStart from: ' + PATHS.join(', ') : '')),
     { phase: 'Route', label: 'intel', schema: S.intel.schema(INTEL), model: S.intel.model, effort: S.intel.effort, ...S.intel.type },
@@ -750,7 +750,7 @@ const SCAN_EXIT = scanned && KEEP.includes(scanned.exit) ? scanned.exit : ''
 if (scanned && (!scanned.known.length || a.fix === false)) return await record(withEval(await sharedGate({ exit: SCAN_EXIT || (scanned.known.length ? 'review' : 'green'), tier, route, packages: 0, merged: scanned.confirmed.length, confirmed: scanned.confirmed, dropped: [], unverified: scanned.unverified, fixed: [], red: [], files: [], decisions, report: head + '\n' + scanned.report })))
 const jobs = splitJobs(scanned)
 if (!jobs.length) return ERR('nothing to run: no package or path to work on (sizing returned none); pass args.paths or args.packages', tier, route, decisions)
-if (GATE && a.fix === false) decisions.push('shared gate: fix=false, no code-looper child; checked once (no edits) at the end')
+if (GATE && a.fix === false) decisions.push('shared gate: fix=false, no code-looper child; checked once (no fixes) at the end')
 let gk = null
 if (GATE) {
   const clash = GATE_SCOPE.filter((d) => jobs.some((j) => j.group.some((g) => overlaps(d, g))))
@@ -795,7 +795,7 @@ async function polishInto(r0, files) {
 async function planRun(label, argv, note) {
   const r = await agent(
     S.runner.task(RULES + ' Run exactly the argv below once from ' + CWD + ', shell-quoting every element and appending </dev/null; it is one of `claude-code agents ask --waves <plan> ...`, ' +
-      '`claude-code agents wait <id> --timeout 10m` or `claude-code agents result <id> --verdict --lines 40`. Edit nothing, add no other flag or pipe.' + (note || '') +
+      '`claude-code agents wait <id> --timeout 10m` or `claude-code agents result <id> --verdict --lines 40`. Add no other flag or pipe.' + (note || '') +
       ' Return its exit code as `exit` (null when it could not run) and its stdout as `out` (the last 60 lines when longer).\nargv: ' + JSON.stringify(argv)),
     { phase: 'Run', label: 'plan:' + label, schema: S.runner.schema(PLAN_OUT), model: S.runner.model, effort: S.runner.effort, ...S.runner.type },
   ).catch((e) => { log('plan:' + label + ' failed: ' + ((e && e.message) || e)); return null })
@@ -930,7 +930,7 @@ function absorb(r) {
 function implOver() { const m = {}; for (const r of ST_LINES.filter((x) => x.measured && /^impl/.test(x.stage))) m[r.pkg] = (m[r.pkg] || 0) + r.prod.net; return Object.entries(m).filter(([, n]) => stOver(CTX, n)) }
 async function implShrink(dirs, snap) { // ONE shrink-or-justify pass over an over-budget implementer; returns the new snapshot
   const why = S.impl.done('impl:shrink', await agent(S.impl.task(RULES + ' Line budget ' + LINE_BUDGET + ' (production net ≤ ' + ST_BUDGET[LINE_BUDGET] + ' per package, git diff --numstat): your change measured ' +
-    implOver().map(([p, n]) => p + ' ' + n).join(', ') + '. Shrink it or justify it: cut what the task does not need and keep the change; never revert it, never git checkout/restore/stash; cannot shrink: edit nothing, reason in summary. Return `files`.\nTask: ' + TASK),
+    implOver().map(([p, n]) => p + ' ' + n).join(', ') + '. Shrink it or justify it: cut what the task does not need and keep the change; never revert it, never git checkout/restore/stash; cannot shrink: leave it, reason in summary. Return `files`.\nTask: ' + TASK),
     { phase: 'Route', label: 'impl:shrink', schema: S.impl.schema(ST_WORK), model: S.impl.model, effort: S.impl.effort, ...S.impl.type }).catch(() => null))
   const s2 = await stSnap(CTX, 'impl:shrink', dirs)
   stDelta('impl:shrink', stDir, snap, s2)
@@ -1020,7 +1020,7 @@ function merge(done) {
   }
 }
 
-// scanFirst: code-analyzer audits review-only; its confirmed findings become code-workers' known bugs.
+// scanFirst: code-analyzer audits with no fixes; its confirmed findings become code-workers' known bugs.
 async function scanFirst() {
   const where = ANALYZE ? { range: RANGE } : { paths: target.packages || target.paths }
   const sc = await runChild('code-analyzer', { cwd: CWD, ...where, fix: false, minFix: MIN_FIX, focus, dimensions: a.dimensions, kind: KIND || undefined, steps: stepsFor({ find: 'audit', rederive: 'refute' }), profile: a.profile, provider: a.provider })
@@ -1090,7 +1090,7 @@ function touchedFiles(fixed) {
 function recordOnce(res, label) { return agent(
   S.record.task(RULES + ' Record this run and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
     '(Read that empty file before you Write it), then run exactly `cd ' + CWD + ' && claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
-    'and return its paths array. Edit nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })),
+    'and return its paths array. Change nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })),
   { phase: 'Record', label: 'record', schema: S.record.schema(RECORDED), model: S.record.model, effort: S.record.effort, ...S.record.type },
 ).catch(() => null) }
 // record appends the run's report and decisions to the memory reports so continuity needs no hand-written notes.

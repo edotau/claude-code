@@ -72,7 +72,7 @@ write targets as if run directly.
 `"$(cat <<'EOF' …)"` commit message
 blocks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
 docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
-`mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a read-only command's relative operand
+`mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a command's relative operand
 (`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
 Blocks log to `claude-code doctor --audit` by reason, pattern and session id, never the command
 
@@ -178,7 +178,7 @@ to run once (never a sleep).
 On Bash, only in a subagent of an external type (`relayLeaf`; a `claude` leaf and the main session pass), it
 refuses a poll of a finished job the leaf already handed back (`already reported: stop`) and a second follow poll of
 one job while the first is in flight or backgrounded with a live writer (`one poller only`). That leaf's Bash is
-limited to `claude-code` asks, commands the shared read-only judge allows, `gofmt -l`, and `go build|vet|test`
+limited to `claude-code` asks, commands the shared judge allows, `gofmt -l`, and `go build|vet|test`
 (behind `rtk`, a bare `env`, `time [-p]`, `nice [-n N]` or `timeout [opts] N[smh]`) with `./` package patterns inside
 the repo and a short flag list: `-args`, writing or program-running flags, any `go build` but `./...` or `-o
 /dev/null`, and an inline or process `GOFLAGS`/`GOENV`/`GOWORK`/`GOBIN`/`GOCACHE`/`GOTOOLCHAIN` are refused (the relay

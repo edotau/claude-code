@@ -33,7 +33,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 1. Review (MEDIUM+) | `Plan`, or a carried `codex` ask | Refined Task Brief | READY / NEEDS CLARIFICATION |
 | 2. Codebase intel | Scoped `Explore` leaves, or one carried `gemini` sweep | Codebase Context Brief | Structure, conventions, deps |
 | 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a carried `gemini` ask | Prior art + library refs | ≥1 reference, or "nothing found" |
-| 4. Plan (MEDIUM+) | plan mode or `Plan` | Plan with task breakdown | User approval |
+| 4. Plan (MEDIUM+) | `Plan` | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test |
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
 | 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean, no leaf still running |

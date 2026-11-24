@@ -36,7 +36,7 @@ agent: `skills/subagent-workflows/SKILL.md`.
 All are owner-only (`disable-model-invocation: true`); each launcher specifies its dispatch tool.
 
 - `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — the session
-  runs `agents ask --carry --background --agent <type> [flags] --tools - < brief` (`gemini` adds `--read-only`),
+  runs `agents ask --carry --background --agent <type> [flags] --tools - < brief`,
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   `/pi` (same flags) runs the same ask plain, without `--carry` (which refuses pi). There is no `/claude`: the name
   could collide.
@@ -72,13 +72,13 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 
 - **Agent file** = who (a role reused across sessions); **skill** = how (a procedure named in a brief's `Method:`);
   **brief** = this task. A one-off role is a brief to `claude`, never a new file.
-- **Split** a role only when its expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`)
+- **Split** a role only when its expertise, tool grant or authority differs (`Explore` vs `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
   belongs in a direct carried ask (Pi plain); saved workflow stages run on `claude`.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
   (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` inherits; raise
   one call with the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
-  `model: inherit` on a call reads as unset. **Tools:** list them; a read-only role gets none that write.
+  `model: inherit` on a call reads as unset. **Tools:** list the ones the role needs.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A CLI agent is one row in the `agentid` roster table

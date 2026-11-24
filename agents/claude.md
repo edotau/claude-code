@@ -76,7 +76,7 @@ server, skill or maintained OSS to adopt/extend; reinventing one is a should-fix
 ## Procedure
 
 MEDIUM+ features run **Design → Implement → Review**, with Simplify findings reported in between. A "review my
-diff" request runs Simplify detect-only (report, edit nothing) → Review.
+diff" request runs Simplify detect-only (report the findings) → Review.
 
 ### Leaf conventions
 
@@ -107,8 +107,8 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
   constraints and verify, plus "never stash/checkout/reset/restore".
 - codex, copilot, gemini, opencode run carried (Databricks arm, R20), then one `claude-code agents result -f <id>`:
   `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
-- Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; no
-  tools by default, `--read-only` to inspect (no shell), `--tools` to edit. Its brief stands alone (no CLAUDE.md,
+- Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; tools
+  are on by default; `--tools` is accepted. Its brief stands alone (no CLAUDE.md,
   skills or MCP load). Its bash is the verify shell only under a file deny, the ask's own or one inherited from the
   dispatch above; editing a worktree, add
   `--permissions '{"deny":["Edit(<live checkout>/**)","Write(<live checkout>/**)"]}'`.

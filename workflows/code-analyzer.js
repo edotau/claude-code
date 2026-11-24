@@ -2,12 +2,12 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test repair → gate loop, every editing stage numstat-measured',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: maxAgents (hard cap on agents per run, default 200), fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan, record} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: the dispatch hook claims 2 slots (call-site count); a run spawns far more agents (up to maxAgents, default 200). RETURNS {exit, outcome (green|review|red|error: green is dry, nothing-changed or capped with no red and nothing over budget), route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates (per scope dir, with gateRuns and exitCode)} plus refuted, rounds; a partition run also returns plan (parses with `agents ask --waves`), planPath and findingsPath (memory reports; the findings file holds one json block per package). Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; no fixes with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: maxAgents (hard cap on agents per run, default 200), fix (default true), partition (with fix:false: return the wave plan), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan, record} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: the dispatch hook claims 2 slots (call-site count); a run spawns far more agents (up to maxAgents, default 200). RETURNS {exit, outcome (green|review|red|error: green is dry, nothing-changed or capped with no red and nothing over budget), route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates (per scope dir, with gateRuns and exitCode)} plus refuted, rounds; a partition run also returns plan (parses with `agents ask --waves`), planPath and findingsPath (memory reports; the findings file holds one json block per package). Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
     { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings); re-anchors wrong citations, defaults to refuted when the evidence is thin' },
-    { title: 'Scan', detail: 'one read-only agent per package with fixable findings: files, exported, importers, hotspots' },
+    { title: 'Scan', detail: 'one agent per package with fixable findings: files, exported, importers, hotspots' },
     { title: 'Plan', detail: 'script-only conflict graph, greedy colouring into waves ≤cap; hotspot edits go to one final task' },
     { title: 'Fix', detail: 'waves in sequence, tasks of a wave in parallel; per package: implementer (opus only for highs), then test repair (new tests proposed, never written)' },
     { title: 'Gate', detail: 'in-script stageLoop (shared stages, check-confirmed) over the touched packages, then re-audits what it touched for up to rounds rounds' },
@@ -133,7 +133,7 @@ const stepExt = (name, v, d, f) => {
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
     task: (p) => `Agent: ${who}\n${how}` +
-      (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
+      (edit ? '' : ' The task is to report: tell the agent to report its findings.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },
     done: (label, r) => (stepRecord(name, who, label, r) ? r : null),
@@ -191,7 +191,7 @@ async function stSnap(ctx, label, paths) {
     properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } },
     required: ['path', 'added', 'deleted'] } }, outside: ST_LIST }, required: ['files', 'outside'] }
   const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', ctx.cd +
-    'Read-only: run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
+    'Run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -258,14 +258,14 @@ async function stageDetect(ctx, st, scope) {
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
-// stLoopCheck folds detection, routing pressure and the first observed check into one read-only leaf.
+// stLoopCheck folds detection, routing pressure and the first observed check into one leaf.
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const detect = 'claude-code worktree gate --dir ' + JSON.stringify(ctx.cwd || '.') +
     ' --scope ' + paths.join(',') + ' --format json'
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
   return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd +
-    'Read-only: edit nothing. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
+    'Report the check result. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
     ' Run the gate exactly once with pipefail; capture the real process exit code. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
@@ -293,7 +293,7 @@ async function stLoopFix(ctx, o, groups, iteration) {
   const run = async ([file, fs]) => {
     const dir = fs[0].file !== file
     const prompt = ctx.cd + ctx.rules + ' Fix only this owned ' + (dir ? 'package directory (its files, not subdirectories; a failing test line may have its cause in the code under test): ' : 'file: ') + file +
-      '. Never run the gate, tests, or self-checks; the read-only check owns verification. Other failures are not yours.\n' +
+      '. Never run the gate, tests, or self-checks; the check leaf owns verification. Other failures are not yours.\n' +
       fs.map((f) => f.file + ':' + (f.line || 0) + ': ' + f.text).join('\n').slice(0, 1500)
     const label = (o.label || 'gate') + ':fix:' + iteration + ':' + file
     return await stageAsk(ctx, o.fix || ctx.S.fix, label, 'Fix', prompt, ST_WORK) ||
@@ -362,7 +362,7 @@ async function stageLoop(ctx, o) {
 const ST_MERGE = ' These are consolidation findings (duplicates, dead code, legacy, stale or redundant tests), not bugs: merge and delete; behaviour, messages and exit codes stay identical.'
 const ST_FIX_HOW = ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage repairs tests; that is not unfinished work, so report done. ' +
     'Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). Root cause first, smallest correct change, functions < 50 lines, 1-line comments. ' +
-    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). ' +
+    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (report them, change nothing outside your files). ' +
   'Run the repo formatter and linter on what you touched'
 const stList = (x, k) => (x && x[k]) || []
 const stFixItem = (ctx, f) => '- ' + stRel(ctx, f.file) + ':' + (f.line || 0) + ' (' + (f.symbol || '?') + ', ' + f.severity + (stCost(f) ? ', ' + f.kind : '') + '): ' + (f.symptom || f.title) + (f.scenario ? '\n  scenario: ' + f.scenario : '') + (f.evidence ? '\n  evidence: ' + f.evidence : '')
@@ -406,7 +406,7 @@ const stChanged = (pre, snap) => Object.keys(snap || {}).filter((f) => pre && JS
 async function stShrink(ctx, o, w, net, snap) {
   const shrink = await stageAsk(ctx, ctx.S.fix, 'shrink:' + o.label, 'Fix', ctx.rules + ' Line budget ' + ctx.lineBudget + ': production net must be ≤ ' + ST_BUDGET[ctx.lineBudget] + ' lines in ' + o.pkg +
       '; your fix measured ' + net + ' (git diff --numstat). Shrink it or justify it: cut what the fix does not need (reuse an existing helper, drop a new abstraction, delete what it made dead) and keep the fix.' +
-      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, edit nothing and put the reason in summary.' + w.task, ST_WORK)
+      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, leave it as is and put the reason in summary.' + w.task, ST_WORK)
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
@@ -455,7 +455,7 @@ async function stPolishPass(ctx, P, key, title, brief) {
 }
 async function stReview(ctx, P) {
   phase('Review')
-  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
+  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Report your findings; never run go test. Review the final diff with the ' + ctx.cwd +
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
@@ -551,7 +551,7 @@ let PF_STATE = '' // claude account state, read by the coworkers preflight when 
 const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await ag(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
       EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
@@ -818,7 +818,7 @@ const findFiles = u => u.chunk.files.length
   ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
   : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`
 const findPrompt = u =>
-  `Read-only audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.${FOCUS}\n` + findFirstCall() +
+  `Audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.${FOCUS}\n` + findFirstCall() +
   `Report only defects you can evidence with a grep, diff or test run — no style nits. ${SHARED_TREE}\n` +
   `Method: ~/.claude/skills/evaluate-code/SKILL.md (report only findings on changed code you verified; >80% confidence filter)\n\n` + findFiles(u)
 // Batched per PACKAGE, ≤ REFUTE_BATCH findings each (round 11: per-file refuters grew to 24 agents / 7.9M reads).
@@ -841,7 +841,7 @@ const REFUTE_RULES = `Refuted means: the code path does not do what is claimed, 
   `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
 const refuteBrief = (pkg, fs) => {
   const list = fs.map((f, i) => `${i}. ${f.title}\n   At: ${f.file}:${f.line}\n   Scenario: ${f.scenario}\n   Evidence: ${f.evidence}`).join('\n')
-  return `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} (read-only); one verdict per index.\n${list}\n\n` + refuteAt() + REFUTE_RULES
+  return `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} ; one verdict per index.\n${list}\n\n` + refuteAt() + REFUTE_RULES
 }
 // One batch's verdicts: a confirmed finding comes back normalised, the rest are filed under refuted or unverified.
 const judgeBatch = (fs, v, u, refuted, unverified) => {
@@ -972,7 +972,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   for (const f of toFix) byPkg.set(f.package, [...(byPkg.get(f.package) || []), f])
   phase('Scan')
   const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => ag(S.depscan.task(
-    `Read-only dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
+    `Dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
       `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
       `importers = repo packages importing ${pkg} (run once: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${pkg} --importers --format json </dev/null and take packages[].importers), ` +
       `hotspots = those of ${HOT.join(', ')} the fix must also edit. At most 5 tool calls. ${SHARED_TREE}`),

@@ -37,7 +37,7 @@ tracked or ignored, is redirected to the dated plans home (`docs-placement`).
 ## The Plan agent
 
 A `Write`/`Edit` from the `Plan` subagent (payload `agent_type`) passes only under `~/.claude/plans/`; any other path
-blocks. Its Bash passes only `permission.ReadOnlyShell` (a `safety-scan` floor block no allow rule lifts).
+blocks.
 
 ## When the gate blocks
 

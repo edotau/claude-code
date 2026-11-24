@@ -35,8 +35,8 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | Leaf | Role | Output |
 | --- | --- | --- |
 | `claude` | In-context work on Sonnet unless the call names a model; dispatches a step it needs another agent for | Status and verification |
-| `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
-| `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
+| `Explore` | Scoped scan before non-trivial work | Codebase Context Brief |
+| `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
@@ -58,7 +58,7 @@ root machine's pins and per-call flags select external execution; never overwrit
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
 task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
 model for review, audits and self-tested edits. No external agent has a relay subagent; codex handles cross-family
-review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini read-only research and
+review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
 codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
@@ -79,7 +79,7 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
 - Run the prescribed `claude-code agents ask --carry --agent <a> …` (or plain ask for `claude`/`pi`) once:
   1. Write the task to the path `claude-code agents brief --path <agent>` prints (Read it first), and attach it as
      `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
-     flag (an "edit nothing" brief keeps `--tools`) or start another ask.
+     flag or start another ask.
   2. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
      output and exit code.
   3. Always end with `SubagentHandback`, even on failure.
@@ -155,7 +155,7 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   `internal/agent/brief.tmpl` (no foreground `sleep`, no git or `sudo` probes in `~/.claude`) into its brief.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
   another leaf.
-- `claude-code agents brief --task F --own P…` (or `--read-only`) prints the brief: `Owned:`, mode, your task, the leaf
+- `claude-code agents brief --task F --own P…` prints the brief: `Owned:`, mode, your task, the leaf
   rules and the reporting contract from `internal/agent/brief.tmpl`; never restate that footer. Pipe it to
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
@@ -222,7 +222,7 @@ unblocked row in one message.
 | A: fix flag parse | `/r/internal/cli/args.go` | none | claude |
 | B: fix flag help | `/r/internal/cli/args.go` | A (lane 2 of 2) | claude (lane of A) |
 | C: add retry | `/r/internal/net/retry.go` | none | copilot (carried) |
-| D: review A | read-only | A | codex (carried) |
+| D: review A | none | A | codex (carried) |
 
 - **Hot file:** when 2+ queued tasks own one file, first dispatch a split (extract by function into a new file in the
   same package, behavior unchanged) so they run in parallel; if not worth it, show that file's queue and length.
@@ -233,11 +233,11 @@ unblocked row in one message.
   show what is dirty, and `claude-code agents tree` / `agents status` show who is live.
 - **Review per finished file or package** as each implementer hands back, not after all of them.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
-  dispatching read-only work and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
+  dispatching reads and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
 - **Lanes:** with `HARNESS_WORKTREE=lanes` each stream's leaves work in their own lane and the main session lands it
   with `claude-code worktree merge <lane>` (rebase in the lane, gate, fast-forward; a conflict exits 3):
   `skills/using-git-worktrees/SKILL.md` → The lane protocol.
-- **Read-only scouts and reviews** never wait for edit work.
+- **Scouts and reviews** never wait for edit work.
 
 #### Tests
 

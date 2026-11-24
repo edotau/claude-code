@@ -10,12 +10,12 @@ CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the leaf/script 
 | `claude-code <agent> [flags] [args…]` · `<agent> -- <args…>` | launch the CLI, unknown words pass through · force passthrough (shadowed names, e.g. `-- review`) | agent CLI |
 | `claude-code <agent> ask [flags] <task>` | one-shot run (`--tools` edits, `--background` detaches; `--session <id>` continues a session) | answer |
 | `claude-code <agent> review [--base b\|--commit c\|--pr\|--uncommitted] [--adversarial] [--background] [focus…]` | diff review (default: uncommitted) | verdict + findings |
-| `claude-code <codex-or-copilot> explore [--no-web] [--background] <question>` | read-only code scan + web research | Codebase Context Brief (file:line, URLs) |
+| `claude-code <codex-or-copilot> explore [--no-web] [--background] <question>` | code scan + web research | Codebase Context Brief (file:line, URLs) |
 | `claude-code <agent> transfer [--source f] [--wait] [note]` | hand this Claude session to the agent | job id, or answer |
 | `claude-code agents status [<id>] [--agent A] [--all]` | dispatch state: no id, no agent = the 20 most recent; `--agent` = that agent's jobs in this repo (`--all`: every repo) | rows (id, status, elapsed) |
 | `claude-code agents result [<id>] [--agent A] [-f] [--events] [--save F] [--verdict]` | a dispatch's answer; `-f` follows a running job with a stall heartbeat, `--events` streams its events | answer + session id + resume cmd · log lines |
 | `claude-code agents cancel (<id> \| --lost) [--agent A] [--dry-run]` | interrupt a running job · `--lost` marks dead-but-running records as error | `cancelled <id>` |
-| `claude-code agents brief --task F (--own P... \| --read-only) [--report P]` | print a leaf brief: `Owned:` line, mode, the task, the leaf rules and reporting contract (`internal/agent/brief.tmpl`, the one copy); pipe it to `agents ask -`; `agents diff --verify <id>` reads `Owned:` back | the brief; exit 2 usage |
+| `claude-code agents brief --task F --own P... [--report P]` | print a leaf brief: `Owned:` line, the task, the leaf rules and reporting contract (`internal/agent/brief.tmpl`, the one copy); pipe it to `agents ask -`; `agents diff --verify <id>` reads `Owned:` back | the brief; exit 2 usage |
 | `claude-code agents wait <id>... [--timeout 10m]` | block until the dispatches finish | final status rows |
 | `claude-code agents serve [--start\|--stop\|--restart\|--status] [--cap N]` | opt-in daemon: each `ask --background` job waits for its `(provider, profile)` pool (account cap, or `--cap`; 429 cool-down) before its agent starts; no daemon or a refusal runs the job at once; `--restart` drains (waiters re-queue) | `--status`: pid and per-pool `running/cap`, cooling end, waiting ids; exit 1 not running |
 | `claude-code <agent> profile [<p>\|--clear\|--off]` | show or set the agent's profile; `--clear` = own login, `--off` = stop routing | the profile |
@@ -44,14 +44,13 @@ CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the leaf/script 
 
 ## Headless `ask` flags
 
-`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; without `--tools` claude and opencode launch no
-tools, copilot rejects every request, codex keeps a read-only sandbox shell and gemini is only instructed not to use
-any. Agent files list only what differs; the full list is `claude-code agents ask -h`.
+`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; an ask with no tools flag gets tools on.
+Agent files list only what differs; the full list is `claude-code agents ask -h`.
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (reads plus a vetted read-only shell list; other Bash, Write and Edit denied; codex keeps its sandbox shell) |
-| Guard the run | `--permissions allow\|default\|auto\|plan` or `--permissions '{"mode":"auto","allow":[..],"ask":[..],"deny":["Bash(git push:*)"]}'` (`allow`: dev override, every call runs; deny rules and the AI-footer block hold) (per-agent mapping: `dispatch-policy-details.md` → Permission modes per agent); an allow rule adds but never reopens a deny; codex and gemini refuse `--tools` with `--permissions plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
+| Edit files / run shell | `--tools` · `--workdir <repo>` |
+| Guard the run | `--permissions allow\|default\|auto` or `--permissions '{"mode":"auto","allow":[..],"ask":[..],"deny":["Bash(git push:*)"]}'` (`allow`: dev override, every call runs; deny rules and the AI-footer block hold) (per-agent mapping: `dispatch-policy-details.md` → Permission modes per agent); an allow rule adds but never reopens a deny; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--provider databricks` (R20) |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |

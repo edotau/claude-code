@@ -22,7 +22,7 @@ Otherwise:
    output means no prefix).
 4. Run ONE Bash call, description
    `<label>: <first ~8 words of the task>`:
-   `claude-code agents ask --carry --background --agent gemini [flags from step 1] --tools --read-only - < <that path>`.
+   `claude-code agents ask --carry --background --agent gemini [flags from step 1] --tools - < <that path>`.
    With `--host`, drop both `--carry` and `--background`, add `--host <host>`, and relay the foreground result
    directly; skip step 5. Allow the Bash call to wait for completion.
 5. For a local ask, read the id from its `job <id> started` line, then wait with ONE

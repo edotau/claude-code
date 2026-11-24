@@ -3,7 +3,7 @@ export const meta = {
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse: 'USE: make a scoped gate pass with bounded parallel fixes. CALL: Workflow code-looper with scope or files. RETURNS: exit, gateRuns, residual and iterationsUsed.',
   phases: [
-    { title: 'Gate', detail: 'one read-only leaf detects the gate with claude-code worktree gate when args.gate is absent, runs it once and reports exit, changed files and failures' },
+    { title: 'Gate', detail: 'one leaf detects the gate with claude-code worktree gate when args.gate is absent, runs it once and reports exit, changed files and failures' },
     { title: 'Fix', detail: 'up to fixesPerIteration owned groups per iteration, then a re-check' },
   ],
 }
@@ -71,7 +71,7 @@ const stepExt = (name, v, d, f) => {
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
     task: (p) => `Agent: ${who}\n${how}` +
-      (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
+      (edit ? '' : ' The task is to report: tell the agent to report its findings.') + ST_EXT_RETRY + ST_EXT_DONE + ST_EXT_FAIL + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...EXT_R], properties: { ...s.properties, ...EXT_F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...EXT_R], properties: { answer: { type: 'string' }, ...EXT_F } },
     done: (label, r) => (stepRecord(name, who, label, r) ? r : null),
@@ -129,7 +129,7 @@ async function stSnap(ctx, label, paths) {
     properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } },
     required: ['path', 'added', 'deleted'] } }, outside: ST_LIST }, required: ['files', 'outside'] }
   const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', ctx.cd +
-    'Read-only: run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
+    'Run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -196,14 +196,14 @@ async function stageDetect(ctx, st, scope) {
   const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${ctx.cwd || '.'}${scope.length ? ' --scope ' + scope.join(',') : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
   return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
 }
-// stLoopCheck folds detection, routing pressure and the first observed check into one read-only leaf.
+// stLoopCheck folds detection, routing pressure and the first observed check into one leaf.
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const detect = 'claude-code worktree gate --dir ' + JSON.stringify(ctx.cwd || '.') +
     ' --scope ' + paths.join(',') + ' --format json'
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
   return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd +
-    'Read-only: edit nothing. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
+    'Report the check result. ' + (cmd ? 'Gate command: ' + cmd : 'Detect the scoped gate with `' + detect + '` then use its gate.') +
     ' Run the gate exactly once with pipefail; capture the real process exit code. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
@@ -231,7 +231,7 @@ async function stLoopFix(ctx, o, groups, iteration) {
   const run = async ([file, fs]) => {
     const dir = fs[0].file !== file
     const prompt = ctx.cd + ctx.rules + ' Fix only this owned ' + (dir ? 'package directory (its files, not subdirectories; a failing test line may have its cause in the code under test): ' : 'file: ') + file +
-      '. Never run the gate, tests, or self-checks; the read-only check owns verification. Other failures are not yours.\n' +
+      '. Never run the gate, tests, or self-checks; the check leaf owns verification. Other failures are not yours.\n' +
       fs.map((f) => f.file + ':' + (f.line || 0) + ': ' + f.text).join('\n').slice(0, 1500)
     const label = (o.label || 'gate') + ':fix:' + iteration + ':' + file
     return await stageAsk(ctx, o.fix || ctx.S.fix, label, 'Fix', prompt, ST_WORK) ||
@@ -300,7 +300,7 @@ async function stageLoop(ctx, o) {
 const ST_MERGE = ' These are consolidation findings (duplicates, dead code, legacy, stale or redundant tests), not bugs: merge and delete; behaviour, messages and exit codes stay identical.'
 const ST_FIX_HOW = ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage repairs tests; that is not unfinished work, so report done. ' +
     'Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). Root cause first, smallest correct change, functions < 50 lines, 1-line comments. ' +
-    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). ' +
+    'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (report them, change nothing outside your files). ' +
   'Run the repo formatter and linter on what you touched'
 const stList = (x, k) => (x && x[k]) || []
 const stFixItem = (ctx, f) => '- ' + stRel(ctx, f.file) + ':' + (f.line || 0) + ' (' + (f.symbol || '?') + ', ' + f.severity + (stCost(f) ? ', ' + f.kind : '') + '): ' + (f.symptom || f.title) + (f.scenario ? '\n  scenario: ' + f.scenario : '') + (f.evidence ? '\n  evidence: ' + f.evidence : '')
@@ -344,7 +344,7 @@ const stChanged = (pre, snap) => Object.keys(snap || {}).filter((f) => pre && JS
 async function stShrink(ctx, o, w, net, snap) {
   const shrink = await stageAsk(ctx, ctx.S.fix, 'shrink:' + o.label, 'Fix', ctx.rules + ' Line budget ' + ctx.lineBudget + ': production net must be ≤ ' + ST_BUDGET[ctx.lineBudget] + ' lines in ' + o.pkg +
       '; your fix measured ' + net + ' (git diff --numstat). Shrink it or justify it: cut what the fix does not need (reuse an existing helper, drop a new abstraction, delete what it made dead) and keep the fix.' +
-      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, edit nothing and put the reason in summary.' + w.task, ST_WORK)
+      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, leave it as is and put the reason in summary.' + w.task, ST_WORK)
   const s = await stSnap(ctx, 'shrink:' + o.label, w.at)
   return { shrink, snap: s, net: net + stDelta('shrink', o.pkg, snap, s).prod.net }
 }
@@ -393,7 +393,7 @@ async function stPolishPass(ctx, P, key, title, brief) {
 }
 async function stReview(ctx, P) {
   phase('Review')
-  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
+  const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Report your findings; never run go test. Review the final diff with the ' + ctx.cwd +
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []

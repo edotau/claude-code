@@ -33,39 +33,30 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
   the escape hatch). `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS refusals; credential
   names in `--keep-env`, ask and interactive).
 
-## Read-only and tools
+## Tools
 
-The `ask --format json` bullet continues here from `--read-only` (its envelope, isolation flags and no-`--tools`
-behavior stay in the rule):
+The `ask --format json` bullet continues here (its envelope and isolation flags stay in the rule). An ask with no
+tools flag gets tools on.
 
-  `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run (plain `git
-  log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `wc`, `head`, `tail`, `cat`,
-  `sed -n <range>p <file>`, `go doc|list|env|version`, read-only `claude-code` verbs, `<command> --help|--version`, and
-  `-h` only on those listed commands (`bash -h` is hashing and runs stdin); no `-c`, redirect, substitution or `agents
-  diff --check`); every other Bash call and all Write/Edit stay denied, and a `Read(...)` deny also blocks a listed
-  command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook), opencode (plugin) and
-  claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`; gemini refuses a
-  missing hook; codex drops its tools and keeps its read-only sandbox shell.
-  codex and gemini refuse `--tools` with `--permissions plan`. An allow rule adds but can never reopen a matching deny.
+  An allow rule adds but can never reopen a matching deny.
   copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
   approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
   returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit policy:
-  no plan mode, Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs under
+  no Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs under
   `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
   `--permissions` rules gate with only those rules and no judge, so an ask rule becomes a deny;
   that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` keeps its
-  own launch.
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch).
 
 ## Permission modes per agent
 
 `--permissions MODE|JSON` (`{"mode":..,"allow":[..],"ask":[..],"deny":[..]}`) maps its mode per agent; deny rules hold
 in every mode. Writable roots are `agent.WritableRoots` (`internal/agent/job.go`): `~/.claude` plus the cwd's repo.
 
-| Agent | `allow` | `default` and `auto` | `plan` |
-| --- | --- | --- | --- |
-| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `default` or `auto` with `--tools` adds `--add-dir` per root; off it the gated launch above | `--disallowedTools Edit Write NotebookEdit Bash` with `--tools` |
-| codex | rules only, the agents.json sandbox | `auto` (or any ask rule) swaps the sandbox for codex's approval reviewer | refused with `--tools` |
-| copilot | the SDK approves every request the rules allow | as `allow` | the SDK approves read kinds and web search only |
-| gemini | `--tools` runs `--dangerously-skip-permissions` plus `--add-dir` per root | as `allow` | refused with `--tools`; without it needs the `permission-gate` on `read_file` |
-| opencode | `*` allow, roots as `external_directory` allow | `default` sends `*` to opencode's `--auto` judge; `auto` as `allow` | `*` deny, read tools allow, no roots |
+| Agent | `allow` | `default` and `auto` |
+| --- | --- | --- |
+| claude | `--permission-mode bypassPermissions` | on Anthropic Claude's `auto` mode, `default` or `auto` with `--tools` adds `--add-dir` per root; off it the gated launch above |
+| codex | rules only, the agents.json sandbox | `auto` (or any ask rule) swaps the sandbox for codex's approval reviewer |
+| copilot | the SDK approves every request the rules allow | as `allow` |
+| gemini | `--tools` runs `--dangerously-skip-permissions` plus `--add-dir` per root | as `allow` |
+| opencode | `*` allow, roots as `external_directory` allow | `default` sends `*` to opencode's `--auto` judge; `auto` as `allow` |

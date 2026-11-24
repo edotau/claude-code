@@ -14,8 +14,8 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 
 ## OpenCode task guidance
 
-- `--tools` allows code and docs edits; `--read-only` limits reads and vetted shell commands. The `permission-gate`
-  plugin enforces deny rules; ask rules map to OpenCode `--auto`, and `--permissions plan` denies Bash.
+- `--tools` allows code and docs edits. The `permission-gate`
+  plugin enforces deny rules; ask rules map to OpenCode `--auto`.
 - For DOC-UPDATE, map entry points and exports, update existing guides from code, and validate links, examples and
   freshness. Do not hand-author generated docs.
 - For DOC-LOOKUP, check installed docs first (`go doc`, CLI help, `pydoc`), then search official docs. Cite a
@@ -46,8 +46,8 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 ## Copilot task guidance
 
 - Test repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
-  `rules/standards/worktree-git.md` → LAST-MILE. Run carried with `--tools`; `--read-only` cannot merge or edit.
-- `ask --fleet` uses Copilot's experimental SDK subagents for requested read-only scans, never edits; verify the diff.
+  `rules/standards/worktree-git.md` → LAST-MILE. Run carried with `--tools`.
+- `ask --fleet` uses Copilot's experimental SDK subagents for requested scans; verify the diff.
 - `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt flags and
   `--env` are native; no `cost_usd`. `copilot --docs` prints vendor help; `copilot -- <native args>` forces passthrough.
 - Account and pin: `claude-code configure agents --agent copilot`, `configure github` for the account;
@@ -66,7 +66,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 | `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
 | `pi` | Pi (`pi`), Databricks only, behind the guard extension; verify shell only under a file deny | none in a dispatch (`--no-context-files`) |
 
-Projection, per-agent read-only behavior and Pi's packages and their risk: `rules/harness/agent.md`.
+Projection, per-agent behavior and Pi's packages and their risk: `rules/harness/agent.md`.
 Hook applicability: `rules/harness/hooks.md`.
 Unsupported flags appear in the result's `dropped`; check capability definitions in each agent's registration
 package when a task depends on a boundary.

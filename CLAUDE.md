@@ -41,7 +41,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 4. **Never `git stash` / `checkout` / `reset` / `restore`, and never rewrite a shared commit (`commit --amend`,
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
-5. **Finish at the requested boundary.** Reviews and edit-only tasks stop there. To land an authorized change,
+5. **Finish at the requested boundary.** A review or an edit task stops there. To land an authorized change,
    follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
    `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then install and
    live-check on the Mac (the required check; WSL is a periodic sync, R19). Under `HARNESS_WORKTREE=lanes` a verified

@@ -17,7 +17,7 @@ Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
 Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only)>.
 ```
 
-Templates list only their own lines. Reviewers inspect the artifact, never the report about it, and edit nothing; Code
+Templates list only their own lines. Reviewers inspect the artifact, never the report about it; Code
 Quality Reviewer runs only after `SPEC_COMPLIANT` and the simplify pass.
 
 ## Implementer

@@ -74,7 +74,7 @@ claude-code agents wait <id> --progress              # stderr line per change: s
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code agents serve --start [--cap N] | --status | --restart | --stop   # queue --background jobs per pool
                                                  # make install restarts a running daemon, never starts one
-claude-code agents ask --agent pi --read-only "<q>"   # Pi on Databricks; read/grep/find/ls
+claude-code agents ask --agent pi "<q>"   # Pi on Databricks
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
@@ -90,8 +90,8 @@ claude-code usage --context                          # where one session's conte
 
 `serve` admits a background `--carry` once before its child starts; foreground carry and Pi takeover are not gated.
 
-Without `--tools` the agent's tools are off (per agent: `rules/harness/agent.md`); `--read-only` adds a read-command
-allow list. `agents sync` renders under `state/projections/<agent>/`, installs into
+An ask with no tools flag gets tools on (per agent: `rules/harness/agent.md`).
+`agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
 and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
 claude.ai `skills/synced/**` is linked for no agent; opencode reads it from `~/.claude/skills` natively. Envelope

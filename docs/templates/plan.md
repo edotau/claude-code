@@ -44,9 +44,12 @@ rtk go build ./... && rtk go vet ./internal/<pkg>/...
 
 **Files:** none tracked; `/tmp/<slug>/`.
 **Change:** build `rtk go build -o /tmp/<slug>/cc ./cmd/claude-code`, then save the output and exit code of each
-read-only command the plan touches (stdin from `/dev/null`) under `/tmp/<slug>/base/`.
-**Verify:** every later commit reruns them on a fresh binary and `diff -r`s against `base/`; name each expected
-difference, and re-capture when a peer's commit changes the output.
+state-reporting command the plan touches (status, counts, test results; stdin from `/dev/null`) under
+`/tmp/<slug>/base/`. For each state-changing command, record what it would do (command, target, expected effect)
+without running it.
+**Verify:** every later commit reruns the state-reporting commands on a fresh binary and `diff -r`s against `base/`;
+name each expected difference, and re-capture when a peer's commit changes the output. State-changing commands are
+checked by their recorded effect, not run.
 **Agent / parallel:** `leaf: claude, Agent: in-context`; before everything.
 
 ### Phase 1 — <verb> <object>
@@ -64,7 +67,7 @@ difference, and re-capture when a peer's commit changes the output.
 
 ## Waves
 
-One message dispatches a whole wave; owned files are disjoint within it; a read-only verifier leaf closes each wave.
+One message dispatches a whole wave; owned files are disjoint within it; a verifier leaf closes each wave.
 
 | Wave | Packages | Owned files | Depends on | Width bound / what widens it | Verify (command → proof) |
 | --- | --- | --- | --- | --- | --- |
