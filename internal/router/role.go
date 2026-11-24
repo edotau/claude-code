@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -36,29 +37,25 @@ func ParseProviderMode(s string) (ProviderMode, error) {
 	return ModeRotate, ProviderModeError{}
 }
 
-// Role is who a dispatch acts as; the dispatch carries it, it is never read from prompt text.
+// Role is who a dispatch acts as; the contract package owns the closed list, this type adds the model tiers.
 type Role string
 
 const (
-	RoleOwner Role = "owner" // an owner or lead
-	RoleFleet Role = "fleet" // the executing fleet
+	RoleOwner = Role(contract.RoleOwner)
+	RoleFleet = Role(contract.RoleFleet)
 )
-
-// Roles lists the roles in document order.
-var Roles = []string{string(RoleOwner), string(RoleFleet)}
 
 // RoleError is an unknown role; it never quotes the value.
 type RoleError struct{}
 
-func (RoleError) Error() string { return "want " + strings.Join(Roles, ", ") }
+func (RoleError) Error() string { return fmt.Sprintf("want one of %v", contract.Roles()) }
 
 // ParseRole reads a role; the empty string and anything unlisted are a RoleError.
 func ParseRole(s string) (Role, error) {
-	switch Role(s) {
-	case RoleOwner, RoleFleet:
-		return Role(s), nil
+	if !slices.Contains(contract.Roles(), contract.Role(s)) {
+		return "", RoleError{}
 	}
-	return "", RoleError{}
+	return Role(s), nil
 }
 
 // Models lists the Claude tiers a role may rotate through, strongest first.
