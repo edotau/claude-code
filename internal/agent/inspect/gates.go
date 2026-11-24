@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
-// Gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test, docs; --gates adds yaml, shell, quality.
+// Gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test, quality, docs; --gates adds yaml, shell.
 
 const (
 	diffHeadLines   = 30
@@ -161,6 +161,7 @@ func gateDefs() []gateDef {
 		stepDef("golangci-lint", true),
 		{"complexity", false, complexityGate, parseComplexity},
 		{"test", true, testGate, parseTest},
+		{"quality", false, qualityGate, parseQuality},
 	}
 }
 
@@ -168,8 +169,7 @@ var docsDef = gateDef{"docs", false, docsGate, parseDocs}
 
 // allGateDefs is every gate --gates can pick, in report order.
 func allGateDefs() []gateDef {
-	return append(gateDefs(), docsDef, stepDef("yaml", false), stepDef("shell", false),
-		gateDef{"quality", false, qualityGate, parseQuality})
+	return append(gateDefs(), docsDef, stepDef("yaml", false), stepDef("shell", false))
 }
 
 // GateNames lists the values --gates takes: the groups, then every gate.

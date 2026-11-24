@@ -76,7 +76,7 @@ func TestGatesKeepOwnResultAfterBuildFailure(t *testing.T) {
 	f := &fakeGates{lint: true, fail: map[string]string{"go build": dir + "/pkg/p.go:3:1: undefined: x\n"}}
 	f.install(t)
 	rs := runGates(context.Background(), dir, "HEAD", files)
-	want := "ok gofmt, FAIL build, ok vet, ok golangci-lint, ok complexity, ok test"
+	want := "ok gofmt, FAIL build, ok vet, ok golangci-lint, ok complexity, ok test, ok quality"
 	if got := gateStatuses(rs); got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
@@ -97,7 +97,7 @@ func TestGatesCutLongFailureAndRunTheRest(t *testing.T) {
 	f := &fakeGates{fail: map[string]string{"go vet": strings.Join(long, "\n") + "\n"}}
 	f.install(t)
 	rs := runGates(context.Background(), dir, "HEAD", files)
-	if got, want := gateStatuses(rs), "ok gofmt, ok build, FAIL vet, skip golangci-lint, ok complexity, ok test"; got != want {
+	if got, want := gateStatuses(rs), "ok gofmt, ok build, FAIL vet, skip golangci-lint, ok complexity, ok test, ok quality"; got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
 	rows := rs[2].Findings

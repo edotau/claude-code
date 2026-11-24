@@ -232,7 +232,7 @@ func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 	return
 }
 
-// laneChanges re-reads the changes against merge-base(main, HEAD) when none lie in --path, so a committed lane is still checked.
+// laneChanges re-reads changes against merge-base(main, HEAD) when none lie in --path, so a committed lane is checked.
 func laneChanges(ctx context.Context, in diffIn) (string, []DiffFile, error) {
 	mb, err := resolveBase(ctx, in.root, "main")
 	if err != nil {

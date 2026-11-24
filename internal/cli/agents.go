@@ -451,7 +451,7 @@ func cmdAgentsDiff(args []string) int {
 		return nil
 	})
 	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
-	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity, test and docs on the touched packages")
+	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity, test, quality and docs on the touched packages")
 	var gates []string
 	fs.Func("gates", "gates: lint, docs, yaml, shell, test or names; comma list", func(v string) error {
 		gates = append(gates, v)
