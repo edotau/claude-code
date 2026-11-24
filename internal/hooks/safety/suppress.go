@@ -193,15 +193,19 @@ func singleFileAdditions(path string, ti map[string]any) []addition {
 			out = append(out, addition{path, s, existingLines(path)})
 		}
 	}
+	var src string
 	if parts, ok := ti["new_source"].([]any); ok { // a source-line array
 		var sb strings.Builder
 		for _, p := range parts {
 			s, _ := p.(string)
 			sb.WriteString(strings.TrimSuffix(s, "\n") + "\n")
 		}
-		out = append(out, addition{path, sb.String(), existingText(path)})
-	} else if s := strField(ti, "new_source"); s != "" {
-		out = append(out, addition{path, s, existingText(path)})
+		src = sb.String()
+	} else {
+		src = strField(ti, "new_source")
+	}
+	if src != "" && !isProseMagic(src) {
+		out = append(out, addition{path, src, existingText(path)})
 	}
 	pairs, _ := ti["edits"].([]any)
 	for _, p := range append(pairs, ti) {
@@ -268,6 +272,12 @@ type nbCell struct {
 	Source   json.RawMessage `json:"source"`
 }
 
+// isProseMagic is a notebook cell whose cell magic renders prose (%%markdown, %%html), not code.
+func isProseMagic(src string) bool {
+	head := strings.TrimLeft(src, " \t\r\n")
+	return strings.HasPrefix(head, "%%markdown") || strings.HasPrefix(head, "%%html")
+}
+
 // notebookCodeAdditions are an .ipynb Write body's code-cell sources, checked like NotebookEdit's; false otherwise.
 func notebookCodeAdditions(path, body string) ([]addition, bool) {
 	if !strings.EqualFold(filepath.Ext(path), ".ipynb") {
@@ -294,8 +304,8 @@ func notebookCodeAdditions(path, body string) ([]addition, bool) {
 		default:
 			return nil, false
 		}
-		if head := strings.TrimLeft(one, " \t\r\n"); strings.HasPrefix(head, "%%markdown") || strings.HasPrefix(head, "%%html") {
-			continue // a rendering cell magic is prose, not code
+		if isProseMagic(one) {
+			continue
 		}
 		out = append(out, addition{path, one, known})
 	}
