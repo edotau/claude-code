@@ -179,6 +179,14 @@ func pickMoved(ctx context.Context, pick string) bool {
 	return want != "" && pick != want
 }
 
+// spelledPick is the selected entry as the pick returns it; "" when nothing was selected.
+func spelledPick(p *providers.Provider, selected string) string {
+	if selected == "" {
+		return ""
+	}
+	return providers.SpellPin(p, selected)
+}
+
 // PickRotation orders by hist under one lock, keeping holds on account; nil p skips the listing.
 // A model in dear (entry -> turns) is passed over, sent to the back, until it has sat out turns-1 of its turns.
 func PickRotation(ctx context.Context, agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, error) {
@@ -190,11 +198,11 @@ func PickRotation(ctx context.Context, agent, account, hist string, p *providers
 	err := updateCtx(ctx, func(s State) {
 		e := s[hist]
 		selected, passed := leastRecent(s[account], e, agent, p, pool, dear, now)
-		if selected == "" {
+		if pickMoved(ctx, spelledPick(p, selected)) {
+			moved = ErrPickMoved
 			return
 		}
-		if pickMoved(ctx, providers.SpellPin(p, selected)) {
-			moved = ErrPickMoved
+		if selected == "" {
 			return
 		}
 		model = providers.SpellPin(p, selected)

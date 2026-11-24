@@ -292,3 +292,12 @@ func TestPickRotationExpectedPick(t *testing.T) {
 		t.Fatalf("matching pick = %q, %v; want %q", m, err, peek)
 	}
 }
+
+// A pool emptied since the peek refuses a validated pick instead of stamping nothing and reporting success.
+func TestPickRotationExpectedPickGone(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx := WithExpectedPick(context.Background(), "a")
+	if m, err := PickRotation(ctx, "opencode", "acct", "acct", nil, nil, nil, time.Now()); !errors.Is(err, ErrPickMoved) || m != "" {
+		t.Fatalf("emptied pool = %q, %v; want ErrPickMoved", m, err)
+	}
+}
