@@ -128,17 +128,6 @@ func TestReviewDecide(t *testing.T) {
 	}
 }
 
-func TestReviewHandbackNotificationFile(t *testing.T) {
-	f := filepath.Join(t.TempDir(), "out.txt")
-	if err := os.WriteFile(f, []byte("DONE.\n1. MEDIUM - parser leaks on empty input\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	in := core.ParseInput(strings.NewReader(`{"prompt":` + jsonStr("<task-notification><output-file>"+f+"</output-file><summary>done</summary></task-notification>") + `}`))
-	if r := ReviewHandback(in); !strings.Contains(r.Context, "parser leaks") {
-		t.Errorf("notification file not read: %q", r.Context)
-	}
-}
-
 func TestReviewDecideSkipsDispatchedAgents(t *testing.T) {
 	t.Setenv(proc.DispatchIDEnv, "d1")
 	if r := stopResult(t, []string{transcriptText("Want me to fix it?")}, false); r.Decision == core.Block {

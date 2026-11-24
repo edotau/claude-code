@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -26,7 +25,6 @@ var unfixedRules = []struct{ match, unless *regexp.Regexp }{
 }
 
 var (
-	outputFile   = regexp.MustCompile(`<output-file>([^<]+)</output-file>`)
 	clauseSplit  = regexp.MustCompile(`[;.]\s+|;|,?\s+(?:but|however|yet)\s+`)
 	cleanClause  = regexp.MustCompile(`(?i)^\W*(?:no|none|zero|0)\s|^\W*all (?:were |are )?(?:fixed|resolved)\b`)
 	numberedItem = regexp.MustCompile(`^\W*\d+[.)]\s.*\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b`)
@@ -44,9 +42,6 @@ func ReviewHandback(in *core.Input) core.Result {
 	report := strings.Join(responseStrings(in.Field("tool_response"), nil), "\n")
 	if strings.Contains(in.Prompt, "<task-notification") {
 		report = in.Prompt // a background leaf's report arrives as a prompt
-		if m := outputFile.FindStringSubmatch(in.Prompt); m != nil && filepath.IsAbs(m[1]) {
-			report += "\n" + string(tailOf(m[1]))
-		}
 	}
 	for l := range strings.SplitSeq(report, "\n") {
 		if l = strings.TrimSpace(l); l != "" && unfixedLine(l) && len(lines) < maxHandbackLines {
