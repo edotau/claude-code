@@ -40,9 +40,9 @@ Task:
 
 ## Reporting contract
 
-Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID --kind review|implementation|audit|research --stdin`
+{{if .Report}}Write the full report to the Report path above.
+{{else}}Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID --kind review|implementation|audit|research --stdin`
 (body on stdin; it prints the path); with no dispatch id, to {{.ReportsDir}}/YYYY-MM-DD-<name>.md.
-{{if .Report}}Use the Report path above.
 {{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
