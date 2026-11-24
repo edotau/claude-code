@@ -38,6 +38,8 @@ func TestProgressLine(t *testing.T) {
 			"pi · m · 1m30s · compacting 12s · 3 tools · compacting: overflow"},
 		{"retrying", "pi", "m", "▸ retry: attempt 1/3 retry_in=4000ms\n", 90 * time.Second, 1 * time.Second, 3, 80,
 			"pi · m · 1m30s · retrying 4s · 3 tools · attempt 1/3 retry_i…"},
+		{"retry wait over", "pi", "m", "▸ retry: attempt 1/3 retry_in=4000ms\n", 90 * time.Second, 9 * time.Second, 3, 80,
+			"pi · m · 1m30s · last event 9s ago · 3 tools · attempt 1/3 retry_i…"},
 		{"compaction ended", "pi", "m", "▸ phase: compacting: x\n▸ phase: running: compacted 1→0\n", 90 * time.Second, 1 * time.Second, 3, 80,
 			"pi · m · 1m30s · last event 1s ago · 3 tools · running: compacted …"},
 		{"clip", "codex", "gpt-6.1-sol", "▸ tool: go test ./... -run TestSomethingVeryLong\n", 252 * time.Second, 8 * time.Second, 23, 80,
