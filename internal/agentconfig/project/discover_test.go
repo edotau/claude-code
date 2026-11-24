@@ -357,7 +357,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode", "pi"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
@@ -365,12 +365,16 @@ func TestAgentFilesTie(t *testing.T) {
 // Each external worker type bakes its one typed ask, --agent matching the file: nobody composes the line.
 func TestExternalTypesBakeTheirAsk(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+	for _, name := range []string{"codex", "copilot", "gemini", "opencode", "pi"} {
 		data, err := os.ReadFile(filepath.Join(root, "agents", name+".md"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		ask := "claude-code agents ask --background --agent " + name + " --provider databricks --tools --timeout 60m - < PATH"
+		mode := "" // pi is the code-mode type: rtk stays off inside its run
+		if name == "pi" {
+			mode = " --codemode on"
+		}
+		ask := "claude-code agents ask --background --agent " + name + " --provider databricks --tools" + mode + " --timeout 60m - < PATH"
 		for _, want := range []string{ask, "claude-code agents brief --path " + name} {
 			if !strings.Contains(string(data), want) {
 				t.Errorf("agents/%s.md lacks %q", name, want)
@@ -382,9 +386,6 @@ func TestExternalTypesBakeTheirAsk(t *testing.T) {
 func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 	root := repoRoot(t)
 	for _, name := range []string{"codex", "copilot", "opencode", "pi"} {
-		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); name == "pi" && !os.IsNotExist(err) {
-			t.Fatalf("pi relay file should be absent: %v", err) // the external relays are Pi-run types; /<agent> stays carried
-		}
 		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
 			t.Fatal(err)
