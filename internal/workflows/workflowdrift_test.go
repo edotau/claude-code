@@ -32,6 +32,7 @@ func TestWorkflowPromptOutputs(t *testing.T) {
 		"engineer":  assets.WorkflowEngineerPromptsSource(),
 		"evaluator": assets.WorkflowEvaluatorPromptsSource(),
 		"workers":   assets.WorkflowWorkersPromptsSource(),
+		"preflight": assets.WorkflowPreflightPromptsSource(),
 		"looper":    assets.WorkflowLooperPromptsSource(),
 	}
 	input, err := json.Marshal(fixture)

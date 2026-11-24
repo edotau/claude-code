@@ -327,14 +327,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "deps": [
-        "EXT"
-      ],
-      "original": null
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "deps": [
         "a"
@@ -428,14 +420,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "deps": [
-        "EXT"
-      ],
-      "original": null
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "deps": [],
       "original": null
@@ -483,6 +467,14 @@
       "name": "looperContextRules",
       "deps": [
         "a"
+      ],
+      "original": null
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "deps": [
+        "EXT"
       ],
       "original": null
     }
@@ -6040,12 +6032,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 0,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 0,
       "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
@@ -6097,12 +6083,6 @@
       "name": "workersLenses",
       "case": 1,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 1,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -6160,12 +6140,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 2,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 2,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6217,12 +6191,6 @@
       "name": "workersLenses",
       "case": 3,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 3,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -6280,12 +6248,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 4,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 4,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6340,12 +6302,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 5,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 5,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6397,12 +6353,6 @@
       "name": "workersLenses",
       "case": 6,
       "sha256": "fb3b3749f692651e23e1ca2e2654ec10aa1eecc2af21e3765733ae4cc9a505c2"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 6,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "workers",
@@ -6460,12 +6410,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 7,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 7,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6517,12 +6461,6 @@
       "name": "workersLenses",
       "case": 8,
       "sha256": "fb3b3749f692651e23e1ca2e2654ec10aa1eecc2af21e3765733ae4cc9a505c2"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 8,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "workers",
@@ -6580,12 +6518,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 9,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 9,
       "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
@@ -6640,12 +6572,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 10,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 10,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6697,12 +6623,6 @@
       "name": "workersLenses",
       "case": 11,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 11,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -6760,12 +6680,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 12,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 12,
       "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
@@ -6817,12 +6731,6 @@
       "name": "workersLenses",
       "case": 13,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 13,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -6880,12 +6788,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 14,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 14,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -6937,12 +6839,6 @@
       "name": "workersLenses",
       "case": 15,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 15,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -7000,12 +6896,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 16,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 16,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -7060,12 +6950,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 17,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 17,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -7117,12 +7001,6 @@
       "name": "workersLenses",
       "case": 18,
       "sha256": "fb3b3749f692651e23e1ca2e2654ec10aa1eecc2af21e3765733ae4cc9a505c2"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 18,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "workers",
@@ -7180,12 +7058,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 19,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 19,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -7237,12 +7109,6 @@
       "name": "workersLenses",
       "case": 20,
       "sha256": "fb3b3749f692651e23e1ca2e2654ec10aa1eecc2af21e3765733ae4cc9a505c2"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 20,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "workers",
@@ -7300,12 +7166,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 21,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 21,
       "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
@@ -7360,12 +7220,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 22,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 22,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -7417,12 +7271,6 @@
       "name": "workersLenses",
       "case": 23,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 23,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -7480,12 +7328,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 24,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 24,
       "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
@@ -7537,12 +7379,6 @@
       "name": "workersLenses",
       "case": 25,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 25,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -7600,12 +7436,6 @@
     },
     {
       "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 26,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "workers",
       "name": "workersFocus",
       "case": 26,
       "sha256": "d9c3d3b45856b455322ab8d705b1675f51d60766da3525526265c46275be9600"
@@ -7657,12 +7487,6 @@
       "name": "workersLenses",
       "case": 27,
       "sha256": "40da9863e3ed9ad543614eef10fc4278d89bbf4bc62e5c51e67e0c622576dadd"
-    },
-    {
-      "file": "workers",
-      "name": "workersPreflightBrief",
-      "case": 27,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "workers",
@@ -7723,12 +7547,6 @@
       "name": "evaluatorGroundTruth",
       "case": 0,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 0,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -7768,12 +7586,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 1,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 1,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -7810,12 +7622,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 2,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 2,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -7849,12 +7655,6 @@
       "name": "evaluatorGroundTruth",
       "case": 3,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 3,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -7894,12 +7694,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 4,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 4,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -7933,12 +7727,6 @@
       "name": "evaluatorGroundTruth",
       "case": 5,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 5,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -7978,12 +7766,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 6,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 6,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8017,12 +7799,6 @@
       "name": "evaluatorGroundTruth",
       "case": 7,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 7,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -8062,12 +7838,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 8,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 8,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8101,12 +7871,6 @@
       "name": "evaluatorGroundTruth",
       "case": 9,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 9,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -8146,12 +7910,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 10,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 10,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8185,12 +7943,6 @@
       "name": "evaluatorGroundTruth",
       "case": 11,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 11,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -8230,12 +7982,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 12,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 12,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8272,12 +8018,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 13,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 13,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8311,12 +8051,6 @@
       "name": "evaluatorGroundTruth",
       "case": 14,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 14,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8356,12 +8090,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 15,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 15,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8395,12 +8123,6 @@
       "name": "evaluatorGroundTruth",
       "case": 16,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 16,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8440,12 +8162,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 17,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 17,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8479,12 +8195,6 @@
       "name": "evaluatorGroundTruth",
       "case": 18,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 18,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8524,12 +8234,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 19,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 19,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8563,12 +8267,6 @@
       "name": "evaluatorGroundTruth",
       "case": 20,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 20,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8608,12 +8306,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 21,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 21,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8647,12 +8339,6 @@
       "name": "evaluatorGroundTruth",
       "case": 22,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 22,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8692,12 +8378,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 23,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 23,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8731,12 +8411,6 @@
       "name": "evaluatorGroundTruth",
       "case": 24,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 24,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
     },
     {
       "file": "evaluator",
@@ -8776,12 +8450,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 25,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 25,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8818,12 +8486,6 @@
     },
     {
       "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 26,
-      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
-    },
-    {
-      "file": "evaluator",
       "name": "evaluatorOffline",
       "case": 26,
       "sha256": "94639a745bc5d60eacaa6d218950a270b6c97fa9829b04a98a63169be19f0f9a"
@@ -8857,12 +8519,6 @@
       "name": "evaluatorGroundTruth",
       "case": 27,
       "sha256": "c0a508a45836e52c85e73e05cae684a48af3582e162b8bdbdd17a96bd0f8e553"
-    },
-    {
-      "file": "evaluator",
-      "name": "evaluatorPreflightBrief",
-      "case": 27,
-      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     },
     {
       "file": "evaluator",
@@ -9223,6 +8879,174 @@
       "name": "looperContextRules",
       "case": 27,
       "sha256": "69f61c0a3582010d8e726c0186cb78af399a6aaed95ebdd15a71264394a0264a"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 0,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 1,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 2,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 3,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 4,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 5,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 6,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 7,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 8,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 9,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 10,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 11,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 12,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 13,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 14,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 15,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 16,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 17,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 18,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 19,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 20,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 21,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 22,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 23,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 24,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 25,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 26,
+      "sha256": "ae0ba82720b78fe5923665b97de751768f10adf49ce1ceb66b599410132aeef8"
+    },
+    {
+      "file": "preflight",
+      "name": "preflightBrief",
+      "case": 27,
+      "sha256": "47f95af96e1f2ed85ae88069457d7cf16c7ae3420d549a06611ff1f2e2671920"
     }
   ]
 }

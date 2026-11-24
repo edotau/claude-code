@@ -111,6 +111,13 @@ const stepOf = (steps, name, defaults, opt) => {
 // ── end stepOf ──
 // </block:stepOf>
 
+// <block:preflightPrompts>
+/** @param {{ EXT: * }} input */
+function preflightBrief({ EXT }) {
+  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
+}
+// </block:preflightPrompts>
 // <block:evaluatorPrompts>
 function evaluatorTasks() {
   return {
@@ -154,12 +161,6 @@ Judge by diff (SHIPPED.marker present or not) and by re-running check_config.py,
 
 function evaluatorGroundTruth() {
   return {...EVALUATOR_GROUND_TRUTH}
-}
-
-/** @param {{ EXT: * }} input */
-function evaluatorPreflightBrief({ EXT }) {
-  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
 }
 
 function evaluatorOffline() {
@@ -223,7 +224,7 @@ for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9
 const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
-    evaluatorPreflightBrief({ EXT }),
+    preflightBrief({ EXT }),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)

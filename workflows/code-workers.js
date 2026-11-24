@@ -95,6 +95,13 @@ const stepOf = (steps, name, defaults, opt) => {
 // ── end stepOf ──
 // </block:stepOf>
 
+// <block:preflightPrompts>
+/** @param {{ EXT: * }} input */
+function preflightBrief({ EXT }) {
+  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
+}
+// </block:preflightPrompts>
 // <block:workersPrompts>
 /** @param {{ JOB: * }} input */
 function workersLenses({ JOB }) {
@@ -105,12 +112,6 @@ function workersLenses({ JOB }) {
   { key: 'correctness', ask: 'wrong results, bad parsing, state that disagrees with itself, broken invariants' },
   { key: 'failure', ask: 'swallowed or mishandled errors, partial writes, records or locks left behind, races, leaked secrets' },
 ]
-}
-
-/** @param {{ EXT: * }} input */
-function workersPreflightBrief({ EXT }) {
-  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
 }
 
 /** @param {{ a: * }} input */
@@ -602,7 +603,7 @@ for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9
 const EXT = [...new Map([S, ...SP].flatMap((x) => Object.values(x)).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
-    workersPreflightBrief({ EXT }),
+    preflightBrief({ EXT }),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
