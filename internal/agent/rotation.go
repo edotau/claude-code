@@ -139,6 +139,162 @@ func untieredAuto(agentName string) string {
 	return models.Sonnet
 }
 
+// roleNote is a role rotation's preflight note; "" when the dispatch did not rotate.
+type roleNote string
+
+// onto is c with the note as a preflight line, so the record and dry run name the rotated cell.
+func (n roleNote) onto(c Chain) Chain {
+	if n == "" || len(c.Dispatches) == 0 {
+		return c
+	}
+	return c.noted(string(n))
+}
+
+// rotateRole runs an untyped Claude dispatch on its role's least-recently-picked ready cell; the note says so.
+func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
+	if !untypedClaude(ctx, o) {
+		return o, ""
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return o, ""
+	}
+	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil || overlayRoutes(ov) {
+		return o, ""
+	}
+	now, role := time.Now(), dispatchRole(o.Prompt)
+	session := providers.SessionLeadContext(ctx, reg, false)
+	cells, scope := modeCells(reg, ov.ProviderMode, role, session)
+	ready, rows, skipped := readyCells(reg, o.Agent, cells, session, now)
+	head := "rotation: role " + string(role)
+	if scope != "" {
+		head += ", " + scope
+	}
+	if len(ready) == 0 {
+		return o, roleNote(joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped)))
+	}
+	cell, err := router.PickRoleCell(role, ready, !Peeking(ctx), now)
+	if err != nil {
+		head += " (pick unstamped: " + err.Error() + ")"
+	}
+	o.Provider, o.Model = rows[cell.Key()], cell.Model
+	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, o.Provider, len(ready), len(cells))
+	return o, roleNote(joinNotes(pick, skippedNote(skipped)))
+}
+
+// untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, pin, host, session or one-hop mode.
+func untypedClaude(ctx context.Context, o RunOptions) bool {
+	named := []string{o.Model, o.Provider, o.Lead, o.Account, o.Host, o.SessionID}
+	if !VaultAgentIsClaude(o.Agent) || slices.ContainsFunc(named, func(s string) bool { return s != "" }) {
+		return false
+	}
+	if o.AutoModel || o.Direct || !o.Route.IsZero() || o.Fallback == router.FallbackNone {
+		return false
+	}
+	return agentModelPinContext(ctx, o.Agent) == "" // claude's record profile is its default lead, not a typed route
+}
+
+// overlayRoutes reports an overlay that names where the dispatch runs; providerMode, effort and runner do not.
+func overlayRoutes(ov agentconfig.Overlay) bool {
+	identity := ov.Identity != "" && ov.Identity != providers.IdentityAuto
+	return ov.Provider != "" || ov.Profile != "" || ov.Model != "" || ov.Account != "" || ov.Host != "" ||
+		ov.Remote != "" || identity || ov.Fallback == router.FallbackNone
+}
+
+// dispatchRole is the role a brief's typed `Tier:` line names: deep is an owner, any other tier or none the fleet.
+func dispatchRole(prompt string) router.Role {
+	if m := tierLineRe().FindStringSubmatch(WithoutReviewLoop(prompt)); m != nil && strings.EqualFold(m[1], "deep") {
+		return router.RoleOwner
+	}
+	return router.RoleFleet
+}
+
+// modeCells is role's cells under providerMode: a start on an exclusive provider stays there, others never get it.
+func modeCells(reg *providers.Registry, modes map[string]string, role router.Role, session string) ([]router.RoleCell, string) {
+	provs := router.ClaudeProviders(reg)
+	cells := router.RoleCells(role, provs)
+	exclusive := func(name string) bool {
+		m, _ := router.ParseProviderMode(modes[name]) // validated when the overlay loaded
+		return m == router.ModeExclusive
+	}
+	if start := router.RoleProviderOf(reg, session); start != "" && exclusive(start) {
+		return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Provider != start }), "stays on exclusive " + start
+	}
+	var off []string
+	for _, p := range provs {
+		if exclusive(p.Name) {
+			off = append(off, p.Name)
+		}
+	}
+	cells = slices.DeleteFunc(cells, func(c router.RoleCell) bool { return exclusive(c.Provider) })
+	if len(off) == 0 {
+		return cells, ""
+	}
+	return cells, "exclusive " + strings.Join(off, ", ") + " kept out"
+}
+
+// readyCells keeps the cells with a ready serving row (the session's first), mapping each to it; the rest say why.
+func readyCells(reg *providers.Registry, agentName string, cells []router.RoleCell, session string, now time.Time) (
+	ready []router.RoleCell, rows map[string]string, skipped []string) {
+	st, rows := router.LoadState(), map[string]string{}
+	for _, c := range cells {
+		names := router.RoleRows(reg, c.Provider)
+		if i := slices.Index(names, session); i > 0 {
+			names = append([]string{session}, slices.Delete(slices.Clone(names), i, i+1)...)
+		}
+		var why []string
+		for _, name := range names {
+			if reason := rowNotReady(reg.Row(name), st, agentName, c.Model, now); reason != "" {
+				why = append(why, name+" "+reason)
+				continue
+			}
+			rows[c.Key()] = name
+			break
+		}
+		if rows[c.Key()] == "" {
+			skipped = append(skipped, c.Key()+": "+strings.Join(why, ", "))
+			continue
+		}
+		ready = append(ready, c)
+	}
+	return ready, rows, skipped
+}
+
+// rowNotReady is why p cannot run alias's Claude model for agent now: credential, login, cooling, tier or listing.
+func rowNotReady(p *providers.Provider, st router.State, agentName, alias string, now time.Time) string {
+	switch {
+	case p == nil:
+		return "is no registry row"
+	case !providers.CredentialPresent(p):
+		return "has no credential"
+	case router.LoginDead(p):
+		return "login is dead"
+	case st.CoolingUntil(router.AccountOf(p)).After(now):
+		return "is cooling"
+	case models.FamilyKind(p.Models[alias]) != models.FamilyClaude:
+		return "maps no Claude " + alias
+	}
+	if ok, why := rowServes(agentName, p); !ok {
+		return why
+	}
+	wire, err := spellModel(&ModelRoute{}, p, agentName, alias, now)
+	if err != nil {
+		return "cannot spell " + alias
+	}
+	if p.Preset == providers.PresetDatabricks && router.ListedNotReady(p, wire, now) {
+		return "lists " + wire + " not READY"
+	}
+	return ""
+}
+
+func skippedNote(skipped []string) string {
+	if len(skipped) == 0 {
+		return ""
+	}
+	return "skipped " + strings.Join(skipped, "; ")
+}
+
 // rotationRows are the rows agent rotates on: every serving workspace under the pool pin, else its pinned row.
 func rotationRows(reg *providers.Registry, agentName string) []*providers.Provider {
 	if !rotatesUnderAuto(agentName) {

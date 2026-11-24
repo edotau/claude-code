@@ -280,3 +280,30 @@ type onlyKeep struct {
 }
 
 func (o onlyKeep) Runnable(_ *providers.Provider, m string) bool { return m == o.id }
+
+// Only a typed `Tier: deep` makes an owner; an exclusive provider keeps its own starts and takes no one else's.
+func TestRoleRotationModes(t *testing.T) {
+	if dispatchRole("Tier: deep\ndo it") != router.RoleOwner || dispatchRole("design the security audit") != router.RoleFleet {
+		t.Fatal("role must come from the Tier line only")
+	}
+	tiers := func(prefix string) map[string]string {
+		return map[string]string{"opus": prefix + "claude-opus-5-5", "sonnet": prefix + "claude-sonnet-5-5", "haiku": prefix + "claude-haiku-5-5"}
+	}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"ultra": {Name: "ultra", Provider: "anthropic", Models: tiers("")},
+		"dev":   {Name: "dev", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers("databricks-")},
+		"qa":    {Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers("databricks-")},
+	}}
+	excl := map[string]string{"anthropic": "exclusive"}
+	if cells, _ := modeCells(reg, nil, router.RoleOwner, "dev"); len(cells) != 3 {
+		t.Fatalf("rotate: owner cells = %v, want 3", cells)
+	}
+	if cells, scope := modeCells(reg, excl, router.RoleFleet, "dev"); len(cells) != 4 || slices.ContainsFunc(cells,
+		func(c router.RoleCell) bool { return c.Provider == "anthropic" }) || !strings.Contains(scope, "kept out") {
+		t.Fatalf("exclusive elsewhere: cells %v scope %q", cells, scope)
+	}
+	if cells, scope := modeCells(reg, excl, router.RoleFleet, "ultra"); len(cells) != 2 || cells[0].Provider != "anthropic" ||
+		!strings.Contains(scope, "stays on") {
+		t.Fatalf("exclusive start: cells %v scope %q", cells, scope)
+	}
+}

@@ -92,6 +92,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return o, nil, Chain{}, clientUsageError{err}
 	}
+	o, rotated := rotateRole(ctx, o)
 	r, err := Lookup(o.Agent)
 	if err != nil {
 		return o, nil, Chain{}, err
@@ -102,6 +103,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 		}
 	}
 	ch, err := c.route(ctx, r, o)
+	ch = rotated.onto(ch)
 	if err == nil {
 		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
 			err = clientUsageError{perr}
