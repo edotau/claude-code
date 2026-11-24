@@ -35,7 +35,7 @@ func TestWireArgvAndEnv(t *testing.T) {
 	if !slices.Equal(argv, want) {
 		t.Errorf("argv = %v, want %v", argv, want)
 	}
-	wantEnv := []string{"PI_CODING_AGENT_DIR", "HARNESS_PROXY_API_KEY", nonceFileEnv, nonceValueEnv}
+	wantEnv := []string{"PI_CODING_AGENT_DIR", "HARNESS_PROXY_API_KEY", nonceFileEnv, nonceValueEnv, "CODEMODE"}
 	if !slices.Equal(envNames(env), wantEnv) || env[1] != "HARNESS_PROXY_API_KEY="+testCred {
 		t.Errorf("env names = %v, want %v", envNames(env), wantEnv)
 	}

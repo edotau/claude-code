@@ -76,3 +76,13 @@ func TestCodeModeOffAndEmptyReadFalse(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchPinsCodemodeOverInherited(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no shim binary: the unusable-shims path
+	for mode, want := range map[string]string{"": "CODEMODE=", "off": "CODEMODE=off", "on": "CODEMODE=on"} {
+		got := Launch([]string{"CODEMODE=on", "A=1"}, mode, io.Discard)
+		if !slices.Contains(got, want) || slices.Contains(got, "CODEMODE=on") != (mode == "on") {
+			t.Errorf("Launch(%q) env = %v, want %s only", mode, got, want)
+		}
+	}
+}

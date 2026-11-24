@@ -72,11 +72,10 @@ func Ensure(dir, bin string) error {
 
 // Launch puts Dir first on PATH, sets CodemodeEnv and, outside code mode, BASH_ENV; a failure notes, env unchanged.
 func Launch(env []string, codemode string, notice io.Writer) []string {
-	if codemode != "" { // off included, so a vault CODEMODE never reaches the child; set even when the shims are unusable: the hook and ForModel read it too
-		env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-			return strings.HasPrefix(kv, CodemodeEnv+"=")
-		}), CodemodeEnv+"="+codemode)
-	}
+	// set on every path, even with unusable shims, so an inherited CODEMODE never reaches the child
+	env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		return strings.HasPrefix(kv, CodemodeEnv+"=")
+	}), CodemodeEnv+"="+codemode)
 	if runtime.GOOS == "windows" {
 		return env
 	}
