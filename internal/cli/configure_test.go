@@ -464,7 +464,7 @@ func fmtExit(t *testing.T, args ...string) (int, string) {
 // TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck: --fmt fixes the live order; bad files and --check still fail.
 func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
-	const bad = `{"model":"m","fallbackModel":["sonnet","opus"],"env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
+	const bad = `{"model":"m","fallbackModel":["sonnet","opus"],"availableModels":["z","a"],"env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
 	if err := os.WriteFile(live, []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	if code, _ := fmtExit(t, "--fmt", "--check"); code != 0 {
 		t.Errorf("still out of order after --fmt, exit %d", code)
 	}
-	if got, _ := os.ReadFile(live); strings.Index(string(got), `"sonnet"`) > strings.Index(string(got), `"opus"`) {
+	if got, _ := os.ReadFile(live); strings.Index(string(got), `"sonnet"`) > strings.Index(string(got), `"opus"`) || strings.Index(string(got), `"z"`) > strings.Index(string(got), `"a"`) {
 		t.Errorf("fallbackModel priority order changed:\n%s", got)
 	}
 }
