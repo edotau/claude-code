@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,5 +96,35 @@ func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	got := stampRunner(Record{Agent: "pi"}, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
 	if got.Type != "kimi" || got.Runner != "pi" || got.Asked != "" {
 		t.Fatalf("pi ask: runner %q type %q asked %q", got.Runner, got.Type, got.Asked)
+	}
+}
+
+func TestStampRunnerCodeModeLabelIsPiOnly(t *testing.T) {
+	rec := Record{Agent: "claude", Request: RunOptions{Codemode: "on"}}
+	if res := stampRunner(rec, wire.Result{Agent: "claude", Model: "claude-sonnet-5-5"}); res.Type != "claude" {
+		t.Fatalf("claude code-mode run typed %q", res.Type)
+	}
+	res := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-gpt-6-sol", Hops: []wire.Hop{{Agent: "pi"}}})
+	if res.Type != "pi" {
+		t.Fatalf("pi code-mode run typed %q", res.Type)
+	}
+}
+
+func TestCodemodeEnv(t *testing.T) {
+	cases := []struct {
+		agent, mode string
+		want        []string
+	}{
+		{"claude", "on", []string{"CODEMODE=on"}},
+		{"opencode", "on", []string{"CODEMODE=on", "OPENCODE_EXPERIMENTAL_CODE_MODE=on"}},
+		{"opencode", "off", nil},
+		{"opencode", "", nil},
+		{"codex", "on", nil},
+		{"pi", "on", nil},
+	}
+	for _, c := range cases {
+		if got := CodemodeEnv(c.agent, c.mode); !slices.Equal(got, c.want) {
+			t.Errorf("CodemodeEnv(%s,%s) = %v, want %v", c.agent, c.mode, got, c.want)
+		}
 	}
 }

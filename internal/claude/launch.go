@@ -397,14 +397,20 @@ func mergeUserSettings(plan *agent.Plan) error {
 	return putNormalized(plan, doc)
 }
 
-// mergeDoc lays user over base; autoMode and permissions lists append, like Claude Code's own merge.
+// mergeDoc lays user over base; autoMode and permissions lists append and env keys union, like Claude Code's own merge.
 func mergeDoc(base, user map[string]any) map[string]any {
 	out := maps.Clone(base)
 	for k, v := range user {
 		b, bok := out[k].(map[string]any)
 		u, uok := v.(map[string]any)
-		if (k != "autoMode" && k != "permissions") || !bok || !uok {
+		if (k != "autoMode" && k != "permissions" && k != "env") || !bok || !uok {
 			out[k] = v
+			continue
+		}
+		if k == "env" {
+			m := maps.Clone(b)
+			maps.Copy(m, u)
+			out[k] = m
 			continue
 		}
 		m := maps.Clone(b)
@@ -775,4 +781,33 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 	}
 	plan, err := anthropicPlan(context.Background(), o, rest, secret)
 	return agent.RunPlan("claude", plan, o.LaunchOptions, err)
+}
+
+// codemodeSettings is the --settings arg that turns the row's vendor code mode on; the var rides settings env only.
+func codemodeSettings(mode string) ([]string, error) {
+	row := agentid.Routing(agentid.Claude).CodeMode
+	if agent.CodemodeEnv(agentid.Claude, mode) == nil {
+		return nil, nil
+	}
+	doc, err := json.Marshal(map[string]any{"env": map[string]string{row.Var: "on"}})
+	return []string{"--settings", string(doc)}, err
+}
+
+// checkCodemodeRoute refuses code mode off the Anthropic API: profile p (nil if unresolved) and the launch base URL.
+func checkCodemodeRoute(p *providers.Provider, launchBase string) error {
+	direct := p != nil && p.Protocol == providers.ProtocolAnthropic && onAnthropicAPI(p.BaseURL)
+	if !direct || !onAnthropicAPI(launchBase) {
+		return errors.New("claude: Code Mode (experimental) isn't available: for now claude -p and Agent SDK apps get it " +
+			"only on the Anthropic API, not through a cloud provider or a gateway")
+	}
+	return nil
+}
+
+// onAnthropicAPI: the default endpoint (empty) or an api.anthropic.com URL.
+func onAnthropicAPI(base string) bool {
+	if strings.TrimSpace(base) == "" {
+		return true
+	}
+	u, err := url.Parse(base)
+	return err == nil && strings.EqualFold(u.Hostname(), "api.anthropic.com")
 }

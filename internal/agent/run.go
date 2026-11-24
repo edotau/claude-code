@@ -368,6 +368,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 		return wire.Result{Agent: r.Name(), Status: wire.StatusError, NotStarted: true}, retry.Fatal(r.Name(), err)
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
+	req = withCodemodeEnv(r.Name(), req)
 	res := wire.Result{Agent: r.Name(), Status: wire.StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
@@ -597,7 +598,7 @@ type RunOptions struct {
 	KeepEnv                                             []string   // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool       // Direct: agent keeps the provider route, skips the router
 	Fleet                                               bool       // copilot only: run in fleet mode (parallel subagents)
-	Codemode                                            string     `json:"codemode,omitempty"` // pi only: off|on|only, Pi's codemode tool
+	Codemode                                            string     `json:"codemode,omitempty"` // off|on|only: the agent's code mode (agentid.CodeMode row)
 	NoTools                                             bool       // claude only: answer from the provider directly, no claude process
 	NoPersist                                           bool       // claude, codex: no session persistence
 	DebugFile                                           string     // claude, gemini: debug log at <path>

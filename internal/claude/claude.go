@@ -187,16 +187,39 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(p.Argv, toolArgs(req)...)
+	cmArgs, err := codemodeSettings(codemodeMode(req))
+	if err != nil {
+		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
+	}
+	if len(cmArgs) > 0 {
+		if err := checkCodemodeRoute(launchTarget(ctx, req).Provider, ""); err != nil {
+			return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
+		}
+		args = append(args, cmArgs...)
+	}
 	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
+	}
+	if len(cmArgs) > 0 {
+		if err := checkCodemodeRoute(launchTarget(ctx, req).Provider, cl.Set[proc.EnvAnthropicBaseURL]); err != nil {
+			return nil, nil, cl, retry.Fatal("claude", err)
+		}
 	}
 	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
 	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
 	return cmd, tail, cl, err
+}
+
+// codemodeMode is the request's code mode, tools only: no tools means no scripts to run.
+func codemodeMode(req agent.RunOptions) string {
+	if !req.Tools {
+		return ""
+	}
+	return req.Codemode
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.

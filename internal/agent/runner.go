@@ -7,6 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 // engineOf is the agent that ran res: its last hop's, else the result's own.
@@ -38,6 +39,7 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 	if engine == agentid.Pi && rec.Agent != agentid.Pi && carriedFor(res, rec.Agent) {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
+	// the pi label is for a pi code-mode run only: a claude or opencode one keeps its own name
 	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
 	if rec.Agent != agentid.Pi && !codeMode {
 		res.Type = cmp.Or(res.Asked, res.Agent) // a typed agent is never relabelled by its model's family
@@ -70,3 +72,24 @@ func RowLabel(r Record) string {
 
 // RunnerOf is the runner recorded for r's run; an older record names none and stays unclassified.
 func RunnerOf(r Record) string { return r.Runner }
+
+// CodemodeEnv is CODEMODE plus the agent's vendor switch for a code-mode run; nil when off or the agent has no var row.
+func CodemodeEnv(name, mode string) []string {
+	row := agentid.Routing(name).CodeMode
+	if !rtkwrap.CodemodeOn(mode) || row.Var == "" {
+		return nil
+	}
+	env := []string{rtkwrap.CodemodeEnv + "=on"}
+	if !row.ViaSettings { // the vendor reads that one from --settings, never the process env
+		env = append(env, row.Var+"=on")
+	}
+	return env
+}
+
+// withCodemodeEnv layers the code-mode env after --env, so the typed flag wins; tools off means no scripts.
+func withCodemodeEnv(name string, req RunOptions) RunOptions {
+	if req.Tools {
+		req.Env = slices.Concat(req.Env, CodemodeEnv(name, req.Codemode))
+	}
+	return req
+}

@@ -1083,3 +1083,37 @@ func TestLaunchVaultKeyReachesClaudeNotAgentCLI(t *testing.T) {
 		t.Fatal("vendor CLI child env kept the vault key")
 	}
 }
+
+func TestCodemodeSettingsAndRouteCheck(t *testing.T) {
+	args, err := codemodeSettings("on")
+	if err != nil || len(args) != 2 || args[0] != "--settings" || !strings.Contains(args[1], `"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE":"on"`) {
+		t.Fatalf("args %v err %v", args, err)
+	}
+	if args, _ := codemodeSettings("off"); args != nil {
+		t.Fatalf("off gave %v", args)
+	}
+	direct := &providers.Provider{Protocol: providers.ProtocolAnthropic, BaseURL: "https://api.anthropic.com"}
+	if err := checkCodemodeRoute(direct, ""); err != nil {
+		t.Fatalf("direct refused: %v", err)
+	}
+	for name, c := range map[string]struct {
+		p    *providers.Provider
+		base string
+	}{
+		"proxy":   {direct, "http://127.0.0.1:9"},
+		"gateway": {&providers.Provider{Protocol: providers.ProtocolAnthropic, BaseURL: "https://gw.example.com"}, ""},
+		"openai":  {&providers.Provider{Protocol: "openai", BaseURL: "https://api.anthropic.com"}, ""},
+		"nil":     {nil, ""},
+	} {
+		if err := checkCodemodeRoute(c.p, c.base); err == nil {
+			t.Errorf("%s: want refusal", name)
+		}
+	}
+}
+
+func TestMergeDocUnionsEnv(t *testing.T) {
+	doc := mergeDoc(map[string]any{"env": map[string]any{"A": "1"}}, map[string]any{"env": map[string]any{"B": "2"}})
+	if env := doc["env"].(map[string]any); env["A"] != "1" || env["B"] != "2" {
+		t.Fatalf("env merge %v", env)
+	}
+}
