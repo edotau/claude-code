@@ -23,7 +23,8 @@ var suppressPatterns = []string{
 	`#\s*noqa\b`, `#\s*ruff:\s*noqa\b`, `#\s*type:\s*ignore\b`, `#\s*pyright:\s*ignore\b`,
 	`#\s*mypy:\s*ignore-errors\b`, `#\s*pylint:\s*(disable|skip-file)\b`, `#\s*shellcheck\s+disable\b`,
 	`//\s*nolint(nextline)?\b`, `(//|/\*|#)\s*eslint-disable\b`, `(//|/\*)\s*@ts-(ignore|nocheck|expect-error)\b`,
-	`#!?\[\s*allow\s*\(`,
+	`#!?\[\s*allow\s*\(`, `#\s*pyre-(ignore|fixme)\b`, `(//|#)\s*#?nosec\b`, `(//|#)\s*nosemgrep\b`,
+	`//\s*noinspection\b`, `@SuppressWarnings\(`, `#\s*pragma\s+(warning\s*\(\s*disable\b|.*\bdiagnostic\s+ignored\b)`,
 }
 
 var suppressMarkers = sync.OnceValue(func() *regexp.Regexp {
@@ -186,7 +187,11 @@ func strField(m map[string]any, keys ...string) string {
 func singleFileAdditions(path string, ti map[string]any) []addition {
 	var out []addition
 	if s := strField(ti, "content"); s != "" {
-		out = append(out, addition{path, s, existingLines(path)})
+		if cells, ok := notebookCodeAdditions(path, s); ok {
+			out = append(out, cells...)
+		} else {
+			out = append(out, addition{path, s, existingLines(path)})
+		}
 	}
 	if parts, ok := ti["new_source"].([]any); ok { // a source-line array
 		var sb strings.Builder
@@ -255,4 +260,41 @@ func existingText(path string) func(string) bool {
 		}
 		return known(l)
 	}
+}
+
+// nbCell is the part of a notebook cell the scan reads: its type and its source (a string or a list of lines).
+type nbCell struct {
+	CellType string          `json:"cell_type"`
+	Source   json.RawMessage `json:"source"`
+}
+
+// notebookCodeAdditions are an .ipynb Write body's code-cell sources, checked like NotebookEdit's; false otherwise.
+func notebookCodeAdditions(path, body string) ([]addition, bool) {
+	if !strings.EqualFold(filepath.Ext(path), ".ipynb") {
+		return nil, false
+	}
+	var nb struct {
+		Cells *[]nbCell `json:"cells"`
+	}
+	if json.Unmarshal([]byte(body), &nb) != nil || nb.Cells == nil {
+		return nil, false
+	}
+	var out []addition
+	known := existingText(path)
+	for _, c := range *nb.Cells {
+		if c.CellType != "code" {
+			continue
+		}
+		var one string
+		var many []string
+		switch {
+		case json.Unmarshal(c.Source, &one) == nil:
+		case json.Unmarshal(c.Source, &many) == nil:
+			one = strings.Join(many, "")
+		default:
+			return nil, false
+		}
+		out = append(out, addition{path, one, known})
+	}
+	return out, true
 }
