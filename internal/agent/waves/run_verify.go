@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -88,9 +89,13 @@ func (r *runner) record(w WaveState, envelopes []Envelope) (WaveState, error) {
 
 // relFiles is vs with each absolute file made relative to dir.
 func relFiles(dir string, vs []CheckViolation) []CheckViolation {
+	root := paths.CanonDeep(dir)
 	out := slices.Clone(vs)
 	for i, v := range out {
-		if rel, err := filepath.Rel(dir, v.File); err == nil && filepath.IsAbs(v.File) {
+		if !filepath.IsAbs(v.File) {
+			continue
+		}
+		if rel, ok := paths.RelWithin(root, paths.CanonDeep(v.File)); ok {
 			out[i].File = rel
 		}
 	}

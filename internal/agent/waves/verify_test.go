@@ -411,6 +411,35 @@ func TestVerifyRecordedWritesResolveSymlinkedRepo(t *testing.T) {
 	}
 }
 
+// An owned file matches through a symlinked repo root whichever form the root and the owns take.
+func TestVerifyOwnedFileMatchesThroughSymlinkedRoot(t *testing.T) {
+	real := verifyRepo(t, map[string]string{"in/a.txt": "a\n", "other/o.txt": "o\n"})
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("cannot create a symlink here:", err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyWrite(t, link, "in/a.txt", "a2\n")
+	in := CheckUnionInput{Dir: link, Packages: []CheckPackage{{ID: "1.1", Owns: []string{filepath.Join(resolved, "in")}}}}
+	verifyOutside(t, in, "owned file, resolved owns under a symlinked root", nil)
+	in.Packages[0].Owns = []string{filepath.Join(link, "in")}
+	verifyOutside(t, in, "owned file, symlinked owns under a symlinked root", nil)
+	verifyWrite(t, link, "other/o.txt", "o2\n")
+	verifyOutside(t, in, "unowned file still outside", []string{"other/o.txt"})
+
+	abs := filepath.Join(resolved, "in", "a.txt")
+	fps, err := fingerprintFiles(link, []string{abs, filepath.Join(link, "in", "a.txt")})
+	if err != nil || fps[0] == FingerprintAbsent || fps[0] != fps[1] {
+		t.Fatalf("fingerprint of an owned path in either form: %q %v", fps, err)
+	}
+	if got := relFiles(link, []CheckViolation{{File: abs}}); got[0].File != "in/a.txt" {
+		t.Fatalf("relFiles = %q, want in/a.txt", got[0].File)
+	}
+}
+
 // Three leaves run at once in one checkout, each wrote only its own file, and every list also holds its peers' writes.
 func TestVerifyThreeParallelLeavesEachOwnTheirFiles(t *testing.T) {
 	pkgs := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}, Scoped: true},

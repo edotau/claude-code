@@ -96,12 +96,11 @@ func fingerprintFiles(dir string, files []string) ([]string, error) {
 	out := make([]string, len(files))
 	var live []string
 	var at []int // out index of each live path
-	for i, path := range files {
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, path)
-		}
-		if path = filepath.Clean(path); !paths.Within(path, dir) && !paths.Within(path, paths.StateDir()) {
-			return nil, fmt.Errorf("fingerprint %s: outside the repo %s and the state dir", path, dir)
+	realDir := paths.CanonDeep(dir)
+	for i, file := range files {
+		path, err := fingerprintPath(dir, realDir, file)
+		if err != nil {
+			return nil, err
 		}
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 			out[i] = FingerprintAbsent
@@ -127,6 +126,19 @@ func fingerprintFiles(dir string, files []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// fingerprintPath is file as a clean absolute path; a repo path matches in its own or its symlink-resolved form.
+func fingerprintPath(dir, realDir, file string) (string, error) {
+	path := file
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	path = filepath.Clean(path)
+	if !paths.Within(path, dir) && !paths.Within(paths.CanonDeep(path), realDir) && !paths.Within(path, paths.StateDir()) {
+		return "", fmt.Errorf("fingerprint %s: outside the repo %s and the state dir", path, dir)
+	}
+	return path, nil
 }
 
 // hashEach hashes files one spawn each, in order, stopping at the first error.
