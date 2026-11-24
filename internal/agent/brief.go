@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"bytes"
 	"crypto/rand"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,9 +10,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"text/template"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
@@ -31,15 +29,10 @@ type BriefInput struct {
 }
 
 // ReviewLoopRule is the standing rule every code-writing dispatch carries.
-const ReviewLoopRule = `Review loop (standing rule): after your change, get one review that lists every finding at once; fix every
-finding yourself, any severity, then one more review that checks only those fixes. Never hand back a finding unfixed
-or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.
-A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip
-it); if large, hand back naming it for a test-repair leaf.
-End every hand-back with exactly one line: "UNFIXED: none" or "UNFIXED: <item>; <item>".`
+var ReviewLoopRule = assets.ReviewLoop()
 
 // reviewLoopBlock is what WithReviewLoop appends; a replayed prompt drops it so each run decides again.
-const reviewLoopBlock = "\n\n" + ReviewLoopRule + "\n"
+var reviewLoopBlock = "\n\n" + ReviewLoopRule + "\n"
 
 // WithoutReviewLoop is prompt minus the appended rule: what replay, cutoff keys and task classification read.
 func WithoutReviewLoop(prompt string) string { return strings.ReplaceAll(prompt, reviewLoopBlock, "") }
@@ -79,9 +72,6 @@ func hopPrompt(req RunOptions) string {
 // writesCode reports whether req has write tools.
 func writesCode(req RunOptions) bool { return req.Tools && !req.NoTools }
 
-//go:embed brief.tmpl
-var briefTemplate string
-
 func (input BriefInput) validate() error {
 	if len(input.Owned) == 0 {
 		return errors.New("implementation brief requires at least one owned path")
@@ -109,24 +99,12 @@ func RenderBrief(input BriefInput) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode brief ownership: %w", err)
 	}
-	tmpl, err := template.New("brief").Parse(briefTemplate)
-	if err != nil {
-		return "", fmt.Errorf("parse brief template: %w", err)
-	}
 	codeMode := rtkwrap.CodeMode()
 	if input.CodeMode != nil {
 		codeMode = *input.CodeMode
 	}
-	var out bytes.Buffer
-	data := struct {
-		BriefInput
-		OwnedLine, ReportsDir string
-		Codemode              bool // the brief's rtk line drops out
-	}{input, string(owned), paths.MemorySubDir("reports"), codeMode}
-	if err := tmpl.Execute(&out, data); err != nil {
-		return "", fmt.Errorf("render brief: %w", err)
-	}
-	return out.String(), nil
+	return assets.BriefBody(assets.BriefFrame{Agent: input.Agent, OwnedLine: string(owned), Verify: input.Verify,
+		Report: input.Report, Task: input.Task, ReportsDir: paths.MemorySubDir("reports"), Rtk: !codeMode}), nil
 }
 
 // ParseOwned reads the first Owned: line, accepting rendered JSON or legacy whitespace-separated paths.

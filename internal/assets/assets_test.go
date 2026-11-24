@@ -146,6 +146,13 @@ var inventory = []struct {
 	{"files/hooks/notice-drain-warn.tmpl", "tmpl", "HookNoticeDrainWarn", func() []byte { return read("files/hooks/notice-drain-warn.tmpl") }},
 	{"files/hooks/notice-diverge-warn.tmpl", "tmpl", "HookNoticeDivergeWarn", func() []byte { return read("files/hooks/notice-diverge-warn.tmpl") }},
 	{"files/hooks/diverged.tmpl", "tmpl", "HookDiverged", func() []byte { return read("files/hooks/diverged.tmpl") }},
+	{"files/brief/brief.tmpl", "tmpl", "BriefBody", func() []byte { return read("files/brief/brief.tmpl") }},
+	{"files/brief/review-loop.txt", "txt", "ReviewLoop", func() []byte { return read("files/brief/review-loop.txt") }},
+	{"files/brief/loop-planner.tmpl", "tmpl", "LoopPlanner", func() []byte { return read("files/brief/loop-planner.tmpl") }},
+	{"files/brief/review-neutral.txt", "txt", "ReviewNeutral", func() []byte { return read("files/brief/review-neutral.txt") }},
+	{"files/brief/review-adversarial.tmpl", "tmpl", "ReviewAdversarial", func() []byte { return read("files/brief/review-adversarial.tmpl") }},
+	{"files/brief/takeover.tmpl", "tmpl", "TakeoverBrief", func() []byte { return read("files/brief/takeover.tmpl") }},
+	{"files/brief/explore.tmpl", "tmpl", "ExplorePrompt", func() []byte { return read("files/brief/explore.tmpl") }},
 	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
 	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
 	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
@@ -174,7 +181,7 @@ func readers(t *testing.T) map[string][]string {
 
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
-	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/",
+	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/", "renderBriefText": "files/brief/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {

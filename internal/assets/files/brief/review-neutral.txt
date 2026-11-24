@@ -1,0 +1,3 @@
+Review the attached diff for correctness, regressions, missing tests, and scope creep.
+Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
+The first line of your answer is the verdict alone: SHIP, FIX REQUIRED or BLOCK.

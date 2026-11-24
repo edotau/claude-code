@@ -15,11 +15,11 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"text/template"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
@@ -29,9 +29,6 @@ import (
 
 //go:embed loop-plan.schema.json
 var loopPlanSchema string
-
-//go:embed loop-planner.tmpl
-var loopPlannerTmpl string
 
 const (
 	loopStateVersion  = 1
@@ -218,14 +215,7 @@ func (d *loopDriver) planWith(ctx context.Context, round int) (loopPlan, error) 
 func usageTokens(u wire.Usage) int { return u.InputTokens + u.OutputTokens + u.CacheCreationTokens }
 
 func plannerPrompt(goal string, round, limit int, digest string) (string, error) {
-	t, err := template.New("loop").Option("missingkey=error").Parse(loopPlannerTmpl)
-	if err != nil {
-		return "", err
-	}
-	var b bytes.Buffer
-	err = t.Execute(&b, map[string]any{"Goal": goal, "Round": round, "Max": limit, "MaxParts": loopMaxParts,
-		"MaxID": loopMaxID, "DigestChars": loopDigestChars, "Digest": digest})
-	return b.String(), err
+	return assets.LoopPlanner(goal, round, limit, loopMaxParts, loopMaxID, loopDigestChars, digest), nil
 }
 
 func (d *loopDriver) digest() string {

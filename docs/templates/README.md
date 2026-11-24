@@ -18,7 +18,7 @@
 | VS Code keybindings template | [`internal/assets/files/ui/vscode/keybindings.template.json`](../../internal/assets/files/ui/vscode/keybindings.template.json) | `claude-code configure --vscode` (keybindings step) | — |
 | claude-science config | [`internal/assets/files/claude/science.toml`](../../internal/assets/files/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/assets/files/clipboard/wl-paste-claude.sh`](../../internal/assets/files/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |
+| Leaf brief template | [`internal/assets/files/brief/brief.tmpl`](../../internal/assets/files/brief/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |
 | Memory procedures | [`internal/assets/files/memory/prompts/*.md`](../../internal/assets/files/memory/prompts/) | `claude-code memory <verb>` (named assets procedure readers) | — |
 | Model ranks | [`internal/assets/files/catalog/ranks.json`](../../internal/assets/files/catalog/ranks.json) | `--model auto` ranking | — |
 | Model catalog and route table | [`internal/models/catalog.json`](../../internal/models/catalog.json), [`internal/router/table.json`](../../internal/router/table.json) | model resolution, the fallback ladder | — |

@@ -3,7 +3,6 @@ package ask
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -231,7 +230,7 @@ func TestLockedWriterEventNewlineGuard(t *testing.T) {
 
 // A takeover brief tells Pi to read every file it needs and to batch the independent reads into one response.
 func TestTakeoverBriefAsksForOneReadBatch(t *testing.T) {
-	got := fmt.Sprintf(takeoverBrief, "codex", "deadline", "the task", 4, "tail")
+	got := takeoverBrief("codex", "deadline", "the task", 4, "tail")
 	if !strings.Contains(got, "batch all of those independent reads into one response") {
 		t.Fatalf("takeover brief = %q, want the one-batch read instruction", got)
 	}

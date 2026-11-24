@@ -38,19 +38,6 @@ const carryGrace = 5 * time.Second
 // noRecordFmt is the outer error when the carried ask left no finished record; it takes the exit code.
 const noRecordFmt = "carried ask exited %d without finishing a dispatch record"
 
-// takeoverBrief is the fixed Pi takeover brief: agent, cutoff, the original task, the partial output.
-const takeoverBrief = `A carried %s run was cut off (%s) before it finished.
-Continue the task below from where it stopped and finish it; say what you changed.
-Read every file named below that you need, and batch all of those independent reads into one response.
-Keep it small: read only what the task or the partial output names, never survey the repository to start over.
-
-Task:
-%s
-
-Partial output (last %d bytes):
-%s
-`
-
 // carryExec runs one child ask line of a carrier and returns its exit code; tests swap it.
 var carryExec = func(ctx context.Context, argv []string, stdin io.Reader, env []string, stdout, stderr io.Writer) int {
 	exe, err := os.Executable()
@@ -433,7 +420,7 @@ func runTakeover(ctx context.Context, rec, child agent.Record, partial string, o
 	cut := cmp.Or(child.Cutoff, child.Status)
 	fmt.Fprintf(os.Stderr, "ask: carry: %s was cut off (%s); pi takes over\n", child.ID, cut)
 	log.Emit(wire.EventTakeover, fmt.Sprintf("%s cut off (%s); pi takes over", child.ID, cut))
-	brief := fmt.Sprintf(takeoverBrief, rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
+	brief := takeoverBrief(rec.Agent, cut, rec.Request.Prompt, len(partial), partial)
 	if agent.IsReadOnlyBrief(rec.Request.Prompt) { // the wrapped task's header no longer opens the brief
 		brief = "Mode: read-only\n\n" + brief
 	}
