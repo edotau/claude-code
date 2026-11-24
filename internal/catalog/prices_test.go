@@ -92,3 +92,21 @@ func TestPricesFileAndSnapshotPath(t *testing.T) {
 		t.Errorf("round trip = %+v, %v", got, err)
 	}
 }
+
+// A model the provider lacks reads the vendor's own row, with dots spelled as dashes; the provider's row wins.
+func TestPricesListRow(t *testing.T) {
+	p, _ := fixtureFold(t)
+	p.Providers["openai"] = map[string]ModelPrice{"gpt-6.1-sol": {Priced: true, Input: 2}}
+	if r, ok := p.ListRow("databricks", "claude-opus-5-5"); !ok || r.Input != 99 {
+		t.Errorf("own row = %+v, %v, want the databricks price", r, ok)
+	}
+	if r, ok := p.ListRow("databricks", "claude-opus-4-5"); !ok || r.Input != 5 {
+		t.Errorf("vendor row = %+v, %v, want the anthropic price", r, ok)
+	}
+	if r, ok := p.ListRow("databricks", "gpt-6-1-sol"); !ok || r.Input != 2 {
+		t.Errorf("dotted vendor row = %+v, %v", r, ok)
+	}
+	if _, ok := p.ListRow("databricks", "llama-4"); ok {
+		t.Error("an unknown model must stay unpriced")
+	}
+}

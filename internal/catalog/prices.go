@@ -108,6 +108,30 @@ func (p Prices) Lookup(id string) (ModelPrice, bool) {
 	return found, n == 1
 }
 
+// vendorOf maps a model id prefix to the snapshot provider that lists the vendor's own list price.
+var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "gemini-": "google"}
+
+// ListRow is provider's row for id, else the vendor's own row (its id may spell dots as dashes: gpt-6.1-sol).
+func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
+	if row, ok := p.Row(provider, provider+"-"+id); ok {
+		return row, true
+	}
+	if row, ok := p.Row(provider, id); ok {
+		return row, true
+	}
+	for prefix, vendor := range vendorOf {
+		if !strings.HasPrefix(id, prefix) || vendor == provider {
+			continue
+		}
+		for _, vid := range slices.Sorted(maps.Keys(p.Providers[vendor])) {
+			if strings.ReplaceAll(vid, ".", "-") == id {
+				return p.Providers[vendor][vid], true
+			}
+		}
+	}
+	return ModelPrice{}, false
+}
+
 // Rate is Lookup's row when it carries a price; a reader uses it only where options.prices names none.
 func (p Prices) Rate(id string) (ModelPrice, bool) {
 	row, ok := p.Lookup(id)
