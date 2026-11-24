@@ -55,8 +55,10 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 
 // carriedChild reports this ask as the inner line of a --carry of agent: its parent dispatch record carries agent.
 func carriedChild(ctx context.Context, agent string) bool {
-	pr, ok := parentRecord(proc.Value(ctx, proc.DispatchIDEnv))
-	return ok && pr.Request.Carry && pr.Agent == agent
+	id := proc.Value(ctx, proc.DispatchIDEnv)
+	pr, ok := parentRecord(id)
+	return ok && pr.ID == id && pr.Request.Carry && pr.Agent == agent && pr.Status == "running" &&
+		(pr.PID <= 0 || liveAncestor(pr.PID, pr.PIDStart, id))
 }
 
 // ledBy is c with hops ahead of its own, so the agent's own CLI always follows the pi runner hops.
@@ -98,25 +100,22 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 
 // piSiblings is the validated pi hops router.Chain orders after the head on lead's sibling workspaces.
 func piSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, model string) ([]Dispatch, []string, string) {
+	if staysOnWorkspace(ctx, q, lead) {
+		return nil, nil, ""
+	}
 	tb, err := router.Load()
 	if err != nil {
 		return nil, nil, err.Error()
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
-	fb := q.Fallback
-	if staysOnWorkspace(ctx, q, lead) {
-		fb = router.FallbackNone
-	}
-	st, now := loadState(), time.Now()
-	ready := func(p *providers.Provider, wire string) string { return piReady(ctx, p, wire, st, now) }
 	var hops []Dispatch
 	var skips []string
 	for _, h := range tb.Chain(reg, router.ChainReq{Agent: agentid.Pi, Profile: profile, Model: model, Alias: q.AliasHint,
-		Fallback: fb, Asked: q.Agent, TypedModel: q.Model != ""}) {
+		Fallback: q.Fallback, Asked: q.Agent, TypedModel: q.Model != ""}) {
 		if h.Agent != agentid.Pi || h.OffArm || h.Profile == profile { // the head and the agent's own CLI hops
 			continue
 		}
-		d, why := piHop(reg, h, lead.Effort, ready)
+		d, why := piHop(ctx, reg, h, lead.Effort)
 		if why != "" {
 			skips = append(skips, why)
 			continue
@@ -154,14 +153,14 @@ func headPiHop(reg *providers.Registry, lead Dispatch, profile, wire string) Dis
 }
 
 // piHop is the pi runner dispatch for sibling hop h once it serves the model on Pi's menu and passes its preflight.
-func piHop(reg *providers.Registry, h router.ChainHop, effort string, ready func(*providers.Provider, string) string) (Dispatch, string) {
+func piHop(ctx context.Context, reg *providers.Registry, h router.ChainHop, effort string) (Dispatch, string) {
 	p := reg.Row(h.Profile)
 	if p == nil {
 		return Dispatch{}, "pi (" + h.Profile + "): not a registry row"
 	}
 	wire, why := ProfileServes(agentid.Pi, p, h.Model)
 	if why == "" {
-		why = ready(p, wire)
+		why = piReady(ctx, p, wire)
 	}
 	if why != "" {
 		return Dispatch{}, "pi (" + h.Profile + "): " + why
@@ -170,8 +169,8 @@ func piHop(reg *providers.Registry, h router.ChainHop, effort string, ready func
 		Billing: router.DefaultBilling(p), otherRoute: true}, ""
 }
 
-// piReady is why a sibling workspace cannot run wire on Pi: off Pi's menu, or a failed workspace preflight.
-func piReady(ctx context.Context, p *providers.Provider, wire string, st router.State, now time.Time) string {
+// piReady is why a sibling cannot run wire on Pi: off its menu, or a local credential check fails (no probe, no mint).
+func piReady(ctx context.Context, p *providers.Provider, wire string) string {
 	if !piMenuHas(p, wire) {
 		return wire + " is not on pi's " + p.Name + " menu"
 	}
@@ -179,8 +178,11 @@ func piReady(ctx context.Context, p *providers.Provider, wire string, st router.
 	if err != nil {
 		return "invalid tokenCommand overlay"
 	}
-	if fs := launchWorkspaceFindings(ctx, agentid.Pi, resolved, st, now, nil); len(fs) > 0 {
-		return fs[0].Detail
+	if !providers.CredentialPresent(resolved) && !resolved.CommandAuth() { // a token command mints at run time
+		return "no stored credential for " + p.Name
+	}
+	if f, dead := deadLoginFinding(resolved); dead {
+		return f.Detail
 	}
 	return ""
 }

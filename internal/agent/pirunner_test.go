@@ -56,4 +56,18 @@ func TestPiRunnerBarredForCarriedChild(t *testing.T) {
 	if why := piRunnerBarred(ctx, RouteReq{Agent: "gemini"}); why != "" {
 		t.Fatalf("another agent under a codex carrier is barred: %q", why)
 	}
+	done := NewRecord("codex", RunOptions{Carry: true, Prompt: "the task"}, time.Now())
+	done.Status = "ok"
+	plain := NewRecord("codex", RunOptions{Prompt: "the task"}, time.Now())
+	for _, r := range []Record{done, plain} {
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{done.ID, plain.ID, "../" + rec.ID} {
+		ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: id})
+		if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
+			t.Fatalf("parent %q is no live carrier, yet barred: %q", id, why)
+		}
+	}
 }

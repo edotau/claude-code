@@ -316,7 +316,7 @@ func tokenScope(ctx context.Context, profile string, extra ...string) ([]string,
 	return slices.Compact(slices.Sorted(slices.Values(out))), nil
 }
 
-// armScope is profile alone inside databricks:<arm>; another Databricks workspace is refused, never minted.
+// armScope is profile alone inside databricks:<arm>: the workspace or an own sign-in (guardArm's rule), never another.
 func armScope(profile, arm string) ([]string, error) {
 	if profile == arm {
 		return []string{profile}, nil
@@ -325,7 +325,8 @@ func armScope(profile, arm string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("token scope: %w", err)
 	}
-	if slices.Contains(providers.DatabricksProfiles(reg), profile) {
+	p := reg.Row(profile)
+	if p == nil || p.Preset == providers.PresetDatabricks || p.Auth.Login == "" && p.Auth.Method() != providers.AuthCLI {
 		return nil, fmt.Errorf("token scope: %s is outside the confinement databricks:%s", profile, arm)
 	}
 	return []string{profile}, nil
