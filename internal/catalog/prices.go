@@ -234,8 +234,6 @@ type snapFold struct {
 	out   Prices
 	rep   PriceReport
 	owner map[string]bool
-	// ownerHit are the owner keys whose snapshot price was left out
-	ownerHit map[string]bool
 }
 
 // FoldSnapshot decodes raw; an owner key loses its snapshot price; a bad row is rejected; prev rows persist.
@@ -249,8 +247,7 @@ func FoldSnapshot(raw []byte, ownerPriced map[string]bool, prev Prices, now time
 	if len(provs) == 0 {
 		return Prices{}, PriceReport{}, errors.New("not a models.dev snapshot: no providers")
 	}
-	f := snapFold{out: Prices{Schema: pricesSchema, Fetched: now, Models: map[string]ModelPrice{}}, owner: ownerPriced,
-		ownerHit: map[string]bool{}}
+	f := snapFold{out: Prices{Schema: pricesSchema, Fetched: now, Models: map[string]ModelPrice{}}, owner: ownerPriced}
 	for _, name := range snapOrder(slices.Collect(maps.Keys(provs))) {
 		for _, id := range slices.Sorted(maps.Keys(provs[name].Models)) {
 			f.add(name+"/"+id, id, provs[name].Models[id])
@@ -289,10 +286,6 @@ func (f *snapFold) add(label, id string, raw json.RawMessage) {
 	if key == "" {
 		return
 	}
-	if f.owner[key] && row.Priced {
-		row.Priced, row.Input, row.Output, row.CacheRead, row.CacheWrite, row.Tiers = false, 0, 0, 0, 0, nil
-		f.ownerHit[key] = true
-	}
 	if cur, seen := f.out.Models[key]; seen {
 		row = fillGaps(cur, row)
 	}
@@ -308,13 +301,26 @@ func fillGaps(a, b ModelPrice) ModelPrice {
 	return a
 }
 
-func (f *snapFold) finish(prev Prices) {
-	for k, v := range prev.Models {
-		if _, ok := f.out.Models[k]; !ok {
-			f.out.Models[k] = v
+// dropOwnerPrices removes the price of every model an owner priced, new and retained rows alike.
+func (f *snapFold) dropOwnerPrices() {
+	for k := range f.owner {
+		if row, ok := f.out.Models[k]; ok && row.Priced {
+			row.Priced, row.Input, row.Output, row.CacheRead, row.CacheWrite, row.Tiers = false, 0, 0, 0, 0, nil
+			f.out.Models[k] = row
+			f.rep.OwnerKept++
 		}
 	}
-	f.rep.Models, f.rep.OwnerKept = len(f.out.Models), len(f.ownerHit)
+}
+
+func (f *snapFold) finish(prev Prices) {
+	for k, v := range prev.Models {
+		if cur, ok := f.out.Models[k]; ok {
+			v = fillGaps(cur, v)
+		}
+		f.out.Models[k] = v
+	}
+	f.dropOwnerPrices()
+	f.rep.Models = len(f.out.Models)
 	for _, row := range f.out.Models {
 		f.rep.Priced += btoi(row.Priced)
 		f.rep.Limits += btoi(row.Context > 0 || row.MaxOutput > 0)

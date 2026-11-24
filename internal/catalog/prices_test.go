@@ -88,6 +88,21 @@ func TestFoldSnapshotFillsAndKeeps(t *testing.T) {
 	}
 }
 
+// An empty refreshed row keeps its old price, and an owner price added later strips even a retained row.
+func TestFoldSnapshotRefreshKeepsAndOwnerStrips(t *testing.T) {
+	prev := Prices{Models: map[string]ModelPrice{"m-1": {Priced: true, Input: 3, Context: 7}, "gone": {Priced: true, Input: 7}}}
+	p, rep, err := FoldSnapshot([]byte(`{"a":{"models":{"m-1":{}}}}`), map[string]bool{"gone": true}, prev, pricesT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := p.Models["m-1"]; !m.Priced || m.Input != 3 || m.Context != 7 {
+		t.Errorf("m-1 = %+v, want the old price and limit kept", m)
+	}
+	if g := p.Models["gone"]; g.Priced || g.Input != 0 || rep.OwnerKept != 1 {
+		t.Errorf("gone = %+v, owner kept %d, want the retained price stripped", g, rep.OwnerKept)
+	}
+}
+
 // Fetch failure and a non-snapshot body error out; prices.json round-trips and goes stale after the window.
 func TestPricesFileAndFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

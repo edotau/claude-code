@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -57,7 +58,19 @@ func modelsLearn(args []string) int {
 }
 
 // foldPrices folds the snapshot into prices.json (unless dry); a failed fetch leaves it as it was, with a note.
-func foldPrices(now time.Time, dry bool) *catalog.PriceReport {
+func foldPrices(now time.Time, dry bool) (rep *catalog.PriceReport) {
+	if dry {
+		return foldPricesLocked(now, true)
+	}
+	err := paths.WithFileLock(catalog.PricesPath(), func() error { rep = foldPricesLocked(now, false); return nil })
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "models learn: prices.json busy (%v); prices.json unchanged\n", err)
+	}
+	return rep
+}
+
+// foldPricesLocked is foldPrices with the table's lock already held (a dry run takes none, it writes nothing).
+func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
 	prev, err := catalog.ReadPrices()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: %v; refetching the price snapshot\n", err)
