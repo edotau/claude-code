@@ -24,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
@@ -113,7 +112,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 
 // ContractEnv wires contract.Reap to the dispatch records; Successor stays nil: re-assign is task 11.2's.
 func ContractEnv() contract.Env {
-	return contract.Env{Lost: holderLost, Queue: queueFailedLane}
+	return contract.Env{Lost: holderLost}
 }
 
 // holderLost: the holder's record is pruned, or no longer running while its contract is working (owner gone unsettled).
@@ -123,21 +122,6 @@ func holderLost(id string) bool {
 		return errors.Is(err, agent.ErrNoRecord)
 	}
 	return rec.Status != "running" || !rec.Alive()
-}
-
-// queueFailedLane queues a failed contract's kept lane marked failed; without the holder's repo there is none to queue.
-func queueFailedLane(c contract.Contract) error {
-	rec, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
-	if errors.Is(err, agent.ErrNoRecord) || err == nil && rec.Repo == "" {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	lane := filepath.Join(worktree.Root(rec.Repo), c.Scope.Lane)
-	return worktree.Enqueue(worktree.QueuedLane{Lane: lane, Repo: rec.Repo, Task: c.Scope.PlanTask,
-		Reason: "contract failed: owner-dead", Detail: "contract " + c.ID + ": the owner's process is gone; lane kept",
-		Next: "claude-code worktree merge " + c.Scope.Lane + " after reviewing it, or worktree clean " + c.Scope.Lane})
 }
 
 // reapContracts fails or re-assigns the contracts of lost owners; a dry run only lists them.
@@ -174,6 +158,9 @@ func contractNote(id string, usage *wire.Usage) string {
 	}
 	parts := []string{"contract " + string(c.State()), "owner " + c.Owner.Agent,
 		fmt.Sprintf("leaves %d/%d", len(c.Children), c.Limits.Leaves)}
+	if c.Scope.Lane != "" {
+		parts = append(parts, "lane "+c.Scope.Lane)
+	}
 	if usage != nil && c.Limits.Tokens > 0 {
 		used := usage.InputTokens + usage.CacheCreationTokens + usage.CacheReadTokens + usage.OutputTokens
 		parts = append(parts, fmt.Sprintf("%d%% budget", used*percent/c.Limits.Tokens))

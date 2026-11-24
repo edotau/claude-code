@@ -12,13 +12,12 @@ import (
 type Env struct {
 	Lost      func(dispatch string) bool // the dispatch's record is lost
 	Successor func(Contract) string      // a live replacement dispatch id for c, or "" for none; nil means none
-	Queue     func(Contract) error       // queues c's lane marked failed; nil skips
 }
 
 // Reaped is one contract Reap acted on: Action is "reassigned" or "failed".
 type Reaped struct{ ID, Action, Holder string }
 
-// Reap re-assigns once, else fails owner-dead, each working contract whose holder is lost; its lane is queued failed.
+// Reap re-assigns once, else fails owner-dead, each working contract whose holder is lost; its lane is kept.
 func Reap(env Env) ([]Reaped, error) {
 	orphans, err := Orphans(env)
 	errs := []error{err}
@@ -46,7 +45,7 @@ func orphaned(c Contract, env Env) bool {
 	return c.State() == StateWorking && len(c.Holders) > 0 && env.Lost != nil && env.Lost(c.Holders[len(c.Holders)-1])
 }
 
-// reapOne settles id under its lock; a failure is queued before it is saved, so a queue error retries next pass.
+// reapOne settles id under its lock, re-checking the holder there; the lane and scope stay as they are.
 func reapOne(id string, env Env) (r Reaped, err error) {
 	_, err = Update(id, func(c Contract) (Contract, error) {
 		if !orphaned(c, env) {
@@ -60,11 +59,6 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 		n, err := c.Fail(ReasonOwnerDead)
 		if err != nil {
 			return c, err
-		}
-		if env.Queue != nil && n.Scope.Lane != "" {
-			if err := env.Queue(n); err != nil {
-				return c, err
-			}
 		}
 		r.Action = "failed"
 		return n, nil

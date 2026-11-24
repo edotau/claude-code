@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -13,10 +14,19 @@ import (
 // contractRows reports contracts by state, read-only like the rest of doctor; `agents cancel --lost` reaps them.
 func contractRows(_ context.Context) ([]check, bool) {
 	orphans, oerr := contract.Orphans(tree.ContractEnv())
-	return []check{contractCheck(time.Now(), len(orphans), oerr)}, true
+	return []check{contractCheck(time.Now(), orphans, oerr)}, true
 }
 
-func contractCheck(now time.Time, orphans int, orphanErr error) check {
+// orphanLanes names each orphaned contract with its kept lane, "-" when it has none.
+func orphanLanes(cs []contract.Contract) string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.ID + " lane " + cmp.Or(c.Scope.Lane, "-")
+	}
+	return strings.Join(out, ", ")
+}
+
+func contractCheck(now time.Time, orphans []contract.Contract, orphanErr error) check {
 	s, err := contract.Summarize(now)
 	row := check{Name: "contracts", OK: err == nil && orphanErr == nil && len(s.StaleVerified) == 0}
 	var parts []string
@@ -35,9 +45,10 @@ func contractCheck(now time.Time, orphans int, orphanErr error) check {
 	if len(s.StaleVerified) > 0 {
 		row.Detail += "; verified, waiting over a day on the main session's commit: " + strings.Join(s.StaleVerified, ",")
 	}
-	if orphans > 0 {
+	if len(orphans) > 0 {
 		row.OK = false
-		row.Detail += fmt.Sprintf("; %d held by a lost owner: run claude-code agents cancel --lost", orphans)
+		row.Detail += fmt.Sprintf("; %d held by a lost owner (%s): run claude-code agents cancel --lost",
+			len(orphans), orphanLanes(orphans))
 	}
 	return withWarns(row, err, orphanErr)
 }
