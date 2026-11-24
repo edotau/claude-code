@@ -101,8 +101,11 @@ func scopeReport(ctx context.Context, cfg proxyteam.Config, busy bool) (lines []
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			h, _ := proxy.Holder(ctx, sc.Port)
+			h, ok := proxy.Holder(ctx, sc.Port)
 			lines[i] = proxy.ScopeLine(sc, h.Inflight)
+			if !ok {
+				lines[i] += " not serving (draining or wedged)"
+			}
 			if n, bad := scopeOverReserved(sc, cfg); bad && !busy {
 				lines[i] += fmt.Sprintf(" over reserved=%d: unmanaged; gateway proxy --stop stops it", n)
 				flagged[i] = true
