@@ -25,11 +25,11 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	if top == "" {
 		return nil
 	}
-	lane := cmp.Or(leafLane(withAgentID(in)), laneOf(in.CWD))
+	lane := leafCheckout(in, top)
 	dirtyTop := cmp.Or(lane, top)
 	dirtyc := make(chan []string, 1)
 	go func() { dirtyc <- dirtyPaths(dirtyTop) }() // git status overlaps the plan parse
-	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
+	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(dirtyTop), plans.MirrorDests())
 	dirty := <-dirtyc
 	recTask := recordPlanTask(loadRecords(lr.ids))
 	named, task, isNamed, ok := docs.NamedPlanTask(lr.scan.brief, recTask)
@@ -60,6 +60,15 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	return append(verifyLines(checks), commit)
 }
 
+// leafCheckout is the lane the leaf worked in when it belongs to top's repo; "" when none resolves.
+func leafCheckout(in *core.Input, top string) string {
+	lane := cmp.Or(leafLane(withAgentID(in)), laneOf(in.CWD))
+	if lane == "" || !paths.SamePath(paths.MainCheckout(lane), paths.MainCheckout(top)) {
+		return ""
+	}
+	return lane
+}
+
 // withAgentID is in with the hand-back's subagent id, which leafLane reads from AgentID.
 func withAgentID(in *core.Input) *core.Input {
 	c := *in
@@ -67,12 +76,11 @@ func withAgentID(in *core.Input) *core.Input {
 	return &c
 }
 
-// verifyLines is one line per check; a check cut by the deadline is the one line, with no "no checks ran" after it.
+// verifyLines is one line per finished check, then one line for the deadline cut; "no checks ran" is dropped after it.
 func verifyLines(checks []waves.TaskCheck) []string {
-	for _, c := range checks {
-		if strings.HasPrefix(c.Skip, "not finished") {
-			return []string{c.Line()}
-		}
+	cut := slices.IndexFunc(checks, func(c waves.TaskCheck) bool { return strings.HasPrefix(c.Skip, "not finished") })
+	if cut >= 0 {
+		checks = checks[:cut+1]
 	}
 	lines := make([]string, 0, len(checks))
 	for _, c := range checks {

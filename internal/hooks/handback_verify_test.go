@@ -77,8 +77,10 @@ func TestCheckoutTopResolvesSymlinks(t *testing.T) {
 func TestVerifyLinesOneLineOnTimeout(t *testing.T) {
 	cut := waves.TaskCheck{Task: "2.4", Cmd: "go vet ./x", Skip: "not finished in 13 s; the commit-time verify still runs"}
 	none := waves.TaskCheck{Task: "2.4", Cmd: "-", Skip: "no checks ran"}
-	if got := verifyLines([]waves.TaskCheck{cut, none}); len(got) != 1 || !strings.Contains(got[0], "not finished") {
-		t.Errorf("got %q, want the one not-finished line", got)
+	failed := waves.TaskCheck{Task: "2.4", Cmd: "go test ./x", Exit: 1, Saved: "out.txt"}
+	got := verifyLines([]waves.TaskCheck{failed, cut, none})
+	if len(got) != 2 || !strings.Contains(got[0], "FAIL") || !strings.Contains(got[1], "not finished") {
+		t.Errorf("got %q, want the failure then one not-finished line", got)
 	}
 }
 
