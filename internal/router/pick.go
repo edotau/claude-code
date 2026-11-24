@@ -749,14 +749,14 @@ type WindowPick struct {
 
 // LargerWindow lists what may replace ran on p after an overflow: its 1M variant (allow1M), same family, the rest.
 func LargerWindow(p *providers.Provider, ran string, pool []string, floor int, allow1M bool) []WindowPick {
-	need := max(providers.Window(p, ran)+1, floor)
+	fits := func(id string) bool { return windowFits(p, id, ran, floor) }
 	var out, same, other []WindowPick
-	if bigger := models.Strip1M(ran) + "[1m]"; allow1M && !models.Has1M(ran) && providers.Window(p, bigger) >= need {
+	if bigger := models.Strip1M(ran) + "[1m]"; allow1M && !models.Has1M(ran) && fits(bigger) {
 		out = append(out, WindowPick{bigger, providers.Window(p, bigger)})
 	}
 	for _, entry := range pool {
 		id := providers.SpellPin(p, entry)
-		if w := providers.Window(p, id); w >= need && rePickable(p, id, ran) {
+		if w := providers.Window(p, id); fits(id) && rePickable(p, id, ran) {
 			if models.FamilyKind(id) == models.FamilyKind(ran) {
 				same = append(same, WindowPick{id, w})
 			} else {
@@ -768,6 +768,19 @@ func LargerWindow(p *providers.Provider, ran string, pool []string, floor int, a
 	slices.SortStableFunc(same, byWindow)
 	slices.SortStableFunc(other, byWindow)
 	return slices.Concat(out, same, other)
+}
+
+// OutputReserve is the reply room assumed for a model with no listed output limit (Claude Code's default max output).
+const OutputReserve = 32_000
+
+// windowFits: id's window is above ran's and, with a known prompt floor, above floor plus id's output limit.
+func windowFits(p *providers.Provider, id, ran string, floor int) bool {
+	need := providers.Window(p, ran) + 1
+	if floor > 0 {
+		lim, _ := providers.LimitsFor(p, models.Strip1M(id))
+		need = max(need, floor+cmp.Or(lim.Output, OutputReserve))
+	}
+	return providers.Window(p, id) >= need
 }
 
 // rePickable drops ran itself and, on Databricks, Fable, which that route refuses by name.

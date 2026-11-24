@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -30,6 +31,21 @@ func TestPlanOverflowRepicksByWindow(t *testing.T) {
 	plan = planOverflow(overflowDisp("pi"), overflowCell, wire.Result{}, overflowCell.Model, over)
 	if !strings.HasSuffix(plan.model, "[1m]") || plan.to <= plan.from {
 		t.Fatalf("pi plan = %+v, want the 1M variant first", plan)
+	}
+}
+
+// A larger window the prompt fits but leaves no room for the reply is not a re-pick.
+func TestLargerWindowKeepsReplyRoom(t *testing.T) {
+	autoFixture(t)
+	p := loadRegistryWarn().Row("dev")
+	cand := "databricks-gpt-6-1-sol"
+	window := providers.Window(p, cand)
+	pool := []string{cand}
+	if got := router.LargerWindow(p, overflowCell.Model, pool, window/2, false); len(got) != 1 {
+		t.Fatalf("half-window prompt: picks %v, want %s", got, cand)
+	}
+	if got := router.LargerWindow(p, overflowCell.Model, pool, window-1000, false); len(got) != 0 {
+		t.Fatalf("prompt leaving 1000 tokens for the reply: picks %v, want none", got)
 	}
 }
 
