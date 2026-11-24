@@ -178,7 +178,7 @@ function analyzerConsolidateDimensions() {
 /** @param {{ CWD: * }} input */
 function analyzerSharedTree({ CWD }) {
   return 'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
-  (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
+  (CWD ? 'Run every command in cwd ' + JSON.stringify(CWD) + ' (external agents: ask --workdir ' + CWD + '). ' : '') + 'Comments 1 line ≤120 chars.'
 }
 
 /** @param {{ EXT: * }} input */
@@ -219,7 +219,7 @@ function analyzerRunScopesBrief({ CD, CWD, FILES_MODE, PATHS, RANGE, SPLIT, g })
 
 /** @param {{ CWD: * }} input */
 function analyzerWorkingDirectory({ CWD }) {
-  return CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : ''
+  return CWD ? `Run every command in cwd ${JSON.stringify(CWD)} (external agents: ask --workdir ${CWD}).\n` : ''
 }
 
 function analyzerGateRules() {
