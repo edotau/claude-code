@@ -1,1 +1,1 @@
-{"schema":1,"fetched":"2026-01-02T03:04:05Z","models":{"claude-opus-5-5":{"priced":true,"input":4,"output":20,"cache_read":0.2,"cache_write":5,"tiers":[{"over":272000,"input":4,"output":15}],"context":1000000,"max_output":128000,"status":"deprecated"}}}
+{"schema":1,"read":"2026-01-02T03:04:05Z","providers":{"anthropic":{"claude-opus-5-5":{"priced":true,"input":4,"output":20,"cache_read":0.2,"cache_write":5,"tiers":[{"over":272000,"input":4,"output":15}],"context":1000000,"max_output":128000,"status":"deprecated"}}}}

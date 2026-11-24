@@ -189,3 +189,22 @@ func TestCostBudgetLine(t *testing.T) {
 		}
 	}
 }
+
+// An owner price wins; the list price fills only a model the owner left unpriced; no price stays NaN.
+func TestCostRowPricedOwnerBeforeList(t *testing.T) {
+	list := func(id string) (providers.Price, bool) { return providers.Price{Input: 2, Output: 2}, id != "unknown" }
+	owner := map[string]providers.Price{"owned": {Input: 1, Output: 1}}
+	for _, c := range []struct {
+		model    string
+		usd      float64
+		fromList bool
+	}{{"owned", 1, false}, {"listed", 2, true}, {"unknown", math.NaN(), false}} {
+		got := costRow{Model: c.model, Input: 1_000_000, Source: costEst}.priced(owner, list)
+		if got.List != c.fromList || (got.USD != c.usd && !(math.IsNaN(got.USD) && math.IsNaN(c.usd))) {
+			t.Errorf("%s = USD %v list %v, want %v %v", c.model, got.USD, got.List, c.usd, c.fromList)
+		}
+	}
+	if (costRow{Source: costEst, List: true}).label() != "est. list" {
+		t.Error("a list-priced row must be labelled est. list")
+	}
+}

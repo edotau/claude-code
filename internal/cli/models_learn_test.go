@@ -1,56 +1,55 @@
 package cli
 
 import (
-	"context"
-	"errors"
 	"os"
+	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
 )
 
-// priceScratch is a scratch config dir holding a two-day-old prices.json, with fetch stubbed to fn.
-func priceScratch(t *testing.T, now time.Time, fn func(context.Context) ([]byte, error)) {
+func priceScratch(t *testing.T, snapshot string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	old := catalog.FetchSnapshot
-	t.Cleanup(func() { catalog.FetchSnapshot = old })
-	catalog.FetchSnapshot = fn
-	prev := catalog.Prices{Schema: 1, Fetched: now.Add(-48 * time.Hour), Models: map[string]catalog.ModelPrice{"x": {Input: 1}}}
-	if err := catalog.SavePrices(prev); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// An unreachable snapshot reports nothing, leaves prices.json byte for byte, and is not retried within the hour.
-func TestFoldPricesUnreachableLeavesFile(t *testing.T) {
-	now, fetches := time.Now(), 0
-	priceScratch(t, now, func(context.Context) ([]byte, error) { fetches++; return nil, errors.New("unreachable") })
-	before, _ := os.ReadFile(catalog.PricesPath())
-	for range 2 {
-		if rep := foldPrices(now, false); rep != nil {
-			t.Fatalf("report = %+v, want none", rep)
+	path := filepath.Join(t.TempDir(), "models.json")
+	if snapshot != "" {
+		if err := os.WriteFile(path, []byte(snapshot), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if after, _ := os.ReadFile(catalog.PricesPath()); string(after) != string(before) {
-		t.Error("prices.json changed on an unreachable snapshot")
+	t.Setenv("OPENCODE_MODELS_PATH", path)
+}
+
+func oldPrices(id string) catalog.Prices {
+	return catalog.Prices{Schema: 1, Providers: map[string]map[string]catalog.ModelPrice{"p": {id: {Input: 1}}}}
+}
+
+// A missing snapshot file reports nothing and leaves prices.json byte for byte.
+func TestFoldPricesMissingFileLeavesTable(t *testing.T) {
+	priceScratch(t, "")
+	if err := catalog.SavePrices(oldPrices("x")); err != nil {
+		t.Fatal(err)
 	}
-	if fetches != 1 {
-		t.Errorf("%d fetches, want 1 (the retry within the hour is throttled)", fetches)
+	before, _ := os.ReadFile(catalog.PricesPath())
+	if rep := foldPrices(false); rep != nil {
+		t.Fatalf("report = %+v, want none", rep)
+	}
+	if after, _ := os.ReadFile(catalog.PricesPath()); string(after) != string(before) {
+		t.Error("prices.json changed with no snapshot file")
 	}
 }
 
-// A reachable snapshot fills prices.json and keeps the rows it does not list.
-func TestFoldPricesFills(t *testing.T) {
-	now := time.Now()
-	priceScratch(t, now, func(context.Context) ([]byte, error) {
-		return []byte(`{"p":{"models":{"m-1":{"cost":{"input":1,"output":2},"limit":{"context":10}}}}}`), nil
-	})
-	if rep := foldPrices(now, false); rep == nil || rep.Priced != 1 || rep.Limits != 1 {
+// A present snapshot is mirrored: rows the file no longer lists are dropped.
+func TestFoldPricesMirrorsFile(t *testing.T) {
+	priceScratch(t, `{"p":{"models":{"m-1":{"cost":{"input":1,"output":2},"limit":{"context":10}}}}}`)
+	if err := catalog.SavePrices(oldPrices("gone")); err != nil {
+		t.Fatal(err)
+	}
+	if rep := foldPrices(false); rep == nil || rep.Priced != 1 || rep.Limits != 1 {
 		t.Fatalf("report = %+v, want one priced row with a limit", rep)
 	}
-	if p, _ := catalog.ReadPrices(); len(p.Models) != 2 {
-		t.Errorf("prices.json = %+v", p)
+	p, _ := catalog.ReadPrices()
+	if _, ok := p.Row("p", "gone"); ok || len(p.Providers["p"]) != 1 {
+		t.Errorf("prices.json = %+v, want only m-1", p)
 	}
 }

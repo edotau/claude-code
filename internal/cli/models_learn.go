@@ -1,16 +1,16 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -22,8 +22,8 @@ var modelsLearnPage = helptext.Page{
 	About: "Folds the dispatch records into the routing fit table, state/harness/router/fit.json.\n" +
 		"A success or a quality failure counts; availability failures say nothing about a model.\n" +
 		"Only records newer than the last run are folded, so running it twice changes nothing.\n" +
-		"It also fills prices and limits from the models.dev snapshot into router/prices.json (one GET,\n" +
-		"at most every 12 hours); owner prices (options.prices) win, and an unreachable snapshot changes nothing.",
+		"It also mirrors OpenCode's local models.dev file (OPENCODE_MODELS_PATH, else ~/.cache/opencode/models.json)\n" +
+		"into router/prices.json: no network; owner prices (options.prices) win where read; a missing file changes nothing.",
 	Hint: "--model auto shows the fit for 14 days after the file is created, then\n" +
 		"reorders by it. Deleting fit.json restarts that period.",
 }
@@ -56,18 +56,15 @@ func modelsLearn(args []string) int {
 	if err != nil {
 		return helptext.Fail("models learn: %v", err)
 	}
-	return printFit(next, foldPrices(now, *dry), now, *format)
+	return printFit(next, foldPrices(*dry), now, *format)
 }
 
-// priceRetry is the least wait between two snapshot attempts, a failed one included.
-const priceRetry = time.Hour
-
-// foldPrices folds the snapshot into prices.json (unless dry); a failed fetch leaves it as it was, with a note.
-func foldPrices(now time.Time, dry bool) (rep *catalog.PriceReport) {
+// foldPrices mirrors OpenCode's local snapshot into prices.json (unless dry); a bad file changes nothing, with a note.
+func foldPrices(dry bool) (rep *catalog.PriceReport) {
 	if dry {
-		return foldPricesLocked(now, true)
+		return foldPricesLocked(true)
 	}
-	err := paths.WithFileLock(catalog.PricesPath(), func() error { rep = foldPricesLocked(now, false); return nil })
+	err := paths.WithFileLock(catalog.PricesPath(), func() error { rep = foldPricesLocked(false); return nil })
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: prices.json busy (%v); prices.json unchanged\n", err)
 	}
@@ -75,18 +72,12 @@ func foldPrices(now time.Time, dry bool) (rep *catalog.PriceReport) {
 }
 
 // foldPricesLocked is foldPrices with the table's lock already held (a dry run takes none, it writes nothing).
-func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
-	prev, err := catalog.ReadPrices()
-	switch {
-	case errors.Is(err, schemas.ErrNewer):
+func foldPricesLocked(dry bool) *catalog.PriceReport {
+	if _, err := catalog.ReadPrices(); errors.Is(err, schemas.ErrNewer) {
 		fmt.Fprintf(os.Stderr, "models learn: %v; prices.json left as it is\n", err)
 		return nil
-	case err == nil && prev.Fresh(now), !dry && !catalog.ClaimEvery("prices-attempt", priceRetry, now):
-		return nil
-	case err != nil:
-		fmt.Fprintf(os.Stderr, "models learn: %v; refetching the price snapshot\n", err)
 	}
-	next, rep, err := fetchFold(prev, now)
+	next, rep, err := readFold()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: price snapshot %v; prices.json unchanged\n", err)
 		return nil
@@ -103,35 +94,38 @@ func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
 	return &rep
 }
 
-// fetchFold fetches the snapshot and folds it over prev; the error says which step failed.
-func fetchFold(prev catalog.Prices, now time.Time) (catalog.Prices, catalog.PriceReport, error) {
-	raw, err := catalog.FetchSnapshot(context.Background())
+// readFold reads the snapshot file and folds it; the error says which step failed.
+func readFold() (catalog.Prices, catalog.PriceReport, error) {
+	raw, mtime, err := catalog.ReadSnapshot()
 	if err != nil {
-		return catalog.Prices{}, catalog.PriceReport{}, fmt.Errorf("unavailable (%w)", err)
+		return catalog.Prices{}, catalog.PriceReport{}, fmt.Errorf("file unavailable (%w)", err)
+	}
+	next, rep, err := catalog.FoldSnapshot(raw, mtime)
+	if err != nil {
+		return next, rep, fmt.Errorf("ignored (%w)", err)
 	}
 	owner, err := ownerPriced()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); the owner count is omitted\n", err)
 	}
-	next, rep, err := catalog.FoldSnapshot(raw, owner, prev, now)
-	if err != nil {
-		err = fmt.Errorf("ignored (%w)", err)
+	for _, id := range owner {
+		if _, ok := next.Rate(id); ok {
+			rep.OwnerKept++
+		}
 	}
-	return next, rep, err
+	return next, rep, nil
 }
 
-// ownerPriced is the model keys a Databricks profile prices by hand (options.prices).
-func ownerPriced() (map[string]bool, error) {
+// ownerPriced is the model ids a Databricks profile prices by hand (options.prices).
+func ownerPriced() ([]string, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]bool{}
+	var out []string
 	for _, name := range providers.DatabricksProfiles(reg) {
 		if p := reg.Row(name); p != nil {
-			for id := range p.Options.Prices {
-				out[models.ModelKey(id)] = true
-			}
+			out = append(out, slices.Collect(maps.Keys(p.Options.Prices))...)
 		}
 	}
 	return out, nil

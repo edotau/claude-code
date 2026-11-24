@@ -7,8 +7,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -32,6 +34,38 @@ type costRow struct {
 	Unpriced                                       int // models in a total line whose USD is unknown
 	Source                                         string
 	Through                                        time.Time
+	List                                           bool // priced from the models.dev list price, not an owner's options.prices
+}
+
+// listPrices loads the models.dev list prices once and returns a lookup; a var so tests stay hermetic.
+var listPrices = func() func(string) (providers.Price, bool) {
+	if testing.Testing() {
+		return func(string) (providers.Price, bool) { return providers.Price{}, false }
+	}
+	t, _ := catalog.ReadPrices()
+	return func(id string) (providers.Price, bool) {
+		row, ok := t.Rate(id)
+		return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
+	}
+}
+
+// label is the source shown in JSON: "est. list" for a list-priced row.
+func (r costRow) label() string {
+	if r.List {
+		return r.Source + " list"
+	}
+	return r.Source
+}
+
+// priced is r with its USD from the owner's table, else the list price; unknown stays NaN.
+func (r costRow) priced(owner map[string]providers.Price, list func(string) (providers.Price, bool)) costRow {
+	r.USD = math.NaN()
+	if p, ok := owner[r.Model]; ok {
+		r.USD = priceRow(r, p)
+	} else if p, ok := list(r.Model); ok {
+		r.USD, r.List = priceRow(r, p), true
+	}
+	return r
 }
 
 // ledgerModelKey is the price-table lookup key for a ledger model id: spelling-free, and without a "<profile>:" prefix.
@@ -53,6 +87,7 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 			keyed[profile][models.ModelKey(id)] = p
 		}
 	}
+	list := listPrices()
 	idx := map[key]*costRow{}
 	var order []key
 	for _, e := range entries {
@@ -74,12 +109,7 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 	}
 	out := make([]costRow, 0, len(order))
 	for _, k := range order {
-		r := *idx[k]
-		r.USD = math.NaN()
-		if p, ok := keyed[k.profile][k.model]; ok {
-			r.USD = priceRow(r, p)
-		}
-		out = append(out, r)
+		out = append(out, idx[k].priced(keyed[k.profile], list))
 	}
 	slices.SortFunc(out, compareCostRows)
 	return out
@@ -250,6 +280,9 @@ func costCaption(src string, rows []costRow) string {
 		partial = "; totals leave out unpriced models"
 	}
 	if src == costEst {
+		if slices.ContainsFunc(rows, func(r costRow) bool { return r.List }) {
+			partial += "; some prices are models.dev list prices (est. list)"
+		}
 		return "est.: local ledger tokens x your price table, not an invoice" + partial
 	}
 	var through time.Time
