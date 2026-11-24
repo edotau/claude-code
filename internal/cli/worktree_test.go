@@ -722,6 +722,22 @@ func TestCmdWorktreeCommitDryRunAndUsage(t *testing.T) {
 	}
 }
 
+// worktree commit --list prints @id<TAB>path per dirty file without -m and commits nothing.
+func TestCmdWorktreeCommitList(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gitRepoCLI(t)
+	t.Chdir(repo)
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"commit", "--list"}) })
+	if code != 0 || out != "" {
+		t.Fatalf("clean: exit %d, out %q", code, out)
+	}
+	hosttest.WriteRel(t, repo, "a.txt", "one\n")
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"commit", "--list"}) })
+	if f := strings.Split(strings.TrimSpace(out), "\t"); code != 0 || len(f) != 2 || f[1] != "a.txt" || !strings.HasPrefix(f[0], "@") {
+		t.Fatalf("list: exit %d, out %q", code, out)
+	}
+}
+
 // --plan outside the plans home is a usage error (2) before anything is staged or committed.
 func TestCmdWorktreeCommitPlanOutsidePlansHomeIsUsage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
