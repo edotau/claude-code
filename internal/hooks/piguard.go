@@ -125,7 +125,7 @@ type budgetRecord struct {
 
 // dispatchUses reads the dispatch records stamped no earlier than root, read-only: none is reaped or rewritten.
 func dispatchUses(root string) []contract.Use {
-	stamp, _, _ := strings.Cut(root, "-") // record names start with their start stamp and sort by it
+	stamp, _, _ := strings.Cut(root, "-") // Start makes the contract id a dispatch id: its name starts with its stamp
 	dir := paths.DispatchDir()
 	ents, _ := os.ReadDir(dir) // no dir: nothing spent
 	var out []contract.Use

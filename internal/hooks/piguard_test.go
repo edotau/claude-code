@@ -105,6 +105,7 @@ func TestPiGuardBudgetNotice(t *testing.T) {
 	}
 	save(owner, "", 10)
 	save(child, owner, 50)
+	save("20261124T095959.000-pi", owner, budget*10) // stamped before the root: the scan stops short of it
 	bash := piCall{Tool: "bash", Input: map[string]any{"command": "ls"}, CWD: dir}
 	if v := judgePi(bash); !v.Allow || v.Notice != "" {
 		t.Errorf("tokens under the limit: bash = %+v, want allowed without a notice", v)

@@ -58,7 +58,7 @@ func subtree(roots []string, uses []Use) map[string]bool {
 	for grew := true; grew; { // parents may be listed after children, so repeat until no new member joins
 		grew = false
 		for _, u := range uses {
-			if !in[u.ID] && in[u.Parent] {
+			if u.ID != "" && !in[u.ID] && in[u.Parent] {
 				in[u.ID], grew = true, true
 			}
 		}
