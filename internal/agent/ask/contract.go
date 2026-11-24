@@ -632,7 +632,15 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 	}
 	uses := subtreeUses(rec.ID, spentTokens(&res.Usage))
 	if len(c.Holders) > 1 { // a re-sent leaf is charged for the dead attempt too
-		uses = append(uses, subtreeUses(c.Holders[0], 0)...)
+		first := 0
+		if dead, err := agent.LoadRecord(c.Holders[0]); err == nil {
+			u := dead.Usage
+			if u == nil && dead.Activity != nil {
+				u = &dead.Activity.Usage
+			}
+			first = spentTokens(u)
+		}
+		uses = append(uses, subtreeUses(c.Holders[0], first)...)
 	}
 	r.Spent = contract.SpentOf(c, uses)
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
