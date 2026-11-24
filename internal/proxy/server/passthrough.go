@@ -345,7 +345,7 @@ func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *provide
 	tail := teeUsageTail(resp, in, p, dialect)
 	relay(sw, resp)
 	if tail != nil {
-		logLedgerUsage(in, p, ledgerModel(in, model), scrapeUsage(tail.buf))
+		logLedgerUsage(in, p, ledgerModel(in, model), scrapeUsage(tail.Bytes(), dialect))
 	}
 	return model, extra, p.Name
 }
@@ -566,13 +566,21 @@ func writeSendError(w http.ResponseWriter, p *providers.Provider, err error) {
 	writeError(w, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 }
 
-// teeUsageTail wraps a metered 200 POST reply so its closing usage chunk is captured; nil when not metered.
-func teeUsageTail(resp *http.Response, in *http.Request, p *providers.Provider, dialect string) *tailBuffer {
-	if !metered(p) || in.Method != http.MethodPost || resp.StatusCode != http.StatusOK ||
-		dialect == providers.ProtocolGemini {
+// usageTee is the bounded copy of a reply that its usage is scraped from.
+type usageTee interface {
+	io.Writer
+	Bytes() []byte
+}
+
+// teeUsageTail wraps a metered 200 POST reply so its usage is captured; nil when not metered.
+func teeUsageTail(resp *http.Response, in *http.Request, p *providers.Provider, dialect string) usageTee {
+	if !metered(p) || in.Method != http.MethodPost || resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	tail := &tailBuffer{}
+	var tail usageTee = &tailBuffer{}
+	if dialect == providers.ProtocolGemini { // JSON member order does not pin usageMetadata after a long candidates list
+		tail = &headTailBuffer{}
+	}
 	resp.Body = teeReadCloser{io.TeeReader(resp.Body, tail), resp.Body}
 	return tail
 }
@@ -727,6 +735,8 @@ func (h *headTailBuffer) Bytes() []byte {
 	return append(append([]byte(nil), h.head...), t[max(0, len(t)-tailCap):]...)
 }
 
+func (t *tailBuffer) Bytes() []byte { return t.buf }
+
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.buf = append(t.buf, p...)
 	if len(t.buf) > 2*tailCap {
@@ -735,8 +745,11 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// scrapeUsage reads the last usage object in either dialect: chat prompt/completion or responses input/output tokens.
-func scrapeUsage(body []byte) ledgerUsage {
+// scrapeUsage reads a passthrough reply's usage: Gemini usageMetadata, chat prompt/completion or responses tokens.
+func scrapeUsage(body []byte, dialect string) ledgerUsage {
+	if dialect == providers.ProtocolGemini {
+		return scrapeGeminiUsage(body)
+	}
 	if u := scrapeChatUsage(body); u.input != 0 || u.output != 0 || u.cacheRead != 0 {
 		return u
 	}
@@ -959,6 +972,9 @@ func ledgerModel(in *http.Request, model string) string {
 		return model
 	}
 	_, _, rest, _ := parsePassthrough(in.URL.Path)
+	if m := geminiCallRE().FindStringSubmatch(rest); m != nil {
+		return m[1]
+	}
 	segs := strings.Split(strings.TrimPrefix(rest, "v1/"), "/")
 	if len(segs) == 2 && segs[1] == "invocations" && passthroughSafeRE.MatchString(segs[0]) {
 		return segs[0]

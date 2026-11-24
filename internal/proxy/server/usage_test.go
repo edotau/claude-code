@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +186,7 @@ func TestScrapeLastUsageSubtractsCachedForBothDialects(t *testing.T) {
 	}
 	resp := scrapeUsage(
 		[]byte(`{"usage":{"input_tokens":100,"output_tokens":5,"input_tokens_details":{"cached_tokens":200}}}`),
+		providers.ProtocolResponses,
 	)
 	if resp.input != 100 || resp.cacheRead != 0 {
 		t.Errorf("responses = %+v, cached > input must not be subtracted", resp)
@@ -201,5 +203,91 @@ func TestScrapeAnthropicUsageCacheWrites(t *testing.T) {
 		if u := scrapeAnthropicUsage([]byte(b)); u.cacheWrite != 700 || u.cacheWrite1h != 600 {
 			t.Errorf("%s = %+v, want write 700 (1h 600)", name, u)
 		}
+	}
+}
+
+// respUsage is a Databricks Responses usage as captured on the wire: two nested levels under input_tokens_details.
+const respUsage = `"usage":{"input_tokens":28641,"input_tokens_details":{"cached_tokens":100,"cache_write_tokens":28436,` +
+	`"cache_write_tokens_details":{"ttl_30m_tokens":28436,"ttl_12h_tokens":0}},"output_tokens":5,` +
+	`"output_tokens_details":{"reasoning_tokens":0},"total_tokens":28646}`
+
+// geminiChunk is one native Gemini stream chunk carrying a running usageMetadata.
+func geminiChunk(text string, prompt, cands int) string {
+	return fmt.Sprintf(`{"candidates":[{"content":{"parts":[{"text":%q}],"role":"model"}}],"usageMetadata":`+
+		`{"promptTokenCount":%d,"candidatesTokenCount":%d,"thoughtsTokenCount":7,"cachedContentTokenCount":900,`+
+		`"promptTokensDetails":[{"modality":"TEXT","tokenCount":%d}],"cacheTokensDetails":[{"modality":"TEXT","tokenCount":900}]}}`,
+		text, prompt, cands, prompt)
+}
+
+// The Responses and Gemini wires land in the ledger, streamed and not, with cache reads and writes split out of input.
+func TestPassthroughMetersResponsesAndGeminiUsage(t *testing.T) {
+	respDone := `{"type":"response.completed","response":{"id":"r","output":[{"type":"message","content":[{"text":` +
+		`"say \"usage\":{\"input_tokens\":1}"}]}],` + respUsage + `,"tool_usage":{"web_search":{"num_requests":0}}}}`
+	resp := ledgerUsage{input: 105, output: 5, cacheRead: 100, cacheWrite: 28436}
+	gem := ledgerUsage{input: 100, output: 47, cacheRead: 900}
+	const gemPath = "gemini/v1beta/models/g:streamGenerateContent"
+	usageFirst := `{"usageMetadata":{"promptTokenCount":1000,"candidatesTokenCount":40,"thoughtsTokenCount":7,` +
+		`"cachedContentTokenCount":900},"candidates":[{"content":{"parts":[{"text":"` +
+		strings.Repeat("x", 3*tailCap) + `"}]}}]}`
+	for name, tc := range map[string]struct {
+		path, ct, out string
+		want          ledgerUsage
+	}{
+		"responses-json": {"responses/responses", "application/json", `{"id":"r",` + respUsage + `}`, resp},
+		"responses-sse": {"responses/responses", "text/event-stream",
+			"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+				"event: response.completed\ndata: " + respDone + "\n\n", resp},
+		"gemini-json": {gemPath, "application/json",
+			"[" + geminiChunk("a", 1000, 10) + ",\n" + geminiChunk("b", 1000, 40) + "]", gem},
+		"gemini-sse": {gemPath, "text/event-stream",
+			"data: " + geminiChunk("a", 1000, 10) + "\r\n\r\ndata: " + geminiChunk("b", 1000, 40) + "\r\n\r\n", gem},
+		"gemini-usage-first-large": {gemPath, "application/json", usageFirst, gem},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.Header().Set("Content-Type", tc.ct)
+				io.WriteString(w, tc.out)
+			})
+			t.Setenv("PT_KEY", "prov-cred")
+			srv := setup(t, ptOverlay(up.URL))
+			body, model := `{"model":"m"}`, "m"
+			if strings.HasPrefix(tc.path, "gemini/") {
+				body, model = `{"contents":[]}`, "g" // native Gemini names the model only in the path
+			}
+			r := ptDo(t, http.MethodPost, srv.URL+"/p/pt/"+tc.path, body, nil)
+			if _, err := io.Copy(io.Discard, r.Body); err != nil || r.StatusCode != 200 {
+				t.Fatalf("status %d: %v", r.StatusCode, err) // the reply is drained so the relay can finish and meter
+			}
+			wantLedgerRow(t, model, tc.want)
+		})
+	}
+}
+
+func wantLedgerRow(t *testing.T, model string, w ledgerUsage) {
+	t.Helper()
+	got := ledgerSettled(t, 1)
+	if len(got) != 1 || got[0].Model != model || got[0].Input != w.input || got[0].Output != w.output ||
+		got[0].CacheRead != w.cacheRead || got[0].CacheWrite != w.cacheWrite {
+		t.Fatalf("ledger = %+v, want model %s %+v", got, model, w)
+	}
+}
+
+// A usage key holding no object or a cut object yields nothing, and a valid event after a cut one still counts.
+func TestUsageObjectsSkipsCutAndNonObjects(t *testing.T) {
+	const want = `{"input_tokens":3,"input_tokens_details":{"cached_tokens":1}}`
+	cut := `{"usage":"text"} data: {"usage":{"input_tokens":1` + "\n\n" + `data: {"usage" : ` + want + `} {"usage":{"input_tokens":9`
+	got := usageObjects([]byte(cut), "usage")
+	if len(got) != 1 || string(got[0]) != want {
+		t.Errorf("objects = %q, want only the complete one", got)
+	}
+}
+
+// Each Gemini counter keeps its own max, so a chunk that omits a counter does not drop it.
+func TestScrapeGeminiUsageSparseChunks(t *testing.T) {
+	body := `{"usageMetadata":{"promptTokenCount":90,"thoughtsTokenCount":7,"cachedContentTokenCount":20}}` +
+		`{"usageMetadata":{"candidatesTokenCount":40}}`
+	if u := scrapeGeminiUsage([]byte(body)); u.input != 70 || u.output != 47 || u.cacheRead != 20 {
+		t.Errorf("usage = %+v, want 70/47/20", u)
 	}
 }

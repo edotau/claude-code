@@ -900,7 +900,7 @@ func BenchmarkScrapeUsage(b *testing.B) {
 	b.SetBytes(int64(len(tail)))
 	b.ReportAllocs()
 	for b.Loop() {
-		scrapeUsage(tail)
+		scrapeUsage(tail, providers.ProtocolOpenAI)
 	}
 }
 
