@@ -398,7 +398,11 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	}
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
 	if err != nil {
-		return helptext.Fail("worktree land: %v", err)
+		code := helptext.Fail("worktree land: %v", err)
+		if errors.Is(err, worktree.ErrLandRefused) {
+			return 3
+		}
+		return code
 	}
 	if plan == nil {
 		return 1

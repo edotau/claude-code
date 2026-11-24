@@ -385,17 +385,22 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 	}
 	req.ShowPlan(plan)
 	if len(plan.Issues) > 0 && !onlyConflictIssue(plan.Issues) {
-		for _, iss := range plan.Issues {
-			if iss.Code == issueDirtyTarget {
-				return nil, fmt.Errorf("%w: %s dirty in the live tree; nothing changed, lane kept", ErrLandRefused, strings.Join(iss.Paths, ", "))
-			}
-		}
-		return nil, nil
+		return nil, dirtyRefusal(plan.Issues)
 	}
 	if dryRun {
 		return plan, previewMerge(ctx, repo, plan, req)
 	}
 	return plan, nil
+}
+
+// dirtyRefusal is the ErrLandRefused for a dirty-target issue, else nil (the plan is blocked and already shown).
+func dirtyRefusal(issues []Issue) error {
+	for _, iss := range issues {
+		if iss.Code == issueDirtyTarget {
+			return fmt.Errorf("%w: %s dirty in the live tree; nothing changed, lane kept", ErrLandRefused, strings.Join(iss.Paths, ", "))
+		}
+	}
+	return nil
 }
 
 // integrateLane rebases the lane; a conflict notices its session, or with ResolveAgent is resolved in the lane.
@@ -451,6 +456,9 @@ func replanPinned(ctx context.Context, repo *Repo, req MergeRequest, ref, oid, b
 	}
 	if len(fresh.Issues) > 0 {
 		req.ShowPlan(fresh)
+		if err := dirtyRefusal(fresh.Issues); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("still blocked after %s (%s)", blockedAfter, issueCodes(fresh.Issues))
 	}
 	if fresh.TargetRef != ref || fresh.TargetOID != oid {
