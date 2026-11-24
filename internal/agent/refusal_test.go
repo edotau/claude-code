@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"net/http"
 	"strings"
 	"testing"
 
@@ -62,32 +61,6 @@ func TestPlanRepickPolicyRefusalKeepsExplicitAndStopsAfterOne(t *testing.T) {
 		t.Fatalf("err = %v, want both refusals named", err)
 	}
 	t.Logf("(c) second refusal: %v", err)
-}
-
-// A 503 saying a retry cannot help moves no hop of the same family; a hop of another family still takes it.
-func TestHopFailedHonoursShouldRetryNo(t *testing.T) {
-	autoFixture(t)
-	err := &retry.Error{Kind: retry.KindTransient, Status: http.StatusServiceUnavailable, ShouldRetry: retry.ShouldRetryNo, Err: errors.New("overloaded")}
-	if HopFailed(wire.Result{}, err) {
-		t.Fatal("HopFailed = true for a should-retry-no 503")
-	}
-	if !HopFailed(wire.Result{}, &retry.Error{Kind: retry.KindTransient, Status: http.StatusServiceUnavailable, Err: errors.New("overloaded")}) {
-		t.Fatal("HopFailed = false for a plain 503")
-	}
-	prev := Dispatch{Agent: &fakeRunner{name: "codex"}}
-	res := wire.Result{Model: "databricks-claude-sonnet-5-5"}
-	other := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: "databricks-gpt-6-1-terra"}
-	same := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: "databricks-claude-opus-5-5"}
-	auto := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: AutoModel}
-	ctx := context.Background()
-	if !barredMove(ctx, prev, other, res, err) || !barredMove(ctx, prev, auto, res, err) || barredMove(ctx, prev, same, res, err) {
-		t.Fatal("a barred move must reach gpt and an auto hop, never the same family")
-	}
-	c := Chain{Dispatches: []Dispatch{prev, same, other}}
-	if !barredAhead(ctx, c, 0, res, err) || barredAhead(ctx, Chain{Dispatches: []Dispatch{prev, same}}, 0, res, err) {
-		t.Fatal("barredAhead must find the later gpt hop and none behind only a same-family hop")
-	}
-	t.Logf("(d) 503 should-retry no (overloaded): HopFailed=false, same-family hop barred, cross-family hop allowed")
 }
 
 // A confined dispatch (an explicit profile) re-picks another family only on its own workspace's account.
