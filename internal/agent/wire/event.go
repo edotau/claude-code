@@ -54,6 +54,7 @@ type Event struct {
 	Tool       *ToolRef  `json:"tool,omitempty"`
 	Status     string    `json:"status,omitempty"`
 	Usage      *Usage    `json:"usage,omitempty"`
+	DurationMs int64     `json:"duration_ms,omitempty"` // a tool_result: how long the tool ran
 	SessionID  string    `json:"session_id,omitempty"`
 	Envelope   *Envelope `json:"envelope,omitempty"`
 }

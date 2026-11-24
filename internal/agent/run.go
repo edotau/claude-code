@@ -918,9 +918,10 @@ func (t *tally) toolCount() int64 {
 
 // Activity is a running dispatch's progress; it never holds text, commands, paths or briefs.
 type Activity struct {
-	Usage wire.Usage `json:"usage,omitzero"`
-	Tools int64      `json:"tools"`
-	Last  time.Time  `json:"last"`
+	Usage  wire.Usage `json:"usage,omitzero"`
+	Tools  int64      `json:"tools"`
+	ToolMs int64      `json:"tool_ms,omitempty"` // the last finished tool's duration
+	Last   time.Time  `json:"last"`
 }
 
 var activityEvery = 2 * time.Second
@@ -959,6 +960,9 @@ func (a *activityLog) note(ev wire.Event, tools int64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.current.Tools, a.current.Last = tools, time.Now().UTC()
+	if ev.Type == wire.EventToolResult {
+		a.current.ToolMs = ev.DurationMs
+	}
 	if ev.Usage != nil && usageTotal(*ev.Usage) >= usageTotal(a.current.Usage) { // a retried attempt restarts at 0
 		a.current.Usage = *ev.Usage
 	}

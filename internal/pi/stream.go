@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -25,6 +26,9 @@ type piEvent struct {
 	Args       json.RawMessage `json:"args"`
 	Result     json.RawMessage `json:"result"`
 	IsError    bool            `json:"isError"`
+	// message_update: the in-flight message's cumulative usage; tool_execution_end: how long the tool ran
+	Usage      json.RawMessage `json:"usage"` // decoded leniently: a malformed one never aborts the stream
+	DurationMs json.RawMessage `json:"durationMs"`
 	// auto_retry_start
 	Attempt      int    `json:"attempt"`
 	MaxAttempts  int    `json:"maxAttempts"`
@@ -50,6 +54,20 @@ type piUsage struct {
 	Input, Output, CacheRead, CacheWrite, CacheWrite1h, Reasoning int
 	Cost                                                          struct{ Total float64 }
 }
+
+// durationMs is the tool's run time, 0 when absent or malformed.
+func (ev piEvent) durationMs() int64 {
+	var d int64
+	_ = json.Unmarshal(ev.DurationMs, &d)
+	return max(d, 0)
+}
+
+func (u piUsage) zero() bool {
+	return u.Input+u.Output+u.CacheRead+u.CacheWrite == 0
+}
+
+// usageEvery is the least gap between two live usage events; it matches the record's activity save interval.
+var usageEvery = 2 * time.Second
 
 // parseEvents turns Pi's JSONL into wire events; the exit code says nothing, so the stream alone decides failure.
 func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent func(piEvent) error, logs ...wire.StreamLog) (res wire.Result, _ error) {
@@ -79,6 +97,8 @@ type piTurn struct {
 	errMsg       string          // and its error message
 	assistant    bool
 	open         map[string]string // running tool calls, id to write path
+	inflight     piUsage           // the last non-zero usage of the message still streaming; zero mid-turn means unknown
+	usageAt      time.Time
 	progressed   bool
 	finished     bool
 	aborted      bool
@@ -127,7 +147,7 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.res.SessionID = ev.ID
 		return t.sink.Emit(wire.Event{Type: wire.EventStart, SessionID: ev.ID})
 	case "message_update":
-		return t.delta(ev)
+		return t.update(ev)
 	case "tool_execution_start":
 		t.flushLog()
 		t.lg.Emit("tool", ev.ToolName)
@@ -135,8 +155,7 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.open[ev.ToolCallID] = ev.writePath()
 		use := wire.ToolEvent(ev.ToolName, ev.ToolCallID)
 		use.Text = ev.argSummary()
-		if t.res.Usage != (wire.Usage{}) {
-			sofar := t.res.Usage // the total through the last message_end, so a running row shows live tokens
+		if sofar := t.sofar(); sofar != (wire.Usage{}) {
 			use.Usage = &sofar
 		}
 		return t.sink.Emit(use)
@@ -170,7 +189,46 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 	}
 	t.lg.Emit("tool", ev.ToolName+": "+status)
 	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID},
-		Status: status, Text: ev.resultLine()})
+		Status: status, Text: ev.resultLine(), DurationMs: ev.durationMs()})
+}
+
+func (t *piTurn) update(ev piEvent) error {
+	if err := t.delta(ev); err != nil {
+		return err
+	}
+	var u piUsage
+	if json.Unmarshal(ev.Usage, &u) != nil {
+		return nil
+	}
+	return t.liveUsage(u)
+}
+
+// sofar is the run's usage through the last message_end plus the message still streaming.
+func (t *piTurn) sofar() wire.Usage {
+	return addUsage(t.res.Usage, t.inflight)
+}
+
+func addUsage(u wire.Usage, tu piUsage) wire.Usage {
+	u.InputTokens += tu.Input
+	u.CacheReadTokens += tu.CacheRead
+	u.CacheCreationTokens += tu.CacheWrite
+	u.OutputTokens += tu.Output
+	u.CostUSD += tu.Cost.Total
+	return u
+}
+
+// liveUsage keeps the streaming message's latest non-zero cumulative usage; it forwards one at most per usageEvery.
+func (t *piTurn) liveUsage(u piUsage) error {
+	if u.zero() {
+		return nil
+	}
+	t.inflight = u
+	if now := time.Now(); now.Sub(t.usageAt) >= usageEvery {
+		t.usageAt = now
+		sofar := t.sofar()
+		return t.sink.Emit(wire.Event{Type: wire.EventUsage, Usage: &sofar})
+	}
+	return nil
 }
 
 // argSummary is the tool call's primary argument (command, pattern or path), else its compact args, on one line.
@@ -313,12 +371,8 @@ func (t *piTurn) messageEnd(ev piEvent) error {
 	}
 	t.cur.Reset()
 	t.res.Reported = cmp.Or(m.Model, t.res.Reported)
-	u, tu := &t.res.Usage, m.Usage
-	u.InputTokens += tu.Input
-	u.CacheReadTokens += tu.CacheRead
-	u.CacheCreationTokens += tu.CacheWrite
-	u.OutputTokens += tu.Output
-	u.CostUSD += tu.Cost.Total
+	t.res.Usage = addUsage(t.res.Usage, m.Usage) // message_end's usage is the message's total: replaces inflight
+	t.inflight = piUsage{}
 	t.assistant, t.stop, t.errMsg = true, m.StopReason, m.ErrorMessage
 	return nil
 }

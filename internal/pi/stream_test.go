@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -307,4 +308,64 @@ func TestParseEventsDeltaArrayFixtureAndTruncation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ended before finishing") {
 		t.Fatalf("truncated last line: answer %q err %v, want a run failure, never success", res.Answer, err)
 	}
+}
+
+func TestParseEventsLiveUsageAcrossWires(t *testing.T) {
+	old := usageEvery
+	usageEvery = 0
+	defer func() { usageEvery = old }()
+	upd := func(in, out int) string {
+		return `{"type":"message_update","usage":{"input":` + strconv.Itoa(in) + `,"output":` + strconv.Itoa(out) +
+			`,"cacheRead":4176,"cacheWrite":0,"cost":{"total":0},"cacheWrite1h":0,"reasoning":0},"assistantMessageEvent":{"type":"toolcall_delta","delta":""}}`
+	}
+	end := func(in, out int) string {
+		return `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{"input":` + strconv.Itoa(in) +
+			`,"output":` + strconv.Itoa(out) + `,"cacheRead":4176,"cacheWrite":0}}}`
+	}
+	zero := upd(0, 0)
+	zero = strings.Replace(zero, `"cacheRead":4176`, `"cacheRead":0`, 1)
+	toolEnd := `{"type":"tool_execution_end","toolCallId":"t1","toolName":"bash","result":{"content":[{"type":"text","text":"0"}]},"isError":false,"durationMs":31}`
+	for name, tc := range map[string]struct {
+		lines []string
+		live  []int // output tokens of each usage event
+	}{
+		"cumulative growth": {[]string{upd(4, 16), upd(4, 66), upd(4, 66), end(4, 71)}, []int{16, 66, 66}},
+		"zero mid-turn":     {[]string{upd(4, 66), zero, end(4, 71)}, []int{66}},
+		"only at the end":   {[]string{zero, zero, end(4, 71)}, nil},
+	} {
+		data := strings.Join(append(tc.lines, toolEnd, `{"type":"agent_settled"}`), "\n") + "\n"
+		res, sink, _, err := parseFixture(t, data)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		wantUsage(t, res, wire.Usage{InputTokens: 4, CacheReadTokens: 4176, OutputTokens: 71})
+		var live []int
+		for _, ev := range sink.evs {
+			if ev.Type == wire.EventUsage {
+				live = append(live, ev.Usage.OutputTokens)
+			}
+			if ev.Type == wire.EventToolResult && ev.DurationMs != 31 {
+				t.Fatalf("%s: tool duration %d, want 31", name, ev.DurationMs)
+			}
+		}
+		if !slices.Equal(live, tc.live) {
+			t.Fatalf("%s: live output %v, want %v", name, live, tc.live)
+		}
+	}
+}
+
+func TestParseEventsMalformedUsageKeepsStream(t *testing.T) {
+	data := strings.Join([]string{
+		`{"type":"tool_execution_end","toolCallId":"t","toolName":"bash","isError":false,"durationMs":"slow"}`,
+		`{"type":"message_update","usage":{"input":"x","output":null},"assistantMessageEvent":{"type":"text_delta","delta":"a"}}`,
+		`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"b"}}`,
+		`{"type":"message_update","usage":{"input":4,"outp`,
+		`{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{"input":4,"output":9}}}`,
+		`{"type":"agent_settled"}`,
+	}, "\n") + "\n"
+	res, _, _, err := parseFixture(t, data)
+	if err != nil {
+		t.Fatalf("malformed usage lines must not fail the run: %v", err)
+	}
+	wantUsage(t, res, wire.Usage{InputTokens: 4, OutputTokens: 9})
 }
