@@ -1,7 +1,6 @@
 package ask
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -58,8 +57,8 @@ func TestSettleContractFailsOnRedGate(t *testing.T) {
 	one := 1
 	got, err := settleContract("d-1", contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &one},
 		Verify:   &wire.VerifyResult{Exit: 0},
-		Handback: json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],"tests":"judged","method":"solo"}`),
-		Report:   scratchFile(t, "r.md")})
+		Handback: &wire.Handback{Status: "DONE", Summary: "s", Unfixed: []string{}},
+		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, "r.md")})
 	if err != nil {
 		t.Fatal(err)
 	}

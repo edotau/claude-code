@@ -1,8 +1,6 @@
 package ask
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,19 +39,21 @@ type contractReturn struct {
 	End      runEnd
 	Gate     *worktree.GateRun  // the typed gate action's JSON, decoded; nil when it never ran
 	Verify   *wire.VerifyResult // the spec's verify run; nil when the spec has none
-	Handback json.RawMessage    // the run's structured hand-back
+	Handback *wire.Handback     // the run's typed hand-back; nil when the owner never called it
+	Tests    contract.Tests     // the hand-back's tests value (task 10.4)
+	Method   contract.Method    // the hand-back's method value (task 10.4)
 	Report   string             // the path `memory report --job` filed
 	Spent    contract.Spent
 	Children []contract.Contract // the sub-contracts, for Verify
 }
 
-// handback is the hand-back action's typed shape.
+// handback is the typed hand-back with every enum checked.
 type handback struct {
-	Status  contract.Status `json:"status"`
-	Summary string          `json:"summary"`
-	Unfixed []string        `json:"unfixed"`
-	Tests   contract.Tests  `json:"tests"`
-	Method  contract.Method `json:"method"`
+	Status  contract.Status
+	Summary string
+	Unfixed []string
+	Tests   contract.Tests
+	Method  contract.Method
 }
 
 // Evidence codes of a fail record Go wrote because it could not observe a pass.
@@ -61,7 +61,7 @@ const (
 	missNoResult    = "no-result"    // no typed result reached Go
 	missNotFinished = "not-finished" // the gate or verify started and never exited
 	missAbsent      = "absent"       // the lane, scope file or report is not there
-	missUntyped     = "untyped"      // the hand-back is not the typed shape with known values
+	missUntyped     = "untyped"      // the hand-back's status, tests or method is not a known value
 	missUnexecuted  = "unexecuted"   // the tests term needs an executed run that passed
 )
 
@@ -100,7 +100,7 @@ func settleContract(id string, r contractReturn) (contract.Contract, error) {
 
 // settle is settleContract without the store: records, then Verify, Close for a contract with no close terms, or Fail.
 func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Contract, error) {
-	hb := decodeHandback(r.Handback)
+	hb := typedHandback(r)
 	c, err := withRecords(c, returnRecords(c, r, hb, now))
 	if err != nil {
 		return c, err
@@ -112,10 +112,12 @@ func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Cont
 	if err != nil {
 		return failWith(c, contract.ReasonTerm, hb, r.Spent)
 	}
+	res := result(v, hb, r.Spent)
 	if hasCloseTerms(v) {
+		v.Handback = &res // the main session's commit and merge verbs Close with it
 		return v, nil
 	}
-	return v.Close(result(v, hb, r.Spent))
+	return v.Close(res)
 }
 
 // abandonContract fails id's contract when it is not yet terminal: the deferred call for a panic or a cancel.
@@ -167,14 +169,13 @@ func testsRecord(c contract.Contract, v *wire.VerifyResult, hb *handback, now ti
 // claims reports whether hb is a typed hand-back whose tests value is t.
 func (hb *handback) claims(t contract.Tests) bool { return hb != nil && hb.Tests == t }
 
-// decodeHandback reads the structured hand-back; nil unless it is the typed shape with every enum known.
-func decodeHandback(raw json.RawMessage) *handback {
-	var hb handback
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if len(raw) == 0 || dec.Decode(&hb) != nil {
+// typedHandback is r's hand-back; nil unless it was called and its status, tests and method are all known.
+func typedHandback(r contractReturn) *handback {
+	if r.Handback == nil {
 		return nil
 	}
+	hb := handback{Status: contract.Status(r.Handback.Status), Summary: r.Handback.Summary,
+		Unfixed: r.Handback.Unfixed, Tests: r.Tests, Method: r.Method}
 	if !slices.Contains(contract.Statuses(), hb.Status) || !slices.Contains(contract.TestsValues(), hb.Tests) ||
 		!slices.Contains(contract.Methods(), hb.Method) {
 		return nil
@@ -182,8 +183,8 @@ func decodeHandback(raw json.RawMessage) *handback {
 	return &hb
 }
 
-func handbackMiss(raw json.RawMessage) string {
-	if len(raw) == 0 {
+func handbackMiss(h *wire.Handback) string {
+	if h == nil {
 		return missNoResult
 	}
 	return missUntyped

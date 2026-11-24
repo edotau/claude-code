@@ -174,6 +174,7 @@ type Contract struct {
 	Limits   Limits       `json:"limits"`
 	Records  []TermRecord `json:"records,omitempty"`
 	Result   *Result      `json:"result,omitempty"`
+	Handback *Result      `json:"handback,omitempty"` // the owner's hand-back, held from verify for Close
 	Holders  []string     `json:"holders"`            // dispatch ids that held it; two after a re-assign
 	Children []string     `json:"children,omitempty"` // sub-contract ids
 	Failed   Reason       `json:"failed,omitempty"`
@@ -329,10 +330,15 @@ func (c Contract) clone() Contract {
 	c.Records = slices.Clone(c.Records)
 	c.Holders = slices.Clone(c.Holders)
 	c.Children = slices.Clone(c.Children)
-	if c.Result != nil {
-		r := *c.Result
-		r.Unfixed, r.Unmet = slices.Clone(r.Unfixed), slices.Clone(r.Unmet)
-		c.Result = &r
-	}
+	c.Result, c.Handback = cloneResult(c.Result), cloneResult(c.Handback)
 	return c
+}
+
+func cloneResult(p *Result) *Result {
+	if p == nil {
+		return nil
+	}
+	r := *p
+	r.Unfixed, r.Unmet = slices.Clone(r.Unfixed), slices.Clone(r.Unmet)
+	return &r
 }
