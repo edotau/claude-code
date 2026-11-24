@@ -426,8 +426,8 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 	dbx := sel.Provider.SpellingRule() == "databricks-serving"
 	for _, alias := range models.AliasNames {
 		m := sel.ClientModel(alias)
-		// Databricks: an unpinned slot is Claude Code's own id; the Fable slot never takes a non-Fable id
-		if m == "" || dbx && (!sel.Aliases[alias].Pinned || alias == models.Fable && models.FamilyOf(m) != models.Fable) {
+		// Databricks: an unpinned slot is Claude Code's own id
+		if m == "" || dbx && (!sel.Aliases[alias].Pinned || fableSlotMismatch(alias, m)) {
 			continue
 		}
 		plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
@@ -435,6 +435,11 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
 	}
+}
+
+// fableSlotMismatch: the Fable slot must never hold another family's id (Databricks serves no Fable).
+func fableSlotMismatch(alias, id string) bool {
+	return alias == models.Fable && models.FamilyOf(id) != models.Fable
 }
 
 func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) {
@@ -455,7 +460,9 @@ func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provid
 	if opus == "" {
 		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, alias, alias)
 	}
-	if asked {
+	if asked && p.SpellingRule() == "databricks-serving" && fableSlotMismatch(alias, opus) {
+		plan.Set["ANTHROPIC_MODEL"] = alias // Claude Code's own Fable id reaches the proxy's Fable refusal
+	} else if asked {
 		plan.Set["ANTHROPIC_MODEL"] = opus
 	}
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {

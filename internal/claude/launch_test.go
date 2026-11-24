@@ -935,6 +935,20 @@ func TestAliasEnvOnDatabricks(t *testing.T) {
 	}
 }
 
+// A Databricks Fable launch with a non-Fable pin asks for Fable itself, so the proxy refuses it.
+func TestSetMainModelFableOnDatabricksKeepsFable(t *testing.T) {
+	dbx := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, Host: "https://x.cloud.databricks.com"}
+	sel := providers.Selection{Provider: dbx, Aliases: map[string]providers.Target{
+		models.Fable: {Provider: dbx, Model: "databricks-claude-opus-5-5", Pinned: true}}}
+	plan := agent.Plan{Set: map[string]string{}}
+	if err := setMainModel(&plan, sel, dbx, models.Fable, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Set["ANTHROPIC_MODEL"]; got != models.Fable {
+		t.Errorf("ANTHROPIC_MODEL = %q, want %q", got, models.Fable)
+	}
+}
+
 func mustRegistry(t *testing.T) *providers.Registry {
 	t.Helper()
 	reg, err := providers.Load()
