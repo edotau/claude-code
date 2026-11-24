@@ -901,18 +901,14 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	var hits, near, closed, reopen []string
 	for _, d := range all {
 		base := strings.TrimSuffix(filepath.Base(d.path), ".md")
-		for _, t := range d.plan.Tasks {
-			if !explicit && !eligible(d.path, worktree)(t) && t.Claim == "" {
-				continue
-			}
-			switch {
-			case t.ID == id && open(t):
-				hits = append(hits, base)
-			case t.ID == id:
-				closed, reopen = append(closed, base), append(reopen, reopenCmd(d.path, id))
-			case open(t):
-				near = append(near, t.ID)
-			}
+		tasks, others := trailerTasks(d, worktree, id, explicit)
+		near = append(near, others...)
+		// findTask is the resolver `plan task` and landing ticks use, so a trailer names the task they find
+		switch t, ok := findTask(Plan{Tasks: tasks}, id); {
+		case ok && open(t):
+			hits = append(hits, base)
+		case ok:
+			closed, reopen = append(closed, base), append(reopen, reopenCmd(d.path, id))
 		}
 	}
 	switch {
@@ -928,6 +924,20 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	})
 	near = slices.Compact(near)
 	return "", fmt.Errorf("plans: no open task %q in a recent or claimed plan (--plan <file> reaches any); nearest ids: %s", id, strings.Join(near[:min(5, len(near))], ", "))
+}
+
+// trailerTasks is d's tasks a trailer may name and the ids of the open ones other than id.
+func trailerTasks(d datedPlan, worktree, id string, explicit bool) (tasks []Task, near []string) {
+	for _, t := range d.plan.Tasks {
+		if !explicit && !eligible(d.path, worktree)(t) && t.Claim == "" {
+			continue
+		}
+		tasks = append(tasks, t)
+		if open(t) && t.ID != "" && t.ID != id {
+			near = append(near, t.ID)
+		}
+	}
+	return tasks, near
 }
 
 func taskDistance(a, b string) int {

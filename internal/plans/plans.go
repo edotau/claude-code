@@ -29,7 +29,7 @@ type Task struct {
 	Start, End int // 0-based line indexes, inclusive
 	Done       bool
 	Dropped    bool   // struck-out tasks are neither done nor open, so they leave the total
-	ID         string // "Phase N.M" or a leading lane id such as "3.2a"
+	ID         string // "Phase N.M", a leading lane id such as "3.2a", or a letter id such as "R3" or "D2"
 	Title      string
 	Owns       []string
 	Sha        string
@@ -62,6 +62,7 @@ var (
 	shaDash    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s+(?:—|--|-)\s+([0-9a-f]{7,40})\s*$`) })
 	idPhase    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.(?:\d+|[A-Z]))*[a-z]?\b`) })
 	idDecision = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^D\d+\b`) })
+	idLetter   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Z]\d+(?:\.\d+[a-z]?)?\b`) }) // S1, R2.1; D<n> stays a decision
 	idLane     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d+(?:\.\d+)*[a-z]?\b`) })
 	datedName  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`) })
 	claimRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`) })
@@ -218,7 +219,7 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
 	}
 	title = cleaned
-	id = cmp.Or(idPhase().FindString(cleaned), idLane().FindString(cleaned), idDecision().FindString(cleaned))
+	id = cmp.Or(idPhase().FindString(cleaned), idLane().FindString(cleaned), idLetter().FindString(cleaned))
 	if locs := ownsKey().FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
 		masked := ownParen().ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
 		for _, o := range textutil.SplitCSV(masked) { // a comma inside a "(note, more)" does not split
