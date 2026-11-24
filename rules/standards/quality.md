@@ -57,6 +57,7 @@ call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main)
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship: the main session's,
 from a clean tree.
 
+Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes.
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 The IDE's diagnostics are a second gate, not a duplicate: the editor runs analyzers the repo's CLI lint does not
 (Ruff rules, Pylance types, Pylint hints), so a file that is flake8/black clean can still show errors the user sees
@@ -70,7 +71,8 @@ what makes a test a guard: `testing-guidelines.md`.
 Review done (`/code-review`), applicable scoped checks green, manual check for user-facing changes, docs and links
 current; approve only at the R28 bar (severity scale:
 `skills/evaluate-code/references/completion-criteria.md`). Only owner-judgment items (R25, R27) wait for the owner.
-Anything noticed mid-task (a bug, an editor or lint finding, dead code) is fixed right away without asking (R25).
+Anything noticed mid-task (a bug, an editor or lint finding, dead code) is fixed right away without asking,
+within the named priority (R25).
 
 **Review loop (R28):** every code change gets an other-family review; findings are fixed and the diff reviewed
 again until a review returns no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better). Only then does it merge

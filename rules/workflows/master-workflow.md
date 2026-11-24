@@ -20,7 +20,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 |-------|--------|----------|
 | TRIVIAL | Single-line fix, typo, rename | Inline — the only inline scope; skip all phases |
 | LOW | One function or file | Dispatch (not inline); phases 2, 3, 8 |
-| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; fan out via 6 whatever is unblocked; no worktrees |
+| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; fan out via 6 whatever is unblocked; worktree per `rules/standards/worktree-git.md` → Worktrees |
 | HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
 | EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 
@@ -55,7 +55,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 - **5 Refine**: one brief per sub-task with the fields in `skills/subagent-workflows/SKILL.md` → Handoff contract.
 - **6 Dispatch** (Databricks arm, R20): shapes `skills/subagent-workflows/references/patterns.md`; a plan's
   `Phase W.k` waves run with `claude-code agents ask --waves <plan>` (never commits; `references/agent-verbs.md`).
-- **7 Merge**: default is no worktree (`rules/standards/worktree-git.md`), else `skills/using-git-worktrees/SKILL.md`.
+- **7 Merge**: worktree choice per `rules/standards/worktree-git.md` → Worktrees (under `HARNESS_WORKTREE=lanes`
+  every new task gets its own lane), commands `skills/using-git-worktrees/SKILL.md`.
   Stop any leaf still running on merged work; a leaf at its turn limit reports partial work without committing.
 - **8 Verify**: loop and caps `skills/problem-solving/references/verify.md`. Simplify runs once over the merged diff
   (parallel lanes duplicate helpers); before any new test, add nothing if tests already cover the change, delete dead

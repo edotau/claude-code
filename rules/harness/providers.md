@@ -144,7 +144,7 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   date, and sends no extra call. The `--model auto` pool honours the drop list. A model Databricks later re-enables
   stays dropped until `claude-code models discover --undrop <id> --apply`.
 - Cost: `claude-code usage --cost` is an estimate (local ledger tokens times the profile's price table), never an
-  invoice. A billed report from `system.billing` is not available yet. Keys and grants: `providers-reference.md` →
+  invoice. System tables are dropped (no billed report). Keys and grants: `providers-reference.md` →
   Cost keys.
 - pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
   Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at

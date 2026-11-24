@@ -44,6 +44,8 @@ paths:
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.
 - Confirm a new field's name and shape against the schema (`internal/settings/claude-code-settings.schema.json`,
   from <https://www.schemastore.org/claude-code-settings.json>) first.
+- No guard blocks edits to vendor CLI configs (`~/.copilot/settings.json`, `~/.codex/config.toml`, …); edit them only
+  when the task needs it, never as a drive-by.
 - Propose new `permissions.allow` rules as a table and wait for the owner's pick before editing
   (`/fewer-permission-prompts` included).
 

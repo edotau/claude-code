@@ -10,6 +10,12 @@
 - **Specific and actionable** — no vague advice or buzzwords; name the file, command or change.
 - **Decisions carry facts** — when asking the owner to decide, give what happens today, what the change does, and the
   pros and cons of the actual behaviour; never bare picks.
+- **Approval and stops** — the owner counts your own recommendations as approved (unless it adds a permission or
+  restriction, R13); a question you put to the owner ("want me to …?") waits for a yes to that exact question, and
+  deleting the owner's data always asks. A stop freezes everything, undoing your own edits included.
+  Understand why a working setup exists before changing it, else leave it.
+- **Old plans are ideas** — re-derive each claim from today's code; a build request is recorded as a task with its
+  goal, never parked as an opinion.
 - **Full paths** — name every file and directory by absolute path (`~/.claude/internal/agentconfig/overlay.go:91`) in
   replies, briefs, plans, reports and handoffs. A repo-relative path is fine only inside a code block that starts with
   `cd <absolute repo path>`.
@@ -18,7 +24,10 @@
 
 - **Simplicity first** — no abstractions for single-use code, no knobs nobody turns, no error handling for impossible
   states; 200 lines that could be 50 get rewritten. Edit existing files over creating new ones; match the existing
-  style.
+  style. Extend the closest existing verb, package, flag or variable before adding one (a new verb states why
+  extension fails; a new setting prefers a typed overlay field); "merge" means fold and dedup, never nest.
+- **No single source** — a source, mirror, route or profile is an ordered list with runtime fallback and the same
+  integrity check; never remove a working source to unify (an owner pin or an explicit `--fallback none` stands).
 - **Precise changes** — every changed line traces to the request: no drive-by reformatting, comment churn or "while
   I'm here" refactors. When adding an entry (flag, command, target), write only its text. Remove only orphans your
   change created; mention pre-existing dead code. Never rename what an established naming scheme defines unless asked;

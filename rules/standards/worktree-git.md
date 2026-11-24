@@ -21,6 +21,8 @@
    Only the main session's `worktree commit --task`, after it verifies a hand-back, ticks (leaves hand back
    uncommitted); coverage never ticks, it prints one candidate. Manual
    `plan task <id> --done --sha <sha> --plan <file>` needs no trailer.
+   Plans finishing together run their closing steps once and tick each plan's lines with that sha; strike only a
+   step really dropped.
    A file another live session or leaf has
    uncommitted edits in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.

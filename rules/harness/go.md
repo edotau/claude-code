@@ -22,6 +22,8 @@ This repo's Go conventions (module `github.com/edotau/claude-code`). They win ov
 - A verb's package path mirrors the verb path: `internal/<verb>/<command>` exists only when `claude-code <verb>
   <command>` does (`internal/network/remote`). A helper other areas import is top-level, never under a verb's package
   (`internal/httpx`, `internal/egress`).
+- A new scratch or temp writer targets `state/harness/<area>/` (or the git dir), never a repo root; a `.gitignore`
+  entry is not the fix.
 - No DI container, cobra or viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
 
 ## CLI and TUI text

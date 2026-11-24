@@ -16,3 +16,5 @@ Harness credentials: CLAUDE.md hard rule 2.
 5. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt
    (`network websearch --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
    proxy rotation) — a block means ask for an API or permission.
+6. **Public repo hygiene** — check license and branding before tracking an asset; no private host names, LAN or tailnet
+   addresses in any tracked file or commit (role names only; public documentation URLs are fine).

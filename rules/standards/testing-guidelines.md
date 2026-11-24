@@ -53,6 +53,9 @@ See `rules/standards/quality.md` for size caps.
 
 ## A test must guard
 
+- **One solution for every system** — no test or seam that covers a single OS; one body states each system's
+  expectation, and a machine difference is a design defect (a runtime skip stays per `go.md` → Tests).
+
 - **Teeth, proven** — call the code under test, never an inline copy of its logic. A new test must fail with the
   guarded behavior removed: flip it, watch it fail, restore the source exactly, and report that you did. A test that
   still passes is deleted.

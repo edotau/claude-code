@@ -44,7 +44,12 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 Print a leaf's description prefix with `claude-code agents label <type> [--model m] [--profile p] --task FILE`
 (`--session-model` supplies the parent's). Pass the Agent
-tool's `model` to raise one call (`fable` only for two large designs at once). `dispatch-effort` sets model and
+tool's `model` to raise one call. Model by job: fix and review-loop leaves run Sonnet (the review itself stays another
+family, R6), mechanical fixes `Tier: fast` with `--model auto` (R24; Haiku on a Claude
+leaf); Opus
+or higher only for planning, security and guard design, architecture, and judgment calls (benchmark verdicts,
+schedule, retry, keep/revert); `fable` only for two large designs at once, never inherited from the session; a
+deterministic step uses no model. `dispatch-effort` sets model and
 effort only for an agent with no `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The
 root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
 
@@ -195,9 +200,10 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
    reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
-   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `rtk make audit`,
-   `rtk make install` and push per green wave (`CLAUDE.md` hard rule 5).
-3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking.
+   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit
+   follow `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
+3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking,
+   within the owner's named priority (R25).
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
    `settings.json`, secrets or an irreversible outward action.
 5. **Briefs that do not stall:** say what is already verified (never "survey, then stop"), name a hand-back line cap,
@@ -329,7 +335,8 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 | One leaf fails | Retry once on a `claude` leaf with its failure output; a second failure: the main session finishes it where it can and says so, else lands the rest and names the gap |
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
 | Timeout | Keep partial results, cancel the rest |
-| A leaf touched a file it didn't own | Revert that hunk, re-dispatch with `Owns:` sharpened |
+| A leaf touched a file it didn't own | Report it; revert only a hunk its own diff proves it made (a file dirty at dispatch is the owner's or a peer's); re-dispatch with `Owns:` sharpened |
+| Permission wall on a leaf | Re-dispatch with the narrowest `--permissions` allow rule (the owner's standing choice; a per-dispatch flag, never a settings change, R13) naming the denied path or command; main does a harmless blocked step itself; loosen a hook only for a recurring false positive on the caller's own work, as its own task |
 | External agent unavailable (credential or route missing, e.g. no M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
 | Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
 
