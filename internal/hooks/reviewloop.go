@@ -20,12 +20,53 @@ var unfixedLine = regexp.MustCompile(`(?im)^[\s>*_-]*UNFIXED:[ \t]*(.*)$`)
 
 const maxHandbackItems = 12
 
+var (
+	verdictLine = regexp.MustCompile(`(?im)^[\s*_#-]*(?:verdict:?[ \t]*)?[*_]*(SHIP|FIX REQUIRED|BLOCK)[*_.]*[ \t]*$`)
+	findingLine = regexp.MustCompile(`(?im)^[\s*_-]*(?:\d+[.)][ \t]*)?[*_]*\[?(CRITICAL|HIGH)\]?[*_]*[ \t]+\S+:\d+`)
+	quotedBlock = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|(?m:^[ \\t]*>[^\\n]*$)")
+)
+
+// verdictMismatch names the verdict a report's findings compute when its stated verdict is milder, else "".
+func verdictMismatch(report string) string {
+	report = quotedBlock.ReplaceAllString(report, "")
+	v := verdictLine.FindStringSubmatch(report)
+	if v == nil {
+		return ""
+	}
+	computed := "SHIP"
+	for _, f := range findingLine.FindAllStringSubmatch(report, -1) {
+		if strings.EqualFold(f[1], "CRITICAL") {
+			computed = "BLOCK"
+			break
+		}
+		computed = "FIX REQUIRED"
+	}
+	rank := map[string]int{"SHIP": 0, "FIX REQUIRED": 1, "BLOCK": 2}
+	if stated := strings.ToUpper(v[1]); rank[stated] < rank[computed] {
+		return "The report states " + stated + " but its CRITICAL/HIGH findings compute " + computed + ". "
+	}
+	return ""
+}
+
 // ReviewHandback tells the main session to fix what a leaf report's last UNFIXED line lists; it never blocks.
 func ReviewHandback(in *core.Input) core.Result {
+	r := reviewHandback(in)
+	if mm := verdictMismatch(handbackReport(in)); mm != "" {
+		r.Context = strings.TrimSpace(r.Context + "\n" + mm + "Treat the computed verdict as the verdict.")
+	}
+	return r
+}
+
+func handbackReport(in *core.Input) string {
 	report := strings.Join(responseStrings(in.Field("tool_response"), nil), "\n")
 	if strings.Contains(in.Prompt, "<task-notification") {
 		report = in.Prompt // a background leaf's report arrives as a prompt
 	}
+	return report
+}
+
+func reviewHandback(in *core.Input) core.Result {
+	report := handbackReport(in)
 	if strings.TrimSpace(report) == "" {
 		return core.Result{} // a prompt that is not a notification, or an empty response
 	}

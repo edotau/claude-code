@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,6 +30,25 @@ func TestReviewHandback(t *testing.T) {
 			jsonStr(c.report) + `}],"prompt":"UNFIXED: echoed"}}`))
 		if r := ReviewHandback(in); r.Context != c.want || r.Decision != core.Allow {
 			t.Errorf("%s: context %q decision %v, want %q and no block", c.name, r.Context, r.Decision, c.want)
+		}
+	}
+}
+
+func TestReviewHandbackVerdictFromFindings(t *testing.T) {
+	const mm = "The report states %s but its CRITICAL/HIGH findings compute %s. Treat the computed verdict as the verdict."
+	for _, c := range []struct{ name, report, want string }{
+		{"ship with high", "SHIP\n[HIGH] a.go:3 — leak — close\nUNFIXED: none", fmt.Sprintf(mm, "SHIP", "FIX REQUIRED")},
+		{"fix with critical", "FIX REQUIRED\n[CRITICAL] a.go:3 — x — y\nUNFIXED: none", fmt.Sprintf(mm, "FIX REQUIRED", "BLOCK")},
+		{"consistent", "BLOCK\n[CRITICAL] a.go:3 — x — y\nUNFIXED: none", ""},
+		{"ship with medium", "SHIP\n[MEDIUM] a.go:3 — x — y\nUNFIXED: none", ""},
+		{"numbered bold", "SHIP\n1. **[HIGH]** a.go:3 — x — y\nUNFIXED: none", fmt.Sprintf(mm, "SHIP", "FIX REQUIRED")},
+		{"quoted finding", "SHIP\n> [HIGH] a.go:3 — old\n```\n[CRITICAL] b.go:1 x\n```\nUNFIXED: none", ""},
+		{"note after unfixed", "SHIP\n[HIGH] a.go:3 — x — y\nUNFIXED: race", "Fix these now; do not relay them to the owner as questions:\n- race\n" + fmt.Sprintf(mm, "SHIP", "FIX REQUIRED")},
+		{"no verdict line", "[HIGH] a.go:3 — x — y\nUNFIXED: none", ""},
+	} {
+		in := core.ParseInput(strings.NewReader(`{"tool_response":{"content":[{"type":"text","text":` + jsonStr(c.report) + `}]}}`))
+		if r := ReviewHandback(in); r.Context != c.want || r.Decision != core.Allow {
+			t.Errorf("%s: context %q, want %q", c.name, r.Context, c.want)
 		}
 	}
 }
