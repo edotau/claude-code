@@ -89,6 +89,19 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // </block:stepOf>
+
+// <block:looperPrompts>
+/** @param {{ a: * }} input */
+function looperContextCd({ a }) {
+  return a.cwd ? 'Run every command in cwd ' + JSON.stringify(a.cwd) + '. ' : ''
+}
+
+/** @param {{ a: * }} input */
+function looperContextRules({ a }) {
+  return a.rules || 'Never git stash|checkout|reset|restore|clean|commit; never install/deploy/release or edit tool config.'
+}
+// </block:looperPrompts>
+
 // <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared in-script stages; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
@@ -495,8 +508,8 @@ async function looperRun() {
   const opt = { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }
   const S = { detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low', tools: 'run' }, opt),
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit' }, opt) }
-  const ctx = { cwd: a.cwd || '', cd: a.cwd ? 'Run every command in cwd ' + JSON.stringify(a.cwd) + '. ' : '',
-    rules: a.rules || 'Never git stash|checkout|reset|restore|clean|commit; never install/deploy/release or edit tool config.',
+  const ctx = { cwd: a.cwd || '', cd: looperContextCd({ a }),
+    rules: looperContextRules({ a }),
     S, claudeState: a.claudeState }
   const at = a.files && a.files.length ? a.files : a.scope
   const pre = a.measure ? await stSnap(ctx, 'loop:before', at) : null

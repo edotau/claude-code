@@ -1,7 +1,6 @@
 package workflows
 
 import (
-	_ "embed"
 	"errors"
 	"io/fs"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 // savedWorkflowsDoc is the doc (relative to the root) whose table must list every workflows/*.js script.
@@ -60,21 +61,36 @@ func workflowDocDrift(root string) []string {
 const helperStart, helperEnd = "// <block:stepOf>\n", "// </block:stepOf>"
 const stagesStart, stagesEnd = "// <block:stages>\n", "// </block:stages>"
 
-//go:embed blocks/stepof.js
-var stepOfSource string
-
-//go:embed blocks/stages.js
-var stagesSource string
-
 // helperBlock is one library block that every script calling one of its functions must carry verbatim.
 type helperBlock struct {
 	name, start, end, source string
 	uses                     []string
 }
 
-var helperBlocks = []helperBlock{
-	{"stepOf", helperStart, helperEnd, stepOfSource, []string{"stepOf("}},
-	{"stages", stagesStart, stagesEnd, stagesSource, []string{"stageLoop(", "stageFix(", "stagePolish(", "stageDetect("}},
+var helperBlocks = sync.OnceValue(func() []helperBlock {
+	return []helperBlock{
+		{"stepOf", helperStart, helperEnd, assets.WorkflowStepOfSource(), []string{"stepOf("}},
+		{"stages", stagesStart, stagesEnd, assets.WorkflowStagesSource(), []string{"stageLoop(", "stageFix(", "stagePolish(", "stageDetect("}},
+		promptBlock("analyzer", assets.WorkflowAnalyzerPromptsSource()),
+		promptBlock("engineer", assets.WorkflowEngineerPromptsSource()),
+		promptBlock("evaluator", assets.WorkflowEvaluatorPromptsSource()),
+		promptBlock("workers", assets.WorkflowWorkersPromptsSource()),
+		promptBlock("looper", assets.WorkflowLooperPromptsSource()),
+	}
+})
+
+func promptBlock(name, source string) helperBlock {
+	var uses []string
+	for line := range strings.SplitSeq(source, "\n") {
+		if rest, ok := strings.CutPrefix(line, "function "); ok {
+			function, _, found := strings.Cut(rest, "(")
+			if found {
+				uses = append(uses, function+"(")
+			}
+		}
+	}
+	tag := name + "Prompts"
+	return helperBlock{tag, "// <block:" + tag + ">\n", "// </block:" + tag + ">", source, uses}
 }
 
 // lintTargets is every workflow script plus every skill script under root.
@@ -92,7 +108,7 @@ func workflowHelperDrift(root string) []string {
 		}
 	}
 	var out []string
-	for _, b := range helperBlocks {
+	for _, b := range helperBlocks() {
 		out = append(out, blockDrift(b, scripts, srcs)...)
 	}
 	return out
