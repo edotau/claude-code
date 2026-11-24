@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -402,6 +403,56 @@ var askValueFlags = strings.Fields("agent agents fallback profile provider as mo
 	"attach keep-env env overlay system-prompt append-system-prompt output-schema timeout host " +
 	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
 	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode tier")
+
+// maxBashTimeout is the host's Bash tool ceiling; waitMargin lets `agents wait` exit 4 before the tool kills it.
+const (
+	maxBashTimeout = 10 * time.Minute
+	waitMargin     = 10 * time.Second
+)
+
+// BashTimeoutMs is the Bash timeout (ms) a foreground `agents ask|wait|result -f` needs, --timeout + margin, capped.
+func BashTimeoutMs(cmd string) (ms int, ok bool) {
+	for _, seg := range shell.Segments(cmd) {
+		words := agentCommand(relayWords(seg))
+		if len(words) < 2 || words[0] != "agents" || !foregroundWait(words[1:]) {
+			continue
+		}
+		d := maxBashTimeout
+		if t := timeoutFlag(words); t > 0 {
+			d = min(t+waitMargin, maxBashTimeout)
+		}
+		return int(d / time.Millisecond), true
+	}
+	return 0, false
+}
+
+// timeoutFlag is the last parseable `--timeout D` or `--timeout=D` in words, 0 when none.
+func timeoutFlag(words []string) time.Duration {
+	var d time.Duration
+	for i, w := range words {
+		v, has := strings.CutPrefix(w, "--timeout=")
+		if w == "--timeout" && i+1 < len(words) {
+			v, has = words[i+1], true
+		}
+		if t, err := time.ParseDuration(v); has && err == nil {
+			d = t
+		}
+	}
+	return d
+}
+
+// foregroundWait: `wait`, `result -f`, or an `ask` that neither backgrounds nor opens a live session.
+func foregroundWait(words []string) bool {
+	switch words[0] {
+	case "wait":
+		return true
+	case "result":
+		return slices.Contains(words, "-f")
+	case "ask":
+		return !slices.Contains(words, "--background") && !slices.Contains(words, "--live")
+	}
+	return false
+}
 
 // OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
 func OverlayArgs(profile, model, identity, account string) []string {

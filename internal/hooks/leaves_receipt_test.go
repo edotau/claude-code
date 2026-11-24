@@ -454,3 +454,19 @@ func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
 		}
 	}
 }
+
+func TestBashTimeoutMs(t *testing.T) {
+	for cmd, want := range map[string]int{
+		"claude-code agents result -f abc":              600000,
+		"claude-code agents wait abc --timeout 30s":     40000,
+		"rtk claude-code agents wait abc --timeout=20m": 600000,
+		"claude-code agents ask --agent pi - < BRIEF":   600000,
+		"claude-code agents ask --background - < BRIEF": 0,
+		"claude-code agents result abc":                 0,
+		"go test ./internal/hooks":                      0,
+	} {
+		if got, ok := BashTimeoutMs(cmd); got != want || ok != (want > 0) {
+			t.Errorf("%q: got %d,%v want %d", cmd, got, ok, want)
+		}
+	}
+}
