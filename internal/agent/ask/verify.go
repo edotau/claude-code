@@ -1,7 +1,6 @@
 package ask
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -58,26 +57,36 @@ func runVerify(ctx context.Context, workdir, verify string) *wire.VerifyResult {
 	}
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
-	var buf bytes.Buffer
+	buf := &tailBuf{}
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
-		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(os.Environ(), s.Env...), &buf, &buf
+		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(os.Environ(), s.Env...), buf, buf
 		if err := cmd.Run(); err != nil {
-			vr.Exit = exitCode(err, &buf)
+			vr.Exit = exitCode(err, buf)
 			break
 		}
 	}
-	tail := buf.Bytes()
-	vr.Tail = redact.Text(strings.ToValidUTF8(string(tail[max(0, len(tail)-verifyTailMax):]), ""))
+	vr.Tail = redact.Text(strings.ToValidUTF8(string(buf.b[max(0, len(buf.b)-verifyTailMax):]), ""))
 	vr.Ms = time.Since(start).Milliseconds()
 	return vr
 }
 
+// tailBuf keeps only the last verifyTailMax bytes written to it.
+type tailBuf struct{ b []byte }
+
+func (t *tailBuf) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > 2*verifyTailMax {
+		t.b = append(t.b[:0], t.b[len(t.b)-verifyTailMax:]...)
+	}
+	return len(p), nil
+}
+
 // exitCode is the child's exit status, or -1 with the start error written to buf.
-func exitCode(err error, buf *bytes.Buffer) int {
+func exitCode(err error, buf *tailBuf) int {
 	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
 		return ee.ExitCode()
 	}
-	buf.WriteString(err.Error())
+	_, _ = buf.Write([]byte(err.Error()))
 	return -1
 }
