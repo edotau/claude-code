@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
 )
 
@@ -46,7 +47,7 @@ func runAskDispatch(ctx context.Context, cl *agent.Client, p *agent.Prepared, wo
 // runVerify runs each && step of verify as argv in workdir, stopping at the first failure.
 func runVerify(ctx context.Context, workdir, verify string) *wire.VerifyResult {
 	start := time.Now()
-	vr := &wire.VerifyResult{Command: verify}
+	vr := &wire.VerifyResult{Command: redact.Text(verify)}
 	steps, err := plans.VerifyArgv(verify)
 	if err == nil {
 		err = plans.VerifyShape(verify)
@@ -60,13 +61,15 @@ func runVerify(ctx context.Context, workdir, verify string) *wire.VerifyResult {
 	buf := &tailBuf{}
 	for _, s := range steps {
 		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
+		cmd.WaitDelay = proc.ExecWaitDelay
 		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = workdir, append(os.Environ(), s.Env...), buf, buf
 		if err := cmd.Run(); err != nil {
 			vr.Exit = exitCode(err, buf)
 			break
 		}
 	}
-	vr.Tail = redact.Text(strings.ToValidUTF8(string(buf.b[max(0, len(buf.b)-verifyTailMax):]), ""))
+	masked := redact.Text(strings.ToValidUTF8(string(buf.b), "")) // before the cut, so a trimmed secret is not left half
+	vr.Tail = masked[max(0, len(masked)-verifyTailMax):]
 	vr.Ms = time.Since(start).Milliseconds()
 	return vr
 }
