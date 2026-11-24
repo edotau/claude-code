@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -738,4 +739,40 @@ func matchesWorkMarkers(urls, markers []string) bool {
 		}
 	}
 	return false
+}
+
+// WindowPick is a model whose context window is larger than the one a prompt overflowed.
+type WindowPick struct {
+	Model  string
+	Window int
+}
+
+// LargerWindow lists what may replace ran on p once its window overflowed: its 1M variant, same family, then the rest.
+func LargerWindow(p *providers.Provider, ran string, pool []string, floor int) []WindowPick {
+	need := max(providers.Window(p, ran)+1, floor)
+	var out, same, other []WindowPick
+	if bigger := models.Strip1M(ran) + "[1m]"; !models.Has1M(ran) && providers.Window(p, bigger) >= need {
+		out = append(out, WindowPick{bigger, providers.Window(p, bigger)})
+	}
+	for _, entry := range pool {
+		id := providers.SpellPin(p, entry)
+		if w := providers.Window(p, id); w >= need && rePickable(p, id, ran) {
+			if models.FamilyKind(id) == models.FamilyKind(ran) {
+				same = append(same, WindowPick{id, w})
+			} else {
+				other = append(other, WindowPick{id, w})
+			}
+		}
+	}
+	byWindow := func(a, b WindowPick) int { return cmp.Compare(a.Window, b.Window) }
+	slices.SortStableFunc(same, byWindow)
+	slices.SortStableFunc(other, byWindow)
+	return slices.Concat(out, same, other)
+}
+
+// rePickable drops ran itself and, on Databricks, Fable, which that route refuses by name.
+func rePickable(p *providers.Provider, id, ran string) bool {
+	fam, _, _, claude := models.ParseClaudeID(id)
+	fable := claude && fam == models.Fable && p.Preset == providers.PresetDatabricks
+	return id != "" && !models.SameModel(id, ran) && !fable
 }
