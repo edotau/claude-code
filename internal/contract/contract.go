@@ -195,6 +195,7 @@ type Scope struct {
 	Plan     string   `json:"plan,omitempty"` // the plan file's absolute path, with PlanTask
 	Lane     string   `json:"lane,omitempty"` // the lane name `claude-code worktree list` prints
 	Verify   string   `json:"verify,omitempty"`
+	Report   string   `json:"report,omitempty"` // the spec's typed report path; a file there passes the report term
 }
 
 // Party is the holder of a contract.

@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"testing"
 	"time"
@@ -105,5 +106,18 @@ func markResumed(t *testing.T, from, to string) {
 	}
 	if err := os.WriteFile(agent.WatchMarker("resumed", from), []byte(to+"\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestReportOfAcceptsSpecReportPath: a filed file at the spec's report path passes without `memory report --job`.
+func TestReportOfAcceptsSpecReportPath(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := scratchFile(t, paths.MemorySubDir("reports"), "r.md")
+	c := contract.Contract{Scope: contract.Scope{Report: p}}
+	if got := reportOf(agent.Record{ID: "d-1"}, c); got != p {
+		t.Fatalf("reportOf = %q, want %q", got, p)
+	}
+	if got := reportOf(agent.Record{ID: "d-1"}, contract.Contract{}); got != "" {
+		t.Fatalf("no report: %q, want empty", got)
 	}
 }

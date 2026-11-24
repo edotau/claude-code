@@ -376,7 +376,7 @@ func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
 	lim, role := t.Contract.Limits, contract.Role(cmp.Or(t.Contract.Role, string(contract.RoleOwner)))
 	o := &contractOpen{
 		Scope: contract.Scope{Unit: t.Contract.Unit, Kind: kind, Own: t.Own, PlanTask: bf.planTask, Plan: plan,
-			Lane: lane, Verify: t.Verify},
+			Lane: lane, Verify: t.Verify, Report: t.Report},
 		Owner:  contract.Party{Role: role, Agent: bf.name, Tier: bf.tier},
 		Limits: contract.LimitsFor(kind, role, contract.Limits{Tokens: lim.Tokens, Leaves: lim.Leaves}),
 		// Fleet only when the spec asks for leaves: a solo owner owes no leaves term.
@@ -631,9 +631,7 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 	if res.Handback != nil {
 		r.Tests, r.Method = res.Handback.Tests, res.Handback.Method
 	}
-	if saved, err := agent.LoadRecord(rec.ID); err == nil { // `memory report --job` files the path on the saved record
-		r.Report = cmp.Or(saved.Report, r.Report)
-	}
+	r.Report = reportOf(rec, c)
 	for _, ch := range c.Children {
 		if cc, err := contract.Load(ch); err == nil {
 			r.Children = append(r.Children, cc)
@@ -644,6 +642,17 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
 	}
 	return r
+}
+
+// reportOf is the report `memory report --job` filed on rec's saved record, else the spec's own report path if filed.
+func reportOf(rec agent.Record, c contract.Contract) string {
+	if saved, err := agent.LoadRecord(rec.ID); err == nil {
+		rec.Report = cmp.Or(saved.Report, rec.Report)
+	}
+	if !isReport(rec.Report) && isReport(c.Scope.Report) {
+		return c.Scope.Report
+	}
+	return rec.Report
 }
 
 // deadUses is the first holder's subtree of a re-sent contract, so a re-sent leaf is charged for the dead attempt.
