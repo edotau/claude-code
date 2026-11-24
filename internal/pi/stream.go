@@ -219,7 +219,7 @@ func phaseEvent(ev piEvent) wire.Event {
 		}
 	case "auto_retry_end":
 		if ev.Success != nil && !*ev.Success || ev.FinalError != "" {
-			out.Status, out.Text = "warning", ev.FinalError
+			out.Status, out.Text = "warning", cmp.Or(ev.FinalError, "retries failed")
 		}
 	}
 	return out

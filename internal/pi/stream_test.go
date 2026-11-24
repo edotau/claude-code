@@ -394,8 +394,11 @@ func TestParseEventsCompactionAndRetryPhases(t *testing.T) {
 
 func TestParseEventsPhaseMarksAreNotReplayProgress(t *testing.T) {
 	data := `{"type":"compaction_end","aborted":true}` + "\n" + `{"type":"auto_retry_end","success":false,"finalError":"429"}` + "\n" + msgEnd("stop", "") + settled
-	_, sink, _, err := parseFixture(t, data)
-	if err != nil || len(sink.evs) < 2 || sink.evs[0].Text != "compaction aborted" || sink.evs[0].Progress() || sink.evs[1].Progress() {
-		t.Fatalf("events %+v", sink.evs)
+	rs := &wire.RunSink{Sink: &collectSink{}, Agent: "pi"}
+	if _, err := parseEvents(bufio.NewReader(strings.NewReader(data)), rs, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if evs := rs.Sink.(*collectSink).evs; len(evs) < 2 || evs[0].Text != "compaction aborted" || rs.Progressed {
+		t.Fatalf("progressed %v events %+v", rs.Progressed, evs)
 	}
 }
