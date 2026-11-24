@@ -29,9 +29,9 @@ type BriefInput struct {
 }
 
 // ReviewLoopRule is the standing rule every code-writing dispatch carries.
-const ReviewLoopRule = `Review loop (standing rule): after your change, get it reviewed for bugs; fix the findings and review again.
-Aim for a review with no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better), in at most 3 review rounds;
-if the bar is not met, hand back with the last review verbatim for the main session to evaluate.
+const ReviewLoopRule = `Review loop (standing rule): after your change, get one review that lists every finding at once; fix every
+finding yourself, any severity, then one more review that checks only those fixes. Never hand back a finding unfixed
+or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.
 A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip
 it); if large, hand back naming it for a test-repair leaf.`
 

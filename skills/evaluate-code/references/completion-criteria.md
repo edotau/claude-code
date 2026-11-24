@@ -11,4 +11,4 @@ The completion checklist is canonical in `rules/standards/quality.md` → Comple
 | MEDIUM | Maintainability concern | **FIX NOW** — same round, no ask | should-fix |
 | LOW | Style, minor | Fix in the loop; at most 4 may remain (R28, `rules/standards/quality.md`) | nit |
 
-Fix and re-review until no CRITICAL, HIGH or MEDIUM is open and at most 4 LOW remain (none is better); then SHIP (R28).
+One exhaustive review; fix every finding without asking; one check of the fixes; SHIP when it shows no CRITICAL or HIGH, the rest fixed on main (R28).

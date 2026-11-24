@@ -74,12 +74,12 @@ current; approve only at the R28 bar (severity scale:
 Anything noticed mid-task (a bug, an editor or lint finding, dead code) is fixed right away without asking,
 within the named priority (R25).
 
-**Review loop (R28):** every code change gets an other-family review; findings are fixed and the diff reviewed
-again until a review returns no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better). Only then does it merge
-and get its completion report. A leaf runs at most 3 rounds, then hands back the last review verbatim; the main
-session separates real findings from noise, fixes or redirects, and reports only when finished. Every dispatched
-code task carries this goal (`agents ask` adds it to every brief that can write code; a review-only task reports
-findings instead). Fixes dispatch automatically and are not announced; blockers and owner decisions are still raised.
+**Review loop (R28):** every code change gets an other-family review that lists every finding at once; the author
+fixes every finding, any severity, without asking, and one more review checks only those fixes. A lane merges when
+that check has no CRITICAL or HIGH; anything it still finds is fixed in a follow-up commit on main, never parked.
+Findings are fixed, not reported: a leaf hands back only what it could not fix, and the main session fixes or decides
+that at once (its recommendation is the decision; it never asks the owner) and relays only the outcome. Every dispatched code task carries this goal (`agents ask` adds it to every brief
+that can write code; a review-only task reports findings instead).
 
 **Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small,
 else by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or

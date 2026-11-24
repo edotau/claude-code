@@ -412,6 +412,8 @@ var native = map[string]core.Runner{
 	"paths-resolve":        docs.ResolvePaths,
 	"memory-update":        memhook.Stop,
 	"review-simplicity":    quality.ReviewSimplicity,
+	"review-handback":      ReviewHandback,
+	"review-decide":        ReviewDecide,
 	"format-stop":          quality.StopFormat,
 	"memory-end":           memhook.End,
 	"dispatch-effort":      EffortSpawn,
