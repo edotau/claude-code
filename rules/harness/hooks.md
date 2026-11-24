@@ -92,7 +92,8 @@ cannot reproduce are blocked. Both the typed and the on-disk spelling are judged
 
 Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-details.md` under the hook's heading.
 
-`safety-scan` has three rules and applies them to every agent, leaves included. It checks each Bash call in order:
+`safety-scan` has four rules and applies them to every agent, leaves included. Rules 1 to 3 check
+each Bash call in order:
 
 1. Attribution: an AI-attribution footer (`Co-Authored-By: Claude`, `Generated with Claude Code` and the like) in a
    commit, merge or tag message, or in a PR title or body, blocks (`CLAUDE.md` hard rule 3). The PR forms are
@@ -109,6 +110,15 @@ Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-
    (tool or shell), redirect (a `$NAME` target the command assigns the file), `tee`, `sed -i`, `perl -i`,
    `cp`/`mv`/`install` (`-t DIR`), `ln` (source or link), `rm` and `git checkout|restore|rm|mv|clean`. Claude's edit
    tools reach the rule through every harness launch's `--settings` layer (group `safety-claude-edit`).
+4. Lint suppression (owner, 2026-11-24; `internal/hooks/safety/suppress.go`): main session: ask; agents: deny. An
+   Edit, Write, MultiEdit, NotebookEdit or `apply_patch` that ADDS a line with a lint or type-check suppression marker
+   (`noqa`, `type: ignore`, `pylint: disable`, `pyright: ignore`, `eslint-disable`, `nolint`, `@ts-ignore`, `shellcheck
+   disable`, Rust `allow`; one regexp table) is refused; lines already in the old text or file never count, and Bash
+   and `.md`/`.mdx` files are exempt. The main session's ask is a rare exception: it leads "refactor is the default;
+   approve only if the fix is disproportionate", then marker, file:line, the line and its reason (the comment after
+   the marker or the comment line above, else "no reason given"). An agent gets a deny telling it to hand the line back
+   in `UNFIXED` with its reason. Leaves reach it through `safety-claude-edit`; the main session needs the owner's
+   `settings.json` `safety-scan` matcher to name the edit tools (`Bash|Write|Edit|MultiEdit|NotebookEdit`).
 
 Claude asks; an agent without ask gets a block. A leaf gets no exception from any rule.
 Commands are matched as invocations, not as data text. Blocks name the allowed route and the owner's `!`;
@@ -116,7 +126,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety-scan` ¶ | PreToolUse (Bash; Claude Write\|Edit\|MultiEdit via `--settings`) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path; block a subagent's `CLAUDE.md` write (main session only) |
+| `safety-scan` ¶ | PreToolUse (Bash; Claude Write\|Edit\|MultiEdit via `--settings`) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path; block a subagent's `CLAUDE.md` write (main session only); an edit adding a lint suppression asks in the main session, denies in agents |
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place in every mode (auto included) with no permission decision, so auto mode's classifier still judges it; codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
 | `bash-timeout` | PreToolUse (Bash; Claude only) | Sets the Bash `timeout` of a foreground `agents ask`, `agents wait` or `agents result -f` to its `--timeout` + 10 s (600000 ms when none, and the host ceiling); never blocks, asks or lowers a larger timeout; a `wait --timeout` over 590 s keeps the 600000 ms cap, so shorten it |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note; redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |

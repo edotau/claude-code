@@ -30,6 +30,9 @@ func Scan(in *core.Input) core.Result {
 			return r
 		}
 	}
+	if r := suppressVerdict(in); r.Decision != core.Allow {
+		return r
+	}
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	d, msg, detail := commandVerdict(in, cmd)
 	if d == core.Allow {

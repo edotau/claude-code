@@ -57,7 +57,9 @@ call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main)
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
 tree. A leaf may run them too; the audit after a worktree merge and at session end runs on clean main automatically.
 
-Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes.
+Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes
+(rare exception: the main session may ask the owner when the fix is disproportionate, one line vs a mountain of code;
+agents never).
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 The IDE's diagnostics are a second gate, not a duplicate: the editor runs analyzers the repo's CLI lint does not
 (Ruff rules, Pylance types, Pylint hints), so a file that is flake8/black clean can still show errors the user sees

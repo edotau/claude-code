@@ -14,7 +14,7 @@ func TestLaunchSettingsWebTavilyHookOnEveryLaunch(t *testing.T) {
 			t.Errorf("databricks=%v: PostToolUse entries = %v", databricks, entries)
 		}
 		pre, _ := hooks[EventPreToolUse].([]any)
-		if len(pre) != 1 || pre[0].(map[string]any)["matcher"] != "MultiEdit|Write|Edit" {
+		if len(pre) != 1 || pre[0].(map[string]any)["matcher"] != "MultiEdit|Write|Edit|NotebookEdit" {
 			t.Errorf("databricks=%v: PreToolUse entries = %v, want the safety-claude-edit gate", databricks, pre)
 		}
 	}
