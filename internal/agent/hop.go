@@ -40,7 +40,7 @@ func (c Chain) hopMoves(ctx context.Context, from int, req RunOptions, res wire.
 func (c Chain) otherFamilyAfter(from int, refused string) bool {
 	return refused != "" && slices.ContainsFunc(c.Dispatches[from+1:], func(d Dispatch) bool {
 		f := hopFamily(d)
-		return f != "" && f != refused
+		return !d.quotaOverflow && f != "" && f != refused // the overflow hop runs on quota failures only
 	})
 }
 
