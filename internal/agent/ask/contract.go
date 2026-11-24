@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -176,8 +177,12 @@ func typedHandback(r contractReturn) *handback {
 	if r.Handback == nil {
 		return nil
 	}
-	hb := handback{Status: contract.Status(r.Handback.Status), Summary: r.Handback.Summary,
-		Unfixed: r.Handback.Unfixed, Tests: r.Tests, Method: r.Method}
+	unfixed := make([]string, len(r.Handback.Unfixed)) // prose is masked before it reaches the state file
+	for i, s := range r.Handback.Unfixed {
+		unfixed[i] = redact.Text(s)
+	}
+	hb := handback{Status: contract.Status(r.Handback.Status), Summary: redact.Text(r.Handback.Summary),
+		Unfixed: unfixed, Tests: r.Tests, Method: r.Method}
 	if !slices.Contains(contract.Statuses(), hb.Status) || !slices.Contains(contract.TestsValues(), hb.Tests) ||
 		!slices.Contains(contract.Methods(), hb.Method) {
 		return nil
