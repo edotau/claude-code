@@ -269,7 +269,7 @@ await new Promise((r) => setTimeout(r, 400))
 	}
 }
 
-// A fail-closed hook that exits 0 without reading stdin (EPIPE) keeps its verdict.
+// A fail-closed hook that exits 0 without reading stdin (EPIPE, or ENOTCONN under load) keeps its verdict.
 func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
 	for name, c := range map[string]struct{ echo, want string }{
