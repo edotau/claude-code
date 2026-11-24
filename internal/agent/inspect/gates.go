@@ -141,7 +141,7 @@ func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResul
 	if len(match(in.files, stepFor("docs").globs)) == 0 {
 		return res
 	}
-	return append(res, runGate(ctx, docsDef, in))
+	return append(res, runGate(ctx, docsDef, in), runGate(ctx, spellDef, in))
 }
 
 const (
@@ -166,6 +166,7 @@ func gateDefs() []gateDef {
 }
 
 var docsDef = gateDef{"docs", false, docsGate, parseDocs}
+var spellDef = stepDef("spell", false)
 
 // allGateDefs is every gate --gates can pick, in report order.
 func allGateDefs() []gateDef {
@@ -228,6 +229,9 @@ func runSelectedGates(ctx context.Context, in gateInput, want map[string]bool) [
 		r := runGate(ctx, d, in)
 		buildFailed = buildFailed || (d.name == "build" && r.Status == "FAIL")
 		res = append(res, r)
+		if d.name == "docs" {
+			res = append(res, runGate(ctx, spellDef, in))
+		}
 	}
 	return res
 }
@@ -313,6 +317,11 @@ func stepGate(st step) gateFn {
 func findTool(root, tool string) (string, bool) {
 	if local := filepath.Join(root, "bin", tool); fileFound(local) {
 		return local, true
+	}
+	if tool == "typos" {
+		if installed := filepath.Join(paths.BinDir(), tool); fileFound(installed) {
+			return installed, true
+		}
 	}
 	_, err := gateLookPath(tool)
 	return tool, err == nil

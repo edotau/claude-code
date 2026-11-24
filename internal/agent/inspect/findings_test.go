@@ -39,6 +39,8 @@ func TestParsersTurnToolOutputIntoRows(t *testing.T) {
 		{"golangci keeps an unparsed line", parseGolangci, "p/a.go:1: : # x/p\n", []string{"golangci-lint: p/a.go:1: : # x/p"}},
 		{"mdsmith", parseDocs, "a.md:3:1 MDS008 multiple consecutive blank lines\n1 | # T\n2 | \n3 | \n····^\n4 | \n" +
 			"stats: checked=1 fixed=0 failures=1 unfixed=1\n", []string{"a.md:3: mdsmith/MDS008: multiple consecutive blank lines"}},
+		{"typos", parseTypos, "docs/my notes.md:12:4: error: `teh` should be `the`\n",
+			[]string{"docs/my notes.md:12: typos: `teh` should be `the`"}},
 		{"yamlfmt", parseYamlfmt, "The following formatting differences were found:\n\nc.yml:\n- a:   1    a: 1\n            \n\n",
 			[]string{"c.yml: yamlfmt: needs formatting"}},
 		{"shellcheck", parseShellcheck, "s.sh:3:4: error: Couldn't parse this test expression. [SC1073]\n",
@@ -196,6 +198,27 @@ func TestAllDocsLetsMdsmithPickItsFiles(t *testing.T) {
 	runDiff(t, DiffOptions{Dir: dir, Check: true, Gates: []string{"docs"}})
 	if got := callOf(*calls, "mdsmith"); !slices.Equal(got, []string{"check", "--no-color", "--", "notes.md"}) {
 		t.Errorf("dirty mdsmith args = %v, want the changed file after --", got)
+	}
+}
+
+func TestDocsGateRunsSpellOnMarkdownAndSkipsMissing(t *testing.T) {
+	dir, calls := scopeRepo(t)
+	writeRepoFile(t, dir, "notes.md", "teh\n")
+	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true, Gates: []string{"docs"}}); code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if got := callOf(*calls, "typos"); !slices.Equal(got, []string{"--format", "brief", "--no-check-filenames", "--", "notes.md"}) {
+		t.Errorf("typos args = %v", got)
+	}
+	gateLookPath = func(name string) (string, error) {
+		if strings.HasSuffix(name, "typos") {
+			return "", exec.ErrNotFound
+		}
+		return name, nil
+	}
+	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true, Gates: []string{"docs"}}); code != 0 ||
+		!strings.Contains(out, "skip spell (typos not installed (make typos))") {
+		t.Errorf("missing typos: exit %d, out %q", code, out)
 	}
 }
 

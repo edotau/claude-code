@@ -113,7 +113,7 @@ func TestGatesDocsOnlySkipGoGates(t *testing.T) {
 	dir, _ := gateRepo(t)
 	(&fakeGates{lint: true}).install(t)
 	docs := runGates(context.Background(), dir, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}})
-	if got := gateStatuses(docs); got != "skip go gates, ok docs" || !strings.Contains(docs[0].Reason, "agents diff") {
+	if got := gateStatuses(docs); got != "skip go gates, ok docs, ok spell" || !strings.Contains(docs[0].Reason, "agents diff") {
 		t.Errorf("docs-only change: %+v", docs)
 	}
 }
@@ -162,14 +162,14 @@ func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 	f.install(t)
 	md := []DiffFile{{Path: "a.md", Status: "M"}, {Path: "gone.md", Status: "D"}}
 	rs := runGates(context.Background(), dir, "HEAD", append(files, md...))
-	if last := rs[len(rs)-1]; last.Name != "docs" || last.Status != "FAIL" || len(last.Findings) != 1 || last.Findings[0].String() != "a.md:3: mdsmith/MDS008: multiple consecutive blank lines" {
+	if last := rs[len(rs)-2]; last.Name != "docs" || last.Status != "FAIL" || len(last.Findings) != 1 || last.Findings[0].String() != "a.md:3: mdsmith/MDS008: multiple consecutive blank lines" {
 		t.Errorf("docs gate = %+v; want a FAIL with the mdsmith row", last)
 	}
 	if rs = runGates(context.Background(), dir, "HEAD", files); strings.Contains(gateStatuses(rs), "docs") {
 		t.Errorf("a Go-only change ran the docs gate: %s", gateStatuses(rs))
 	}
 	(&fakeGates{}).install(t)
-	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-1].Reason != "mdsmith not installed (make mdsmith)" {
+	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-2].Reason != "mdsmith not installed (make mdsmith)" {
 		t.Errorf("missing mdsmith: %+v", rs)
 	}
 }
@@ -188,7 +188,7 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 		(&fakeGates{lint: lint}).install(t)
 		last := func(rel string) GateResult {
 			rs := runGates(context.Background(), cfg, "HEAD", changed(rel))
-			return rs[len(rs)-1]
+			return rs[len(rs)-2]
 		}
 		r := last(dirty)
 		if r.Name != "docs" || r.Status != "FAIL" || len(r.Findings) != 1 || r.Findings[0].Path != dirty {

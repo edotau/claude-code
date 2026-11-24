@@ -1,0 +1,9 @@
+[default.extend-identifiers]
+UPnP = "UPnP"
+rtk = "rtk"
+codemode = "codemode"
+opencode = "opencode"
+agy = "agy"
+
+[default.extend-words]
+unparseable = "unparseable"

@@ -73,6 +73,8 @@ var steps = []step{
 	{kind: "markdown", gate: "docs", globs: []string{mdGlob}, install: "make mdsmith", parse: parseDocs,
 		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, fix: []string{"mdsmith", "fix", "--no-color", "--", "{files}"},
 		wholeCmd: []string{"mdsmith", "check", "--no-color"}},
+	{kind: "markdown", gate: "spell", globs: []string{mdGlob}, install: "make typos", optional: true, parse: parseTypos,
+		cmd: []string{"typos", "--format", "brief", "--no-check-filenames", "--", "{files}"}},
 	{kind: "yaml", gate: "yaml", globs: []string{"**/*.yml", "**/*.yaml"}, install: "make install", optional: true,
 		parse: parseYamlfmt,
 		cmd:   []string{"yamlfmt", "-lint", "{files}"}, fix: []string{"yamlfmt", "{files}"}},
@@ -147,6 +149,7 @@ var (
 	reCaret     = lazyRE(`^\s*\^\s*$`)
 	reLintTail  = lazyRE(`^(\d+ issues?:|\* [\w-]+: \d+)$`)
 	reMdsmith   = lazyRE(`^(.+?):(\d+):\d+ (MDS\d+) (.*)$`)
+	reTypos     = lazyRE(`^(.+?):(\d+):\d+: error: (.*)$`)
 	reMemory    = lazyRE(`^(.+?\.md): memory fmt --check: (.*)$`)
 	reMdChrome  = lazyRE(`^(\s*\d+ \| ?.*|[·\s]*\^|stats: .*)$`)
 	reFmtDiff   = lazyRE(`^diff (.+)\.orig .+$`)
@@ -200,6 +203,9 @@ func parseGolangci(out string) []Finding {
 var parseDocs = parseLines("docs", reMdChrome,
 	lineRule{reMdsmith, func(m []string) Finding { return Finding{m[1], atoi(m[2]), "mdsmith", m[3], m[4]} }},
 	lineRule{reMemory, func(m []string) Finding { return Finding{Path: m[1], Tool: "memory-fmt", Message: m[2]} }})
+
+var parseTypos = parseLines("typos", nil,
+	lineRule{reTypos, func(m []string) Finding { return Finding{m[1], atoi(m[2]), "typos", "", m[3]} }})
 
 // parseFmtDiff reads `golangci-lint fmt -d`: one `diff a.go.orig a.go` header per file it would rewrite.
 var parseFmtDiff = parseLines("golangci-lint", nil, lineRule{reFmtDiff, func(m []string) Finding {
