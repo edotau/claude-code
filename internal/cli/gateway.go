@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -248,7 +249,16 @@ func proxyStatus(ctx context.Context, format string) int {
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	if !ps.Running {
+	lines, problems := doctor.ProxyTeams()
+	if format != helptext.JSON {
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		for _, p := range problems {
+			fmt.Println("problem  " + p.String())
+		}
+	}
+	if !ps.Running || len(problems) > 0 {
 		return 1
 	}
 	return 0
