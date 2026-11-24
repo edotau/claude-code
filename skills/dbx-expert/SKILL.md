@@ -1,6 +1,6 @@
 ---
 name: dbx-expert
-description: How model traffic reaches Databricks in this harness and how to diagnose it. Use for "a Databricks model call failed", "401/403/404/429/503 from Databricks", "stream disconnected", "which endpoint or wire does this model use", "add or check a Databricks model", "dev qa prod profile", "serving endpoint", "why is this slow or throttled", "what does this cost". Not for building Databricks apps, jobs, pipelines or SQL; those are Databricks' own skills, installed separately.
+description: How model traffic reaches Databricks in this harness and how to diagnose it. Use for "a Databricks model call failed", "401/403/404/429/503 from Databricks", "stream disconnected", "which endpoint or wire does this model use", "add or check a Databricks model", "dev qa prod profile", "serving endpoint", "why is this slow or throttled", "what does this cost". Also for running a CPU workload on a quiet Databricks cluster: "run this on the cluster", "warm up the cluster", "ssh to the driver", "databricks ssh setup", "remote benchmark or timing gate". Not for building Databricks apps, jobs, pipelines or SQL; those are Databricks' own skills, installed separately.
 ---
 
 # Databricks serving (dbx-expert)
@@ -8,6 +8,8 @@ description: How model traffic reaches Databricks in this harness and how to dia
 How an agent's model call reaches a Databricks workspace here, and what to run when it fails. Commands and gotchas
 live in `rules/harness/providers.md` (Databricks routes, service-principal identity); this is the task-first how-to.
 Symptoms: [references/errors.md](references/errors.md). Wires and limits: [references/wires.md](references/wires.md).
+Running a workload on a cluster (warm, SSH tunnel, ship, run, fetch):
+[references/remote-compute.md](references/remote-compute.md).
 
 ## The shape
 
