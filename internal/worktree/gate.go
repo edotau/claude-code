@@ -447,12 +447,25 @@ func hasRuffTable(toml string) bool {
 	return false
 }
 
-// runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
+// runVerify runs cmdStr as argv steps when shell-free, else `bash -c`; a nonzero exit stops promotion.
 func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr io.Writer) error {
+	env := append(gateEnv(), mergeBaseEnv+"="+base)
+	if steps, ok := verifySteps(cmdStr, base); ok {
+		for _, s := range steps {
+			argv := rtkwrap.ArgvForModel(ctx, s.Argv, workDir)
+			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+			if err := runGateCmd(cmd, workDir, slices.Concat(env, s.Env), stdout, stderr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+rtkwrap.ForModel(ctx, cmdStr, workDir))
-	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	return runGateCmd(cmd, workDir, env, stdout, stderr)
+}
+
+func runGateCmd(cmd *exec.Cmd, dir string, env []string, stdout, stderr io.Writer) error {
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, stdout, stderr
 	proc.TreeCancel(cmd, gateCancelGrace) // cancel stops the whole tree, including children in their own groups
 	// orphans holding the output pipes must not block Wait after cancel
 	cmd.WaitDelay = gateWaitDelay

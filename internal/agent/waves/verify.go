@@ -463,7 +463,11 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 	return GateResult{Exit: exit, Tail: tail.lines(), Saved: in.OutPath}, err
 }
 
+// gateBash runs a shell-free script as argv steps (verifyArgv); only a line with shell syntax goes to `bash -c`.
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
+	if _, err := plans.VerifyArgv(script); err == nil {
+		return verifyArgv(ctx, dir, script, env, out)
+	}
 	cmd := exec.CommandContext(ctx, "bash", "-c", rtkwrap.ForModel(ctx, script, dir))
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), env...), out, out
 	return runGroup(ctx, cmd)

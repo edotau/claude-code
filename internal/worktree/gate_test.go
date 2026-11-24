@@ -488,3 +488,16 @@ func TestRunScopedGateCarriesIDs(t *testing.T) {
 		t.Fatalf("failure without a diagnostic id: %+v", r.Failures)
 	}
 }
+
+// A shell-free gate runs as argv, with the lint base placeholder filled in and no bash.
+func TestRunVerifyArgvFillsLintBase(t *testing.T) {
+	for base, want := range map[string]string{"abc123": "<abc123>", "": "<HEAD>"} {
+		var out strings.Builder
+		if err := runVerify(context.Background(), t.TempDir(), "printf '<%s>' "+lintBaseRef, base, &out, &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != want {
+			t.Errorf("base %q: got %q, want %q", base, out.String(), want)
+		}
+	}
+}
