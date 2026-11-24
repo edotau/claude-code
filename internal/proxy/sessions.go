@@ -224,8 +224,8 @@ func cachedProxyToken(file, start string, scope []string, failover string) (stri
 	return rec.Token, true
 }
 
-// ErrSessionUnverified means the router secret is unreadable here, so only a proxy can judge the token.
-var ErrSessionUnverified = errors.New("session token cannot be verified here (router secret unreadable)")
+// ErrSessionUnverified means only a proxy can judge the token: the secret is unreadable here, or it is a legacy token.
+var ErrSessionUnverified = errors.New("session token cannot be verified here (router secret unreadable or a legacy token)")
 
 // SessionRefused reports a SessionInvalid result that is a definite refusal, not ErrSessionUnverified.
 func SessionRefused(err error) bool { return err != nil && !errors.Is(err, ErrSessionUnverified) }
@@ -233,7 +233,8 @@ func SessionRefused(err error) bool { return err != nil && !errors.Is(err, ErrSe
 // SessionInvalid is why this config's proxies would refuse tok on profile ("" = any) now; nil when they accept it.
 func SessionInvalid(tok, profile string) error {
 	secret, ok, err := vaultSecret() // read only: a check never mints the router secret
-	if err != nil || !ok {
+	// a stored previous-build token lives in the proxy's bridge
+	if err != nil || !ok || LegacySessionShape(tok) {
 		return ErrSessionUnverified
 	}
 	return CheckSessionToken(secret, tok, profile, time.Now(), proc.StartTime)

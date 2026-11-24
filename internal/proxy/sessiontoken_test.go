@@ -28,6 +28,13 @@ func TestSessionTokenSignParseAndRefusals(t *testing.T) {
 	}
 }
 
+func TestLegacySessionShape(t *testing.T) {
+	tok, _ := SignSessionToken("s1", SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7"}, time.Now())
+	if !LegacySessionShape("cct_"+strings.Repeat("0", 64)) || LegacySessionShape(tok) {
+		t.Error("only a cct_ + 64 hex token has the legacy shape")
+	}
+}
+
 // One MAC spelling (one hash per token), a one-year life, and one config dir per token.
 func TestSessionTokenOneSpellingOneYearOneConfig(t *testing.T) {
 	const oneYear = 365 * 24 * time.Hour // a passthrough header is never renewed

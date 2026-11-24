@@ -22,11 +22,18 @@ const SessionTokenPrefix = "cct_"
 // SessionTokenTTL outlasts any session (a passthrough header is never renewed); the bound process is the real limit.
 const SessionTokenTTL = 365 * 24 * time.Hour
 
-// RefusalHeader names why the proxy itself refused a request; RefusalSession is its one session-token value.
+// RefusalHeader marks a 401 the proxy itself gave (any credential, none included), so no provider is to blame.
 const (
 	RefusalHeader  = "X-Claude-Code-Proxy-Refusal"
 	RefusalSession = "session-refused"
 )
+
+// LegacySessionShape reports the previous build's stored-token shape (cct_ + 64 lowercase hex); only a proxy judges it.
+func LegacySessionShape(tok string) bool {
+	h, ok := strings.CutPrefix(tok, SessionTokenPrefix)
+	_, err := hex.DecodeString(h)
+	return ok && len(h) == 64 && h == strings.ToLower(h) && err == nil
+}
 
 // sessionKeyLabel separates the token MAC key from every other use of the router secret.
 const sessionKeyLabel = "claude-code proxy session token v1"

@@ -336,6 +336,13 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
 		t.Fatal("the bridge rewrote sessions.json, which the previous build still writes without a lock")
 	}
+	g.setStart("100")
+	if err := os.Remove(proxy.SessionsFile()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := g.r.sessions.legacyClaims(tok); ok {
+		t.Fatal("a daemon kept bridging a token after sessions.json was removed")
+	}
 }
 
 // A renewal one daemon made survives a takeover, never revives an idle token, and leaves with its dead holder.

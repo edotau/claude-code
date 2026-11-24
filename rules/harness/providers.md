@@ -43,13 +43,13 @@ paths:
 - Session tokens are signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (one year; the
   process is the real limit) under a key derived from the router secret and the config dir, so every daemon of the
   config accepts them; a token cannot be revoked: it ends when its process exits, at expiry, or when the router secret
-  rotates (a leftover `revoked.json` is ignored). The proxy's own refusal is a 401 with
-  `X-Claude-Code-Proxy-Refusal: session-refused`; `resolve --proxy` re-mints a refused armed token with its own scope
-  (only its route's profile when the claims cannot be verified), a headless run re-mints once, and neither marks the
-  provider. Rotating `CLAUDE_CODE_ROUTER_SECRET` refuses every live token once (a passthrough session then needs a
-  relaunch). A token the previous (stored-token) build minted keeps its old rules (7-day idle expiry, bound process)
-  while `sessions.json` lists it; that file is read, never written, and its renewed expiries persist in
-  `legacy-renewals.json`, which only this build writes.
+  rotates (a leftover `revoked.json` is ignored; a bridged previous-build token, below, ignores the secret). Every 401
+  the proxy itself gives carries `X-Claude-Code-Proxy-Refusal: session-refused`; `resolve --proxy` re-mints a refused
+  armed token with its own scope (only its route's profile when the claims cannot be verified), a headless run
+  re-mints once, and neither marks the provider. Rotating `CLAUDE_CODE_ROUTER_SECRET` refuses every live signed token
+  once (a passthrough session then needs a relaunch). A token the previous (stored-token) build minted keeps its old
+  rules (7-day idle expiry, bound process, never re-minted by `resolve --proxy`) while `sessions.json` lists it; that
+  file is read, never written, and its renewed expiries persist in `legacy-renewals.json`, which only this build writes.
 
 ## Routing precedence
 

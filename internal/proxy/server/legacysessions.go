@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -42,8 +41,7 @@ type legacyState struct {
 
 // legacyClaims is a stored, live-window old-format tok's binding and hash; ok is false for anything else.
 func (s *sessionStore) legacyClaims(tok string) (proxy.SessionClaims, string, bool) {
-	h, ok := strings.CutPrefix(tok, proxy.SessionTokenPrefix) // the old shape: cct_ + 64 lowercase hex
-	if _, err := hex.DecodeString(h); !ok || len(h) != 64 || h != strings.ToLower(h) || err != nil {
+	if !proxy.LegacySessionShape(tok) {
 		return proxy.SessionClaims{}, "", false
 	}
 	hash := textutil.SHA256Hex([]byte(tok))
@@ -88,6 +86,9 @@ func (s *sessionStore) slideLegacyLocked(hash string, now time.Time) {
 // reloadLegacyLocked folds a changed sessions.json or renewal file into memory, keeping this daemon's own slides.
 func (s *sessionStore) reloadLegacyLocked() {
 	fi, err := os.Stat(s.legacyFile)
+	if errors.Is(err, os.ErrNotExist) { // the bridge holds only what sessions.json lists, as a fresh daemon would
+		s.legacy, s.legacyRead = map[string]legacySession{}, nil
+	}
 	if err != nil {
 		return
 	}
