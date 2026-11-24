@@ -111,22 +111,26 @@ func (p Prices) Lookup(id string) (ModelPrice, bool) {
 // vendorOf maps a model id prefix to the snapshot provider that lists the vendor's own list price.
 var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "gemini-": "google"}
 
-// ListRow is provider's row for id, else the vendor's own row (its id may spell dots as dashes: gpt-6.1-sol).
+// dashed is a model id with its dots spelled as dashes, the harness's own spelling.
+func dashed(id string) string { return strings.ReplaceAll(id, ".", "-") }
+
+// ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
 func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
-	if row, ok := p.Row(provider, provider+"-"+id); ok {
-		return row, true
+	want := dashed(id)
+	find := func(prov string) (ModelPrice, bool) {
+		for _, rid := range slices.Sorted(maps.Keys(p.Providers[prov])) {
+			if got := dashed(rid); got == want || got == prov+"-"+want {
+				return p.Providers[prov][rid], true
+			}
+		}
+		return ModelPrice{}, false
 	}
-	if row, ok := p.Row(provider, id); ok {
+	if row, ok := find(provider); ok {
 		return row, true
 	}
 	for prefix, vendor := range vendorOf {
-		if !strings.HasPrefix(id, prefix) {
-			continue
-		}
-		for _, vid := range slices.Sorted(maps.Keys(p.Providers[vendor])) {
-			if strings.ReplaceAll(vid, ".", "-") == strings.ReplaceAll(id, ".", "-") {
-				return p.Providers[vendor][vid], true
-			}
+		if row, ok := find(vendor); ok && strings.HasPrefix(id, prefix) {
+			return row, true
 		}
 	}
 	return ModelPrice{}, false

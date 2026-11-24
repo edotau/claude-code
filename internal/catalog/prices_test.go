@@ -96,16 +96,17 @@ func TestPricesFileAndSnapshotPath(t *testing.T) {
 // A model the provider lacks reads the vendor's own row, with dots spelled as dashes; the provider's row wins.
 func TestPricesListRow(t *testing.T) {
 	p, _ := fixtureFold(t)
-	p.Providers["openai"] = map[string]ModelPrice{"gpt-6.1-sol": {Priced: true, Input: 2}}
-	if r, ok := p.ListRow("databricks", "claude-opus-5-5"); !ok || r.Input != 99 {
-		t.Errorf("own row = %+v, %v, want the databricks price", r, ok)
-	}
-	if r, ok := p.ListRow("databricks", "claude-opus-4-5"); !ok || r.Input != 5 {
-		t.Errorf("vendor row = %+v, %v, want the anthropic price", r, ok)
-	}
-	for _, c := range [][2]string{{"databricks", "gpt-6-1-sol"}, {"databricks", "gpt-6.1-sol"}, {"openai", "gpt-6-1-sol"}} {
-		if r, ok := p.ListRow(c[0], c[1]); !ok || r.Input != 2 {
-			t.Errorf("ListRow(%s, %s) = %+v, %v", c[0], c[1], r, ok)
+	p.Providers["openai"] = map[string]ModelPrice{"gpt-6.1-sol": {Priced: true, Input: 2}, "gpt-7": {Priced: true, Input: 8}}
+	p.Providers["databricks"]["databricks-gpt-7"] = ModelPrice{Priced: true, Input: 7}
+	for _, c := range []struct {
+		prov, id string
+		in       float64
+	}{
+		{"databricks", "claude-opus-5-5", 99}, {"databricks", "claude-opus-4-5", 5}, {"databricks", "gpt-6-1-sol", 2},
+		{"databricks", "gpt-6.1-sol", 2}, {"openai", "gpt-6-1-sol", 2}, {"databricks", "gpt-7", 7},
+	} {
+		if r, ok := p.ListRow(c.prov, c.id); !ok || r.Input != c.in {
+			t.Errorf("ListRow(%s, %s) = %+v, %v, want input %v", c.prov, c.id, r, ok, c.in)
 		}
 	}
 	if _, ok := p.ListRow("databricks", "llama-4"); ok {
