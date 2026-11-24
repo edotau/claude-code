@@ -109,10 +109,11 @@ func dropFirstLine(s string) string {
 		line, next, _ := strings.Cut(rest, "\n")
 		line = strings.TrimSpace(line)
 		isHeader := strings.HasPrefix(line, "Proc-Type:") || strings.HasPrefix(line, "DEK-Info:")
-		if !isHeader && !(line == "" && header) && !base64Line(line) {
+		blank := line == "" && header
+		if !isHeader && !blank && !base64Line(line) {
 			break
 		}
-		header, rest = isHeader || (line == "" && header), next
+		header, rest = isHeader || blank, next
 	}
 	return rest
 }
