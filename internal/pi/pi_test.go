@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -211,6 +212,30 @@ func TestAfterPutsPromptLast(t *testing.T) {
 	}
 	if slices.Contains(p.Argv, "--tools") {
 		t.Errorf("--tools would re-enable builtin tools: %v", p.Argv)
+	}
+}
+
+func TestAfterSystemPrompt(t *testing.T) {
+	env, _ := guardedEnv(t)
+	for name, c := range map[string]struct {
+		req  agent.RunOptions
+		want string
+	}{
+		"tools run gets the harness prompt": {agent.RunOptions{Tools: true}, assets.PiSystemPrompt()},
+		"caller's prompt wins":              {agent.RunOptions{Tools: true, SystemPrompt: "mine"}, "mine"},
+		"no tools run names no tools":       {agent.RunOptions{}, ""},
+	} {
+		p := &agent.CLIPrep{Env: env, Prompt: "x"}
+		piEngine{}.After(p, c.req)
+		i := slices.Index(p.Argv, "--system-prompt")
+		if (c.want == "") != (i < 0) || i >= 0 && p.Argv[i+1] != c.want {
+			t.Errorf("%s: argv = %v", name, p.Argv)
+		}
+	}
+	for _, tool := range strings.SplitSeq(guardTools, ",") {
+		if !strings.Contains(assets.PiSystemPrompt(), tool) {
+			t.Errorf("prompt does not name registered tool %s", tool)
+		}
 	}
 }
 

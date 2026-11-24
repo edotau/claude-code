@@ -257,8 +257,8 @@ const guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
 func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
-	if req.SystemPrompt != "" {
-		p.Argv = append(p.Argv, "--system-prompt", req.SystemPrompt)
+	if sp := systemPrompt(req); sp != "" {
+		p.Argv = append(p.Argv, "--system-prompt", sp)
 	}
 	if extra := strings.TrimSpace(req.AppendSystemPrompt + webHint(req.Tools)); extra != "" {
 		p.Argv = append(p.Argv, "--append-system-prompt", extra)
@@ -286,6 +286,14 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		return
 	}
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
+}
+
+// systemPrompt is the caller's own, else the harness one on a tools run (it names tools that exist only then).
+func systemPrompt(req agent.RunOptions) string {
+	if req.SystemPrompt != "" || !req.Tools {
+		return req.SystemPrompt
+	}
+	return assets.PiSystemPrompt()
 }
 
 // viaStdin reports whether prompt rides Pi's stdin, which has no size cap, instead of one argv element.
