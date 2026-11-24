@@ -116,7 +116,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.StringVar(&f.codemode, "codemode", "", "pi: "+strings.Join(pi.CodemodeModes, "|")+"; off overrides PI_CODEMODE; on/only need --tools")
+	fs.StringVar(&f.codemode, "codemode", "", "pi: "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools")
 	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -170,7 +170,7 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// validateCodemode checks --codemode (only pi has one); it's typed, else PI_CODEMODE under --tools.
+// validateCodemode checks --codemode (only pi has one); it's typed, else CODEMODE under --tools.
 func validateCodemode(mode, ag string, tools bool) (string, error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
