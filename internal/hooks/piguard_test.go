@@ -167,12 +167,12 @@ func TestPiGuardBudgetNotice(t *testing.T) {
 }
 
 func TestPiActionArgvIsBuiltByGo(t *testing.T) {
-	got, err := piActionArgv("gate", map[string]any{"scope": []any{"internal/pi", "cmd"}})
+	got, err := piActionArgv("gate", map[string]any{"scope": []any{"internal/pi", "cmd"}}, "")
 	if want := "worktree gate --run --format json --scope internal/pi,cmd"; err != nil || strings.Join(got, " ") != want {
 		t.Errorf("argv = %v, %v", got, err)
 	}
 	for _, in := range []map[string]any{{"scope": []any{"../x"}}, {"scope": []any{"/etc"}}, {"scope": []any{"a b"}}, {"x": 1}} {
-		if _, err := piActionArgv("gate", in); err == nil {
+		if _, err := piActionArgv("gate", in, ""); err == nil {
 			t.Errorf("gate %v: want a usage error", in)
 		}
 	}

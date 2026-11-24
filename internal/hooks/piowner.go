@@ -31,7 +31,7 @@ func piOwner() (contract.Contract, error) {
 }
 
 // piDispatchArgv builds `agents ask --background --format json --spec <object>`; Go writes the object.
-func piDispatchArgv(input map[string]any) ([]string, error) {
+func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	c, err := piOwner()
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
@@ -47,7 +47,7 @@ func piDispatchArgv(input map[string]any) ([]string, error) {
 	case tier != "fast" && tier != "standard":
 		return nil, fmt.Errorf("dispatch: tier %q is not fast or standard", tier)
 	}
-	own, err := piOwnWithin(input["own"], c.Scope.Own)
+	own, err := piOwnWithin(input["own"], c.Scope.Own, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func piDispatchArgv(input map[string]any) ([]string, error) {
 func strOf(v any) string { s, _ := v.(string); return s }
 
 // piOwnWithin is the files list when every entry sits inside the owner's own scope, else an error naming the strays.
-func piOwnWithin(list any, scope []string) ([]string, error) {
+func piOwnWithin(list any, scope []string, cwd string) ([]string, error) {
 	items, ok := list.([]any)
 	if !ok || len(items) == 0 {
 		return nil, errors.New("dispatch: own must be a non-empty array of files")
@@ -72,11 +72,11 @@ func piOwnWithin(list any, scope []string) ([]string, error) {
 	var own, stray []string
 	for _, it := range items {
 		s, _ := it.(string)
-		if s == "" || !piInScope(s, scope) {
+		if s == "" || !piInScope(s, scope, cwd) {
 			stray = append(stray, fmt.Sprintf("%q", s))
 			continue
 		}
-		own = append(own, s)
+		own = append(own, piAbs(cwd, s)) // the child gets absolute files: no cwd can move them
 	}
 	if len(stray) > 0 {
 		return nil, fmt.Errorf("dispatch: own files outside the owner's scope: %s", strings.Join(stray, ", "))
@@ -84,17 +84,18 @@ func piOwnWithin(list any, scope []string) ([]string, error) {
 	return own, nil
 }
 
-func piInScope(file string, scope []string) bool {
-	abs := func(p string) string { // Abs only fails without a cwd; the cleaned path then compares as typed
-		a, err := filepath.Abs(p)
-		if err != nil {
-			a = filepath.Clean(p)
-		}
-		return filepath.ToSlash(a)
+// piAbs is p cleaned and rooted at the call's cwd, the base Pi resolves every path against.
+func piAbs(cwd, p string) string {
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(cwd, p)
 	}
-	f := abs(file)
+	return filepath.ToSlash(filepath.Clean(p))
+}
+
+func piInScope(file string, scope []string, cwd string) bool {
+	f := piAbs(cwd, file)
 	return slices.ContainsFunc(scope, func(o string) bool {
-		o = abs(o)
+		o = piAbs(cwd, o)
 		return f == o || strings.HasPrefix(f, strings.TrimSuffix(o, "/")+"/")
 	})
 }

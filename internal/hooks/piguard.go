@@ -345,7 +345,7 @@ func isPiAction(tool string) bool {
 }
 
 // piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
-func piActionArgv(tool string, input map[string]any) ([]string, error) {
+func piActionArgv(tool string, input map[string]any, cwd string) ([]string, error) {
 	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys}[tool]
 	for k := range input {
 		if !slices.Contains(keys, k) {
@@ -356,7 +356,7 @@ func piActionArgv(tool string, input map[string]any) ([]string, error) {
 	case "handback":
 		return nil, nil
 	case "dispatch":
-		return piDispatchArgv(input)
+		return piDispatchArgv(input, cwd)
 	case "check":
 		return piCheckArgv(input)
 	}
@@ -393,7 +393,7 @@ func piGateScope(list any) (string, error) {
 
 // judgePiAction judges a runner action: a gate is judged as the bash line it will run, a handback runs nothing.
 func judgePiAction(c piCall) piVerdict {
-	argv, err := piActionArgv(c.Tool, c.Input)
+	argv, err := piActionArgv(c.Tool, c.Input, c.CWD)
 	if err != nil {
 		return piVerdict{Usage: err.Error()}
 	}
