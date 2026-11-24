@@ -2,7 +2,6 @@ package databricks
 
 import (
 	"cmp"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,14 +13,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-//go:embed templates/*
-var tmplFS embed.FS
 
 const (
 	placeholderHost = "https://example.cloud.databricks.com"
@@ -157,8 +154,14 @@ func (o renderOptions) checkClaudeWire(isClaude bool) error {
 
 // tmpl loads an embedded template; its placeholder host never survives, every URL is re-set from the provider row.
 func tmpl(name string) (string, error) {
-	b, err := tmplFS.ReadFile("templates/" + name)
-	return string(b), err
+	switch name {
+	case "claude.json":
+		return string(assets.DatabricksClaudeTemplate()), nil
+	case "codex.toml":
+		return string(assets.DatabricksCodexTemplate()), nil
+	default:
+		return "", fmt.Errorf("databricks: no template %q", name)
+	}
 }
 
 // cliTokenCmd is the Databricks CLI token command a rendered config runs for host.

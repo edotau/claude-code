@@ -3,7 +3,6 @@ package vscode
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -32,7 +32,7 @@ type mergeResult struct {
 
 // syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded and merges it into dest.
 func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mergeResult, error) {
-	rawTemplate := defaultTemplate
+	rawTemplate := assets.VSCodeMachineSettingsTemplate()
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
@@ -176,11 +176,6 @@ func writeGuarded(dest, label string, rawBase, body []byte) (mergeResult, error)
 	}
 	return mergeResult{Changed: true, Backup: backup}, nil
 }
-
-// defaultTemplate is the tracked first-party VS Code settings template, embedded so a bare install has it.
-//
-//go:embed machine-settings.template.json
-var defaultTemplate []byte
 
 // syncOptions are `theme vscode`'s paths; an empty field resolves to the platform default.
 type syncOptions struct {

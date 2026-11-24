@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -303,7 +304,7 @@ func TestSyncKeybindingsCheckReportsDriftWithoutWriting(t *testing.T) {
 // Guards drift: every keybinding profileName must exist in the settings template's terminal profiles.
 func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	var entries []map[string]any
-	if err := json.Unmarshal(textutil.StripJSONC(defaultKeybindingsTemplate), &entries); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(assets.VSCodeKeybindingsTemplate()), &entries); err != nil {
 		t.Fatalf("embedded keybindings template did not parse: %v", err)
 	}
 	if len(entries) == 0 {
@@ -311,7 +312,7 @@ func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	}
 
 	var settings map[string]any
-	if err := json.Unmarshal(textutil.StripJSONC(defaultTemplate), &settings); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(assets.VSCodeMachineSettingsTemplate()), &settings); err != nil {
 		t.Fatalf("embedded settings template did not parse: %v", err)
 	}
 	profiles, ok := settings["terminal.integrated.profiles.linux"].(map[string]any)

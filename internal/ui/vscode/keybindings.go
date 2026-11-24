@@ -2,7 +2,6 @@ package vscode
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -42,7 +42,7 @@ func defaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 
 // syncKeybindings merges the embedded keybindings template into dest, a JSONC array. check mirrors syncSettings.
 func syncKeybindings(template, dest string, check bool) (mergeResult, error) {
-	rawTemplate := defaultKeybindingsTemplate
+	rawTemplate := assets.VSCodeKeybindingsTemplate()
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
@@ -154,8 +154,3 @@ func marshalKeybindings(entries []map[string]any, leading string) ([]byte, error
 	}
 	return append(body, '\n'), nil
 }
-
-// defaultKeybindingsTemplate is the tracked first-party keybindings template, embedded for a bare install.
-//
-//go:embed keybindings.template.json
-var defaultKeybindingsTemplate []byte

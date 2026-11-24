@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -14,7 +15,7 @@ func TestRoutingOverlayMergesWeightsCellsAndOpencode(t *testing.T) {
 		"cells": {"opencode": {"sonnet": {"model": "opencode-go/y"}}},
 		"opencode": {"ladder": ["openai"], "workRepoMarkers": ["git.corp.example"], "freeTiers": ["haiku"], "freeFirstOutput": "45s"}
 	}}`)
-	reg, err := Parse(defaultsJSON, overlay)
+	reg, err := Parse(assets.ProviderDefaults(), overlay)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func checkMergedOpencode(t *testing.T, oc OpencodeRouting) {
 // TestValidateRejectsOpencodeFreeTiersOpus checks an overlay naming "opus" in freeTiers fails Validate.
 func TestValidateRejectsOpencodeFreeTiersOpus(t *testing.T) {
 	overlay := []byte(`{"routing": {"opencode": {"freeTiers": ["sonnet", "opus"]}}}`)
-	_, err := Parse(defaultsJSON, overlay)
+	_, err := Parse(assets.ProviderDefaults(), overlay)
 	if err == nil || !strings.Contains(err.Error(), `freeTiers cannot include "opus"`) {
 		t.Errorf("Parse() = %v, want the freeTiers/opus rule named", err)
 	}
@@ -57,7 +58,7 @@ func TestValidateRejectsOpencodeFreeTiersOpus(t *testing.T) {
 func TestValidateRejectsBadFreeFirstOutput(t *testing.T) {
 	for _, bad := range []string{"not-a-duration", "-5s", "0s"} {
 		overlay := []byte(`{"routing": {"opencode": {"freeFirstOutput": "` + bad + `"}}}`)
-		_, err := Parse(defaultsJSON, overlay)
+		_, err := Parse(assets.ProviderDefaults(), overlay)
 		if err == nil || !strings.Contains(err.Error(), "freeFirstOutput") {
 			t.Errorf("freeFirstOutput=%q: err = %v, want it to name the rule", bad, err)
 		}
@@ -165,7 +166,7 @@ func TestValidateRouteCellsOrderIsDeterministic(t *testing.T) {
 
 // The default ladder's first two rungs are copilot, one per provider (databricks, github), each carrying a model list.
 func TestDefaultLadderSplitsCopilotRungByProvider(t *testing.T) {
-	reg, err := Parse(defaultsJSON, nil)
+	reg, err := Parse(assets.ProviderDefaults(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestDefaultLadderSplitsCopilotRungByProvider(t *testing.T) {
 
 // TestDatabricksLadderParses: the embedded databricks ladder loads and every rung names a roster agent or a provider.
 func TestDatabricksLadderParses(t *testing.T) {
-	reg, err := Parse(defaultsJSON, nil)
+	reg, err := Parse(assets.ProviderDefaults(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

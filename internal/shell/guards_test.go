@@ -10,14 +10,16 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 func TestGuardsFileIsValid(t *testing.T) {
-	secs, err := decodeGuards(guardsJSON)
+	secs, err := decodeGuards(assets.ShellGuards())
 	if err != nil {
 		t.Fatal(err)
 	}
-	dec := json.NewDecoder(bytes.NewReader(guardsJSON))
+	dec := json.NewDecoder(bytes.NewReader(assets.ShellGuards()))
 	dec.Token()
 	seen := map[string]bool{}
 	for dec.More() {

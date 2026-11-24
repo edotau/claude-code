@@ -7,23 +7,23 @@
 
 | Template | Source | Rendered by | Example |
 | --- | --- | --- | --- |
-| Memory bank seed files (6) | [`internal/memory/templates/*.md`](../../internal/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (router/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
+| Memory bank seed files (6) | [`internal/assets/files/memory/templates/*.md`](../../internal/assets/files/memory/templates/) | `claude-code memory init` (`Init`), `claude-code memory index` (router/catalog) | [memory/sessionHistory.md](examples/memory/sessionHistory.md), [decisionLog.md](examples/memory/decisionLog.md), [activeContext.md](examples/memory/activeContext.md) |
 | autoMode rules | [`internal/settings/automode.json`](../../internal/settings/automode.json) | `claude-code claude` and `claude --launcher` (session overlay, `LaunchSettings`) | — |
 | Settings template | [`internal/settings/template.json`](../../internal/settings/template.json) | first-run seed in `claude-code install`, `claude-code configure --restore` | — |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
 | Status line default config + palettes | [`internal/assets/files/ui/theme/default_config.json`](../../internal/assets/files/ui/theme/default_config.json), [`default_palettes.json`](../../internal/assets/files/ui/theme/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
 | Agent config defaults | [`internal/agentconfig/agents.json`](../../internal/agentconfig/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
-| tmux.conf | [`internal/setup/tmux.conf`](../../internal/setup/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
-| VS Code machine-settings template | [`internal/ui/vscode/machine-settings.template.json`](../../internal/ui/vscode/machine-settings.template.json) | `claude-code configure --vscode` | — |
-| VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code configure --vscode` (keybindings step) | — |
-| claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
-| `clip paste` WSL clipboard shim | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
+| tmux.conf | [`internal/assets/files/setup/tmux.conf`](../../internal/assets/files/setup/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
+| VS Code machine-settings template | [`internal/assets/files/ui/vscode/machine-settings.template.json`](../../internal/assets/files/ui/vscode/machine-settings.template.json) | `claude-code configure --vscode` | — |
+| VS Code keybindings template | [`internal/assets/files/ui/vscode/keybindings.template.json`](../../internal/assets/files/ui/vscode/keybindings.template.json) | `claude-code configure --vscode` (keybindings step) | — |
+| claude-science config | [`internal/assets/files/claude/science.toml`](../../internal/assets/files/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
+| `clip paste` WSL clipboard shim | [`internal/assets/files/clipboard/wl-paste-claude.sh`](../../internal/assets/files/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
 | Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |
-| Memory procedures | [`internal/memory/prompts/*.md`](../../internal/memory/prompts/) | `claude-code memory <verb>` (`Reference`) | — |
+| Memory procedures | [`internal/assets/files/memory/prompts/*.md`](../../internal/assets/files/memory/prompts/) | `claude-code memory <verb>` (named assets procedure readers) | — |
 | Model ranks | [`internal/assets/files/catalog/ranks.json`](../../internal/assets/files/catalog/ranks.json) | `--model auto` ranking | — |
 | Model catalog and route table | [`internal/models/catalog.json`](../../internal/models/catalog.json), [`internal/router/table.json`](../../internal/router/table.json) | model resolution, the fallback ladder | — |
 | opencode overlay templates | [`internal/agentconfig/template/`](../../internal/agentconfig/template/) | every opencode launch (`OpencodeOverlayRendered`) | — |
-| Databricks config templates | [`internal/databricks/templates/`](../../internal/databricks/templates/) | `configgen.go` (claude.json, codex.toml) | — |
+| Databricks config templates | [`internal/assets/files/databricks/templates/`](../../internal/assets/files/databricks/templates/) | `configgen.go` (claude.json, codex.toml) | — |
 | Settings schema | [`internal/settings/claude-code-settings.schema.json`](../../internal/settings/claude-code-settings.schema.json) | settings validation | — |
 | Overlay schema | [`internal/agentconfig/overlay.schema.json`](../../internal/agentconfig/overlay.schema.json) | generated by `agentconfig.OverlaySchema()`; golden-tested (docs, editors, `workflow lint`) | — |
 | Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; the `docs-placement` hook blocks a first plan draft missing the template's headings and names this file (adds a missing `# Plan:` prefix or `## Tasks` itself) | — |

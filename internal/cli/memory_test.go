@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -129,10 +130,7 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 	if strings.Contains(strings.ToLower(out), "global") {
 		t.Errorf("memory init output still names the pre-rename global tier: %q", out)
 	}
-	ref, err := memory.Reference("init")
-	if err != nil {
-		t.Fatalf("memory.Reference(\"init\"): %v", err)
-	}
+	ref := assets.MemoryInitProcedure()
 	if !strings.Contains(out, ref) {
 		t.Errorf("output missing the embedded init procedure: %q", out)
 	}
@@ -233,10 +231,7 @@ func checkReviewCandidates(t *testing.T, out string) {
 	if statsIdx < 0 {
 		t.Fatalf("output missing the stats block: %q", out)
 	}
-	ref, err := memory.Reference("review")
-	if err != nil {
-		t.Fatalf("memory.Reference(\"review\"): %v", err)
-	}
+	ref := assets.MemoryReviewProcedure()
 	refIdx := strings.Index(out, ref)
 	if refIdx < 0 {
 		t.Errorf("output missing the embedded review procedure: %q", out)
@@ -336,10 +331,7 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("memory update with no --transcript: code=%d, want 0", code)
 	}
-	ref, err := memory.Reference("update")
-	if err != nil {
-		t.Fatalf("memory.Reference(\"update\"): %v", err)
-	}
+	ref := assets.MemoryUpdateProcedure()
 	if !strings.Contains(out, ref) {
 		t.Errorf("stdout missing the embedded update procedure: %q", out)
 	}

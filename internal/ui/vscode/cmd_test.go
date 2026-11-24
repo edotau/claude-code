@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
@@ -179,11 +180,7 @@ func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 
 // The real tracked template drives any fresh box's VS Code Machine settings, so its shape matters.
 func TestTemplateIsFirstPartyOnly(t *testing.T) {
-	tmpl, err := os.ReadFile("machine-settings.template.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(tmpl)
+	body := string(assets.VSCodeMachineSettingsTemplate())
 	for _, want := range []string{
 		`"chatgpt.cliExecutable": "__CLAUDE_BIN__/codex"`,
 		`"chat.useClaudeHooks"`,

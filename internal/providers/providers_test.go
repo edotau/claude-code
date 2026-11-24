@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -33,7 +34,7 @@ func load(t *testing.T) *Registry {
 	t.Helper()
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, "")
-	reg, err := Parse(defaultsJSON, []byte(overlay))
+	reg, err := Parse(assets.ProviderDefaults(), []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +501,7 @@ func TestRouteAgentsAreTheCanonicalRoster(t *testing.T) {
 // TestDefaultsAgentNamesAreKnown checks every "agent" and auth "login" value in defaults.json is an agentid name.
 func TestDefaultsAgentNamesAreKnown(t *testing.T) {
 	var doc any
-	if err := json.Unmarshal(defaultsJSON, &doc); err != nil {
+	if err := json.Unmarshal(assets.ProviderDefaults(), &doc); err != nil {
 		t.Fatal(err)
 	}
 	var walk func(v any)

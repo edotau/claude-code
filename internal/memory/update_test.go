@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -45,10 +46,7 @@ func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
-	ref, err := Reference("update")
-	if err != nil {
-		t.Fatalf("Reference(update): %v", err)
-	}
+	ref := assets.MemoryUpdateProcedure()
 	if ref == "" || !strings.Contains(got, ref) {
 		t.Fatalf("update prompt missing its embedded procedure: %q", got)
 	}
@@ -365,33 +363,33 @@ func TestLiveTranscript(t *testing.T) {
 	}
 }
 
-// embeddedVerbs are the verbs update.go, dream.go and promote.go pass to Reference.
-var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
+var embeddedProcedures = []func() string{assets.MemoryInitProcedure, assets.MemoryReviewProcedure,
+	assets.MemoryPromoteProcedure, assets.MemoryUpdateProcedure, assets.MemoryDreamProcedure}
 
 func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
-	for _, verb := range embeddedVerbs {
-		got, err := Reference(verb)
-		if err != nil {
-			t.Errorf("Reference(%q): %v", verb, err)
-			continue
-		}
+	for i, read := range embeddedProcedures {
+		got := read()
 		if strings.TrimSpace(got) == "" {
-			t.Errorf("Reference(%q) = empty, want a non-empty procedure", verb)
+			t.Errorf("procedure %d = empty, want a non-empty procedure", i)
 		}
 	}
 }
 
-// An unknown verb must error, never return "": a background job must not run on an empty prompt.
-func TestReferenceUnknownVerbErrors(t *testing.T) {
-	if _, err := Reference("does-not-exist"); err == nil {
-		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
+func TestProcedureDispatchIsTyped(t *testing.T) {
+	src, err := os.ReadFile("verbs.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), "func Reference(") {
+		t.Fatal("generic procedure dispatch remains")
 	}
 }
 
-// TestReferenceEmptyVerbErrors: the empty string is also an unknown verb.
-func TestReferenceEmptyVerbErrors(t *testing.T) {
-	if _, err := Reference(""); err == nil {
-		t.Fatal("Reference(\"\") = nil error, want one")
+func TestProcedureReadersPreserveReferenceWhitespace(t *testing.T) {
+	for i, read := range embeddedProcedures {
+		if got := read(); got == "" || strings.TrimSpace(got) != got {
+			t.Errorf("procedure %d lost Reference's trimmed, nonempty contract", i)
+		}
 	}
 }
 
@@ -401,10 +399,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
-	ref, err := Reference("dream")
-	if err != nil {
-		t.Fatalf("Reference(\"dream\"): %v", err)
-	}
+	ref := assets.MemoryDreamProcedure()
 	if !strings.Contains(got, ref) {
 		t.Errorf("prompt missing the embedded dream reference:\n%s", got)
 	}

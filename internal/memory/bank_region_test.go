@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -97,7 +98,7 @@ func TestNativeIndexHoldsPinnedPlusNewestTwentyAndAMoreLine(t *testing.T) {
 		if i, j := strings.Index(got, "(feedback/f49.md)"), strings.Index(got, "(feedback/f30.md)"); i < 0 || j < i || strings.Contains(got, "(feedback/f29.md)") {
 			t.Errorf("newest 20 must run f49..f30 newest first:\n%s", got)
 		}
-		if len(bankIndexHint) > 120 || len(blockBegin) > 120 {
+		if len(assets.MemoryIndexHint()) > 120 || len(assets.MemoryBlockBegin()) > 120 {
 			t.Error("the hint and begin lines must stay within 120 characters")
 		}
 		if again, _ := refreshIndex(t); again.Bytes != rep.Bytes {
@@ -171,7 +172,7 @@ func hostileEntries() (bullets, lead []string) {
 	}
 	lead = []string{
 		"    - [a](notes/a.md) — indented like a stored line", "\tleading tab", "free text\nwith a lazy continuation",
-		blockBegin, "<!-- end of entry -->", "## Pointer entries (appended by claude-code memory index, never rewritten)",
+		assets.MemoryBlockBegin(), "<!-- end of entry -->", "## Pointer entries (appended by claude-code memory index, never rewritten)",
 		"\ufeffinner bom",
 	}
 	return bullets, lead
@@ -603,7 +604,7 @@ func TestMemoryMdStaysWhenHardLinksAreUnsupported(t *testing.T) {
 			appendFile(t, NativeIndex(), e+"\n")
 			_, err := refreshNativeIndex(indexNow, false, nil)
 			mem := readIfExistsString(NativeIndex())
-			if err != nil || !strings.HasPrefix(mem, blockBegin) || !strings.Contains(mem, e+"\n") || !slices.Contains(stored(t), e) {
+			if err != nil || !strings.HasPrefix(mem, assets.MemoryBlockBegin()) || !strings.Contains(mem, e+"\n") || !slices.Contains(stored(t), e) {
 				t.Fatalf("refresh %d: err=%v; MEMORY.md must hold the new text and the entry be stored, without hard links", i, err)
 			}
 		}
@@ -637,7 +638,7 @@ func TestEditedBlockKeepsEveryLineItDidNotGenerate(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		seedNotes(t, 25)
 		_, cur := refreshIndex(t)
-		e := "- new-entry\n" + bankIndexHint + "\n  user-tail" // a generated line inside a new entry is the entry's
+		e := "- new-entry\n" + assets.MemoryIndexHint() + "\n  user-tail" // a generated line inside a new entry is the entry's
 		write(t, NativeIndex(), strings.Replace(cur, blockEndPrefix, e+"\n"+blockEndPrefix, 1))
 		seedNotes(t, 26) // the "N more" count changes, so the old count line is no longer one the generator writes
 		refreshIndex(t)

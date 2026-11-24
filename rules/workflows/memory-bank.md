@@ -28,8 +28,9 @@ any write on a dirty store, credential-shaped text or an unresolved collision, m
 
 ## Precedence
 
-`internal/memory` code, then this file (layout, contracts, caps), then the prompts in `internal/memory/prompts/`
-(`claude-code memory <verb>` prints them). On a disagreement the earlier wins; each fact lives in one place.
+`internal/memory` code, then this file (layout, contracts, caps), then the prompts in
+`internal/assets/files/memory/prompts/` (`claude-code memory <verb>` prints them).
+On a disagreement the earlier wins; each fact lives in one place.
 
 ## Verbs
 
@@ -102,7 +103,7 @@ hand.
 
 | File | Holds | Contract |
 | --- | --- | --- |
-| `projectContext.md` | Orientation + do-not-regress invariants (`internal/memory/prompts/init.md` seeds it) | Replace, sparingly |
+| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/files/memory/prompts/init.md` seeds it) | Replace, sparingly |
 | `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
 | `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |

@@ -179,7 +179,7 @@ func TestFindRealWlPasteSkipsProxies(t *testing.T) {
 	for _, f := range []struct {
 		body []byte
 		mode os.FileMode
-	}{{ProxyScript, 0o755}, {stale, 0o755}, {foreign, 0o644}, {foreign, 0o755}, {foreign, 0o755}} {
+	}{{ProxyScript(), 0o755}, {stale, 0o755}, {foreign, 0o644}, {foreign, 0o755}, {foreign, 0o755}} {
 		d := t.TempDir()
 		if err := os.WriteFile(filepath.Join(d, "wl-paste"), f.body, f.mode); err != nil {
 			t.Fatal(err)
@@ -207,7 +207,7 @@ func TestProxyShimForwardsArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	shim := filepath.Join(t.TempDir(), "wl-paste")
-	if err := os.WriteFile(shim, ProxyScript, 0o755); err != nil {
+	if err := os.WriteFile(shim, ProxyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(shim, "--type", "image/png", "--help")
@@ -297,7 +297,7 @@ func TestInstallProxyAtAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proxy not written: %v", err)
 	}
-	if !bytes.Equal(b, ProxyScript) {
+	if !bytes.Equal(b, ProxyScript()) {
 		t.Error("written proxy does not match embedded script")
 	}
 	info, err := os.Stat(dest)
@@ -314,7 +314,7 @@ func TestInstallProxyAtAbsent(t *testing.T) {
 
 func TestInstallProxyAtCurrent(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "wl-paste")
-	if err := os.WriteFile(dest, ProxyScript, 0o755); err != nil {
+	if err := os.WriteFile(dest, ProxyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -322,7 +322,7 @@ func TestInstallProxyAtCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(dest)
-	if !bytes.Equal(b, ProxyScript) {
+	if !bytes.Equal(b, ProxyScript()) {
 		t.Error("current proxy was rewritten")
 	}
 	if !strings.Contains(out.String(), "current") {
@@ -345,7 +345,7 @@ func TestInstallProxyAtStaleIsUpdated(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(dest)
-	if !bytes.Equal(b, ProxyScript) {
+	if !bytes.Equal(b, ProxyScript()) {
 		t.Error("stale proxy was not updated to the current embedded script")
 	}
 	if !strings.Contains(out.String(), "wrote") {
@@ -426,7 +426,7 @@ func TestInstallProxyWSLGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WSL InstallProxy did not write the proxy: %v", err)
 	}
-	if !bytes.Equal(b, ProxyScript) {
+	if !bytes.Equal(b, ProxyScript()) {
 		t.Error("written proxy does not match embedded script")
 	}
 
@@ -443,7 +443,7 @@ func TestInstallProxyWSLGate(t *testing.T) {
 func TestRemoveLegacyProxy(t *testing.T) {
 	dir := t.TempDir()
 	ours, foreign := filepath.Join(dir, "ours"), filepath.Join(dir, "foreign")
-	if err := os.WriteFile(ours, ProxyScript, 0o755); err != nil {
+	if err := os.WriteFile(ours, ProxyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(foreign, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -493,7 +493,7 @@ func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dest, ProxyScript, 0o755); err != nil {
+	if err := os.WriteFile(dest, ProxyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Scope PATH to dest's dir so a host wl-paste cannot shadow the fixture.

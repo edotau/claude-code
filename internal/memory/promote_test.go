@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -33,10 +34,7 @@ func judgmentFixture(t *testing.T) (id, localPath string, before []byte) {
 
 // TestPromoteJudgmentTargetsPrintOnly: rules/skill only print the block and procedure.
 func TestPromoteJudgmentTargetsPrintOnly(t *testing.T) {
-	ref, err := Reference("promote")
-	if err != nil {
-		t.Fatalf("Reference(\"promote\"): %v", err)
-	}
+	ref := assets.MemoryPromoteProcedure()
 	id, localPath, before := judgmentFixture(t)
 	homePath := filepath.Join(paths.MemoryStoreDir(), "conventions.md")
 	_, homeErrBefore := os.Stat(homePath)

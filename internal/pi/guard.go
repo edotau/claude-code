@@ -3,7 +3,6 @@ package pi
 import (
 	"crypto/rand"
 	"crypto/subtle"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
@@ -24,9 +24,6 @@ var _ = schemas.Register(schemas.Format{
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "pi", "*", "runs", "*", guardFile) },
 	Version: 1, Clean: "pi-runs",
 })
-
-//go:embed guard/index.ts
-var guardTS string
 
 const (
 	guardFile     = "guard.ts"
@@ -62,7 +59,7 @@ func renderGuard(bin string, budgetMs int64) ([]byte, error) {
 		return nil, err
 	}
 	r := strings.NewReplacer("__BIN__", string(binJSON), "__PI_VERSION__", strconv.Quote(tools.PiPin), "__BUDGET_MS__", strconv.FormatInt(budgetMs, 10))
-	return []byte(r.Replace(guardTS)), nil
+	return []byte(r.Replace(assets.PiGuardSource())), nil
 }
 
 // WriteGuard writes the extension (0600) into runDir, a private dir the harness made, and mints this run's nonce.

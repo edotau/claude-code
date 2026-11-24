@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/assets"
 )
 
 const (
@@ -80,7 +82,5 @@ func rtkPromptBlock(misses []rtkMiss) string {
 		return ""
 	}
 	b, _ := json.Marshal(misses)
-	return "\n\nrtk misses, last 7 days (`rtk discover`): " + string(b) + "\nIn Phase 5b add at most one record (id `fc-rtk-misses`) " +
-		"proposing an rtk rule or rewrite-word change for the top misses: target `rules/standards/rtk.md`, evidence one existing " +
-		"feedback/ or notes/ file about rtk plus `repeats` set to the top count; skip it if no such file exists.\n"
+	return assets.MemoryRTKMisses(string(b))
 }

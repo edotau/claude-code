@@ -181,7 +181,9 @@ var Registry = []Group{
 		// Advisory comment, complexity and smell findings an edit just introduced, fed back to the model.
 		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 		// A leaf's report with unfixed findings or owner decisions: the main session is told to fix them now (R28).
-		{Name: "review-handback", Event: EventPostToolUse, Matcher: "Agent|Task", Budget: 5 * sec},
+		{Name: "review-handback", Event: EventPostToolUse, Matcher: "Agent|Task|TaskOutput", Budget: 5 * sec},
+		// A background leaf's report arrives as a task-notification prompt.
+		{Name: "review-notified", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// The main session's last message asks the owner to decide a fix or finding: block the stop once (R28).
 		{Name: "review-decide", Event: EventStop, Budget: 5 * sec},
 	}},

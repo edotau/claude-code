@@ -1,0 +1,233 @@
+package assets
+
+import (
+	"bytes"
+	"encoding/json"
+	"slices"
+	"strings"
+	"sync"
+	"text/template"
+)
+
+type MemoryUpdateInput struct{ Worker, Procedure, Historical, Digest, Git, Tags string }
+
+func MemoryActiveContextSeed() string { return string(read("files/memory/templates/activeContext.md")) }
+
+func MemoryConventionsSeed() string { return string(read("files/memory/templates/conventions.md")) }
+
+func MemoryDecisionLogSeed() string { return string(read("files/memory/templates/decisionLog.md")) }
+
+func MemoryProgressSeed() string { return string(read("files/memory/templates/progress.md")) }
+
+func MemoryProjectContextSeed() string {
+	return string(read("files/memory/templates/projectContext.md"))
+}
+
+func MemorySessionHistorySeed() string {
+	return string(read("files/memory/templates/sessionHistory.md"))
+}
+
+func MemoryDreamProcedure() string { return memoryProcedure(read("files/memory/prompts/dream.md")) }
+
+func MemoryInitProcedure() string { return memoryProcedure(read("files/memory/prompts/init.md")) }
+
+func MemoryPromoteProcedure() string { return memoryProcedure(read("files/memory/prompts/promote.md")) }
+
+func MemoryReviewProcedure() string { return memoryProcedure(read("files/memory/prompts/review.md")) }
+
+func MemoryUpdateProcedure() string { return memoryProcedure(read("files/memory/prompts/update.md")) }
+
+func MemoryUpdateWorker(bank string) string {
+	return renderMemory("update-opening.tmpl", struct{ Bank string }{bank})
+}
+
+func MemoryDreamWorker(bank string) string {
+	return renderMemory("dream-opening.tmpl", struct{ Bank string }{bank})
+}
+
+func MemoryLegacyUpdateWorker(bank, home string) string {
+	return renderMemory("legacy-update-opening.tmpl", struct{ Bank, Home string }{bank, home})
+}
+
+func MemoryLegacyDreamWorker(bank, home string) string {
+	return renderMemory("legacy-dream-opening.tmpl", struct{ Bank, Home string }{bank, home})
+}
+
+func MemoryHistoricalRule() string { return string(read("files/memory/prompts/historical.txt")) }
+
+func MemoryUpdatePrompt(in MemoryUpdateInput) string {
+	return renderMemory("update-worker.tmpl", in)
+}
+
+func MemoryTranscriptPointer(path string) string {
+	return renderMemory("transcript-pointer.tmpl", struct{ Path string }{path})
+}
+
+func MemorySessionDigest(path, body string) string {
+	return renderMemory("session-digest.tmpl", struct{ Path, Body string }{path, body})
+}
+
+func MemoryGitActivity(commits, files string) string {
+	return renderMemory("git-activity.tmpl", struct{ Commits, Files string }{commits, files})
+}
+
+func MemorySessionTags(lines []string) string {
+	return renderMemory("session-tags.tmpl", lines)
+}
+
+func MemoryDreamPrompt(worker, changed, procedure string) string {
+	return renderMemory("dream-worker.tmpl", struct{ Worker, Changed, Procedure string }{worker, changed, procedure})
+}
+
+func MemoryDreamUnchanged() string { return string(read("files/memory/prompts/dream-unchanged.txt")) }
+
+func MemoryOpenTasks(tasks string) string {
+	return renderMemory("open-tasks.tmpl", tasks)
+}
+
+func MemoryRTKMisses(misses string) string {
+	return renderMemory("rtk-misses.tmpl", misses)
+}
+
+func MemoryIndexHint() string { return string(read("files/memory/prompts/index-hint.txt")) }
+
+var memoryBlockBegin struct {
+	sync.Once
+	text string
+}
+
+func MemoryBlockBegin() string {
+	memoryBlockBegin.Do(func() { memoryBlockBegin.text = string(read("files/memory/prompts/block-begin.txt")) })
+	return memoryBlockBegin.text
+}
+
+func MemoryBankHead(folders, router string) string {
+	return renderMemory("bank-head.tmpl", struct{ Folders, Router string }{folders, router})
+}
+
+func MemoryMoreEntries(count int, router string) string {
+	return renderMemory("more-entries.tmpl", struct {
+		Count  int
+		Router string
+	}{count, router})
+}
+
+func MemoryUnresolvedEntries(count int) string {
+	return renderMemory("unresolved.tmpl", count)
+}
+
+func MemoryCatalogHeader(date string) string {
+	return renderMemory("catalog-header.tmpl", struct{ Date string }{date})
+}
+
+func MemoryCatalogBank(hook, date string) string {
+	return renderMemory("catalog-bank.tmpl", struct{ Hook, Date string }{hook, date})
+}
+
+func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/home-index.txt")) }
+
+func MemoryKnowledgeHeading() string { return string(read("files/memory/prompts/knowledge.txt")) }
+
+func MemoryHomeOverflow(count int) string {
+	return renderMemory("home-overflow.tmpl", count)
+}
+
+var memoryFolderRoles struct {
+	sync.Once
+	rows [][2]string
+}
+
+func MemoryFolderRoles() [][2]string {
+	memoryFolderRoles.Do(func() {
+		if err := json.Unmarshal(read("files/memory/folder-roles.json"), &memoryFolderRoles.rows); err != nil {
+			panic("assets: memory folder roles: " + err.Error())
+		}
+	})
+	return slices.Clone(memoryFolderRoles.rows)
+}
+
+func MemoryLayoutHeading() string { return string(read("files/memory/prompts/layout.txt")) }
+
+func MemoryLayoutRow(folder, role string, count int) string {
+	return renderMemory("layout-row.tmpl", struct {
+		Folder, Role string
+		Count        int
+	}{folder, role, count})
+}
+
+func MemoryNativeHeading() string { return string(read("files/memory/prompts/native.txt")) }
+
+func MemoryNativeFolder(folder string) string {
+	return renderMemory("native-folder.tmpl", folder)
+}
+
+func MemoryNativeUnparsed(count int) string {
+	return renderMemory("native-unparsed.tmpl", count)
+}
+
+func MemoryRecallLine(file, text string, label bool) string {
+	return renderMemory("recall-line.tmpl", struct {
+		File, Text string
+		Label      bool
+	}{file, text, label})
+}
+
+func MemoryRecallHeader(expand bool) string {
+	return renderMemory("recall-header.tmpl", expand)
+}
+
+func MemoryRecallFooter() string { return string(read("files/memory/prompts/recall-footer.txt")) }
+
+func MemoryRecallMarker() string { return string(read("files/memory/prompts/recall-marker.txt")) }
+
+func MemoryBankLoadNote(prefix string) string {
+	return renderMemory("bank-load.tmpl", prefix)
+}
+
+func MemoryPreviousSession(id string) string {
+	return renderMemory("previous-session.tmpl", id)
+}
+
+func MemoryUpdateRecovery(id, status, log string) string {
+	return renderMemory("update-recovery.tmpl", struct{ ID, Status, Log string }{id, status, log})
+}
+
+func MemoryScaffoldNote(dir string) string {
+	return renderMemory("scaffold.tmpl", dir)
+}
+
+func MemoryCatalogPointer(path string) string {
+	return renderMemory("catalog-pointer.tmpl", path)
+}
+
+func MemoryBankHeading(root string) string {
+	return renderMemory("bank-heading.tmpl", root)
+}
+
+func MemoryNativeContext(index string) string {
+	return renderMemory("native-context.tmpl", index)
+}
+
+func TranscriptHandoff(cwd, transcript, note string) string {
+	return renderMemory("transcript-handoff.tmpl", struct{ CWD, Transcript, Note string }{cwd, transcript, note})
+}
+
+var memoryTemplates = sync.OnceValue(func() *template.Template {
+	return template.Must(template.New("").Option("missingkey=error").ParseFS(files, "files/memory/prompts/*.tmpl"))
+})
+
+func renderMemory(name string, input any) string {
+	var out bytes.Buffer
+	if err := memoryTemplates().ExecuteTemplate(&out, name, input); err != nil {
+		panic("assets: " + name + ": " + err.Error())
+	}
+	return out.String()
+}
+
+func memoryProcedure(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		panic("assets: empty memory procedure")
+	}
+	return text
+}

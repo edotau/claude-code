@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -104,8 +105,8 @@ func TestTranscriptInteractiveSkipsMemoryJobs(t *testing.T) {
 	dir := t.TempDir()
 	head := `{"type":"queue-operation"}` + "\n" + `{"type":"attachment","entrypoint":"claude-vscode"}` + "\n"
 	for prompt, want := range map[string]bool{
-		fmt.Sprintf(updatePromptFormat, "/b"): false, fmt.Sprintf(dreamPromptFormat, "/b"): false,
-		fmt.Sprintf(legacyUpdatePromptFormat, "/b", "/h"): false, fmt.Sprintf(legacyDreamPromptFormat, "/b", "/m"): false,
+		fmt.Sprintf(assets.MemoryUpdateWorker("%s"), "/b"): false, fmt.Sprintf(assets.MemoryDreamWorker("%s"), "/b"): false,
+		fmt.Sprintf(assets.MemoryLegacyUpdateWorker("%s", "%s"), "/b", "/h"): false, fmt.Sprintf(assets.MemoryLegacyDreamWorker("%s", "%s"), "/b", "/m"): false,
 		"fix the login bug": true,
 	} {
 		path := filepath.Join(dir, strings.ReplaceAll(prompt[:12], " ", "-")+".jsonl")
@@ -118,15 +119,15 @@ func TestTranscriptInteractiveSkipsMemoryJobs(t *testing.T) {
 
 func TestTranscriptInteractiveAdversarial(t *testing.T) {
 	const catchupScan = 200 // The former metadata scan limit.
-	update := fmt.Sprintf(updatePromptFormat, "/b")
-	dream := fmt.Sprintf(dreamPromptFormat, "/b")
+	update := fmt.Sprintf(assets.MemoryUpdateWorker("%s"), "/b")
+	dream := fmt.Sprintf(assets.MemoryDreamWorker("%s"), "/b")
 	for _, c := range []struct {
 		name, prompt string
 		array        bool
 		padding      int
 		want         bool
 	}{
-		{"human opening", updatePromptOpen + " Please explain this sentence.", false, 0, true},
+		{"human opening", "Background update of a finished session." + " Please explain this sentence.", false, 0, true},
 		{"array update", update, true, 0, false},
 		{"array dream", dream, true, 0, false},
 		{"late worker", update, false, catchupScan + 1, false},

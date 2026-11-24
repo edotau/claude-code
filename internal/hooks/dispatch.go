@@ -413,6 +413,7 @@ var native = map[string]core.Runner{
 	"memory-update":        memhook.Stop,
 	"review-simplicity":    quality.ReviewSimplicity,
 	"review-handback":      ReviewHandback,
+	"review-notified":      ReviewHandback,
 	"review-decide":        ReviewDecide,
 	"format-stop":          quality.StopFormat,
 	"memory-end":           memhook.End,

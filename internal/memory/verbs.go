@@ -3,7 +3,6 @@ package memory
 import (
 	"cmp"
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -256,10 +256,7 @@ func InitBank(w io.Writer) error {
 	}
 	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, paths.MemorySubDir(""))
 	if isProjectContextTemplate() {
-		ref, err := Reference("init")
-		if err != nil {
-			return err
-		}
+		ref := assets.MemoryInitProcedure()
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, ref)
 	}
@@ -390,10 +387,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return err
 	}
 	if transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
-		ref, err := Reference("update")
-		if err != nil {
-			return err
-		}
+		ref := assets.MemoryUpdateProcedure()
 		fmt.Fprintln(o.Out, ref)
 		return nil
 	}
@@ -536,10 +530,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 		writeHookSignals(w, time.Now())
 	}
 	if o.Candidates {
-		ref, err := Reference("review")
-		if err != nil {
-			return err
-		}
+		ref := assets.MemoryReviewProcedure()
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, ref)
 	}
@@ -562,20 +553,4 @@ func TimelineReport(w io.Writer, n int) error {
 		}
 	}
 	return nil
-}
-
-//go:embed prompts/*.md
-var promptsFS embed.FS
-
-// Reference loads verb's embedded prompts/<verb>.md; a missing or empty file errs, never a silent empty prompt.
-func Reference(verb string) (string, error) {
-	data, err := promptsFS.ReadFile("prompts/" + verb + ".md")
-	if err != nil {
-		return "", fmt.Errorf("memory reference %s: %w", verb, err)
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return "", fmt.Errorf("memory reference %s: prompts/%s.md is empty", verb, verb)
-	}
-	return text, nil
 }
