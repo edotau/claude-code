@@ -134,7 +134,7 @@ func rtkHookCommand(bin, agent string, in *core.Input, cmd string) string {
 	defer cancel()
 	c := exec.CommandContext(ctx, bin, args...)
 	c.WaitDelay = 200 * time.Millisecond
-	c.Env = append(os.Environ(), paths.RTKQuietEnv+"=1")
+	c.Env = append(os.Environ(), paths.RTKQuietEnv+"=1", paths.RTKTelemetryEnv+"=1")
 	if agent != core.AgentOpencode {
 		c.Stdin = bytes.NewReader(in.Raw)
 	}
@@ -453,7 +453,8 @@ func rtkShadowNotice(found, bin string) string {
 func rtkRewritten(bin, cmd string) (string, bool) {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
-	c := exec.CommandContext(ctx, bin, "rewrite", cmd)
+	c := exec.CommandContext(ctx, bin, "rewrite", "--", cmd)
+	c.Env = append(os.Environ(), paths.RTKQuietEnv+"=1", paths.RTKTelemetryEnv+"=1")
 	c.WaitDelay = 200 * time.Millisecond // a grandchild holding stdout must not outlive the hook budget
 	out, err := c.Output()
 	var ee *exec.ExitError

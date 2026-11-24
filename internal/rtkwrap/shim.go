@@ -184,7 +184,7 @@ func rewriteWraps(rewritten, name string, args []string) bool {
 func rewrite(rtk, cmd string, env []string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
-	c := exec.CommandContext(ctx, rtk, "rewrite", cmd)
+	c := exec.CommandContext(ctx, rtk, "rewrite", "--", cmd)
 	c.Env = env
 	c.WaitDelay = waitDelay
 	out, err := c.Output()

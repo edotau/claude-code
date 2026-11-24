@@ -9,7 +9,7 @@ import (
 
 func TestRTKRewrite(t *testing.T) {
 	fake := filepath.Join(t.TempDir(), "rtk")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\nprintf 'rtk %s' \"$2\"\nexit 3\n"), 0o755); err != nil {
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nprintf 'rtk %s' \"$3\"\nexit 3\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(RTKBinaryEnv, fake)

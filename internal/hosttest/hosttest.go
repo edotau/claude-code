@@ -297,12 +297,12 @@ func CountFiles(dir, prefix, want string) int {
 	return n
 }
 
-// FakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
+// FakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite -- <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
 func FakeRTK(t *testing.T) string {
 	t.Helper()
 	SkipOnWindows(t, "#!/bin/sh stub")
 	bin := fakeScript(t, "rtk", "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n"+
-		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n"+
+		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $3\"; fi\n"+
 		"exit ${FAKE_RTK_EXIT:-0}\n")
 	t.Setenv("HARNESS_RTK_BIN", bin) // paths.RTKBinaryEnv; this package imports stdlib + x/sys/unix
 	return bin

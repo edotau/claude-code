@@ -73,10 +73,17 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
-	if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, paths.RTKQuietEnv+"=") }) {
-		env = append(env, paths.RTKQuietEnv+"=1")
+	return withMemoryOrigin(withRTKQuiet(env))
+}
+
+// withRTKQuiet adds the rtk banner and telemetry switches unless env already sets them.
+func withRTKQuiet(env []string) []string {
+	for _, name := range []string{paths.RTKQuietEnv, paths.RTKTelemetryEnv} {
+		if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, name+"=") }) {
+			env = append(env, name+"=1")
+		}
 	}
-	return withMemoryOrigin(env)
+	return env
 }
 
 // withoutShimPath drops the rtkwrap shim dir from an inherited PATH, so a nested agent's commands stay unshimmed.

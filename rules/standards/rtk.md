@@ -22,5 +22,6 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
   run the bare tool; rtk changes the output format.
 - **Docs, skills, agents, commands and brief templates:** a command block an agent will run is written in its rtk form;
   `README.md` steps for a human stay bare.
-- **No `No hook installed` banner:** every agent launch and harness rtk call sets `RTK_SUPPRESS_HOOK_WARNING=1`; the
+- **No `No hook installed` banner:** every agent launch and harness rtk call sets `RTK_SUPPRESS_HOOK_WARNING=1` and
+  `RTK_TELEMETRY_DISABLED=1`; the
   harness `rtk-rewrite` hook replaces rtk's own, so never run `rtk init -g`.

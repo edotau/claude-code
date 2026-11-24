@@ -459,7 +459,7 @@ func TestRTKRewriteUsesHomeSpelling(t *testing.T) {
 	if !strings.Contains(res.Context, "exact bytes: "+word+" bypass <cmd>") {
 		t.Errorf("note %q does not name %s", res.Context, word)
 	}
-	if out, err := exec.Command("sh", "-c", word+" rewrite ok").CombinedOutput(); err != nil || string(out) != "rtk ok" {
+	if out, err := exec.Command("sh", "-c", word+" rewrite -- ok").CombinedOutput(); err != nil || string(out) != "rtk ok" {
 		t.Errorf("sh ran %s: output=%q err=%v", word, out, err)
 	}
 	for _, cmd := range []string{word + " ls", "$HOME/" + strings.Trim(word, `"`)[len("$HOME/"):] + " ls"} {
@@ -637,7 +637,7 @@ func TestRTKRewriteWordsMatchRTK(t *testing.T) {
 			t.Errorf("rtk command %q is missing from rtk_rewrite_words", m[1])
 		}
 	}
-	out, _ := exec.Command(bin, "rewrite", rtkSample).Output()
+	out, _ := exec.Command(bin, "rewrite", "--", rtkSample).Output()
 	got, want := strings.Split(strings.TrimSpace(string(out)), "; "), strings.Split(rtkSample, "; ")
 	if len(got) != len(want) {
 		t.Fatalf("rtk rewrite split %d segments into %d: %q", len(want), len(got), out)

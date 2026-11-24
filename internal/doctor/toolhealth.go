@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).
@@ -263,6 +264,26 @@ func depDoctorDetail(s tools.DepStatus) (pass bool, detail string) {
 		detail = "warn " + detail
 	}
 	return false, detail
+}
+
+// rtkMinVersion is the oldest rtk whose `rewrite --` and exit-code contract the hooks rely on.
+const rtkMinVersion = "1.1.0"
+
+// rtkVersionStatus shows the rtk binary's version and warns (never fails) below rtkMinVersion.
+func rtkVersionStatus(ctx context.Context) (bool, string) {
+	bin := paths.RTKBinary()
+	if bin == "" {
+		return true, "rtk not installed"
+	}
+	line := toolPATHVersion(ctx, bin)
+	v := regexp.MustCompile(`\d+(\.\d+)+`).FindString(line)
+	if v == "" {
+		return true, "version unknown (" + bin + " --version)"
+	}
+	if c, ok := textutil.CompareVersions(v, rtkMinVersion); ok && c < 0 {
+		return false, "warn rtk " + v + " is below " + rtkMinVersion + " — run make install"
+	}
+	return true, "rtk " + v
 }
 
 // rtkHookRows is one row per external agent whose hooks list rtk-rewrite, which rewrites whenever rtk is installed.
