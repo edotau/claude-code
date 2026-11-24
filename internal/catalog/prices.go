@@ -109,7 +109,7 @@ func (p Prices) Lookup(id string) (ModelPrice, bool) {
 }
 
 // vendorOf maps a model id prefix to the snapshot provider that lists the vendor's own list price.
-var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "o3": "openai", "o4-": "openai", "gemini-": "google"}
+var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "o1": "openai", "o3": "openai", "o4-": "openai", "gemini-": "google"}
 
 // dashed is a model id with its dots spelled as dashes, the harness's own spelling.
 func dashed(id string) string { return strings.ReplaceAll(id, ".", "-") }
@@ -137,9 +137,10 @@ func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
 		return row, true
 	}
 	for prefix, vendor := range vendorOf {
-		if row, ok := p.find(vendor, bare); ok && strings.HasPrefix(bare, prefix) {
-			return row, true
+		if !strings.HasPrefix(bare, prefix) {
+			continue
 		}
+		return p.find(vendor, bare)
 	}
 	return ModelPrice{}, false
 }
