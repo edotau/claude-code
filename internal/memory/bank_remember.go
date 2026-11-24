@@ -117,7 +117,14 @@ func rememberLocked(file, kind, fact, old string, now time.Time) (string, error)
 		return "", err
 	}
 	err = errors.Join(stampAndSettle(file, now), requireReplaced(old, id))
-	return id, errors.Join(restoreOnError(err, snap), dropCommitsSince(before, "settle: "+stateKey(), err))
+	if err == nil {
+		return id, nil
+	}
+	if rerr := restoreSnaps(snap); rerr != nil { // half restored: keep the settle commit as the recovery point
+		return id, errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
+	}
+	err = fmt.Errorf("%w (write rolled back)", err)
+	return id, errors.Join(err, dropCommitsSince(before, "settle: "+stateKey(), err))
 }
 
 // dropCommitsSince undoes the one commit settle made on before once the write failed, the files being restored already.
@@ -138,7 +145,7 @@ func dropCommitsSince(before, subject string, failed error) error {
 	return err
 }
 
-// rememberNote writes a feedback/ note for class, indexes it and settles; every touched file and commit rolls back.
+// rememberNote writes a feedback/ note for class, indexes it and settles.
 func rememberNote(class, fact string, now time.Time) (string, error) {
 	if err := EnsureBank(""); err != nil {
 		return "", err
@@ -152,15 +159,7 @@ func rememberNote(class, fact string, now time.Time) (string, error) {
 	return rel, err
 }
 
-// noteSnapshotPaths is every file a note's settle can rewrite: the note, both indexes, the catalog and the bank files.
-func noteSnapshotPaths(note string) []string {
-	out := []string{note, catalogPath(), NativeIndex(), filepath.Join(paths.MemoryStoreDir(), routerFile)}
-	for _, f := range bankFiles {
-		out = append(out, Path(f))
-	}
-	return out
-}
-
+// writeNoteLocked keeps the note and settle output on a failed settle: a rollback cannot tell a peer's bytes.
 func writeNoteLocked(class, fact string, now time.Time) (string, error) {
 	slug := noteSlug(fact)
 	dir := paths.MemorySubDir("feedback")
@@ -169,11 +168,6 @@ func writeNoteLocked(class, fact string, now time.Time) (string, error) {
 	}
 	rel := "feedback/" + slug + ".md"
 	path := filepath.Join(dir, slug+".md")
-	snap, err := snapshotPaths(noteSnapshotPaths(path)...)
-	if err != nil {
-		return "", err
-	}
-	before, _ := StoreRepo().headSHA()
 	desc := strconv.Quote(textutil.Truncate(fact, 200))
 	note := "---\nname: " + slug + "\ndescription: " + desc + "\nmetadata:\n  type: feedback\n  class: " + class +
 		"\n  modified: " + now.UTC().Format(time.RFC3339) + "\n---\n\n" + fact + "\n"
@@ -184,9 +178,11 @@ func writeNoteLocked(class, fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	pointer := "- [" + slug + "](" + rel + ") — " + textutil.Truncate(fact, 160)
-	_, err = settleBankWith(now, []string{pointer}, "memory: feedback "+slug)
-	err = restoreOnError(tolerateIndex(err), snap)
-	return rel, errors.Join(err, dropCommitsSince(before, "memory: feedback "+slug, err))
+	_, err := settleBankWith(now, []string{pointer}, "memory: feedback "+slug)
+	if err = tolerateIndex(err); err != nil {
+		return rel, fmt.Errorf("%s written, settle failed (kept): %w", rel, err)
+	}
+	return rel, nil
 }
 
 // noteSlug is feedback-<first words of fact>: lower-case ASCII words joined by "-", at most 60 columns.

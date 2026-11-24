@@ -439,3 +439,37 @@ func TestDropCommitsSinceMovesHeadBack(t *testing.T) {
 		t.Errorf("HEAD = %s, want the pre-write %s", head, before)
 	}
 }
+
+// TestFeedbackNoteSettleFailureKeepsTheNote: a failed settle never deletes the note a retry or a peer may rely on.
+func TestFeedbackNoteSettleFailureKeepsTheNote(t *testing.T) {
+	tempConfig(t)
+	lockStoreIndex(t)()
+	rel, err := RememberSupersedes("feedback-process", "keep me after settle fails", "", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "kept") {
+		t.Fatalf("remember with a failing settle = %v, want an error saying the note was kept", err)
+	}
+	if !statOK(filepath.Join(paths.MemoryStoreDir(), rel)) {
+		t.Fatalf("note %s was removed by the failed settle", rel)
+	}
+}
+
+// TestDropCommitsSinceKeepsPeerCommits: two commits past the pre-write HEAD means a peer's is among them.
+func TestDropCommitsSinceKeepsPeerCommits(t *testing.T) {
+	tempConfig(t)
+	if _, err := Remember("project", "first", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := StoreRepo().headSHA()
+	for _, f := range []string{"second", "third"} {
+		if _, err := Remember("project", f, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head, _ := StoreRepo().headSHA()
+	if err := dropCommitsSince(before, "settle: "+stateKey(), errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := StoreRepo().headSHA(); after != head {
+		t.Errorf("HEAD moved to %s, want %s kept", after, head)
+	}
+}

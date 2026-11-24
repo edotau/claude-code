@@ -370,8 +370,8 @@ func mergeTags(typed, legacy []tag) []tag {
 			extra = append(extra, t)
 		}
 	}
-	if len(out) > tagMaxCount {
-		out = out[len(out)-tagMaxCount:]
+	if reserve := min(len(extra), tagMaxCount/5); len(out) > tagMaxCount-reserve { // legacy-only tags keep some room
+		out = out[len(out)-(tagMaxCount-reserve):]
 	}
 	if room := tagMaxCount - len(out); len(extra) > room {
 		extra = extra[len(extra)-room:]

@@ -242,19 +242,13 @@ func snapshotPaths(files ...string) ([]fileSnapshot, error) {
 	return snaps, nil
 }
 
-// restoreOnError restores snaps when err is set, so a retry never duplicates the write; both errors are returned.
-func restoreOnError(err error, snaps []fileSnapshot) error {
-	if err == nil {
-		return nil
-	}
+// restoreSnaps restores every snapshot and joins the failures.
+func restoreSnaps(snaps []fileSnapshot) error {
 	var rerr error
 	for _, s := range snaps {
 		rerr = errors.Join(rerr, s.restore())
 	}
-	if rerr != nil {
-		return errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
-	}
-	return fmt.Errorf("%w (write rolled back)", err)
+	return rerr
 }
 
 // newestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.

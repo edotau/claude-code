@@ -752,3 +752,16 @@ func TestMergeTagsCapDropsLegacyBeforeTyped(t *testing.T) {
 		t.Fatalf("mergeTags len %d first %v, want %d and the typed event", len(got), got[0], tagMaxCount)
 	}
 }
+
+// TestMergeTagsKeepsLegacyOnlyTagWhenTypedFull: a decision the recorder missed survives a full typed log.
+func TestMergeTagsKeepsLegacyOnlyTagWhenTypedFull(t *testing.T) {
+	var typed []tag
+	for i := range tagMaxCount + 1 {
+		typed = append(typed, tag{Kind: "NOTE", Text: strconv.Itoa(i)})
+	}
+	missed := tag{Kind: "DECISION", Text: "missed"}
+	got := mergeTags(typed, []tag{missed})
+	if len(got) != tagMaxCount || got[len(got)-1] != missed {
+		t.Fatalf("mergeTags len %d, want %d ending in the legacy-only decision", len(got), tagMaxCount)
+	}
+}
