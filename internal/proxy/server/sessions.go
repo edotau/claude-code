@@ -78,14 +78,24 @@ func sameVersion(read, fi os.FileInfo) bool {
 
 // mintWithFailover signs a token for profiles bound to pid's identity, with an optional same-provider failover group.
 func (s *sessionStore) mintWithFailover(profiles []string, pid int, failoverProvider string) (string, error) {
+	return s.mintFenced(profiles, pid, failoverProvider, nil, false)
+}
+
+// mintFenced is mintWithFailover with the confinement fence the token carries signed in.
+func (s *sessionStore) mintFenced(profiles []string, pid int, failoverProvider string, fence []string,
+	open bool) (string, error) {
 	if !validProfiles(profiles) || pid <= 0 || (failoverProvider != "" && !validProfile(failoverProvider)) {
 		return "", errors.New("profiles and pid are required")
+	}
+	if len(fence) > 0 && !validProfiles(fence) {
+		return "", errors.New("fence names an invalid profile")
 	}
 	start, err := s.procStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("pid %d: %w", pid, err)
 	}
-	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start}
+	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start,
+		Fence: fence, Open: open}
 	return proxy.SignSessionToken(s.secret, c, s.now())
 }
 
@@ -202,12 +212,6 @@ func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
 	return c, err == nil
 }
 
-// profiles is tok's profile set, nil for an unsigned token.
-func (s *sessionStore) profiles(tok string) []string {
-	c, _ := s.claims(tok)
-	return c.Profiles
-}
-
 // failoverProvider is tok's server-side failover provider group, or "" when pinned to profiles only.
 func (s *sessionStore) failoverProvider(tok string) string {
 	c, _ := s.claims(tok)
@@ -247,7 +251,7 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, "proxy: want POST with a JSON body")
 		return
 	}
-	tok, err := r.sessions.mintWithFailover(in.Profiles, in.PID, in.FailoverProvider)
+	tok, err := r.sessions.mintFenced(in.Profiles, in.PID, in.FailoverProvider, in.Fence, in.Open)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: session: "+err.Error())
 		return

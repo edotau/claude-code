@@ -18,12 +18,60 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 type SessionRequest struct {
 	Profiles         []string `json:"profiles,omitempty"`
 	PID              int      `json:"pid,omitempty"`
 	FailoverProvider string   `json:"failover_provider,omitempty"`
+	Fence            []string `json:"fence,omitempty"`
+	Open             bool     `json:"open,omitempty"`
+}
+
+type fenceKey struct{}
+
+type fenceOverride struct {
+	fence []string
+	open  bool
+}
+
+// WithFence overrides the fence a mint under ctx carries; only verified token claims may feed it.
+func WithFence(ctx context.Context, fence []string, open bool) context.Context {
+	return context.WithValue(ctx, fenceKey{}, fenceOverride{fence: fence, open: open})
+}
+
+// ArmAllows reports whether a databricks:<arm> confinement admits row p: an own sign-in, never a Databricks row.
+func ArmAllows(p *providers.Provider) bool {
+	return p != nil && p.Preset != providers.PresetDatabricks &&
+		(p.Auth.Login != "" || p.Auth.Method() == providers.AuthCLI)
+}
+
+// ConfinementFence is the profile set the overlay confines ctx to; open when unconfined, an error when malformed.
+func ConfinementFence(ctx context.Context) (fence []string, open bool, err error) {
+	if o, ok := ctx.Value(fenceKey{}).(fenceOverride); ok {
+		return o.fence, o.open, nil
+	}
+	if _, _, err := router.OverlayRoute(ctx); err != nil {
+		return nil, false, fmt.Errorf("confinement overlay: %w", err)
+	}
+	arm := router.ArmProfileContext(ctx)
+	if arm == "" {
+		return nil, true, nil
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return nil, false, fmt.Errorf("confinement fence: %w", err)
+	}
+	fence = []string{arm}
+	for _, n := range reg.Names() {
+		if n != arm && ArmAllows(reg.Row(n)) {
+			fence = append(fence, n)
+		}
+	}
+	slices.Sort(fence)
+	return fence, false, nil
 }
 
 type SessionResponse struct {
@@ -38,8 +86,12 @@ func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, e
 
 // MintScopedTokenWithFailover mints a profile-bound token with optional server-side same-provider failover.
 func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int, failoverProvider string) (string, error) {
+	fence, open, err := ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
 	var out SessionResponse
-	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider}
+	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: fence, Open: open}
 	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
@@ -152,6 +204,8 @@ type proxyTokenRecord struct {
 	Start    string    `json:"start"`
 	Scope    []string  `json:"scope"`
 	Failover string    `json:"failover,omitempty"`
+	Fence    []string  `json:"fence,omitempty"`
+	Open     bool      `json:"open,omitempty"`
 	MintedAt time.Time `json:"minted_at"`
 }
 
@@ -173,6 +227,10 @@ func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, er
 }
 
 func resolveProxyToken(ctx context.Context, scope []string, pid int, failover string, refresh bool) (string, error) {
+	fence, open, err := ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
 	start, err := proxyTokenStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("identify token process %d: %w", pid, err)
@@ -181,7 +239,8 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
 	if !refresh {
-		if tok, ok := cachedProxyToken(file, start, scope, failover); ok {
+		want := proxyTokenRecord{Start: start, Scope: scope, Failover: failover, Fence: fence, Open: open}
+		if tok, ok := cachedProxyToken(file, want); ok {
 			return tok, nil
 		}
 	}
@@ -189,7 +248,8 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	if err != nil {
 		return "", fmt.Errorf("mint scoped token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
-	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, Failover: failover, MintedAt: time.Now()})
+	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, Failover: failover, Fence: fence, Open: open,
+		MintedAt: time.Now()})
 	if err != nil {
 		return "", err
 	}
@@ -210,18 +270,23 @@ func mintFor(ctx context.Context, scope []string, pid int, failover string) (str
 }
 
 // cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
-func cachedProxyToken(file, start string, scope []string, failover string) (string, bool) {
+func cachedProxyToken(file string, want proxyTokenRecord) (string, bool) {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return "", false
 	}
 	var rec proxyTokenRecord
-	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || rec.Start != start || !slices.Equal(rec.Scope, scope) ||
-		rec.Failover != failover ||
+	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || !rec.sameBinding(want) ||
 		time.Since(rec.MintedAt) >= proxyTokenMaxAge || SessionRefused(SessionInvalid(rec.Token, "")) {
 		return "", false
 	}
 	return rec.Token, true
+}
+
+// sameBinding reports r was minted for want's process, scope, failover group and confinement fence.
+func (r proxyTokenRecord) sameBinding(want proxyTokenRecord) bool {
+	return r.Start == want.Start && slices.Equal(r.Scope, want.Scope) && r.Failover == want.Failover &&
+		slices.Equal(r.Fence, want.Fence) && r.Open == want.Open
 }
 
 // ErrSessionUnverified means only a proxy can judge the token: the secret is unreadable here, or it is a legacy token.

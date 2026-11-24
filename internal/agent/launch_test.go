@@ -162,7 +162,7 @@ func TestSessionTokenRemintsWhenStale(t *testing.T) {
 		t.Fatalf("fresh token not reused: %q after %d mints", again, mints)
 	}
 	sessionMu.Lock()
-	e := sessionTokens[base+"|"+profile]
+	e := sessionTokens[base+"|"+profile+"|fence:open"]
 	sessionMu.Unlock()
 	e.mu.Lock()
 	e.minted = time.Now().Add(-2 * sessionTokenMaxAge)

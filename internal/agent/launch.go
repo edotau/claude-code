@@ -301,8 +301,15 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
 func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
-	if arm := router.ArmProfileContext(ctx); arm != "" { // confinement never widens, nor moves to a sibling workspace
-		return armScope(profile, arm)
+	fence, open, err := proxy.ConfinementFence(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("token scope: %w", err)
+	}
+	if !open { // confinement never widens, nor moves to a sibling workspace
+		if !slices.Contains(fence, profile) {
+			return nil, fmt.Errorf("token scope: %s is outside the confinement fence (%s)", profile, strings.Join(fence, ","))
+		}
+		return []string{profile}, nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -310,22 +317,6 @@ func TokenScope(ctx context.Context, profile string, extra ...string) ([]string,
 	}
 	out := slices.Concat([]string{profile}, extra, reg.Fallback) // Load already refused unknown fallback names
 	return slices.Compact(slices.Sorted(slices.Values(out))), nil
-}
-
-// armScope is profile alone inside databricks:<arm>: the workspace or an own sign-in (guardArm's rule), never another.
-func armScope(profile, arm string) ([]string, error) {
-	if profile == arm {
-		return []string{profile}, nil
-	}
-	reg, err := providers.LoadShared()
-	if err != nil {
-		return nil, fmt.Errorf("token scope: %w", err)
-	}
-	p := reg.Row(profile)
-	if p == nil || p.Preset == providers.PresetDatabricks || p.Auth.Login == "" && p.Auth.Method() != providers.AuthCLI {
-		return nil, fmt.Errorf("token scope: %s is outside the confinement databricks:%s", profile, arm)
-	}
-	return []string{profile}, nil
 }
 
 // sessionToken is one router+profile-set token slot; its own lock keeps a slow mint from stalling other sets.
@@ -351,8 +342,15 @@ func SessionToken(ctx context.Context, routerBase string, profiles ...string) (s
 
 // SessionTokenWithFailover mints a token strictly bound to profiles, with optional server-side same-provider failover.
 func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider string, profiles ...string) (string, error) {
+	fence, open, err := proxy.ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
-	key := routerBase + "|" + strings.Join(profiles, ",")
+	key := routerBase + "|" + strings.Join(profiles, ",") + "|fence:" + strings.Join(fence, ",")
+	if open {
+		key += "open"
+	}
 	if failoverProvider != "" {
 		key += "|failover:" + failoverProvider
 	}
@@ -368,10 +366,7 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 	if e.tok != "" && time.Since(e.minted) < sessionTokenMaxAge {
 		return e.tok, nil
 	}
-	var (
-		tok string
-		err error
-	)
+	var tok string
 	if failoverProvider == "" {
 		tok, err = MintSession(ctx, profiles, os.Getpid())
 	} else {
