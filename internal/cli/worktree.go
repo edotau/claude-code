@@ -217,9 +217,11 @@ func cmdWorktreeGate(args []string) int {
 	return 0
 }
 
-// runWorktreeGate prints the observed gate result; exit 0 means it ran, the gate's own exit is in the JSON.
+// runWorktreeGate prints the observed gate result; exit 0 means it ran, a red gate's exit is in the JSON by design.
 func runWorktreeGate(dir string, scope []string, lintCheck bool) int {
-	r, err := worktree.RunScopedGate(context.Background(), dir, scope, lintCheck)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	r, err := worktree.RunScopedGate(ctx, dir, scope, lintCheck)
 	if err != nil {
 		return helptext.Fail("worktree gate: %v", err)
 	}

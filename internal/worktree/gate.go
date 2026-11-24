@@ -453,13 +453,15 @@ func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr
 	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	proc.OwnGroup(cmd)
+	proc.TreeCancel(cmd, gateCancelGrace) // cancel stops the whole tree, including children in their own groups
 	// orphans holding the output pipes must not block Wait after cancel
 	cmd.WaitDelay = gateWaitDelay
 	return cmd.Run()
 }
 
 var gateWaitDelay = 5 * time.Second
+
+const gateCancelGrace = 2 * time.Second
 
 // gateEnv is gitEnv minus the vault master key, with -buildvcs=false added to GOFLAGS (no VCS stamping).
 func gateEnv() []string {
