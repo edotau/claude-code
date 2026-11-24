@@ -19,12 +19,12 @@ Otherwise:
 2. Run `claude-code agents brief --path gemini`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label gemini [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).
-4. Overwrite that same brief file (it is private and pruned) with the spec, one JSON object:
-   `{"agent":"gemini","tools":true,"carry":true,"background":true,"prompt":"<task, JSON-escaped>"}`
+4. Run `claude-code agents brief --path gemini` again and Write the spec there, one JSON object with no prompt
+   (the task stays in the first file, any size): `{"agent":"gemini","tools":true,"carry":true,"background":true}`
    plus `"profile"` and `"model"` when given. With `--host`, add `"host":"<host>"` and leave out `carry` and
-   `background`. A spec over 64 KiB is refused: say so and stop.
+   `background`.
 5. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
-   `claude-code agents ask --spec <that path>`. With `--host`, relay the foreground result directly and
+   `claude-code agents ask --spec <spec path> - < <task path>`. With `--host`, relay the foreground result directly and
    skip step 6; allow the call to wait for completion.
 6. For a local ask, read the id from its `job <id> started` line, then wait with ONE
    `claude-code agents result -f <id>`.
