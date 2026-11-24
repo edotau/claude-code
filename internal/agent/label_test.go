@@ -120,6 +120,7 @@ func TestTaskTier(t *testing.T) {
 		{"Audit the safety-scan rules for false blocks.", "opus"},
 		{"Write the parser for the Run: grammar.", "opus"},
 		{"Tier: fast\nAudit the safety-scan rules.", "haiku"},
+		{"Tier: fast\nCheck x.go.\nCover the security audit, the auth flow and the credentials design.", "haiku"},
 		{"Fix the typo.\nTier: deep", "opus"},
 		{"Run: claude-code agents ask --agent opencode --profile dev\nRename one variable in x.go.", "haiku"},
 		{"Rename one variable.\nVerify: `claude-code review simplify --fail` and an audit of nothing", "haiku"},
