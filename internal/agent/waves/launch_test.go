@@ -336,3 +336,14 @@ func TestLaunchPanicErrorHasNoValueOrStack(t *testing.T) {
 		t.Fatalf("error %q must name the leaves and omit the panic value and stack", msg)
 	}
 }
+
+func TestLaunchLineCarriesGroup(t *testing.T) {
+	line, err := launchLineFor(0, "leaf-1.1", Spec{ID: "1.1", Agent: "pi", Task: "task", Owns: []string{"/tmp/a"}, Verify: "check"},
+		LaunchOptions{Group: "plan-w1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if line.Group != "plan-w1" {
+		t.Errorf("Group = %q, want plan-w1", line.Group)
+	}
+}

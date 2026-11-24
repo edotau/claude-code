@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 type (
@@ -56,20 +55,6 @@ func DispatchFacts(rec Record) proxyteam.Facts {
 	return f
 }
 
-func proxyOverlay() []byte {
-	var overlay []byte
-	err := vault.View(func(t *vault.Tx) error {
-		if s, ok := t.Get(vault.Overlay, "proxy-teams"); ok {
-			overlay = []byte(s)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil
-	}
-	return overlay
-}
-
 // proxyGroupID is the ctx group id, else the id part of HARNESS_DISPATCH_PROXY when its team part is team.
 func proxyGroupID(ctx context.Context, team string) string {
 	if g, _ := ctx.Value(proxyGroupKey{}).(string); g != "" {
@@ -92,7 +77,7 @@ func routeCands(ctx context.Context) []routeCand {
 	if g, _ := ctx.Value(proxyGroupKey{}).(string); g != "" {
 		facts.Group = true
 	}
-	cfg, _ := proxyteam.Load(proxyOverlay())
+	cfg, _ := proxyteam.Load(proxy.TeamOverlay())
 	var out []routeCand
 	for _, t := range cfg.Routes(proxyteam.KindOf(facts)) {
 		sc := proxy.Scope{Team: t.Name}
@@ -258,3 +243,6 @@ func signLocalToken(ctx context.Context, profiles []string, failover string) (st
 	}
 	return tok, nil
 }
+
+// HostPhaseProxy opens the group team's phase proxy as scope id; internal/proxy/phase sets it, else none is hosted.
+var HostPhaseProxy = func(context.Context, string) (string, func()) { return "", func() {} }

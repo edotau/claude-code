@@ -9,6 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	_ "github.com/edotau/claude-code/internal/proxy/phase"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
