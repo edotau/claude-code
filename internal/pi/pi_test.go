@@ -311,7 +311,7 @@ func TestToolIdleHoldsCompactionAndRetryWaits(t *testing.T) {
 	if idle.Err() == nil {
 		t.Error("not killed after the retry wait plus the limit")
 	}
-	idle, ti = run(time.Minute, piEvent{Type: "summarization_retry_scheduled", DelayMs: int(time.Minute.Milliseconds())},
+	idle, _ = run(time.Minute, piEvent{Type: "summarization_retry_scheduled", DelayMs: int(time.Minute.Milliseconds())},
 		piEvent{Type: "summarization_retry_finished"})
 	time.Sleep(wait)
 	if idle.Err() == nil {
