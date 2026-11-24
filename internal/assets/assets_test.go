@@ -25,6 +25,17 @@ var inventory = []struct {
 	read               func() []byte
 }{
 	{"files/catalog/ranks.json", "json", "RankTable", RankTable},
+	{"files/providers/defaults.json", "json", "ProviderDefaults", ProviderDefaults},
+	{"files/models/catalog.json", "json", "ModelCatalog", ModelCatalog},
+	{"files/router/table.json", "json", "RouteTable", RouteTable},
+	{"files/shell/guards.json", "json", "ShellGuards", ShellGuards},
+	{"files/agentconfig/agents.json", "json", "AgentDefaults", AgentDefaults},
+	{"files/agentconfig/overlay.schema.json", "json", "OverlaySchemaSnapshot", OverlaySchemaSnapshot},
+	{"files/agentconfig/template/opencode.json", "json", "OpencodeConfigTemplate", OpencodeConfigTemplate},
+	{"files/agentconfig/template/opencode-tui.json", "json", "OpencodeTUITemplate", OpencodeTUITemplate},
+	{"files/settings/automode.json", "json", "SettingsAutoMode", SettingsAutoMode},
+	{"files/settings/template.json", "json", "SettingsTemplate", SettingsTemplate},
+	{"files/settings/claude-code-settings.schema.json", "json", "SettingsSchema", SettingsSchema},
 	{"files/review/source/retired_words.json", "json", "RetiredWords", RetiredWords},
 	{"files/ui/theme/default_config.json", "json", "ThemeDefaultConfig", ThemeDefaultConfig},
 	{"files/ui/theme/default_palettes.json", "json", "ThemeDefaultPalettes", ThemeDefaultPalettes},

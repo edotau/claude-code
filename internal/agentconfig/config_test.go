@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/settings"
@@ -332,7 +333,7 @@ func TestAgentsJSONRoster(t *testing.T) {
 	var doc struct {
 		Agents map[string]vault.AgentRecord `json:"agents"`
 	}
-	if err := json.Unmarshal(defaultsJSON, &doc); err != nil {
+	if err := json.Unmarshal(assets.AgentDefaults(), &doc); err != nil {
 		t.Fatal(err)
 	}
 	got := slices.Sorted(maps.Keys(doc.Agents))

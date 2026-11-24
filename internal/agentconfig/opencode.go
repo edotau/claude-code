@@ -1,18 +1,15 @@
 package agentconfig
 
 import (
-	"embed"
 	"encoding/json"
 	"os"
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-//go:embed template/opencode.json template/opencode-tui.json
-var opencodeOverlayFS embed.FS
 
 var _ = schemas.Register(schemas.Format{
 	Name: "opencode-overlay", Owner: "internal/agentconfig", Kind: schemas.Derived,
@@ -26,15 +23,9 @@ func opencodeOverlayDir() string { return filepath.Join(paths.StateDir(), "openc
 // OpencodeOverlayRendered computes the overlay's two files unwritten: table models in, the applied theme kept.
 func OpencodeOverlayRendered(models func() (string, string, bool)) (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
 	dir := opencodeOverlayDir()
-	cfgBody, err = opencodeOverlayFS.ReadFile("template/opencode.json")
-	if err != nil {
-		return "", nil, "", nil, err
-	}
+	cfgBody = assets.OpencodeConfigTemplate()
 	cfgBody = applyOpencodeTableModels(cfgBody, models)
-	tuiTemplate, err := opencodeOverlayFS.ReadFile("template/opencode-tui.json")
-	if err != nil {
-		return "", nil, "", nil, err
-	}
+	tuiTemplate := assets.OpencodeTUITemplate()
 	cfgPath = filepath.Join(dir, "opencode.json")
 	tuiPath = filepath.Join(dir, "tui.json")
 	if tuiBody, err = preserveAppliedTheme(tuiPath, tuiTemplate); err != nil {

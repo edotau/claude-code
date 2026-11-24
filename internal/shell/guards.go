@@ -2,7 +2,6 @@ package shell
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
@@ -10,12 +9,9 @@ import (
 	"maps"
 	"slices"
 	"sync"
-)
 
-// guardsJSON is compiled in and read from nowhere else: no setting, variable or vault entry overrides it.
-//
-//go:embed guards.json
-var guardsJSON []byte
+	"github.com/edotau/claude-code/internal/assets"
+)
 
 // guardSection is one named list of words or one tool -> words map, with its one-line purpose.
 type guardSection struct {
@@ -37,7 +33,7 @@ var guardExclusive = [][2]string{
 
 // parsedGuards is guards.json decoded and validated once per process; a malformed file panics at first use.
 var parsedGuards = sync.OnceValue(func() map[string]guardSection {
-	secs, err := decodeGuards(guardsJSON)
+	secs, err := decodeGuards(assets.ShellGuards())
 	if err != nil {
 		panic("shell: guards.json: " + err.Error())
 	}

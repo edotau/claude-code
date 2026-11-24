@@ -2,12 +2,12 @@ package copilot
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -83,10 +83,7 @@ func TestResolveModelAppliesFamilyWord(t *testing.T) {
 	effortModels = func() []SDKModel {
 		return []SDKModel{{ID: "gpt-6-luna", Enabled: true}, {ID: "gpt-6.1-sol", Enabled: true}}
 	}
-	base, err := os.ReadFile("../providers/defaults.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	base := assets.ProviderDefaults()
 	reg, err := providers.Parse(base, nil)
 	if err != nil {
 		t.Fatal(err)
