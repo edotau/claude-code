@@ -32,3 +32,14 @@ func TestHopMovesPolicyRefusalToOtherFamily(t *testing.T) {
 		t.Error("a typed model moved to another family")
 	}
 }
+
+// A typed auto replaces a cell's model, never the model a pi runner hop was validated on.
+func TestAutoBeatsCellSparesRunnerHop(t *testing.T) {
+	out := RunOptions{AutoModel: true}
+	if !autoBeatsCell(out, out, Dispatch{}) {
+		t.Error("auto did not replace an own-CLI cell's model")
+	}
+	if autoBeatsCell(out, out, Dispatch{runFor: "codex"}) {
+		t.Error("auto replaced a pi runner hop's picked model")
+	}
+}
