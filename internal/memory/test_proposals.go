@@ -3,7 +3,9 @@ package memory
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,7 +29,23 @@ type TestProposal struct {
 var proposedFenceRE = regexp.MustCompile("(?s)```proposed_tests\\s*\n(.*?)\n```")
 
 func (p TestProposal) key() string {
-	return strings.ToLower(strings.TrimSpace(p.Pkg) + "\x00" + strings.TrimSpace(p.Case))
+	return strings.TrimSpace(p.Pkg) + "\x00" + strings.TrimSpace(p.Case)
+}
+
+func parseProposalLine(line string) (TestProposal, error) {
+	var p TestProposal
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return p, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return p, errors.New("trailing content after the object")
+	}
+	if strings.TrimSpace(p.Pkg) == "" || strings.TrimSpace(p.Case) == "" || strings.TrimSpace(p.Reason) == "" {
+		return p, errors.New("pkg, case and reason are required")
+	}
+	return p, nil
 }
 
 // ParseTestProposals reads the ```proposed_tests fence of a report: one JSON object per line, source filled in.
@@ -38,14 +56,9 @@ func ParseTestProposals(report, source string) ([]TestProposal, error) {
 			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			var p TestProposal
-			dec := json.NewDecoder(strings.NewReader(line))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&p); err != nil {
+			p, err := parseProposalLine(line)
+			if err != nil {
 				return nil, fmt.Errorf("proposed_tests line %q: %w", line, err)
-			}
-			if strings.TrimSpace(p.Pkg) == "" || strings.TrimSpace(p.Case) == "" || strings.TrimSpace(p.Reason) == "" {
-				return nil, fmt.Errorf("proposed_tests line %q: pkg, case and reason are required", line)
 			}
 			p.Source = source
 			out = append(out, p)

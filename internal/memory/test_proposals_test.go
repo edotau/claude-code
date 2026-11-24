@@ -13,14 +13,16 @@ func TestTestProposalsParse(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Source != "reports/x.md" {
 		t.Fatalf("parse = %v, %v", got, err)
 	}
-	if _, err := ParseTestProposals("```proposed_tests\n{\"pkg\":\"a\"}\n```", "s"); err == nil {
-		t.Fatal("a line without case and reason must fail")
+	for _, bad := range []string{`{"pkg":"a"}`, `{"pkg":"a","case":"c","reason":"r"}{"x":1}`} {
+		if _, err := ParseTestProposals("```proposed_tests\n"+bad+"\n```", "s"); err == nil {
+			t.Fatalf("%s must fail", bad)
+		}
 	}
 }
 
 func TestTestProposalsDedupeCap(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "techdebt", "tests.jsonl")
-	one := []TestProposal{{Pkg: "a", Case: "c1", Reason: "r"}, {Pkg: "a", Case: "C1", Reason: "r"}}
+	one := []TestProposal{{Pkg: "a", Case: "c1", Reason: "r"}, {Pkg: "a", Case: " c1", Reason: "r"}}
 	if n, err := AppendTestProposals(f, one); err != nil || n != 1 {
 		t.Fatalf("first append kept %d, %v", n, err)
 	}
