@@ -131,7 +131,7 @@ var reportSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 // reportPath is a unique dated report file under dir, named by the plan task id plus random hex.
 func reportPath(dir, planTask string) (string, error) {
-	var random [4]byte
+	var random [8]byte
 	if _, err := io.ReadFull(briefRandom, random[:]); err != nil {
 		return "", fmt.Errorf("report name randomness: %w", err)
 	}
