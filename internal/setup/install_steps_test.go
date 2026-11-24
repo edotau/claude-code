@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/clipboard"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -82,7 +83,7 @@ func assertInstalledSettings(t *testing.T, file, orig string) {
 	if b, _ := os.ReadFile(file); string(b) != orig {
 		t.Errorf("install wrote an existing settings.json:\n%s", b)
 	}
-	if b, _ := os.ReadFile(tmuxConfPaths()[0]); !bytes.Equal(b, tmuxConf) {
+	if b, _ := os.ReadFile(tmuxConfPaths()[0]); !bytes.Equal(b, assets.TmuxConf()) {
 		t.Errorf("tmux.conf not seeded: %q", b)
 	}
 	if err := settings.CheckFile(file); err != nil {
@@ -250,7 +251,7 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 		t.Errorf("re-run output = %q, want a current line", out.String())
 	}
 	b2, _ := os.ReadFile(proxyPath)
-	if !bytes.Equal(b2, clipboard.ProxyScript) {
+	if !bytes.Equal(b2, clipboard.ProxyScript()) {
 		t.Error("re-run modified an already-current proxy")
 	}
 }
@@ -261,7 +262,7 @@ func assertInstalledClipboardProxy(t *testing.T, proxyPath, output string) {
 	if err != nil {
 		t.Fatalf("WSL: Install did not write the wl-paste proxy: %v", err)
 	}
-	if !bytes.Equal(b, clipboard.ProxyScript) {
+	if !bytes.Equal(b, clipboard.ProxyScript()) {
 		t.Error("written proxy does not match the embedded script")
 	}
 	info, err := os.Stat(proxyPath)

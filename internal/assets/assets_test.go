@@ -25,6 +25,17 @@ var inventory = []struct {
 	read               func() []byte
 }{
 	{"files/catalog/ranks.json", "json", "RankTable", RankTable},
+	{"files/providers/defaults.json", "json", "ProviderDefaults", ProviderDefaults},
+	{"files/models/catalog.json", "json", "ModelCatalog", ModelCatalog},
+	{"files/router/table.json", "json", "RouteTable", RouteTable},
+	{"files/shell/guards.json", "json", "ShellGuards", ShellGuards},
+	{"files/agentconfig/agents.json", "json", "AgentDefaults", AgentDefaults},
+	{"files/agentconfig/overlay.schema.json", "json", "OverlaySchemaSnapshot", OverlaySchemaSnapshot},
+	{"files/agentconfig/template/opencode.json", "json", "OpencodeConfigTemplate", OpencodeConfigTemplate},
+	{"files/agentconfig/template/opencode-tui.json", "json", "OpencodeTUITemplate", OpencodeTUITemplate},
+	{"files/settings/automode.json", "json", "SettingsAutoMode", SettingsAutoMode},
+	{"files/settings/template.json", "json", "SettingsTemplate", SettingsTemplate},
+	{"files/settings/claude-code-settings.schema.json", "json", "SettingsSchema", SettingsSchema},
 	{"files/review/source/retired_words.json", "json", "RetiredWords", RetiredWords},
 	{"files/ui/theme/default_config.json", "json", "ThemeDefaultConfig", ThemeDefaultConfig},
 	{"files/ui/theme/default_palettes.json", "json", "ThemeDefaultPalettes", ThemeDefaultPalettes},
@@ -81,6 +92,14 @@ var inventory = []struct {
 	{"files/memory/prompts/bank-heading.tmpl", "tmpl", "MemoryBankHeading", func() []byte { return read("files/memory/prompts/bank-heading.tmpl") }},
 	{"files/memory/prompts/native-context.tmpl", "tmpl", "MemoryNativeContext", func() []byte { return read("files/memory/prompts/native-context.tmpl") }},
 	{"files/memory/prompts/transcript-handoff.tmpl", "tmpl", "TranscriptHandoff", func() []byte { return read("files/memory/prompts/transcript-handoff.tmpl") }},
+	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
+	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
+	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
+	{"files/databricks/templates/codex.toml", "toml", "DatabricksCodexTemplate", DatabricksCodexTemplate},
+	{"files/setup/tmux.conf", "conf", "TmuxConf", TmuxConf},
+	{"files/ui/vscode/keybindings.template.json", "jsonc", "VSCodeKeybindingsTemplate", VSCodeKeybindingsTemplate},
+	{"files/ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
+	{"files/pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
 }
 
 // readers maps each exported production accessor to the embedded paths its body reads.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -30,10 +31,7 @@ func TestMain(m *testing.M) {
 
 // An untyped resolve reports the hop RunQuery picks (the label's resolver), its note kept; an error is returned.
 func TestResolveFirstHop(t *testing.T) {
-	base, err := os.ReadFile("../../providers/defaults.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	base := assets.ProviderDefaults()
 	reg, err := providers.Parse(base, nil)
 	if err != nil {
 		t.Fatal(err)

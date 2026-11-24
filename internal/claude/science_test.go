@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -54,7 +55,7 @@ func TestScienceConfigPortTopLevelOnly(t *testing.T) {
 			t.Errorf("scienceConfigPort(%q) = %d, want %d", in, got, want)
 		}
 	}
-	if got := scienceConfigPort(scienceTOML); got != 3000 {
+	if got := scienceConfigPort(assets.ScienceConfig()); got != 3000 {
 		t.Errorf("embedded science.toml port = %d, want 3000", got)
 	}
 }

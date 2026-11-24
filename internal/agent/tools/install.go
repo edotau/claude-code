@@ -131,7 +131,7 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// PiPin is Pi's exact version (plan D3); bump it only after re-checking internal/pi/register.go and the guard (guard/index.ts).
+// PiPin is Pi's exact version (plan D3); bump it only with internal/pi/register.go and the guard rechecked.
 const (
 	piNpmPackage = "@earendil-works/pi-coding-agent"
 	PiPin        = "1.6.0"

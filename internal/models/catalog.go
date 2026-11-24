@@ -1,16 +1,14 @@
 package models
 
 import (
-	_ "embed"
 	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-)
 
-//go:embed catalog.json
-var catalogJSON []byte
+	"github.com/edotau/claude-code/internal/assets"
+)
 
 type entry struct {
 	ID            string              `json:"id"`
@@ -47,7 +45,7 @@ type catalog struct {
 // load parses the embedded catalog once; a malformed embed is a build defect, so it panics (tests cover it).
 var load = sync.OnceValue(func() *catalog {
 	var c catalog
-	if err := json.Unmarshal(catalogJSON, &c); err != nil {
+	if err := json.Unmarshal(assets.ModelCatalog(), &c); err != nil {
 		panic("models: catalog.json: " + err.Error())
 	}
 	c.byID = map[string]entry{}

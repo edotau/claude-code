@@ -33,7 +33,8 @@ const ReviewLoopRule = `Review loop (standing rule): after your change, get one 
 finding yourself, any severity, then one more review that checks only those fixes. Never hand back a finding unfixed
 or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.
 A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip
-it); if large, hand back naming it for a test-repair leaf.`
+it); if large, hand back naming it for a test-repair leaf.
+End every hand-back with exactly one line: "UNFIXED: none" or "UNFIXED: <item>; <item>".`
 
 // reviewLoopBlock is what WithReviewLoop appends; a replayed prompt drops it so each run decides again.
 const reviewLoopBlock = "\n\n" + ReviewLoopRule + "\n"

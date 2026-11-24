@@ -3,7 +3,6 @@ package settings
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,15 +17,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-//go:embed template.json
-var template []byte
+var settingsSchema = sync.OnceValue(assets.SettingsSchema)
 
 // Template is the embedded settings template, read-only: the harness keys a fresh settings.json starts from.
-func Template() []byte { return template }
+func Template() []byte { return assets.SettingsTemplate() }
 
 // Render is the template plus the hook registry block; only SeedSettings and ResetSettings may call it.
 func Render() ([]byte, error) {
@@ -38,7 +37,7 @@ func Render() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	top, err := schemaProps(schemaJSON)
+	top, err := schemaProps(settingsSchema())
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +73,7 @@ func format(data []byte) ([]byte, string, error) {
 		return nil, "", err
 	}
 	path := ""
-	out, err := formatValue(raw, schemaJSON, "", &path)
+	out, err := formatValue(raw, settingsSchema(), "", &path)
 	if path == "" && !bytes.Equal(data, out) {
 		path = "(whitespace)"
 	}
@@ -124,7 +123,7 @@ func resolveRef(node json.RawMessage) json.RawMessage {
 		if json.Unmarshal(node, &ref) != nil || !strings.HasPrefix(ref.Ref, "#/") {
 			return node
 		}
-		node = schemaJSON
+		node = settingsSchema()
 		for seg := range strings.SplitSeq(ref.Ref[2:], "/") {
 			var props map[string]json.RawMessage
 			if json.Unmarshal(node, &props) != nil {
@@ -407,9 +406,6 @@ func located(data []byte, err error) error {
 	return fmt.Errorf("line %d col %d: %w", line, col, err)
 }
 
-//go:embed claude-code-settings.schema.json
-var schemaJSON []byte
-
 // Kind is the shape a schema key's value takes in settings.json.
 type Kind int
 
@@ -628,7 +624,7 @@ var schemaIndex = sync.OnceValue(func() map[string]Key {
 	var doc struct {
 		Properties map[string]schemaNode `json:"properties"`
 	}
-	if err := json.Unmarshal(schemaJSON, &doc); err != nil {
+	if err := json.Unmarshal(settingsSchema(), &doc); err != nil {
 		panic(fmt.Sprintf("settings: embedded schema: %v", err))
 	}
 	m := make(map[string]Key, len(doc.Properties))

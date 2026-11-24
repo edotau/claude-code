@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -13,11 +14,10 @@ import (
 
 // TestOpencodeOverlayTemplatesParse pins the embedded templates as valid JSON.
 func TestOpencodeOverlayTemplatesParse(t *testing.T) {
-	for _, name := range []string{"template/opencode.json", "template/opencode-tui.json"} {
-		body, err := opencodeOverlayFS.ReadFile(name)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+	for name, body := range map[string][]byte{
+		"opencode.json":     assets.OpencodeConfigTemplate(),
+		"opencode-tui.json": assets.OpencodeTUITemplate(),
+	} {
 		var doc map[string]any
 		if err := json.Unmarshal(body, &doc); err != nil {
 			t.Fatalf("%s: not valid JSON: %v", name, err)
@@ -43,10 +43,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 			t.Errorf("%s mode = %v, want 0600", p, fi.Mode().Perm())
 		}
 	}
-	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	tmpl := assets.OpencodeConfigTemplate()
 	var want map[string]any
 	if err := json.Unmarshal(tmpl, &want); err != nil {
 		t.Fatal(err)

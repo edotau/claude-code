@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -30,10 +31,7 @@ const routeOverlay = `{"providers":{"databricks":{
 // routeRegistry is the shipped defaults plus the live dev/qa/prod and business rows.
 func routeRegistry(t *testing.T) *providers.Registry {
 	t.Helper()
-	base, err := os.ReadFile("../providers/defaults.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	base := assets.ProviderDefaults()
 	reg, err := providers.Parse(base, []byte(routeOverlay))
 	if err != nil {
 		t.Fatal(err)
