@@ -326,6 +326,7 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 	if mode == "" || err != nil || !ownDatabricksHop(reg, q, lead) {
 		return c
 	}
+	c = withPiSiblings(ctx, reg, q, c, mode)
 	_, profile, _ := strings.Cut(lead.Account, "·")
 	alias := cmp.Or(q.AliasHint, models.Sonnet)
 	if _, why := agentModelOn(PeekContext(ctx), reg, RouteReq{Agent: agentid.Claude, AliasHint: alias, Tools: q.Tools}, alias, profile); why != "" {
@@ -333,6 +334,27 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 	}
 	c.Dispatches = afterPiHops(c.Dispatches, Dispatch{Agent: cl, Model: alias, Route: rowRoute(reg, profile),
 		Account: lead.Account, Billing: lead.Billing, otherRoute: true, fixedModel: true})
+	return c
+}
+
+// withPiSiblings adds pi on the other Databricks workspaces, same model, right after a plain pi ask's lead hop.
+func withPiSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, c Chain, mode string) Chain {
+	lead := c.Dispatches[0]
+	if lead.Model == "" || IsAuto(lead.Model) { // a sibling runs the same model: an unpicked one has none
+		return c
+	}
+	q.Fallback = mode
+	sibs, skips, why := piSiblings(ctx, reg, q, lead, lead.Model)
+	if why != "" {
+		return c.noted("pi sibling hops skipped: " + why)
+	}
+	for _, s := range skips {
+		c = c.noted("pi sibling hop skipped: " + s)
+	}
+	for i := range sibs {
+		sibs[i].Agent = lead.Agent
+	}
+	c.Dispatches = slices.Insert(slices.Clone(c.Dispatches), 1, sibs...)
 	return c
 }
 

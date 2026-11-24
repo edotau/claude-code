@@ -12,6 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A databricks:<p> confinement plans no pi hop on a sibling workspace and mints no token for one.
@@ -156,5 +158,47 @@ func TestAfterPiHopsOrder(t *testing.T) {
 	got := afterPiHops(hops, Dispatch{Agent: cl, Account: "databricks·dev"})
 	if len(got) != 3 || got[1].Account != "databricks·dev" || got[2].Account != "anthropic·ultra" || len(hops) != 2 {
 		t.Fatalf("hops = %+v", got)
+	}
+}
+
+// A plain pi ask gets pi hops on the other workspaces after its lead; a confinement or no hop leaves it alone.
+func TestWithPiSiblings(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	q := RouteReq{Agent: "pi"}
+	pi := &fakeRunner{name: "pi"}
+	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-claude-sonnet-5-5"}}}
+	open := proc.WithValues(context.Background(), proc.Values{})
+	got := withPiSiblings(open, reg, q, c, router.FallbackAgents)
+	if len(got.Dispatches) < 2 && got.Preflight == nil {
+		t.Fatalf("an open ask planned no sibling hop and no skip note: %+v", got)
+	}
+	for _, d := range got.Dispatches[1:] {
+		if d.Agent != pi || d.Account == "databricks·dev" {
+			t.Fatalf("sibling hop = %+v, want pi on another workspace", d)
+		}
+	}
+	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
+	if got := withPiSiblings(armed, reg, q, c, router.FallbackAgents); len(got.Dispatches) != 1 || got.Preflight != nil {
+		t.Fatalf("a confined ask planned sibling hops: %+v", got)
+	}
+}
+
+// Any one of the overlay, the process env and the vault setting a fallback mode ends the default.
+func TestFallbackUnsetSources(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	ctx := context.Background()
+	if !fallbackUnset(ctx) {
+		t.Fatal("nothing set anywhere reads as set")
+	}
+	if fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{"fallback":"agents"}`})) {
+		t.Error("an overlay fallback reads as unset")
+	}
+	if fallbackUnset(proc.WithValues(ctx, proc.Values{router.EnvFallback: "agents"})) {
+		t.Error("a process env fallback reads as unset")
+	}
+	vaulttest.Put(t, vault.Env, router.EnvFallback, "pin")
+	if fallbackUnset(ctx) {
+		t.Error("a vault fallback reads as unset")
 	}
 }
