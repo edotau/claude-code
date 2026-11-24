@@ -834,7 +834,7 @@ for (const tools of ['edit', 'run', undefined]) {
     assert(stage.ext && task.includes('claude-code agents ask --agent claude'), 'profile ignored')
     assert(task.includes('--overlay \'{"provider":"databricks","profile":"qa"}\'') && task.includes('--tools'), 'route/tools lost')
     assert(task.includes('task is to report') === (tools !== 'edit'), 'edit tier changed')
-    assert(stage.done('fix', {coworker:'ok', ran_on:'claude qa:model'}) !== null, 'receipt lost')
+    assert(stage.done('fix', {coworker:'ok', status:'ok', hops:[{agent:'claude'}], ran_on:'claude qa:model'}) !== null, 'receipt lost')
   }
 }
 let refused = false

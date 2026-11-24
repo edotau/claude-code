@@ -26,7 +26,7 @@ const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
   const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn.split(' · fallback ')[0])
-  return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed) }
+  return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed && r.status === 'ok') }
 }
 // Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
 const S_FIELDS = ['agent', 'model', 'effort', 'profile', 'provider']
@@ -52,16 +52,17 @@ const stepSame = (_label, r) => r
 const claudeStage = (v, d, effort) => ({ agent: 'claude', ext: false, model: v.model !== undefined ? v.model : d.model || 'sonnet', effort,
   type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: stepSame, text: stepSame })
 const ST_EXT_RETRY = ' Set the Bash timeout to 600000 ms and pass --timeout 9m to agents ask. If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
-const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed'
+const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, its hops array into hops and its status into status, and set coworker "ok". If every hop failed'
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
-const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
-const EXT_R = ['dispatch_id', 'ran_on', 'coworker']
+const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'array', items: { type: 'object' } }, status: { type: 'string' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
+const EXT_R = ['dispatch_id', 'ran_on', 'status', 'coworker']
 const stepRecord = (name, who, label, r) => {
   const { ranOn, canon, ok } = ranOnVerdict(r)
   if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
   const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
-  COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })
-  log(`coworkers ${label}: ${ok ? (/^ran on /.test(r.ran_on) ? '' : 'ran on ') + r.ran_on + ' (hop ' + ((r && r.hops) || 0) + ')' : who + ' BLOCKED: ' + why}`)
+  const hops = Array.isArray(r && r.hops) ? r.hops.length : 0
+  COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops, error: why })
+  log(`coworkers ${label}: ${ok ? (/^ran on /.test(r.ran_on) ? '' : 'ran on ') + r.ran_on + ' (hop ' + hops + ')' : who + ' BLOCKED: ' + why}`)
   return ok
 }
 const stepExt = (name, v, d, f) => {
@@ -191,8 +192,6 @@ const ST_FAILURES = { type: 'array', items: { type: 'object', properties: { file
 const ST_CHECK = { type: 'object', properties: { gate: { type: 'string' }, state: { type: 'string' }, exit: { type: ['integer', 'null'] }, changed: ST_LIST, change_ids: ST_LIST, failures: ST_FAILURES }, required: ['gate', 'exit', 'changed', 'failures'] }
 const ST_SIMP = { type: 'object', properties: { applied: ST_LIST, flagged: ST_LIST, deltaLines: { type: 'integer' }, status: { type: 'string', enum: ['done', 'clean', 'partial', 'blocked'] } }, required: ['applied', 'flagged', 'deltaLines', 'status'] }
 const ST_REVF = { type: 'object', properties: { findings: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, line: { type: 'integer' }, symbol: { type: 'string' }, diagnostic_id: { type: 'string' }, symptom: { type: 'string' }, severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] } }, required: ['file', 'line', 'symbol', 'symptom', 'severity'] } } }, required: ['findings'] }
-const ST_DETECT = { type: 'object', additionalProperties: false, required: ['gate', 'source'],
-  properties: { gate: { type: 'string', description: 'exact command, empty when nothing matches' }, source: { type: 'string' } } }
 // Measured run state: numstat rows, proposed tests, over-budget fixes, seam needs, gate results in order.
 const ST_LINES = [], ST_PROPOSED = [], ST_OVER = [], ST_SEAMS = [], ST_GATES = []
 const ST_TEST_RE = /(_test\.go$|\.test\.[jt]sx?$|(^|\/)(tests|testdata)\/)/
@@ -204,14 +203,18 @@ const ST_PROPOSE = ' Every other test worth adding (a regression test for a bug 
   ' Any test you write must run in milliseconds: no sleep, real network, vault, daemon or spawned binary; each under complexity 10.'
 // the numstat reader is always a local cheap leaf: an external relay adds a hop and a second self-report
 const ST_MEASURER = { agent: 'claude', ext: false, model: 'haiku', effort: 'low', type: {}, task: (p) => p, schema: (s) => s, done: (_l, r) => r }
+const ST_ENV = { type: 'object', required: ['dispatch_id', 'ran_on', 'status', 'answer'], properties: { hops: { type: 'array', items: { type: 'object' } },
+  ...Object.fromEntries(['dispatch_id', 'ran_on', 'status', 'answer'].map((k) => [k, { type: 'string' }])) } }
+// stAction: a typed no-model `agents ask` line run by a leaf (stLoopCheck: no gate command -> Go runs it); the parsed envelope answer, null when absent/unparsable.
+async function stAction(ctx, label, ph, spec) {
+  const line = 'claude-code agents ask --format json --spec ' + stShq(JSON.stringify({ ...spec, workdir: ctx.cwd || '.', format: 'json' })) + ' </dev/null'
+  const e = await stageAsk(ctx, ST_MEASURER, label, ph, ctx.cd + 'Run exactly this one line (a nonzero exit is expected for a red gate; set the ' +
+    "Bash timeout to 600000 ms) and nothing else: " + line + " — return the envelope's dispatch_id, ran_on, status, answer and hops verbatim.", ST_ENV)
+  try { return e ? JSON.parse(e.answer) : null } catch (_) { return null }
+}
 // stSnap: observed counts from agents diff for files under paths (its `outside` peer files dropped); null on failure.
 async function stSnap(ctx, label, paths) {
-  const ps = paths.map((p) => ' --path ' + JSON.stringify(p)).join('')
-  const schema = { type: 'object', properties: { files: { type: 'array', items: { type: 'object',
-    properties: { path: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } },
-    required: ['path', 'added', 'deleted'] } }, outside: ST_LIST }, required: ['files', 'outside'] }
-  const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', ctx.cd +
-    'Run `claude-code agents diff --base HEAD' + ps + ' --format json`; return its files and outside lists verbatim.', schema)
+  const r = await stAction(ctx, 'numstat:' + label, 'Measure', { action: 'diff', own: paths })
   if (!r) return null
   const m = {}, peers = new Set((r.outside || []).map((f) => stRel(ctx, f)))
   for (const x of r.files || []) if (!peers.has(stRel(ctx, x.path))) m[stRel(ctx, x.path)] = { a: x.added || 0, d: x.deleted || 0 }
@@ -275,24 +278,21 @@ const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prom
 // stageDetect reads the scoped gate from `worktree gate`; no --lint-check (repo-wide lint trips on peers' WIP).
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
-  const d = await stageAsk(ctx, st, 'detect', 'Detect', `${ctx.cd}Run exactly: claude-code worktree gate --dir ${stShq(ctx.cwd || '.')}${scope.length ? ' --scope ' + stShq(scope.join(',')) : ''} --format json </dev/null — and return its gate and source fields verbatim (exit 1 or an error: gate "" and source "none"). Do NOT run the gate. Run nothing else.`, ST_DETECT)
-  return { gate: (d && d.gate) || '', source: (d && d.source) || 'none' }
+  return stAction(ctx, 'detect', 'Detect', { action: 'scope', own: scope }).then((d) => ({ gate: (d && d.gate) || '', source: (d && d.source) || 'none' }))
 }
-// stCheckSteps: Go (`worktree gate --run`) observes the scoped check; an explicit gate command is run by the leaf.
 const stShq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'"
-const stCheckSteps = (ctx, paths, cmd) => cmd ?
-  'Gate command: ' + cmd + '. Run the gate exactly once with pipefail; capture the real process exit code. ' +
-  'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
-  '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). ' +
-  'Return gate, exit (null only if execution is impossible), changed, failures [{file,line,text}] from command output. Keep failing paths repo-relative; retain errors without source locations too. ' :
-  'Run exactly: claude-code worktree gate --run --dir ' + stShq(ctx.cwd || '.') + ' --scope ' + stShq(paths.join(',')) +
-  ' --format json </dev/null — Go runs the scoped gate once and observes the exit, changed hashes and failures: return its gate, exit, changed, change_ids and failures (with each diagnostic_id) fields verbatim, never your own reading of the output. '
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
-  const state = ctx.claudeState ? 'Account state is ' + ctx.claudeState :
-    'Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet` and return candidates[0].state or unknown as state.'
-  return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. ' +
-    stCheckSteps(ctx, paths, Array.isArray(gate) ? gate.join(' && ') : gate) + state, ST_CHECK)
+  const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
+  if (cmd) return stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. Gate command: ' + cmd + '. Run it exactly once with pipefail; capture the real exit code. ' +
+    'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
+    '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). Return gate, exit (null only if ' +
+    'execution is impossible), changed, failures [{file,line,text}] from command output, repo-relative; keep errors without locations too. ' +
+    (ctx.claudeState ? 'Account state is ' + ctx.claudeState :
+      'Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet` and return candidates[0].state or unknown as state.'), ST_CHECK)
+  const g = await stAction(ctx, label, 'Gate', { action: 'gate', own: paths, timeout: '10m' })
+  const w = !g || ctx.claudeState ? null : await stAction(ctx, label + ':state', 'Gate', { action: 'gateway', agent: 'claude', model: 'sonnet' })
+  return g && { ...g, state: ctx.claudeState || ((((w && w.candidates) || []).find((c) => c.agent === 'claude')) || {}).state || 'unknown' }
 }
 // stStamps maps each `changed` entry to its path; the value keeps the entry and Go's change_id when ids align with it.
 const stStamps = (changed, ids) => new Map(changed.map((s, i) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), { s, id: Array.isArray(ids) && ids.length === changed.length ? ids[i] : '' }]))

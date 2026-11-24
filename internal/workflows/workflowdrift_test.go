@@ -301,7 +301,8 @@ async function check(args, sequence, texts, stable) {
   const m = await run({scope:['.'],gate:'true',measure:true}, async (p,o) => {
     if (o.phase !== 'Measure') return {gate:'true',exit:0,changed:[],failures:[]};
     const peer = {path:'peer.go',added:1+8*snaps,deleted:0}, mine = {path:'x.go',added:2,deleted:0};
-    return {files: snaps++ ? [mine, peer] : [peer], outside:['peer.go']};
+    const files = snaps++ ? [mine, peer] : [peer];
+    return {dispatch_id:'d', ran_on:'ran on local · diff', status:'ok', hops:[{agent:'local'}], answer: JSON.stringify({files, outside:['peer.go']})};
   }, async jobs => Promise.all(jobs.map(f=>f())), ()=>{}, ()=>{});
   assert.deepEqual(m.lines.stages.flatMap(r=>r.files),['x.go'], 'peer.go must not be measured: '+JSON.stringify(m.lines.stages));
 })().catch(e => {console.error(e); process.exitCode=1});`
