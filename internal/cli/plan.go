@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -327,10 +328,8 @@ func cmdPlanTask(args []string) int {
 	plan := fs.String("plan", "", "plan file (default: the one plan holding the id)")
 	reason := fs.String("reason", "", "strike with this reason: "+strings.Join(plans.StrikeReasons, "|")+" (needs --evidence)")
 	evidence := fs.String("evidence", "", "with --reason: the cite, decision:<id>, commit:<sha> or note:<path>")
-	id := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		id, args = args[0], args[1:]
-	}
+	add, newTask := addFlags(fs)
+	id, args := leadingID(args)
 	if code, stop := helptext.Parse(fs, args); stop {
 		return code
 	}
@@ -338,8 +337,11 @@ func cmdPlanTask(args []string) int {
 		id = fs.Arg(0)
 	}
 	byID := *reason != "" || *evidence != ""
-	if id == "" || taskModes(*done, *reopen, *strike != "", byID) != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
-		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why> or --reason with --evidence")
+	if id == "" || taskModes(*done, *reopen, *strike != "", byID, *add) != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
+		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why>, --reason with --evidence or --add")
+	}
+	if *add {
+		return addTask(*plan, newTask(id))
 	}
 	path, err := taskPlan(id, *plan, *reopen)
 	if err != nil {
@@ -362,6 +364,49 @@ func cmdPlanTask(args []string) int {
 		return helptext.Fail("plan task: %v", err)
 	}
 	fmt.Printf("plans: %s updated in %s\n", id, filepath.Base(path))
+	return 0
+}
+
+// leadingID splits a first argument that is not a flag off args.
+func leadingID(args []string) (string, []string) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return "", args
+}
+
+// addFlags registers the --add flags and returns the flag and the builder of the task they describe.
+func addFlags(fs *flag.FlagSet) (*bool, func(id string) plans.WaveTask) {
+	add := fs.Bool("add", false, "append a new open task line, rendered from --title, --owns and the optional fields below")
+	var t plans.WaveTask
+	fs.StringVar(&t.Task, "title", "", "with --add: the task title")
+	fs.StringVar(&t.Leaf, "leaf", "", "with --add: the leaf subagent_type")
+	fs.StringVar(&t.Agent, "agent", "", "with --add: the requested agent")
+	fs.StringVar(&t.Profile, "profile", "", "with --add: the profile")
+	fs.StringVar(&t.Verify, "verify", "", "with --add: the verify command")
+	blocked := fs.String("blocked-by", "", "with --add: comma-separated task ids that must be done first")
+	owns := fs.String("owns", "", "with --add: comma-separated owned files")
+	return add, func(id string) plans.WaveTask {
+		t.ID, t.Owns, t.BlockedBy = id, textutil.SplitCSV(*owns), textutil.SplitCSV(*blocked)
+		return t
+	}
+}
+
+// addTask appends t to the plan named by --plan.
+func addTask(plan string, t plans.WaveTask) int {
+	if plan == "" {
+		return helptext.FailUsage("plan task --add: pass --plan <file>")
+	}
+	cwd, _ := os.Getwd()
+	top, _ := paths.CheckoutOf(cwd)
+	path, err := plans.ResolvePlan(top, plan)
+	if err == nil {
+		err = plans.AddTask(path, t)
+	}
+	if err != nil {
+		return helptext.Fail("plan task: %v", err)
+	}
+	fmt.Printf("plans: %s added to %s\n", t.ID, filepath.Base(path))
 	return 0
 }
 
@@ -423,6 +468,7 @@ func planSpec() *helptext.Node {
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
 			{Name: "all", IsBool: true}, {Name: "archive", IsBool: true},
 			{Name: "verify", IsBool: true}, {Name: "sha"}, {Name: "task"}, {Name: "session"}, helptext.CompletionFormatFlag()}},
-		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}, {Name: "reason"}, {Name: "evidence"}}},
+		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}, {Name: "reason"}, {Name: "evidence"},
+			helptext.BoolFlag("add"), {Name: "title"}, {Name: "leaf"}, {Name: "agent"}, {Name: "profile"}, {Name: "verify"}, {Name: "blocked-by"}, {Name: "owns"}}},
 	}}
 }

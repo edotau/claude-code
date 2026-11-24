@@ -246,3 +246,18 @@ func BenchmarkParseWaves(b *testing.B) {
 		_, _ = ParseWaves(path)
 	}
 }
+
+func TestAddTaskRendersParsableLine(t *testing.T) {
+	file := wavesFile(t, "## Tasks\n\n- [ ] Phase 1.1 — First — leaf: claude, Agent: claude — owns: a.go\n")
+	err := AddTask(file, WaveTask{ID: "Phase 1.2", Task: "Second", Agent: "pi", BlockedBy: []string{"Phase 1.1"}, Owns: []string{"b.go", "c.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(file)
+	if err != nil || len(p.Tasks) != 2 || !slices.Equal(p.Tasks[1].Owns, []string{"b.go", "c.go"}) {
+		t.Fatalf("parsed %+v, err %v", p.Tasks, err)
+	}
+	if AddTask(file, WaveTask{ID: "Phase 1.2", Task: "again", Owns: []string{"d.go"}}) == nil {
+		t.Fatal("duplicate id accepted")
+	}
+}

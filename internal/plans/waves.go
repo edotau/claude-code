@@ -3,6 +3,7 @@ package plans
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -586,4 +587,63 @@ func manifestTask(t WaveTask) (WaveTask, error) {
 		}
 	}
 	return t, nil
+}
+
+// TaskLine renders t as one plan task line in the documented attribute order; Go writes it, the model gives fields.
+func TaskLine(t WaveTask) string {
+	parts := []string{"- [ ] " + t.ID + " — " + t.Task}
+	if t.Leaf != "" || t.Agent != "" {
+		var attrs []string
+		for _, kv := range [][2]string{{"leaf", t.Leaf}, {"Agent", t.Agent}} {
+			if kv[1] != "" {
+				attrs = append(attrs, kv[0]+": "+kv[1])
+			}
+		}
+		parts = append(parts, strings.Join(attrs, ", "))
+	}
+	if t.Profile != "" {
+		parts = append(parts, "profile: "+t.Profile)
+	}
+	if t.Verify != "" {
+		parts = append(parts, "verify: "+t.Verify)
+	}
+	if len(t.BlockedBy) > 0 {
+		parts = append(parts, "Blocked by: "+strings.Join(t.BlockedBy, ", "))
+	}
+	return strings.Join(append(parts, "owns: "+strings.Join(t.Owns, ", ")), " — ")
+}
+
+// checkNewTask refuses a task with no id or title, a field the line cannot hold, or an unlaunchable owns/verify.
+func checkNewTask(t WaveTask) error {
+	if t.ID == "" || t.Task == "" {
+		return errors.New("plans: a new task needs an id and a title")
+	}
+	for _, s := range slices.Concat([]string{t.ID, t.Task, t.Leaf, t.Agent, t.Profile, t.Verify}, t.Owns, t.BlockedBy) {
+		if strings.ContainsAny(s, "\r\n") || strings.Contains(s, " — ") {
+			return fmt.Errorf("plans: field %q holds a newline or an em dash separator", s)
+		}
+	}
+	return checkTask(t)
+}
+
+// AddTask validates t and appends its rendered line after the plan's last task, under the plans lock.
+func AddTask(planPath string, t WaveTask) error {
+	t.ID, t.Task = strings.TrimSpace(t.ID), strings.Join(strings.Fields(t.Task), " ")
+	if err := checkNewTask(t); err != nil {
+		return err
+	}
+	return editPlan(planPath, func(text string) (string, error) {
+		p := parseBytes(planPath, []byte(text))
+		if _, ok := findTask(p, t.ID); ok || len(p.Tasks) == 0 {
+			return "", fmt.Errorf("plans: task %q already exists or %s has no task list", t.ID, planPath)
+		}
+		for _, b := range t.BlockedBy {
+			if _, ok := findTask(p, b); !ok {
+				return "", fmt.Errorf("plans: blocked-by %q names no task in %s", b, planPath)
+			}
+		}
+		lines := strings.Split(text, "\n")
+		at := slices.MaxFunc(p.Tasks, func(a, b Task) int { return a.End - b.End }).End + 1
+		return strings.Join(slices.Insert(lines, at, TaskLine(t)), "\n"), nil
+	})
 }
