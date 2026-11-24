@@ -375,8 +375,9 @@ func (r row) line(ws []int, width int, paint string) string {
 			continue
 		}
 		r.writeCell(&b, c, size, width <= 0 || pos+size <= width, paint)
-		pos += size + len(gap)
-		b.WriteString(gap)
+		sep := r.colSep(ws, c)
+		pos += size + len(sep)
+		b.WriteString(sep)
 	}
 	text := r.cells[len(r.cells)-1]
 	if avail := width - prefixWidth(ws, r.indent); width > 0 {
@@ -392,6 +393,14 @@ func (r row) line(ws []int, width int, paint string) string {
 		line = textutil.TruncateCells(line, width, "…")
 	}
 	return line
+}
+
+// colSep is the separator after column c: one space before a shown "· provider" cell, else the gap.
+func (r row) colSep(ws []int, c int) string {
+	if noText[r.level] && c == colModel && ws[colProv] > 0 {
+		return " "
+	}
+	return gap
 }
 
 // cellSize is fixed cell c's printed width: a span covers the next column too, which then prints nothing.

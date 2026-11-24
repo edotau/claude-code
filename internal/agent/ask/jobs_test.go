@@ -572,3 +572,15 @@ func TestStreamChildrenPollsFastAndStopsWhenCarrierSettles(t *testing.T) {
 		t.Fatalf("cancelled: err=%v, want context.Canceled", err)
 	}
 }
+
+// A finished direct pi ask (runner pi, agent pi) owns its session; a pi-carried claude ask does not.
+func TestCheckResumablePiOwnSession(t *testing.T) {
+	own := agent.Record{ID: "1-pi", Agent: "pi", Runner: "pi", SessionID: "s"}
+	if err := checkResumable(own); err != nil {
+		t.Errorf("direct pi ask refused: %v", err)
+	}
+	carried := agent.Record{ID: "2-claude", Agent: "claude", Runner: "pi", RanAs: "pi", SessionID: "s"}
+	if err := checkResumable(carried); err == nil {
+		t.Error("pi-carried claude ask resumed as claude")
+	}
+}
