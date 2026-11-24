@@ -560,7 +560,6 @@ type Plan struct {
 	Warnings    []string
 	ForeignBase bool   // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
 	Profile     string // the profile an agent CLI launch resolved
-	OnExecFail  func() // runs when Exec returns (the exec failed): drops state minted for the launch
 }
 
 // Env applies the plan to base (KEY=VALUE list).
@@ -705,7 +704,6 @@ func (p Plan) recordEnv() []string {
 // Exec writes the launch files and replaces this process with the target.
 func (p Plan) Exec() error {
 	if err := p.WriteFiles(); err != nil {
-		p.execFailed()
 		return err
 	}
 	for _, w := range p.Warnings {
@@ -713,15 +711,7 @@ func (p Plan) Exec() error {
 	}
 	// exec ends this process: a refresh token already sent must reach the vault first
 	providers.FinishExchanges()
-	err := proc.Exec(p.Binary, p.Argv, p.recordEnv())
-	p.execFailed()
-	return err
-}
-
-func (p Plan) execFailed() {
-	if p.OnExecFail != nil {
-		p.OnExecFail()
-	}
+	return proc.Exec(p.Binary, p.Argv, p.recordEnv())
 }
 
 // quotedRE is one double-quoted string; codex -c TOML and opencode JSON carry static provider headers in them.

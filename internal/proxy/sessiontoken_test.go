@@ -28,7 +28,7 @@ func TestSessionTokenSignParseAndRefusals(t *testing.T) {
 	}
 }
 
-// One MAC spelling (a revoked hash holds), a one-year life, and one config dir per token.
+// One MAC spelling (one hash per token), a one-year life, and one config dir per token.
 func TestSessionTokenOneSpellingOneYearOneConfig(t *testing.T) {
 	const oneYear = 365 * 24 * time.Hour // a passthrough header is never renewed
 	tok, err := SignSessionToken("s1", SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7"}, time.Now())

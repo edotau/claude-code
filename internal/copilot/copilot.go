@@ -55,13 +55,11 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	if err != nil {
 		return res, err
 	}
-	opts, env, done, err := e.options(ctx, cs, req, t)
+	opts, env, err := e.options(ctx, cs, req, t)
 	res.Emulated = opts.EffortNotes
 	for _, note := range opts.EffortNotes {
 		fmt.Fprintln(os.Stderr, note)
 	}
-	// done is never nil, so an error path still releases a registry route
-	defer done()
 	if err != nil {
 		return res, err
 	}
@@ -134,35 +132,31 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 	return t.Provider.Auth.Login == "copilot" && retry.Classify("copilot", err, false).Kind == retry.KindQuota
 }
 
-// options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
+// options builds the SDK options for target t; env is the BYOK route env.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
-) (opts sdk.Options, env []string, done func(), err error) {
-	done = func() {}
+) (opts sdk.Options, env []string, err error) {
 	st, err := agent.PrepareLaunch(ctx, e, req, t, nil)
 	if err != nil {
-		return opts, nil, done, copilotFatal(err)
+		return opts, nil, copilotFatal(err)
 	}
 	route, env, err := e.routeEnv(ctx, cs, req, t)
 	if err != nil {
-		return opts, nil, done, copilotFatal(err)
-	}
-	if route != nil {
-		done = route.close
+		return opts, nil, copilotFatal(err)
 	}
 	bin, err := e.Bin()
 	if err != nil {
-		return opts, nil, done, err
+		return opts, nil, err
 	}
 	if opts, err = newSDKOptions(bin, env, req, st); err != nil {
-		return opts, nil, done, copilotFatal(err)
+		return opts, nil, copilotFatal(err)
 	}
 	if err := routeOptions(&opts, route, env, req); err != nil {
-		return opts, nil, done, err
+		return opts, nil, err
 	}
 	if armedBYOK(ctx, route, t) {
 		armBYOK(&opts)
 	}
-	return opts, env, done, nil
+	return opts, env, nil
 }
 
 // routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.

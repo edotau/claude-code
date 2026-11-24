@@ -49,9 +49,9 @@ func (s *sessionStore) legacyClaims(tok string) (proxy.SessionClaims, string, bo
 	hash := textutil.SHA256Hex([]byte(tok))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reloadLocked()
+	s.reloadLegacyLocked()
 	e, ok := s.legacy[hash]
-	if _, revoked := s.revoked[hash]; !ok || revoked || s.legacyDead[hash] || !s.now().Before(e.Expires) {
+	if !ok || s.legacyDead[hash] || !s.now().Before(e.Expires) {
 		return proxy.SessionClaims{}, "", false
 	}
 	return proxy.SessionClaims{Profiles: e.Profiles, Failover: e.FailoverProvider, PID: e.PID, Start: e.Start}, hash, true

@@ -161,8 +161,8 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		w.WriteHeader(http.StatusOK)
 		return true
 	}
-	if req.URL.Path == proxy.SessionPath || req.URL.Path == proxy.SessionRevokePath {
-		if !r.secretOK(req) { // a session token never mints or revokes
+	if req.URL.Path == proxy.SessionPath {
+		if !r.secretOK(req) { // a session token never mints another
 			r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
 		} else {
 			r.serveSession(w, req)

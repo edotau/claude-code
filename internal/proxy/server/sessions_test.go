@@ -1,10 +1,7 @@
 package server
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,12 +88,6 @@ func TestSessionTokenScopeAndMintAuth(t *testing.T) {
 	if code, _ := g.call(t, proxy.SessionPath, `{"profiles":["dev"],"pid":4242}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("mint with a session token = %d, want 401", code)
 	}
-	if code, _ := g.call(t, proxy.SessionRevokePath, `{"token":"`+tok+`"}`, tok); code != http.StatusUnauthorized {
-		t.Errorf("revoke with a session token = %d, want 401", code)
-	}
-	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); code == http.StatusUnauthorized {
-		t.Error("token died after a rejected revoke")
-	}
 }
 
 func TestSessionTokenExpiresAtItsTTL(t *testing.T) {
@@ -113,36 +103,26 @@ func TestSessionTokenExpiresAtItsTTL(t *testing.T) {
 	}
 }
 
-// A revocation file that exists but cannot be decoded refuses every token until it reads again.
-func TestUnreadableRevocationFileFailsClosed(t *testing.T) {
+// A revoked.json an earlier build left behind is never read: it cannot refuse a live token.
+func TestLeftoverRevokedFileIgnored(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
-	if err := os.MkdirAll(filepath.Dir(proxy.RevokedFile()), 0o700); err != nil {
+	writeLegacy(t, `{"schema":2,"sessions":[]}`) // creates the proxy state dir
+	if err := os.WriteFile(filepath.Join(filepath.Dir(proxy.SessionsFile()), "revoked.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(proxy.RevokedFile(), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
-		t.Fatal("a token was accepted while the revocation list was unreadable")
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
+		t.Fatal("a leftover unreadable revoked.json refused a live token")
 	}
 }
 
-func TestSessionTokenDiesWithReusedPidAndOnRevoke(t *testing.T) {
+func TestSessionTokenDiesWithReusedPid(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
 	g.advance(sessionVerify)
 	g.setStart("999") // the pid now belongs to another process
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
 		t.Fatalf("reused pid = %d, want 401", c)
-	}
-	g.setStart("100")
-	tok = g.mint(t, "dev")
-	if c, _ := g.call(t, proxy.SessionRevokePath, `{"token":"`+tok+`"}`, secret); c != http.StatusNoContent {
-		t.Fatalf("revoke = %d", c)
-	}
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
-		t.Fatalf("revoked token = %d, want 401", c)
 	}
 }
 
@@ -166,47 +146,14 @@ func TestSessionTokenKeepsLivenessCheckUnderFrequentRequests(t *testing.T) {
 	t.Fatal("token outlived its process under frequent requests")
 }
 
-// A token minted by one daemon is valid on another of the same config, and a revocation on either holds on both.
-func TestSessionTokenValidAcrossDaemonsAndRevocationShared(t *testing.T) {
+// A token minted by one daemon is valid on another of the same config.
+func TestSessionTokenValidAcrossDaemons(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	a, b := newRouter(secret), newRouter(secret)
 	ta, tb := mintOn(t, a), mintOn(t, b)
 	for _, r := range []*Router{a, b, newRouter(secret)} {
 		if !r.sessions.accept(ta, "dev") || !r.sessions.accept(tb, "dev") || r.sessions.accept(ta, "other") {
 			t.Fatal("a daemon disagrees on a token minted by its peer")
-		}
-	}
-	// b's write must merge a's revocation, not overwrite it
-	if errors.Join(a.sessions.revoke(ta), b.sessions.revoke(tb)) != nil {
-		t.Fatal("revoke failed")
-	}
-	for _, r := range []*Router{a, b, newRouter(secret)} {
-		if r.sessions.accept(ta, "dev") || r.sessions.accept(tb, "dev") {
-			t.Fatal("a revocation was lost between two daemons")
-		}
-	}
-}
-
-// A revocation another daemon writes, or an unreadable list, during the unlocked probe refuses that request.
-func TestRevocationDuringProbeRefuses(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(proxy.RevokedFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for want, during := range map[string]func(b *Router, tok string) error{
-		whyRevoked:    func(b *Router, tok string) error { return b.sessions.revoke(tok) },
-		whyUnreadable: func(*Router, string) error { return os.WriteFile(proxy.RevokedFile(), []byte("{"), 0o600) },
-	} {
-		_ = os.Remove(proxy.RevokedFile())
-		a, b := newRouter(secret), newRouter(secret)
-		tok := mintOn(t, a)
-		var err error
-		a.sessions.procStart = func(pid int) (string, error) {
-			err = errors.Join(err, during(b, tok))
-			return b.sessions.procStart(pid)
-		}
-		if why := a.sessions.check(tok, "dev"); why != want || err != nil {
-			t.Fatalf("during the probe: check = %q, err %v, want %q", why, err, want)
 		}
 	}
 }
@@ -242,30 +189,6 @@ func TestForgedSessionClaimsRefused(t *testing.T) {
 	if c, body := g.call(t, "/p/prod/v1/messages", `{}`, tok2); c != http.StatusUnauthorized ||
 		!strings.Contains(body, proxy.ErrSessionSignature.Error()) {
 		t.Fatalf("forged scope = %d %q", c, body)
-	}
-}
-
-func TestSessionTokenRevocationFileIsPrivateAndHashed(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	router := newRouter(secret)
-	token, err := router.sessions.mint([]string{"dev"}, os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := router.sessions.revoke(token); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(proxy.RevokedFile())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
-		t.Fatalf("revoked.json mode = %04o, want 0600", got)
-	}
-	data, _ := os.ReadFile(proxy.RevokedFile())
-	hash := sha256.Sum256([]byte(token))
-	if bytes.Contains(data, []byte(token)) || !bytes.Contains(data, []byte(hex.EncodeToString(hash[:]))) {
-		t.Fatal("sessions.json must hold the revoked token's SHA-256 hash, never the token")
 	}
 }
 
@@ -330,13 +253,6 @@ func sessionCauseCases() []causeCase {
 			g.advance(proxy.SessionTokenTTL)
 			return path, tok
 		}, whyExpired},
-		{"revoked", func(g *sessionRig, t *testing.T) (string, string) {
-			tok := g.mint(t, "dev")
-			if c, _ := g.call(t, proxy.SessionRevokePath, `{"token":"`+tok+`"}`, secret); c != http.StatusNoContent {
-				t.Fatalf("revoke = %d", c)
-			}
-			return path, tok
-		}, whyRevoked},
 		{"exited", func(g *sessionRig, t *testing.T) (string, string) {
 			tok := g.mint(t, "dev")
 			g.advance(sessionVerify)
@@ -401,12 +317,6 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	}
 	if c, _ := g.call(t, "/p/other/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
 		t.Fatal("an old-format token was accepted outside its profiles")
-	}
-	if err := g.r.sessions.revoke(g.mint(t, "dev")); err != nil { // a write must merge, not erase, the old entry
-		t.Fatal(err)
-	}
-	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
-		t.Fatal("a revocation write erased a live old-format entry")
 	}
 	g.advance(6 * 24 * time.Hour) // past the stored expiry: only the slide from the accepted use above keeps it
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {

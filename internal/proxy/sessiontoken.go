@@ -136,7 +136,7 @@ func splitSessionToken(tok string) (payload string, mac []byte, ok bool) {
 		return "", nil, false
 	}
 	mac, err := base64.RawURLEncoding.Strict().DecodeString(sig)
-	// One spelling per MAC, so a revoked hash holds: Strict still skips CR/LF, so re-encode and compare.
+	// One spelling per MAC, so a token has one hash: Strict still skips CR/LF, so re-encode and compare.
 	return payload, mac, err == nil && base64.RawURLEncoding.EncodeToString(mac) == sig
 }
 

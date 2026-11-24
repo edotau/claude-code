@@ -18,13 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 type SessionRequest struct {
 	Profiles         []string `json:"profiles,omitempty"`
 	PID              int      `json:"pid,omitempty"`
-	Token            string   `json:"token,omitempty"`
 	FailoverProvider string   `json:"failover_provider,omitempty"`
 }
 
@@ -42,32 +40,15 @@ func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, e
 func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int, failoverProvider string) (string, error) {
 	var out SessionResponse
 	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider}
-	if err := postSession(ctx, true, SessionPath, req, &out); err != nil {
+	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
 	return out.Token, nil
 }
 
-// revokeGapWait outlasts a replacement's respawn gap (~55 ms, max ~110 ms measured); a var as a test seam.
-var revokeGapWait = 2 * time.Second
-
-// RevokeSessionToken drops token at the daemon, waiting out a respawn gap; ErrNotRunning when none came up.
-func RevokeSessionToken(ctx context.Context, token string) error {
-	deadline := time.Now().Add(revokeGapWait)
-	for {
-		err := postSession(ctx, false, SessionRevokePath, SessionRequest{Token: token}, nil)
-		if !errors.Is(err, ErrNotRunning) || !time.Now().Before(deadline) || ctx.Err() != nil {
-			return err
-		}
-		time.Sleep(revokeGapWait / 20)
-	}
-}
-
-func postSession(ctx context.Context, start bool, path string, body SessionRequest, out *SessionResponse) error {
-	if start {
-		if _, err := Ensure(ctx); err != nil {
-			return err
-		}
+func postSession(ctx context.Context, path string, body SessionRequest, out *SessionResponse) error {
+	if _, err := Ensure(ctx); err != nil {
+		return err
 	}
 	st, err := readLiveState()
 	if err != nil {
@@ -151,11 +132,8 @@ func verifyHolder(ctx context.Context, st State) error {
 // sessionTimeout bounds the POST so a wedged daemon cannot hang the caller.
 const sessionTimeout = 5 * time.Second
 
-// SessionPath and SessionRevokePath are POST endpoints requiring the router secret.
-const (
-	SessionPath       = "/internal/session"
-	SessionRevokePath = "/internal/session/revoke"
-)
+// SessionPath is the POST mint endpoint, requiring the router secret.
+const SessionPath = "/internal/session"
 
 // proxyTokenMaxAge re-mints inside the router's 7-day idle lifetime, as agent.SessionToken does.
 const proxyTokenMaxAge = time.Hour
@@ -189,7 +167,7 @@ func ResolveProxyTokenWithFailover(ctx context.Context, scope []string, pid int,
 	return resolveProxyToken(ctx, scope, pid, failover, false)
 }
 
-// RefreshProxyToken discards pid's cached token, mints and caches a new one, and revokes the old at the daemon.
+// RefreshProxyToken discards pid's cached token and mints and caches a new one; the old ends with pid like it.
 func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
 	return resolveProxyToken(ctx, scope, pid, "", true)
 }
@@ -202,11 +180,10 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	dir := proxyTokenDir()
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
-	var old string
-	if refresh {
-		old = recordedProxyToken(file)
-	} else if tok, ok := cachedProxyToken(file, start, scope, failover); ok {
-		return tok, nil
+	if !refresh {
+		if tok, ok := cachedProxyToken(file, start, scope, failover); ok {
+			return tok, nil
+		}
 	}
 	tok, err := mintFor(ctx, scope, pid, failover)
 	if err != nil {
@@ -222,9 +199,6 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	if err := paths.AtomicWrite(file, b, 0o600); err != nil {
 		return "", fmt.Errorf("cache scoped token: %w", err)
 	}
-	if old != "" && old != tok {
-		_ = revokeSession(ctx, old) // best effort: the replaced token is dead to the caller and expires anyway
-	}
 	return tok, nil
 }
 
@@ -233,22 +207,6 @@ func mintFor(ctx context.Context, scope []string, pid int, failover string) (str
 		return mintScopedFailover(ctx, scope, pid, failover)
 	}
 	return mintScoped(ctx, scope, pid)
-}
-
-// revokeSession is the revoke seam of RefreshProxyToken.
-var revokeSession = RevokeSessionToken
-
-// recordedProxyToken is file's cached token however old, or "" when none is readable.
-func recordedProxyToken(file string) string {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return ""
-	}
-	var rec proxyTokenRecord
-	if json.Unmarshal(b, &rec) != nil {
-		return ""
-	}
-	return rec.Token
 }
 
 // cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
@@ -278,20 +236,11 @@ func SessionInvalid(tok, profile string) error {
 	if err != nil || !ok {
 		return ErrSessionUnverified
 	}
-	if err := CheckSessionToken(secret, tok, profile, time.Now(), proc.StartTime); err != nil {
-		return err
-	}
-	if sessionRevoked(tok) {
-		return errors.New("session token was revoked")
-	}
-	return nil
+	return CheckSessionToken(secret, tok, profile, time.Now(), proc.StartTime)
 }
 
 // SessionsFile is the previous build's stored-token file, read for its bridge; it stays in that build's format.
 func SessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
-
-// RevokedFile holds the revoked session token hashes every daemon of this config shares.
-func RevokedFile() string { return filepath.Join(paths.StateDir(), "proxy", "revoked.json") }
 
 // LegacyRenewalsFile holds renewed expiries of previous-build tokens; only this build reads or writes it.
 func LegacyRenewalsFile() string {
@@ -306,22 +255,6 @@ func AuthenticClaims(tok string) (SessionClaims, bool) {
 	}
 	c, err := ParseSessionToken(secret, tok)
 	return c, err == nil
-}
-
-// sessionRevoked reports tok's hash on the shared revocation list; an unreadable list revokes nothing here.
-func sessionRevoked(tok string) bool {
-	type entry struct {
-		Hash string `json:"hash"`
-	}
-	var st struct {
-		Revoked []entry `json:"revoked"`
-	}
-	raw, err := os.ReadFile(RevokedFile())
-	if err != nil || json.Unmarshal(raw, &st) != nil {
-		return false
-	}
-	h := textutil.SHA256Hex([]byte(tok))
-	return slices.ContainsFunc(st.Revoked, func(r entry) bool { return r.Hash == h })
 }
 
 // pruneProxyTokens removes cache files whose pid is gone; best effort, a stray file is harmless.

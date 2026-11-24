@@ -127,11 +127,10 @@ func SchemaFor(name string) Schema {
 // ProbeTimeout bounds a vendor CLI's login probe; a var so tests stay fast.
 var ProbeTimeout = 8 * time.Second
 
-// RegistryLaunch is a CLI's native model-registry launch: env to set and unset, argv, args and the token to revoke.
+// RegistryLaunch is a CLI's native model-registry launch: env to set and unset, argv, args and files.
 type RegistryLaunch struct {
 	Env, Unset, Argv, Args, Warnings []string
 	Files                            []LaunchFile
-	Revoke                           func()
 	Banner                           string
 }
 

@@ -233,9 +233,6 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 		oerr = plan.checkOverlay(ov) // a launch-owned route name is refused, not silently overridden
 	}
 	if oerr != nil {
-		if plan.OnExecFail != nil {
-			plan.OnExecFail() // a minted session token dies with the refused launch
-		}
 		fmt.Fprintln(os.Stderr, "claude-code:", oerr)
 		return 2
 	}
@@ -611,16 +608,14 @@ func registryPlan(
 	}
 	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
-		cr.Revoke()
 		return Plan{}, err
 	}
 	lenv, lprefix := spec.LaunchSpec()
 	fmt.Fprintln(NoticeOut, cr.Banner)
 	return Plan{
 		Binary: bin, Set: proc.ValuesFromEnv(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
-		Files:      cr.Files,
-		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
-		OnExecFail: cr.Revoke,
+		Files: cr.Files,
+		Argv:  append(append(lprefix, cr.Argv...), cr.Args...),
 	}, nil
 }
 

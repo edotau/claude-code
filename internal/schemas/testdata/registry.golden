@@ -75,7 +75,6 @@ remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/ne
 route-auto | cache | 1 | state/harness/router/route-auto.json | internal/router | keep
 route-fit | record | 1 | state/harness/router/fit.json | internal/catalog | keep
 router-legacy-renewals | record | 1 | state/harness/proxy/legacy-renewals.json | internal/proxy | keep
-router-revoked | record | 1 | state/harness/proxy/revoked.json | internal/proxy | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 router-sessions | record | 2 | state/harness/proxy/sessions.json | internal/proxy | keep
 rtk-config | derived | 1 | <fixed at init> | internal/setup | keep

@@ -131,3 +131,17 @@ func TestDispatchRequestTypedOneMReachesTarget(t *testing.T) {
 		}
 	}
 }
+
+// Each picked-model-gone message, the proxy's Fable refusal included, matches; an account failure does not.
+func TestPickGoneErrMatches(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"ENDPOINT_NOT_FOUND: no endpoint m-a":                   true,
+		`pi: model "x" is not on the dev menu`:                  true,
+		"profile dev serves no Fable; its Opus id is opus-id-1": true,
+		"403 PERMISSION_DENIED: account disabled":               false,
+	} {
+		if got := pickGoneErr().MatchString(msg); got != want {
+			t.Errorf("%q: match = %v, want %v", msg, got, want)
+		}
+	}
+}
