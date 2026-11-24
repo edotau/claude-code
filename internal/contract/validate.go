@@ -127,7 +127,7 @@ func validateResult(c Contract, add func(string, string, ...any)) {
 		add("result", "set in state %q", c.state)
 	case !slices.Equal(c.Result.Unmet, c.Unmet()):
 		add("result.unmet", "%v, the records say %v", c.Result.Unmet, c.Unmet())
-	case c.state == StateClosed:
+	default:
 		if err := checkResult(c, *c.Result); err != "" {
 			add("result", "%s", err)
 		}

@@ -232,20 +232,44 @@ func settled(r Result, unmet []Term) *Result {
 	return &r
 }
 
+// checkResult checks r's values and tests claim against the records; a failed contract may leave enums empty.
 func checkResult(c Contract, r Result) string {
+	lax := c.state == StateFailed
 	switch {
-	case c.Executed && r.Tests != TestsExecuted:
-		return fmt.Sprintf("tests %q, this contract needs %q", r.Tests, TestsExecuted)
-	case !slices.Contains(Statuses(), r.Status):
+	case !known(r.Status, Statuses(), lax):
 		return fmt.Sprintf("unknown status %q (one of %v)", r.Status, Statuses())
-	case !slices.Contains(TestsValues(), r.Tests):
+	case !known(r.Tests, TestsValues(), lax):
 		return fmt.Sprintf("unknown tests %q (one of %v)", r.Tests, TestsValues())
-	case !slices.Contains(Methods(), r.Method):
+	case !known(r.Method, Methods(), lax):
 		return fmt.Sprintf("unknown method %q (one of %v)", r.Method, Methods())
 	case r.Spent.Tokens < 0 || r.Spent.Leaves < 0:
 		return fmt.Sprintf("negative spend %+v", r.Spent)
+	case r.Tests != "" && r.Tests != c.testsProvenance():
+		return fmt.Sprintf("tests %q, the last tests record says %q", r.Tests, c.testsProvenance())
 	}
 	return ""
+}
+
+func known[T comparable](v T, all []T, lax bool) bool {
+	var zero T
+	return (lax && v == zero) || slices.Contains(all, v)
+}
+
+// testsProvenance is judged when the owner wrote the last tests pass, executed when Go did, else unknown.
+func (c Contract) testsProvenance() Tests {
+	for _, r := range slices.Backward(c.Records) {
+		if r.Term != TermTests {
+			continue
+		}
+		switch {
+		case r.Verdict != VerdictPass:
+			return TestsUnknown
+		case r.By == ByOwner:
+			return TestsJudged
+		}
+		return TestsExecuted
+	}
+	return TestsUnknown
 }
 
 // wire is Contract's JSON shape: every exported field plus the state.

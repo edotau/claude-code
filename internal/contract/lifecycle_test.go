@@ -35,7 +35,7 @@ func passAll(t *testing.T, c Contract) Contract {
 	return c
 }
 
-var done = Result{Status: StatusDone, Tests: TestsJudged, Method: MethodSolo}
+var done = Result{Status: StatusDone, Tests: TestsExecuted, Method: MethodSolo}
 
 // inState builds a contract in s whose every legal transition succeeds.
 func inState(t *testing.T, s State) Contract {
