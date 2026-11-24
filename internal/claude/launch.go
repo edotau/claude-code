@@ -808,7 +808,7 @@ func onAnthropicAPI(base string) bool {
 		return true
 	}
 	u, err := url.Parse(base)
-	return err == nil && strings.EqualFold(u.Hostname(), "api.anthropic.com")
+	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), "api.anthropic.com")
 }
 
 // lastEnv is the value the child gets for name: the last entry of env.

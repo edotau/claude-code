@@ -227,18 +227,23 @@ func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.Ru
 
 // childBase is the endpoint the child uses: the --settings env block's ANTHROPIC_BASE_URL over the process env's.
 func childBase(argv, env []string) string {
+	base := lastEnv(env, proc.EnvAnthropicBaseURL)
 	for i, a := range argv {
-		if a != "--settings" || i+1 >= len(argv) {
+		v, ok := strings.CutPrefix(a, "--settings=")
+		if a == "--settings" && i+1 < len(argv) {
+			v, ok = argv[i+1], true
+		}
+		if !ok {
 			continue
 		}
-		doc, err := readSettings(argv[i+1])
-		if m, ok := doc["env"].(map[string]any); err == nil && ok {
-			if v, ok := m[proc.EnvAnthropicBaseURL].(string); ok {
-				return v
+		doc, err := readSettings(v)
+		if m, isMap := doc["env"].(map[string]any); err == nil && isMap {
+			if u, isStr := m[proc.EnvAnthropicBaseURL].(string); isStr {
+				base = u
 			}
 		}
 	}
-	return lastEnv(env, proc.EnvAnthropicBaseURL)
+	return base
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.

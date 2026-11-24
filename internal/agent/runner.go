@@ -108,6 +108,9 @@ func CodemodeOff(ctx context.Context, name, reason string, req RunOptions) RunOp
 		})
 	}
 	req.Codemode, req.CodemodeReason = "off", reason
-	req.Env = slices.DeleteFunc(slices.Clone(req.Env), func(kv string) bool { return strings.HasPrefix(kv, rtkwrap.CodemodeEnv+"=") })
+	vendor := agentid.Routing(name).CodeMode.Var
+	req.Env = slices.DeleteFunc(slices.Clone(req.Env), func(kv string) bool {
+		return strings.HasPrefix(kv, rtkwrap.CodemodeEnv+"=") || (vendor != "" && strings.HasPrefix(kv, vendor+"="))
+	})
 	return req
 }
