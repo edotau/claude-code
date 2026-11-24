@@ -135,6 +135,10 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.open[ev.ToolCallID] = ev.writePath()
 		use := wire.ToolEvent(ev.ToolName, ev.ToolCallID)
 		use.Text = ev.argSummary()
+		if t.res.Usage != (wire.Usage{}) {
+			sofar := t.res.Usage // the total through the last message_end, so a running row shows live tokens
+			use.Usage = &sofar
+		}
 		return t.sink.Emit(use)
 	case "tool_execution_end":
 		return t.toolEnd(ev)

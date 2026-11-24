@@ -341,11 +341,16 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		duration = now.Sub(rec.Time).Round(time.Second).String()
 	}
 	task, _, _ := strings.Cut(briefTask(rec.Request.Prompt), "\n")
+	usage := rec.Usage
+	if usage == nil && rec.Activity != nil && rec.Activity.Usage != (wire.Usage{}) {
+		live := rec.Activity.Usage // a running record has only the 2 s activity snapshot
+		usage = &live
+	}
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
-		Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage,
+		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
 		carry: rec.Request.Carry, takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
 	}, rec, now)
 }
