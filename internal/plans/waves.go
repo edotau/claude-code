@@ -695,7 +695,8 @@ func tasksEnd(lines []string, p Plan) (int, error) {
 func checkRendered(planPath, text string, t WaveTask, before int) error {
 	np := parseBytes(planPath, []byte(text))
 	got, ok := findTask(np, t.ID)
-	if !ok || got.ID != "" && got.ID != t.ID || len(np.Tasks) != before+1 || !slices.Equal(got.Owns, t.Owns) {
+	if !ok || got.ID != "" && got.ID != t.ID || len(np.Tasks) != before+1 || !slices.Equal(got.Owns, t.Owns) ||
+		got.Title != strings.TrimPrefix(TaskLine(t), "- [ ] ") || got.Sha != "" {
 		return fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
 	}
 	if !waveID().MatchString(t.ID) {
