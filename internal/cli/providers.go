@@ -272,6 +272,9 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 				return tok, nil
 			}
 			pid = remint
+			if c, ok := authenticClaims(tok); ok { // keep the launch's own scope and failover, never the registry's
+				return remintClaims(c, pid)
+			}
 		}
 		tok, err := scopedProxyToken(profile, refresh, pid)
 		if err != nil {
@@ -292,10 +295,21 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 
 // resolveProxyToken, refreshProxyToken and sessionInvalid are the mint, cache and check seams of resolve --proxy.
 var (
-	resolveProxyToken = proxy.ResolveProxyToken
-	refreshProxyToken = proxy.RefreshProxyToken
-	sessionInvalid    = proxy.SessionInvalid
+	resolveProxyToken         = proxy.ResolveProxyToken
+	resolveProxyTokenFailover = proxy.ResolveProxyTokenWithFailover
+	refreshProxyToken         = proxy.RefreshProxyToken
+	sessionInvalid            = proxy.SessionInvalid
+	authenticClaims           = proxy.AuthenticClaims
 )
+
+// remintClaims re-mints a refused armed token for pid with the same profiles and failover group.
+func remintClaims(c proxy.SessionClaims, pid int) (string, error) {
+	tok, err := resolveProxyTokenFailover(context.Background(), c.Profiles, pid, c.Failover)
+	if err != nil {
+		return "", fmt.Errorf("resolve --proxy: %w", err)
+	}
+	return tok, nil
+}
 
 // routeProfile is <p> of a /p/<p> proxy base, "" for any other base.
 func routeProfile(base string) string {

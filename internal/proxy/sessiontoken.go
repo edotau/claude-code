@@ -19,8 +19,8 @@ import (
 // SessionTokenPrefix opens every signed session token: cct_<claims>.<mac>, both base64url.
 const SessionTokenPrefix = "cct_"
 
-// SessionTokenTTL bounds a token's life; the bound process's pid and start time are the working limit.
-const SessionTokenTTL = 30 * 24 * time.Hour
+// SessionTokenTTL outlasts any session (a passthrough header is never renewed); the bound process is the real limit.
+const SessionTokenTTL = 365 * 24 * time.Hour
 
 // RefusalHeader names why the proxy itself refused a request; RefusalSession is its one session-token value.
 const (
@@ -133,7 +133,7 @@ func splitSessionToken(tok string) (payload string, mac []byte, ok bool) {
 	if !pf || !found || len(tok) > maxSessionToken {
 		return "", nil, false
 	}
-	mac, err := base64.RawURLEncoding.DecodeString(sig)
+	mac, err := base64.RawURLEncoding.Strict().DecodeString(sig) // one spelling per MAC, so a revoked hash holds
 	return payload, mac, err == nil
 }
 

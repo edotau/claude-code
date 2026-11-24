@@ -215,14 +215,14 @@ func TestSessionTokenRevocationFileIsPrivateAndHashed(t *testing.T) {
 	if err := router.sessions.revoke(token); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(proxy.SessionsFile())
+	info, err := os.Stat(proxy.RevokedFile())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
-		t.Fatalf("sessions.json mode = %04o, want 0600", got)
+		t.Fatalf("revoked.json mode = %04o, want 0600", got)
 	}
-	data, _ := os.ReadFile(proxy.SessionsFile())
+	data, _ := os.ReadFile(proxy.RevokedFile())
 	hash := sha256.Sum256([]byte(token))
 	if bytes.Contains(data, []byte(token)) || !bytes.Contains(data, []byte(hex.EncodeToString(hash[:]))) {
 		t.Fatal("sessions.json must hold the revoked token's SHA-256 hash, never the token")
@@ -354,14 +354,8 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	g := newSessionRig(t)
 	tok := proxy.SessionTokenPrefix + strings.Repeat("ab", 32)
 	hash := textutil.SHA256Hex([]byte(tok))
-	v2 := `{"schema":2,"sessions":[{"hash":"` + hash + `","profiles":["dev"],"pid":4242,"start":"100",` +
-		`"expires":"2001-01-01T00:00:00Z"}]}`
-	if err := os.MkdirAll(filepath.Dir(proxy.SessionsFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(proxy.SessionsFile(), []byte(v2), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
+		`"expires":"2023-11-20T00:00:00Z"}]}`)
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
 		t.Fatal("a stored old-format token was refused while its process lives")
 	}
@@ -374,6 +368,15 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
 		t.Fatal("a revocation write erased a live old-format entry")
 	}
+	g.advance(6 * 24 * time.Hour) // past the stored expiry: only the slide from the accepted use above keeps it
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
+		t.Fatal("an old-format token in use expired at its stored expiry")
+	}
+	g.advance(legacyTTL)
+	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
+		t.Fatal("an old-format token outlived its idle expiry")
+	}
+	g.advance(-legacyTTL)
 	g.setStart("999")
 	g.advance(sessionVerify)
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
@@ -382,5 +385,15 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	g.r.sessions.count()
 	if raw, _ := os.ReadFile(proxy.SessionsFile()); strings.Contains(string(raw), hash) {
 		t.Fatal("an exited old-format entry was kept on disk")
+	}
+}
+
+func writeLegacy(t *testing.T, v2 string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(proxy.SessionsFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proxy.SessionsFile(), []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

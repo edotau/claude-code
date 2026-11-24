@@ -403,6 +403,11 @@ func ProxySessionRefused(profile string) bool {
 	return len(out) > 0 || unverified
 }
 
+// proxyRefusal: err carries the proxy's typed refusal, or this process holds a token the proxies refuse.
+func proxyRefusal(account string, err error) bool {
+	return strings.Contains(err.Error(), proxy.RefusalSession) || ProxySessionRefused(accountProfile(account))
+}
+
 // accountProfile is <p> of a "<provider>·<p>" account, "" (any profile) for any other account shape.
 func accountProfile(account string) string {
 	_, p, _ := strings.Cut(account, "·")

@@ -1,1 +1,2 @@
-internal/proxy/server/sessions.go:saveLocked	router-sessions
+internal/proxy/server/legacysessions.go:saveLegacyLocked	router-sessions
+internal/proxy/server/sessions.go:saveLocked	router-revoked

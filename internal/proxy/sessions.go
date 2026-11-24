@@ -160,10 +160,14 @@ var mintScoped = MintScopedToken
 // proxyTokenStart errors on native Windows, so proxy session tokens are unsupported there by decision.
 var proxyTokenStart = proc.StartTime
 
+// mintScopedFailover is the mint seam of a token carrying a same-provider failover group.
+var mintScopedFailover = MintScopedTokenWithFailover
+
 type proxyTokenRecord struct {
 	Token    string    `json:"token"`
 	Start    string    `json:"start"`
 	Scope    []string  `json:"scope"`
+	Failover string    `json:"failover,omitempty"`
 	MintedAt time.Time `json:"minted_at"`
 }
 
@@ -171,15 +175,20 @@ func proxyTokenDir() string { return filepath.Join(paths.StateDir(), "proxy-toke
 
 // ResolveProxyToken caches pid's scoped token (0600) while fresh with matching process identity and scope.
 func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
-	return resolveProxyToken(ctx, scope, pid, false)
+	return resolveProxyToken(ctx, scope, pid, "", false)
+}
+
+// ResolveProxyTokenWithFailover is ResolveProxyToken for a token that also carries failover's group.
+func ResolveProxyTokenWithFailover(ctx context.Context, scope []string, pid int, failover string) (string, error) {
+	return resolveProxyToken(ctx, scope, pid, failover, false)
 }
 
 // RefreshProxyToken discards pid's cached token, mints and caches a new one, and revokes the old at the daemon.
 func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
-	return resolveProxyToken(ctx, scope, pid, true)
+	return resolveProxyToken(ctx, scope, pid, "", true)
 }
 
-func resolveProxyToken(ctx context.Context, scope []string, pid int, refresh bool) (string, error) {
+func resolveProxyToken(ctx context.Context, scope []string, pid int, failover string, refresh bool) (string, error) {
 	start, err := proxyTokenStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("identify token process %d: %w", pid, err)
@@ -190,14 +199,14 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, refresh boo
 	var old string
 	if refresh {
 		old = recordedProxyToken(file)
-	} else if tok, ok := cachedProxyToken(file, start, scope); ok {
+	} else if tok, ok := cachedProxyToken(file, start, scope, failover); ok {
 		return tok, nil
 	}
-	tok, err := mintScoped(ctx, scope, pid)
+	tok, err := mintFor(ctx, scope, pid, failover)
 	if err != nil {
 		return "", fmt.Errorf("mint scoped token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
-	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, MintedAt: time.Now()})
+	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, Failover: failover, MintedAt: time.Now()})
 	if err != nil {
 		return "", err
 	}
@@ -211,6 +220,13 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, refresh boo
 		_ = revokeSession(ctx, old) // best effort: the replaced token is dead to the caller and expires anyway
 	}
 	return tok, nil
+}
+
+func mintFor(ctx context.Context, scope []string, pid int, failover string) (string, error) {
+	if failover != "" {
+		return mintScopedFailover(ctx, scope, pid, failover)
+	}
+	return mintScoped(ctx, scope, pid)
 }
 
 // revokeSession is the revoke seam of RefreshProxyToken.
@@ -230,13 +246,14 @@ func recordedProxyToken(file string) string {
 }
 
 // cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
-func cachedProxyToken(file, start string, scope []string) (string, bool) {
+func cachedProxyToken(file, start string, scope []string, failover string) (string, bool) {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return "", false
 	}
 	var rec proxyTokenRecord
 	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || rec.Start != start || !slices.Equal(rec.Scope, scope) ||
+		rec.Failover != failover ||
 		time.Since(rec.MintedAt) >= proxyTokenMaxAge || SessionRefused(SessionInvalid(rec.Token, "")) {
 		return "", false
 	}
@@ -264,8 +281,21 @@ func SessionInvalid(tok, profile string) error {
 	return nil
 }
 
-// SessionsFile holds the revoked session token hashes every daemon of this config shares.
+// SessionsFile is the previous build's stored-token file, read for its bridge; it stays in that build's format.
 func SessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
+
+// RevokedFile holds the revoked session token hashes every daemon of this config shares.
+func RevokedFile() string { return filepath.Join(paths.StateDir(), "proxy", "revoked.json") }
+
+// AuthenticClaims is tok's claims when its MAC verifies under this config's router secret, whatever its liveness.
+func AuthenticClaims(tok string) (SessionClaims, bool) {
+	secret, ok, err := vaultSecret()
+	if err != nil || !ok {
+		return SessionClaims{}, false
+	}
+	c, err := ParseSessionToken(secret, tok)
+	return c, err == nil
+}
 
 // sessionRevoked reports tok's hash on the shared revocation list; an unreadable list revokes nothing here.
 func sessionRevoked(tok string) bool {
@@ -275,7 +305,7 @@ func sessionRevoked(tok string) bool {
 	var st struct {
 		Revoked []entry `json:"revoked"`
 	}
-	raw, err := os.ReadFile(SessionsFile())
+	raw, err := os.ReadFile(RevokedFile())
 	if err != nil || json.Unmarshal(raw, &st) != nil {
 		return false
 	}
