@@ -58,9 +58,13 @@ func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 		t.Errorf("tail = %q, want indented, CRLF and padded body lines dropped", tail)
 	}
 	hash := strings.Repeat("0123456789abcdef", 4)
-	tb = &tailBuf{b: []byte("x\n" + hash + "\nok\n"), cut: true}
-	if tail := verifyTail(tb); !strings.Contains(tail, hash) {
-		t.Errorf("tail = %q, want a hash line kept", tail)
+	tb = &tailBuf{b: []byte("x\n" + hash + "\nFAIL pkg\n"), cut: true}
+	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
+		t.Errorf("tail = %q, want a hex line at the cut front dropped", tail)
+	}
+	tb = &tailBuf{b: []byte("x\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n" + line + "\n" + line + "\nFAIL pkg\n"), cut: true}
+	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
+		t.Errorf("tail = %q, want encrypted-PEM headers, blank line and body dropped", tail)
 	}
 }
 

@@ -105,25 +105,22 @@ func afterOrphanPEM(s string) string {
 // dropFirstLine is s from the first line past the cut that is not key-shaped: a cut window may open inside a key.
 func dropFirstLine(s string) string {
 	_, rest, _ := strings.Cut(s, "\n")
-	for rest != "" {
+	for header := false; rest != ""; {
 		line, next, _ := strings.Cut(rest, "\n")
-		if !base64Line(strings.TrimSpace(line)) {
+		line = strings.TrimSpace(line)
+		isHeader := strings.HasPrefix(line, "Proc-Type:") || strings.HasPrefix(line, "DEK-Info:")
+		if !isHeader && !(line == "" && header) && !base64Line(line) {
 			break
 		}
-		rest = next
+		header, rest = isHeader || (line == "" && header), next
 	}
 	return rest
 }
 
 const b64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 
-// base64Line reports a line of only base64 characters (no space or other punctuation), except a 32+ char hex hash.
-func base64Line(s string) bool {
-	if s == "" || strings.Trim(s, b64Chars) != "" {
-		return false
-	}
-	return len(s) < 32 || strings.Trim(s, "0123456789abcdefABCDEF") != ""
-}
+// base64Line reports a line of only base64 characters (no space or other punctuation).
+func base64Line(s string) bool { return s != "" && strings.Trim(s, b64Chars) == "" }
 
 // maskShapes masks credential-shaped runs, then vault values, in s.
 func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
