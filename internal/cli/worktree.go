@@ -267,7 +267,7 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 	switch {
 	case err == nil:
 		if !*dryRun {
-			recordCloseTerms(cwd, func() ([]string, error) { return revList(context.Background(), cwd, "HEAD^!") }, "", os.Stderr)
+			recordCloseTerms(cwd, func() ([]string, error) { return revList(cwd, "HEAD^!") }, "", os.Stderr)
 		}
 		return 0
 	case errors.As(err, &ce) && ce.Code == 2:
@@ -355,7 +355,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 
 	code := mergeUnderLease(ctx, repo, req)
 	if _, landed, ok := strings.Cut(promoted, ".."); ok { // promoted even when the clean failed
-		recordCloseTerms(repo.Main, func() ([]string, error) { return revList(ctx, repo.Main, promoted) }, landed, os.Stderr)
+		recordCloseTerms(repo.Main, func() ([]string, error) { return revList(repo.Main, promoted) }, landed, os.Stderr)
 	}
 	return code
 }

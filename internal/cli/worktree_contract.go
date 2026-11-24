@@ -19,6 +19,8 @@ type contractStore interface {
 	Save(contract.Contract) error
 }
 
+const revListTimeout = 10 * time.Second
+
 // openContractStore is the one call site that plugs the real store; nil means no contracts exist.
 var openContractStore = func() contractStore { return nil }
 
@@ -35,7 +37,7 @@ func recordCloseTerms(top string, shas func() ([]string, error), landed string, 
 	}
 	var full []string
 	for _, c := range pending {
-		if c.Scope.PlanTask == "" || !slices.Contains(c.Terms, contract.TermTick) {
+		if !takesCloseTerms(c) {
 			continue
 		}
 		if full == nil {
@@ -52,6 +54,11 @@ func recordCloseTerms(top string, shas func() ([]string, error), landed string, 
 			fmt.Fprintf(warn, "worktree: warning: contract %s: %v\n", c.ID, err)
 		}
 	}
+}
+
+// takesCloseTerms is true for a verified contract with a plan task to tick; earlier states refuse close records.
+func takesCloseTerms(c contract.Contract) bool {
+	return c.State() == contract.StateVerified && c.Scope.PlanTask != "" && slices.Contains(c.Terms, contract.TermTick)
 }
 
 // tickedBy is the full sha in shas that the plan records as having ticked task, or "".
@@ -89,8 +96,10 @@ func saveTerms(st contractStore, c contract.Contract, tickSha, landed string) er
 	return st.Save(c)
 }
 
-// revList is the commit shas of rng, newest first.
-func revList(ctx context.Context, dir, rng string) ([]string, error) {
+// revList is the commit shas of rng; it has its own bounded context so an interrupt after promotion cannot skip it.
+func revList(dir, rng string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), revListTimeout)
+	defer cancel()
 	out, err := proc.RunGit(ctx, dir, "rev-list", rng)
 	return strings.Fields(out), err
 }
