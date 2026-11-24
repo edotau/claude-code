@@ -71,7 +71,7 @@ func TestMemoryEmptyProcedurePanics(t *testing.T) {
 	memoryProcedure([]byte(" \n\t"))
 }
 
-// memoryGolden pins each memory renderer's complete output to a literal, so editing a template or accessor fails here.
+// memoryGolden pins each memory template renderer's complete output to a literal, so editing a template or accessor fails here.
 var memoryGolden = []struct {
 	template string
 	got      func() string
@@ -89,7 +89,9 @@ var memoryGolden = []struct {
 	{"git-activity.tmpl", func() string { return MemoryGitActivity("c1", "a.go") }, "\n\nThis session's git activity (for the summary; verify before quoting):\nCommits:\nc1\nTouched files:\na.go\n"},
 	{"git-activity.tmpl", func() string { return MemoryGitActivity("", "a.go") }, "\n\nThis session's git activity (for the summary; verify before quoting):\nTouched files:\na.go\n"},
 	{"git-activity.tmpl", func() string { return MemoryGitActivity("c1", "") }, "\n\nThis session's git activity (for the summary; verify before quoting):\nCommits:\nc1\n"},
+	{"git-activity.tmpl", func() string { return MemoryGitActivity("", "") }, "\n\nThis session's git activity (for the summary; verify before quoting):\n"},
 	{"session-tags.tmpl", func() string { return MemorySessionTags([]string{"DECISION: x", "BUG: y"}) }, "\n\nTagged this session (whole transcript) — file every one in its step; skip any already filed:\n- DECISION: x\n- BUG: y\n"},
+	{"session-tags.tmpl", func() string { return MemorySessionTags(nil) }, "\n\nTagged this session (whole transcript) — file every one in its step; skip any already filed:\n"},
 	{"dream-worker.tmpl", func() string { return MemoryDreamPrompt("W", "ch", "P") }, "WWrite only under the memory root. Be surgical.\n\nChanged since the last dream: ch\n\nP"},
 	{"open-tasks.tmpl", func() string { return MemoryOpenTasks("t1") }, "\n\nOpen plan tasks: t1\n"},
 	{"rtk-misses.tmpl", func() string { return MemoryRTKMisses("m1") }, "\n\nrtk misses, last 7 days (`rtk discover`): m1\nIn Phase 5b add at most one record (id `fc-rtk-misses`) proposing an rtk rule or rewrite-word change for the top misses: target `rules/standards/rtk.md`, evidence one existing feedback/ or notes/ file about rtk plus `repeats` set to the top count; skip it if no such file exists.\n"},
@@ -119,9 +121,9 @@ var memoryGolden = []struct {
 }
 
 func TestMemoryRenderersGolden(t *testing.T) {
-	for _, c := range memoryGolden {
+	for i, c := range memoryGolden {
 		if got := c.got(); got != c.want {
-			t.Errorf("%s: got %q, want %q", c.template, got, c.want)
+			t.Errorf("%s case %d: got %q, want %q", c.template, i, got, c.want)
 		}
 	}
 }
