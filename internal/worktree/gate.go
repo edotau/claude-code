@@ -244,7 +244,7 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return fullGoGate, "go.mod"
 	}
 	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
-		return "pytest -q", "pyproject"
+		return pytestGate, "pyproject"
 	}
 	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
 		return "npm test", "package.json"
@@ -253,6 +253,33 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return "cargo build && cargo test", "Cargo.toml"
 	}
 	return "", ""
+}
+
+// pytestGate is a subshell so rtk leaves it bare: rtk pytest adds -q, and with addopts -q reads "No tests collected".
+const pytestGate = "(pytest)"
+
+// pytestNoTestsExit is pytest's exit code for an empty collection.
+const pytestNoTestsExit = 5
+
+// errNoTests fails a lane that changed a .py file yet collected no tests.
+var errNoTests = errors.New("verify: no tests collected")
+
+// emptyPytest settles pytest's empty-collection exit: fails on a lane .py change, else reports and passes.
+func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer) error {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != pytestNoTestsExit {
+		return err
+	}
+	if base == "" {
+		base = "HEAD"
+	}
+	names, gitErr := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
+	isPy := func(f string) bool { return strings.HasSuffix(f, ".py") }
+	if gitErr != nil || slices.ContainsFunc(strings.Split(string(names), "\x00"), isPy) {
+		return errNoTests
+	}
+	fmt.Fprintln(out, "verify: no tests collected (no .py change in the lane); passing")
+	return nil
 }
 
 // hasMakeTarget reports whether makefile declares a target named exactly target; a missing Makefile is "no target".
@@ -514,7 +541,11 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 	var first error
 	for i, s := range steps {
 		wg.Go(func() {
-			if fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i]); fails[i] != nil {
+			fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i])
+			if s == pytestGate && fails[i] != nil {
+				fails[i] = emptyPytest(ctx, dir, base, fails[i], &outs[i])
+			}
+			if fails[i] != nil {
 				// the first to fail is the cause; the rest die from its cancel
 				once.Do(func() { first = fmt.Errorf("%s: %w", s, fails[i]) })
 				cancel()

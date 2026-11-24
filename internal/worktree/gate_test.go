@@ -504,3 +504,29 @@ func TestLintVerbArgv(t *testing.T) {
 		t.Fatalf("rendered line ran as %q (err %v), want %q", out, err, wantOut)
 	}
 }
+
+// pytest exit 5 fails a lane that changed a .py file and passes, with a note, one that did not.
+func TestEmptyPytestNeedsPyChange(t *testing.T) {
+	_, run, write := gateRepo(t)
+	run("add", "-A")
+	run("commit", "-q", "-m", "base")
+	base := run("rev-parse", "HEAD")
+	exit5 := exec.Command("bash", "-c", "exit 5").Run()
+	write("notes.md", "x\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "docs")
+	dir := run("rev-parse", "--show-toplevel")
+	var out bytes.Buffer
+	if err := emptyPytest(context.Background(), dir, base, exit5, &out); err != nil || !strings.Contains(out.String(), "no tests collected") {
+		t.Fatalf("no .py change: err=%v out=%q, want pass with a note", err, out.String())
+	}
+	write("tests/test_x.py", "def test_a(): pass\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "py")
+	if err := emptyPytest(context.Background(), dir, base, exit5, &out); !errors.Is(err, errNoTests) {
+		t.Fatalf(".py change: err=%v, want %v", err, errNoTests)
+	}
+	if err := emptyPytest(context.Background(), dir, base, exec.Command("bash", "-c", "exit 1").Run(), &out); errors.Is(err, errNoTests) || err == nil {
+		t.Fatalf("other exit: err=%v, want it unchanged", err)
+	}
+}
