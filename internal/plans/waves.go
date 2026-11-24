@@ -644,8 +644,9 @@ func AddTask(planPath string, t WaveTask) error {
 			return "", fmt.Errorf("plans: task %q already exists in %s", t.ID, planPath)
 		}
 		for _, b := range t.BlockedBy {
-			if !slices.ContainsFunc(p.Tasks, func(o Task) bool { return o.ID == b }) {
-				return "", fmt.Errorf("plans: blocked-by %q names no task in %s", b, planPath)
+			if ids, rest := blockers(b); rest != "" || !slices.Equal(ids, []string{b}) ||
+				!slices.ContainsFunc(p.Tasks, func(o Task) bool { return o.ID == b }) {
+				return "", fmt.Errorf("plans: blocked-by %q is not a \"Phase N.M\" task id of %s", b, planPath)
 			}
 		}
 		at, err := tasksEnd(strings.Split(text, "\n"), p)
