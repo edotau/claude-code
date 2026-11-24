@@ -322,6 +322,9 @@ func rowNotReady(p *providers.Provider, st router.State, agentName, alias string
 	if err != nil {
 		return "cannot spell " + alias
 	}
+	if err := providers.ClaudeCodeError(p, wire); err != nil { // the route's own check: e.g. a Responses-only id
+		return "cannot run " + wire + " in Claude Code"
+	}
 	return rowHeld(p, st, wire, now)
 }
 
