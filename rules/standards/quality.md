@@ -55,8 +55,8 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
 call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main), never one call per file (each
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
-tree. A leaf may run them too; the audit after a worktree land runs on the lane's rebased head (HEAD plus the landed diff), after a `--merge` and at
-session end on clean main, automatically.
+tree. A leaf may run them too; the audit after a worktree land runs on the lane's rebased head (HEAD plus the
+landed diff), after a `--merge` and at session end on clean main, automatically.
 
 Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes
 (rare exception: the main session may ask the owner when the fix is disproportionate, one line vs a mountain of code;
