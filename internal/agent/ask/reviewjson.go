@@ -169,7 +169,7 @@ func parseReviewEnvelope(data []byte, rc int, note io.Writer) (reviewEnvelope, i
 		return env, rc, fmt.Errorf("review envelope: %w", err)
 	}
 	schemaError := env.Error != nil && env.Error.Kind == "schema"
-	if !schemaError && agent.SchemaFor(env.Agent).Eng().Caps().OutputSchema != agent.Native && len(env.Structured) == 0 {
+	if !schemaError && agent.SchemaFor(cmp.Or(env.Runner, env.Agent)).Eng().Caps().OutputSchema != agent.Native && len(env.Structured) == 0 {
 		return env, rc, nil
 	}
 	if env.Error != nil && !schemaError {

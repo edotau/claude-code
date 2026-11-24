@@ -42,7 +42,14 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 }
 
 // RowLabel is r's label on every row: its agent type, else the asked agent, with the runner after it.
-func RowLabel(r Record) string { return wire.RunLabel(cmp.Or(r.Type, r.RanAs, r.Agent), RunnerOf(r)) }
+func RowLabel(r Record) string {
+	runner := RunnerOf(r)
+	if r.Type == "" && runner != "" { // an older record: name the model's type, never "pi via pi"
+		kind := cmp.Or(r.RanRoute.Provider, r.Route.Provider)
+		return wire.RunLabel(cmp.Or(string(models.AgentType(kind, cmp.Or(r.Model, r.Request.Model), false)), r.Agent), runner)
+	}
+	return wire.RunLabel(cmp.Or(r.Type, r.RanAs, r.Agent), runner)
+}
 
 // RunnerOf is the runner that carried r's run: the recorded one, else Pi read from the attempts of an older record.
 func RunnerOf(r Record) string {
