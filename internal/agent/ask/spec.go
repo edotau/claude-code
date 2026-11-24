@@ -162,6 +162,10 @@ func parseAsk(verb string, args []string) (*flag.FlagSet, *askFlags, []string, [
 	if !done && f.spec != "" {
 		fs, f, args, pos, code, done = reparseSpec(f, verb, args, pos)
 	}
+	if !done && f.waves != "" && f.host != "" && verb == "" && f.action == "" {
+		err := errors.New("--waves cannot take --host: the wave runner dispatches leaves on this machine (use --remote to run the whole waves on a host)")
+		return fs, f, raw, pos, failAskCode(f.format, f.name, err, 2), true
+	}
 	if !done && f.waves != "" && verb == "" && f.action == "" { // an action's own refusal names --waves
 		return fs, f, raw, pos, Waves(raw), true
 	}

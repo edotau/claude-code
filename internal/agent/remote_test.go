@@ -240,3 +240,10 @@ func TestRelayCountsProgressMark(t *testing.T) {
 		t.Fatalf("streamed=%v err=%v events=%v; want the mark relayed and counted", streamed, err, rec.got)
 	}
 }
+
+func TestResultFromEnvelopeKeepsFarProxy(t *testing.T) {
+	res := resultFromEnvelope(wire.Envelope{Status: wire.StatusOK, Transport: &wire.Transport{Attempts: 1, Proxy: "shared"}}, "pi", nil)
+	if got := wire.RanOn(res); !strings.HasSuffix(got, " · proxy shared") {
+		t.Fatalf("ran on %q lacks the far proxy label", got)
+	}
+}

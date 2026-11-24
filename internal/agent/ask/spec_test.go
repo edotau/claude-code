@@ -210,3 +210,12 @@ func TestSpecBriefCarriesPlanTaskAndTier(t *testing.T) {
 		t.Fatal("planTaskCheck accepted a bad id or a batch")
 	}
 }
+
+func TestWavesRefusesHost(t *testing.T) {
+	prev := Waves
+	Waves = func([]string) int { t.Fatal("waves runner reached"); return 0 }
+	t.Cleanup(func() { Waves = prev })
+	if _, _, _, _, code, done := parseAsk("", []string{"--waves", "plan.md", "--host", "auto"}); code != 2 || !done {
+		t.Fatalf("code=%d done=%v, want 2 true", code, done)
+	}
+}
