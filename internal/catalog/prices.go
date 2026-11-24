@@ -114,16 +114,16 @@ var vendorOf = map[string]string{"claude-": "anthropic", "gpt-": "openai", "o1":
 // dashed is a model id with its dots spelled as dashes, the harness's own spelling.
 func dashed(id string) string { return strings.ReplaceAll(id, ".", "-") }
 
-// find is prov's row for the first of ids: an exact id wins over one that differs only in dots or dashes.
-func (p Prices) find(prov string, ids ...string) (ModelPrice, bool) {
+// find is prov's row for the first of ids, skipping unpriced rows when priced; an exact id beats a dots/dashes variant.
+func (p Prices) find(prov string, priced bool, ids ...string) (ModelPrice, bool) {
 	rows := p.Providers[prov]
 	for _, id := range ids {
-		if row, ok := rows[id]; ok {
+		if row, ok := rows[id]; ok && (row.Priced || !priced) {
 			return row, true
 		}
 		for _, rid := range slices.Sorted(maps.Keys(rows)) {
-			if dashed(rid) == dashed(id) {
-				return rows[rid], true
+			if row := rows[rid]; dashed(rid) == dashed(id) && (row.Priced || !priced) {
+				return row, true
 			}
 		}
 	}
@@ -133,19 +133,19 @@ func (p Prices) find(prov string, ids ...string) (ModelPrice, bool) {
 // ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
 func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
 	bare := strings.TrimPrefix(id, provider+"-")
-	own, ok := p.find(provider, id, provider+"-"+bare, bare)
-	if ok && own.Priced {
-		return own, true
+	own := []string{id, provider + "-" + bare, bare}
+	if row, ok := p.find(provider, true, own...); ok {
+		return row, true
 	}
 	for prefix, vendor := range vendorOf {
 		if !strings.HasPrefix(bare, prefix) {
 			continue
 		}
-		if row, found := p.find(vendor, bare); found && row.Priced {
+		if row, found := p.find(vendor, true, bare); found {
 			return row, true
 		}
 	}
-	return own, ok
+	return p.find(provider, false, own...)
 }
 
 // Rate is Lookup's row when it carries a price; a reader uses it only where options.prices names none.
