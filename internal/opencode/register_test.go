@@ -25,3 +25,9 @@ func TestOpencodeRouteDetailHonorsPin(t *testing.T) {
 		t.Fatalf("pinned row = %q, want it to name the pinned profile databricks-test", row)
 	}
 }
+
+func TestOpencodeRowScopedProxy(t *testing.T) {
+	if !row.CLI.ScopedProxy {
+		t.Error("opencode row must walk the scoped proxy list")
+	}
+}

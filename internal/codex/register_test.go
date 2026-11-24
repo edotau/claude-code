@@ -57,3 +57,9 @@ func TestCodexAgentRunEnvelopeReportsEffortClamp(t *testing.T) {
 		t.Errorf("Emulated = %q err=%v, want the max→xhigh clamp", res.Emulated, err)
 	}
 }
+
+func TestCodexRowScopedProxy(t *testing.T) {
+	if !agent.SchemaFor("codex").CLI.ScopedProxy {
+		t.Error("codex row must walk the scoped proxy list")
+	}
+}
