@@ -455,35 +455,42 @@ func TestConfigureAgentsNamedOnlyActsOnThatAgent(t *testing.T) {
 	}
 }
 
+func fmtExit(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
+	return code, stdout
+}
+
 // TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck: --fmt fixes the live order; bad files and --check still fail.
 func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	const bad = `{"model":"m","fallbackModel":["sonnet","opus"],"env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
-	exit := func(args ...string) (int, string) {
-		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
-		return code, stdout
-	}
 	if err := os.WriteFile(live, []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := exit("--fmt", "--check"); code != 1 {
+	if code, _ := fmtExit(t, "--fmt", "--check"); code != 1 {
 		t.Fatalf("--fmt --check on out-of-order file exit %d, want 1", code)
 	}
-	code, stdout := exit("--fmt")
+	code, stdout := fmtExit(t, "--fmt")
 	_, bk, _ := strings.Cut(strings.TrimSpace(stdout), "backup at ")
 	if old, err := os.ReadFile(bk); code != 0 || err != nil || string(old) != bad {
 		t.Fatalf("--fmt exit %d, backup %q (err %v):\n%s", code, bk, err, stdout)
 	}
-	if code, _ := exit("--fmt", "--check"); code != 0 {
+	if code, _ := fmtExit(t, "--fmt", "--check"); code != 0 {
 		t.Errorf("still out of order after --fmt, exit %d", code)
 	}
 	if got, _ := os.ReadFile(live); strings.Index(string(got), `"sonnet"`) > strings.Index(string(got), `"opus"`) {
 		t.Errorf("fallbackModel priority order changed:\n%s", got)
 	}
+}
+
+// TestConfigureFmtLeavesUnparsableFileUntouched: a file that does not parse fails --fmt and stays byte-identical.
+func TestConfigureFmtLeavesUnparsableFileUntouched(t *testing.T) {
+	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"model":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, _ = exit("--fmt")
+	code, _ := fmtExit(t, "--fmt")
 	got, _ := os.ReadFile(live)
 	if code == 0 || string(got) != `{"model":` {
 		t.Errorf("unparsable file: exit %d, content %q", code, got)
