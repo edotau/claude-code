@@ -17,13 +17,14 @@ func TestLimitsForDefaultsAndOverrides(t *testing.T) {
 }
 
 func TestSpentOfSumsTheSubtreeAndCountsLeaves(t *testing.T) {
+	c := Contract{ID: "own", Holders: []string{"own", "re"}, Children: []string{"a"}}
 	uses := []Use{
 		{ID: "hop", Parent: "a", Tokens: 5}, // listed before its parent
-		{ID: "a", Parent: "own", Tokens: 10}, {ID: "b", Parent: "own", Tokens: 20},
+		{ID: "a", Parent: "own", Tokens: 10}, {ID: "b", Parent: "re", Tokens: 20},
 		{ID: "own", Tokens: 1}, {ID: "other", Parent: "x", Tokens: testTokens},
 	}
-	if got := SpentOf("own", uses); got != (Spent{Tokens: 36, Leaves: 2}) {
-		t.Errorf("SpentOf = %+v, want 36 tokens and 2 leaves", got)
+	if got := SpentOf(c, uses); got != (Spent{Tokens: 36, Leaves: 1}) {
+		t.Errorf("SpentOf = %+v, want 36 tokens and 1 leaf", got)
 	}
 }
 

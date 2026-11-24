@@ -35,10 +35,26 @@ type Use struct {
 	Tokens     int
 }
 
-// SpentOf sums the tokens of id's subtree in uses (id included) and counts id's direct sub-dispatches as leaves.
-func SpentOf(id string, uses []Use) Spent {
-	in := map[string]bool{id: true}
-	var s Spent
+// SpentOf sums the tokens of the subtrees of c and its holders in uses; its leaves are the sub-contracts AddChild took.
+func SpentOf(c Contract, uses []Use) Spent {
+	in := subtree(append([]string{c.ID}, c.Holders...), uses)
+	s := Spent{Leaves: len(c.Children)}
+	seen := map[string]bool{}
+	for _, u := range uses {
+		if in[u.ID] && !seen[u.ID] {
+			seen[u.ID] = true
+			s.Tokens += max(u.Tokens, 0)
+		}
+	}
+	return s
+}
+
+// subtree is the set of roots and every id in uses that descends from one of them.
+func subtree(roots []string, uses []Use) map[string]bool {
+	in := map[string]bool{}
+	for _, r := range roots {
+		in[r] = true
+	}
 	for grew := true; grew; { // parents may be listed after children, so repeat until no new member joins
 		grew = false
 		for _, u := range uses {
@@ -47,18 +63,7 @@ func SpentOf(id string, uses []Use) Spent {
 			}
 		}
 	}
-	seen := map[string]bool{}
-	for _, u := range uses {
-		if !in[u.ID] || seen[u.ID] {
-			continue
-		}
-		seen[u.ID] = true
-		s.Tokens += max(u.Tokens, 0)
-		if u.Parent == id && u.ID != id {
-			s.Leaves++
-		}
-	}
-	return s
+	return in
 }
 
 // LeavesSpent reports whether an owner has dispatched every leaf of its budget; its next dispatch gets BudgetNotice.

@@ -6,16 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -86,28 +90,68 @@ func judgePi(c piCall) piVerdict {
 
 // piBudget reports whether this run's owner contract dispatched every leaf, and whether it is past its tokens.
 func piBudget() (leaves, tokens bool) {
-	id := os.Getenv(proc.DispatchIDEnv)
-	if id == "" {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
 		return false, false
 	}
-	c, err := contract.Load(id) // no contract file: not a contract run, nothing more is read
-	if err != nil || c.Owner.Role != contract.RoleOwner || c.State().Terminal() {
-		return false, false
-	}
-	rec, err := agent.LoadRecord(id)
+	rec, err := agent.LoadRecord(c.ID)
 	if err != nil {
 		return false, false // a notice only: an unreadable record never blocks
 	}
-	var uses []contract.Use
-	for _, r := range agent.RecordsSince(rec.Time) { // the subtree started after its root
-		uses = append(uses, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: recordTokens(r)})
-	}
-	s := contract.SpentOf(id, uses)
+	s := contract.SpentOf(c, dispatchUses(rec.Time))
 	return c.LeavesSpent(s), c.TokensSpent(s)
 }
 
-// recordTokens is a record's final usage, else its live activity so far, summed as the dispatch tree cap sums it.
-func recordTokens(r agent.Record) int {
+// heldContract is the open contract id holds: its own, else one it took over by a re-assign.
+func heldContract(id string) (contract.Contract, bool) {
+	if id == "" {
+		return contract.Contract{}, false
+	}
+	c, err := contract.Load(id)
+	if errors.Is(err, fs.ErrNotExist) {
+		open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
+		i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) })
+		if i < 0 {
+			return contract.Contract{}, false
+		}
+		c, err = open[i], nil
+	}
+	return c, err == nil && !c.State().Terminal()
+}
+
+// budgetRecord is the part of a dispatch record the budget sums; the rest of the record is never decoded.
+type budgetRecord struct {
+	ID       string      `json:"id"`
+	Time     time.Time   `json:"time"`
+	Parent   string      `json:"parent"`
+	Usage    *wire.Usage `json:"usage"`
+	Activity *struct {
+		Usage wire.Usage `json:"usage"`
+	} `json:"activity"`
+}
+
+// dispatchUses reads every dispatch record started since since, read-only: no record is reaped or rewritten.
+func dispatchUses(since time.Time) []contract.Use {
+	dir := paths.DispatchDir()
+	ents, _ := os.ReadDir(dir) // no dir: nothing spent
+	var out []contract.Use
+	for _, e := range ents {
+		fi, err := e.Info()
+		if err != nil || !strings.HasSuffix(e.Name(), ".json") || fi.ModTime().Before(since) {
+			continue // a record is written at or after its start, so an older file is no subtree member
+		}
+		var r budgetRecord
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err != nil || json.Unmarshal(b, &r) != nil ||
+			r.Time.Before(since) {
+			continue
+		}
+		out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: r.tokens()})
+	}
+	return out
+}
+
+// tokens is the record's final usage, else (still running) its live usage so far.
+func (r budgetRecord) tokens() int {
 	u := r.Usage
 	if u == nil && r.Activity != nil {
 		u = &r.Activity.Usage

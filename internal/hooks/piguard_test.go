@@ -102,7 +102,7 @@ func TestPiGuardBudgetNotice(t *testing.T) {
 	save(child, owner, 50)
 	bash := piCall{Tool: "bash", Input: map[string]any{"command": "ls"}, CWD: dir}
 	if v := judgePi(bash); !v.Allow || v.Notice != "" {
-		t.Errorf("leaves spent, tokens under: bash = %+v, want allowed without a notice", v)
+		t.Errorf("tokens under the limit: bash = %+v, want allowed without a notice", v)
 	}
 	save("20261124T100002.000-pi", child, budget/2)
 	if v := judgePi(bash); !v.Allow || v.Notice != contract.BudgetNotice {
