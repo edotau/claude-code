@@ -435,6 +435,13 @@ func TestVerifyOwnedFileMatchesThroughSymlinkedRoot(t *testing.T) {
 	if err != nil || fps[0] == FingerprintAbsent || fps[0] != fps[1] {
 		t.Fatalf("fingerprint of an owned path in either form: %q %v", fps, err)
 	}
+	outsideDir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(resolved, "esc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fingerprintFiles(link, []string{"esc/x.txt"}); err == nil {
+		t.Fatal("a path through a symlinked directory that leaves the repo was accepted")
+	}
 	if got := relFiles(link, []CheckViolation{{File: abs}}); got[0].File != "in/a.txt" {
 		t.Fatalf("relFiles = %q, want in/a.txt", got[0].File)
 	}
