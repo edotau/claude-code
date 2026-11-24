@@ -52,8 +52,11 @@ func auditDir() string { return filepath.Join(paths.StateDir(), "worktree", "aud
 func auditBase(sha string) string { return filepath.Join(auditDir(), ShortOID(sha)) }
 
 // auditScript runs $2 in a clean detached worktree of commit $4 of repo $1 and records "<exit code> <seconds>" in $3.
+// It symlinks the untracked .venv/venv of $1 into the snapshot so Python audits find their interpreter.
 const auditScript = `s=$(date +%s); t=$(mktemp -d) || exit 1; rc=1; ` +
-	`if git -C "$1" worktree add --detach "$t/src" "$4" >&2; then (cd "$t/src" && bash -c "$2"); rc=$?; ` +
+	`if git -C "$1" worktree add --detach "$t/src" "$4" >&2; then ` +
+	`for d in .venv venv; do [ -d "$1/$d" ] && [ ! -e "$t/src/$d" ] && ln -s "$1/$d" "$t/src/$d"; done; ` +
+	`(cd "$t/src" && bash -c "$2"); rc=$?; ` +
 	`git -C "$1" worktree remove --force "$t/src" >&2; fi; rm -rf "$t"; ` +
 	`echo "$rc $(( $(date +%s) - s ))" >"$3.tmp" && mv "$3.tmp" "$3"`
 
