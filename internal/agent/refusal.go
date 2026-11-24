@@ -37,35 +37,77 @@ type refusedHop struct {
 	hops []wire.Hop
 }
 
+// policyRefused reports in as a refusal on content grounds a re-pick may answer: not an auto, answered or streamed hop.
+func policyRefused(in refusedHop, ran string) bool {
+	return ran != "" && !IsAuto(ran) && in.res.Answer == "" && retry.IsPolicyRefusal(in.err) && !retry.Progressed(in.err)
+}
+
 // planRepick is planOverflow, or for a policy refusal the one re-pick to another family (never a second).
 func planRepick(ctx context.Context, in refusedHop) repickPlan {
 	ran := ranModel(in.disp, in.req, in.res)
-	if ran == "" || in.res.Answer != "" || !retry.IsPolicyRefusal(in.err) || retry.Progressed(in.err) {
+	if !policyRefused(in, ran) {
 		return repickPlan{overflowPlan: planOverflow(in.disp, in.req, in.res, ran, in.err)}
 	}
 	plan := repickPlan{policy: true, pran: ran, pfrom: models.FamilyName(ran)}
-	if policyRepicked(in.hops) || in.req.Repicks > 0 { // the ask's re-pick budget spans its dispatches
+	ask, _ := ctx.Value(askKey{}).(*askNote)
+	if policyRepicked(in.hops) || ask != nil && ask.first != "" { // one re-pick per ask, across its dispatches
 		return plan // refusedTwice names both refusals once the loop ends
 	}
 	ids := policyCandsFn(in.disp, in.req.Tools, ranAccount(in.disp.Account, in.res.Provider), ran)
 	switch {
-	case explicitModel(ctx, in.req):
+	case explicitModel(ctx, in):
 		plan.prefusal = fmt.Sprintf("%s (%s) is kept, not replaced; other families: %s", ran, plan.pfrom, namedIDs(ids))
 	case len(ids) == 0:
 		plan.prefusal = fmt.Sprintf("no model of another family than %s (%s) is available", ran, plan.pfrom)
 	default:
 		plan.pmodel, plan.pto = ids[0], models.FamilyName(ids[0])
+		ask.spend(plan.note())
 	}
 	return plan
 }
 
+// askKey carries what the whole ask said, past the per-hop request rewrites.
+type askKey struct{}
+
+// askNote is the ask's typed-model flag and its one policy re-pick's note.
+type askNote struct {
+	typed bool
+	first string
+}
+
+// withAsk is ctx carrying req's own typed-model flag and the ask's policy re-pick budget.
+func withAsk(ctx context.Context, req RunOptions) context.Context {
+	return context.WithValue(ctx, askKey{}, &askNote{typed: req.ModelTyped})
+}
+
 // explicitModel reports a model the harness never replaces: typed, pinned, no fallback or an explicit runner.
-func explicitModel(ctx context.Context, req RunOptions) bool {
-	if req.ModelTyped || req.Fallback == router.FallbackNone || req.Fallback == router.FallbackPin {
+func explicitModel(ctx context.Context, in refusedHop) bool {
+	req := in.req
+	if ask, ok := ctx.Value(askKey{}).(*askNote); ok && ask.typed || req.ModelTyped {
+		return true
+	}
+	if req.Fallback == router.FallbackNone || req.Fallback == router.FallbackPin {
+		return true
+	}
+	if pin := agentModelPinContext(valuesContext(ctx, req.Values), in.disp.agentName()); pin != "" && !IsAuto(pin) && !IsAuto(req.Model) {
 		return true
 	}
 	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
 	return ov.Runner != ""
+}
+
+// policyTiers lists the dispatch tiers deepest first with the route alias whose rotation pool serves each.
+var policyTiers = []struct{ tier, alias string }{{"deep", models.Opus}, {"standard", models.Sonnet}, {"fast", models.Haiku}}
+
+// refusedTier is the deepest tier whose capability floor ran's rank meets; "" for a model no rank covers.
+func refusedTier(ran string) (tier, alias string) {
+	r := catalog.RankOf(ran)
+	for _, t := range policyTiers {
+		if r.Known && r.Capability >= catalog.Choose(nil, "", t.tier, false).Need {
+			return t.tier, t.alias
+		}
+	}
+	return "", ""
 }
 
 // policyCandsFn is the other-family models disp's profile may run, best first; a seam for tests.
@@ -80,26 +122,20 @@ func realPolicyCands(disp Dispatch, tools bool, account, ran string) []string {
 	}
 	name, now := disp.Agent.Name(), time.Now()
 	entry := loadState()[account]
-	tier := ""
-	pool := rotationPool(name, "", p, tools, now)
-	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} { // deepest tier first: a model in two is the deeper
-		if tp := rotationPool(name, alias, p, tools, now); slices.ContainsFunc(tp, func(m string) bool { return models.SameModel(providers.SpellPin(p, m), ran) }) {
-			pool, tier = tp, catalog.AliasTier(alias)
-			break
-		}
+	tier, alias := refusedTier(ran)
+	if tier == "" {
+		return nil // an unranked model has no tier to keep
 	}
-	pool = router.ServedPool(p, slices.Clone(pool), now)
+	pool := router.ServedPool(p, slices.Clone(rotationPool(name, alias, p, tools, now)), now)
 	pool = slices.DeleteFunc(pool, func(m string) bool { return router.HeldUntil(entry, name, m, now) != nil })
 	other := router.OtherFamily(p, ran, pool)
-	if tier != "" {
-		cands := make([]catalog.Candidate, len(other))
-		for i, m := range other {
-			cands[i] = catalog.Candidate{Model: m, Tools: "yes"} // rotationPool already applied the tools probe
-		}
-		other = other[:0]
-		for _, r := range catalog.Choose(cands, name, tier, tools).Ranked {
-			other = append(other, r.Model)
-		}
+	cands := make([]catalog.Candidate, len(other))
+	for i, m := range other {
+		cands[i] = catalog.Candidate{Model: m, Tools: "yes"} // rotationPool already applied the tools probe
+	}
+	other = other[:0]
+	for _, r := range catalog.Choose(cands, name, tier, tools).Ranked {
+		other = append(other, r.Model)
 	}
 	out := make([]string, len(other))
 	for i, m := range other {
@@ -170,8 +206,11 @@ func policyHop(hops []wire.Hop) string {
 }
 
 // refusedTwice names the earlier re-pick on a policy refusal that followed it; err otherwise.
-func refusedTwice(hops []wire.Hop, err error) error {
+func refusedTwice(ctx context.Context, hops []wire.Hop, err error) error {
 	first := policyHop(hops)
+	if ask, ok := ctx.Value(askKey{}).(*askNote); first == "" && ok {
+		first = ask.first
+	}
 	if first == "" || !retry.IsPolicyRefusal(err) {
 		return err
 	}
@@ -183,3 +222,10 @@ func (r repickPlan) keepsCell(auto bool) bool { return auto && r.pmodel == "" }
 
 // spends: the re-pick counts against the ask's budget (every auto re-pick, and a policy pick).
 func (r repickPlan) spends(auto bool) bool { return auto || r.pmodel != "" }
+
+// spend records the ask's one policy re-pick; a nil note (no ask context) records nothing.
+func (a *askNote) spend(note string) {
+	if a != nil {
+		a.first = note
+	}
+}

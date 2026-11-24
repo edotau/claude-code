@@ -40,7 +40,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	}
 	c = dropRunner(c, req, notify)
 	c.Dispatches = slices.Clone(c.Dispatches)
-	ctx = context.WithValue(ctx, triedCarryKey{}, new([]string))
+	ctx = withAsk(context.WithValue(ctx, triedCarryKey{}, new([]string)), req)
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -294,7 +294,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			noteFailure(disp, lreq, ran, first)
 		}
 	}
-	err = refusedTwice(hops, err)
+	err = refusedTwice(ctx, hops, err)
 	if auto {
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
@@ -662,7 +662,7 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		if !ok || d.agentName() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
+		if !ok || d.agentName() != c.Want || d.runFor != disp.runFor || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}

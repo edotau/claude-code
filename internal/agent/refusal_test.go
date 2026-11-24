@@ -56,7 +56,7 @@ func TestPlanRepickPolicyRefusalKeepsExplicitAndStopsAfterOne(t *testing.T) {
 	if again := policyPlanFor(disp, req, hops); again.pick() != "" {
 		t.Fatalf("second refusal re-picked %q, want none", again.pick())
 	}
-	err := refusedTwice(hops, errPolicy)
+	err := refusedTwice(context.Background(), hops, errPolicy)
 	if !strings.Contains(err.Error(), "twice") || !strings.Contains(err.Error(), first.pmodel) || !retry.IsPolicyRefusal(err) {
 		t.Fatalf("err = %v, want both refusals named", err)
 	}
@@ -77,5 +77,17 @@ func TestPlanRepickPolicyRefusalStaysOnWorkspace(t *testing.T) {
 	plan := policyPlanFor(disp, req, nil)
 	if plan.pmodel == "" || len(accounts) != 1 || accounts[0] != disp.Account {
 		t.Fatalf("plan %+v asked accounts %v, want one ask on %s", plan, accounts, disp.Account)
+	}
+}
+
+// A model the user typed stands even after the cell rewrote the hop's request (ModelTyped cleared).
+func TestPlanRepickPolicyRefusalKeepsTypedAsk(t *testing.T) {
+	disp, req := refusalFixture(t)
+	asked := req
+	asked.ModelTyped = true
+	ctx := withAsk(context.Background(), asked)
+	plan := planRepick(ctx, refusedHop{disp: disp, req: req, err: errPolicy})
+	if plan.pick() != "" || !strings.Contains(plan.prefusal, "kept, not replaced") {
+		t.Fatalf("plan = %+v, want the typed model kept", plan)
 	}
 }

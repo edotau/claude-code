@@ -127,7 +127,7 @@ func DifferentFamily(a, b string) bool {
 func OtherFamily(p *providers.Provider, ran string, pool []string) []string {
 	var out []string
 	for _, entry := range pool {
-		if id := providers.SpellPin(p, entry); DifferentFamily(id, ran) && rePickable(p, id, ran) {
+		if id := providers.SpellPin(p, entry); p != nil && DifferentFamily(id, ran) && rePickable(p, id, ran) {
 			out = append(out, entry)
 		}
 	}
