@@ -68,7 +68,16 @@ what makes a test a guard: `testing-guidelines.md`.
 ## Completion
 
 Review done (`/code-review`), applicable scoped checks green, manual check for user-facing changes, docs and links
-current; approve when no CRITICAL/HIGH remains (severity scale:
-`skills/evaluate-code/references/completion-criteria.md`). Every finding, LOW included, is fixed in the same round;
-only owner-judgment items go to a report. Anything noticed mid-task (a bug, an editor or lint finding, dead code)
-is fixed right away without asking (R25, `standing-requirements.md`).
+current; approve only at the R28 bar (severity scale:
+`skills/evaluate-code/references/completion-criteria.md`). Only owner-judgment items (R25, R27) wait for the owner.
+Anything noticed mid-task (a bug, an editor or lint finding, dead code) is fixed right away without asking (R25).
+
+**Review loop (R28):** every code change gets an other-family review; findings are fixed and the diff reviewed
+again until a review returns no CRITICAL, HIGH or MEDIUM and at most 4 LOW (none is better). Only then does it merge
+and get its completion report. Every dispatched code task carries this goal (`agents ask` adds it to every brief
+that can write code; a read-only review reports findings instead). Fixes dispatch automatically and are not
+announced; blockers and owner decisions are still raised.
+
+**Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small,
+else by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or
+a code-fix leaf. Never delete or skip a test; under heavy concurrent load the repair queues.
