@@ -64,7 +64,7 @@ func TestSettleContractFailsOnRedGate(t *testing.T) {
 	got, err := settleContract("d-1", contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &one},
 		Verify:   &wire.VerifyResult{Exit: 0},
 		Handback: &wire.Handback{Status: "DONE", Summary: "s", Unfixed: []string{}},
-		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, t.TempDir(), "r.md")})
+		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, paths.MemorySubDir("reports"), "r.md")})
 	if err != nil {
 		t.Fatal(err)
 	}

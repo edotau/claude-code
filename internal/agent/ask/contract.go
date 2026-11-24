@@ -139,7 +139,7 @@ func returnRecords(c contract.Contract, r contractReturn, hb *handback, now time
 	} else {
 		out = append(out, failed(contract.TermHandback, handbackMiss(r.Handback), now))
 	}
-	return append(out, observed(contract.TermReport, fileExists(r.Report), r.Report, missAbsent, now))
+	return append(out, observed(contract.TermReport, isReport(r.Report), r.Report, missAbsent, now))
 }
 
 func gateRecord(g *worktree.GateRun, now time.Time) contract.TermRecord {
@@ -285,17 +285,20 @@ func isLane(dir, name string) bool {
 	return false
 }
 
-// isProxyScope reports whether p is a scope file in the contained proxy's scopes dir.
-func isProxyScope(p string) bool {
-	_, in := paths.RelWithin(filepath.Join(paths.StateDir(), "proxy", "scopes"), filepath.Clean(p))
-	return in && filepath.IsAbs(p) && fileExists(p)
-}
+// isProxyScope reports whether p is a scope file in the contained proxy's scopes dir; the caller binds it.
+func isProxyScope(p string) bool { return fileIn(filepath.Join(paths.StateDir(), "proxy", "scopes"), p) }
 
-// fileExists reports whether p is a regular file.
-func fileExists(p string) bool {
-	if p == "" {
+// isReport reports whether p is a filed report in the memory bank; the caller passes the path JobReport returned.
+func isReport(p string) bool { return fileIn(paths.MemorySubDir("reports"), p) }
+
+// fileIn reports whether p is an absolute regular file, not a symlink, below dir.
+func fileIn(dir, p string) bool {
+	if !filepath.IsAbs(p) {
 		return false
 	}
-	fi, err := os.Stat(p)
+	if _, in := paths.RelWithin(dir, filepath.Clean(p)); !in {
+		return false
+	}
+	fi, err := os.Lstat(p)
 	return err == nil && fi.Mode().IsRegular()
 }
