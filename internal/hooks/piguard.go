@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
@@ -31,11 +33,12 @@ type piCall struct {
 
 // piVerdict is the whole reply: Block blocks, only Allow runs the tool (on Path or Run); Usage is a tool error.
 type piVerdict struct {
-	Allow bool     `json:"allow,omitempty"`
-	Block string   `json:"block,omitempty"`
-	Path  string   `json:"path,omitempty"`
-	Run   []string `json:"run,omitempty"`
-	Usage string   `json:"usage,omitempty"`
+	Allow  bool     `json:"allow,omitempty"`
+	Block  string   `json:"block,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	Run    []string `json:"run,omitempty"`
+	Usage  string   `json:"usage,omitempty"`
+	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -65,8 +68,58 @@ func dropHookControlEnv() {
 	}
 }
 
-// judgePi normalizes the call, builds the hook payload from canonical fields only, and runs Pi's PreToolUse modules.
+// judgePi judges the call, then adds the owner's budget notice; a dispatch at the budget runs nothing.
 func judgePi(c piCall) piVerdict {
+	v := judgePiCall(c)
+	if !v.Allow {
+		return v
+	}
+	leaves, tokens := piBudget()
+	switch {
+	case c.Tool == "dispatch" && (leaves || tokens):
+		return piVerdict{Allow: true, Notice: contract.BudgetNotice} // a tool result, not an error
+	case tokens:
+		v.Notice = contract.BudgetNotice
+	}
+	return v
+}
+
+// piBudget reports whether this run's owner contract dispatched every leaf, and whether it is past its tokens.
+func piBudget() (leaves, tokens bool) {
+	id := os.Getenv(proc.DispatchIDEnv)
+	if id == "" {
+		return false, false
+	}
+	c, err := contract.Load(id) // no contract file: not a contract run, nothing more is read
+	if err != nil || c.Owner.Role != contract.RoleOwner || c.State().Terminal() {
+		return false, false
+	}
+	rec, err := agent.LoadRecord(id)
+	if err != nil {
+		return false, false // a notice only: an unreadable record never blocks
+	}
+	var uses []contract.Use
+	for _, r := range agent.RecordsSince(rec.Time) { // the subtree started after its root
+		uses = append(uses, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: recordTokens(r)})
+	}
+	s := contract.SpentOf(id, uses)
+	return c.LeavesSpent(s), c.TokensSpent(s)
+}
+
+// recordTokens is a record's final usage, else its live activity so far, summed as the dispatch tree cap sums it.
+func recordTokens(r agent.Record) int {
+	u := r.Usage
+	if u == nil && r.Activity != nil {
+		u = &r.Activity.Usage
+	}
+	if u == nil {
+		return 0
+	}
+	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
+}
+
+// judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
+func judgePiCall(c piCall) piVerdict {
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
 	}

@@ -7,6 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func piGuard(t *testing.T, tool string, input map[string]any) piVerdict {
@@ -70,6 +76,37 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
 	if got := piModulesBlock(nil, "Write", []byte("{}")); !strings.Contains(got, "no guard module matched") {
 		t.Errorf("empty module list: %q, want a block", got)
+	}
+}
+
+func TestPiGuardBudgetNotice(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", dir)
+	const owner, child, budget = "20261124T100000.000-pi", "20261124T100001.000-pi", 100
+	t.Setenv(proc.DispatchIDEnv, owner)
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: budget, Leaves: 1},
+		contract.Facts{Fleet: true})
+	if c, err := c.Start(owner); len(ps) > 0 || err != nil || contract.Save(c) != nil {
+		t.Fatalf("contract: %v %v", ps, err)
+	}
+	at := time.Now().Add(-time.Minute)
+	save := func(id, parent string, tokens int) {
+		r := agent.Record{ID: id, Time: at, Agent: "pi", Status: "ok", Parent: parent, Usage: &wire.Usage{OutputTokens: tokens}}
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(owner, "", 10)
+	save(child, owner, 50)
+	bash := piCall{Tool: "bash", Input: map[string]any{"command": "ls"}, CWD: dir}
+	if v := judgePi(bash); !v.Allow || v.Notice != "" {
+		t.Errorf("leaves spent, tokens under: bash = %+v, want allowed without a notice", v)
+	}
+	save("20261124T100002.000-pi", child, budget/2)
+	if v := judgePi(bash); !v.Allow || v.Notice != contract.BudgetNotice {
+		t.Errorf("tokens past the limit: bash = %+v, want the notice", v)
 	}
 }
 
