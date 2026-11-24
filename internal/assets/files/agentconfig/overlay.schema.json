@@ -129,6 +129,15 @@
         "openai"
       ]
     },
+    "providerMode": {
+      "additionalProperties": {
+        "enum": [
+          "rotate",
+          "exclusive"
+        ]
+      },
+      "type": "object"
+    },
     "remote": {
       "type": "string"
     },

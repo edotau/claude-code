@@ -43,6 +43,7 @@ type Overlay struct {
 	Effort        string            `json:"effort,omitempty"`
 	Fallback      string            `json:"fallback,omitempty"`
 	Runner        string            `json:"runner,omitempty"`
+	ProviderMode  map[string]string `json:"providerMode,omitempty"`
 	Set           map[string]string `json:"set,omitempty"`
 	Unset         []string          `json:"unset,omitempty"`
 	Keep          []string          `json:"keep,omitempty"`
@@ -416,7 +417,7 @@ func (o Overlay) validate(src overlaySrc) error {
 	if len(o.Files) > 0 { // present at all: [] and null too
 		return errors.New("files: not supported yet")
 	}
-	if err := o.checkRouting(); err != nil {
+	if err := cmp.Or(o.checkRouting(), o.checkProviderMode()); err != nil {
 		return err
 	}
 	keep, err := o.checkKeep(src)
@@ -427,6 +428,25 @@ func (o Overlay) validate(src overlaySrc) error {
 		return err
 	}
 	return o.checkUnset(src, keep)
+}
+
+// checkProviderMode wants each key a Claude provider of the registry (when it loads) and each value a mode.
+func (o Overlay) checkProviderMode() error {
+	var names []string
+	if reg, err := providers.LoadShared(); err == nil {
+		for _, p := range router.ClaudeProviders(reg) {
+			names = append(names, p.Name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(o.ProviderMode)) {
+		if len(names) > 0 && !slices.Contains(names, name) {
+			return errors.New("providerMode: unknown provider (" + strings.Join(names, "|") + ")")
+		}
+		if _, err := router.ParseProviderMode(o.ProviderMode[name]); err != nil {
+			return errors.New("providerMode: " + err.Error())
+		}
+	}
+	return nil
 }
 
 // ErrRemoteWithHost refuses remote on a run that goes to a host.
