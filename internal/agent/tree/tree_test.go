@@ -1005,7 +1005,11 @@ func TestRelayKeepsItsOwnDispatchWhenClaudeAnswered(t *testing.T) {
 	if got, ok := ownRecord(sub); !ok || got.ID != "p" {
 		t.Errorf("ownRecord = %q, %v, want the pi dispatch", got.ID, ok)
 	}
-	if answeredInCodeMode(agent.Record{Fallback: "pi", Request: agent.RunOptions{Codemode: "on"}}) {
+	opts := agent.RunOptions{Codemode: "on"}
+	if answeredInCodeMode(agent.Record{Agent: "pi", RanAs: "codex", Request: opts}) {
 		t.Error("a fallback answer still counts as codemode")
+	}
+	if !answeredInCodeMode(agent.Record{Agent: "pi", Fallback: "pi", Request: opts}) {
+		t.Error("a same-pi route fallback lost its codemode")
 	}
 }

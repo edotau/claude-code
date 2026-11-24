@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -355,9 +356,9 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	}, rec, now)
 }
 
-// answeredInCodeMode: the record asked pi for codemode and no fallback agent answered instead.
+// answeredInCodeMode: the record asked pi for codemode and pi (not a fallback agent) answered.
 func answeredInCodeMode(rec agent.Record) bool {
-	return (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && rec.Fallback == "" && rec.RanAs == ""
+	return (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && cmp.Or(rec.RanAs, rec.Agent) == agentid.Pi
 }
 
 // buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
