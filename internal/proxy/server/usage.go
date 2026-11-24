@@ -315,7 +315,7 @@ func modelToken(s string) string {
 func passthroughCall(dialect, path string) callKind {
 	switch dialect {
 	case providers.ProtocolResponses:
-		if strings.HasSuffix(path, "responses") {
+		if path == "responses" || strings.HasSuffix(path, "/responses") {
 			return callResponses
 		}
 	case providers.ProtocolGemini:
