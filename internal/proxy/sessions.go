@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -48,12 +49,34 @@ func ArmAllows(p *providers.Provider) bool {
 		(p.Auth.Login != "" || p.Auth.Method() == providers.AuthCLI)
 }
 
+// overlayShapeErr is why the overlay env is no confinement: OverlayRoute reads these shapes as unconfined.
+func overlayShapeErr(ctx context.Context) error {
+	if _, _, err := router.OverlayRoute(ctx); err != nil {
+		return err
+	}
+	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
+	if v == "" {
+		return nil
+	}
+	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider[:profile]
+		if _, _, err := route.Parse(v); err != nil {
+			return fmt.Errorf("%s: not an inline JSON document or provider[:profile]", route.OverlayVar)
+		}
+		return nil
+	}
+	var doc struct{ Provider, Profile string }
+	if json.Unmarshal([]byte(v), &doc) == nil && doc.Provider == "" && doc.Profile != "" {
+		return fmt.Errorf("%s: a profile without a provider", route.OverlayVar)
+	}
+	return nil
+}
+
 // ConfinementFence is the profile set the overlay confines ctx to; open when unconfined, an error when malformed.
 func ConfinementFence(ctx context.Context) (fence []string, open bool, err error) {
 	if o, ok := ctx.Value(fenceKey{}).(fenceOverride); ok {
 		return o.fence, o.open, nil
 	}
-	if _, _, err := router.OverlayRoute(ctx); err != nil {
+	if err := overlayShapeErr(ctx); err != nil {
 		return nil, false, fmt.Errorf("confinement overlay: %w", err)
 	}
 	arm := router.ArmProfileContext(ctx)
