@@ -36,6 +36,20 @@ type peekKey struct{}
 // PeekContext marks ctx's route resolution as a label: a rotation pick is peeked, never recorded.
 func PeekContext(ctx context.Context) context.Context { return context.WithValue(ctx, peekKey{}, true) }
 
+type peekMemoKey struct{}
+
+// withPeekMemo is ctx whose rotation peeks leave their pick in the returned string, for a compare-and-stamp.
+func withPeekMemo(ctx context.Context) (context.Context, *string) {
+	memo := new(string)
+	return context.WithValue(ctx, peekMemoKey{}, memo), memo
+}
+
+func notePeek(ctx context.Context, m string) {
+	if memo, ok := ctx.Value(peekMemoKey{}).(*string); ok {
+		*memo = m
+	}
+}
+
 // Peeking reports whether ctx carries PeekContext's mark.
 func Peeking(ctx context.Context) bool { v, _ := ctx.Value(peekKey{}).(bool); return v }
 
@@ -312,7 +326,7 @@ func placeRotation(ctx context.Context, reg *providers.Registry, o RunOptions, r
 		o.Provider, o.Lead, o.Rotated = row, "", true // Lead outranks Provider, so the pin needs it empty
 		return ctx, o
 	}
-	o.Lead, o.Rotated = row, true
+	o.Lead, o.Rotated = row, true // a rotated lead may still overflow to agy on quota, even with Databricks rows kept out
 	return router.WithRotatedLead(ctx, router.RotatedLead{Row: row, Drop: drop}), o
 }
 
@@ -529,6 +543,7 @@ func rotationModelOn(ctx context.Context, rows []*providers.Provider, agentName,
 	dear := catalog.DeferTurns(pool, rotationTiers[alias])
 	if !stamp {
 		m := router.PeekRotation(agentName, account, hist, p, pool, dear, now)
+		notePeek(ctx, m)
 		return m, rotationNote(m, alias, n, "next"), nil
 	}
 	m, err := router.PickRotation(ctx, agentName, account, hist, p, pool, dear, now)

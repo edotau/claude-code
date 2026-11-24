@@ -163,6 +163,22 @@ func stateErrClass(err error) string {
 	return "file error"
 }
 
+// ErrPickMoved is PickRotation's refusal under WithExpectedPick: the pick under the lock is not the validated one.
+var ErrPickMoved = errors.New("the rotation pick moved")
+
+type expectedPickKey struct{}
+
+// WithExpectedPick makes PickRotation on ctx stamp only the pick model (a compare-and-stamp), else ErrPickMoved.
+func WithExpectedPick(ctx context.Context, model string) context.Context {
+	return context.WithValue(ctx, expectedPickKey{}, model)
+}
+
+// pickMoved reports pick as other than the one WithExpectedPick validated on ctx; false when none was set.
+func pickMoved(ctx context.Context, pick string) bool {
+	want, _ := ctx.Value(expectedPickKey{}).(string)
+	return want != "" && pick != want
+}
+
 // PickRotation orders by hist under one lock, keeping holds on account; nil p skips the listing.
 // A model in dear (entry -> turns) is passed over, sent to the back, until it has sat out turns-1 of its turns.
 func PickRotation(ctx context.Context, agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, error) {
@@ -170,10 +186,15 @@ func PickRotation(ctx context.Context, agent, account, hist string, p *providers
 		pool = ServedPool(p, pool, now)
 	}
 	var model string
+	var moved error
 	err := updateCtx(ctx, func(s State) {
 		e := s[hist]
 		selected, passed := leastRecent(s[account], e, agent, p, pool, dear, now)
 		if selected == "" {
+			return
+		}
+		if pickMoved(ctx, providers.SpellPin(p, selected)) {
+			moved = ErrPickMoved
 			return
 		}
 		model = providers.SpellPin(p, selected)
@@ -198,7 +219,7 @@ func PickRotation(ctx context.Context, agent, account, hist string, p *providers
 		e.Discovery = withTime(e.Discovery, DiscoverySkipKey(agent, selected), stamp)
 		s[hist] = e
 	})
-	return model, err
+	return model, cmp.Or(err, moved)
 }
 
 // PeekRotation is the entry PickRotation would select now, recording nothing; "" when none qualifies.

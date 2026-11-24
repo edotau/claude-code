@@ -27,6 +27,9 @@ func piRunnerAsked(ctx context.Context, q RouteReq) (asked, typed bool) {
 
 // withPiRunner leads c with the pi runner when its first hop is the asked agent on a Databricks route.
 func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
+	if q.Agent == agentid.Pi && len(c.Dispatches) > 0 {
+		return withPiClaudeHop(ctx, q, c)
+	}
 	asked, typed := piRunnerAsked(ctx, q)
 	if len(c.Dispatches) == 0 || !asked {
 		return c
@@ -93,7 +96,8 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	if arm := router.ArmProfileContext(ctx); arm != "" && arm != profile {
 		return nil, nil, hopTarget(lead) + " is not on the confined workspace " + arm
 	}
-	model, wire, why := piRunnerModel(ctx, reg, q, lead, profile) // the head is validated once: a rejected head runs none
+	peeked, memo := withPeekMemo(ctx)
+	model, wire, why := piRunnerModel(peeked, reg, q, lead, profile) // the head is validated once: a rejected head runs none
 	if why != "" {
 		return nil, nil, why
 	}
@@ -101,7 +105,7 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	if why != "" {
 		return nil, nil, why
 	}
-	if why := stampedPick(ctx, reg, q, lead, model); why != "" { // stamped last: a refused hop stamps nothing
+	if why := stampedPick(router.WithExpectedPick(ctx, *memo), reg, q, lead, model); why != "" { // stamped last: a refused hop stamps nothing
 		return nil, nil, why
 	}
 	hops := append([]Dispatch{headPiHop(reg, lead, profile, wire)}, sibs...)
@@ -293,4 +297,31 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 		return "", autoPickWhy
 	}
 	return r.Model, ""
+}
+
+// withPiClaudeHop ends a plain pi ask's chain on claude on the same Databricks workspace (the router's own-CLI hop).
+func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
+	lead := c.Dispatches[0]
+	reg := loadRegistryWarn()
+	if reg == nil || !ownDatabricksHop(reg, q, lead) || q.Model != "" || q.Fallback == router.FallbackNone ||
+		q.Fallback == router.FallbackPin {
+		return c
+	}
+	cl, err := Lookup(agentid.Claude)
+	if err != nil {
+		return c
+	}
+	_, profile, _ := strings.Cut(lead.Account, "·")
+	alias := cmp.Or(q.AliasHint, models.Sonnet)
+	if _, why := agentModelOn(PeekContext(ctx), reg, RouteReq{Agent: agentid.Claude, AliasHint: alias, Tools: q.Tools}, alias, profile); why != "" {
+		return c.noted("claude fallback hop skipped: " + why)
+	}
+	hop := Dispatch{Agent: cl, Model: alias, Route: rowRoute(reg, profile), Account: lead.Account, Billing: lead.Billing,
+		otherRoute: true}
+	n := slices.IndexFunc(c.Dispatches, func(d Dispatch) bool { return d.Agent.Name() != agentid.Pi }) // off-arm hops stay last
+	if n < 0 {
+		n = len(c.Dispatches)
+	}
+	c.Dispatches = slices.Insert(slices.Clone(c.Dispatches), n, hop)
+	return c
 }
