@@ -104,6 +104,7 @@ func TestPricesListRow(t *testing.T) {
 	}{
 		{"databricks", "claude-opus-5-5", 99}, {"databricks", "claude-opus-4-5", 5}, {"databricks", "gpt-6-1-sol", 2},
 		{"databricks", "gpt-6.1-sol", 2}, {"openai", "gpt-6-1-sol", 2}, {"databricks", "gpt-7", 7},
+		{"databricks", "databricks-gpt-6-1-sol", 2},
 	} {
 		if r, ok := p.ListRow(c.prov, c.id); !ok || r.Input != c.in {
 			t.Errorf("ListRow(%s, %s) = %+v, %v, want input %v", c.prov, c.id, r, ok, c.in)

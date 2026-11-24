@@ -116,6 +116,7 @@ func dashed(id string) string { return strings.ReplaceAll(id, ".", "-") }
 
 // ListRow is provider's row for id (dots or dashes, with or without a "<provider>-" prefix), else the vendor's own row.
 func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
+	id = strings.TrimPrefix(id, provider+"-")
 	want := dashed(id)
 	find := func(prov string) (ModelPrice, bool) {
 		for _, rid := range slices.Sorted(maps.Keys(p.Providers[prov])) {
