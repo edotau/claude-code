@@ -4,6 +4,7 @@ package tree
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -20,8 +21,11 @@ const (
 	levelCount
 )
 
-// jobCols are a dispatch row's columns: marker, agent, model · route, ↑in, ↓out, since last event, elapsed.
-var jobCols = []col{{}, {max: 18}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true}}
+// jobCols are a dispatch row's columns: marker, agent, description, since (lost, quiet, queued), elapsed · ↓tokens.
+var jobCols = []col{{}, {max: 18}, {flex: true, max: 60}, {right: true}, {right: true}}
+
+// minFlex is the narrowest a flex column is clipped to before it is hidden.
+const minFlex = 6
 
 // spanFrom is the first of the two token columns a queued row's span covers.
 const spanFrom = 3
@@ -32,6 +36,7 @@ type col struct {
 	max      int  // widest the column may grow on a terminal; 0 = unlimited
 	optional bool // dropped for the whole level when keeping it would leave the text under minText
 	fit      bool // a model id: whole unless the text would fall under minFitText, then clipped with an ellipsis
+	flex     bool // takes the room the other columns leave, clipped with an ellipsis, so later columns end the row
 }
 
 // levelCols holds the fixed columns per level; the cells of a row are these columns, then the text.
@@ -64,9 +69,10 @@ const gap = "  "
 type row struct {
 	level, indent int
 	cells         []string
-	hot           uint8 // bit c set: fixed cell c is painted when the layout is rendered with a paint
-	span          bool  // cell spanFrom fills its column and the next one, left-aligned
-	sel           bool  // the interactive selection: the whole row prints in reverse video
+	hot           uint8  // bit c set: fixed cell c is painted when the layout is rendered with a paint
+	span          bool   // cell spanFrom fills its column and the next one, left-aligned
+	tint          string // SGR code for the marker glyph, applied only when the layout is painted
+	sel           bool   // the interactive selection: the whole row prints in reverse video
 }
 
 // layout collects rows in print order so column widths can be measured across a whole level before any line is built.
@@ -108,6 +114,7 @@ func (l *layout) lines(width int, paint string) []string {
 	widths := levelWidths(rows)
 	dropOptional(widths, width)
 	fitModels(rows, widths, width)
+	flexCols(rows, widths, width)
 	out := make([]string, len(rows))
 	for i, r := range rows {
 		ws := widths[r.level]
@@ -133,7 +140,7 @@ func (l *layout) capped(width int) []row {
 	out := l.rows
 	for i, r := range out {
 		for c, k := range levelCols[r.level] {
-			if width > 0 && k.max > 0 {
+			if k.max > 0 && (width > 0 || k.flex) {
 				out[i].cells[c] = textutil.TruncateCells(r.cells[c], k.max, "…")
 			}
 		}
@@ -207,6 +214,33 @@ func fitModels(rows []row, ws [levelCount][]int, width int) {
 	}
 }
 
+// flexCols clips each level's flex column to the room left on the row; too little room hides it.
+func flexCols(rows []row, ws [levelCount][]int, width int) {
+	if width <= 0 {
+		return
+	}
+	for level, cols := range levelCols {
+		for c, k := range cols {
+			natural := ws[level][c]
+			if !k.flex || natural == 0 {
+				continue
+			}
+			ws[level][c] = 0
+			room := width - prefixWidth(ws[level], levelIndent[level]) - len(gap)
+			w := min(natural, room)
+			if w < min(minFlex, natural) {
+				w = 0
+			}
+			ws[level][c] = w
+			for i, r := range rows {
+				if r.level == level {
+					rows[i].cells[c] = textutil.TruncateCells(r.cells[c], max(w, 1), "…")
+				}
+			}
+		}
+	}
+}
+
 // prefixWidth is the columns the indent and the visible fixed columns take, each followed by a gap.
 func prefixWidth(ws []int, indent int) int {
 	n := indent
@@ -271,7 +305,14 @@ func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint stri
 	if hot {
 		b.WriteString(paint)
 	}
-	b.WriteString(textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right && (!r.span || c != spanFrom)))
+	padded := textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right && (!r.span || c != spanFrom))
+	if c == 0 && r.tint != "" && paint != "" && !r.sel {
+		if cell := strings.TrimRight(padded, " "); cell != "" { // pad on plain text, then wrap the glyph alone
+			g, n := utf8.DecodeLastRuneInString(cell)
+			padded = cell[:len(cell)-n] + r.tint + string(g) + ansi.Reset + padded[len(cell):]
+		}
+	}
+	b.WriteString(padded)
 	if hot {
 		b.WriteString(ansi.Reset)
 	}

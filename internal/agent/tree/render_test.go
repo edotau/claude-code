@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // fixtureTree is the testdata tree plus a long-named session and nested subagents, so column widths differ.
@@ -73,7 +74,7 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 				t.Errorf("piped line %d is clipped: %q", i, line)
 			}
 			switch {
-			case strings.Contains(line, "↳"):
+			case strings.Contains(line, "· ↓"):
 				dispatches = append(dispatches, line)
 			case strings.Contains(line, "↑"):
 				subagents = append(subagents, line)
@@ -187,12 +188,12 @@ func TestRenderNestsDispatches(t *testing.T) {
 	}
 	// legacy first, then the chain given grandchild-first: the children must still follow their parents
 	lines := render(0, legacy, chain[2], chain[1], chain[0])
-	for i, want := range []string{"codex  gpt-6", "claude  sonnet", "└─ codex  gpt-6", "   └─ opencode  default"} {
+	for i, want := range []string{"codex  old task", "claude", "└─ codex", "   └─ opencode"} {
 		if i+1 >= len(lines) || !strings.Contains(strings.Join(strings.Fields(lines[i+1]), "  "), strings.Join(strings.Fields(want), "  ")) {
 			t.Fatalf("row %d want %q in %q", i, want, strings.Join(lines, "\n"))
 		}
 	}
-	for i, want := range []string{"↑1k ↓500", "↑20k ↓8k", "↑40k ↓6k"} {
+	for i, want := range []string{"↓ 500", "↓ 8k", "↓ 6k"} {
 		if got := strings.Join(strings.Fields(lines[i+2]), " "); !strings.Contains(got, want) || strings.Contains(got, "Σ") {
 			t.Errorf("row %q: want tokens %q", got, want)
 		}
@@ -597,5 +598,47 @@ func TestPhaseProgressSurvivesActiveFilter(t *testing.T) {
 		if !strings.Contains(out, "phase p1 (1/2 done)") {
 			t.Errorf("%s view lost the phase progress:\n%s", name, out)
 		}
+	}
+}
+
+// The marker is coloured only when the layout is painted, and padding stays on the plain text.
+func TestJobMarkerColourOnOff(t *testing.T) {
+	var l layout
+	addJobRow(&l, levelJob, append([]string{jobMarker(Dispatch{Status: statusRunning})}, jobCells(Dispatch{Agent: "pi", Status: statusRunning}, time.Now(), nil)...), Dispatch{Status: statusRunning}, false)
+	if got := l.lines(0, "")[0]; strings.Contains(got, "\x1b") {
+		t.Errorf("plain row has escapes: %q", got)
+	}
+	l = layout{}
+	addJobRow(&l, levelJob, append([]string{"✗"}, jobCells(Dispatch{Agent: "pi", Status: statusError}, time.Now(), nil)...), Dispatch{Status: statusError}, false)
+	if got := l.lines(0, "\x1b[36m")[0]; !strings.Contains(got, ansi.Red+"✗"+ansi.Reset) {
+		t.Errorf("painted row = %q, want a red marker", got)
+	}
+}
+
+// A long description is clipped with an ellipsis so the row fits, and the elapsed and tokens stay at its end.
+func TestJobDescriptionTruncates(t *testing.T) {
+	d := Dispatch{ID: "a", Agent: "pi", Status: statusFinished, Duration: "41s", Task: strings.Repeat("long task ", 20),
+		Usage: &wire.Usage{OutputTokens: 76000}}
+	var b strings.Builder
+	renderTree(&b, &Tree{Dispatches: []Dispatch{d}}, time.Now(), 60, "")
+	row := strings.Split(b.String(), "\n")[1]
+	if textutil.DisplayWidth(row) > 60 || !strings.Contains(row, "…") || !strings.HasSuffix(row, "41s · ↓ 76k") {
+		t.Errorf("row = %q, want a clipped description and the tail kept", row)
+	}
+}
+
+// Piped output (width 0) caps the description column, so elapsed stays near the row's other cells.
+func TestJobDescriptionCapUnclipped(t *testing.T) {
+	long := Dispatch{ID: "a", Agent: "pi", Status: statusFinished, Duration: "41s", Task: strings.Repeat("long task ", 40)}
+	short := Dispatch{ID: "b", Agent: "pi", Status: statusFinished, Duration: "1s", Task: "short"}
+	var b strings.Builder
+	renderTree(&b, &Tree{Dispatches: []Dispatch{long, short}}, time.Now(), 0, "")
+	for _, row := range strings.Split(strings.TrimSpace(b.String()), "\n")[1:] {
+		if w := textutil.DisplayWidth(row); w > 100 {
+			t.Errorf("unclipped row is %d columns wide: %q", w, row)
+		}
+	}
+	if !strings.Contains(b.String(), "…") {
+		t.Errorf("long description not ellipsised:\n%s", b.String())
 	}
 }

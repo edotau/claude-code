@@ -20,7 +20,7 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "gpt-6-astra · dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
+	want := []string{"codex", "", "", "2m43s · ↓ 9.1k"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
@@ -80,12 +80,12 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 			t.Errorf("row is %d columns, want <= 80: %q", n, line)
 		}
 	}
-	assertAligned(t, 80, "job", lines, []int{0, 1, 2}, nil)
-	if !strings.Contains(lines[0], "gpt-6-astra · dev") || !strings.Contains(lines[0], "↑2.3M  ↓14k  7s  2m43s") {
-		t.Errorf("row 0 = %q, want its whole model and route, then tokens side by side", lines[0])
+	assertAligned(t, 80, "job", lines[:2], []int{0, 1}, nil)
+	if !strings.HasSuffix(lines[0], "2m43s · ↓ 14k") || !strings.HasSuffix(lines[1], "1h2m · ↓ 14k") {
+		t.Errorf("rows = %q, want elapsed · ↓ tokens at the end", lines[:2])
 	}
 	ends := func(line string) int { return textutil.DisplayWidth(line) }
-	if ends(lines[0]) != ends(lines[1]) || ends(lines[1]) != ends(lines[2]) {
+	if ends(lines[0]) != ends(lines[1]) {
 		t.Errorf("elapsed columns do not end together:\n%s", strings.Join(lines, "\n"))
 	}
 }

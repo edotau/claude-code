@@ -125,33 +125,34 @@ func (d Dispatch) where() string {
 func (d Dispatch) tokenCells() (up, down string) {
 	u := d.Usage
 	if u == nil {
-		return "↑-", "↓-"
+		return "↑-", "↓ -"
 	}
 	in := int64(u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens)
-	return "↑" + textutil.CompactCount(in), "↓" + textutil.CompactCount(int64(u.OutputTokens))
+	return "↑" + textutil.CompactCount(in), "↓ " + textutil.CompactCount(int64(u.OutputTokens))
 }
 
-// jobCells are a dispatch row after its marker: agent, model · route, ↑in, ↓out, since its last event, elapsed.
+// jobCells are a dispatch row after its marker: agent, description, since (lost, quiet or queued), elapsed · ↓tokens.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
 	name := d.Agent
 	if d.Fallback != "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}
-	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix) + " · " + d.where()
-	up, down := d.tokenCells()
+	desc := textutil.OneLine(d.Task)
 	if d.queued != "" {
-		up, down = queueText(d, now, pools), ""
+		return []string{name, desc, queueText(d, now, pools), ""}
 	}
 	since := ""
 	if d.Status == "lost" {
 		since = "lost"
-	} else if !d.LastSignal.IsZero() {
-		since = shortDuration(now.Sub(d.LastSignal))
-		if d.Quiet {
-			since = "⚠" + since
-		}
+	} else if d.Quiet && !d.LastSignal.IsZero() {
+		since = "⚠" + shortDuration(now.Sub(d.LastSignal))
 	}
-	return []string{name, model, up, down, since, durationText(d.Duration)}
+	_, down := d.tokenCells()
+	tail := down
+	if t := durationText(d.Duration); t != "" {
+		tail = t + " · " + down
+	}
+	return []string{name, desc, since, tail}
 }
 
 // queueText is "queued 1m10s (pool databricks:qa 2/4)"; the count is left out when the daemon does not answer.

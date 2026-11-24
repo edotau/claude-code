@@ -864,7 +864,7 @@ func TestTreeRowWidths(t *testing.T) {
 							t.Errorf("line width %d exceeds %d: %q", got, min(width, 80), line)
 						}
 					}
-					if line := printable(ansi.Strip(lines[row])); !strings.HasSuffix(line, "…") {
+					if line := printable(ansi.Strip(lines[row])); !strings.Contains(line, "…") {
 						t.Errorf("over-long row lacks final ellipsis: %q", line)
 					}
 				})

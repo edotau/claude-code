@@ -36,8 +36,8 @@ func TestFutureSignalClampsToZero(t *testing.T) {
 	if err := os.Chtimes(rec.EventsPath(), future, future); err != nil {
 		t.Fatal(err)
 	}
-	if got := sinceCell(dispatchFromRecord(rec, "", now), now); got != "0s" {
-		t.Errorf("since = %q, want 0s", got)
+	if got := sinceCell(dispatchFromRecord(rec, "", now), now); strings.HasPrefix(got, "-") {
+		t.Errorf("since = %q, want no negative age", got)
 	}
 }
 
@@ -54,7 +54,7 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 		wrote time.Duration
 		quiet bool
 		want  string
-	}{{-30 * time.Second, false, "30s"}, {-7 * time.Minute, true, "⚠7m"}} {
+	}{{-30 * time.Second, false, ""}, {-7 * time.Minute, true, "⚠7m"}} {
 		if err := os.Chtimes(rec.EventsPath(), now.Add(c.wrote), now.Add(c.wrote)); err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +69,7 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(jobCells(d, now, nil), " ") }
 
 // sinceCell is a dispatch row's time-since-last-event cell.
-func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now, nil)[4] }
+func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now, nil)[2] }
 
 // A running row shows agent, model · route, since and elapsed, and never the brief's header or task.
 func TestRunningRowHasNoTask(t *testing.T) {
@@ -83,7 +83,7 @@ func TestRunningRowHasNoTask(t *testing.T) {
 	var b strings.Builder
 	renderTree(&b, &Tree{Dispatches: []Dispatch{dispatchFromRecord(rec, "", now)}}, now, 80, "")
 	row := strings.Split(b.String(), "\n")[1]
-	want := []string{"●", "claude", "claude-sonnet-5-5", "·", "qa", "↑-", "↓-", "0s", "1m"}
+	want := []string{"●", "claude", "fix", "the", "bug", "1m", "·", "↓", "-"}
 	if got := strings.Fields(row); !slices.Equal(got, want) {
 		t.Errorf("row = %q, want fields %q", row, want)
 	}

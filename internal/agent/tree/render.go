@@ -229,11 +229,29 @@ func addSubagentRow(l *layout, sub Subagent, c *rowCtx, twist string, hot bool) 
 	l.mark(hot, 1<<0)
 }
 
-// addJobRow adds a dispatch row of cells at level, marker first; it ends in an empty text cell.
+// addJobRow adds a dispatch row of cells at level, marker first; a ↳ marker becomes the status glyph.
 func addJobRow(l *layout, level int, cells []string, d Dispatch, sel bool) {
+	if level == levelDispatch {
+		cells[0] = strings.TrimSuffix(cells[0], "↳") + jobMarker(d)
+	}
 	l.add(level, append(cells, "")...)
-	l.mark(d.Status == statusRunning, 1<<0)
+	l.rows[len(l.rows)-1].tint = markerTint(d)
 	l.spanLast(d.queued != "", sel)
+}
+
+// markerTint is the colour of a dispatch marker: running green, done dim, failed red, queued yellow.
+func markerTint(d Dispatch) string {
+	switch {
+	case d.queued != "":
+		return ansi.Yellow
+	case d.Status == statusRunning:
+		return ansi.Green
+	case d.Status == statusFinished:
+		return ansi.Dim
+	case d.Status == statusError || d.Status == "lost":
+		return ansi.Red
+	}
+	return ""
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
