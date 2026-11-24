@@ -367,7 +367,7 @@ func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, b
 		return agent.ModelRoute{}, false, err
 	}
 	// o's model and profile cover a role rotation's pick, which the caller's req never names
-	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: cmp.Or(req.Model, o.Model), Profile: cmp.Or(req.Provider, req.Lead, o.Provider), Account: req.Account,
+	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: cmp.Or(req.Model, o.Model), Profile: cmp.Or(req.Provider, req.Lead, o.Provider, o.Lead), Account: req.Account,
 		Effort: req.Effort, Fallback: o.Fallback, Task: o.Prompt, Tools: o.Tools,
 		Held: req.Background || req.SessionID != "" || req.Host != ""})
 	hop, note, err := agent.RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(agent.WithoutReviewLoop(o.Prompt)))

@@ -14,7 +14,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -305,5 +307,18 @@ func TestRoleRotationModes(t *testing.T) {
 	if cells, scope := modeCells(reg, excl, router.RoleFleet, "ultra"); len(cells) != 2 || cells[0].Provider != "anthropic" ||
 		!strings.Contains(scope, "stays on") {
 		t.Fatalf("exclusive start: cells %v scope %q", cells, scope)
+	}
+}
+
+// An arm-confined (databricks:<p>) or provider-fenced dispatch does not rotate at all; an unfenced one may.
+func TestRoleRotationFenced(t *testing.T) {
+	o := RunOptions{Agent: "claude", Prompt: "say hi"}
+	if !untypedClaude(context.Background(), o) {
+		t.Fatal("an unfenced untyped claude dispatch should rotate")
+	}
+	for _, fence := range []string{`{"provider":"databricks","profile":"qa"}`, `{"provider":"anthropic"}`} {
+		if ctx := valuesContext(context.Background(), proc.Values{route.OverlayVar: fence}); untypedClaude(ctx, o) {
+			t.Errorf("fence %s: rotated", fence)
+		}
 	}
 }

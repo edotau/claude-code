@@ -92,7 +92,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return o, nil, Chain{}, clientUsageError{err}
 	}
-	o, rotated := rotateRole(ctx, o)
+	ctx, o, rotated := rotateRole(ctx, o)
 	r, err := Lookup(o.Agent)
 	if err != nil {
 		return o, nil, Chain{}, err

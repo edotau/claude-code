@@ -147,7 +147,11 @@ func (t *RouteTable) pick(
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	ctx = context.WithValue(ctx, accountKey{}, accountFn(pg.providerAccount))
 	gate := func(agent string) []Candidate {
-		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
+		g := t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
+		if agent == want {
+			g = t.leadRotated(ctx, pg, alias, agent, g, st, o, now, configured, &res)
+		}
+		return g
 	}
 	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)
 	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res}
@@ -178,6 +182,31 @@ func (t *RouteTable) pick(
 	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
 	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, reg, now, &res)
 	return res
+}
+
+type rotatedLeadKey struct{}
+
+// WithRotatedLead marks row as a role rotation's lead: a wanted claude whose PickOpts.Lead is row runs there first.
+func WithRotatedLead(ctx context.Context, row string) context.Context {
+	return context.WithValue(ctx, rotatedLeadKey{}, row)
+}
+
+func rotatedLead(ctx context.Context) string {
+	row, _ := ctx.Value(rotatedLeadKey{}).(string)
+	return row
+}
+
+// leadRotated puts a wanted claude's rotated lead row ahead of base, which stays its fallback in order.
+func (t *RouteTable) leadRotated(
+	ctx context.Context, pg *pickGate, alias, agent string, base []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	lead := rotatedLead(ctx)
+	if lead == "" || lead != o.Lead || agent != "claude" {
+		return base
+	}
+	o.CanServe = nil // claude runs on any row through the proxy, and the rotation already checked this one
+	return mergeLead(t.gateRow(ctx, pg, alias, agent, lead, "", false, st, o, now, configured, res), base)
 }
 
 // deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.

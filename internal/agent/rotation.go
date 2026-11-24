@@ -151,17 +151,17 @@ func (n roleNote) onto(c Chain) Chain {
 }
 
 // rotateRole runs an untyped Claude dispatch on its role's least-recently-picked ready cell; the note says so.
-func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
+func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions, roleNote) {
 	if !untypedClaude(ctx, o) {
-		return o, ""
+		return ctx, o, ""
 	}
 	reg, err := providers.LoadShared()
 	if err != nil {
-		return o, ""
+		return ctx, o, ""
 	}
 	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
 	if err != nil || overlayRoutes(ov) {
-		return o, ""
+		return ctx, o, ""
 	}
 	now, role := time.Now(), dispatchRole(o.Prompt)
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
@@ -178,16 +178,27 @@ func rotateRole(ctx context.Context, o RunOptions) (RunOptions, roleNote) {
 		if scope != "" { // an exclusive mode is in force: the start row alone, so no ladder hop crosses it
 			o.Provider = session
 		}
-		return o, roleNote(joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped)))
+		return ctx, o, roleNote(joinNotes(head+": no ready cell, the session route runs", skippedNote(skipped)))
 	}
 	cell, err := router.PickRoleCell(role, ready, !Peeking(ctx), now)
 	if err != nil {
 		head += " (pick unstamped: " + err.Error() + ")"
 	}
-	// the cell's row as the profile: a lead would lose to claude's record pin in the ladder and run elsewhere
-	o.Provider, o.Model = rows[cell.Key()], cell.Model
-	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, o.Provider, len(ready), len(cells))
-	return o, roleNote(joinNotes(pick, skippedNote(skipped)))
+	row := rows[cell.Key()]
+	ctx, o = placeRotation(ctx, o, row, cell.Model, scope != "")
+	pick := fmt.Sprintf("%s -> %s %s on %s (%d of %d cells ready)", head, cell.Provider, cell.Model, row, len(ready), len(cells))
+	return ctx, o, roleNote(joinNotes(pick, skippedNote(skipped)))
+}
+
+// placeRotation leads o's route with row; under an exclusive mode row is the one profile, so no sibling hop crosses.
+func placeRotation(ctx context.Context, o RunOptions, row, model string, bounded bool) (context.Context, RunOptions) {
+	o.Model = model
+	if bounded {
+		o.Provider = row
+		return ctx, o
+	}
+	o.Lead = row
+	return router.WithRotatedLead(ctx, row), o
 }
 
 // untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, model pin, host or session.
@@ -197,10 +208,16 @@ func untypedClaude(ctx context.Context, o RunOptions) bool {
 		return false
 	}
 	typedNone := o.FallbackTyped && o.Fallback == router.FallbackNone // an env-default none is no request
-	if o.AutoModel || o.Direct || !o.Route.IsZero() || typedNone {
+	if o.AutoModel || o.Direct || !o.Route.IsZero() || typedNone || fenced(ctx) {
 		return false
 	}
 	return agentModelPinContext(ctx, o.Agent) == "" // claude's record profile is its default lead, not a typed route
+}
+
+// fenced reports an inherited arm or provider fence: such a dispatch never rotates, so no hop leaves the boundary.
+func fenced(ctx context.Context) bool {
+	confined, _ := router.ConfinedContext(ctx)
+	return router.ArmProfileContext(ctx) != "" || confined != ""
 }
 
 // overlayRoutes reports an overlay that names where the dispatch runs; providerMode, effort and runner do not.
