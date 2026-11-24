@@ -19,8 +19,8 @@ func LeadingAgentWord(args, pos, roster []string, agentTyped bool) (string, bool
 	return pos[0], true
 }
 
-// widening flags grant tools, permissions, routes or env; Fix never guesses them in or rewrites their values.
-var widening = []string{"tools", "permissions", "autonomous", "host", "env", "keep-env",
+// widening flags grant tools, routes or env; Fix never guesses them in or rewrites their values.
+var widening = []string{"tools", "autonomous", "host", "env", "keep-env",
 	"overlay", "agents", "direct", "native"}
 
 // fixer is one Fix pass; firstPos and unresolved are word indexes, -1 for none.
@@ -98,7 +98,7 @@ func (s Schema) fixUnknown(out []string, i int, name, val string, hasVal bool) (
 		return out, i, "unknown --" + name + ": no single near flag (left unchanged)", false
 	}
 	if slices.Contains(widening, n) {
-		return out, i, "--" + name + " is near the permission flag --" + n + " (left unchanged; fix by hand)", false
+		return out, i, "--" + name + " is near the widening flag --" + n + " (left unchanged; fix by hand)", false
 	}
 	out[i] = "--" + n
 	if hasVal {

@@ -262,7 +262,7 @@ func TestPluginAskDecisionBlocksTool(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+ask+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+	body, err := renderPlugin(bin, []pluginModule{{Name: "safety-scan", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
 			if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+c.echo+"'\n"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+			body, err := renderPlugin(bin, []pluginModule{{Name: "safety-scan", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestPluginPayloadCwdIsBashWorkdir(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > "+seen+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash|Write", BudgetMs: 5000}})
+	body, err := renderPlugin(bin, []pluginModule{{Name: "safety-scan", Event: settings.EventPreToolUse, Matcher: "Bash|Write", BudgetMs: 5000}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,13 +444,13 @@ func TestPluginMalformedGuardOutput(t *testing.T) {
 		failClosed bool
 		want       string
 	}{
-		{"closed", "{broken", true, "BLOCKED permission-gate did not complete (malformed output); blocked"},
-		{"open", "{broken", false, "claude-code plugin: permission-gate did not complete (malformed output); allowed\nRAN"},
+		{"closed", "{broken", true, "BLOCKED safety-scan did not complete (malformed output); blocked"},
+		{"open", "{broken", false, "claude-code plugin: safety-scan did not complete (malformed output); allowed\nRAN"},
 		{"silent allow", "", true, "RAN"},
 		{"explicit allow", `{"hookSpecificOutput":{"permissionDecision":"allow"}}`, true, "RAN"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mods := []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Edit", BudgetMs: 5000, FailClosed: tc.failClosed}}
+			mods := []pluginModule{{Name: "safety-scan", Event: settings.EventPreToolUse, Matcher: "Edit", BudgetMs: 5000, FailClosed: tc.failClosed}}
 			out := regressionPluginTool(t, "edit", tc.stdout, mods)
 			if strings.TrimSpace(out) != tc.want {
 				t.Fatalf("guard verdict = %q, want %q", out, tc.want)

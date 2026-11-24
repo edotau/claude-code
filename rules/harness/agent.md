@@ -134,7 +134,7 @@ paths:
   `prompt` is the task; `overlay`, `agents`, `output-schema` also take an object). An unknown key or bad value exits 2
   naming the nearest key; typed flags beat the spec, typed list flags add to it. `--batch` lines use the same keys
   (`id`, `plan_task` extra; a batch-wide key on a line exits naming it). `--dry-run` prints agent, route (as `gateway
-  resolve`), hops, permissions, overlay and the canonical argv through the real resolvers; it saves no record and
+  resolve`), hops, overlay and the canonical argv through the real resolvers; it saves no record and
   calls no model and stamps neither workspace nor model picks; not with `--live`, `--batch`, `--job`.
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
   (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
@@ -260,7 +260,7 @@ vendor CLI untouched.
 2. **The mark (D2).** The outer record has `request.carry: true` and is the parent of the inner run (and of a takeover).
    - Its child has a direct call's depth; the exemption needs a running top-level `carry` record whose live process
      is the child's ancestor.
-   - The child inherits the carrier's permissions, token caps and any route fence (`COWORKER_OVERLAY`) the carrier
+   - The child inherits the carrier's token caps and any route fence (`COWORKER_OVERLAY`) the carrier
      itself inherited; the carrier adds no route of its own (it runs before ask exports one).
    - Every other nested dispatch, a plain `--agent pi` run's included, stays fenced to its parent's route.
 3. **Each shell layer wraps only its own commands.** The rtk stand-ins act in Pi's own tool shell. A carried
@@ -296,9 +296,9 @@ vendor CLI untouched.
 | copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
 | opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` |
 
-- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs per-call `Decide` on the
-  dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK
-  callbacks are registered (each guard would run twice).
+- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` carries no policy;
+  hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are
+  registered (each guard would run twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 5; 0 = no cap; invalid uses default); a
@@ -307,8 +307,8 @@ vendor CLI untouched.
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 20,000,000; 0 = no cap; unknown usage counts 0;
   invalid uses default; it only refuses new nested dispatches, a running one is never stopped). With no
   `HARNESS_DISPATCH_ID` in its env, a dispatch walks its parent processes once: the nearest ancestor running
-  `claude-code` whose pid and start time match a running record becomes the parent, and that record's depth,
-  permissions and children/tree-token caps apply, so `env -i` inside a leaf no longer makes a top-level dispatch
+  `claude-code` whose pid and start time match a running record becomes the parent, and that record's depth
+  and children/tree-token caps apply, so `env -i` inside a leaf no longer makes a top-level dispatch
   (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.

@@ -8,7 +8,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 )
 
-// rtkPreToolUse puts a bash call's command in its rtk form; no permission decision, so the permission gate still runs.
+// rtkPreToolUse puts a bash call's command in its rtk form; no permission decision, so the guards still run.
 func rtkPreToolUse(in copilot.PreToolUseHookInput, _ copilot.HookInvocation) (*copilot.PreToolUseHookOutput, error) {
 	args, _ := in.ToolArgs.(map[string]any)
 	cmd, _ := args["command"].(string)
