@@ -298,16 +298,32 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 	return r.Model, ""
 }
 
-// withPiClaudeHop ends a plain pi ask's chain on claude on the same Databricks workspace (the router's own-CLI hop).
-func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
-	lead := c.Dispatches[0]
-	reg := loadRegistryWarn()
-	if reg == nil || !ownDatabricksHop(reg, q, lead) || q.Model != "" || q.Fallback == router.FallbackNone ||
-		q.Fallback == router.FallbackPin {
-		return c
+// fallbackUnset reports no fallback mode set anywhere: not the overlay, the process env nor the vault.
+func fallbackUnset(ctx context.Context) bool {
+	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+	return ov.Fallback == "" && strings.TrimSpace(proc.Value(ctx, router.EnvFallback)) == "" &&
+		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) == ""
+}
+
+// piChainMode is the mode a plain pi ask's chain follows, "" for a one-hop chain: a typed none or pin, or a typed model.
+func piChainMode(ctx context.Context, q RouteReq) string {
+	switch {
+	case q.Model != "" || q.Fallback == router.FallbackPin:
+		return ""
+	case q.Fallback == router.FallbackNone && q.FallbackDefaulted && fallbackUnset(ctx):
+		return router.FallbackAgents // nothing set anywhere: pi's own default (other workspaces, then claude on this one)
+	case q.Fallback == router.FallbackNone:
+		return ""
 	}
+	return q.Fallback
+}
+
+// withPiClaudeHop is a plain pi ask's chain: pi on the workspaces, then claude on the lead's Databricks workspace.
+func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
+	lead, mode := c.Dispatches[0], piChainMode(ctx, q)
+	reg := loadRegistryWarn()
 	cl, err := Lookup(agentid.Claude)
-	if err != nil {
+	if mode == "" || err != nil || !ownDatabricksHop(reg, q, lead) {
 		return c
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
@@ -315,12 +331,16 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 	if _, why := agentModelOn(PeekContext(ctx), reg, RouteReq{Agent: agentid.Claude, AliasHint: alias, Tools: q.Tools}, alias, profile); why != "" {
 		return c.noted("claude fallback hop skipped: " + why)
 	}
-	hop := Dispatch{Agent: cl, Model: alias, Route: rowRoute(reg, profile), Account: lead.Account, Billing: lead.Billing,
-		otherRoute: true, fixedModel: true}
-	n := slices.IndexFunc(c.Dispatches, func(d Dispatch) bool { return d.Agent.Name() != agentid.Pi }) // off-arm hops stay last
-	if n < 0 {
-		n = len(c.Dispatches)
-	}
-	c.Dispatches = slices.Insert(slices.Clone(c.Dispatches), n, hop)
+	c.Dispatches = afterPiHops(c.Dispatches, Dispatch{Agent: cl, Model: alias, Route: rowRoute(reg, profile),
+		Account: lead.Account, Billing: lead.Billing, otherRoute: true, fixedModel: true})
 	return c
+}
+
+// afterPiHops is hops with hop right after the leading pi hops: any off-arm hop stays last.
+func afterPiHops(hops []Dispatch, hop Dispatch) []Dispatch {
+	n := slices.IndexFunc(hops, func(d Dispatch) bool { return d.Agent.Name() != agentid.Pi })
+	if n < 0 {
+		n = len(hops)
+	}
+	return slices.Insert(slices.Clone(hops), n, hop)
 }

@@ -122,3 +122,37 @@ func TestPiSiblingsSkipRotationDrop(t *testing.T) {
 		t.Fatalf("kept-out rows still planned pi hops: hops %v, skips %v, why %q", sibs, skips, why)
 	}
 }
+
+// A plain pi ask follows the default only when no fallback mode is set anywhere; a typed none, pin or model is one hop.
+func TestPiChainModeDefault(t *testing.T) {
+	setConfigDir(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		q    RouteReq
+		want string
+	}{
+		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, router.FallbackAgents},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackNone}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackPin, FallbackDefaulted: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents}, router.FallbackAgents},
+	} {
+		if got := piChainMode(ctx, c.q); got != c.want {
+			t.Errorf("piChainMode(%+v) = %q, want %q", c.q, got, c.want)
+		}
+	}
+	t.Setenv(router.EnvFallback, router.FallbackNone)
+	if got := piChainMode(ctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
+		t.Errorf("an env none gave mode %q, want a one-hop chain", got)
+	}
+}
+
+// The claude hop sits right after the pi hops, ahead of an off-arm claude hop; nothing follows it that was not there.
+func TestAfterPiHopsOrder(t *testing.T) {
+	pi, cl := &fakeRunner{name: "pi"}, &fakeRunner{name: "claude"}
+	hops := []Dispatch{{Agent: pi, Account: "databricks·dev"}, {Agent: cl, Account: "anthropic·ultra"}}
+	got := afterPiHops(hops, Dispatch{Agent: cl, Account: "databricks·dev"})
+	if len(got) != 3 || got[1].Account != "databricks·dev" || got[2].Account != "anthropic·ultra" || len(hops) != 2 {
+		t.Fatalf("hops = %+v", got)
+	}
+}
