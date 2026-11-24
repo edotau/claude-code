@@ -163,19 +163,19 @@ func TestAfterPiHopsOrder(t *testing.T) {
 
 // A plain pi ask gets pi hops on the other workspaces after its lead; a confinement or no hop leaves it alone.
 func TestWithPiSiblings(t *testing.T) {
-	reg, _, _ := autoFixture(t)
+	reg, _, _ := autoFixture(t) // the fixture roster has no pi driver, so each sibling is planned and then skipped
 	q := RouteReq{Agent: "pi"}
-	pi := &fakeRunner{name: "pi"}
-	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-claude-sonnet-5-5"}}}
+	c := Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "pi"}, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
 	open := proc.WithValues(context.Background(), proc.Values{})
 	got := withPiSiblings(open, reg, q, c, router.FallbackAgents)
-	if len(got.Dispatches) < 2 && got.Preflight == nil {
-		t.Fatalf("an open ask planned no sibling hop and no skip note: %+v", got)
-	}
-	for _, d := range got.Dispatches[1:] {
-		if d.Agent != pi || d.Account == "databricks·dev" {
-			t.Fatalf("sibling hop = %+v, want pi on another workspace", d)
+	notes := strings.Join(got.Preflight.Notes, "\n")
+	for _, ws := range []string{"pi (qa)", "pi (prod)"} {
+		if !strings.Contains(notes, ws) {
+			t.Fatalf("an open ask never considered %s: %q", ws, notes)
 		}
+	}
+	if strings.Contains(notes, "pi (dev)") {
+		t.Fatalf("the lead's own workspace was planned as a sibling: %q", notes)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
 	if got := withPiSiblings(armed, reg, q, c, router.FallbackAgents); len(got.Dispatches) != 1 || got.Preflight != nil {

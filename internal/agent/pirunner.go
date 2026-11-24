@@ -351,6 +351,10 @@ func withPiSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, c 
 	for _, s := range skips {
 		c = c.noted("pi sibling hop skipped: " + s)
 	}
+	have := func(d Dispatch) bool { // the router may already list a sibling under an explicit mode
+		return slices.ContainsFunc(c.Dispatches, func(e Dispatch) bool { return e.Agent == lead.Agent && e.Account == d.Account })
+	}
+	sibs = slices.DeleteFunc(sibs, have)
 	for i := range sibs {
 		sibs[i].Agent = lead.Agent
 	}
