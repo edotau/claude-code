@@ -128,9 +128,9 @@ func (c Contract) Verify(children []Contract) (Contract, error) {
 		return c, refuse("verify", c.state, ErrTerms, "no pass record for %v", miss)
 	}
 	for _, id := range c.Children {
-		i := slices.IndexFunc(children, func(k Contract) bool { return k.ID == id })
+		i := slices.IndexFunc(children, func(k Contract) bool { return k.ID == id && k.Parent == c.ID })
 		if i < 0 || !children[i].state.Terminal() {
-			return c, refuse("verify", c.state, ErrChildOpen, "sub-contract %q is not closed or failed", id)
+			return c, refuse("verify", c.state, ErrChildOpen, "no closed or failed sub-contract %q of %q", id, c.ID)
 		}
 	}
 	n := c.clone()
@@ -138,7 +138,7 @@ func (c Contract) Verify(children []Contract) (Contract, error) {
 	return n, nil
 }
 
-// Close moves verified → closed once the hand-back and every close term passed; Go fills Result.Unmet.
+// Close moves verified → closed once hand-back and close terms pass; other unmet terms are reported (D3), not refused.
 func (c Contract) Close(r Result) (Contract, error) {
 	if err := c.guard("close", StateVerified); err != nil {
 		return c, err
@@ -182,12 +182,26 @@ func (c Contract) WithRecord(r TermRecord) (Contract, error) {
 	if c.state == StateVerified && slices.Contains(verifyTerms, r.Term) {
 		return c, refuse("record", c.state, ErrState, "%q was settled by verify", r.Term)
 	}
+	if st := StageOf(r.Term); slices.Index(Stages(), st) > slices.Index(Stages(), c.state.lastStage()) {
+		return c, refuse("record", c.state, ErrState, "%q is a %s term, too early", r.Term, st)
+	}
 	if err := checkRecord(c, r); err != "" {
 		return c, refuse("record", c.state, ErrInput, "%s", err)
 	}
 	n := c.clone()
 	n.Records = append(n.Records, r)
 	return n, nil
+}
+
+// lastStage is the latest stage whose terms s may record; close terms wait for verified.
+func (s State) lastStage() Stage {
+	switch s {
+	case StateOpened:
+		return StageOpen
+	case StateWorking:
+		return StageReturn
+	}
+	return StageClose
 }
 
 // verifyTerms must pass before Verify and stay passed until Close.

@@ -19,14 +19,18 @@ func opened(t *testing.T, role Role, depth, leaves int) Contract {
 	return c
 }
 
-// passAll records a pass for every term of c.
+// passAll records a pass for every unpassed term c's state may record now.
 func passAll(t *testing.T, c Contract) Contract {
 	t.Helper()
 	for _, term := range c.Terms {
-		var err error
-		if c, err = c.WithRecord(TermRecord{Term: term, Verdict: VerdictPass, By: ByGo, At: time.Now()}); err != nil {
+		if c.passed(term) {
+			continue
+		}
+		n, err := c.WithRecord(TermRecord{Term: term, Verdict: VerdictPass, By: ByGo, At: time.Now()})
+		if err != nil && !errors.Is(err, ErrState) {
 			t.Fatal(err)
 		}
+		c = n
 	}
 	return c
 }
@@ -50,6 +54,7 @@ func inState(t *testing.T, s State) Contract {
 		if c, err = steps[next](c); err != nil {
 			t.Fatal(err)
 		}
+		c = passAll(t, c)
 	}
 	if s == StateFailed {
 		c = passAll(t, opened(t, RoleOwner, 1, 2))
@@ -95,8 +100,8 @@ func TestEveryOpenedContractTerminates(t *testing.T) {
 	paths := map[string]func(Contract) (Contract, error){
 		"settle": func(c Contract) (Contract, error) {
 			c, _ = c.Start("d1")
-			c, _ = c.Verify(nil)
-			return c.Close(done)
+			c, _ = passAll(t, c).Verify(nil)
+			return passAll(t, c).Close(done)
 		},
 		"limit": func(c Contract) (Contract, error) {
 			c, _ = c.Start("d1")
@@ -126,10 +131,15 @@ func TestEveryOpenedContractTerminates(t *testing.T) {
 }
 
 func TestParentCannotVerifyOverOpenChild(t *testing.T) {
-	parent, _ := passAll(t, opened(t, RoleOwner, 1, 2)).Start("p1")
-	child, _ := opened(t, RoleFleet, 2, 0).Start("k1")
+	parent, _ := opened(t, RoleOwner, 1, 2).Start("p1")
+	parent = passAll(t, parent)
+	child := opened(t, RoleFleet, 2, 0)
+	child.Parent = parent.ID
+	child, _ = child.Start("k1")
 	parent, _ = parent.AddChild(child.ID)
-	for _, kids := range [][]Contract{nil, {child}} {
+	stranger, _ := opened(t, RoleFleet, 2, 0).Start("k1")
+	stranger, _ = stranger.Fail(ReasonTerm)
+	for _, kids := range [][]Contract{nil, {child}, {stranger}} {
 		if _, err := parent.Verify(kids); !errors.Is(err, ErrChildOpen) {
 			t.Errorf("verify over %d open children: err %v, want ErrChildOpen", len(kids), err)
 		}

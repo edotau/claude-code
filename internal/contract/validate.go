@@ -73,11 +73,38 @@ func validateState(c Contract, add func(string, string, ...any)) {
 	if s != "" && s != StateOpened && (c.ID == "" || len(c.Holders) == 0) {
 		add("holders", "state %q needs an id and a holder", s)
 	}
-	if s.Terminal() && c.Result == nil {
-		add("result", "state %q needs a result", s)
-	}
 	if miss := c.missing(entryTerms(s, c)...); len(miss) > 0 {
 		add("records", "state %q with no pass record for %v", s, miss)
+	}
+	validateTree(c, add)
+	validateResult(c, add)
+}
+
+// validateTree checks what AddChild and Reassign guarantee: the leaf budget and one re-assign at most.
+func validateTree(c Contract, add func(string, string, ...any)) {
+	if len(c.Children) > c.Limits.Leaves {
+		add("children", "%d sub-contracts over a budget of %d leaves", len(c.Children), c.Limits.Leaves)
+	}
+	if len(c.Holders) > 2 {
+		add("holders", "%d holders: a contract is re-assigned once at most", len(c.Holders))
+	}
+}
+
+// validateResult checks the hand-back a terminal contract carries and the Unmet list Go filled.
+func validateResult(c Contract, add func(string, string, ...any)) {
+	switch {
+	case c.Result == nil:
+		if c.state.Terminal() {
+			add("result", "state %q needs a result", c.state)
+		}
+	case !c.state.Terminal():
+		add("result", "set in state %q", c.state)
+	case !slices.Equal(c.Result.Unmet, c.Unmet()):
+		add("result.unmet", "%v, the records say %v", c.Result.Unmet, c.Unmet())
+	case c.state == StateClosed:
+		if err := checkResult(*c.Result); err != "" {
+			add("result", "%s", err)
+		}
 	}
 }
 
