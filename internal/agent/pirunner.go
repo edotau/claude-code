@@ -305,7 +305,7 @@ func fallbackUnset(ctx context.Context) bool {
 		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) == ""
 }
 
-// piChainMode is the mode a plain pi ask's chain follows, "" for a one-hop chain: a typed none or pin, or a typed model.
+// piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none, pin or model).
 func piChainMode(ctx context.Context, q RouteReq) string {
 	switch {
 	case q.Model != "" || q.Fallback == router.FallbackPin:
