@@ -81,6 +81,15 @@ func maskEnvelope(env wire.Envelope) wire.Envelope {
 		}
 		env.Denials = &d
 	}
+	if env.Handback != nil {
+		h := *env.Handback
+		h.Summary = redact.Text(h.Summary)
+		h.Unfixed = slices.Clone(h.Unfixed)
+		for i, item := range h.Unfixed {
+			h.Unfixed[i] = redact.Text(item)
+		}
+		env.Handback = &h
+	}
 	env.Structured = maskStructured(env.Structured)
 	return env
 }
