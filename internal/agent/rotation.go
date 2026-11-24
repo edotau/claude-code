@@ -326,17 +326,25 @@ func (s modeScope) rows(reg *providers.Registry) []string {
 	return out
 }
 
+// dropRotation clears a recorded rotation this run does not re-lead, so its record never claims the old cell.
+func dropRotation(o RunOptions) RunOptions {
+	if o.Rotated {
+		o.Rotated, o.Lead = false, ""
+	}
+	return o
+}
+
 // replayRotation re-leads a replayed rotation (--job, --retry, background) whose record marks it Rotated.
 func replayRotation(ctx context.Context, o RunOptions) (context.Context, RunOptions) {
 	// a recorded one-hop mode or identity replays on the recorded lead itself; only a confinement stops the re-lead
 	replay := o.Rotated && o.Lead != "" && o.Provider == "" && !o.ModelTyped && VaultAgentIsClaude(o.Agent)
 	if !replay || confinedRoute(ctx) {
-		return ctx, o
+		return ctx, dropRotation(o)
 	}
 	reg, err := providers.LoadShared()
 	ov, oerr := agentconfig.LoadOverlayContext(ctx, "", nil) // today's providerMode bounds the replay, as at the pick
 	if err != nil || oerr != nil || overlayRoutes(ov) {
-		return ctx, o
+		return ctx, dropRotation(o)
 	}
 	_, scope := modeCells(reg, ov.ProviderMode, router.RoleFleet, o.Lead)
 	return placeRotation(ctx, reg, o, o.Lead, scope)
