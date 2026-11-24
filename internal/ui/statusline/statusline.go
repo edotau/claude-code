@@ -382,6 +382,9 @@ const proxyTTL = 5 * time.Second
 func proxySegment(routed bool) string {
 	st, err := proxy.ReadState()
 	if err == nil && st.Port > 0 && proxyUp(st) {
+		if proxy.Stale(st) { // an install replaced the binary: swap the daemon once no request is in flight
+			proxy.SpawnReplace()
+		}
 		return "proxy:" + strconv.Itoa(st.Port)
 	}
 	if routed {

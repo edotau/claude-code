@@ -35,8 +35,14 @@ paths:
 - Agents run on their pins (gemini on Google); per-call routes use the overlay: keys, precedence and fallback in
   `agent.md` → Dispatch behavior. A standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
   (`claude-code vault env set\|unset COWORKER_OVERLAY`). Brief fields: `skills/subagent-workflows/SKILL.md`.
-- `gateway proxy --restart` gaps only the respawn; a routed session's status line restarts a down proxy; `make install`
-  never restarts it, only notes when the running proxy is an older build (`proxy.json` `exe` sha256).
+- The proxy replaces itself: `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
+  replaces a stale daemon (`proxy.json` `exe` sha256 differs from the installed binary, the one staleness test, also
+  doctor's) at its first poll with no request in flight; in-flight streams drain (30 s). The respawn gap is ~55 ms
+  (max ~110 ms, connection refused; clients retry); a down proxy is restarted the same way. Plain `--restart` stays.
+- Session tokens are signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (30 days) under
+  a key derived from the router secret, so every daemon of the config accepts them. The proxy's own refusal is a 401
+  with `X-Claude-Code-Proxy-Refusal: session-refused`; `resolve --proxy` re-mints a refused armed token, a headless run
+  re-mints once, and neither marks the provider. Rotating `CLAUDE_CODE_ROUTER_SECRET` refuses every live token once.
 
 ## Routing precedence
 
@@ -198,7 +204,7 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   vault write. Callers and a proxy stop cannot cancel it; proxy stop, CLI exit and the launcher's exec wait up to
   2 minutes 15 seconds for it. If the vault write fails the call reports the rotation as unsaved (`seal_failed`).
   A process killed between send and save loses that login: renew it with `claude-code databricks login --profile <p>`.
-  The proxy loads new token code only on a restart: `claude-code gateway proxy --restart`.
+  The proxy loads new token code when it replaces itself after `make install` (or `gateway proxy --restart`).
 - **Throttling:** a service-principal mint (429, 5xx) and endpoint listing (429, 502, 503, 504) try 3 times, honour
   `Retry-After` (waits capped at 8 s) and otherwise back off from 500 ms with full jitter, capped at 4 s. A u2m
   refresh or login code is single-use: it is resent only when the request was never written, never after any HTTP

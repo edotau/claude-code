@@ -34,6 +34,21 @@ func TestClaimRestartRejectsUnrecordableClaim(t *testing.T) {
 	}
 }
 
+func TestStaleComparesTheExecutableHash(t *testing.T) {
+	prev := selfHash
+	t.Cleanup(func() { selfHash = prev })
+	selfHash = func() string { return "new" }
+	for exe, want := range map[string]bool{"new": false, "old": true, "": true} {
+		if got := Stale(State{Exe: exe}); got != want {
+			t.Errorf("Stale(exe %q) = %v, want %v", exe, got, want)
+		}
+	}
+	selfHash = func() string { return "" }
+	if Stale(State{Exe: "old"}) {
+		t.Error("an unreadable self binary called the daemon stale")
+	}
+}
+
 // TestRestartReportIfChanged: --if-changed leaves alone only a proxy recorded as running the installed binary.
 func TestRestartReportIfChanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

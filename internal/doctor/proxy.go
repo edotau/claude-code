@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 func proxyStatus(ctx context.Context) (detail string, bad bool) {
@@ -23,8 +22,9 @@ func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	if !ok {
 		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)", false
 	}
-	if h.Build != textutil.BuildVersion() {
-		return fmt.Sprintf("pid %d runs build %s; restart when idle", h.PID, h.Build), true
+	if proxy.Stale(st) {
+		return fmt.Sprintf("pid %d runs an older binary (build %s); the status line replaces it once idle", h.PID,
+			h.Build), true
 	}
 	return fmt.Sprintf("port %d pid %d, %d sessions", st.Port, h.PID, h.Sessions), false
 }

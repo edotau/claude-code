@@ -73,8 +73,8 @@ func TestReclaimKeepsDifferentBuildWithLiveWork(t *testing.T) {
 		sessions string
 		inflight string
 	}{
-		{name: "session tokens", sessions: "1", inflight: "0"},
 		{name: "in-flight request", sessions: "0", inflight: "1"},
+		{name: "in-flight request with sessions", sessions: "3", inflight: "1"},
 	} {
 		t.Run(live.name, func(t *testing.T) {
 			port := occupy(t, func(w http.ResponseWriter, req *http.Request) {
@@ -94,6 +94,18 @@ func TestReclaimKeepsDifferentBuildWithLiveWork(t *testing.T) {
 				t.Fatalf("Reclaim attempted to terminate a holder with live work %d times", terminated)
 			}
 		})
+	}
+}
+
+// Live session tokens never defer a stale-build takeover: signed tokens stay valid on the replacement.
+func TestReclaimableDespiteLiveSessions(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	prevComm := HolderComm
+	t.Cleanup(func() { HolderComm = prevComm })
+	HolderComm = func(int) string { return "claude-code" }
+	st := HolderState{PID: 1 << 30, Build: textutil.BuildVersion() + "-other", Sessions: 5, Config: ConfigID()}
+	if err := checkReclaimable(st, true, 1, false); err != nil {
+		t.Fatalf("idle stale holder with sessions = %v, want reclaimable", err)
 	}
 }
 

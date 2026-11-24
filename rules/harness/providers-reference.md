@@ -207,7 +207,7 @@ opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, started on demand), which:
 
 1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --secret --proxy` prints a scoped
-   session token, never the secret) and a loopback `Host`;
+   session token signed with a key derived from it, never the secret) and a loopback `Host`;
 2. resolves `model` (`id` or `provider:model`) and strips `[1m]`;
 3. passes `anthropic` routes through; translates Messages ⇄ chat-completions for `openai` routes (streaming, tools);
 4. refreshes the credential and replays once on 401/403 (the error names the remedy for the row's auth type);

@@ -21,7 +21,7 @@ type RestartRow struct {
 }
 
 // selfHash identifies the installed binary; a test seam.
-var selfHash = ExeHash
+var selfHash = cachedExeHash
 
 // RestartReport restarts the running proxy (unless dry, busy without force, or ifChanged and on this binary).
 func RestartReport(ctx context.Context, dry, force, ifChanged bool) RestartRow {
@@ -31,7 +31,7 @@ func RestartReport(ctx context.Context, dry, force, ifChanged bool) RestartRow {
 		row.Status, row.Note = "skipped", "not running"
 		return row
 	}
-	if ifChanged && st.Exe != "" && st.Exe == selfHash() {
+	if ifChanged && !Stale(st) {
 		row.Status, row.OldPID = "unchanged", st.PID
 		return row
 	}
@@ -100,7 +100,13 @@ func claimRestartLocked(path string, now time.Time) bool {
 }
 
 // SpawnStart starts `gateway proxy --start` detached; false when held, claimed within 15s, unstampable or unresolvable.
-func SpawnStart() bool {
+func SpawnStart() bool { return spawnClaimed("--start") }
+
+// SpawnReplace replaces a stale daemon detached (`--restart --if-changed`: skipped while requests are in flight).
+func SpawnReplace() bool { return spawnClaimed("--restart", "--if-changed") }
+
+// spawnClaimed runs `gateway proxy <args>` detached under the watchdog's one claim per restartRetry.
+func spawnClaimed(args ...string) bool {
 	if !claimRestart(time.Now()) {
 		return false
 	}
@@ -108,5 +114,5 @@ func SpawnStart() bool {
 	if err != nil {
 		return false
 	}
-	return proc.SpawnDetached(exe, []string{"gateway", "proxy", "--start"}, "", nil)
+	return proc.SpawnDetached(exe, append([]string{"gateway", "proxy"}, args...), "", nil)
 }

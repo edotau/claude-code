@@ -380,10 +380,11 @@ func checkReclaimable(st HolderState, router bool, port int, force bool) error {
 		return fmt.Errorf("%w (127.0.0.1:%d answers as a proxy of another config dir or host, left alone); pass --port",
 			ErrForeignHolder, port)
 	}
-	if !force && st.Build != textutil.BuildVersion() && (st.Inflight > 0 || st.Sessions > 0) {
+	// Sessions never defer a takeover: signed tokens stay valid on the replacement; only in-flight requests do.
+	if !force && st.Build != textutil.BuildVersion() && st.Inflight > 0 {
 		fmt.Fprintf(os.Stderr,
-			"proxy: keeping running proxy pid %d (build %s) with live work; this build %s not taking over\n", pid,
-			st.Build, textutil.BuildVersion())
+			"proxy: keeping running proxy pid %d (build %s) with requests in flight; this build %s not taking over\n",
+			pid, st.Build, textutil.BuildVersion())
 		return ErrKeptHolder
 	}
 	return nil

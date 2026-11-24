@@ -103,8 +103,9 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		echo -e "$(C_NOTE)a dev tool failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(MAKE) --no-print-directory tools-sync)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
-	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
-		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
+	@out="$$($(BIN) gateway proxy --restart --if-changed 2>&1)"; case "$$out" in \
+		*unchanged*|*"not running"*) ;; *restarted*) echo "$$out" ;; \
+		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line replaces it once no request is in flight" ;; esac
 	@if $(BIN) agents serve --status >/dev/null 2>&1; then \
 		$(BIN) agents serve --restart || echo -e "$(C_NOTE)agents serve did not restart (install itself succeeded)"; fi
 
