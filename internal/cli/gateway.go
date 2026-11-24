@@ -250,13 +250,15 @@ func proxyStatus(ctx context.Context, format string) int {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	lines, problems := doctor.ProxyTeams()
-	if format != helptext.JSON {
-		for _, l := range lines {
-			fmt.Println(l)
-		}
-		for _, p := range problems {
-			fmt.Println("problem  " + p.String())
-		}
+	out := os.Stdout
+	if format == helptext.JSON {
+		out, lines = os.Stderr, nil
+	}
+	for _, l := range lines {
+		fmt.Fprintln(out, l)
+	}
+	for _, p := range problems {
+		fmt.Fprintln(out, "problem  "+p.String())
 	}
 	if !ps.Running || len(problems) > 0 {
 		return 1

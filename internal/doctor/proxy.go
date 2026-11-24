@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -18,15 +17,19 @@ import (
 // ProxyTeamsKey is the vault Overlay entry holding the team overlay document.
 const ProxyTeamsKey = "proxy-teams"
 
-// loadTeams reads the vault overlay (an unreadable vault means none) and loads the team config.
+// loadTeams loads the team config; an unreadable vault is a problem and skips Load so last-good stays intact.
 func loadTeams() (proxyteam.Config, []proxyteam.Problem) {
 	var overlay []byte
-	_ = vault.View(func(t *vault.Tx) error {
+	err := vault.View(func(t *vault.Tx) error {
 		if s, ok := t.Get(vault.Overlay, ProxyTeamsKey); ok {
 			overlay = []byte(s)
 		}
 		return nil
 	})
+	if err != nil {
+		def, ps := proxyteam.Parse(assets.ProxyTeams(), nil)
+		return def, append(ps, proxyteam.Problem{Field: "overlay", Detail: "vault unreadable: " + err.Error()})
+	}
 	return proxyteam.Load(overlay)
 }
 
@@ -37,11 +40,7 @@ func ProxyTeams() (lines []string, problems []proxyteam.Problem) {
 	case len(problems) == 0:
 		lines = append(lines, "teams: merged config")
 	default:
-		if def, _ := proxyteam.Parse(assets.ProxyTeams(), nil); reflect.DeepEqual(cfg, def) {
-			lines = append(lines, "teams: embedded default in force")
-		} else {
-			lines = append(lines, "teams: last-good config in force")
-		}
+		lines = append(lines, "teams: fallback in force (last good config, else the embedded default)")
 	}
 	for _, t := range cfg.Teams {
 		var parts []string
