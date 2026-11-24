@@ -22,7 +22,7 @@ import { resolve } from "node:path"
 
 const BIN = __BIN__
 const MODULES = __MODULES__
-const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "Edit", read: "Read", webfetch: "WebFetch",
+const TOOLS = { bash: "Bash", edit: "Edit", write: "Write", multiedit: "Edit", read: "Read", webfetch: "WebFetch", websearch: "WebSearch",
   apply_patch: "Edit", glob: "Glob", grep: "Grep", list: "Read" }
 const KEYS = { filePath: "file_path", oldString: "old_string", newString: "new_string", replaceAll: "replace_all" }
 
@@ -89,7 +89,9 @@ function eventPayload(name, sid, cwd) {
 // toolDoc is the Claude-shaped tool-call document; a bash call's cwd is its workdir resolved against the project dir.
 function toolDoc(event, tool, args, sid, directory) {
   const wd = tool === "Bash" && typeof args?.workdir === "string" && args.workdir
-  return { hook_event_name: event, tool_name: tool, tool_input: claudeInput(args),
+  const input = claudeInput(args)
+  if (tool === "Read" && input.file_path === undefined && input.path === undefined) input.path = directory // list
+  return { hook_event_name: event, tool_name: tool, tool_input: input,
     cwd: wd ? resolve(directory, wd) : directory, session_id: sid }
 }
 

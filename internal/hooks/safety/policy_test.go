@@ -91,7 +91,9 @@ func baselineParsePolicy(l settings.PermissionLists) policy {
 		}
 		if g := baselineEditGlobs(s); len(g) > 0 {
 			p.editDeny = append(p.editDeny, g...)
-		} else if r, err := permission.ParseRule(s); err == nil {
+		} else if r, err := permission.ParseRule(s); err == nil && pathTools[r.Tool] {
+			p.pathDeny = append(p.pathDeny, pathRule{r.Tool, rowGlob(s, r)})
+		} else if err == nil {
 			p.toolDeny = append(p.toolDeny, r)
 		}
 	}

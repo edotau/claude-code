@@ -716,6 +716,47 @@ func TestSettingsReadDenyBlocksOpencodeAndPiReads(t *testing.T) {
 	}
 }
 
+// A Read is judged on its own path: an unrelated patch field cannot hide it, a bad or missing path blocks.
+func TestSettingsReadDenyJudgesOwnPath(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"permissions":{"deny":["Read(**/.env)"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	patch := "*** Begin Patch\n*** Update File: /tmp/x/a.go\n@@\n-a\n+b\n*** End Patch"
+	for name, c := range map[string]struct {
+		input map[string]any
+		want  core.Decision
+	}{
+		"patch field": {map[string]any{"file_path": "/tmp/x/.env", "patch": patch}, core.Block},
+		"number path": {map[string]any{"file_path": 5}, core.Block},
+		"no path":     {map[string]any{"offset": 1}, core.Block},
+		"clean":       {map[string]any{"file_path": "/tmp/x/a.go", "patch": patch}, core.Allow},
+	} {
+		payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Read", "harness_agent": "pi",
+			"cwd": "/tmp", "tool_input": c.input})
+		if got := scanPayload(bytes.NewReader(payload)).Decision; got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// A Read deny glob anchors like an Edit one: /x is under the config dir, //x is absolute.
+func TestSettingsReadDenyAnchorsGlobs(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"permissions":{"deny":["Read(/probe/**)"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]core.Decision{filepath.Join(cfg, "probe", "a"): core.Block, "/probe/a": core.Allow} {
+		payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Read", "harness_agent": "opencode",
+			"cwd": "/tmp", "tool_input": map[string]string{"file_path": path}})
+		if got := scanPayload(bytes.NewReader(payload)).Decision; got != want {
+			t.Errorf("read of %s: %v, want %v", path, got, want)
+		}
+	}
+}
+
 // The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
 func TestCitedHardRule3Exists(t *testing.T) {
 	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))

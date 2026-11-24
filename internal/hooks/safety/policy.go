@@ -22,7 +22,20 @@ import (
 type policy struct {
 	bashDeny []permission.Rule
 	editDeny []string
-	toolDeny []permission.Rule // every other tool: Read, Grep, Glob, WebFetch, MCP…
+	pathDeny []pathRule        // Read, Grep and Glob rows, raw globs
+	toolDeny []permission.Rule // every other tool: WebFetch, WebSearch, MCP…
+}
+
+// pathRule is a Read, Grep or Glob row with its raw glob (ParseRule's ~ expansion loses the anchor).
+type pathRule struct{ tool, glob string }
+
+// rowGlob is the raw argument of a parsed tool row; a bare tool row covers every path.
+func rowGlob(row string, r permission.Rule) string {
+	row = strings.TrimSpace(row)
+	if r.Arg == "" {
+		return "**/*"
+	}
+	return strings.TrimSpace(row[strings.IndexByte(row, '(')+1 : len(row)-1])
 }
 
 var (
@@ -109,6 +122,8 @@ func parsePolicy(deny []string) policy {
 			p.bashDeny = append(p.bashDeny, r)
 		case g != "":
 			p.editDeny = append(p.editDeny, g)
+		case err == nil && pathTools[r.Tool]:
+			p.pathDeny = append(p.pathDeny, pathRule{r.Tool, rowGlob(s, r)})
 		case err == nil:
 			p.toolDeny = append(p.toolDeny, r)
 		}

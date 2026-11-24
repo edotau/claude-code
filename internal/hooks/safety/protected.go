@@ -34,11 +34,18 @@ func protectedEdit(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// protectedTool enforces the settings deny rows of a non-edit tool (Read, Grep, Glob, WebFetch…) on its path or URL.
+// pathTools are the non-edit tools whose deny rows are path globs, anchored like Edit/Write globs.
+var pathTools = map[string]bool{"Read": true, "Grep": true, "Glob": true}
+
+// protectedTool enforces the settings deny rows of a non-edit tool (Read, Grep, Glob, WebFetch…) on its own arguments.
 func protectedTool(in *core.Input) core.Result {
 	tool := permission.CanonicalTool(in.CanonicalTool())
+	p := livePolicy()
+	if pathTools[tool] {
+		return protectedRead(in, tool, p.pathDeny)
+	}
 	var rules []permission.Rule
-	for _, r := range livePolicy().toolDeny {
+	for _, r := range p.toolDeny {
 		if r.Tool == tool {
 			rules = append(rules, r)
 		}
@@ -46,32 +53,94 @@ func protectedTool(in *core.Input) core.Result {
 	if len(rules) == 0 {
 		return core.Result{}
 	}
-	judge := permission.Permissions{Mode: permission.PermAllow, Deny: rules}
-	for _, arg := range toolArgs(in, tool) {
-		if judge.DecideAt(in.CWD, tool, arg) == permission.Deny {
-			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
-				"matches a settings.json deny rule", tool+" "+arg, "Change permissions.deny in ~/.claude/settings.json if this is wrong.")}
-		}
+	arg, problem := toolArg(in, tool)
+	if problem != "" {
+		return toolBlock(in, problem, tool)
+	}
+	if (permission.Permissions{Mode: permission.PermAllow, Deny: rules}).DecideAt(in.CWD, tool, arg) == permission.Deny {
+		return toolBlock(in, "matches a settings.json deny rule", tool+" "+arg)
 	}
 	return core.Result{}
 }
 
-// toolArgs are the spellings a deny row's argument is matched against: the URL, the query, or every path form.
-func toolArgs(in *core.Input, tool string) []string {
-	switch tool {
-	case "WebFetch":
-		return []string{in.Nested("tool_input", "url")}
-	case "WebSearch":
-		return []string{in.Nested("tool_input", "query")}
+func toolBlock(in *core.Input, what, detail string) core.Result {
+	return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block, what, detail,
+		"Change permissions.deny in ~/.claude/settings.json if this is wrong.")}
+}
+
+// toolArg is the argument a non-path deny row matches: the URL, the query, else none; a misshapen one is a problem.
+func toolArg(in *core.Input, tool string) (arg, problem string) {
+	key := map[string]string{"WebFetch": "url", "WebSearch": "query"}[tool]
+	if key == "" {
+		return "", ""
 	}
-	var out []string
-	for _, f := range editPaths(in) {
-		if f == "" {
-			f = in.CWD // grep, glob and list search the cwd when no path is given
+	v, ok := in.ToolInput()[key].(string)
+	if !ok || v == "" {
+		return "", tool + " call has no " + key + " string; blocked"
+	}
+	return v, ""
+}
+
+// protectedRead judges a Read, Grep or Glob call's own path against the tool's anchored deny globs.
+func protectedRead(in *core.Input, tool string, rows []pathRule) core.Result {
+	var raw []string
+	for _, r := range rows {
+		if r.tool == tool {
+			raw = append(raw, r.glob)
 		}
-		out = append(out, f)
 	}
-	return out
+	if len(raw) == 0 {
+		return core.Result{}
+	}
+	forms, problem := toolPaths(in, tool)
+	if problem != "" {
+		return toolBlock(in, problem, tool)
+	}
+	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD))
+	if hit != "" {
+		return toolBlock(in, "matches a settings.json deny rule", tool+" "+hit)
+	}
+	if !resolved {
+		return toolBlock(in, "path cannot be resolved to an absolute one; blocked", tool)
+	}
+	return core.Result{}
+}
+
+// pathHit is the first absolute spelling in forms a glob covers; resolved is false when none is absolute.
+func pathHit(forms, globs []string) (hit string, resolved bool) {
+	for _, form := range forms {
+		f := paths.ExpandHome(form)
+		if !filepath.IsAbs(f) {
+			continue
+		}
+		resolved = true
+		if matchesProtected(f, globs) || f != form && protectedPath(f, globs) {
+			return f, true
+		}
+	}
+	return "", resolved
+}
+
+// toolPaths are the spellings of the one path a Read, Grep or Glob call names; Grep and Glob default to the cwd.
+func toolPaths(in *core.Input, tool string) ([]string, string) {
+	input := in.ToolInput()
+	for _, key := range []string{"file_path", "filePath", "absolute_path", "path"} {
+		v, present := input[key]
+		if !present || v == nil {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok {
+			return nil, tool + " path is not a string; blocked"
+		}
+		if s != "" {
+			return pathForms(in.CWD, s), ""
+		}
+	}
+	if tool == "Read" || in.CWD == "" {
+		return nil, tool + " call names no path; blocked"
+	}
+	return pathForms(in.CWD, in.CWD), ""
 }
 
 // editPaths are the spellings of every path the call edits, one set per file an apply_patch touches.

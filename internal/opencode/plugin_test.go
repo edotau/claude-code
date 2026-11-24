@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -79,6 +82,42 @@ func TestPluginToolMapCoversPatchAndSearch(t *testing.T) {
 	for _, want := range []string{`apply_patch: "Edit"`, `glob: "Glob"`, `grep: "Grep"`, `list: "Read"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin tool map lacks %s", want)
+		}
+	}
+}
+
+// TestPluginToolMapReachesSettingsDeny: each read-side opencode tool maps to a name safety-scan judges and blocks.
+func TestPluginToolMapReachesSettingsDeny(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	deny := `{"permissions":{"deny":["Read(**/.env)","Grep(**/.env)","Glob(**/.env)","WebFetch(domain:evil.com)","WebSearch"]}}`
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(deny), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body, err := renderPlugin("/bin/cc", pluginModules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := map[string]string{}
+	for _, m := range regexp.MustCompile(`(\w+): "(\w+)"`).FindAllStringSubmatch(string(body[strings.Index(string(body), "const TOOLS"):]), 12) {
+		tools[m[1]] = m[2]
+	}
+	for tool, input := range map[string]map[string]any{
+		"read": {"file_path": "/tmp/x/.env"}, "grep": {"path": "/tmp/x/.env", "pattern": "a"}, "glob": {"path": "/tmp/x/.env"},
+		"webfetch": {"url": "https://a.evil.com"}, "websearch": {"query": "evil stuff"},
+	} {
+		name, ok := tools[tool]
+		if !ok {
+			t.Errorf("plugin tool map lacks %s", tool)
+			continue
+		}
+		judged := slices.ContainsFunc(pluginModules(), func(m pluginModule) bool {
+			return m.Name == "safety-scan" && m.Event == settings.EventPreToolUse && regexp.MustCompile("(?i)^(?:"+m.Matcher+")$").MatchString(name)
+		})
+		payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": name, "harness_agent": "opencode",
+			"cwd": "/tmp", "tool_input": input})
+		if got := safety.Scan(core.ParseInput(strings.NewReader(string(payload)))).Decision; !judged || got != core.Block {
+			t.Errorf("opencode %s -> %s: judged %v, decision %v; want a block", tool, name, judged, got)
 		}
 	}
 }
