@@ -882,11 +882,16 @@ func geminiPathModel(path, dialect string) string {
 		return ""
 	}
 	_, _, rest, _ := parsePassthrough(path)
-	if m := geminiCallRE().FindStringSubmatch(rest); m != nil {
+	if m := geminiModelRE().FindStringSubmatch(rest); m != nil {
 		return m[1]
 	}
 	return ""
 }
+
+// geminiModelRE finds <id> in any [version/]models/<id>:<method> path, native or gateway.
+var geminiModelRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|/)models/([A-Za-z0-9._-]+):[A-Za-z]+$`)
+})
 
 // geminiCallRE is the one call agy's gateway mode makes: v1beta/models/<id>:(stream)GenerateContent.
 var geminiCallRE = sync.OnceValue(func() *regexp.Regexp {

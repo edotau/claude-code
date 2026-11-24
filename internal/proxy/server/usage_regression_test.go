@@ -234,8 +234,10 @@ func TestTinyAndGeminiPathModel(t *testing.T) {
 	if !isTiny(top) {
 		t.Error(`isTiny with "tools":[ ] = false, want true`)
 	}
-	if got := geminiPathModel("/p/pt/gemini/v1beta/models/gemini-x:generateContent", providers.ProtocolGemini); got != "gemini-x" {
-		t.Errorf("geminiPathModel = %q, want gemini-x", got)
+	for _, p := range []string{"/p/pt/gemini/v1beta/models/gemini-x:generateContent", "/p/pt/gemini/models/gemini-x:streamGenerateContent"} {
+		if got := geminiPathModel(p, providers.ProtocolGemini); got != "gemini-x" {
+			t.Errorf("geminiPathModel(%s) = %q, want gemini-x", p, got)
+		}
 	}
 }
 
