@@ -190,12 +190,19 @@ func anchorGlob(g, cwd string) string {
 	return paths.FoldCase(paths.CleanGlob(g))
 }
 
-// foldedGlobs are raw globs anchored at cwd and case-folded for matchesProtected; unanchorable ones drop.
+// foldedGlobs are raw globs anchored at cwd, case-folded, each beside its symlink-resolved form; unanchorable drop.
 func foldedGlobs(raw []string, cwd string) []string {
 	var out []string
 	for _, g := range raw {
-		if a := anchorGlob(g, cwd); a != "" {
-			out = append(out, a)
+		a := anchorGlob(g, cwd)
+		if a == "" {
+			continue
+		}
+		out = append(out, a)
+		if filepath.IsAbs(a) {
+			if c := paths.FoldCase(paths.CleanGlob(paths.CanonDeep(a))); c != a {
+				out = append(out, c)
+			}
 		}
 	}
 	return out

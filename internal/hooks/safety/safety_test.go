@@ -757,6 +757,41 @@ func TestSettingsReadDenyAnchorsGlobs(t *testing.T) {
 	}
 }
 
+// A deny glob written through a symlink also covers the real path, for Read and Edit alike.
+func TestSettingsDenyGlobCanonicalized(t *testing.T) {
+	cfg := t.TempDir()
+	root, err := os.MkdirTemp(".", "canon") // outside the temp dirs Edit may always write
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if root, err = filepath.Abs(root); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(paths.Real(root), "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(paths.Real(root), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	deny := `{"permissions":{"deny":["Read(/` + alias + `/**)","Edit(/` + alias + `/**)"]}}`
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(deny), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"Read", "Edit"} {
+		for _, dir := range []string{alias, real} {
+			payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": tool, "harness_agent": "pi",
+				"cwd": "/tmp", "tool_input": map[string]string{"file_path": filepath.Join(dir, "a.txt")}})
+			if got := scanPayload(bytes.NewReader(payload)).Decision; got != core.Block {
+				t.Errorf("%s of %s/a.txt: %v, want block", tool, dir, got)
+			}
+		}
+	}
+}
+
 // The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
 func TestCitedHardRule3Exists(t *testing.T) {
 	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))
