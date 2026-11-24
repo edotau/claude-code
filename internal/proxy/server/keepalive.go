@@ -68,36 +68,45 @@ func (r *Router) touch(ctx context.Context, names ...string) {
 	for _, n := range names {
 		use := profileUse{at: now, host: host, marked: r.used[n].marked}
 		if now.Sub(use.marked) >= time.Minute {
-			use.marked = now
 			stale = append(stale, n)
 		}
 		r.used[n] = use
 	}
 	r.mu.Unlock()
-	writeMarkers(stale, now)
+	written := writeMarkers(stale, now)
+	if len(written) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, n := range written { // a failed write stays due, so the next request retries it
+		use := r.used[n]
+		use.marked = now
+		r.used[n] = use
+	}
 }
 
-// writeMarkers stamps each plain-named profile's marker file with now; errors are ignored.
-func writeMarkers(names []string, now time.Time) {
-	if len(names) == 0 {
-		return
+// writeMarkers stamps each plain-named profile's marker file with now and returns the ones written.
+func writeMarkers(names []string, now time.Time) []string {
+	if len(names) == 0 || os.MkdirAll(markerDir(), 0o700) != nil {
+		return nil
 	}
-	dir := markerDir()
-	if os.MkdirAll(dir, 0o700) != nil {
-		return
-	}
+	var written []string
 	for _, n := range names {
 		if n == "" || n != filepath.Base(n) || n == "." || n == ".." {
 			continue
 		}
-		path := filepath.Join(dir, n)
+		path := filepath.Join(markerDir(), n)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			continue
 		}
 		_ = f.Close()
-		_ = os.Chtimes(path, now, now)
+		if os.Chtimes(path, now, now) == nil {
+			written = append(written, n)
+		}
 	}
+	return written
 }
 
 // recentlyUsed is the sorted profiles used within keepaliveWindow, in memory or by marker; older ones are dropped.
@@ -132,7 +141,10 @@ func markedNames(cutoff time.Time) []string {
 			continue
 		}
 		if info.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+			path := filepath.Join(dir, e.Name())
+			if again, err := os.Stat(path); err == nil && again.ModTime().Before(cutoff) { // a peer may have renewed it
+				_ = os.Remove(path)
+			}
 			continue
 		}
 		names = append(names, e.Name())
