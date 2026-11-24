@@ -761,14 +761,7 @@ func TestSettingsReadDenyAnchorsGlobs(t *testing.T) {
 // A deny glob written through a symlink also covers the real path, for Read and Edit alike.
 func TestSettingsDenyGlobCanonicalized(t *testing.T) {
 	cfg := t.TempDir()
-	root, err := os.MkdirTemp(nonTempBase(), "canon") // outside the temp dirs Edit may always write
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	if root, err = filepath.Abs(root); err != nil {
-		t.Fatal(err)
-	}
+	root := scratchOutsideTemp(t) // outside the temp dirs Edit may always write
 	real := filepath.Join(paths.Real(root), "real")
 	if err := os.MkdirAll(real, 0o755); err != nil {
 		t.Fatal(err)
@@ -798,11 +791,7 @@ func canonRoot(t *testing.T) (cfg, root string) {
 	t.Helper()
 	cfg = t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir, err := os.MkdirTemp(nonTempBase(), "canon")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	dir := scratchOutsideTemp(t)
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -1014,16 +1003,23 @@ func TestMatchesProtectedWildcardPrefixRoot(t *testing.T) {
 	}
 }
 
-// nonTempBase is a writable dir outside every temp root, even when the repo and $HOME sit under one (audit, TestMain).
-func nonTempBase() string {
+// scratchOutsideTemp makes a dir outside every temp root, even when the repo and $HOME sit under one (audit, TestMain).
+func scratchOutsideTemp(t *testing.T) string {
+	t.Helper()
 	cands := []string{"."}
 	if u, err := user.Current(); err == nil {
 		cands = append([]string{filepath.Join(u.HomeDir, ".cache"), u.HomeDir}, cands...)
 	}
-	for _, dir := range cands {
-		if abs, err := filepath.Abs(dir); err == nil && !underTemp(paths.Real(abs)) && os.MkdirAll(abs, 0o755) == nil {
-			return abs
+	for _, base := range cands {
+		abs, err := filepath.Abs(base)
+		if err != nil || underTemp(paths.Real(abs)) {
+			continue
+		}
+		if dir, err := os.MkdirTemp(abs, "canon"); err == nil {
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			return dir
 		}
 	}
-	return "."
+	t.Fatalf("no writable dir outside the temp roots among %v", cands)
+	return ""
 }
