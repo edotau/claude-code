@@ -240,7 +240,7 @@ func (e *Error) typedHints(err error) *Error {
 	if errors.As(err, &sr) {
 		e.ShouldRetry = sr.ShouldRetry()
 	}
-	if e.Status == 0 && e.Kind != KindAuth && loopbackDown(err) {
+	if (e.Kind == KindTransient || e.Kind == KindFatal) && e.Status == 0 && loopbackDown(err) {
 		e.Kind, e.ProxyDown, e.Connect, e.RetryAfter = KindTransient, true, false, 0
 	}
 	if policyRefusal(err) {
@@ -266,16 +266,20 @@ func connectFailure(err error) bool {
 }
 
 var loopbackDownRE = sync.OnceValue(func() *regexp.Regexp {
-	const host = `(?:127\.\d+\.\d+\.\d+|localhost|\[::1\])`
-	const down = `connection (?:refused|reset)`
-	return regexp.MustCompile(host + `:\d+.*` + down + `|` + down + `.*` + host)
+	const host = `(?:^|[^\w.-])(?:127\.\d+\.\d+\.\d+|localhost|\[::1\]):\d+\b`
+	const down = `connection (?:refused|reset)|econn(?:refused|reset)|actively refused|forcibly closed`
+	return regexp.MustCompile(host + `[^\n]*(?:` + down + `)|(?:` + down + `)[^\n]*` + host)
 })
 
 // loopbackDown is true when err is a refused or reset connection to a loopback address (a dead local proxy).
 func loopbackDown(err error) bool {
 	if op, ok := errors.AsType[*net.OpError](err); ok {
-		if a, ok := op.Addr.(*net.TCPAddr); ok && a.IP.IsLoopback() {
-			return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+		a, isTCP := op.Addr.(*net.TCPAddr)
+		if isTCP && !a.IP.IsLoopback() {
+			return false
+		}
+		if isTCP && (errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)) {
+			return true
 		}
 	}
 	return loopbackDownRE().MatchString(strings.ToLower(err.Error()))
@@ -480,11 +484,11 @@ func proxyHop(fn func(context.Context, int) *Error) func(context.Context, int) *
 	spent := false
 	return func(ctx context.Context, attempt int) *Error {
 		e := fn(ctx, attempt)
-		if e == nil || !e.ProxyDown {
+		if e == nil || !e.ProxyDown || !e.retryable() {
 			return e
 		}
 		if spent {
-			e.Terminal = true
+			e.Kind = KindFatal
 			return e
 		}
 		spent, e.RetryNow = true, true
