@@ -59,8 +59,9 @@ func overlayShapeErr(ctx context.Context) error {
 		return nil
 	}
 	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider[:profile]
-		if _, _, err := route.Parse(v); err != nil {
-			return fmt.Errorf("%s: not an inline JSON document or provider[:profile]", route.OverlayVar)
+		p, prof, err := route.Parse(v)
+		if err != nil || (p == router.RouteDatabricks && prof != "") { // a bare databricks:<p> would read as unconfined
+			return fmt.Errorf("%s: not an inline JSON document or a bare provider", route.OverlayVar)
 		}
 		return nil
 	}
