@@ -93,6 +93,9 @@ func validateTree(c Contract, add func(string, string, ...any)) {
 	if len(c.Holders) > 2 {
 		add("holders", "%d holders: a contract is re-assigned once at most", len(c.Holders))
 	}
+	if len(c.Holders) > 0 && c.Holders[0] != c.ID {
+		add("holders", "the first holder %q is not the contract id %q", c.Holders[0], c.ID)
+	}
 	if !distinctIDs(c.Holders, "") {
 		add("holders", "%v holds an empty or repeated id", c.Holders)
 	}
