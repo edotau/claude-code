@@ -900,11 +900,12 @@ func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
 	if wrote != nil {
 		all = slices.DeleteFunc(slices.Clone(*wrote), func(p string) bool { return p == WroteTruncated })
 	}
-	for _, p := range proven {
+	all = append(all, proven...)
+	for i, p := range all {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(workDir, p)
 		}
-		all = append(all, canonPath(p))
+		all[i] = canonPath(p)
 	}
 	slices.Sort(all)
 	return capPaths(slices.Compact(all))
