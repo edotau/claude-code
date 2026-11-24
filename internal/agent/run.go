@@ -549,7 +549,7 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 }
 
 // DefaultToolsTimeout is the per-attempt deadline of a tools run without an explicit timeout.
-const DefaultToolsTimeout = 15 * time.Minute
+const DefaultToolsTimeout = 9*time.Minute + 30*time.Second
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type repickBudgetKey struct{}
