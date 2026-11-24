@@ -901,10 +901,12 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	var hits, near, closed, reopen []string
 	for _, d := range all {
 		base := strings.TrimSuffix(filepath.Base(d.path), ".md")
-		tasks, others := trailerTasks(d, worktree, id, explicit)
+		tasks, others, twins := trailerTasks(d, worktree, id, explicit)
 		near = append(near, others...)
 		// findTask is the resolver `plan task` and landing ticks use, so a trailer names the task they find
 		switch t, ok := findTask(Plan{Tasks: tasks}, id); {
+		case len(twins) > 1: // a wrong tick is worse than a refusal
+			hits = append(hits, twins...)
 		case ok && open(t):
 			hits = append(hits, base)
 		case ok:
@@ -915,7 +917,7 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	case len(hits) == 1:
 		return "Task: " + hits[0] + " " + id, nil
 	case len(hits) > 1:
-		return "", fmt.Errorf("plans: task %q is open in %s; choose one with --plan <file>", id, strings.Join(hits, " and "))
+		return "", fmt.Errorf("plans: task %q is open in %s; choose one with --plan <file> or give each a distinct id", id, strings.Join(hits, " and "))
 	case len(closed) > 0:
 		return "", fmt.Errorf("plans: task %q is already ticked or struck in %s; reopen it with `%s`", id, strings.Join(closed, ", "), strings.Join(reopen, "` or `"))
 	}
@@ -926,18 +928,22 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	return "", fmt.Errorf("plans: no open task %q in a recent or claimed plan (--plan <file> reaches any); nearest ids: %s", id, strings.Join(near[:min(5, len(near))], ", "))
 }
 
-// trailerTasks is d's tasks a trailer may name and the ids of the open ones other than id.
-func trailerTasks(d datedPlan, worktree, id string, explicit bool) (tasks []Task, near []string) {
+// trailerTasks is d's tasks a trailer may name, the open ones' other ids, and "plan:line" for each open id match.
+func trailerTasks(d datedPlan, worktree, id string, explicit bool) (tasks []Task, near, twins []string) {
+	base := strings.TrimSuffix(filepath.Base(d.path), ".md")
 	for _, t := range d.plan.Tasks {
 		if !explicit && !eligible(d.path, worktree)(t) && t.Claim == "" {
 			continue
 		}
 		tasks = append(tasks, t)
-		if open(t) && t.ID != "" && t.ID != id {
+		switch {
+		case open(t) && t.ID == id:
+			twins = append(twins, fmt.Sprintf("%s:%d", base, t.Start+1))
+		case open(t) && t.ID != "":
 			near = append(near, t.ID)
 		}
 	}
-	return tasks, near
+	return tasks, near, twins
 }
 
 func taskDistance(a, b string) int {
