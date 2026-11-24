@@ -145,7 +145,8 @@ func promoteStateChecks(ctx context.Context, repo *Repo, plan *MergePlan) error 
 
 // laneLiveCheck refuses while a dispatch job or a process has its cwd in the lane.
 func laneLiveCheck(lane string) error {
-	rec, ok, err := agent.LiveJobIn(lane)
+	self := ancestry(os.Getpid())
+	rec, ok, err := agent.LiveJobIn(lane, self)
 	if err != nil {
 		return fmt.Errorf("promote: read dispatch records: %w", err)
 	}
@@ -156,7 +157,7 @@ func laneLiveCheck(lane string) error {
 	if in == nil {
 		return nil
 	}
-	p, err := foreignProc(in, paths.CanonDeep(lane), ancestry(os.Getpid()))
+	p, err := foreignProc(in, paths.CanonDeep(lane), self)
 	if err != nil {
 		return err
 	}

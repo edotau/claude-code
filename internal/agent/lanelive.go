@@ -3,7 +3,6 @@ package agent
 import (
 	"errors"
 	"io/fs"
-	"os"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -21,12 +20,11 @@ func RecordLive(rec Record) bool {
 	return rec.PIDStart == "" || err != nil || got == rec.PIDStart // another start time is a reused pid
 }
 
-// LiveJobIn is the first running dispatch job, other than the caller's, whose tree is inside lane and is alive.
-func LiveJobIn(lane string) (Record, bool, error) {
+// LiveJobIn is the first running job outside the caller's ancestry (skip) whose tree is inside lane and is alive.
+func LiveJobIn(lane string, skip map[int]bool) (Record, bool, error) {
 	recs, err := RunningRecent(AllRecords)
 	for _, r := range recs {
-		if r.Status == "running" && r.Tree != "" && r.PID != os.Getpid() && r.PID != os.Getppid() &&
-			paths.InsideDir(r.Tree, lane) && RecordLive(r) {
+		if r.Status == "running" && r.Tree != "" && !skip[r.PID] && paths.InsideDir(r.Tree, lane) && jobLive(r) {
 			return r, true, nil
 		}
 	}
@@ -34,4 +32,12 @@ func LiveJobIn(lane string) (Record, bool, error) {
 		err = nil // no dispatch dir yet: no jobs
 	}
 	return Record{}, false, err
+}
+
+// jobLive is RecordLive, except a pid-less record counts as live for its first minute.
+func jobLive(r Record) bool {
+	if r.PID <= 0 {
+		return r.Alive()
+	}
+	return RecordLive(r)
 }
