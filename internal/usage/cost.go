@@ -43,17 +43,20 @@ var listPrices = func() listLookup {
 		return func(string, string) (providers.Price, bool) { return providers.Price{}, false }
 	}
 	t, _ := catalog.ReadPrices()
-	return func(provider, id string) (providers.Price, bool) {
-		row, ok := t.Lookup(id)
-		if provider == "databricks" { // the serving provider's own row, never another provider's rate
-			if row, ok = t.Row(provider, "databricks-"+id); !ok {
-				row, ok = t.Row(provider, id)
-			}
-		}
-		// a tiered price needs the prompt size per request, which the ledger sums away: leave it unpriced
-		ok = ok && row.Priced && len(row.Tiers) == 0
-		return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
+	return func(provider, id string) (providers.Price, bool) { return listPriceFrom(t, provider, id) }
+}
+
+// listPriceFrom is the Databricks provider's own untiered snapshot row; any other provider stays unpriced.
+func listPriceFrom(t catalog.Prices, provider, id string) (providers.Price, bool) {
+	if provider != "databricks" {
+		return providers.Price{}, false
 	}
+	row, ok := t.Row(provider, "databricks-"+id)
+	if !ok {
+		row, ok = t.Row(provider, id)
+	}
+	ok = ok && row.Priced && len(row.Tiers) == 0
+	return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
 }
 
 // listLookup is the models.dev list price for a serving provider and a ledger model key.
