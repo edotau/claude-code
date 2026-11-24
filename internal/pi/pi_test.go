@@ -232,7 +232,7 @@ func TestAfterSystemPrompt(t *testing.T) {
 			t.Errorf("%s: argv = %v", name, p.Argv)
 		}
 	}
-	for _, tool := range strings.SplitSeq(guardTools, ",") {
+	for tool := range strings.SplitSeq(guardTools, ",") {
 		if !strings.Contains(assets.PiSystemPrompt(), tool) {
 			t.Errorf("prompt does not name registered tool %s", tool)
 		}
