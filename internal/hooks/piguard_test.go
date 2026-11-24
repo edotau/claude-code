@@ -79,18 +79,23 @@ func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
 	}
 }
 
+func saveOwnerContract(t *testing.T, id string, tokens int) {
+	t.Helper()
+	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: tokens, Leaves: 1},
+		contract.Facts{Fleet: true})
+	if c, err := c.Start(id); len(ps) > 0 || err != nil || contract.Save(c) != nil {
+		t.Fatalf("contract: %v %v", ps, err)
+	}
+}
+
 func TestPiGuardBudgetNotice(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", dir)
 	const owner, child, budget = "20261124T100000.000-pi", "20261124T100001.000-pi", 100
 	t.Setenv(proc.DispatchIDEnv, owner)
-	c, ps := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
-		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Tokens: budget, Leaves: 1},
-		contract.Facts{Fleet: true})
-	if c, err := c.Start(owner); len(ps) > 0 || err != nil || contract.Save(c) != nil {
-		t.Fatalf("contract: %v %v", ps, err)
-	}
+	saveOwnerContract(t, owner, budget)
 	at := time.Now().Add(-time.Minute)
 	save := func(id, parent string, tokens int) {
 		r := agent.Record{ID: id, Time: at, Agent: "pi", Status: "ok", Parent: parent, Usage: &wire.Usage{OutputTokens: tokens}}
@@ -107,6 +112,14 @@ func TestPiGuardBudgetNotice(t *testing.T) {
 	save("20261124T100002.000-pi", child, budget/2)
 	if v := judgePi(bash); !v.Allow || v.Notice != contract.BudgetNotice {
 		t.Errorf("tokens past the limit: bash = %+v, want the notice", v)
+	}
+	const holder = "20261124T100009.000-pi"
+	if _, err := contract.Update(owner, func(c contract.Contract) (contract.Contract, error) { return c.Reassign(holder) }); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(proc.DispatchIDEnv, holder)
+	if v := judgePi(bash); v.Notice != contract.BudgetNotice {
+		t.Errorf("re-assigned holder: bash = %+v, want the notice", v)
 	}
 }
 

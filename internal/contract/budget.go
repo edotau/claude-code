@@ -13,7 +13,7 @@ var budgets = map[Kind]Limits{
 	KindTask:       {Tokens: MaxTokens, Leaves: MaxLeaves},
 }
 
-// LimitsFor is the limits a contract of kind held by role opens with; a non-zero field of spec overrides the default.
+// LimitsFor is the limits a contract of kind held by role opens with; spec's non-zero tokens or leaves override.
 func LimitsFor(kind Kind, role Role, spec Limits) Limits {
 	l := budgets[kind]
 	if spec.Tokens != 0 {
@@ -53,7 +53,7 @@ func SpentOf(c Contract, uses []Use) Spent {
 func subtree(roots []string, uses []Use) map[string]bool {
 	in := map[string]bool{}
 	for _, r := range roots {
-		in[r] = true
+		in[r] = r != "" // an empty root would adopt every parentless record
 	}
 	for grew := true; grew; { // parents may be listed after children, so repeat until no new member joins
 		grew = false

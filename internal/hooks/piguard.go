@@ -13,9 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -94,11 +92,7 @@ func piBudget() (leaves, tokens bool) {
 	if !ok || c.Owner.Role != contract.RoleOwner {
 		return false, false
 	}
-	rec, err := agent.LoadRecord(c.ID)
-	if err != nil {
-		return false, false // a notice only: an unreadable record never blocks
-	}
-	s := contract.SpentOf(c, dispatchUses(rec.Time))
+	s := contract.SpentOf(c, dispatchUses(c.ID))
 	return c.LeavesSpent(s), c.TokensSpent(s)
 }
 
@@ -122,7 +116,6 @@ func heldContract(id string) (contract.Contract, bool) {
 // budgetRecord is the part of a dispatch record the budget sums; the rest of the record is never decoded.
 type budgetRecord struct {
 	ID       string      `json:"id"`
-	Time     time.Time   `json:"time"`
 	Parent   string      `json:"parent"`
 	Usage    *wire.Usage `json:"usage"`
 	Activity *struct {
@@ -130,22 +123,23 @@ type budgetRecord struct {
 	} `json:"activity"`
 }
 
-// dispatchUses reads every dispatch record started since since, read-only: no record is reaped or rewritten.
-func dispatchUses(since time.Time) []contract.Use {
+// dispatchUses reads the dispatch records stamped no earlier than root, read-only: none is reaped or rewritten.
+func dispatchUses(root string) []contract.Use {
+	stamp, _, _ := strings.Cut(root, "-") // record names start with their start stamp and sort by it
 	dir := paths.DispatchDir()
 	ents, _ := os.ReadDir(dir) // no dir: nothing spent
 	var out []contract.Use
-	for _, e := range ents {
-		fi, err := e.Info()
-		if err != nil || !strings.HasSuffix(e.Name(), ".json") || fi.ModTime().Before(since) {
-			continue // a record is written at or after its start, so an older file is no subtree member
+	for _, e := range slices.Backward(ents) {
+		if e.Name() < stamp {
+			break // started before the root: no subtree member
 		}
-		var r budgetRecord
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err != nil || json.Unmarshal(b, &r) != nil ||
-			r.Time.Before(since) {
+		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: r.tokens()})
+		var r budgetRecord
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && json.Unmarshal(b, &r) == nil {
+			out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: r.tokens()})
+		}
 	}
 	return out
 }
