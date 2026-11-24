@@ -288,9 +288,9 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
 }
 
-// systemPrompt is the caller's own, else the harness one on a tools run (it names tools that exist only then).
+// systemPrompt is the caller's own, else the harness one on a plain tools run (codemode hides the tools it names).
 func systemPrompt(req agent.RunOptions) string {
-	if req.SystemPrompt != "" || !req.Tools {
+	if req.SystemPrompt != "" || !req.Tools || codemodeOn(req.Codemode) {
 		return req.SystemPrompt
 	}
 	return assets.PiSystemPrompt()
