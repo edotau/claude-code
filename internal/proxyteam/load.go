@@ -53,7 +53,7 @@ func Parse(def, overlay []byte) (Config, []Problem) {
 	}
 	o, err := decode(overlayFormat, overlay)
 	if err != nil {
-		return c, []Problem{{"", "overlay", err.Error()}}
+		return c, []Problem{{"", "overlay", err.Error() + overlayHint}}
 	}
 	n, replaced := len(c.Teams), map[string]bool{}
 	for _, t := range o.Teams {
@@ -64,7 +64,20 @@ func Parse(def, overlay []byte) (Config, []Problem) {
 			c.Teams = append(c.Teams, t)
 		}
 	}
-	return c, Validate(c)
+	return c, markOverlay(Validate(c), o.Teams)
+}
+
+// overlayHint names where an overlay problem comes from and how to clear it.
+const overlayHint = " (vault overlay proxy-teams; remove: claude-code vault overlay unset proxy-teams --yes)"
+
+// markOverlay tags each problem on an overlay team, or on the config as a whole, with its source.
+func markOverlay(ps []Problem, overlay []Team) []Problem {
+	for i, p := range ps {
+		if p.Team == "" || slices.ContainsFunc(overlay, func(t Team) bool { return t.Name == p.Team }) {
+			ps[i].Detail += overlayHint
+		}
+	}
+	return ps
 }
 
 // Load merges overlay into the embedded default; on a problem it returns the last good config, else the default.

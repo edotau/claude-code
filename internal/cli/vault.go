@@ -34,6 +34,7 @@ func vaultSpec() *helptext.Node {
 		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("secret")}},
 		"delete":        {Args: []func() []string{secretNames}},
 		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
+		"overlay":       {Sub: map[string]*helptext.Node{"ls": {}, "unset": {Args: []func() []string{func() []string { return vaultdoc.OverlayKeys }}, Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
@@ -50,6 +51,7 @@ var vaultPage = helptext.Page{
 		{"get", "print secrets redacted; --secret for values, --key for master"},
 		{"delete", "remove a secret"},
 		{"env", "set or unset one env value (not sealed); ls env lists"},
+		{"overlay", "list overlay keys; unset KEY removes one"},
 		{"import", "seal every NAME=value line of a .env file"},
 		{"export", "append secrets to ./.env (0600); --out for another path"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
@@ -60,7 +62,7 @@ var vaultPage = helptext.Page{
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"env": cmdVaultEnv, "import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
+	"env": cmdVaultEnv, "overlay": cmdVaultOverlay, "import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
 }
 
 // cmdVault dispatches the vault subcommands; bare `vault` lists.

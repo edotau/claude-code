@@ -474,7 +474,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	tree := specTree()
 	for verb, want := range map[string][]string{
-		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "delete", "env", "overlay", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
@@ -851,7 +851,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "configure --history diff": true, "workflow lint": true, "workflow sync": true,
-		"vault delete": true, "test ramdisk": true, "memory init": true,
+		"vault delete": true, "vault overlay ls": true, "test ramdisk": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}
