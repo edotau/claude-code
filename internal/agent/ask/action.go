@@ -142,8 +142,8 @@ func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer
 		return code
 	}
 	begin := time.Now()
-	buf, runErr := runActionChild(ctx, f, exe, actionArgv(f.action, f.actionOwn, agentName, f.model))
-	runErr = errors.Join(runErr, finishAction(&rec, buf, runErr, time.Since(begin)))
+	buf, stderr, runErr := runActionChild(ctx, f, exe, actionArgv(f.action, f.actionOwn, agentName, f.model))
+	runErr = errors.Join(runErr, finishAction(&rec, buf, stderr, runErr, time.Since(begin)))
 	return reportAction(out, f, rec, buf.String(), runErr)
 }
 
@@ -172,28 +172,25 @@ func reportAction(out io.Writer, f *askFlags, rec agent.Record, answer string, r
 }
 
 // runActionChild runs argv under --timeout; a gate run that reports a red gate in its JSON is an error too.
-func runActionChild(ctx context.Context, f *askFlags, exe string, argv []string) (*capBuffer, error) {
+func runActionChild(ctx context.Context, f *askFlags, exe string, argv []string) (stdout, stderr *capBuffer, err error) {
 	if f.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, f.timeout)
 		defer cancel()
 	}
-	buf, stderr := &capBuffer{}, &capBuffer{}
+	stdout, stderr = &capBuffer{}, &capBuffer{}
 	cmd := exec.CommandContext(ctx, exe, argv...)
-	cmd.Dir, cmd.Stdout, cmd.Stderr = f.workdir, buf, stderr
+	cmd.Dir, cmd.Stdout, cmd.Stderr = f.workdir, stdout, stderr
 	proc.TreeCancel(cmd, 0) // a timeout kills go test and other descendants too
 	cmd.WaitDelay = proc.ExecWaitDelay
-	err := cmd.Run()
-	stdout := bytes.Clone(buf.Bytes())
-	buf.cut = buf.cut || stderr.cut
-	_, _ = buf.Write(stderr.Bytes())
+	err = cmd.Run()
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ctx.Err() == nil {
-		return buf, fmt.Errorf("%s exited %d", strings.Join(argv[:min(2, len(argv))], " "), ee.ExitCode())
+		return stdout, stderr, fmt.Errorf("%s exited %d", strings.Join(argv[:min(2, len(argv))], " "), ee.ExitCode())
 	}
 	if err == nil && f.action == "gate" {
-		err = redGate(stdout)
+		err = redGate(stdout.Bytes())
 	}
-	return buf, cmp.Or(ctx.Err(), err)
+	return stdout, stderr, cmp.Or(ctx.Err(), err)
 }
 
 // redGate is an error when `worktree gate --run`'s JSON reports a nonzero exit; the verb itself always exits 0.
@@ -210,8 +207,8 @@ func redGate(out []byte) error {
 	return nil
 }
 
-// finishAction stamps the local run on rec, writes its output to the log and saves it; a save failure is returned.
-func finishAction(rec *agent.Record, buf *capBuffer, runErr error, took time.Duration) error {
+// finishAction stamps the local run on rec, logs stdout then stderr and saves it; a save failure is returned.
+func finishAction(rec *agent.Record, buf, stderr *capBuffer, runErr error, took time.Duration) error {
 	rec.Status, rec.DurationMs, rec.PID, rec.Role = wire.StatusOK, took.Milliseconds(), 0, ""
 	rec.RanRoute = route.Route{Provider: localAgent, Profile: "none"}
 	if runErr != nil {
@@ -220,11 +217,12 @@ func finishAction(rec *agent.Record, buf *capBuffer, runErr error, took time.Dur
 			rec.FailKind = agent.FailCancelled
 		}
 	}
-	if buf.cut {
-		buf.b.WriteString("\n[output cut at 1 MiB]\n")
+	logBytes := slices.Concat(buf.Bytes(), stderr.Bytes())
+	if buf.cut || stderr.cut {
+		logBytes = append(logBytes, "\n[output cut at 1 MiB]\n"...)
 	}
 	var logErr, saveErr error
-	if err := os.WriteFile(rec.LogPath(), buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(rec.LogPath(), logBytes, 0o600); err != nil {
 		logErr = fmt.Errorf("action log %s: %w", rec.LogPath(), err)
 	}
 	if err := rec.Save(); err != nil {

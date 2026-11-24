@@ -34,3 +34,10 @@ func TestWholeDeadlineCapsAttemptsAndSettle(t *testing.T) {
 		t.Errorf("attempts end %v before the settle ends, want %v", gap, settleGateTimeout)
 	}
 }
+
+func TestActionChildKeepsStderrOutOfAnswer(t *testing.T) {
+	out, errb, err := runActionChild(context.Background(), &askFlags{action: "diff"}, "sh", []string{"-c", "echo '{}'; echo noise >&2"})
+	if err != nil || out.String() != "{}\n" || errb.String() != "noise\n" {
+		t.Errorf("stdout %q stderr %q err %v, want the streams apart", out, errb, err)
+	}
+}
