@@ -265,7 +265,10 @@ func snapIDOK(id string) bool {
 		strings.IndexFunc(id, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
 }
 
-func (f *snapFold) reject(label, why string) { f.rep.Rejected = append(f.rep.Rejected, label+": "+why) }
+// reject quotes the label: snapshot text never reaches a terminal raw.
+func (f *snapFold) reject(label, why string) {
+	f.rep.Rejected = append(f.rep.Rejected, fmt.Sprintf("%q: %s", label, why))
+}
 
 func (f *snapFold) add(label, id string, raw json.RawMessage) {
 	var m *snapModel

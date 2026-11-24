@@ -54,7 +54,7 @@ func TestFoldSnapshotRejects(t *testing.T) {
 		t.Fatalf("rejected = %v, want negative-price, absurd-price, bad-limit, bad-shape, null-row", rep.Rejected)
 	}
 	for _, r := range rep.Rejected {
-		if !strings.HasPrefix(r, "other/") {
+		if !strings.HasPrefix(r, `"other/`) {
 			t.Errorf("rejection %q does not name its row", r)
 		}
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -57,6 +59,9 @@ func modelsLearn(args []string) int {
 	return printFit(next, foldPrices(now, *dry), now, *format)
 }
 
+// priceRetry is the least wait between two snapshot attempts, a failed one included.
+const priceRetry = time.Hour
+
 // foldPrices folds the snapshot into prices.json (unless dry); a failed fetch leaves it as it was, with a note.
 func foldPrices(now time.Time, dry bool) (rep *catalog.PriceReport) {
 	if dry {
@@ -72,24 +77,18 @@ func foldPrices(now time.Time, dry bool) (rep *catalog.PriceReport) {
 // foldPricesLocked is foldPrices with the table's lock already held (a dry run takes none, it writes nothing).
 func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
 	prev, err := catalog.ReadPrices()
-	if err != nil {
+	switch {
+	case errors.Is(err, schemas.ErrNewer):
+		fmt.Fprintf(os.Stderr, "models learn: %v; prices.json left as it is\n", err)
+		return nil
+	case err != nil:
 		fmt.Fprintf(os.Stderr, "models learn: %v; refetching the price snapshot\n", err)
-	} else if prev.Fresh(now) {
+	case prev.Fresh(now), !dry && !catalog.ClaimEvery("prices-attempt", priceRetry, now):
 		return nil
 	}
-	raw, err := catalog.FetchSnapshot(context.Background())
+	next, rep, err := fetchFold(prev, now)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "models learn: price snapshot unavailable (%v); prices.json unchanged\n", err)
-		return nil
-	}
-	owner, err := ownerPriced()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "models learn: owner prices unreadable (%v); prices.json unchanged\n", err)
-		return nil
-	}
-	next, rep, err := catalog.FoldSnapshot(raw, owner, prev, now)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "models learn: price snapshot ignored (%v); prices.json unchanged\n", err)
+		fmt.Fprintf(os.Stderr, "models learn: price snapshot %v; prices.json unchanged\n", err)
 		return nil
 	}
 	if !dry {
@@ -102,6 +101,23 @@ func foldPricesLocked(now time.Time, dry bool) *catalog.PriceReport {
 		fmt.Fprintf(os.Stderr, "models learn: snapshot row rejected, %s\n", r)
 	}
 	return &rep
+}
+
+// fetchFold fetches the snapshot and folds it over prev; the error says which step failed.
+func fetchFold(prev catalog.Prices, now time.Time) (catalog.Prices, catalog.PriceReport, error) {
+	raw, err := catalog.FetchSnapshot(context.Background())
+	if err != nil {
+		return catalog.Prices{}, catalog.PriceReport{}, fmt.Errorf("unavailable (%w)", err)
+	}
+	owner, err := ownerPriced()
+	if err != nil {
+		return catalog.Prices{}, catalog.PriceReport{}, fmt.Errorf("skipped, owner prices unreadable (%w)", err)
+	}
+	next, rep, err := catalog.FoldSnapshot(raw, owner, prev, now)
+	if err != nil {
+		err = fmt.Errorf("ignored (%w)", err)
+	}
+	return next, rep, err
 }
 
 // ownerPriced is the model keys a Databricks profile prices by hand (options.prices).

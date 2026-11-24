@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // An unreachable snapshot reports nothing and leaves an existing prices.json byte for byte; a reachable one fills it.
@@ -27,6 +29,12 @@ func TestFoldPricesUnreachableLeavesFile(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(catalog.PricesPath()); string(after) != string(before) {
 		t.Error("prices.json changed on an unreachable snapshot")
+	}
+	if rep := foldPrices(now, false); rep != nil {
+		t.Fatalf("retry within the hour fetched again: %+v", rep)
+	}
+	if err := os.Remove(filepath.Join(paths.StateDir(), "preflight", "prices-attempt")); err != nil {
+		t.Fatal(err)
 	}
 	catalog.FetchSnapshot = func(context.Context) ([]byte, error) {
 		return []byte(`{"p":{"models":{"m-1":{"cost":{"input":1,"output":2},"limit":{"context":10}}}}}`), nil
