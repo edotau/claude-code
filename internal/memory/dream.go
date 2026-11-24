@@ -26,6 +26,8 @@ type dreamPreview struct {
 	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
 	HookP95       []dreamBenchEntry
 	HookP95Err    error
+	RtkMisses     []rtkMiss
+	RtkErr        error
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
@@ -50,6 +52,7 @@ func (p dreamPreview) Report() string {
 		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
 	}
 	writeDreamP95(&b, p.HookP95, p.HookP95Err)
+	writeDreamRtk(&b, p.RtkMisses, p.RtkErr)
 	if !p.Any() && len(p.Unreadable) == 0 {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
 	}
@@ -67,6 +70,7 @@ func previewDream() dreamPreview {
 	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
 	p.SessionRotate = len(rotate)
 	p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
+	p.RtkMisses, p.RtkErr = readDreamRtk()
 	return p
 }
 
@@ -246,6 +250,9 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	}
 	plan := startPlanPhase(o.CWD)
 	prompt += plan.promptBlock()
+	misses, rtkErr := readDreamRtk()
+	writeDreamRtk(o.Out, misses, rtkErr)
+	prompt += rtkPromptBlock(misses)
 	defer plan.finish(o.Out)
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()

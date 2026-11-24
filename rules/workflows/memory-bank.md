@@ -225,7 +225,9 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   ticks or strikes at most 10 open tasks of week-old plans through `plan task`; Go re-checks each after the run
   (sha on trunk touching an `owns:` file, cited evidence in the store), reopens what fails and logs every verdict to
   `state/harness/memory/plans-audit.jsonl`. It never edits `rules/**`; its only
-  `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Native memory edits never touch a
+  `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Each run also feeds it the week's top
+  `rtk discover` misses (command word and first flag only; skipped if rtk fails) for one rtk candidate record.
+  Native memory edits never touch a
   `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
   Its input is the top-level, `feedback/` and `notes/` files changed since the last dream. It also rewrites
   `knowledge/feedback-candidates.md`: proposals for tool or rule changes, one JSON record per line of one `jsonl`
