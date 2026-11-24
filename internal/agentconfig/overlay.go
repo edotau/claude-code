@@ -355,7 +355,8 @@ func (o Overlay) Empty() bool {
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
-	if o.TokenCommand != nil || o.CodexNetwork || o.Cloud || o.BudgetUSD != nil || o.BudgetCredits != nil {
+	if o.TokenCommand != nil || o.CodexNetwork || o.Cloud || o.BudgetUSD != nil || o.BudgetCredits != nil ||
+		len(o.ProviderMode) > 0 {
 		return true
 	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
