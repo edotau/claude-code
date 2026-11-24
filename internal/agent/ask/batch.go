@@ -182,8 +182,8 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, err
 	}
 	t.Plan = tl.PlanTask
-	if tl.Group != "" && !batchIDRE().MatchString(tl.Group) {
-		return t, fmt.Errorf("line %d: group %q must match %s", l.N, tl.Group, batchIDRE())
+	if tl.Group != "" && !agent.ValidProxyGroup(tl.Group) {
+		return t, fmt.Errorf("line %d: group %q must be 1-64 lower-case letters, digits, . _ -, starting alphanumeric", l.N, tl.Group)
 	}
 	t.Group = tl.Group
 	seen[t.ID] = true

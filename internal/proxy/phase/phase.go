@@ -22,7 +22,7 @@ func host(ctx context.Context, id string) (string, func()) {
 	}
 	s, err := server.Open(ctx, proxy.Scope{Team: t.Name, ID: id})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ask: phase proxy %s: %v\n", id, err)
+		fmt.Fprintf(os.Stderr, "claude-code: phase proxy %s unavailable, dispatches use the shared proxy: %v\n", id, err)
 		return "", func() {}
 	}
 	return id, s.Close

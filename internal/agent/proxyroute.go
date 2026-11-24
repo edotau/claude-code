@@ -244,5 +244,8 @@ func signLocalToken(ctx context.Context, profiles []string, failover string) (st
 	return tok, nil
 }
 
+// ValidProxyGroup reports whether id can name a phase proxy scope.
+func ValidProxyGroup(id string) bool { return proxy.ValidScopePart(id) }
+
 // HostPhaseProxy opens the group team's phase proxy as scope id; internal/proxy/phase sets it, else none is hosted.
 var HostPhaseProxy = func(context.Context, string) (string, func()) { return "", func() {} }

@@ -197,6 +197,11 @@ func (r *runner) adoptLegacy(old string) {
 	r.path = old // the move failed: resume from the old file in place
 }
 
+// phaseScopeID names wave n's phase proxy: the path-keyed state dir name, so same-named plans never collide.
+func phaseScopeID(dir string, n int) string {
+	return strings.TrimLeft(filepath.Base(dir), "._-") + "-w" + strconv.Itoa(n)
+}
+
 // planSlug names a plan's state dir, reports and notices.
 func planSlug(plan string) string {
 	return paths.Slug(strings.TrimSuffix(filepath.Base(plan), filepath.Ext(plan)), "._-", 50, "plan")
@@ -288,9 +293,10 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return 0, nil
 	}
 	defer r.notify(w.Number)
-	group, closeProxy := agent.HostPhaseProxy(ctx, strings.ToLower(r.slug)+"-w"+strconv.Itoa(w.Number))
+	group, closeProxy := agent.HostPhaseProxy(ctx, phaseScopeID(r.dir, w.Number))
 	defer closeProxy()
 	r.group = group
+	defer func() { r.group = "" }()
 	_, launchErr := r.launchRounds(ctx, launch, specs, r.waits(w), func(envelopes []Envelope) error {
 		ws, err = r.record(ws, envelopes)
 		return err
