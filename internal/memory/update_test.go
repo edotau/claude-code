@@ -830,3 +830,16 @@ func TestTagBlockFiledDecisionsNeverEvictAPendingBug(t *testing.T) {
 		t.Fatalf("tagBlock = %q, want the pending BUG and no filed decision", got)
 	}
 }
+
+// TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle: date, title and id listed; "x" matches "x — why".
+func TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-20 — use X — because Y <!-- id:12345678 -->\n")
+	write(t, TagEventsPath("s5"), `{"event":"decision","text":"use X","at":"x"}`+"\n")
+	if !filedDecisions()("use X") {
+		t.Fatal("bare tag did not match its rationale title")
+	}
+	if got := filedByGoBlock("s5"); !strings.Contains(got, "- 2026-11-20 — use X — because Y (id 12345678)") {
+		t.Fatalf("filedByGoBlock = %q", got)
+	}
+}

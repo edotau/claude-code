@@ -355,6 +355,8 @@ func filedDecisions() func(text string) bool {
 		for ln := range strings.SplitSeq(string(b), "\n") {
 			if _, title, ok := strings.Cut(ln, " — "); ok && strings.HasPrefix(ln, "## ") {
 				titles[normTitle(title)] = true
+				head, _, _ := strings.Cut(title, " — ") // an entry filed as "decision — rationale" matches a bare tag
+				titles[normTitle(head)] = true
 			}
 		}
 	}
@@ -365,6 +367,45 @@ func filedDecisions() func(text string) bool {
 func normTitle(s string) string {
 	s = strings.ReplaceAll(idMarker().ReplaceAllString(s, ""), "~~", "")
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// filedByGoBlock lists the session's DECISION events as decisionLog.md entries (date, title, id); uncapped.
+func filedByGoBlock(session string) string {
+	if session == "" {
+		return ""
+	}
+	entries := decisionEntryLines()
+	var out strings.Builder
+	for _, e := range ReadTagEvents(session) {
+		if line, ok := entries[normTitle(e.Text)]; ok && e.Event == "decision" {
+			out.WriteString(line)
+			delete(entries, normTitle(e.Text))
+		}
+	}
+	if out.Len() == 0 {
+		return ""
+	}
+	return "\n\nFiled by Go (decisionLog.md entries for this session's DECISION events; not in the tag list):\n" + out.String()
+}
+
+// decisionEntryLines maps each decisionLog.md title, and its part before " — ", to a "- date — title (id x)" line.
+func decisionEntryLines() map[string]string {
+	b, _ := readFile(Path("decisionLog.md"))
+	entries := map[string]string{}
+	for ln := range strings.SplitSeq(string(b), "\n") {
+		_, title, ok := strings.Cut(ln, " — ")
+		if !ok || !strings.HasPrefix(ln, "## ") || len(ln) < 13 {
+			continue
+		}
+		id := ""
+		if m := idMarker().FindStringSubmatch(ln); m != nil {
+			id = m[1]
+		}
+		line := "- " + ln[3:13] + " — " + normTitle(title) + " (id " + id + ")\n"
+		head, _, _ := strings.Cut(title, " — ")
+		entries[normTitle(title)], entries[normTitle(head)] = line, line
+	}
+	return entries
 }
 
 // fileDecisionEvents writes each recorded DECISION event not yet in decisionLog.md; Go, not the model, owns the entry.
@@ -567,7 +608,7 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	if err != nil {
 		return errors.Join(fileErr, err)
 	}
-	prompt += o.Handoff.block
+	prompt += filedByGoBlock(o.Session) + o.Handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks

@@ -29,7 +29,9 @@ items into What Works; drop shipped items from What's Next. File every BUG tag u
 
 ## Step 4: Decisions → `decisionLog.md`
 
-Go already filed every recorded DECISION event as a dated entry; never re-add one. File each other decision of the
+Go already filed every recorded DECISION event as a dated entry, listed under "Filed by Go"; never re-add one. For
+each, Edit in a rationale line only when its entry body has none (the digest has it), and a `Supersedes <old id>.`
+line when it reverses an earlier entry. File each other decision of the
 session (a listed DECISION tag, or an untagged one the digest shows) unless decisionLog.md already has it:
 `claude-code memory remember --type project '<decision> — <rationale>'`.
 Supersede, never delete: a decision that replaces an older one carries `--supersedes <old id>` (for a Go-filed entry,
