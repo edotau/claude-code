@@ -183,8 +183,8 @@ at 118 columns. Scratch files only under an absolute `/tmp/<job>/` path, removed
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, the manager making the one integration edit. The manager owns decisions,
-integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed); the owner
-layer below is not built, so today no leaf dispatches a fleet.
+integration and commits; leaves never dispatch subagents, commit (bar the verifier's lane commit) or run the
+suite (an `ask` is allowed); the owner layer below is not built, so today no leaf dispatches a fleet.
 
 ### Phase 2: dispatch
 
@@ -215,7 +215,7 @@ limits are overlapping files, dependency order and an account's own rate limit.
 Most tasks are led by an Opus owner with a fleet on Sonnet or Haiku executing, down to one function or a test repair.
 The owner does a unit alone or sub-contracts it, and checks every leaf it dispatched. The fixed checklist (create the
 lane, confirm the dispatch did not die, lint passes with no syntax errors, an eyeball check that tests would pass, tick
-the plan, close the proxy) is performed and recorded by Go, never written by the model. Built so far: the schema and
+the plan, close the proxy) is to be performed and recorded by Go, never written by the model. Built so far: the schema and
 lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state transitions). Nothing in dispatch
 calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is no command for it and the rules above
 still bind: a fleet leaf never dispatches, and no leaf commits (bar the verifier's lane commit, step 5) or runs the
