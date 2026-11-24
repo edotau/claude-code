@@ -1450,6 +1450,8 @@ func TestTallyToolStats(t *testing.T) {
 		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "read"}, Status: "completed", DurationMs: 30},
 		{Type: wire.EventToolUse, Tool: &wire.ToolRef{Name: "read"}},
 		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "read"}, Status: "error", DurationMs: 12},
+		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell"}, Status: "failed (exit 1)"},
+		{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell"}, Status: "denied"},
 	} {
 		if err := tl.Emit(ev); err != nil {
 			t.Fatal(err)
@@ -1457,5 +1459,8 @@ func TestTallyToolStats(t *testing.T) {
 	}
 	if got, want := tl.toolStats()["read"], (ToolStat{Calls: 2, Errors: 1, Ms: 42}); got != want {
 		t.Fatalf("read stat %+v, want %+v", got, want)
+	}
+	if got := tl.toolStats()["shell"].Errors; got != 2 {
+		t.Fatalf("shell errors %d, want 2", got)
 	}
 }

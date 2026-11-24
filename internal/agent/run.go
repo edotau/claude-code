@@ -923,7 +923,7 @@ func (t *tally) addStat(ev wire.Event) {
 		s.Calls++
 	} else {
 		s.Ms += ev.DurationMs
-		if ev.Status == "error" {
+		if ev.Status != "" && !strings.HasPrefix(ev.Status, "completed") { // error, denied, "failed (exit 1)"
 			s.Errors++
 		}
 	}
