@@ -1,0 +1,59 @@
+package agent
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
+)
+
+// A databricks:<p> confinement plans no pi hop on a sibling workspace and mints no token for one.
+func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
+	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
+	open := proc.WithValues(context.Background(), proc.Values{})
+	sibs, skips, _ := piSiblings(open, reg, q, lead, q.Model)
+	if len(sibs)+len(skips) == 0 {
+		t.Fatal("fixture: an unconfined ask considers no sibling workspace")
+	}
+	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
+	if sibs, skips, why := piSiblings(armed, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
+		t.Fatalf("confined to dev, pi hops planned beyond it: hops %v, skips %v, why %q", sibs, skips, why)
+	}
+	if _, err := tokenScope(armed, "qa"); err == nil {
+		t.Fatal("confined to dev, a token for qa was scoped")
+	}
+	if got, err := tokenScope(armed, "dev"); err != nil || len(got) != 1 || got[0] != "dev" {
+		t.Fatalf("confined token scope = %v, %v; want [dev]", got, err)
+	}
+}
+
+// ledBy with no hops leaves the chain as it was instead of indexing an empty list.
+func TestLedByNoHops(t *testing.T) {
+	c := Chain{Want: "claude", Dispatches: []Dispatch{{Model: "m"}}, Preflight: &Preflight{Chosen: "x"}}
+	got := c.ledBy(nil)
+	if len(got.Dispatches) != 1 || got.Preflight.Chosen != "x" {
+		t.Fatalf("ledBy(nil) = %+v", got)
+	}
+}
+
+// The inner line of a --carry runs the carried agent's own CLI; Pi keeps the takeover.
+func TestPiRunnerBarredForCarriedChild(t *testing.T) {
+	setConfigDir(t)
+	rec := NewRecord("codex", RunOptions{Carry: true, Prompt: "the task"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: rec.ID})
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); !strings.Contains(why, "carried") {
+		t.Fatalf("carried codex child: barred = %q, want the carried reason", why)
+	}
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "gemini"}); why != "" {
+		t.Fatalf("another agent under a codex carrier is barred: %q", why)
+	}
+}
