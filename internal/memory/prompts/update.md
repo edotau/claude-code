@@ -38,6 +38,15 @@ at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersed
 Append genuinely NEW recurring patterns or user preferences (imperative, one bullet each; NOTE tags land here or in
 progress). No platitudes; nothing already in CLAUDE.md or `rules/` (point there instead).
 
+Prefer non-obvious discoveries, each with the paths it applies to:
+
+- Coupled files: a change in one silently requires a change in another.
+- Hidden execution paths: what really runs (a hook, a generated file, a wrapper) differs from what the code shows.
+- Misleading errors: the message points away from the real cause; record the cause.
+- Verified workarounds: a tool quirk and the fix that worked this session.
+
+Omit standard language or framework behavior.
+
 ## Rules
 
 Edit bank files with Edit/Write only; Bash is read-only: no `printf >>`, heredocs or Python writes.

@@ -35,12 +35,14 @@ func TestRunSimplifyFailRetiredNames(t *testing.T) {
 		{
 			"added tag",
 			"type New struct { Name string `json:\"modelTier,omitempty\"` }\n",
-			"fx.go:6: advisory: retired word \"tier\" in json tag \"modelTier\" (use model alias)\n",
+			"fx.go:6: advisory: retired word \"tier\" in json tag \"modelTier\" (use model alias): " +
+				"A model selector names an alias; tier bucket remains the exception for an ordered Databricks list.\n",
 		},
 		{
 			"added flag",
 			"func flags() {\n fs := helptext.NewFlagSet(\"test\", helptext.Page{})\n fs.String(\"runner-name\", \"\", \"\")\n}\n",
-			"fx.go:8: advisory: retired word \"runner\" in flag \"runner-name\" (use agent)\n",
+			"fx.go:8: advisory: retired word \"runner\" in flag \"runner-name\" (use agent): " +
+				"The CLI doing the work is an agent, separate from the provider hosting its endpoint.\n",
 		},
 		{
 			"nonsegment and exception",
@@ -56,6 +58,31 @@ func TestRunSimplifyFailRetiredNames(t *testing.T) {
 				t.Fatalf("exit %d, output %q; want exit 0, output %q", code, out, want)
 			}
 		})
+	}
+}
+
+func TestRetiredWordsMetadata(t *testing.T) {
+	v := retiredWords()
+	want := map[string]string{
+		"runner": "agent", "vendor": "agent", "slot": "model alias",
+		"tier": "model alias", "leg": "dispatch", "family": "provider",
+	}
+	if len(v.Words) != len(want) {
+		t.Fatalf("got %d retired words, want %d", len(v.Words), len(want))
+	}
+	for word, use := range want {
+		rule := v.Words[word]
+		if rule.Use != use || strings.TrimSpace(rule.Why) == "" || strings.TrimSpace(rule.Source) == "" {
+			t.Errorf("%s: incomplete metadata or wrong replacement: %+v", word, rule)
+		}
+		advice := appendNamingAdvice(nil, 1, "flag", word+"-"+word)
+		if len(advice) != 1 {
+			t.Errorf("%s: got %d advisories, want 1", word, len(advice))
+			continue
+		}
+		if got := advice[0].message("fx.go"); !strings.HasSuffix(got, ": "+rule.Why) {
+			t.Errorf("%s: advisory omitted rationale: %q", word, got)
+		}
 	}
 }
 

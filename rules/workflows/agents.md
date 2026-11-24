@@ -72,6 +72,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 
 - **Agent file** = who (a role reused across sessions); **skill** = how (a procedure named in a brief's `Method:`);
   **brief** = this task. A one-off role is a brief to `claude`, never a new file.
+- **Skill file:** start from `docs/templates/skill.md`; one home per procedure, heavy reference in `references/`.
 - **Split** a role only when its expertise, tool grant or authority differs (`Explore` vs `claude`)
   or several shapes reuse it; **merge** files that differ only in task wording. A role that only picks another agent
   belongs in a direct carried ask (Pi plain); saved workflow stages run on `claude`.

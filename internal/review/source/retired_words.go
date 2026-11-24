@@ -27,17 +27,24 @@ var retiredWords = sync.OnceValue(func() vocabulary {
 })
 
 type vocabulary struct {
-	Words      map[string]string
+	Words      map[string]retiredWord
 	Exceptions map[string][]string
 }
 
+type retiredWord struct {
+	Use    string `json:"use"`
+	Why    string `json:"why"`
+	Source string `json:"source"`
+}
+
 type namingAdvisory struct {
-	line                     int
-	surface, name, word, use string
+	line                          int
+	surface, name, word, use, why string
 }
 
 func (a namingAdvisory) message(path string) string {
-	return fmt.Sprintf("%s:%d: advisory: retired word %q in %s %q (use %s)", path, a.line, a.word, a.surface, a.name, a.use)
+	return fmt.Sprintf("%s:%d: advisory: retired word %q in %s %q (use %s): %s",
+		path, a.line, a.word, a.surface, a.name, a.use, a.why)
 }
 
 func nameSegments(name string) iter.Seq[string] {
@@ -73,11 +80,11 @@ func appendNamingAdvice(out []namingAdvisory, line int, surface, name string) []
 	start := len(out)
 	for s := range nameSegments(name) {
 		word := strings.ToLower(s)
-		use, ok := v.Words[word]
+		rule, ok := v.Words[word]
 		if !ok || slices.Contains(v.Exceptions[word], name) {
 			continue
 		}
-		a := namingAdvisory{line: line, surface: surface, name: name, word: word, use: use}
+		a := namingAdvisory{line: line, surface: surface, name: name, word: word, use: rule.Use, why: rule.Why}
 		if !slices.Contains(out[start:], a) {
 			out = append(out, a)
 		}
