@@ -496,6 +496,9 @@ func firstLine(s string) string {
 // Oversized event lines are dropped whole so an unfinished tool dump cannot grow the reader without bound.
 const paneLineBytes = 1 << 20
 
+// oversizeMark stands in for a dropped line, so a large result still shows that the job answered.
+var oversizeMark = []byte(`{"type":"text","sep":true,"text":"[an event over 1 MiB is not shown here; agents result prints it]"}`)
+
 // paneFeed is the pane's one reader goroutine; the UI loop only drains its ring of complete lines.
 type paneFeed struct {
 	ctx     context.Context
@@ -555,11 +558,13 @@ func (p *paneFeed) push(b []byte, complete bool) {
 	if !complete {
 		return
 	}
-	if !p.discard {
-		p.pending[p.next] = p.partial
-		p.next = (p.next + 1) % tailKeep
-		p.count = min(p.count+1, tailKeep)
+	line := p.partial
+	if p.discard {
+		line = oversizeMark
 	}
+	p.pending[p.next] = line
+	p.next = (p.next + 1) % tailKeep
+	p.count = min(p.count+1, tailKeep)
 	p.partial, p.discard = nil, false
 }
 
@@ -617,9 +622,11 @@ func (f *paneFeeds) close() {
 
 // paneDrain feeds each view the lines read since the last frame; the raw view settles once its log ended.
 func paneDrain(ps paneSet, f *paneFeeds) paneSet {
+	evEnded := f.ev.finished() // checked before the drain, so the last lines are never missed
 	for _, l := range f.ev.drain() {
 		ps.ev = paneOnLine(ps.ev, l)
 	}
+	ps.ev.live = ps.ev.live && !evEnded
 	if f.raw != nil {
 		ended := f.raw.finished() // checked before the drain, so the last lines are never missed
 		for _, l := range f.raw.drain() {
