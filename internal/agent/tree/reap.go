@@ -122,22 +122,49 @@ func holderLost(id string) bool {
 	return err == nil && (rec.Status == "lost" || rec.Status == "error" && strings.HasPrefix(rec.Error, agent.LostError))
 }
 
-// queueFailedLane queues a failed contract's lane, left in place, marked failed.
+// queueFailedLane queues a failed contract's kept lane marked failed; a lane that is gone has nothing to queue.
 func queueFailedLane(c contract.Contract) error {
 	rec, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
 	if err != nil || rec.Repo == "" {
-		return fmt.Errorf("lane %s not queued: owner record has no repo", c.Scope.Lane)
+		return nil
 	}
-	lane := filepath.Join(worktree.Root(rec.Repo), c.Scope.Lane)
+	lane := laneDir(rec.Repo, c.Scope.Lane)
+	if lane == "" {
+		return nil
+	}
 	return worktree.Enqueue(worktree.QueuedLane{Lane: lane, Repo: rec.Repo, Task: c.Scope.PlanTask,
 		Reason: "contract failed: owner-dead", Detail: "contract " + c.ID + ": the owner's process is gone; lane kept",
 		Next: "claude-code worktree merge " + c.Scope.Lane + " after reviewing it, or worktree clean " + c.Scope.Lane})
 }
 
-// reapContracts fails or re-assigns the contracts of lost owners; a dry run does nothing and reports 0.
+// laneDir is the existing directory of lane under repo's worktree root or its legacy root, "" when neither has it.
+func laneDir(repo, lane string) string {
+	roots := []string{worktree.Root(repo)}
+	if r, err := worktree.ResolveRepo(repo); err == nil {
+		roots = append(roots, r.Root, r.Legacy)
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(root, lane)); err == nil && fi.IsDir() {
+			return filepath.Join(root, lane)
+		}
+	}
+	return ""
+}
+
+// reapContracts fails or re-assigns the contracts of lost owners; a dry run only lists them.
 func reapContracts(dryRun bool, out, errw io.Writer) (int, int) {
 	if dryRun {
-		return 0, 0
+		orphans, err := contract.Orphans(ContractEnv())
+		for _, c := range orphans {
+			fmt.Fprintf(out, "would reap contract %s (holder %s lost)\n", c.ID, c.Holders[len(c.Holders)-1])
+		}
+		if err != nil {
+			fmt.Fprintln(errw, "agents cancel --lost: contracts:", err)
+		}
+		return len(orphans), 0
 	}
 	done, err := contract.Reap(ContractEnv())
 	for _, r := range done {

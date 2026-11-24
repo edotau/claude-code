@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -20,6 +21,21 @@ func TestReapFailsLostOwnerOnceAndQueues(t *testing.T) {
 	}
 	if again, _ := Reap(env); len(again) != 0 {
 		t.Fatalf("second Reap acted on %v; want nothing", again)
+	}
+}
+
+func TestReapQueueErrorLeavesContractWorking(t *testing.T) {
+	c := savedWorking(t)
+	c.Scope.Lane = "lane-a"
+	if _, err := Update("d-1", func(Contract) (Contract, error) { return c, nil }); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{Lost: func(string) bool { return true }, Queue: func(Contract) error { return os.ErrPermission }}
+	if got, err := Reap(env); err == nil || len(got) != 0 {
+		t.Fatalf("Reap = %v, %v; want an error and nothing reaped", got, err)
+	}
+	if got, _ := Load("d-1"); got.State() != StateWorking {
+		t.Fatalf("state %v; want working so the next pass retries", got.State())
 	}
 }
 

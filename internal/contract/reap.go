@@ -20,19 +20,13 @@ type Reaped struct{ ID, Action, Holder string }
 
 // Reap re-assigns once, else fails owner-dead, each working contract whose holder is lost; its lane is queued failed.
 func Reap(env Env) ([]Reaped, error) {
-	pending, err := Pending()
+	orphans, err := Orphans(env)
 	errs := []error{err}
 	var out []Reaped
-	for _, c := range pending {
-		if !orphaned(c, env) {
-			continue
-		}
-		r, failed, err := reapOne(c.ID, env)
+	for _, c := range orphans {
+		r, err := reapOne(c.ID, env)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("contract %s: %w", c.ID, err))
-		}
-		if r.Action == "failed" && env.Queue != nil && failed.Scope.Lane != "" {
-			errs = append(errs, env.Queue(failed))
 		}
 		if r.Action != "" {
 			out = append(out, r)
@@ -41,13 +35,19 @@ func Reap(env Env) ([]Reaped, error) {
 	return out, errors.Join(errs...)
 }
 
+// Orphans lists the working contracts whose current holder's dispatch is lost, without changing anything.
+func Orphans(env Env) ([]Contract, error) {
+	pending, err := Pending()
+	return slices.DeleteFunc(pending, func(c Contract) bool { return !orphaned(c, env) }), err
+}
+
 // orphaned reports whether c is working and its current holder's dispatch is lost.
 func orphaned(c Contract, env Env) bool {
 	return c.State() == StateWorking && len(c.Holders) > 0 && env.Lost != nil && env.Lost(c.Holders[len(c.Holders)-1])
 }
 
-// reapOne settles id under its lock, re-checking the holder there; Action is empty when nothing changed.
-func reapOne(id string, env Env) (r Reaped, failed Contract, err error) {
+// reapOne settles id under its lock; a failure is queued before it is saved, so a queue error retries next pass.
+func reapOne(id string, env Env) (r Reaped, err error) {
 	_, err = Update(id, func(c Contract) (Contract, error) {
 		if !orphaned(c, env) {
 			return c, nil
@@ -58,12 +58,21 @@ func reapOne(id string, env Env) (r Reaped, failed Contract, err error) {
 			return n, nil
 		}
 		n, err := c.Fail(ReasonOwnerDead)
-		if err == nil {
-			r.Action, failed = "failed", n
+		if err != nil {
+			return c, err
 		}
-		return n, err
+		if env.Queue != nil && n.Scope.Lane != "" {
+			if err := env.Queue(n); err != nil {
+				return c, err
+			}
+		}
+		r.Action = "failed"
+		return n, nil
 	})
-	return r, failed, err
+	if err != nil {
+		r.Action = ""
+	}
+	return r, err
 }
 
 // reassign hands c to its successor when it has not been re-assigned yet and one exists.
