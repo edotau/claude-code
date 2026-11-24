@@ -12,6 +12,7 @@ import (
 )
 
 func TestReviewHandback(t *testing.T) {
+	const noLine = "The leaf report has no UNFIXED line; read it and fix anything left before reporting."
 	const fix = "Fix these now; do not relay them to the owner as questions:\n"
 	for _, c := range []struct{ name, report, want string }{
 		{"none", "DONE.\nUNFIXED: none", ""},
@@ -19,7 +20,10 @@ func TestReviewHandback(t *testing.T) {
 		{"list", "DONE.\nUNFIXED: parser leak", fix + "- parser leak"},
 		{"items", "UNFIXED: parser leak; race in api.go", fix + "- parser leak\n- race in api.go"},
 		{"last line wins", "UNFIXED: old\nmore\nUNFIXED: none", ""},
-		{"no line", "DONE. Left as-is: naming.", "The leaf report has no UNFIXED line; read it and fix anything left before reporting."},
+		{"empty footer", "UNFIXED: race\nUNFIXED:", noLine},
+		{"blank items", "UNFIXED: ; ;", noLine},
+		{"overflow", "UNFIXED: " + strings.Repeat("x;", 14), fix + strings.Repeat("- x\n", 12) + "- and 2 more: read the full UNFIXED line"},
+		{"no line", "DONE. Left as-is: naming.", noLine},
 	} {
 		in := core.ParseInput(strings.NewReader(`{"tool_name":"Agent","tool_response":{"content":[{"type":"text","text":` +
 			jsonStr(c.report) + `}],"prompt":"UNFIXED: echoed"}}`))
@@ -96,6 +100,10 @@ func TestReviewDecide(t *testing.T) {
 		{"shall i", []string{user, text("Shall I fix the LOW findings?")}, false, true},
 		{"quoted question", []string{user, text("I will never ask \u2018want me to fix it?\u2019 again.")}, false, false},
 		{"blockquote", []string{user, text("> Want me to fix the LOW findings?\nDONE.")}, false, false},
+		{"fixture question", []string{user, transcriptAsk("Which fixture should the example use?", "")}, false, false},
+		{"tilde fence", []string{user, text("~~~\nWant me to fix it?\n~~~\nDONE.")}, false, false},
+		{"indented code", []string{user, text("Example:\n    Want me to fix it?\nDONE.")}, false, false},
+		{"multiline quote", []string{user, text("He said \"ok.\nWant me to fix it?\" done.")}, false, false},
 		{"unrelated result", []string{user, askID, otherUse, otherResult}, false, true},
 		{"option description", []string{user, transcriptAsk("Which editor should I open?", "Quick fixes")}, false, false},
 	} {

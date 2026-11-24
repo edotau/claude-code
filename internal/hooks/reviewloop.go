@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -27,23 +29,30 @@ func ReviewHandback(in *core.Input) core.Result {
 	if strings.TrimSpace(report) == "" {
 		return core.Result{} // a prompt that is not a notification, or an empty response
 	}
+	const noLine = "The leaf report has no UNFIXED line; read it and fix anything left before reporting."
 	m := unfixedLine.FindAllStringSubmatch(report, -1)
 	if len(m) == 0 {
-		return core.Result{Context: "The leaf report has no UNFIXED line; read it and fix anything left before reporting."}
+		return core.Result{Context: noLine}
 	}
 	var items []string
 	for it := range strings.SplitSeq(strings.Trim(m[len(m)-1][1], " \t*_`"), ";") {
-		if it = strings.TrimSpace(it); it != "" && len(items) < maxHandbackItems {
+		if it = strings.TrimSpace(it); it != "" {
 			items = append(items, "- "+it)
 		}
 	}
-	if len(items) == 0 || (len(items) == 1 && strings.EqualFold(strings.Trim(items[0], "-. *_`"), "none")) {
+	if len(items) == 0 {
+		return core.Result{Context: noLine} // an empty footer is not a clean one
+	}
+	if len(items) == 1 && strings.EqualFold(strings.Trim(items[0], "-. *_`"), "none") {
 		return core.Result{}
+	}
+	if extra := len(items) - maxHandbackItems; extra > 0 {
+		items = append(items[:maxHandbackItems], "- and "+strconv.Itoa(extra)+" more: read the full UNFIXED line")
 	}
 	return core.Result{Context: "Fix these now; do not relay them to the owner as questions:\n" + strings.Join(items, "\n")}
 }
 
-// responseStrings is every string in a tool response except the echoed prompt, in document order.
+// responseStrings is every string in a tool response except the echoed prompt, in key-sorted order.
 func responseStrings(v any, out []string) []string {
 	switch v := v.(type) {
 	case string:
@@ -53,9 +62,9 @@ func responseStrings(v any, out []string) []string {
 			out = responseStrings(e, out)
 		}
 	case map[string]any:
-		for k, e := range v {
+		for _, k := range slices.Sorted(maps.Keys(v)) {
 			if k != "prompt" {
-				out = responseStrings(e, out)
+				out = responseStrings(v[k], out)
 			}
 		}
 	}
@@ -63,9 +72,9 @@ func responseStrings(v any, out []string) []string {
 }
 
 var (
-	askTopic = regexp.MustCompile(`(?i)\bfix|\bfinding|\breview`)
+	askTopic = regexp.MustCompile(`(?i)\b(?:fix(?:es|ed|ing)?|findings?|reviews?)\b`)
 	askFix   = regexp.MustCompile(`(?i)\b(?:want me to|should i|shall i|would you like me to|do you want me to) fix\b`)
-	quoted   = regexp.MustCompile("(?s)```.*?```|(?m:^\\s*>.*$)|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"\\n]*\"|(?:^|[\\s(])'[^'\\n]*'")
+	quoted   = regexp.MustCompile("(?s)```.*?```|~~~.*?~~~|(?m:^(?: {4}|\\t).*$)|(?m:^\\s*>.*$)|`[^`\\n]*`|“[^”]*”|‘[^’]*’|\"[^\"]*\"|(?:^|[\\s(])'[^'\\n]*'")
 )
 
 const decideReason = "Decide and act: the owner's standing rule is that decisions are made now, not asked (R28)"
