@@ -324,7 +324,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc; fi ;; \
 	js) $(BIN) workflow lint ;; \
-	settings) $(BIN) configure --fmt $(if $(filter 1,$(CHECK)),--check) ;; \
+	settings) $(BIN) configure --fmt ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 	@$(if $(filter help,$*),$(MAKE) --no-print-directory help-check)

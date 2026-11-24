@@ -80,11 +80,11 @@ func format(data []byte) ([]byte, string, error) {
 	return out, path, err
 }
 
-// FormatFile rewrites file with Format when its bytes differ and reports whether it did.
-func FormatFile(file string) (changed bool, err error) {
+// FormatFile rewrites file with Format when its bytes differ, after backing it up; backup is "" when nothing changed.
+func FormatFile(file string) (backup string, err error) {
 	file, err = filepath.EvalSymlinks(file)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	err = paths.WithFileLock(file, func() error {
 		data, err := os.ReadFile(file)
@@ -102,10 +102,12 @@ func FormatFile(file string) (changed bool, err error) {
 		if err != nil {
 			return err
 		}
-		changed = true
+		if backup, err = paths.Backup(file, data); err != nil {
+			return err
+		}
 		return paths.AtomicWrite(file, out, fi.Mode().Perm())
 	})
-	return changed && err == nil, err
+	return backup, err
 }
 
 // Unformatted names the first path where data differs from its Format, "" when it is already formatted.

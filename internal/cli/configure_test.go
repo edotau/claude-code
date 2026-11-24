@@ -454,3 +454,35 @@ func TestConfigureAgentsNamedOnlyActsOnThatAgent(t *testing.T) {
 		t.Errorf("two names: exit %d, want 1", code)
 	}
 }
+
+// TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck: --fmt fixes the live order; bad files and --check still fail.
+func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
+	live := filepath.Join(resetEnv(t), "settings.json")
+	const bad = `{"model":"m","env":{"B":"1","A":"2"},"$schema":"https://json.schemastore.org/claude-code-settings.json"}`
+	exit := func(args ...string) (int, string) {
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
+		return code, stdout
+	}
+	if err := os.WriteFile(live, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := exit("--fmt", "--check"); code != 1 {
+		t.Fatalf("--fmt --check on out-of-order file exit %d, want 1", code)
+	}
+	code, stdout := exit("--fmt")
+	_, bk, _ := strings.Cut(strings.TrimSpace(stdout), "backup at ")
+	if old, err := os.ReadFile(bk); code != 0 || err != nil || string(old) != bad {
+		t.Fatalf("--fmt exit %d, backup %q (err %v):\n%s", code, bk, err, stdout)
+	}
+	if code, _ := exit("--fmt", "--check"); code != 0 {
+		t.Errorf("still out of order after --fmt, exit %d", code)
+	}
+	if err := os.WriteFile(live, []byte(`{"model":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _ = exit("--fmt")
+	got, _ := os.ReadFile(live)
+	if code == 0 || string(got) != `{"model":` {
+		t.Errorf("unparsable file: exit %d, content %q", code, got)
+	}
+}

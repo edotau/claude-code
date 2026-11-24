@@ -314,12 +314,12 @@ func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
 		fmt.Fprintf(os.Stdout, "%s: already formatted\n", file)
 		return 0
 	}
-	changed, err := settings.FormatFile(file)
+	backup, err := settings.FormatFile(file)
 	if err != nil {
 		return helptext.Fail("configure --fmt: %v", err)
 	}
-	if changed {
-		fmt.Fprintf(os.Stdout, "%s: formatted\n", file)
+	if backup != "" {
+		fmt.Fprintf(os.Stdout, "%s: reordered to schema order; backup at %s\n", file, backup)
 	} else {
 		fmt.Fprintf(os.Stdout, "%s: already formatted\n", file)
 	}

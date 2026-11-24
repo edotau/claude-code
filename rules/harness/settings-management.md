@@ -8,6 +8,9 @@ paths:
 
 `~/.claude/settings.json` ownership and reset: `CLAUDE.md` hard rule 1.
 
+The lint step (`configure --fmt`) reorders the live file's keys to schemastore order: order only, backup kept under
+`state/harness/backups/`; nothing else writes it. An explicit `--fmt --check --out <file>` stays strict.
+
 | To… | Run |
 | --- | --- |
 | Change permissions / env / statusLine / hooks | edit `~/.claude/settings.json` by hand, then `claude-code doctor` (`settings.json: valid`) |
