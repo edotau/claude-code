@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -267,7 +268,20 @@ func scopedProxyBase(raw string) bool {
 		return false
 	}
 	scopes, _ := listScopes()
-	return slices.ContainsFunc(scopes, func(sc proxy.Scope) bool { return sc.Port != 0 && u.Port() == strconv.Itoa(sc.Port) })
+	return slices.ContainsFunc(scopes, func(sc proxy.Scope) bool { return sc.Port != 0 && u.Port() == strconv.Itoa(sc.Port) && scopeAlive(sc) })
+}
+
+// scopeAlive: the recorded pid must still be the proxy (same start time) and its port must accept a connection.
+func scopeAlive(sc proxy.Scope) bool {
+	start, err := proc.StartTime(sc.PID)
+	if err != nil || start != sc.Start {
+		return false
+	}
+	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sc.Port)), 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	return c.Close() == nil
 }
 
 // listScopes is the scope records; tests swap it so no real state is read.

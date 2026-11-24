@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -505,14 +506,28 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 
 // A nested claude whose shell base is a scoped proxy (not the shared port) keeps its credential.
 func TestKeepShellEndpointScopedProxyBaseKeepsCredential(t *testing.T) {
-	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:19999/p/qa")
 	orig := listScopes
-	listScopes = func() ([]proxy.Scope, error) { return []proxy.Scope{{Port: 19999}}, nil }
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	t.Setenv("ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d/p/qa", port))
+	start, _ := proc.StartTime(os.Getpid())
+	listScopes = func() ([]proxy.Scope, error) { return []proxy.Scope{{Port: port, PID: os.Getpid(), Start: start}}, nil }
 	t.Cleanup(func() { listScopes = orig })
 	plan := agent.Plan{Set: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/qa"}}
 	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if plan.ForeignBase || plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] != "tok" {
 		t.Errorf("scoped base dropped credential: foreign=%v set=%v", plan.ForeignBase, plan.Set)
+	}
+	if scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: "other"}) || scopeAlive(proxy.Scope{Port: port, PID: 1 << 30}) {
+		t.Error("a changed start time or unprobeable pid must read as stale")
+	}
+	ln.Close()
+	if scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: start}) {
+		t.Error("a closed listener must read as stale")
 	}
 }
 
