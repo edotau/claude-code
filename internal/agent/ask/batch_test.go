@@ -169,3 +169,14 @@ func TestBatchRejectsUnknownProvider(t *testing.T) {
 		t.Fatalf("exit %d, want 2 naming the provider with no envelopes\nstdout: %s\nstderr: %s", code, out, stderr)
 	}
 }
+
+// A line's runner joins an inherited overlay document and keeps its other keys.
+func TestWithRunnerKeepsInheritedKeys(t *testing.T) {
+	got := withRunner(`{"effort":"high"}`, "pi")
+	if !strings.Contains(got, `"effort":"high"`) || !strings.Contains(got, `"runner":"pi"`) {
+		t.Fatalf("withRunner = %s, want effort and runner", got)
+	}
+	if got := withRunner("", "own"); got != `{"runner":"own"}` {
+		t.Fatalf("withRunner(empty) = %s", got)
+	}
+}
