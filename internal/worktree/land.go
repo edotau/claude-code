@@ -59,7 +59,7 @@ func refuseHiddenEdits(ctx context.Context, main, from, to string) error {
 	if err != nil {
 		return fmt.Errorf("git ls-files in %s: %w", main, err)
 	}
-	for _, rec := range strings.Split(string(out), "\x00") {
+	for _, rec := range strings.SplitSeq(string(out), "\x00") {
 		if tag, path, ok := strings.Cut(rec, " "); ok && !strings.Contains("HMRCK", tag) {
 			return fmt.Errorf("%s is marked assume-unchanged or skip-worktree in the live tree; nothing changed: %w", path, ErrLandRefused)
 		}
