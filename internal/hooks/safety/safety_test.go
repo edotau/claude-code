@@ -1002,3 +1002,13 @@ func BenchmarkScan(b *testing.B) {
 		}
 	})
 }
+
+// A `dir/**` deny whose prefix holds a wildcard also blocks the matched directory itself.
+func TestMatchesProtectedWildcardPrefixRoot(t *testing.T) {
+	globs := []string{"/repo/a*/**"}
+	for path, want := range map[string]bool{"/repo/abc": true, "/repo/abc/f": true, "/repo/xbc": false} {
+		if got := matchesProtected(path, globs); got != want {
+			t.Errorf("matchesProtected(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

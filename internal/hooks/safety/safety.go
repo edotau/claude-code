@@ -516,6 +516,6 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 func matchesProtected(abs string, globs []string) bool {
 	abs = paths.FoldCase(paths.CleanGlob(abs))
 	return slices.ContainsFunc(globs, func(g string) bool {
-		return paths.GlobMatch(g, abs) || strings.HasSuffix(g, "/**") && abs == paths.UnescapeGlob(strings.TrimSuffix(g, "/**"))
+		return paths.GlobMatch(g, abs) || strings.HasSuffix(g, "/**") && paths.GlobMatch(strings.TrimSuffix(g, "/**"), abs)
 	})
 }
