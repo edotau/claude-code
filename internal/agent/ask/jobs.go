@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -38,7 +39,7 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
 	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail(prefix, rows)
+		return helptext.WriteJSONOrFail(prefix, statusRows(prefix, rows))
 	}
 	if len(rows) == 0 && empty != "" {
 		fmt.Println(empty)
@@ -47,6 +48,20 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Detail())
 	}
 	return 0
+}
+
+// statusRows adds each row's contract view; a contract that fails to load is noted and left off.
+func statusRows(prefix string, rows []agent.Row) []inspect.StatusRow {
+	out := make([]inspect.StatusRow, len(rows))
+	for i, r := range rows {
+		out[i].Row = r
+		c, err := inspect.ContractOf(r.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: contract %s: %v\n", prefix, r.ID, err)
+		}
+		out[i].Contract = c
+	}
+	return out
 }
 
 // jobRows is agent.Status plus the harness's jobs from another repo, and every repo's from outside any repo.
