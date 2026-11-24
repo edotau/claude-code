@@ -1368,3 +1368,15 @@ func TestLeafDenialProvenance(t *testing.T) {
 		})
 	}
 }
+
+func TestHeldJobsKeptInState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	run := agent.Record{ID: "j1", Time: time.Now(), Status: "running", PID: os.Getpid()}
+	saveHeldJob("a1", leafRead{recs: []agent.Record{run}})
+	saveHeldJob("a1", leafRead{recs: []agent.Record{run}})
+	var s leafScan
+	s.addHeldIDs(readHeldJobs("a1"))
+	if len(s.heldJobs) != 1 || s.heldJobs[0] != "j1" {
+		t.Fatalf("held ids = %v", s.heldJobs)
+	}
+}
