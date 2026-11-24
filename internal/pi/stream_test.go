@@ -457,3 +457,14 @@ func TestParseEventsHandbackRejectedCases(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEventsMalformedSecondHandbackVoidsTheFirst(t *testing.T) {
+	good := `{"status":"DONE","summary":"s","unfixed":[]}`
+	call := func(id, a string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"handback","args":` + a + `}` + "\n" +
+			`{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"handback","result":"x","isError":false}` + "\n"
+	}
+	if res, _, _, _ := parseFixture(t, call("a", good)+call("b", `{"status":"DONE"}`)+msgEnd("stop", "")+settled); strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("the earlier handback survived a malformed later one: %q", res.Answer)
+	}
+}

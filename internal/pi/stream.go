@@ -94,6 +94,9 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 	}
 	err = t.finish(false)
 	res.Answer = t.answerText()
+	if h := t.verdict(); h != nil && err == nil { // once the stream is over no later work can void it
+		err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.block(), Sep: true})
+	}
 	return res, err
 }
 
@@ -173,7 +176,6 @@ type piTurn struct {
 	open         map[string]string   // running tool calls, id to write path
 	calls        map[string]handback // handback calls awaiting their result, by tool call id
 	handback     *handback           // the last handback call that succeeded and no tool followed
-	shown        bool                // the handback block went out as a text event
 	inflight     piUsage             // the last non-zero usage of the message still streaming; zero mid-turn means unknown
 	usageAt      time.Time
 	progressed   bool
@@ -246,20 +248,9 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 	case "agent_settled":
 		// agent_end is not final: overflow compaction and retries continue after it; agent_settled ends the run
 		t.aborted = ev.Aborted
-		return t.settle()
+		return t.finish(true)
 	}
 	return nil
-}
-
-// settle emits a clean run's typed handback block as a text event once, then finishes the run.
-func (t *piTurn) settle() error {
-	if h := t.verdict(); h != nil && !t.shown {
-		t.shown = true
-		if err := t.sink.Emit(wire.Event{Type: wire.EventText, Text: h.block(), Sep: true}); err != nil {
-			return err
-		}
-	}
-	return t.finish(true)
 }
 
 func (t *piTurn) phase(ev piEvent, ts *wire.TransportTracker) error {
@@ -303,8 +294,8 @@ func phaseEvent(ev piEvent) wire.Event {
 
 // noteHandback keeps a well-formed handback call until its result says it ran.
 func (t *piTurn) noteHandback(ev piEvent) {
+	t.handback, t.calls = nil, nil // any tool start, a later handback included, voids an earlier one: only the last counts
 	if ev.ToolName != "handback" {
-		t.handback, t.calls = nil, nil // a tool started after a handback: it was not last
 		return
 	}
 	if h, ok := parseHandback(ev.Args); ok {
