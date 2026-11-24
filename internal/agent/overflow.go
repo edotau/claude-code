@@ -81,7 +81,11 @@ func planOverflow(disp Dispatch, lreq RunOptions, res wire.Result, ran string, e
 	case lreq.ModelTyped || lreq.Fallback == router.FallbackNone || lreq.Fallback == router.FallbackPin:
 		plan.refusal = fmt.Sprintf("%s (%d tokens) is kept, not replaced; larger windows: %s", ran, from, nearest(cands))
 	default:
-		plan.model, plan.to = cands[0].Model, cands[0].Window
+		pick := cands[0]
+		if !overflowTokens().MatchString(low) { // no prompt size: the largest window is the likeliest fit, first on a tie
+			pick = slices.MaxFunc(cands, func(a, b router.WindowPick) int { return cmp.Compare(a.Window, b.Window) })
+		}
+		plan.model, plan.to = pick.Model, pick.Window
 	}
 	return plan
 }

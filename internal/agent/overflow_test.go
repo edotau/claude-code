@@ -33,6 +33,17 @@ func TestPlanOverflowRepicksByWindow(t *testing.T) {
 	}
 }
 
+// An overflow naming no token count takes the largest window, not the first larger one.
+func TestPlanOverflowUnknownSizeTakesLargest(t *testing.T) {
+	autoFixture(t)
+	disp := overflowDisp("opencode")
+	known := planOverflow(disp, overflowCell, wire.Result{}, overflowCell.Model, errors.New(overflowMsg))
+	blind := planOverflow(disp, overflowCell, wire.Result{}, overflowCell.Model, errors.New("pi: input length exceeds context length"))
+	if blind.model == "" || blind.to < known.to {
+		t.Fatalf("unknown-size plan = %+v, known %+v, want the largest window", blind, known)
+	}
+}
+
 // A quota-held first candidate is skipped for the next larger window.
 func TestPlanOverflowSkipsHeldModel(t *testing.T) {
 	autoFixture(t)
