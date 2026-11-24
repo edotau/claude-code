@@ -20,7 +20,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask` |
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
 | R11 make | `quality.md`; a leaf runs `rtk make lint`, `agents diff --check`, and the reserved targets (audit, install, fmt, build, verify, bootstrap, adopt) or a fixing `lint-<kind>` in the harness tree | prose |
-| R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
+| R12 Dispatch timeout | Tools dispatch gets 9m30s (under the 10m Bash cap, matching `agents wait`); a longer job passes `--timeout` | `DefaultToolsTimeout` |
 | R13 Guard walls | `safety-scan` has three rules: a `settings.json` deny rule blocks, an AI-attribution footer in a commit, merge, tag or PR blocks, and CLAUDE.md: main session only, so any subagent's write to a `CLAUDE.md` blocks and is handed back (owner, 2026-11-24; `hooks.md`) | `safety-scan`, for every agent |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
 | R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only; `--secret` main session only, leaves get credentials at launch | credential verbs redact; hooks `secrets-out` (Bash output) and `secrets-end` (ended transcripts) |
