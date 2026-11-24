@@ -120,11 +120,11 @@ func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
 		return row, true
 	}
 	for prefix, vendor := range vendorOf {
-		if !strings.HasPrefix(id, prefix) || vendor == provider {
+		if !strings.HasPrefix(id, prefix) {
 			continue
 		}
 		for _, vid := range slices.Sorted(maps.Keys(p.Providers[vendor])) {
-			if strings.ReplaceAll(vid, ".", "-") == id {
+			if strings.ReplaceAll(vid, ".", "-") == strings.ReplaceAll(id, ".", "-") {
 				return p.Providers[vendor][vid], true
 			}
 		}

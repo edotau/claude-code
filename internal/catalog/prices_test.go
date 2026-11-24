@@ -103,8 +103,10 @@ func TestPricesListRow(t *testing.T) {
 	if r, ok := p.ListRow("databricks", "claude-opus-4-5"); !ok || r.Input != 5 {
 		t.Errorf("vendor row = %+v, %v, want the anthropic price", r, ok)
 	}
-	if r, ok := p.ListRow("databricks", "gpt-6-1-sol"); !ok || r.Input != 2 {
-		t.Errorf("dotted vendor row = %+v, %v", r, ok)
+	for _, c := range [][2]string{{"databricks", "gpt-6-1-sol"}, {"databricks", "gpt-6.1-sol"}, {"openai", "gpt-6-1-sol"}} {
+		if r, ok := p.ListRow(c[0], c[1]); !ok || r.Input != 2 {
+			t.Errorf("ListRow(%s, %s) = %+v, %v", c[0], c[1], r, ok)
+		}
 	}
 	if _, ok := p.ListRow("databricks", "llama-4"); ok {
 		t.Error("an unknown model must stay unpriced")
