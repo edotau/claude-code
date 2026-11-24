@@ -1,1 +1,3 @@
 internal/hooks/memhook/checkpoint.go:createFlag	unversioned: marker: context-checkpoint flag file
+internal/hooks/memhook/tags.go:appendEvents	unversioned: session tag event log (state dir, append-only)
+internal/hooks/memhook/tags.go:scanTags	unversioned: session tag event log offset marker

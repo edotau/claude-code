@@ -117,6 +117,8 @@ func createFlag(flag string) bool {
 func Stop(in *core.Input) core.Result {
 	var r core.Result
 	in = AgentInput(sessionRootInput(in)) // once per Stop: the checkpoint and the update share it
+	// Recorded before the update so its worker sees this turn's events.
+	recordTags(in.SessionID, in.TranscriptPath, time.Now())
 	contextCheckpoint(in)
 	if sessionUpdate(in) {
 		r.SystemMessage = updateNotSaved
