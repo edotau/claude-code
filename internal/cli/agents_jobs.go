@@ -161,7 +161,11 @@ func statusOne(id, format string) int {
 
 func printContractTerms(id string) {
 	c, err := contract.Load(id)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
 	if err != nil {
+		fmt.Fprintln(os.Stderr, "agents status: contract:", err)
 		return
 	}
 	for _, l := range contractTermLines(c) {
