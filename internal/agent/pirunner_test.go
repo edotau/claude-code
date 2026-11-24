@@ -184,6 +184,49 @@ func TestWithPiSiblings(t *testing.T) {
 	}
 }
 
+// registerPiForTest adds a pi roster row and driver for one test; the fixture roster lists only the four vendors.
+func registerPiForTest(t *testing.T) {
+	t.Helper()
+	registryMu.Lock()
+	addRow(Schema{Name: "pi", CLI: CLI{Binary: "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}}})
+	drivers["pi"] = fixtureDriver{NewBaseEngine("pi")}
+	registryMu.Unlock()
+	t.Cleanup(func() {
+		registryMu.Lock()
+		defer registryMu.Unlock()
+		delete(drivers, "pi")
+		rosterRows = slices.DeleteFunc(rosterRows, func(r Schema) bool { return r.Name == "pi" })
+	})
+}
+
+// A plain pi ask's chain runs pi on dev, pi on the keyed sibling workspace, then claude; a confinement keeps pi on dev.
+func TestWithPiClaudeHopOrder(t *testing.T) {
+	autoFixture(t)
+	keyed := strings.NewReplacer(`"qa":{"auth":{"type":"oauth"}`, `"qa":{"auth":{"type":"key","command":"echo qzvxplk"}`)
+	vaulttest.Put(t, vault.Overlay, "providers", keyed.Replace(autoOverlay))
+	registerPiForTest(t)
+	q := RouteReq{Agent: "pi", Fallback: router.FallbackAgents}
+	pi := &fakeRunner{name: "pi"}
+	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
+	open := proc.WithValues(context.Background(), proc.Values{})
+	got := withPiClaudeHop(open, q, c)
+	var seq []string
+	for _, d := range got.Dispatches {
+		seq = append(seq, d.Agent.Name()+" "+d.Account)
+	}
+	want := []string{"pi databricks·dev", "pi databricks·qa", "claude databricks·dev"}
+	if !slices.Equal(seq, want) {
+		t.Fatalf("hops = %v (notes %+v), want %v", seq, got.Preflight, want)
+	}
+	if sib := got.Dispatches[1]; sib.Model != "databricks-gemini-3-8-flash" {
+		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
+	}
+	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
+	if got := withPiClaudeHop(armed, q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
+		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
+	}
+}
+
 // Any one of the overlay, the process env and the vault setting a fallback mode ends the default.
 func TestFallbackUnsetSources(t *testing.T) {
 	setConfigDir(t)
