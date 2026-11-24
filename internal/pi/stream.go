@@ -118,9 +118,9 @@ func optionalEnum[T ~string](raw json.RawMessage, allowed []T) (T, bool) {
 // parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
 func parseHandback(args json.RawMessage) (h wire.Handback, ok bool) {
 	var raw struct {
-		Status  string    `json:"status"`
-		Summary *string   `json:"summary"`
-		Unfixed *[]string `json:"unfixed"`
+		Status  string          `json:"status"`
+		Summary *string         `json:"summary"`
+		Unfixed *[]string       `json:"unfixed"`
 		Tests   json.RawMessage `json:"tests"`
 		Method  json.RawMessage `json:"method"`
 	}
