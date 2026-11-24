@@ -70,7 +70,8 @@ func commitLine(lane, id, planPath string, files, dirty []string) string {
 	ids := make([]string, len(files))
 	for i, f := range files {
 		ids[i] = worktree.FileID(f)
-		if slices.Contains(dirty, ids[i]) { // a dirty file literally named that id would win over this one
+		shared := slices.ContainsFunc(dirty, func(d string) bool { return d != f && worktree.FileID(d) == ids[i] })
+		if shared || slices.Contains(dirty, ids[i]) { // an id shared with, or the literal name of, another dirty file
 			ids[i] = textutil.ShellQuote(f)
 		}
 	}
