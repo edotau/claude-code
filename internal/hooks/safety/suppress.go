@@ -50,9 +50,10 @@ func scanCode(l string, from, to int, quote byte) (byte, bool, int) {
 	for ; i < to; i++ {
 		c := l[i]
 		if quote != 0 {
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == quote {
+			case quote:
 				quote = 0
 			}
 		} else if strings.ContainsRune("\"'`", rune(c)) {
