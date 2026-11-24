@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/bench"
@@ -72,7 +75,8 @@ func workflowSubPage(sub string) helptext.Page {
 	if sub == "sync" {
 		return helptext.Page{
 			Usage: "claude-code workflow sync [<root>]",
-			About: "Write embedded helper blocks into marked scripts; <root> defaults to the config dir. " +
+			About: "Write embedded helper blocks into marked scripts; " +
+				"<root> defaults to this checkout, else the config dir. " +
 				"Exits: 0 synced or unchanged; 1 file/marker error; 2 usage.",
 		}
 	}
@@ -81,7 +85,7 @@ func workflowSubPage(sub string) helptext.Page {
 			Usage: "claude-code workflow lint [<root>]",
 			About: "Lint <root>/workflows/*.js and <root>/skills/*/scripts/*.js for model/effort pins and " +
 				"meta/throw; compile each with node and check helper and saved-workflows table drift. " +
-				"<root> defaults to the config dir; exits 1 when anything is flagged.",
+				"<root> defaults to this checkout, else the config dir; exits 1 when anything is flagged.",
 		}
 	}
 	fs := helptext.NewFlagSet("skeleton", helptext.Page{})
@@ -100,7 +104,8 @@ func cmdWorkflow(args []string) int {
 		return 0
 	}
 	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
-	if slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) && len(args) > 1 && helptext.WantsHelp(helpArgs(args)) {
+	if slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) && len(args) > 1 &&
+		(args[0] == "skeleton" || len(args) == 2) && helptext.WantsHelp(helpArgs(args)) {
 		workflowSubPage(args[0]).Fprint(os.Stdout)
 		return 0
 	}
@@ -108,12 +113,9 @@ func cmdWorkflow(args []string) int {
 	case "skeleton":
 		return workflows.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
-		return workflowLint(args[1:])
+		return runWorkflowVerb("lint", args[1:], workflows.RunWorkflowLint)
 	case "sync":
-		if len(args) == 1 {
-			return workflows.RunWorkflowSync([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
-		}
-		return workflows.RunWorkflowSync(args[1:], os.Stdout, os.Stderr)
+		return runWorkflowVerb("sync", args[1:], workflows.RunWorkflowSync)
 	}
 	return unknownSub("workflow", args[0], workflowPage)
 }
@@ -126,11 +128,47 @@ func helpArgs(args []string) []string {
 	return args[1:2]
 }
 
-func workflowLint(args []string) int {
-	if len(args) == 0 {
-		return workflows.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+func runWorkflowVerb(verb string, args []string, run func([]string, io.Writer, io.Writer) int) int {
+	target, err := workflowTarget(verb, args, os.Stdout)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
 	}
-	return workflows.RunWorkflowLint(args, os.Stdout, os.Stderr)
+	return run(target, os.Stdout, os.Stderr)
+}
+
+// workflowTarget picks the root (argument, else enclosing harness checkout, else config dir) and prints it first.
+func workflowTarget(verb string, args []string, out io.Writer) ([]string, error) {
+	if len(args) > 1 || (len(args) == 1 && (args[0] == "" || strings.HasPrefix(args[0], "-"))) {
+		return nil, fmt.Errorf("usage: claude-code workflow %s [<root>]", verb)
+	}
+	if len(args) == 0 {
+		args = []string{paths.ConfigDir()}
+		if wd, err := os.Getwd(); err == nil {
+			if top, _ := paths.CheckoutOf(wd); isHarnessCheckout(top) {
+				args = []string{top}
+			}
+		}
+	}
+	shown, err := filepath.Abs(args[0])
+	if err != nil {
+		shown = args[0]
+	}
+	fmt.Fprintf(out, "workflow %s: %s\n", verb, shown)
+	return args, nil
+}
+
+// isHarnessCheckout reports whether top holds the saved workflows and their embedded blocks.
+func isHarnessCheckout(top string) bool {
+	if top == "" {
+		return false
+	}
+	for _, d := range []string{"workflows", "internal/assets/files/workflows/blocks"} {
+		if fi, err := os.Stat(filepath.Join(top, d)); err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // reviewToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.
