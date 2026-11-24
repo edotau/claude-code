@@ -526,7 +526,7 @@ func liveRequest(ctx context.Context, s *askState, name string) agent.RunOptions
 	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, TimeoutTyped: *s.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
-		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
+		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true, Codemode: *s.Codemode}
 }
 
 func startLive(ctx context.Context, s *askState, name, as, format string) int {
