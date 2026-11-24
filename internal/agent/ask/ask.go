@@ -81,6 +81,9 @@ type askRun struct {
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
+	// a --job/--retry record's request, for its rotation and fallback-default marks
+	replayed    agent.RunOptions
+	carryVerify string // the verify a carrying parent passed, taken once at start
 }
 
 // Run is `agents ask`; verb names the `<verb> ask` page -h prints.
@@ -108,6 +111,7 @@ var Reap = func() func() { return func() {} }
 
 // runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
+	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
 	fs, f, args, pos, code, done := parseAsk(verb, args)
 	if done {
 		return code
@@ -127,12 +131,15 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		defer func() { exit = closeAskOutput(masked, exit) }()
 		out = masked
 	}
+	if f.action != "" { // a typed no-model step: no routing, no agent
+		return runAction(ctx, fs, f, out)
+	}
 	if f.dryRun { // a dry-run pick gets one peek mark, the workspace's included
 		ctx = agent.PeekContext(ctx)
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
+	r := &askRun{ctx: withContract(withPlanTask(ctx, f.planTask), f.contract), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
@@ -284,7 +291,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), tierCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -337,7 +344,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if f.codemode, err = validateCodemode(f.codemode, f.name, f.tools); err != nil {
+	if err := resolveCodemode(f); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
@@ -574,9 +581,15 @@ func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}
+}
+
+// fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.
+func (r *askRun) fallbackDefaulted() bool {
+	untyped := r.fs != nil && !helptext.Explicit(r.fs, "fallback")
+	return untyped && (r.f.retry == "" && r.f.job == "" || r.replayed.FallbackDefaulted)
 }
 
 // resumeModel keeps a resumed session's model and row; a typed --model wins, a replay keeps the record's own route.
@@ -614,12 +627,30 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if err := resolveAskHost(r.ov, f); err != nil {
 		return r.fail(err, 2)
 	}
+	if err := replayCodemode(f); err != nil {
+		return r.fail(err, 2)
+	}
 	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
 		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 			return r.fail(err, 2)
 		}
 	}
 	return 0, false
+}
+
+// replayCodemode rechecks --codemode after a --retry/--job record replaced the agent, route and mode.
+func replayCodemode(f *askFlags) error {
+	if f.retry == "" && f.job == "" {
+		return nil
+	}
+	return resolveCodemode(f)
+}
+
+// resolveCodemode settles f.codemode and its reason for the resolved agent and route, noting a fall back to off.
+func resolveCodemode(f *askFlags) (err error) {
+	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile))
+	noteCodemodeOff(f.name, f.codemodeReason)
+	return err
 }
 
 // recordTools refuses the tools pair a --job/--retry record completes.
@@ -692,13 +723,15 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Verify: &f.verify,
-		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
+		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed}
 }
 
 // request is batchBase plus the single-task fields.
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
-	f.verify = cmp.Or(f.verify, takeCarryVerify()) // before batchBase snapshots the env, so no descendant inherits it
+	if f.retry == "" && f.job == "" { // a replayed record keeps its own verify
+		f.verify = cmp.Or(f.verify, r.carryVerify)
+	}
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
@@ -714,15 +747,22 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	return rc
 }
 
+// overlayedReq applies the resolved overlay to req and checks the agent can run it.
+func overlayedReq(ctx context.Context, req agent.RunOptions, doc agentconfig.Overlay, env, keepEnv []string, name string,
+	background bool) (agent.RunOptions, error) {
+	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	if err != nil {
+		return req, err
+	}
+	req = req.ApplyOverlay(ctx, ov)
+	return req, agent.CheckCapabilities(name, req)
+}
+
 // askPrepare is askPrepareAndRun's body.
 func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
 	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
-	ov, err := resolveOverlay(doc, env, keepEnv, background)
+	req, err := overlayedReq(ctx, req, doc, env, keepEnv, name, background)
 	if err != nil {
-		return failAskCode(format, name, err, 2)
-	}
-	req = req.ApplyOverlay(ctx, ov)
-	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
 	}
 	cl := newClient()
@@ -745,17 +785,17 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		return failAsk(format, name, err)
 	}
 	finishRecover(ctx, prepared.Record.ID)
+	if err := startAsk(ctx, jobRec, &prepared.Record); err != nil {
+		return failAsk(format, name, err)
+	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
-		if saveErr != nil { // the --job child loads this record; without it the job never starts
-			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
-		}
-		return askSpawn(ctx, fs, prepared, native, format, name)
+		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
 	}
-	if run != nil {
-		return run.run(ctx, cl, prepared, req)
+	if code, unsaved := unsavedHeld(ctx, prepared.Record, format, saveErr); unsaved {
+		return code
 	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
+	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
 }
 
 // takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.
@@ -818,7 +858,7 @@ func (r *askRun) routesItself() bool {
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
 	r.typed = r.f.profile
-	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
+	lead, err := narrowLead(r.ag, r.f, !r.routesItself(), fencedWorkspace(r.ctx, r.f))
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -826,8 +866,19 @@ func (r *askRun) resolveLead() (int, bool) {
 	return 0, false
 }
 
-// narrowLead routes f's --provider/--profile into a lead and f.profile when routed; "" and no change otherwise.
-func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
+// fencedWorkspace is the workspace the run's confinement names for a provider-only --provider databricks ask, else "".
+func fencedWorkspace(ctx context.Context, f *askFlags) string {
+	if f.provider != router.RouteDatabricks || f.profile != "" {
+		return ""
+	}
+	if p := router.ArmProfileContext(ctx); p != route.AutoArm {
+		return p
+	}
+	return ""
+}
+
+// narrowLead routes f's --provider/--profile (a fenced workspace first) into a lead and f.profile when routed.
+func narrowLead(ag string, f *askFlags, routed bool, fenced string) (string, error) {
 	if !routed {
 		return "", nil
 	}
@@ -835,7 +886,7 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 	if f.session != "" { // a resumed session runs one hop
 		fallback = router.FallbackNone
 	}
-	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.profile, Provider: f.provider, Fallback: fallback}
+	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: cmp.Or(f.profile, fenced), Provider: f.provider, Fallback: fallback}
 	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)
 	if err != nil {
 		return "", err

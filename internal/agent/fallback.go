@@ -40,7 +40,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	}
 	c = dropRunner(c, req, notify)
 	c.Dispatches = slices.Clone(c.Dispatches)
-	ctx = context.WithValue(ctx, triedCarryKey{}, new([]string))
+	ctx = withAsk(context.WithValue(ctx, triedCarryKey{}, new([]string)), req)
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -270,21 +270,23 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(disp, lreq, res)
-		next := retryModel(ctx, disp, lreq, ran, err)
+		plan := planRepick(ctx, refusedHop{disp, lreq, res, err, hops})
+		next := cmp.Or(plan.pick(), retryModel(ctx, disp, lreq, ran, err))
 		if next == "" {
+			err = plan.refuse(err)
 			break
 		}
-		hops = append(hops, hopOf(disp, lreq, res, err))
+		hops = append(hops, plan.record(hopOf(disp, lreq, res, err)))
 		tried = append(tried, ran)
 		if notify != nil {
-			notify(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err)))
+			notify(plan.say(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err))))
 		}
 		first := err
-		lreq = repickTo(lreq, next, auto)
+		lreq = repickTo(lreq, next, plan.keepsCell(auto))
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
-		if auto && !res.NotStarted {
+		if !res.NotStarted && plan.spend(ctx, auto) {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
 		res.Invoked = invoked
@@ -295,7 +297,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	if auto {
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
-	return res, lreq, hops, err
+	return res, lreq, hops, refusedTwice(ctx, hops, err)
 }
 
 type triedCarryKey struct{}
@@ -331,13 +333,7 @@ func triedPicks(picks []string, err error) error {
 	if err == nil || len(picks) < 2 {
 		return err
 	}
-	e, ok := errors.AsType[*retry.Error](err)
-	if !ok {
-		return fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), err)
-	}
-	out := *e
-	out.Err = fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), cmp.Or(e.Err, error(e)))
-	return &out
+	return prefixErr(err, "auto picks tried: "+strings.Join(picks, ", "))
 }
 
 // ranModel resolves auto picks and per-model quota cells; other requests keep the model asked.
@@ -601,21 +597,25 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 }
 
 // movesOn: the previous dispatch was unavailable.
-func (s *fallbackState) movesOn(ctx context.Context) bool {
+func (s *fallbackState) movesOn(ctx context.Context, c Chain) bool {
 	return runnerRefused(s.prevDispatch, s.res, s.err) ||
-		!typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
+		!typedModelGone(s.req, s.err) && c.hopMoves(ctx, s.ran, s.req, s.res, s.err)
+}
+
+// stopsBefore: the chain ends before the next hop (R8: a typed model unserved is never swapped; a caller yields).
+func (s *fallbackState) stopsBefore(ctx context.Context, c Chain, midRun bool) bool {
+	return s.modelGone() || c.yieldsFallback(s.req, s.res, s.err) || !midRun && !s.movesOn(ctx, c)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && s.modelGone() {                                              // R8: a typed model unserved is never swapped
+	if i > 0 && s.stopsBefore(ctx, c, midRun) {
 		s.stopped = true
 		return true, nil
 	}
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx))) {
-		s.stopped = true
-		return true, nil
+	if i > 0 && skipsRefusedFamily(s.prevDispatch, disp, s.req, s.res, s.err) { // refused again, so the chain moves past it
+		return false, nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		return true, s.cancelled(i, disp, cerr)
@@ -631,7 +631,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 }
 
 func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
-	if disp.Agent.Name() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
+	if disp.agentName() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
 		return disp
 	}
 	if !strings.HasPrefix(c.Dispatches[0].Account, "databricks·") {
@@ -665,7 +665,7 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
+		if !ok || d.agentName() != c.Want || d.runFor != disp.runFor || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}
@@ -778,7 +778,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 		trip()
 		return
 	}
-	if disp := c.Dispatches[i].Agent; dispatchUnavailableContext(ctx, disp, res, err) || cutOffMidRunContext(ctx, disp, err) {
+	if c.hopMoves(ctx, i, req, res, err) || cutOffMidRunContext(ctx, c.Dispatches[i].Agent, err) {
 		return
 	}
 	trip()
@@ -1070,7 +1070,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}
-		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
+		if autoBeatsCell(out, req, disp) {
 			out.Model = AutoModel // typed or pinned auto beats the cell's model on the cell's row (RunQuery)
 		}
 	}
@@ -1188,7 +1188,7 @@ func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
 			(i+1 < len(c.Dispatches) && !c.explicitStop(i, req) &&
-				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
+				c.hopMoves(ctx, i, req, res, err))
 	}
 }
 

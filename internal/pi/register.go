@@ -12,8 +12,9 @@ func init() { agent.Register(agent.Agent{Row: row, Driver: piEngine{agent.NewBas
 var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 	Flags: []string{"--mode", "--model", "--thinking", "--tools", "--no-tools", "--no-session", "--session", "--session-id",
 		"--session-dir", "--system-prompt", "--append-system-prompt", "--no-context-files", "--no-mcp", "--approve"},
-	HelpArgv: []string{"--help"},
-	Binary:   "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+	HelpArgv:    []string{"--help"},
+	ScopedProxy: true,
+	Binary:      "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	Extras:     map[string][]string{extraPackages: nil, extraPackagesApproved: nil},

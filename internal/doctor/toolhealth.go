@@ -1,10 +1,12 @@
 package doctor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -123,7 +126,7 @@ func agentFlagDetail(ctx context.Context, spec agent.Schema) (pass bool, detail 
 	return true, "ok"
 }
 
-// startFlagProbes runs every flag-declaring agent's help probe at once; the result reports their rows when called.
+// startFlagProbes starts every flag-declaring agent's help probe; the result reports them and the code-mode rows.
 func startFlagProbes(ctx context.Context) func(check func(bool, bool, string, string)) {
 	var specs []agent.Schema
 	for _, spec := range agent.Roster() {
@@ -140,6 +143,96 @@ func startFlagProbes(ctx context.Context) func(check func(bool, bool, string, st
 		wg.Wait()
 		for i, spec := range specs {
 			check(pass[i], false, "agent flags "+spec.Name, detail[i])
+		}
+		for _, name := range agentid.CodeModeAgents() {
+			if variable := agentid.Routing(name).CodeMode.Var; variable != "" {
+				pass, detail := codeModeEnvDetail(name, variable)
+				check(pass, false, "code mode env "+name, detail)
+			}
+		}
+		pass, detail := leftoverCodemodeDetail(vaultEnv())
+		check(pass, false, "vault env "+legacyCodemodeEnv, detail)
+	}
+}
+
+// legacyCodemodeEnv is the pre-rename vault name of CODEMODE; nothing reads it.
+const legacyCodemodeEnv = "PI_CODEMODE"
+
+// vaultEnv is the vault env bucket the leftover row reads; tests swap it.
+var vaultEnv = providers.CustomEnv
+
+// leftoverCodemodeDetail warns when the vault still holds the pre-rename variable.
+func leftoverCodemodeDetail(env map[string]string) (pass bool, detail string) {
+	if _, ok := env[legacyCodemodeEnv]; !ok {
+		return true, "not set"
+	}
+	return false, "warn unread: renamed to " + rtkwrap.CodemodeEnv + "; run `claude-code vault env unset " +
+		legacyCodemodeEnv + " --yes`"
+}
+
+// codeModeEnvDetail is ok while the installed CLI still names its code-mode variable, else a drift warning.
+func codeModeEnvDetail(name, variable string) (pass bool, detail string) {
+	path, err := vendorBinary(name)
+	if err != nil {
+		return true, "skipped: not installed"
+	}
+	// The scan is cached per binary build, like the version probe; a read error caches nothing.
+	found := tools.ProbedSaltedLine(path, "codemode-env "+variable, func(p string) string {
+		ok, err := binaryMentions(p, variable)
+		switch {
+		case err != nil:
+			return ""
+		case ok:
+			return "present"
+		}
+		return "absent"
+	})
+	switch found {
+	case "":
+		return true, "skipped: binary unreadable"
+	case "present":
+		return true, "ok"
+	}
+	detail = "warn drift: " + variable + " no longer in the installed CLI"
+	if version, err := tools.Version(name); err == nil {
+		detail += " (installed " + version + ")"
+	}
+	return false, detail
+}
+
+// vendorBinary is the executable a code-mode scan reads: the PATH copy outside BinDir, else the bin entry.
+func vendorBinary(name string) (string, error) {
+	path, err := paths.LookPathReal(agentid.Binary(name))
+	if err != nil {
+		if path, err = paths.AgentBin(name); err != nil {
+			return "", err
+		}
+	}
+	return filepath.EvalSymlinks(path)
+}
+
+// binaryMentions reports whether the file at path contains name, streamed in 1 MiB chunks (a CLI can be 380 MB).
+func binaryMentions(path, name string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	needle := []byte(name)
+	chunk := make([]byte, 1<<20)
+	var tail []byte // the last len(name)-1 bytes read, so a name split across chunks still matches
+	for {
+		n, rerr := f.Read(chunk)
+		window := append(tail, chunk[:n]...)
+		if bytes.Contains(window, needle) {
+			return true, nil
+		}
+		tail = window[max(0, len(window)-len(needle)+1):]
+		if rerr == io.EOF {
+			return false, nil
+		}
+		if rerr != nil {
+			return false, rerr
 		}
 	}
 }
@@ -304,7 +397,7 @@ func rtkAgentRow(a string) check {
 	row := check{Name: "rtk hook " + a, OK: true}
 	switch {
 	case rtkwrap.CodeMode():
-		row.Detail = "off in code mode (HARNESS_CODEMODE)"
+		row.Detail = "off in code mode (" + rtkwrap.CodeModeSource() + ")"
 	case a == "gemini":
 		row.Detail = "awareness text only"
 	case paths.RTKBinary() == "":

@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 )
 
 // piEvent is one line of `pi --mode json`; only the fields the parser and the driver read are decoded.
@@ -88,13 +89,51 @@ func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent 
 	defer t.flushLog()
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
-	if err != nil {
-		res.Answer = t.text()
-		return res, err
+	if err == nil {
+		err = t.finish(false)
 	}
-	err = t.finish(false)
 	res.Answer = t.text()
+	if h := res.Handback; h != nil && err == nil { // an errored run keeps the typed field but gets no footer
+		res.Answer = strings.TrimSpace(res.Answer + "\n\n" + h.Footer())
+		err = sink.Emit(wire.Event{Type: wire.EventText, Text: h.Footer(), Sep: true})
+	}
 	return res, err
+}
+
+// handbackStatuses is the schema's status enum: the verdict words.
+var handbackStatuses = []string{"DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"}
+
+// optionalEnum is "" for an absent field; a stated one (null included) must be a string listed in allowed.
+func optionalEnum[T ~string](raw json.RawMessage, allowed []T) (T, bool) {
+	if raw == nil {
+		return "", true
+	}
+	var s T
+	if json.Unmarshal(raw, &s) != nil || !slices.Contains(allowed, s) {
+		return "", false
+	}
+	return s, true
+}
+
+// parseHandback decodes a call's args; ok is false for a malformed call or a status outside the enum.
+func parseHandback(args json.RawMessage) (h wire.Handback, ok bool) {
+	var raw struct {
+		Status  string          `json:"status"`
+		Summary *string         `json:"summary"`
+		Unfixed *[]string       `json:"unfixed"`
+		Tests   json.RawMessage `json:"tests"`
+		Method  json.RawMessage `json:"method"`
+	}
+	// sampling is only "preferred" strict, so every required field is checked here
+	if json.Unmarshal(args, &raw) != nil || !slices.Contains(handbackStatuses, raw.Status) || raw.Summary == nil || raw.Unfixed == nil {
+		return wire.Handback{}, false
+	}
+	tests, okT := optionalEnum(raw.Tests, contract.TestsValues())
+	method, okM := optionalEnum(raw.Method, contract.Methods())
+	if !okT || !okM {
+		return wire.Handback{}, false
+	}
+	return wire.Handback{Status: raw.Status, Summary: *raw.Summary, Unfixed: *raw.Unfixed, Tests: tests, Method: method}, true
 }
 
 // piTurn is parseEvents' state across one run's events.
@@ -109,8 +148,9 @@ type piTurn struct {
 	stop         string          // the last assistant message's stop reason; only the last one decides the run
 	errMsg       string          // and its error message
 	assistant    bool
-	open         map[string]string // running tool calls, id to write path
-	inflight     piUsage           // the last non-zero usage of the message still streaming; zero mid-turn means unknown
+	open         map[string]string        // running tool calls, id to write path
+	calls        map[string]wire.Handback // handback calls awaiting their result, by tool call id
+	inflight     piUsage                  // the last non-zero usage of the message still streaming; zero mid-turn means unknown
 	usageAt      time.Time
 	progressed   bool
 	finished     bool
@@ -166,6 +206,7 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		t.lg.Emit("tool", ev.ToolName)
 		t.progressed = true
 		t.open[ev.ToolCallID] = ev.writePath()
+		t.noteHandback(ev)
 		use := wire.ToolEvent(ev.ToolName, ev.ToolCallID)
 		use.Text = ev.argSummary()
 		if sofar := t.sofar(); sofar != (wire.Usage{}) {
@@ -225,6 +266,20 @@ func phaseEvent(ev piEvent) wire.Event {
 	return out
 }
 
+// noteHandback keeps a well-formed handback call until its result says it ran.
+func (t *piTurn) noteHandback(ev piEvent) {
+	if ev.ToolName != "handback" {
+		t.res.Handback, t.calls = nil, nil // a handback is the verdict only when it is the last tool activity
+		return
+	}
+	if h, ok := parseHandback(ev.Args); ok {
+		if t.calls == nil {
+			t.calls = map[string]wire.Handback{}
+		}
+		t.calls[ev.ToolCallID] = h
+	}
+}
+
 func (t *piTurn) toolEnd(ev piEvent) error {
 	t.flushLog()
 	path := cmp.Or(t.open[ev.ToolCallID], ev.writePath())
@@ -234,6 +289,12 @@ func (t *piTurn) toolEnd(ev piEvent) error {
 		status = "error"
 	} else if path != "" {
 		t.res.Written = append(t.res.Written, path)
+	}
+	if h, ok := t.calls[ev.ToolCallID]; ok {
+		delete(t.calls, ev.ToolCallID)
+		if !ev.IsError {
+			t.res.Handback = &h // the last successful call wins; the guard makes it final
+		}
 	}
 	t.lg.Emit("tool", ev.ToolName+": "+status)
 	return t.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: ev.ToolName, ID: ev.ToolCallID},

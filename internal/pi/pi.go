@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -31,6 +33,10 @@ const (
 	agentDirEnv = "PI_CODING_AGENT_DIR"
 	// guardToolsEnv names the tools the guard registers; there is no powershell: the guard maps no such tool.
 	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
+	// guardVerifyEnv is the run's --verify line, set on every tools run so an inherited one never applies.
+	guardVerifyEnv = "HARNESS_PI_GUARD_VERIFY"
+	// ownerEnv marks a run whose own contract names it an owner; After adds the fleet actions for it.
+	ownerEnv = "HARNESS_PI_GUARD_OWNER"
 	// stopGrace is how long Pi gets to kill its own bash groups after SIGTERM before the descendants are killed.
 	stopGrace = 2 * time.Second
 	// packageDirsEnv carries Wire's synced package dirs to After; After strips it, so Pi never sees it.
@@ -61,6 +67,9 @@ func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless
 		return nil, nil, err
 	}
 	env = append(env, tools.PiNodePathEnv(ctx)...) // the pi bin's `env node` must not pick an older PATH node
+	if h != nil && h.Tools && isOwnerRun(ctx) {
+		env = append(env, ownerEnv+"=1")
+	}
 	return rtkwrap.Launch(env, "", agent.NoticeOut), argv, nil
 }
 
@@ -252,13 +261,43 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	return append(append(g.Argv(), "--no-builtin-tools"), codemodeArgv(req.Codemode)...), nil
 }
 
-// guardTools are the tools the guard registers on a --tools run.
-const guardTools = "read,bash,edit,write,grep,find,ls,gate,handback"
+// guardTools are the tools the guard registers on a --tools run; ownerTools join them for a contract owner only.
+const (
+	guardTools = "read,bash,edit,write,grep,find,ls,gate,handback,report"
+	ownerTools = ",dispatch,check"
+)
+
+// guardToolsFor adds the fleet actions only when the run's own contract names it an owner; a fleet run gets none.
+func guardToolsFor(env []string) string {
+	if lastEnv(env, ownerEnv) == "1" {
+		return guardTools + ownerTools
+	}
+	return guardTools
+}
+
+// isOwnerRun reports whether the run holds an owner contract and was not dispatched by one: the depth limit.
+func isOwnerRun(ctx context.Context) bool {
+	id := proc.Value(ctx, proc.DispatchIDEnv)
+	c, err := contract.Load(id)
+	if err != nil { // a re-assigned holder runs under a new id: find the open contract that names it
+		open, _ := contract.Pending()
+		i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, id) })
+		if i < 0 {
+			return false
+		}
+		c = open[i]
+	}
+	if c.Owner.Role != contract.RoleOwner {
+		return false
+	}
+	rec, err := agent.LoadRecord(id)
+	return err == nil && rec.Depth == 0
+}
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
 func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
-	if req.SystemPrompt != "" {
-		p.Argv = append(p.Argv, "--system-prompt", req.SystemPrompt)
+	if sp := systemPrompt(req); sp != "" {
+		p.Argv = append(p.Argv, "--system-prompt", sp)
 	}
 	if extra := strings.TrimSpace(req.AppendSystemPrompt + webHint(req.Tools)); extra != "" {
 		p.Argv = append(p.Argv, "--append-system-prompt", extra)
@@ -268,7 +307,7 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
-			p.Env = append(p.Env, guardToolsEnv+"="+guardTools)
+			p.Env = append(p.Env, guardToolsEnv+"="+guardToolsFor(p.Env), guardVerifyEnv+"="+req.Verify)
 			if codemodeOn(req.Codemode) {
 				p.Env = append(p.Env, guardCodemodeEnv+"=1")
 				p.Env = codemodeLaunchEnv(p.Env, req.Codemode) // the shim strips rtk prefixes and never wraps
@@ -286,6 +325,14 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		return
 	}
 	p.Argv = append(p.Argv, promptArg(p.Prompt))
+}
+
+// systemPrompt is the caller's own, else the harness one on a tools run (codemode "only" hides the tools it names).
+func systemPrompt(req agent.RunOptions) string {
+	if req.SystemPrompt != "" || !req.Tools || req.Codemode == "only" {
+		return req.SystemPrompt
+	}
+	return assets.PiSystemPrompt()
 }
 
 // viaStdin reports whether prompt rides Pi's stdin, which has no size cap, instead of one argv element.
@@ -341,11 +388,11 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
 	ti := newToolIdle(idle)
+	defer ti.stop() // a panic in the stream run must not leave the hold timers armed
 	parse := func(br *bufio.Reader, s wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { ti.beat(ev); return w.check() }, logs...)
 	}
 	res, err := agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
-	ti.stop()
 	if cmd.Process != nil {
 		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a fork in flight at cancel escapes the group kill
 	}

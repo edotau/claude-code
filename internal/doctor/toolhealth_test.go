@@ -90,7 +90,7 @@ func TestRTKHookRows(t *testing.T) {
 
 	t.Setenv(rtkwrap.CodemodeEnv, "on")
 	for _, row := range rtkHookRows() {
-		if row.Name != "rtk PATH" && row.Detail != "off in code mode (HARNESS_CODEMODE)" {
+		if row.Name != "rtk PATH" && row.Detail != "off in code mode (CODEMODE)" {
 			t.Errorf("%s in code mode = %q", row.Name, row.Detail)
 		}
 	}
@@ -164,6 +164,53 @@ func installDoctorPiShims(t *testing.T) {
 		if err := os.Symlink(rtkwrap.Binary(), filepath.Join(rtkwrap.Dir(), name)); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// Given a leftover vault PI_CODEMODE and a CLI that dropped its variable, Then only those rows warn.
+func TestCodeModeDoctorRows(t *testing.T) {
+	hermetic(t)
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	writeFakeCLI(t, bin, "claude", "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE")
+	writeFakeCLI(t, bin, "opencode", "OPENCODE_EXPERIMENTAL_CODE_MODE")
+	origHelp, origVault := agentHelp, vaultEnv
+	t.Cleanup(func() { agentHelp, vaultEnv = origHelp, origVault })
+	agentHelp = func(context.Context, agent.Schema) (string, string, error) { return "", "", tools.ErrAgentNotInstalled }
+	rows := func() map[string]check {
+		got := map[string]check{}
+		startFlagProbes(context.Background())(func(ok, hard bool, name, d string) {
+			got[name] = check{Name: name, OK: ok, Hard: hard, Detail: d}
+		})
+		return got
+	}
+	expect := func(got map[string]check, name string, ok bool, want string) {
+		t.Helper()
+		if c := got[name]; c.OK != ok || !strings.Contains(c.Detail, want) {
+			t.Errorf("%s = %+v, want ok=%v detail containing %q", name, c, ok, want)
+		}
+	}
+
+	vaultEnv = func() map[string]string { return map[string]string{} }
+	got := rows()
+	expect(got, "code mode env claude", true, "ok")
+	expect(got, "code mode env opencode", true, "ok")
+	expect(got, "vault env PI_CODEMODE", true, "not set")
+
+	writeFakeCLI(t, bin, "opencode", "")
+	vaultEnv = func() map[string]string { return map[string]string{legacyCodemodeEnv: "on"} }
+	got = rows()
+	expect(got, "code mode env claude", true, "ok")
+	expect(got, "code mode env opencode", false, "warn drift: OPENCODE_EXPERIMENTAL_CODE_MODE")
+	expect(got, "vault env PI_CODEMODE", false, "claude-code vault env unset PI_CODEMODE --yes")
+}
+
+// writeFakeCLI puts an executable named name in dir that mentions the code-mode variable (none when mention is empty).
+func writeFakeCLI(t *testing.T, dir, name, mention string) {
+	t.Helper()
+	body := "#!/bin/sh\n# " + mention + "\necho 1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

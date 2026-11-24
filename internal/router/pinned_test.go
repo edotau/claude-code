@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -273,4 +274,30 @@ func TestPickRotationDefersDear(t *testing.T) {
 // pickPool is PickRotation on p's own account.
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	return PickRotation(context.Background(), agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, nil, now)
+}
+
+// A pick that is not the validated one stamps nothing and refuses; the validated one stamps.
+func TestPickRotationExpectedPick(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pool, now := []string{"a", "b"}, time.Now()
+	peek := PeekRotation("opencode", "acct", "acct", nil, pool, nil, now)
+	wrong := WithExpectedPick(context.Background(), "not-"+peek)
+	if m, err := PickRotation(wrong, "opencode", "acct", "acct", nil, pool, nil, now); !errors.Is(err, ErrPickMoved) || m != "" {
+		t.Fatalf("mismatched pick = %q, %v; want ErrPickMoved", m, err)
+	}
+	if again := PeekRotation("opencode", "acct", "acct", nil, pool, nil, now); again != peek {
+		t.Fatalf("a refused pick stamped: next %q, was %q", again, peek)
+	}
+	if m, err := PickRotation(WithExpectedPick(context.Background(), peek), "opencode", "acct", "acct", nil, pool, nil, now); err != nil || m != peek {
+		t.Fatalf("matching pick = %q, %v; want %q", m, err, peek)
+	}
+}
+
+// A pool emptied since the peek refuses a validated pick instead of stamping nothing and reporting success.
+func TestPickRotationExpectedPickGone(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx := WithExpectedPick(context.Background(), "a")
+	if m, err := PickRotation(ctx, "opencode", "acct", "acct", nil, nil, nil, time.Now()); !errors.Is(err, ErrPickMoved) || m != "" {
+		t.Fatalf("emptied pool = %q, %v; want ErrPickMoved", m, err)
+	}
 }

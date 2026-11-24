@@ -498,11 +498,12 @@ type ReviewOptions struct {
 	Brief, Notice, Candidates bool
 	Candidate, Enforced       string // a candidate id; Enforced is the sha or file:line that closes it
 	Approve                   bool
+	Propose                   string // one candidate record as JSON; Go validates and appends it
 }
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	if o.Candidate != "" {
+	if o.candidateVerb() {
 		return candidateAction(w, o)
 	}
 	root := ResolveBank()

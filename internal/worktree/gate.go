@@ -244,7 +244,7 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return fullGoGate, "go.mod"
 	}
 	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
-		return "pytest -q", "pyproject"
+		return "(" + venvPython(dir) + "pytest)", "pyproject"
 	}
 	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
 		return "npm test", "package.json"
@@ -253,6 +253,32 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return "cargo build && cargo test", "Cargo.toml"
 	}
 	return "", ""
+}
+
+// pytestNoTestsExit is pytest's exit code for an empty collection.
+const pytestNoTestsExit = 5
+
+// errNoTests fails a lane that changed a .py file yet collected no tests.
+var errNoTests = errors.New("verify: no tests collected")
+
+// emptyPytest settles pytest's empty-collection exit: fails on a lane .py or pytest-config change, else passes.
+func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer) error {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != pytestNoTestsExit {
+		return err
+	}
+	if base == "" {
+		return errNoTests
+	}
+	names, gitErr := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
+	isPy := func(f string) bool {
+		return strings.HasSuffix(f, ".py") || slices.Contains([]string{"pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini"}, path.Base(f))
+	}
+	if gitErr != nil || slices.ContainsFunc(strings.Split(string(names), "\x00"), isPy) {
+		return errNoTests
+	}
+	fmt.Fprintln(out, "verify: no tests collected (no .py or pytest-config change in the lane); passing")
+	return nil
 }
 
 // hasMakeTarget reports whether makefile declares a target named exactly target; a missing Makefile is "no target".
@@ -294,7 +320,7 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 	}
 	// the verb needs a Go module and a Makefile lint target (today's probe); other repos get no lint part
 	if lintCheck && paths.FileExists(filepath.Join(dir, "go.mod")) && hasMakeTarget(filepath.Join(dir, "Makefile"), "lint") {
-		gate = lintVerb(dirs) + " && " + gate
+		gate = lintLine(lintVerb(dirs)) + " && " + gate
 	}
 	return gate, source
 }
@@ -319,13 +345,31 @@ func noGo(d string) bool {
 const mergeBaseEnv = "HARNESS_MERGE_BASE"
 
 // lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or the scope's changes since the base.
-func lintVerb(dirs []string) string {
-	const verb = "claude-code agents diff --check --gates lint"
+func lintVerb(dirs []string) []string {
+	argv := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint"}
 	if len(dirs) == 0 {
-		return verb + " --all"
+		return append(argv, "--all")
 	}
 	// a merged lane is committed, so HEAD alone shows no change
-	return verb + ` --base "${` + mergeBaseEnv + `:-HEAD}" --path ` + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
+	argv = append(argv, "--base", lintBase)
+	for _, d := range dirs {
+		argv = append(argv, "--path", d)
+	}
+	return argv
+}
+
+// lintBase is the one word the gate shell expands: the pinned merge base, else HEAD.
+const lintBase = "${" + mergeBaseEnv + ":-HEAD}"
+
+// lintLine renders the lint argv as gate shell words; only the value of --base stays expandable.
+func lintLine(argv []string) string {
+	words := mapStrings(argv, textutil.QuoteSH)
+	for i, w := range argv {
+		if w == lintBase && i > 0 && argv[i-1] == "--base" {
+			words[i] = `"` + w + `"`
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
@@ -394,17 +438,36 @@ func goScopeGate(dirs []string) string {
 	return "go build ./... && go vet " + p + " && go test " + p
 }
 
-// pythonScopeGate runs pytest (and ruff when configured) over dirs, through .venv when the repo has one.
-func pythonScopeGate(dir string, dirs []string) string {
-	py := ""
-	if info, err := os.Stat(filepath.Join(dir, ".venv")); err == nil && info.IsDir() {
-		py = ".venv/bin/python -m "
+// Pytest gates are subshells so rtk leaves them bare: rtk adds -q, which with addopts -q reads "No tests collected".
+
+// isPytestStep reports whether the last command of step is a "(...pytest...)" subshell, whose exit 5 is pytest's.
+func isPytestStep(step string) bool {
+	_, last, found := strings.Cut(step, " && ")
+	if !found {
+		last = step
 	}
+	return strings.HasPrefix(strings.TrimSpace(last), "(") && strings.Contains(last, "pytest")
+}
+
+// venvPython is the `-m` prefix of dir's .venv or venv interpreter, empty when it has neither.
+func venvPython(dir string) string {
+	for _, v := range []string{".venv", "venv"} {
+		if paths.FileExists(filepath.Join(dir, v, "bin", "python")) {
+			return v + "/bin/python -m "
+		}
+	}
+	return ""
+}
+
+// pythonScopeGate runs pytest (and ruff when configured) over dirs, through its .venv or venv when it has one.
+func pythonScopeGate(dir string, dirs []string) string {
+	py := venvPython(dir)
 	targets := shellQuoteAll(dirs)
-	pytest := py + "pytest -q"
+	pytest := py + "pytest"
 	if targets != "" {
 		pytest += " " + targets
 	}
+	pytest = "(" + pytest + ")"
 	if !hasRuffConfig(dir) {
 		return pytest
 	}
@@ -496,7 +559,11 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 	var first error
 	for i, s := range steps {
 		wg.Go(func() {
-			if fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i]); fails[i] != nil {
+			fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i])
+			if fails[i] != nil && isPytestStep(s) {
+				fails[i] = emptyPytest(ctx, dir, base, fails[i], &outs[i])
+			}
+			if fails[i] != nil {
 				// the first to fail is the cause; the rest die from its cancel
 				once.Do(func() { first = fmt.Errorf("%s: %w", s, fails[i]) })
 				cancel()

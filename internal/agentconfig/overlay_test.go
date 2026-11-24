@@ -295,3 +295,37 @@ func TestOverlayVendorBudgetValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlayProviderMode(t *testing.T) {
+	if _, err := parseOverlay([]byte(`{"providerMode":{"anthropic":"exclusive"}}`)); err != nil {
+		t.Errorf("valid providerMode refused: %v", err)
+	}
+	docs := []string{
+		`{"providerMode":{"anthropic":"bogus"}}`, `{"providerMode":{"nowhere":"rotate"}}`, `{"providerMode":{"anthropic":""}}`,
+	}
+	for _, doc := range docs {
+		if _, err := parseOverlay([]byte(doc)); err == nil || !strings.HasPrefix(err.Error(), "providerMode: ") {
+			t.Errorf("%s: want a providerMode error, got %v", doc, err)
+		}
+	}
+}
+
+func TestLoadOverlayPresets(t *testing.T) {
+	for value, want := range map[string]route.Route{
+		"coworker":      {Provider: "databricks", Profile: "auto"},
+		"databricks:qa": {Provider: "databricks", Profile: "qa"},
+		"anthropic":     {Provider: "anthropic", Profile: "auto"},
+	} {
+		o, err := LoadOverlayContext(t.Context(), value, nil)
+		if err != nil || o.Provider != want.Provider || o.Profile != want.Profile || !o.Empty() {
+			t.Errorf("%s: got %+v, %v", value, o, err)
+		}
+	}
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("coworker", []byte(`{"keep":["X"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if o, err := LoadOverlayContext(t.Context(), "coworker", nil); err != nil || o.Provider != "" || len(o.Keep) != 1 {
+		t.Errorf("a file named like a preset must win: %+v, %v", o, err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -236,7 +237,7 @@ func sessionProxyBase(ctx context.Context, raw string) bool {
 
 // inheritedBase: the shell base is this session's (proxy, /p/<profile>, direct route); a hop drops it, keeps its login.
 func inheritedBase(ctx context.Context, base, own string) bool {
-	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base)) {
+	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base) || scopedProxyBase(base)) {
 		return true
 	}
 	return sessionRouteBase(ctx, base)
@@ -259,6 +260,33 @@ func sessionRouteBase(ctx context.Context, raw string) bool {
 	route, ok := p.Route(providers.ProtocolAnthropic)
 	return ok && sameEndpoint(raw, route)
 }
+
+// scopedProxyBase reports raw is on a registered scoped-proxy port, so a nested launch keeps its credential.
+func scopedProxyBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scopes, _ := listScopes()
+	return slices.ContainsFunc(scopes, func(sc proxy.Scope) bool { return sc.Port != 0 && u.Port() == strconv.Itoa(sc.Port) && scopeAlive(sc) })
+}
+
+// scopeAlive: the recorded pid must still be the proxy (same start time) and its port must accept a connection.
+func scopeAlive(sc proxy.Scope) bool {
+	start, err := proc.StartTime(sc.PID)
+	if err != nil || start != sc.Start {
+		return false
+	}
+	d := net.Dialer{Timeout: 200 * time.Millisecond}
+	c, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sc.Port)))
+	if err != nil {
+		return false
+	}
+	return c.Close() == nil
+}
+
+// listScopes is the scope records; tests swap it so no real state is read.
+var listScopes = proxy.ListScopes
 
 // readProxyState is the live proxy's state; tests swap it so no real daemon is read.
 var readProxyState = proxy.ReadState
@@ -369,14 +397,20 @@ func mergeUserSettings(plan *agent.Plan) error {
 	return putNormalized(plan, doc)
 }
 
-// mergeDoc lays user over base; autoMode and permissions lists append, like Claude Code's own merge.
+// mergeDoc lays user over base; autoMode and permissions lists append and env keys union, like Claude Code's own merge.
 func mergeDoc(base, user map[string]any) map[string]any {
 	out := maps.Clone(base)
 	for k, v := range user {
 		b, bok := out[k].(map[string]any)
 		u, uok := v.(map[string]any)
-		if (k != "autoMode" && k != "permissions") || !bok || !uok {
+		if (k != "autoMode" && k != "permissions" && k != "env") || !bok || !uok {
 			out[k] = v
+			continue
+		}
+		if k == "env" {
+			m := maps.Clone(b)
+			maps.Copy(m, u)
+			out[k] = m
 			continue
 		}
 		m := maps.Clone(b)
@@ -574,7 +608,7 @@ func proxyToken(ctx context.Context, routerBase string, sel providers.Selection)
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)
 	}
-	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
+	scope, err := agent.TokenScope(ctx, sel.Provider.Name, aliases...)
 	if err != nil {
 		return "", fmt.Errorf("proxy: %w", err)
 	}
@@ -747,4 +781,43 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 	}
 	plan, err := anthropicPlan(context.Background(), o, rest, secret)
 	return agent.RunPlan("claude", plan, o.LaunchOptions, err)
+}
+
+// codemodeSettings is the --settings arg that turns the row's vendor code mode on; the var rides settings env only.
+func codemodeSettings(mode string) ([]string, error) {
+	row := agentid.Routing(agentid.Claude).CodeMode
+	if agent.CodemodeEnv(agentid.Claude, mode) == nil {
+		return nil, nil
+	}
+	doc, err := json.Marshal(map[string]any{"env": map[string]string{row.Var: "on"}})
+	return []string{"--settings", string(doc)}, err
+}
+
+// checkCodemodeRoute refuses code mode off the Anthropic API: profile p (nil if unresolved) and the launch base URL.
+func checkCodemodeRoute(p *providers.Provider, launchBase string) error {
+	direct := p != nil && p.Protocol == providers.ProtocolAnthropic && onAnthropicAPI(p.BaseURL)
+	if !direct || !onAnthropicAPI(launchBase) {
+		return errors.New("code mode is only on the Anthropic API, not through a cloud provider or a gateway")
+	}
+	return nil
+}
+
+// onAnthropicAPI: the default endpoint (empty) or an api.anthropic.com URL.
+func onAnthropicAPI(base string) bool {
+	if strings.TrimSpace(base) == "" {
+		return true
+	}
+	u, err := url.Parse(base)
+	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), "api.anthropic.com")
+}
+
+// lastEnv is the value the child gets for name: the last entry of env.
+func lastEnv(env []string, name string) string {
+	v := ""
+	for _, kv := range env {
+		if s, ok := strings.CutPrefix(kv, name+"="); ok {
+			v = s
+		}
+	}
+	return v
 }

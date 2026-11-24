@@ -30,6 +30,7 @@ func TestForModel(t *testing.T) {
 		{"veto under rtk prefix", "rtk go vet ./x", "", onPath, "rtk go vet ./x"},
 		{"pinned off PATH", "git log -4", "", "/nonexistent", word + " git log -4"},
 	} {
+		clearCodeModeVars(t)
 		t.Setenv(CodemodeEnv, tc.codemode)
 		t.Setenv("PATH", tc.path)
 		if got := ForModel(ctx, tc.cmd, cwd); got != tc.want {
@@ -53,7 +54,7 @@ func TestForModel(t *testing.T) {
 func TestForModelCacheSkipsFailuresAndTracksConfig(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv(CodemodeEnv, "")
+	clearCodeModeVars(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cwd, ctx := t.TempDir(), context.Background()

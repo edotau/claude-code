@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
@@ -73,13 +74,23 @@ func TestCheckoutTopResolvesSymlinks(t *testing.T) {
 	}
 }
 
+func TestVerifyLinesOneLineOnTimeout(t *testing.T) {
+	cut := waves.TaskCheck{Task: "2.4", Cmd: "go vet ./x", Skip: "not finished in 13 s; the commit-time verify still runs"}
+	none := waves.TaskCheck{Task: "2.4", Cmd: "-", Skip: "no checks ran"}
+	failed := waves.TaskCheck{Task: "2.4", Cmd: "go test ./x", Exit: 1, Saved: "out.txt"}
+	got := verifyLines([]waves.TaskCheck{failed, cut, none})
+	if len(got) != 2 || !strings.Contains(got[0], "FAIL") || !strings.Contains(got[1], "not finished") {
+		t.Errorf("got %q, want the failure then one not-finished line", got)
+	}
+}
+
 func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, plan := planRepo(t)
 	in := &core.Input{CWD: repo}
 	lr := leafRead{scan: leafScan{brief: "Task: 1.2\nwire it"}}
 	got := handbackVerify(in, lr, time.Now()) // an expired deadline takes the no-time branch: no gate runs
-	if len(got) != 2 || !strings.HasPrefix(got[0], "verify 1.2:") ||
+	if len(got) != 2 || got[0] != "verify 1.2: lane not resolved; not run" ||
 		!strings.HasPrefix(got[1], "commit+tick: claude-code worktree commit --task '1.2' --plan "+plan) {
 		t.Errorf("task brief: got %q, want one verify 1.2 line and one commit+tick naming it", got)
 	}
@@ -94,5 +105,26 @@ func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	}
 	if got := handbackVerify(in, leafRead{scan: leafScan{brief: "just look around"}}, time.Now()); got != nil {
 		t.Errorf("no task: got %q, want nothing", got)
+	}
+}
+
+func TestLeafCheckoutFromMeta(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := hosttest.Repo(t)
+	lane := filepath.Join(paths.LaneRoot(repo), "l1")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "l1", lane)
+	tr := filepath.Join(t.TempDir(), "agent-a1.jsonl")
+	in := &core.Input{AgentID: "a1", AgentTranscriptPath: tr, CWD: repo}
+	if got := leafCheckout(in, repo); got != "" {
+		t.Errorf("no meta, no claims: got %q, want no lane (the caller's cwd is no evidence)", got)
+	}
+	if err := os.WriteFile(leafMeta(tr), []byte(`{"worktreePath":"`+lane+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := leafCheckout(in, repo); !paths.SamePath(got, lane) {
+		t.Errorf("meta worktreePath: got %q, want %q", got, lane)
+	}
+	if got := leafCheckout(in, hosttest.Repo(t)); got != "" {
+		t.Errorf("another repo's top: got %q, want no lane", got)
 	}
 }

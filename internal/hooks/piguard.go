@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,9 +14,14 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // piGuardName is the "module" of `hook PreToolUse --pi-guard`: Pi's guard extension sends a raw tool call, this judges it.
@@ -31,11 +37,14 @@ type piCall struct {
 
 // piVerdict is the whole reply: Block blocks, only Allow runs the tool (on Path or Run); Usage is a tool error.
 type piVerdict struct {
-	Allow bool     `json:"allow,omitempty"`
-	Block string   `json:"block,omitempty"`
-	Path  string   `json:"path,omitempty"`
-	Run   []string `json:"run,omitempty"`
-	Usage string   `json:"usage,omitempty"`
+	Allow  bool     `json:"allow,omitempty"`
+	Block  string   `json:"block,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	Run    []string `json:"run,omitempty"`
+	Usage  string   `json:"usage,omitempty"`
+	Notice string   `json:"notice,omitempty"` // one line the tool result carries: the contract budget notice
+	Text   string   `json:"text,omitempty"`   // the verify result: the fixing turn's redacted text, "" when it passed
+	Stdin  string   `json:"stdin,omitempty"`  // the text the Run argv reads on stdin: a report's body
 }
 
 // piTools maps Pi's tool names to the Claude names the hooks match on.
@@ -46,8 +55,14 @@ func runPiGuard(stdin io.Reader, stdout, stderr io.Writer) int {
 	dropHookControlEnv() // fail closed: an inherited HARNESS_HOOK_SKIP must never turn the guards off
 	var c piCall
 	v := piVerdict{Block: "pi guard: unreadable tool call; blocked"}
-	if raw, err := io.ReadAll(stdin); err == nil && json.Unmarshal(raw, &c) == nil {
-		v = judgePi(c)
+	dec := json.NewDecoder(stdin)
+	if dec.Decode(&c) == nil {
+		var extra json.RawMessage
+		if c.Tool == "verify" { // the rest of stdin is the liveness pipe: its EOF means Pi is gone
+			v = runPiVerify(c, io.MultiReader(dec.Buffered(), stdin))
+		} else if dec.Decode(&extra) == io.EOF { // only JSON whitespace may follow, as json.Unmarshal required
+			v = judgePi(c)
+		}
 	}
 	if err := json.NewEncoder(stdout).Encode(v); err != nil {
 		_, _ = io.WriteString(stderr, "pi guard: verdict not written: "+err.Error()+"\n")
@@ -65,8 +80,74 @@ func dropHookControlEnv() {
 	}
 }
 
-// judgePi normalizes the call, builds the hook payload from canonical fields only, and runs Pi's PreToolUse modules.
+// judgePi judges the call, then adds the owner's budget notice; a dispatch at the budget runs nothing.
 func judgePi(c piCall) piVerdict {
+	v := judgePiCall(c)
+	if !v.Allow {
+		return v
+	}
+	leaves, tokens := piBudget()
+	switch {
+	case c.Tool == "dispatch" && (leaves || tokens):
+		return piVerdict{Allow: true, Notice: contract.BudgetNotice} // a tool result, not an error
+	case tokens:
+		v.Notice = contract.BudgetNotice
+	case c.Tool == "check" || c.Tool == "dispatch":
+		v.Notice = piResent()
+	}
+	return v
+}
+
+// piBudget reports whether this run's owner contract dispatched every leaf, and whether it is past its tokens.
+func piBudget() (leaves, tokens bool) {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
+		return false, false
+	}
+	s := wire.SpentBy(c)
+	return c.LeavesSpent(s), c.TokensSpent(s)
+}
+
+// heldContract is the open contract id holds: its own, else one it took over by a re-assign.
+func heldContract(id string) (contract.Contract, bool) {
+	if id == "" {
+		return contract.Contract{}, false
+	}
+	for _, try := range append([]string{id}, agent.ResumeChain(id)...) { // a retry: the dispatches it resumed
+		c, err := contract.Load(try)
+		if errors.Is(err, fs.ErrNotExist) {
+			open, _ := contract.Pending() // an unreadable contract is skipped: a notice never blocks
+			if i := slices.IndexFunc(open, func(p contract.Contract) bool { return slices.Contains(p.Holders, try) }); i >= 0 {
+				c, err = open[i], nil
+			}
+		}
+		if err == nil {
+			return c, !c.State().Terminal()
+		}
+	}
+	return contract.Contract{}, false
+}
+
+// piResent is the notice for an owner's re-sent leaf: its id and the dispatch now holding it, "" for none.
+func piResent() string {
+	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
+	if !ok || c.Owner.Role != contract.RoleOwner {
+		return ""
+	}
+	var out []string
+	for _, id := range c.Children {
+		if k, err := contract.Load(id); err == nil && k.State() == contract.StateWorking && len(k.Holders) > 1 {
+			out = append(out, id+" re-sent as "+k.Holders[len(k.Holders)-1])
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "leaf died and was re-sent once: " + strings.Join(out, ", ")
+}
+
+// judgePiCall normalizes the call, builds the payload from canonical fields only, and runs Pi's PreToolUse modules.
+func judgePiCall(c piCall) piVerdict {
 	if isPiAction(c.Tool) {
 		return judgePiAction(c)
 	}
@@ -279,27 +360,35 @@ func resolvePiPath(raw, cwd string) (path, why string) {
 
 // piHandbackKeys and piGateKeys are the typed arguments of the two runner actions.
 var (
-	piHandbackKeys = []string{"status", "summary", "unfixed"}
+	piHandbackKeys = []string{"status", "summary", "unfixed", "tests", "method"}
 	piGateKeys     = []string{"scope"}
+	piReportKeys   = []string{"kind", "body"}
 	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
 )
 
 // isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
-func isPiAction(tool string) bool { return tool == "gate" || tool == "handback" }
+func isPiAction(tool string) bool {
+	return slices.Contains([]string{"gate", "handback", "dispatch", "check", "report"}, tool)
+}
 
 // piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
-func piActionArgv(tool string, input map[string]any) ([]string, error) {
-	keys := piGateKeys
-	if tool == "handback" {
-		keys = piHandbackKeys
-	}
+func piActionArgv(tool string, input map[string]any, cwd string) ([]string, error) {
+	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys,
+		"report": piReportKeys}[tool]
 	for k := range input {
 		if !slices.Contains(keys, k) {
 			return nil, fmt.Errorf("%s: unknown argument %q (allowed: %s)", tool, k, strings.Join(keys, ", "))
 		}
 	}
-	if tool == "handback" {
+	switch tool {
+	case "handback":
 		return nil, nil
+	case "dispatch":
+		return piDispatchArgv(input, cwd)
+	case "check":
+		return piCheckArgv(input)
+	case "report":
+		return piReportArgv(input)
 	}
 	argv := []string{"worktree", "gate", "--run", "--format", "json"}
 	scope, err := piGateScope(input["scope"])
@@ -310,6 +399,21 @@ func piActionArgv(tool string, input map[string]any) ([]string, error) {
 		return argv, nil
 	}
 	return append(argv, "--scope", scope), nil
+}
+
+// piReportArgv files the body as the run's own report; the model supplies neither the dispatch id nor the argv.
+func piReportArgv(input map[string]any) ([]string, error) {
+	kind, body, id := strOf(input["kind"]), strOf(input["body"]), os.Getenv(proc.DispatchIDEnv)
+	if !slices.Contains(memory.ReportKinds, kind) {
+		return nil, fmt.Errorf("report: kind must be one of %s", strings.Join(memory.ReportKinds, ", "))
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, errors.New("report: body must be a non-empty string")
+	}
+	if id == "" {
+		return nil, errors.New("report: no dispatch to file the report on")
+	}
+	return []string{"memory", "report", "--job", id, "--kind", kind, "--stdin"}, nil
 }
 
 // piGateScope is the comma-joined scope dirs; each must be a clean relative directory.
@@ -334,21 +438,29 @@ func piGateScope(list any) (string, error) {
 
 // judgePiAction judges a runner action: a gate is judged as the bash line it will run, a handback runs nothing.
 func judgePiAction(c piCall) piVerdict {
-	argv, err := piActionArgv(c.Tool, c.Input)
+	argv, err := piActionArgv(c.Tool, c.Input, c.CWD)
 	if err != nil {
 		return piVerdict{Usage: err.Error()}
 	}
 	if argv == nil {
 		return piVerdict{Allow: true}
 	}
-	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "claude-code " + strings.Join(argv, " ")}, "cwd": c.CWD,
-		"session_id": c.SessionID, "harness_agent": "pi"})
-	if err != nil {
-		return piBlock("payload: " + err.Error())
-	}
-	if reason := piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload); reason != "" {
+	if reason := piBashBlock(c, "claude-code "+textutil.ShellJoin(argv)); reason != "" {
 		return piVerdict{Block: reason}
 	}
-	return piVerdict{Allow: true, Run: argv}
+	v := piVerdict{Allow: true, Run: argv}
+	if c.Tool == "report" {
+		v.Stdin = strOf(c.Input["body"])
+	}
+	return v
+}
+
+// piBashBlock runs Pi's Bash PreToolUse modules on command; "" allows.
+func piBashBlock(c piCall, command string) string {
+	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": command}, "cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
+	if err != nil {
+		return "pi guard: payload: " + err.Error() + "; blocked"
+	}
+	return piModulesBlock(settings.SpecsFor("pi", "plugin"), "Bash", payload)
 }

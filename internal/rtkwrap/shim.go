@@ -44,15 +44,15 @@ const (
 type call struct {
 	name           string
 	args           []string
-	codemode       string // CodemodeEnv: Pi's scripts run, so nothing wraps
-	pipe           bool   // stdout is a pipe or socket, never a TTY, file or device
+	codemode       bool // CodeMode(): Pi's scripts run, so nothing wraps
+	pipe           bool // stdout is a pipe or socket, never a TTY, file or device
 	pid, ppid, sid int
 	cwd            string
 }
 
 // gate is the Pi tool-shell command c runs within and "" to wrap it, else the reason code that keeps c raw.
 func (c call) gate() (cmd, reason string) {
-	if c.codemode != "" {
+	if c.codemode {
 		return "", "codemode"
 	}
 	if !c.pipe {
@@ -223,7 +223,7 @@ func Main(args []string) int {
 // wrapWith is the rtk to exec for this call, or "" when it runs raw; the decision is logged first.
 func wrapWith(name string, args, dirs []string, self os.FileInfo, env []string) string {
 	cwd, _ := os.Getwd()
-	c := call{name: name, args: args, codemode: os.Getenv(CodemodeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
+	c := call{name: name, args: args, codemode: CodeMode(), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
 	rtk := rtkBinary(dirs, self)
 	reason := c.wraps(rtk, env)
 	logDecision(name, reason, args)
@@ -324,7 +324,7 @@ func rtkMain(args []string) int {
 	real := rtkBinary(dirs, self)
 	env := withPath(os.Environ(), dirs)
 	name, rest, strip := stripRtk(args[1:])
-	if os.Getenv(CodemodeEnv) == "" {
+	if !CodeMode() {
 		strip = false
 	}
 	if strip {
@@ -338,7 +338,7 @@ func rtkMain(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtkwrap: %s: %v\n", name, err)
 		return exitNoExec
 	}
-	if os.Getenv(CodemodeEnv) != "" {
+	if CodeMode() {
 		logVerdict(rtkName, "raw", "rtk-verb", args[1:])
 	}
 	if real == "" {

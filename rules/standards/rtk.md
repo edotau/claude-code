@@ -4,7 +4,7 @@
 (empty output: run the command as typed). The `rtk-rewrite` hook enforces it: in every mode, auto included, it
 rewrites the call in place (no permission decision, so auto mode's classifier still judges it), so write
 the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, and so does every code-mode run
-(`HARNESS_CODEMODE`, below).
+(`CODEMODE`, below).
 
 - **Prefixed:** `git` (except `git grep`), `gh`, `go`, `grep`, `rg`, `find`, `ls`, `tree`, `diff`, `make`, `docker`,
   `kubectl`, `oc`, `curl`, `wc`, `ps`, `du`, `df`, `stat`, `jq`, `ssh`, `golangci-lint`; the usual
@@ -25,8 +25,10 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
   recipes, hook commands, CI and scripts; rtk changes the output format. Harness Go code whose output a model reads
   calls `rtkwrap.ForModel` (`internal/rtkwrap/form.go`), never a hard-coded `rtk`: it returns the rtk form, or the
   bare command in code mode, with no rtk binary, or on a veto.
-- **Code mode, the one exception:** `HARNESS_CODEMODE` is set by every code-mode launcher (Pi `--codemode`). While it
-  is set nothing is rewritten to rtk: not the hook, not the shims, not `rtkwrap.ForModel`.
+- **Code mode, the one exception:** `CODEMODE` (off|on|only) is set by a code-mode launcher, by `--codemode`, or in
+  the vault; the running agent's own vendor variable counts too. Precedence (D2): typed `--codemode` > vault `CODEMODE`
+  > off, so a session keeps rtk unless `/codemode on` (coming). While it is on or only nothing is rewritten to rtk: not
+  the hook, not the shims, not `rtkwrap.ForModel`.
 - **Config:** `make install` renders rtk's `config.toml` with `exclude_commands` for `go vet`, `go test -v` and
   `go test -list`, and telemetry off.
 - **Per agent:** claude, codex and opencode rewrite through the `rtk-rewrite` hook; copilot through its SDK shell

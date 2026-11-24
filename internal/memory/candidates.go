@@ -125,6 +125,12 @@ func writeOpenCandidates(w io.Writer) {
 
 // candidateAction shows one record with its launch line, or approves or closes it for the owner's main session.
 func candidateAction(w io.Writer, o ReviewOptions) error {
+	if o.Propose != "" {
+		if o.Candidate != "" || o.Approve || o.Enforced != "" {
+			return errors.New("--propose stands alone")
+		}
+		return proposeCandidate(w, o.Propose)
+	}
 	if o.Approve || o.Enforced != "" {
 		if isDreamChild() {
 			return errors.New("approving and closing a candidate is the owner's, never a memory job's")
@@ -174,8 +180,11 @@ func enforceEdit(c *candidate, ref string) error {
 // rewriteCandidate edits one record in place under the bank lock; the file's other lines are kept byte for byte.
 func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
 	return withFlatLock(BankLockWait, func() error {
-		data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
+		data, pre, err := readCandidatesLocked()
 		if err != nil {
+			return err
+		}
+		if pre == "" {
 			return errors.New("no candidates file in the store")
 		}
 		text, err := replaceCandidate(string(data), id, edit)
@@ -185,9 +194,25 @@ func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
 		if n := len(validateCandidates(text)); n > 0 {
 			return fmt.Errorf("the candidates file would have %d problem(s); run `claude-code memory review`", n)
 		}
-		_, err = commitChangesLocked("memory: candidate "+id+" "+verb, []Change{{Rel: candidatesRel, Data: []byte(text)}})
+		_, err = commitChangesLocked("memory: candidate "+id+" "+verb,
+			[]Change{{Rel: candidatesRel, Data: []byte(text), Planned: true, PreSHA256: pre}})
 		return err
 	})
+}
+
+// readCandidatesLocked finishes pending journals, then reads the file and its hash ("" when absent).
+func readCandidatesLocked() (data []byte, pre string, err error) {
+	if _, err = recoverEach(); err != nil {
+		return nil, "", err
+	}
+	data, err = os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil, "", nil
+	case err != nil:
+		return nil, "", err
+	}
+	return data, sha256Hex(data), nil
 }
 
 // replaceCandidate returns text with id's record rewritten by edit and every other byte unchanged.
@@ -314,4 +339,59 @@ func candidateGate(target string) string {
 	}
 	pkgs := textutil.QuoteSH("./" + dir + "/...")
 	return "go build ./... && go vet " + pkgs + " && go test " + pkgs
+}
+
+func (o ReviewOptions) candidateVerb() bool { return o.Candidate != "" || o.Propose != "" }
+
+// proposeCandidate appends one proposed record under the bank lock; Go owns the file shape.
+func proposeCandidate(w io.Writer, record string) error {
+	c, msg := decodeCandidate(strings.TrimSpace(record))
+	switch {
+	case msg != "":
+		return errors.New(msg)
+	case c.Status != "" || c.EnforcedBy != "":
+		return errors.New("a proposal carries no status or enforced_by; the owner's --approve sets them")
+	}
+	var line bytes.Buffer
+	_ = jsonEncoder(&line).Encode(c) // a plain struct always encodes
+	err := withFlatLock(BankLockWait, func() error {
+		data, pre, err := readCandidatesLocked()
+		if err != nil {
+			return err
+		}
+		text := "# Feedback candidates\n\n```jsonl\n```\n"
+		if pre != "" {
+			text = string(data)
+		}
+		text, err = appendCandidateLine(text, strings.TrimRight(line.String(), "\n"))
+		if err != nil {
+			return err
+		}
+		if p := validateCandidates(text); len(p) > 0 {
+			return errors.New(p[0])
+		}
+		_, err = commitChangesLocked("memory: candidate "+c.ID+" proposed",
+			[]Change{{Rel: candidatesRel, Data: []byte(text), Planned: true, PreSHA256: pre}})
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s: proposed\n", c.ID)
+	return nil
+}
+
+// appendCandidateLine inserts line before the closing fence of the one jsonl block.
+func appendCandidateLine(text, line string) (string, error) {
+	lines := strings.Split(text, "\n")
+	open := false
+	for i, l := range lines {
+		switch t := strings.TrimSpace(l); {
+		case !open && t == "```jsonl":
+			open = true
+		case open && t == "```":
+			return strings.Join(slices.Insert(lines, i, line), "\n"), nil
+		}
+	}
+	return "", errors.New("the candidates file has no closed jsonl block; run `claude-code memory review`")
 }

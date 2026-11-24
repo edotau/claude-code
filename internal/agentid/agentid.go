@@ -79,7 +79,36 @@ type RouteFacts struct {
 	NoOwnLogin bool
 	// NoProjection has no vendor home to sync agents into.
 	NoProjection  bool
+	CodeMode      CodeModeRow
 	nativeEfforts []string
+}
+
+// CodeModeRow is how an agent's code mode turns on; the zero row means the agent has none.
+type CodeModeRow struct {
+	// Var is the vendor switch (set to on); empty for an extension-based mode.
+	Var string
+	// Extension marks a mode the harness loads itself (pi's codemode extension).
+	Extension bool
+	// Only is true when the agent has a script-only mode.
+	Only bool
+	// ViaSettings passes Var in the --settings env block, not the process env.
+	ViaSettings bool
+	// DirectOnly refuses the mode on any gateway or cloud-provider route.
+	DirectOnly bool
+}
+
+// Has reports whether the agent has a code mode.
+func (r CodeModeRow) Has() bool { return r.Var != "" || r.Extension }
+
+// CodeModeAgents is the roster agents with a code-mode row, in roster order.
+func CodeModeAgents() []string {
+	var names []string
+	for _, a := range roster {
+		if a.CodeMode.Has() {
+			names = append(names, a.name)
+		}
+	}
+	return names
 }
 
 // roster is the ordered agent names and their routing facts.
@@ -87,12 +116,14 @@ var roster = []struct {
 	name string
 	RouteFacts
 }{
-	{Claude, RouteFacts{AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()}},
+	{Claude, RouteFacts{AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames(),
+		CodeMode: CodeModeRow{Var: "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", ViaSettings: true, DirectOnly: true}}},
 	{Codex, RouteFacts{ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}}},
 	{Copilot, RouteFacts{FreezeTarget: true, Discovery: true}},
 	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()}},
-	{OpenCode, RouteFacts{SubLadder: true, Discovery: true}},
-	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
+	{OpenCode, RouteFacts{SubLadder: true, Discovery: true, CodeMode: CodeModeRow{Var: "OPENCODE_EXPERIMENTAL_CODE_MODE"}}},
+	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, CodeMode: CodeModeRow{Extension: true, Only: true},
+		nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
 }
 
 func facts(name string) RouteFacts {

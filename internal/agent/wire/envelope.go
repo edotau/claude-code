@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -96,9 +97,46 @@ type Envelope struct {
 	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
 	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
 	Hops            []Hop           `json:"hops,omitempty"`       // every dispatch tried, in order
+	Type            string          `json:"type,omitempty"`       // the agent type of the model that ran (models.AgentType)
+	Runner          string          `json:"runner,omitempty"`     // the runner that carried Agent's run, "pi"; absent when Agent ran itself
 	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 	Verify          *VerifyResult   `json:"verify,omitempty"`     // --spec verify: what the harness ran after the answer
+	Handback        *Handback       `json:"handback,omitempty"`   // the run's typed outcome, from a pi run's handback call
+}
+
+// Handback is the typed outcome a run reports; the answer's footer is only its rendering (Footer).
+type Handback struct {
+	Status  string   `json:"status"` // DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+	Summary string   `json:"summary"`
+	Unfixed []string `json:"unfixed"`
+	// Tests and Method are empty when the worker did not state them (unmet for a contract).
+	Tests  contract.Tests  `json:"tests,omitempty"`
+	Method contract.Method `json:"method,omitempty"`
+}
+
+// Footer is the verdict line and the one UNFIXED line; "UNFIXED: none" only for DONE with no items.
+func (h Handback) Footer() string {
+	one := func(s string) string { return strings.Join(strings.Fields(s), " ") } // a newline never forges a line
+	var items []string
+	for _, s := range h.Unfixed {
+		if s = one(s); s != "" && !strings.EqualFold(s, "none") {
+			items = append(items, s)
+		}
+	}
+	unfixed := strings.Join(items, "; ")
+	switch {
+	case unfixed != "":
+	case h.Status == "DONE":
+		unfixed = "none"
+	default:
+		unfixed = h.Status // an unfinished or concerned run is never "UNFIXED: none"
+	}
+	head := h.Status
+	if s := one(h.Summary); s != "" {
+		head += ": " + s
+	}
+	return head + "\nUNFIXED: " + unfixed
 }
 
 // VerifyResult is what the harness observed running a spec's verify steps; Exit is the first failing step's.
@@ -122,13 +160,19 @@ func (v VerifyResult) Line() string {
 const (
 	VerifyNotRunRemote = "remote_workdir"
 	VerifyNotRunShape  = "shape"
+	// VerifyNotRunUnread is a carried child's result event that could not be read: it may have run verify itself.
+	VerifyNotRunUnread = "child_result_unread"
 )
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
-		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify}
+		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify, Handback: res.Handback}
+	env.Type, env.Runner = res.Type, res.Runner
+	if res.Runner != "" {
+		env.Agent = cmp.Or(res.Asked, res.Agent)
+	}
 	if res.Denials != nil {
 		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
 	}
@@ -203,7 +247,7 @@ func ErrorKind(err error) string {
 	return "fatal"
 }
 
-// RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
+// RanOn is the "ran on" line for a finished run's final hop: agent · account·profile · model · fallback · proxy.
 func RanOn(res Result) string {
 	if nothingRan(res) {
 		return ""
@@ -212,8 +256,24 @@ func RanOn(res Result) string {
 	if who == "" {
 		return ""
 	}
-	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fallbackText(res)) +
+	typ := cmp.Or(res.Type, who)
+	line := fmt.Sprintf("ran on %s · %s · %s · fallback %s", RunLabel(typ, res.Runner), cmp.Or(acct, "own login"), cmp.Or(model, "default"), fallbackText(res)) +
 		ranOnCost(res)
+	if res.Runner != "" && res.Asked != "" && res.Asked != typ {
+		line += " · asked " + res.Asked
+	}
+	if res.Transport != nil && res.Transport.Proxy != "" {
+		line += " · proxy " + res.Transport.Proxy
+	}
+	return line
+}
+
+// RunLabel is the label every surface shows for a run: its agent type, "<type> via <runner>" when one carried it.
+func RunLabel(typ, runner string) string {
+	if runner == "" {
+		return typ
+	}
+	return typ + " via " + runner
 }
 
 // RequestedLabel renders a requested target for a reader: "<model> on <profile>", else whichever is known.
@@ -351,8 +411,12 @@ type Result struct {
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	Verify          *VerifyResult   `json:"verify,omitempty"`          // the spec's verify run, set by ask after the answer
+	Handback        *Handback       `json:"handback,omitempty"`        // the typed outcome the run's handback call reported
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
+	Asked           string          `json:"-"`                         // the agent the caller asked, set with Runner
+	Runner          string          `json:"runner,omitempty"`          // the runner that carried Asked's run (Agent); "" when Agent ran itself
+	Type            string          `json:"type,omitempty"`            // the agent type of the model that ran
 }
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
@@ -362,6 +426,7 @@ type Hop struct {
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Reported  string `json:"reported_model,omitempty"` // Result.Reported of this hop
+	RunFor    string `json:"run_for,omitempty"`        // the asked agent a pi runner hop executes for
 	ErrorKind string `json:"error_kind,omitempty"`
 	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
 	NotStarted bool `json:"not_started,omitempty"`
@@ -371,11 +436,12 @@ type Hop struct {
 
 // Transport is a run's stream health: attempts, retries the agent recovered from, and how steady the stream was.
 type Transport struct {
-	Attempts      int   `json:"attempts"`                 // tries the outer retry loop made
-	Retries       int   `json:"retries,omitempty"`        // api_retry events Claude recovered from
-	RetryStatuses []int `json:"retry_statuses,omitempty"` // their HTTP status; 0 = no response
-	FirstEventMs  int64 `json:"first_event_ms,omitempty"` // start → first stream_event
-	MaxGapMs      int64 `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
+	Attempts      int    `json:"attempts"`                 // tries the outer retry loop made
+	Retries       int    `json:"retries,omitempty"`        // api_retry events Claude recovered from
+	RetryStatuses []int  `json:"retry_statuses,omitempty"` // their HTTP status; 0 = no response
+	FirstEventMs  int64  `json:"first_event_ms,omitempty"` // start → first stream_event
+	MaxGapMs      int64  `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
+	Proxy         string `json:"proxy,omitempty"`          // the proxy route label the dispatch ran through
 }
 
 // Result.Status values.

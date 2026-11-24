@@ -45,11 +45,16 @@ type sessionStore struct {
 	procStart  func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
 
+// newMemorySessionStore is a store that never persists: no legacy reload, no renewal file.
+func newMemorySessionStore(secret string, now func() time.Time) *sessionStore {
+	return &sessionStore{secret: secret, seen: map[string]*seenSession{},
+		legacy: map[string]legacySession{}, legacyDead: map[string]bool{},
+		renewed: map[string]legacyRenewal{}, now: now, procStart: proc.StartTime}
+}
+
 func newSessionStore(secret string, now func() time.Time) *sessionStore {
-	s := &sessionStore{secret: secret, seen: map[string]*seenSession{},
-		legacy: map[string]legacySession{}, legacyDead: map[string]bool{}, legacyFile: proxy.SessionsFile(),
-		renewed: map[string]legacyRenewal{}, renewFile: proxy.LegacyRenewalsFile(),
-		now: now, procStart: proc.StartTime}
+	s := newMemorySessionStore(secret, now)
+	s.legacyFile, s.renewFile = proxy.SessionsFile(), proxy.LegacyRenewalsFile()
 	s.mu.Lock()
 	s.reloadLegacyLocked()
 	s.mu.Unlock()
@@ -73,14 +78,24 @@ func sameVersion(read, fi os.FileInfo) bool {
 
 // mintWithFailover signs a token for profiles bound to pid's identity, with an optional same-provider failover group.
 func (s *sessionStore) mintWithFailover(profiles []string, pid int, failoverProvider string) (string, error) {
+	return s.mintFenced(profiles, pid, failoverProvider, nil, false)
+}
+
+// mintFenced is mintWithFailover with the confinement fence the token carries signed in.
+func (s *sessionStore) mintFenced(profiles []string, pid int, failoverProvider string, fence []string,
+	open bool) (string, error) {
 	if !validProfiles(profiles) || pid <= 0 || (failoverProvider != "" && !validProfile(failoverProvider)) {
 		return "", errors.New("profiles and pid are required")
+	}
+	if len(fence) > 0 && !validProfiles(fence) {
+		return "", errors.New("fence names an invalid profile")
 	}
 	start, err := s.procStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("pid %d: %w", pid, err)
 	}
-	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start}
+	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start,
+		Fence: fence, Open: open}
 	return proxy.SignSessionToken(s.secret, c, s.now())
 }
 
@@ -197,12 +212,6 @@ func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
 	return c, err == nil
 }
 
-// profiles is tok's profile set, nil for an unsigned token.
-func (s *sessionStore) profiles(tok string) []string {
-	c, _ := s.claims(tok)
-	return c.Profiles
-}
-
 // failoverProvider is tok's server-side failover provider group, or "" when pinned to profiles only.
 func (s *sessionStore) failoverProvider(tok string) string {
 	c, _ := s.claims(tok)
@@ -238,11 +247,11 @@ func profileOfPath(path string) string {
 // serveSession handles the mint endpoint, after the caller proved the router secret.
 func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 	var in proxy.SessionRequest
-	if req.Method != http.MethodPost || json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096)).Decode(&in) != nil {
+	if req.Method != http.MethodPost || json.NewDecoder(http.MaxBytesReader(w, req.Body, 16<<10)).Decode(&in) != nil {
 		writeError(w, http.StatusBadRequest, "proxy: want POST with a JSON body")
 		return
 	}
-	tok, err := r.sessions.mintWithFailover(in.Profiles, in.PID, in.FailoverProvider)
+	tok, err := r.sessions.mintFenced(in.Profiles, in.PID, in.FailoverProvider, in.Fence, in.Open)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: session: "+err.Error())
 		return

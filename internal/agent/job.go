@@ -86,7 +86,16 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 
 func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, recovering bool) error {
 	ctx, _ = RunValues(ctx, nil)
+	parent, _ := ctx.Value(dispatchIDKey{}).(string)
 	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
+	if parent != "" { // the job inherits the parent's chosen proxy, keyed by its own id only while its env is built
+		routeMu.Lock()
+		if label, ok := chosenByID[parent]; ok {
+			chosenByID[rec.ID] = label
+		}
+		routeMu.Unlock()
+		defer forgetChosenProxy(ctx)
+	}
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -436,6 +445,10 @@ type Row struct {
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
 	Usage  *wire.Usage `json:"usage,omitempty"`
+
+	Type      string    `json:"type,omitempty"`
+	Runner    string    `json:"runner,omitempty"`
+	ToolStats ToolStats `json:"tool_stats,omitempty"`
 }
 
 // NoteQueued marks admission waits in Progress; an empty pool clears only an admission mark.
@@ -675,7 +688,8 @@ func toRow(r Record) Row {
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
-		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report}
+		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report,
+		Type: r.Type, Runner: r.Runner, ToolStats: r.ToolStats}
 }
 
 // interrupt sends SIGINT to pid's process group and pid.

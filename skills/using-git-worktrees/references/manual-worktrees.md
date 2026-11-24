@@ -32,36 +32,41 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
 `overlaps` (changed files shared with another lane or with main's uncommitted edits). Present its `reopen:` and
 `cleanup:` lines verbatim.
 
-### merge
+### land
 
-1. **Preview, always:** `claude-code worktree merge --dry-run "$SLUG"`. `clean — no predicted conflicts`
+1. **Preview, always:** `claude-code worktree land --dry-run "$SLUG"`. `clean — no predicted conflicts`
    exits 0; any blocking `issue:` (dirty worktree, detached target, `--target` mismatch, unrelated histories,
    merge-tree failure) exits 1 with nothing mutated — report it and stop. A predicted `conflict [<files>]`
    alone no longer blocks: the apply rebases the lane and exits 3 when the conflict is real (step 2).
-   A dirty target is refused only when its uncommitted paths overlap files the merge touches; the issue names
-   who claims each one.
-2. **Apply:** `claude-code worktree merge "$SLUG"`. `--verify "<cmd>"` overrides auto-detection (Makefile test /
-   go.mod / pyproject / package.json / Cargo.toml); `--no-verify` is the only unverified path; no gate found
-   refuses before integrating. Makefile test target plus `go.mod` runs the scoped gate: `go build ./... &&
-   go vet ./...`, then `go test` on the packages `<target>...HEAD` changed (a non-Go file maps to its package,
-   embedders and tests naming it), their importers (tests included, transitively) and the registry packages
+   A dirty target is refused (exit 3, nothing changed) only when its uncommitted paths overlap files the land
+   touches; the issue names who claims each one.
+2. **Apply:** `claude-code worktree land "$SLUG"` (default **Land on local (Recommended)**: uncommitted changes in
+   your checkout, you commit; `--merge` is **Merge into working branch**: a committed fast-forward).
+   `--verify "<cmd>"` overrides auto-detection (Makefile test / go.mod / pyproject / package.json / Cargo.toml);
+   `--no-verify` is the only unverified path; no gate found refuses before integrating.
+   Makefile test target plus `go.mod` runs the scoped gate: `go build ./... && go vet ./...`, then `go test` on
+   the packages `<target>...HEAD` changed (a non-Go file maps to its package, embedders and tests naming it), their
+   importers (tests included, transitively) and the registry packages
    (`internal/{hooks,settings,agent,cli,schemas}`, where present); a `go.mod`/`go.sum` change or an unowned
    non-markdown, non-Go file keeps the full detected gate (`make test` here), as `--full-verify` does; the full
    `make audit` stays the pre-push gate. Preflight re-runs; a failing gate stops with the worktree untouched; success
-   promotes, ticks the active plan (`claude-code plan tick --range <old>..<new>`) and, unless `--no-clean`, cleans as
-   `clean` would. A refused promote (target moved, worktree HEAD changed since the verified integration, not a
-   fast-forward) prints `retry:` and promotes nothing: re-run step 1. A failure after the promote leaves the merge
-   landed (plan-tick and ledger problems only warn). An apply run (no `--dry-run`, no `--resolve-agent`) whose
+   applies the lane's diff to the live tree uncommitted and, unless `--no-clean`, removes the worktree and keeps its
+   branch (`clean` deletes it once its diff is in `HEAD`); `--merge` instead promotes, ticks the active plan
+   (`claude-code plan tick --range <old>..<new>`) and cleans as `clean` would. A refused promote (target moved,
+   worktree HEAD changed since the verified integration, not a fast-forward) prints `retry:` and changes nothing:
+   re-run step 1. A failure after the land leaves it landed (ledger problems only warn).
+   An apply run (no `--dry-run`, no `--resolve-agent`) whose
    rebase conflicts aborts it, leaves the lane as it was, names the files, exits 3 and queues a notice for the
    lane's owning session; the preview does not.
-3. **Report:** the `promoted: <old> -> <new> on <target>` line, `verify: passed (<source>)`, and `removed: <path>` /
-   `branch deleted: <branch>` (or the "worktree left on disk" line with `--no-clean`).
+3. **Report:** the `landed <lane>: N files uncommitted in <dir>; branch <b> kept` line (`--merge`: `promoted: <old> ->
+   <new> on <target>`), `verify: passed (<source>)`, and `removed: <path>` (or the "worktree left on disk" line with
+   `--no-clean`).
 
-**Rebase conflict (exit 3):** `claude-code worktree merge --resolve-agent codex "$SLUG"` materializes it in the
+**Rebase conflict (exit 3):** `claude-code worktree land --resolve-agent codex "$SLUG"` materializes it in the
 worktree and runs the agent once on the conflicted paths only (no `git add`/`commit`); the controller then checks
 every marker is gone and nothing else changed, commits, revalidates ancestry and promotes. Markers left, an
 unexpected path, a silent codex→Claude fallback, a timeout or Ctrl-C fail the operation with everything left on
-disk. `merge --resume "$SLUG"` reattaches after a crash without re-invoking the agent.
+disk. `land --resume "$SLUG"` reattaches after a crash without re-invoking the agent.
 
 ### clean / clean-all
 

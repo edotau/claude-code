@@ -15,7 +15,7 @@ The lint step (`configure --fmt`) reorders the live file's keys to schemastore o
 | To… | Run |
 | --- | --- |
 | Change permissions / env / statusLine / hooks | edit `~/.claude/settings.json` by hand, then `claude-code doctor` (`settings.json: valid`) |
-| Set or remove a vault env value (injected into launches; not a secret) | `claude-code vault env set NAME VALUE` / `vault env unset NAME` (`vault ls env` lists) |
+| Set or remove a vault env value (injected into launches; not a secret) | `claude-code vault env set NAME VALUE` / `vault env unset NAME` (asks before replacing a value; `--yes` skips, required headless; `vault ls env` lists) |
 | Build and install (clean tracked tree required; `FORCE=1` overrides) | `rtk make install` (`claude-code install --dry-run` previews); prints `kept (yours) · valid` or the validity error |
 | Reset settings.json to the clean template | `claude-code configure --restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure --restore --agents` (or `--agent X`); never touches settings.json |

@@ -199,3 +199,15 @@ func TestRoutesAreCopies(t *testing.T) {
 		t.Fatalf("a returned team aliases the config: %v", ps)
 	}
 }
+
+func TestOverlayProblemNamesItsSource(t *testing.T) {
+	overlay := `{"schema":1,"teams":[{"name":"general","kinds":["group"],"host":"ask","lifetime":"ask","reserved":1,` +
+		`"borrow":"never","fallback":["shared"]}]}`
+	_, ps := Parse(assets.ProxyTeams(), []byte(overlay))
+	if len(ps) == 0 || !strings.Contains(ps[0].String(), "vault overlay proxy-teams; remove: claude-code vault overlay unset proxy-teams --yes") {
+		t.Fatalf("problems %v: want the overlay source and the remove command", ps)
+	}
+	if _, ps := Parse(assets.ProxyTeams(), nil); len(ps) != 0 {
+		t.Fatalf("default config has problems %v", ps)
+	}
+}

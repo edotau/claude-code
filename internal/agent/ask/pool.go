@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,6 +23,21 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
+
+// hostBatchProxy gives a bare batch its own phase proxy; a batch whose lines or env name a group already has one.
+func hostBatchProxy(ctx context.Context, id string, tasks []batchTask) func() {
+	bare := func(t batchTask) bool { return t.Group == "" && t.Err == nil }
+	if !slices.ContainsFunc(tasks, bare) || agent.InheritedProxyLive(ctx) {
+		return func() {}
+	}
+	group, closeProxy := agent.HostPhaseProxy(ctx, strings.ToLower(id))
+	for i := range tasks {
+		if bare(tasks[i]) {
+			tasks[i].Group = group
+		}
+	}
+	return closeProxy
+}
 
 // defaultJobs is the default pool size: min(4, GOMAXPROCS).
 func defaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
@@ -112,6 +129,7 @@ func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.R
 		tasks = append(tasks, t)
 	}
 	id = newID()
+	defer hostBatchProxy(ctx, id, tasks)()
 	po := poolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
 	switch {
 	case runTasks(ctx, tasks, po):
@@ -269,6 +287,9 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 	rec := &p.Record
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
+	if t.Group != "" {
+		ctx = agent.WithProxyGroup(ctx, t.Group)
+	}
 	if b.o.FailFast {
 		ctx = retry.WithFailFast(ctx, b.stop)
 	}

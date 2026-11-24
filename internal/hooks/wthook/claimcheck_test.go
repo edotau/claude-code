@@ -1070,8 +1070,11 @@ func TestClaimCheckLanesMode(t *testing.T) {
 			if r.Decision != core.Allow {
 				t.Fatalf("%v %q; lanes mode never asks or blocks", r.Decision, r.Reason)
 			}
-			if noted := strings.Contains(r.Context, "claude-code worktree create <slug>"); noted != tc.note {
+			if noted := strings.Contains(r.Context, "claude-code worktree create "); noted != tc.note {
 				t.Errorf("context %q: lane note %v, want %v", r.Context, noted, tc.note)
+			}
+			if strings.Contains(r.Context, "<") {
+				t.Errorf("context %q keeps a placeholder", r.Context)
 			}
 		})
 	}

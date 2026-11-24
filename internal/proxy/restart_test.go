@@ -73,3 +73,26 @@ func TestRestartReportIfChanged(t *testing.T) {
 		cleanup()
 	}
 }
+
+// TestReplaceStaleDaemon: a fence-less daemon of another build is restarted once; one on this build is left alone.
+func TestReplaceStaleDaemon(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	prevComm, prevHash, prevRestart := HolderComm, selfHash, restartDaemon
+	t.Cleanup(func() { HolderComm, selfHash, restartDaemon = prevComm, prevHash, prevRestart })
+	HolderComm = func(int) string { return "claude-code" }
+	selfHash = func() string { return "installed" }
+	restarts := 0
+	restartDaemon = func(context.Context, State) (State, error) { restarts++; return State{}, nil }
+	port := occupy(t, func(http.ResponseWriter, *http.Request) {})
+	for exe, want := range map[string]int{"older": 1, "installed": 0} {
+		restarts = 0
+		cleanup, err := WriteState(State{PID: os.Getpid(), Port: port, Exe: exe})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := replaceStaleDaemon(context.Background()); err != nil || restarts != want {
+			t.Errorf("exe %q: restarts = %d, want %d", exe, restarts, want)
+		}
+		cleanup()
+	}
+}

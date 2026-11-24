@@ -320,10 +320,12 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 
 // tagBlock files the session's tags (historical: DECISION only): typed events, then transcript tags they do not repeat.
 func tagBlock(transcript, session string, historical bool) string {
+	filed := filedDecisions() // dropped before any cap, so filed decisions never push a pending tag out
+	isFiled := func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) }
 	var legacy []tag
 	if f, err := os.Open(transcript); err == nil {
 		defer f.Close()
-		legacy, _ = extractTags(f)
+		legacy, _ = extractTagsExcept(f, isFiled)
 	}
 	if session == "" { // no id on the request: the transcript's stem is the session id for Claude transcripts
 		session = strings.TrimSuffix(filepath.Base(transcript), ".jsonl")
@@ -333,7 +335,7 @@ func tagBlock(transcript, session string, historical bool) string {
 		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
 		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
-	tags := mergeTags(typed, legacy)
+	tags := mergeTags(slices.DeleteFunc(typed, isFiled), legacy)
 	if len(tags) == 0 {
 		return ""
 	}
@@ -342,6 +344,86 @@ func tagBlock(transcript, session string, historical bool) string {
 		lines = append(lines, t.Kind+": "+t.Text)
 	}
 	return assets.MemorySessionTags(lines)
+}
+
+// filedDecisions reports whether a decision's text already heads an entry in decisionLog.md or its archive.
+func filedDecisions() func(text string) bool {
+	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), "archive"), "decisionLog*.md")...)
+	titles := map[string]bool{} // a struck (superseded) title still counts: replaying must not revive it
+	for _, p := range logs {
+		b, _ := readFile(p)
+		for ln := range strings.SplitSeq(string(b), "\n") {
+			if _, title, ok := strings.Cut(ln, " — "); ok && strings.HasPrefix(ln, "## ") {
+				titles[normTitle(title)] = true
+				head, _, _ := strings.Cut(title, " — ") // an entry filed as "decision — rationale" matches a bare tag
+				titles[normTitle(head)] = true
+			}
+		}
+	}
+	return func(text string) bool { return titles[normTitle(text)] }
+}
+
+// normTitle is a decision title without its id marker, strike marks and spacing differences.
+func normTitle(s string) string {
+	s = strings.ReplaceAll(idMarker().ReplaceAllString(s, ""), "~~", "")
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// filedByGoBlock lists the session's DECISION events as decisionLog.md entries (date, title, id); uncapped.
+func filedByGoBlock(session string) string {
+	if session == "" {
+		return ""
+	}
+	entries := decisionEntryLines()
+	var out strings.Builder
+	for _, e := range ReadTagEvents(session) {
+		if line, ok := entries[normTitle(e.Text)]; ok && e.Event == "decision" {
+			out.WriteString(line)
+			delete(entries, normTitle(e.Text))
+		}
+	}
+	if out.Len() == 0 {
+		return ""
+	}
+	return "\n\nFiled by Go (decisionLog.md entries for this session's DECISION events; not in the tag list):\n" + out.String()
+}
+
+// decisionEntryLines maps each decisionLog.md title, and its part before " — ", to a "- date — title (id x)" line.
+func decisionEntryLines() map[string]string {
+	b, _ := readFile(Path("decisionLog.md"))
+	entries := map[string]string{}
+	for ln := range strings.SplitSeq(string(b), "\n") {
+		_, title, ok := strings.Cut(ln, " — ")
+		if !ok || !strings.HasPrefix(ln, "## ") || len(ln) < 13 {
+			continue
+		}
+		id := ""
+		if m := idMarker().FindStringSubmatch(ln); m != nil {
+			id = m[1]
+		}
+		line := "- " + ln[3:13] + " — " + normTitle(title) + " (id " + id + ")\n"
+		head, _, _ := strings.Cut(title, " — ")
+		entries[normTitle(title)], entries[normTitle(head)] = line, line
+	}
+	return entries
+}
+
+// fileDecisionEvents writes each recorded DECISION event not yet in decisionLog.md; Go, not the model, owns the entry.
+func fileDecisionEvents(session string, now time.Time) error {
+	var errs []error
+	for _, e := range ReadTagEvents(session) {
+		if e.Event != "decision" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, e.At)
+		if err != nil {
+			at = now
+		}
+		if _, err := rememberDecisionOnce(e.Text, at); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // typedTags is the session's recorded tag events as tags; an empty session reads none.
@@ -518,16 +600,20 @@ func (r *updateRun) locked(o updateOptions) error {
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
 func runAgentUpdate(ctx context.Context, o updateOptions) error {
+	var fileErr error
+	if o.Session != "" {
+		fileErr = fileDecisionEvents(o.Session, time.Now())
+	}
 	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
 	if err != nil {
-		return err
+		return errors.Join(fileErr, err)
 	}
-	prompt += o.Handoff.block
+	prompt += filedByGoBlock(o.Session) + o.Handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
-	return err
+	return errors.Join(fileErr, err)
 }
 
 type childEnvKey struct{}
@@ -567,11 +653,17 @@ const (
 var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 
 // extractTags returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT text blocks only.
-func extractTags(r io.Reader) ([]tag, error) {
+func extractTags(r io.Reader) ([]tag, error) { return extractTagsExcept(r, nil) }
+
+// extractTagsExcept is extractTags minus the tags skip names, dropped before the cap so they never evict a pending one.
+func extractTagsExcept(r io.Reader, skip func(tag) bool) ([]tag, error) {
 	var tags []tag
 	seen := map[string]bool{}
 	err := transcript.EachLine(r, func(line []byte) {
 		for _, t := range tagsFromLine(line) {
+			if skip != nil && skip(t) {
+				continue
+			}
 			key := t.Kind + "\x00" + t.Text
 			if !seen[key] {
 				seen[key] = true

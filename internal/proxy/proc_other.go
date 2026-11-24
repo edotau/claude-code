@@ -14,6 +14,8 @@ var alive = func(pid int) bool {
 	return true
 }
 
+func kill(pid int) error { return terminate(pid) }
+
 func terminate(pid int) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {

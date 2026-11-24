@@ -25,6 +25,8 @@ type armPicks struct {
 	Schema int                    `json:"schema"`
 	Picked map[string]time.Time   `json:"picked"`
 	Recent map[string][]time.Time `json:"recent,omitempty"` // picks inside armPendingWindow: load before a child registers
+	// Roles is each role's last rotation pick per cell, keyed by RoleCell.Key: an untyped Claude dispatch's history.
+	Roles map[string]map[string]time.Time `json:"roles,omitempty"`
 }
 
 const armPicksSchema = 1
@@ -256,6 +258,78 @@ func readArmPicks() armPicks {
 	}
 	picks.Schema = armPicksSchema
 	return picks
+}
+
+// Key is c's history key in route-auto.json: provider/model.
+func (c RoleCell) Key() string { return c.Provider + "/" + c.Model }
+
+// roleLockWait bounds a dispatch's wait for the pick lock; past it the pick ranks read-only and goes unstamped.
+const roleLockWait = 5 * time.Second
+
+// PickRoleCell is role's least-recently-picked cell of cells (ties in cells order); stamp records it under the lock.
+func PickRoleCell(role Role, cells []RoleCell, stamp bool, now time.Time) (RoleCell, error) {
+	if len(cells) == 0 {
+		return RoleCell{}, errors.New("no role cell to pick")
+	}
+	var pick RoleCell
+	rank := func(picks armPicks) {
+		hist := picks.Roles[string(role)]
+		pick = slices.MinFunc(cells, func(a, b RoleCell) int { return hist[a.Key()].Compare(hist[b.Key()]) })
+	}
+	if !stamp {
+		rank(readArmPicks())
+		return pick, nil
+	}
+	err := paths.WithFileLockWithin(armPicksFile(), roleLockWait, func() error {
+		picks := readArmPicks()
+		rank(picks)
+		roles := maps.Clone(picks.Roles)
+		if roles == nil {
+			roles = map[string]map[string]time.Time{}
+		}
+		hist := maps.Clone(roles[string(role)])
+		if hist == nil {
+			hist = map[string]time.Time{}
+		}
+		hist[pick.Key()] = newestStamp(armPicks{Picked: roles[string(role)]}, now) // a later pick always ranks after
+		roles[string(role)] = hist
+		picks.Roles = roles
+		return writeArmPicks(picks)
+	})
+	if err != nil && pick == (RoleCell{}) { // no lock: rank read-only, unstamped
+		rank(readArmPicks())
+	}
+	return pick, err
+}
+
+// RoleProviderOf is the ClaudeProviders name of registry row: its group, or <group>-<row> for a workspace; "" for none.
+func RoleProviderOf(reg *providers.Registry, row string) string {
+	for _, group := range providers.ProviderKeys() {
+		if reg == nil || !slices.Contains(reg.ProfilesOf(group), row) {
+			continue
+		}
+		if reg.Row(row).Preset != "" {
+			return group + "-" + row
+		}
+		return group
+	}
+	return ""
+}
+
+// RoleRows is the registry rows behind ClaudeProviders name provider, in registry order.
+func RoleRows(reg *providers.Registry, provider string) []string {
+	var out []string
+	if reg == nil {
+		return nil
+	}
+	for _, group := range providers.ProviderKeys() {
+		for _, row := range reg.ProfilesOf(group) {
+			if RoleProviderOf(reg, row) == provider {
+				out = append(out, row)
+			}
+		}
+	}
+	return out
 }
 
 // writeArmPicks skips fsync: the stamp is advisory, and a lost one after a power cut only re-picks.

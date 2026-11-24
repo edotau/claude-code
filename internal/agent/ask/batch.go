@@ -45,6 +45,7 @@ type batchLine struct {
 	Verify  string          `json:"verify"`
 
 	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
+	Group    string `json:"group"`     // optional phase proxy scope id the line's dispatch routes through
 }
 
 // parsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
@@ -141,6 +142,7 @@ type batchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Plan    string // plan_task of the line, stamped on the dispatch record
+	Group   string // phase proxy scope id of the line, "" for none
 	arm     *armRetry
 	Req     agent.RunOptions
 	Prepare func(ctx context.Context) (*agent.Prepared, error)
@@ -180,6 +182,10 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, err
 	}
 	t.Plan = tl.PlanTask
+	if tl.Group != "" && !agent.ValidProxyGroup(tl.Group) {
+		return t, fmt.Errorf("line %d: group %q must be 1-64 lower-case letters, digits, . _ -, starting alphanumeric", l.N, tl.Group)
+	}
+	t.Group = tl.Group
 	seen[t.ID] = true
 	if strings.TrimSpace(tl.Prompt) == "" {
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
@@ -230,10 +236,24 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
-	if err := agent.CheckCapabilities(name, req); err != nil {
+	if err := lineCapable(name, &req); err != nil {
 		return req, name, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return req, name, nil
+}
+
+// lineCapable checks the line's agent can run req; a code mode it cannot give runs off, noted.
+func lineCapable(name string, req *agent.RunOptions) error {
+	if err := agent.CheckCapabilities(name, *req); err != nil {
+		return err
+	}
+	if req.Codemode == "" {
+		return nil
+	}
+	var err error
+	req.Codemode, req.CodemodeReason, err = validateCodemode(req.Codemode, name, req.Tools, directRoute("", req.Provider))
+	noteCodemodeOff(name, req.CodemodeReason)
+	return err
 }
 
 // lineBrief is the line's prompt, wrapped as a leaf brief when it sets own, report or verify.
@@ -246,7 +266,8 @@ func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, e
 		argv = append(argv, "--codemode", base.Codemode)
 	}
 	argv = append(argv, "--tools="+strconv.FormatBool(*cmp.Or(tl.Tools, &base.Tools)))
-	return specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
+	brief, _, err := specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
+	return brief, err
 }
 
 func lineRoute(l parsedLine, req *agent.RunOptions) error {
@@ -291,7 +312,20 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 		req.Lead = ""
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
+	if ov.Runner != "" { // an explicit runner on the line, seen by the re-pick guards
+		req.Values = req.Values.Merge(nil)
+		req.Values[route.OverlayVar] = withRunner(req.Values[route.OverlayVar], ov.Runner)
+	}
 	return nil
+}
+
+// withRunner is the overlay document doc with its runner key set; the other keys stay.
+func withRunner(doc, runner string) string {
+	keys := map[string]json.RawMessage{}
+	_ = json.Unmarshal([]byte(doc), &keys) // an empty or unreadable document starts from none
+	keys["runner"], _ = json.Marshal(runner)
+	out, _ := json.Marshal(keys)
+	return string(out)
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {

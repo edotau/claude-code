@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -265,5 +266,23 @@ func TestAgentProfileSelectorsExclusive(t *testing.T) {
 		if code, _, stderr := profileCmd(t, "copilot", args...); code == 0 || !strings.Contains(stderr, "want one profile name") {
 			t.Errorf("profile %v = exit %d stderr %q, want a refusal", args, code, stderr)
 		}
+	}
+}
+
+func TestContractTermLines(t *testing.T) {
+	c := contract.Contract{Terms: []contract.Term{"gate", "tests"},
+		Records: []contract.TermRecord{{Term: "gate", Verdict: contract.VerdictFail, By: "go", Evidence: "1"}, {Term: "gate", Verdict: contract.VerdictPass, By: "go", Evidence: "0"}}}
+	got := contractTermLines(c)
+	if len(got) != 2 || got[0] != "  term gate pass by go 0" || got[1] != "  term tests pending by" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestResultHeldTarget(t *testing.T) {
+	if err := (resultFlags{held: "a1"}).check(false); err != nil {
+		t.Fatalf("--held alone refused: %v", err)
+	}
+	if err := (resultFlags{held: "a1"}).check(true); err == nil {
+		t.Fatal("--held with an <id> accepted")
 	}
 }

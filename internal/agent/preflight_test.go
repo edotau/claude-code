@@ -253,11 +253,11 @@ func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
 	if f == nil || f.Check != "token" || !strings.Contains(f.Detail, providers.LoginCommand(p.Name)) {
 		t.Fatalf("expired fixture finding = %v", f)
 	}
-	raw = fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(14*time.Minute).Unix())
+	raw = fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(9*time.Minute).Unix())
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if f, _ := tokenFinding(p, now, 10*time.Minute); f != nil {
+	if f, _ := tokenFinding(p, now, 5*time.Minute); f != nil {
 		t.Fatalf("sufficient lifetime: %v", f)
 	}
 	if f, _ := tokenFinding(p, now, DefaultToolsTimeout); f == nil {
@@ -273,7 +273,7 @@ func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(14*time.Minute).Unix())
+	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(9*time.Minute).Unix())
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestLaunchWorkspaceRunTimeout(t *testing.T) {
 	}{
 		{"five minutes", 5 * time.Minute, 20 * time.Minute, false},
 		{"two hours", 2 * time.Hour, time.Hour, true},
-		{"default", 0, 14 * time.Minute, true},
+		{"default", 0, 9 * time.Minute, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(tc.life).Unix())

@@ -3,6 +3,8 @@ package wthook
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -321,10 +323,24 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 		rel, _ := paths.RelWithin(live, p)
 		names = append(names, rel)
 	}
-	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
+	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; a lane lands there uncommitted only after a clean gate",
 		len(hits), strings.Join(names, ", "))
-	hint := assets.HookClaimLaneHint()
+	create, dir := laneTarget(live, hits[0], in.SessionID+"/"+in.AgentID)
+	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir,
+		"claude-code worktree create <slug>", create).Replace(assets.HookClaimLaneHint())
 	return core.Result{Context: what + "; " + hint}
+}
+
+// laneTarget is the create command (run in root) for a lane named by file and worker, and that lane's directory.
+func laneTarget(root, file, worker string) (create, dir string) {
+	slug := "edit" // a staged hit can name a git command, not a path
+	if filepath.IsAbs(file) {
+		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
+	}
+	sum := sha256.Sum256([]byte(worker))
+	slug += "-" + hex.EncodeToString(sum[:4])
+	quoted := "'" + strings.ReplaceAll(root, "'", "'\\''") + "'" // single quotes keep $() and backticks inert
+	return "cd " + quoted + " && claude-code worktree create " + slug, filepath.Join(paths.LaneRoot(root), slug)
 }
 
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
@@ -344,8 +360,9 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
 			continue
 		}
+		create, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID+"/"+in.AgentID)
 		return core.Result{Context: fmt.Sprintf("lanes mode: %d tracked file(s) of %s change in its main checkout; "+
-			"a lane keeps it clean: claude-code worktree create <slug>", len(hits), root)}
+			"a lane keeps it clean: %s", len(hits), root, create)}
 	}
 	return core.Result{}
 }

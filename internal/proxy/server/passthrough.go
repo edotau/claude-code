@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
@@ -52,13 +53,14 @@ func parsePassthrough(path string) (provider, dialect, rest string, ok bool) {
 // passthrough forwards a same-dialect request to the provider's route with egress auth and model body fixes.
 func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, dialect, rest string) {
 	start := r.now()
-	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
+	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w),
+		meta: &reqMeta{route: modelToken(provider), call: passthroughCall(dialect, rest)}}
 	var model, extra string
 	attempts := 0
-	in = in.WithContext(context.WithValue(in.Context(), attemptsKey{}, &attempts))
+	in = in.WithContext(context.WithValue(context.WithValue(in.Context(), attemptsKey{}, &attempts), metaKey{}, sw.meta))
 	defer func() {
-		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
-			attempts, time.Since(start).Round(time.Millisecond), viaDiag(in), dispatchDiag(in), extra)
+		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
+			attempts, time.Since(start).Round(time.Millisecond), sw.meta.diag(provider), viaDiag(in), dispatchDiag(in), extra)
 	}()
 	model, extra, provider = r.forwardPassthrough(sw, in, provider, dialect, rest)
 	extra = addBroken(extra, brokenDiag(sw))
@@ -130,6 +132,7 @@ func (r *Router) passthroughRoute(w http.ResponseWriter,
 func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider,
 	route string, path *url.URL, model, dialect string, dbxGemini bool) (string, string, string) {
 	var original []byte
+	sw.meta.route = p.Name // the profile the path resolved to, not its provider·profile label
 	if in.Method == http.MethodPost {
 		var ok bool
 		if original, ok = readBody(sw, in); !ok {
@@ -140,7 +143,11 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 	geminiChat := false
 	var err error
 	if in.Method == http.MethodPost {
-		body, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect, dbxGemini)
+		var asked string
+		body, asked, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect, dbxGemini)
+		if m, _ := in.Context().Value(metaKey{}).(*reqMeta); m != nil {
+			m.asked = modelToken(cmp.Or(geminiPathModel(in.URL.Path, dialect), asked))
+		}
 	}
 	if err != nil {
 		writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
@@ -149,18 +156,19 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 	return r.passthroughResponse(sw, in, p, route, path, model, dialect, body, original, geminiChat)
 }
 
-// fixPassthroughBody applies the per-dialect request fixes; model is the body's (or the wire) model even on error.
+// fixPassthroughBody applies the per-dialect fixes; model is the wire model, asked the one before any rewrite.
 func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect string,
-	dbxGemini bool) (out []byte, newModel string, geminiChat bool, err error) {
+	dbxGemini bool) (out []byte, asked, newModel string, geminiChat bool, err error) {
 	decoded := decodeProxyBody(body)
 	var pend pendingMarshal
 	decoded.lazy = &pend
 	model = cmp.Or(decoded.model, model)
+	asked = model
 	if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
 		(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
 		if decoded.top == nil {
 			_, err := withModel(body, wire)
-			return nil, model, false, err
+			return nil, asked, model, false, err
 		}
 		decoded, _ = decoded.withModel(wire) // lazy: finish reports the marshal error
 		model = wire
@@ -179,10 +187,19 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 		decoded.raw = decoded.clampOutputTokens(model)
 	}
 	out, err = pend.finish(decoded, body)
-	return out, model, geminiChat, err
+	return out, asked, model, geminiChat, err
 }
 
-func passthroughRetryable(in *http.Request, status int) bool {
+// upstreamNoRetry is true when the upstream answered x-should-retry: false.
+func upstreamNoRetry(resp *http.Response) bool {
+	return retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")) == retry.ShouldRetryNo
+}
+
+// passthroughRetryable: an upstream x-should-retry: false ends the failover; true and absent keep the status rule.
+func passthroughRetryable(in *http.Request, status int, hint retry.ShouldRetry) bool {
+	if hint == retry.ShouldRetryNo {
+		return false
+	}
 	if status == http.StatusTooManyRequests {
 		return true
 	}
@@ -244,12 +261,13 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			return cur.model, "", cur.p.Name
 		}
 		cur.body = body
-		if next, ok := r.after429(&tc, cur, resp); ok {
+		hint := retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry"))
+		if next, ok := r.after429(&tc, cur, resp, hint); ok {
 			_ = resp.Body.Close()
 			cur = next
 			continue
 		}
-		if passthroughRetryable(in, resp.StatusCode) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
+		if passthroughRetryable(in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
 			if next, ok := r.nextHop(in, p, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original); ok {
 				_ = resp.Body.Close()
 				cur = next
@@ -257,7 +275,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			}
 		}
 		defer resp.Body.Close()
-		extra := passthroughDiag(resp, len(cur.body)) + retried
+		extra := passthroughDiag(resp, len(cur.body), hint) + retried
 		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, extra)
 	}
 }
@@ -274,7 +292,8 @@ type passthroughTPM struct {
 }
 
 // after429 cools cur's row on a 429, plus its model on a per-minute-token one, which hops once; ok: cur moved.
-func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Response) (passthroughHop, bool) {
+func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Response,
+	hint retry.ShouldRetry) (passthroughHop, bool) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		return cur, false
 	}
@@ -286,7 +305,7 @@ func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Res
 		return cur, false
 	}
 	r.coolModel(providers.Target{Provider: cur.p, Model: cur.model}, resp)
-	if tc.hopped {
+	if tc.hopped || hint == retry.ShouldRetryNo {
 		return cur, false
 	}
 	return r.tpmPassthroughHop(tc, cur, "429 TPM")
@@ -325,7 +344,7 @@ func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, 
 			return p, route, &nextPath, nil, model, false, err
 		}
 	}
-	body, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect, dbxGemini)
+	body, _, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect, dbxGemini)
 	if err != nil {
 		return p, route, &nextPath, nil, model, false, err
 	}
@@ -769,7 +788,7 @@ var passthroughModel = func(body []byte) string {
 }
 
 // passthroughDiag is the log suffix: request id, Retry-After, request bytes and, on an error, its code and message.
-func passthroughDiag(resp *http.Response, reqBytes int) string {
+func passthroughDiag(resp *http.Response, reqBytes int, hint retry.ShouldRetry) string {
 	var b strings.Builder
 	for _, k := range []string{"X-Request-Id", "X-Databricks-Request-Id", "X-Databricks-Requestid", "Request-Id"} {
 		if v := resp.Header.Get(k); v != "" {
@@ -781,6 +800,9 @@ func passthroughDiag(resp *http.Response, reqBytes int) string {
 	if v := resp.Header.Get("Retry-After"); v != "" {
 		b.WriteString(" retry_after=")
 		b.WriteString(agentToken(v))
+	}
+	if hint != retry.ShouldRetryUnset {
+		b.WriteString(" should_retry=" + strconv.FormatBool(hint == retry.ShouldRetryYes))
 	}
 	if reqBytes > 0 {
 		b.WriteString(" bytes=")
@@ -853,6 +875,23 @@ func safeRest(rest string) error {
 	}
 	return nil
 }
+
+// geminiPathModel is the model id the client's gemini path named, before the gateway rewrite; "" for another dialect.
+func geminiPathModel(path, dialect string) string {
+	if dialect != providers.ProtocolGemini {
+		return ""
+	}
+	_, _, rest, _ := parsePassthrough(path)
+	if m := geminiModelRE().FindStringSubmatch(rest); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// geminiModelRE finds <id> in any [version/]models/<id>:<method> path, native or gateway.
+var geminiModelRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|/)models/([A-Za-z0-9._-]+):[A-Za-z]+$`)
+})
 
 // geminiCallRE is the one call agy's gateway mode makes: v1beta/models/<id>:(stream)GenerateContent.
 var geminiCallRE = sync.OnceValue(func() *regexp.Regexp {

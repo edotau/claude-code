@@ -574,3 +574,37 @@ func TestWithin(t *testing.T) {
 		}
 	}
 }
+
+// TestTryFileLockRetriesOnReplacedPath checks a lock taken on a file the path does not name is dropped and retaken.
+func TestTryFileLockRetriesOnReplacedPath(t *testing.T) {
+	dir := t.TempDir()
+	path, other := filepath.Join(dir, "lock"), filepath.Join(dir, "other")
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	opens := 0
+	open := func() (*os.File, error) {
+		opens++
+		name := path
+		if opens == 1 { // the first handle names a file the path does not, as after an unlink, on every OS
+			name = other
+		}
+		f, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR, 0o600)
+		must(err)
+		return f, nil
+	}
+	called, nested := false, true
+	fn := func() error {
+		called = true
+		var err error
+		nested, err = TryFileLock(path, 0, func() error { return nil })
+		return err
+	}
+	ran, err := tryFileLock(path, time.Second, fn, open)
+	must(err)
+	if !ran || !called || nested || opens != 2 {
+		t.Fatalf("err=%v ran=%v called=%v nested=%v opens=%d", err, ran, called, nested, opens)
+	}
+}

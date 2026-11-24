@@ -1,5 +1,5 @@
 // Pi guard extension (internal/pi/guard.go renders the __ constants): the only tools Pi has are these, each judged first.
-import { execFile, execFileSync } from "node:child_process"
+import { execFile, execFileSync, spawn } from "node:child_process"
 import { promisify } from "node:util"
 import { existsSync, realpathSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -23,34 +23,79 @@ function hookEnv(): Record<string, string> {
   return env
 }
 
+const strArray = (a: any): boolean => Array.isArray(a) && a.every((s: any) => typeof s === "string")
+
 // judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
-function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string; run?: string[]; usage?: string } {
+type Verdict = { block?: string; path?: string; run?: string[]; usage?: string; notice?: string; stdin?: string }
+function judge(tool: string, input: any, cwd: string, sid: string): Verdict {
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
-      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
     if (v.allow !== true) return stuck("unrecognized verdict")
-    const run = Array.isArray(v.run) && v.run.every((a: any) => typeof a === "string") ? v.run : undefined
-    return { path: typeof v.path === "string" ? v.path : "", run }
+    return allowVerdict(v)
   } catch (err: any) {
     return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
 }
 
-// guarded is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+// allowVerdict keeps only the well-typed fields of an allow; a malformed run is dropped, so nothing runs.
+function allowVerdict(v: any): Verdict {
+  return { path: typeof v.path === "string" ? v.path : "", run: strArray(v.run) ? v.run : undefined,
+    notice: typeof v.notice === "string" && v.notice ? v.notice : undefined,
+    stdin: typeof v.stdin === "string" ? v.stdin : undefined }
+}
+
+// running holds the tool calls in flight; handback checks it, so a handback is the last thing the run does.
+const running = new Set<string>()
+
+// The contract package's enums (contract.TestsValues, contract.Methods); a Go test pins these spellings.
+const HANDBACK_TESTS = ["judged", "executed", "unknown"]
+const HANDBACK_METHODS = ["solo", "fleet"]
+
+// handbackError names the first missing or wrong handback field, or "" when the call is complete.
+function handbackError(p: any): string {
+  if (!["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"].includes(p?.status)) return "status must be DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED"
+  if (typeof p.summary !== "string" || !p.summary.trim()) return "summary must be a non-empty string"
+  if (!Array.isArray(p.unfixed) || p.unfixed.some((s: any) => typeof s !== "string")) return "unfixed must be an array of strings (empty if none)"
+  return enumError("tests", p.tests, HANDBACK_TESTS) || enumError("method", p.method, HANDBACK_METHODS)
+}
+
+// enumError is "" for an omitted or listed value, else the retry text naming the field.
+function enumError(field: string, v: any, allowed: string[]): string {
+  return v === undefined || allowed.includes(v) ? "" : field + " must be one of " + allowed.join(", ") + " (or omitted)"
+}
+
+async function tracked<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  running.add(id)
+  try { return await fn() } finally { running.delete(id) }
+}
+
 function guarded(name: string, def: any) {
+  const inner = guardedRun(name, def)
+  return { ...inner, execute: (id: string, ...rest: any[]) => tracked(id, () => inner.execute(id, ...(rest as [any, any, any, any]))) }
+}
+
+// guardedRun is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+function guardedRun(name: string, def: any) {
   return { ...def, async execute(id: string, params: any, signal: any, onUpdate: any, ctx: any) {
     const sid = String(ctx?.sessionManager?.getSessionId?.() ?? "")
     const v = judge(name, params, String(ctx?.cwd || process.cwd()), sid)
     if (v.block) throw new Error(v.block)
-    if (name === "bash") return def.execute(id, params, signal, onUpdate, ctx)
+    if (name === "bash") return withNotice(await def.execute(id, params, signal, onUpdate, ctx), v.notice)
     // fail closed: Pi's read tries other spellings of a missing file (NFD, curly quote); a missing path is never read
     if (name === "read" && !existsSync(v.path!)) throw new Error("File not found: " + v.path)
-    return def.execute(id, { ...params, path: v.path }, signal, onUpdate, ctx)
+    return withNotice(await def.execute(id, { ...params, path: v.path }, signal, onUpdate, ctx), v.notice)
   } }
+}
+
+// withNotice appends the judge's notice (the contract budget line) to a tool result as one more text part.
+function withNotice(res: any, notice?: string): any {
+  if (!notice || !Array.isArray(res?.content)) return res
+  return { ...res, content: [...res.content, { type: "text", text: notice }] }
 }
 
 // ACTIONS are plain JSON Schema tools: the model picks the action and typed arguments, Go builds the argv.
@@ -60,12 +105,28 @@ const ACTIONS: Record<string, any> = {
     description: "Run the repo's scoped build, vet and test gate; returns {gate,exit,changed,failures}",
     parameters: { type: "object", additionalProperties: false,
       properties: { scope: { type: "array", items: { type: "string" }, description: "dirs to limit the gate to" } } } },
-  handback: { label: "Hand back", promptSnippet: "handback: report the task's outcome; call it once, last",
+  dispatch: { label: "Dispatch", executionMode: "parallel",
+    promptSnippet: "dispatch: send one unit of your task to a fleet leaf; returns its id",
+    description: "Dispatch a fleet leaf for one unit, inside your own files; returns {id}. Check it with check.",
+    parameters: { type: "object", additionalProperties: false, required: ["unit", "kind", "own", "tier", "prompt"],
+      properties: { unit: { type: "string" }, kind: { type: "string", enum: ["function", "test-repair", "file", "task"] },
+        own: { type: "array", items: { type: "string" }, description: "files the leaf may edit, inside your own" },
+        tier: { type: "string", enum: ["fast", "standard"] }, prompt: { type: "string" } } } },
+  check: { label: "Check", executionMode: "parallel", promptSnippet: "check: the status of a leaf you dispatched",
+    description: "Status of a leaf you dispatched, by id.",
+    parameters: { type: "object", additionalProperties: false, required: ["id"], properties: { id: { type: "string" } } } },
+  report: { label: "Report", executionMode: "sequential",
+    promptSnippet: "report: file your full report; call it before handback",
+    description: "File the full report of the task; returns its path",
+    parameters: { type: "object", additionalProperties: false, required: ["kind", "body"],
+      properties: { kind: { type: "string", enum: ["review", "implementation", "audit", "research"] }, body: { type: "string" } } } },
+  handback: { label: "Hand back", executionMode: "sequential", promptSnippet: "handback: report the task's outcome; call it once, last",
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     description: "Finish: report the outcome of the task. Call once, last.",
     parameters: { type: "object", additionalProperties: false, required: ["status", "summary", "unfixed"],
-      properties: { status: { enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
-        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } } } } },
+      properties: { status: { type: "string", enum: ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
+        summary: { type: "string" }, unfixed: { type: "array", items: { type: "string" } },
+        tests: { type: "string", enum: HANDBACK_TESTS }, method: { type: "string", enum: HANDBACK_METHODS } } } },
 }
 
 // stopTree ends the action's process tree: taskkill /T on Windows, SIGTERM (the gate reaps its tree) elsewhere.
@@ -77,26 +138,72 @@ function stopTree(child: any) {
 
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
 function action(name: string) {
-  return { name, ...ACTIONS[name], async execute(_id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
+  return { name, ...ACTIONS[name], async execute(id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
     const cwd = String(ctx?.cwd || process.cwd())
     const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
     if (v.block) throw new Error(v.block)
     if (v.usage) throw new Error(name + ": " + v.usage)
     if (signal?.aborted) throw new Error(name + ": cancelled")
-    const text = v.run ? await runAction(name, v.run, cwd, signal) : "recorded"
-    return { content: [{ type: "text", text }], details: {} }
+    if (name === "handback") { // a usage error of this tool, not a guard block: the model retries it last
+      const bad = handbackError(params)
+      if (bad) throw new Error("handback: " + bad + "; call it again with every field")
+      if (running.size > 0) throw new Error("handback: other tool calls are still running; call handback last, alone")
+    }
+    if (!v.run) return { content: [{ type: "text", text: v.notice ?? "recorded" }], details: {} }
+    const text = await tracked(id, () => runAction(name, v.run!, cwd, signal, v.stdin))
+    return withNotice({ content: [{ type: "text", text }], details: {} }, v.notice)
   } }
 }
 
 // runAction runs Go's argv abortably: a cancelled call stops the tree; a failed launch or exit is a tool error.
-async function runAction(name: string, run: string[], cwd: string, signal: any): Promise<string> {
+async function runAction(name: string, run: string[], cwd: string, signal: any, stdin?: string): Promise<string> {
   const p = execFileAsync(BIN, run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
+  const sent = new Promise<void>((ok, bad) => { // a failed or cut write must fail the call, not file a truncated body
+    if (stdin === undefined || !p.child.stdin) return ok()
+    p.child.stdin.on("error", bad)
+    p.child.stdin.end(stdin, (err?: Error | null) => err ? bad(err) : ok())
+  })
+  sent.catch(() => {}) // surfaced below, after the child's own exit
   const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
   signal?.addEventListener("abort", stop, { once: true })
   if (signal?.aborted) stop() // cancelled before the listener existed
-  try { return (await p).stdout }
+  try { const out = (await p).stdout; await sent; return out }
   catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
   finally { signal?.removeEventListener("abort", stop) }
+}
+
+// verifyFailure asks Go to judge, run and redact the run's verify line: the fixing turn's text, or "" (passed or not run).
+function verifyFailure(line: string, cwd: string, sid: string): Promise<string> {
+  return new Promise((resolve) => {
+    const skip = (why: string) => { process.stderr.write("pi guard: verify before settle not run: " + why + "\n"); resolve("") }
+    const child = spawn(BIN, ["hook", "PreToolUse", "--pi-guard"], { cwd, env: hookEnv(), windowsHide: true, stdio: ["pipe", "pipe", "inherit"] })
+    let out = ""
+    child.stdout.setEncoding("utf8").on("data", (s: string) => { out += s }).on("error", () => {}) // close still comes
+    child.on("error", (err: any) => skip(String(err?.message ?? err)))
+    child.on("close", () => {
+      child.stdin.destroy()
+      let v: any
+      try { v = JSON.parse(out) } catch { return skip("unreadable reply") }
+      // an unjudgeable reply settles clean by design: the harness's post-run verify is the record
+      if (v?.allow !== true) return skip(String(v?.block || v?.usage || "no verdict"))
+      resolve(typeof v.text === "string" ? v.text : "")
+    })
+    child.stdin.on("error", () => {}) // Go gone first: close reports it
+    // stdin stays open: its close is how Go learns Pi exited and kills the verify tree
+    child.stdin.write(JSON.stringify({ tool: "verify", input: { verify: line }, cwd, session_id: sid }) + "\n")
+  })
+}
+
+// verifyBeforeSettle gives a failing --verify one fixing turn per run; the post-run verify is still the record.
+function verifyBeforeSettle(pi: any, line: string) {
+  let tried = false
+  pi.on("agent_before_settle", async (ev: any, ctx: any) => {
+    if (tried || ev?.outcome !== "completed") return undefined
+    tried = true
+    const fail = await verifyFailure(line, String(ctx?.cwd || process.cwd()), String(ctx?.sessionManager?.getSessionId?.() ?? ""))
+    if (!fail) return undefined
+    return { entries: [...(ev.entries ?? []), { type: "custom_message", customType: "harness-verify", content: fail, display: true }], continue: true }
+  })
 }
 
 export default function (pi: any) {
@@ -135,4 +242,6 @@ export default function (pi: any) {
   pi.on("session_start", () => {
     if (names.every(ours) && (!codemode || builtinCodemode())) writeFileSync(file, nonce, { mode: 0o600 })
   })
+  const verify = String(process.env.HARNESS_PI_GUARD_VERIFY ?? "") // empty: no verify set, no handler
+  if (verify) verifyBeforeSettle(pi, verify)
 }

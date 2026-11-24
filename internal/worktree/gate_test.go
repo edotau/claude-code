@@ -165,7 +165,7 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
 		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
 		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
-			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path 'a' --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path a --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
 		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}
@@ -231,9 +231,9 @@ func TestScopedVerifyGateQuotesScope(t *testing.T) {
 		scope             []string
 	}{
 		{"go", "go.mod", "go <build> <./...>\ngo <vet>" + goTargets + "go <test>" + goTargets, scope},
-		{"python", "pyproject.toml,ruff.toml", "ruff <check>" + pyTargets + "pytest <-q>" + pyTargets, scope},
+		{"python", "pyproject.toml,ruff.toml", "ruff <check>" + pyTargets + "pytest" + pyTargets, scope},
 		{"go apostrophe", "go.mod", "go <build> <./...>\ngo <vet> <./quote's/...>\ngo <test> <./quote's/...>\n", []string{"quote's"}},
-		{"python apostrophe", "pyproject.toml,ruff.toml", "ruff <check> <quote's>\npytest <-q> <quote's>\n", []string{"quote's"}},
+		{"python apostrophe", "pyproject.toml,ruff.toml", "ruff <check> <quote's>\npytest <quote's>\n", []string{"quote's"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -273,7 +273,7 @@ func TestScopedVerifyGateRuffTable(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(c.toml), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			want := "pytest -q"
+			want := "(pytest)"
 			if c.wantRuff {
 				want = "ruff check . && " + want
 			}
@@ -486,5 +486,58 @@ func TestRunScopedGateCarriesIDs(t *testing.T) {
 	}
 	if len(r.Failures) == 0 || r.Failures[0].DiagnosticID == "" {
 		t.Fatalf("failure without a diagnostic id: %+v", r.Failures)
+	}
+}
+
+// The lint verb is a typed argv: a path with a space stays one word, and the base is the only expandable word.
+func TestLintVerbArgv(t *testing.T) {
+	got := lintVerb([]string{"a", "b c"})
+	want := []string{"claude-code", "agents", "diff", "--check", "--gates", "lint", "--base", lintBase, "--path", "a", "--path", "b c"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lintVerb = %q, want %q", got, want)
+	}
+	paths := []string{lintBase, "-x", "a;b $(c)"}
+	script := `claude-code() { printf '<%s>' "$@"; }; ` + lintLine(lintVerb(paths))
+	out, err := exec.Command("bash", "-c", script).Output()
+	wantOut := "<agents><diff><--check><--gates><lint><--base><HEAD><--path><" + lintBase + "><--path><-x><--path><a;b $(c)>"
+	if err != nil || string(out) != wantOut {
+		t.Fatalf("rendered line ran as %q (err %v), want %q", out, err, wantOut)
+	}
+}
+
+// pytest exit 5 fails a lane that changed a .py file and passes, with a note, one that did not.
+func TestEmptyPytestNeedsPyChange(t *testing.T) {
+	_, run, write := gateRepo(t)
+	run("add", "-A")
+	run("commit", "-q", "-m", "base")
+	base := run("rev-parse", "HEAD")
+	exit5 := exec.Command("bash", "-c", "exit 5").Run()
+	write("notes.md", "x\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "docs")
+	dir := run("rev-parse", "--show-toplevel")
+	var out bytes.Buffer
+	if err := emptyPytest(context.Background(), dir, base, exit5, &out); err != nil || !strings.Contains(out.String(), "no tests collected") {
+		t.Fatalf("no .py change: err=%v out=%q, want pass with a note", err, out.String())
+	}
+	write("tests/test_x.py", "def test_a(): pass\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "py")
+	if err := emptyPytest(context.Background(), dir, base, exit5, &out); !errors.Is(err, errNoTests) {
+		t.Fatalf(".py change: err=%v, want %v", err, errNoTests)
+	}
+	if err := emptyPytest(context.Background(), dir, base, exec.Command("bash", "-c", "exit 1").Run(), &out); errors.Is(err, errNoTests) || err == nil {
+		t.Fatalf("other exit: err=%v, want it unchanged", err)
+	}
+}
+
+func TestIsPytestStep(t *testing.T) {
+	for step, want := range map[string]bool{
+		"(pytest)": true, "(.venv/bin/python -m pytest 'a')": true, "ruff check . && (pytest)": true,
+		"check pytest.ini && make test": false, "make test": false, "(pytest) && make test": false,
+	} {
+		if got := isPytestStep(step); got != want {
+			t.Errorf("isPytestStep(%q) = %v, want %v", step, got, want)
+		}
 	}
 }

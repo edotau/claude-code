@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,7 +25,9 @@ type BriefInput struct {
 	Owned  []string
 	Report string
 	Verify string
-	// CodeMode is the target run's code mode; nil reads the rendering session's HARNESS_CODEMODE.
+	// PlanTask is the plan task id the header's `Task:` line carries; Tier is one of TierNames.
+	PlanTask, Tier string
+	// CodeMode is the target run's code mode; nil reads the rendering session's CODEMODE.
 	CodeMode *bool
 }
 
@@ -84,6 +87,12 @@ func (input BriefInput) validate() error {
 	if strings.ContainsAny(input.Agent, "\r\n") {
 		return errors.New("agent must fit on one line")
 	}
+	if strings.ContainsAny(input.PlanTask, "\r\n") {
+		return errors.New("plan task must fit on one line")
+	}
+	if input.Tier != "" && !slices.Contains(TierNames(), input.Tier) {
+		return fmt.Errorf("tier %q: want one of %s", input.Tier, strings.Join(TierNames(), ", "))
+	}
 	return nil
 }
 
@@ -103,8 +112,34 @@ func RenderBrief(input BriefInput) (string, error) {
 	if input.CodeMode != nil {
 		codeMode = *input.CodeMode
 	}
-	return assets.BriefBody(assets.BriefFrame{Agent: input.Agent, OwnedLine: string(owned), Verify: input.Verify,
-		Report: input.Report, Task: input.Task, ReportsDir: paths.MemorySubDir("reports"), Rtk: !codeMode}), nil
+	task := input.Task
+	if id := strings.TrimSpace(input.PlanTask); id != "" { // after the bare `Task:` so taskHead still reads the subject
+		task = strings.TrimRight(task, "\n") + "\n\nTask: " + id
+	}
+	reports := paths.MemorySubDir("reports")
+	if input.Report == "" {
+		if input.Report, err = reportPath(reports, input.PlanTask); err != nil {
+			return "", err
+		}
+	}
+	body := assets.BriefBody(assets.BriefFrame{Agent: input.Agent, OwnedLine: string(owned), Verify: input.Verify,
+		Report: input.Report, Task: task, ReportsDir: reports, Rtk: !codeMode})
+	return WithTier(body, input.Tier), nil
+}
+
+var reportSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// reportPath is a unique dated report file under dir, named by the plan task id plus random hex.
+func reportPath(dir, planTask string) (string, error) {
+	var random [8]byte
+	if _, err := io.ReadFull(briefRandom, random[:]); err != nil {
+		return "", fmt.Errorf("report name randomness: %w", err)
+	}
+	slug := strings.Trim(reportSlugRe.ReplaceAllString(strings.ToLower(planTask), "-"), "-")
+	if slug == "" {
+		slug = "leaf"
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, random)), nil
 }
 
 // ParseOwned reads the first Owned: line, accepting rendered JSON or legacy whitespace-separated paths.

@@ -23,6 +23,9 @@ func auditFixtureRepo(t *testing.T) (dir, head string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("audit:\n\ttrue\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return dir, strings.TrimSpace(string(out))
 }
 
@@ -49,18 +52,62 @@ func TestAuditStartsOnceAndReportsOnce(t *testing.T) {
 	}
 }
 
+// The snapshot sees the primary checkout's untracked .venv through a symlink, and the original survives cleanup.
+func TestAuditSnapshotLinksVenv(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := auditCommand
+	auditCommand = "test -L .venv && test -f .venv/marker"
+	t.Cleanup(func() { auditCommand = old })
+	main, sha := auditFixtureRepo(t)
+	marker := filepath.Join(main, ".venv", "marker")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	StartAudit(main, sha)
+	for deadline := time.Now().Add(10 * time.Second); !paths.FileExists(auditBase(sha)+".exit") && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "passed") {
+		t.Fatalf("reports = %v", got)
+	}
+	if !paths.FileExists(marker) {
+		t.Fatal("snapshot cleanup removed the primary .venv")
+	}
+}
+
+// A repo whose Makefile has no audit target starts nothing and writes no record.
+func TestAuditSkipsRepoWithoutTarget(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := auditCommand
+	auditCommand = "echo ok"
+	t.Cleanup(func() { auditCommand = old })
+	main, sha := auditFixtureRepo(t)
+	if err := os.WriteFile(filepath.Join(main, "Makefile"), []byte("build:\n\ttrue\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if line := StartAudit(main, sha); line != "audit: skipped, no audit target in "+main {
+		t.Fatalf("skip = %q", line)
+	}
+	if paths.FileExists(auditBase(sha) + ".json") {
+		t.Fatal("skipped audit wrote a start record")
+	}
+}
+
 // A nonzero exit file reports FAILED with the log path.
 func TestAuditReportsFailure(t *testing.T) {
 	base := auditBase("fedcba9876543210")
 	if err := os.MkdirAll(auditDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string]string{".json": `{"sha":"fedcba9876543210","log":"/l.log"}`, ".exit": "2 5\n"} {
+	for name, body := range map[string]string{".json": `{"sha":"fedcba9876543210","repo":"/r","log":"/l.log"}`, ".exit": "2 5\n"} {
 		if err := os.WriteFile(base+name, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "FAILED (exit 2): /l.log") {
+	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "FAILED (exit 2) in /r: /l.log") {
 		t.Fatalf("failed report = %v (dir %s)", got, filepath.Dir(base))
 	}
 }

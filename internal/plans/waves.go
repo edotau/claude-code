@@ -3,6 +3,7 @@ package plans
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -82,14 +83,16 @@ func GateRefused(cmd string) error {
 
 // ParseWaves reads checklist ownership with Parse, then adds wave metadata and phase bodies.
 func ParseWaves(file string) (WavePlan, error) {
-	base, err := Parse(file)
-	if err != nil {
-		return WavePlan{}, err
-	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		return WavePlan{}, err
+		return WavePlan{Path: file}, err
 	}
+	return parseWavesBytes(file, raw)
+}
+
+// parseWavesBytes is ParseWaves over the plan text raw, read from file.
+func parseWavesBytes(file string, raw []byte) (WavePlan, error) {
+	base := parseBytes(file, raw)
 	p := WavePlan{Path: file}
 	lines := strings.Split(string(raw), "\n")
 	gate, bodies := phaseDetails(lines)
@@ -586,4 +589,133 @@ func manifestTask(t WaveTask) (WaveTask, error) {
 		}
 	}
 	return t, nil
+}
+
+// TaskLine renders t as one plan task line in the documented attribute order; Go writes it, the model gives fields.
+func TaskLine(t WaveTask) string {
+	parts := []string{"- [ ] " + t.ID + " — " + t.Task}
+	if t.Leaf != "" || t.Agent != "" {
+		var attrs []string
+		for _, kv := range [][2]string{{"leaf", t.Leaf}, {"Agent", t.Agent}} {
+			if kv[1] != "" {
+				attrs = append(attrs, kv[0]+": "+kv[1])
+			}
+		}
+		parts = append(parts, strings.Join(attrs, ", "))
+	}
+	if t.Profile != "" {
+		parts = append(parts, "profile: "+t.Profile)
+	}
+	if t.Verify != "" {
+		parts = append(parts, "verify: "+t.Verify)
+	}
+	if len(t.BlockedBy) > 0 {
+		parts = append(parts, "Blocked by: "+strings.Join(t.BlockedBy, ", "))
+	}
+	if len(t.Owns) > 0 {
+		parts = append(parts, "owns: "+strings.Join(t.Owns, ", "))
+	}
+	return strings.Join(parts, " — ")
+}
+
+// checkNewTask refuses a task with no id or title, a field the line cannot hold, or an unlaunchable owns/verify.
+func checkNewTask(t WaveTask) error {
+	if t.ID == "" || t.Task == "" {
+		return errors.New("plans: a new task needs an id and a title")
+	}
+	for _, s := range slices.Concat([]string{t.ID, t.Task, t.Leaf, t.Agent, t.Profile, t.Verify}, t.Owns, t.BlockedBy) {
+		if strings.Contains(s, " — ") || waveAttr().MatchString(s) {
+			return fmt.Errorf("plans: field %q holds an em dash separator or an attribute key such as \"profile:\"", s)
+		}
+	}
+	t.Manual = t.Agent == "in-context" || strings.HasSuffix(strings.ToUpper(t.ID), ".V")
+	return checkTask(t)
+}
+
+// AddTask validates t and appends its rendered line after the plan's last task, under the plans lock.
+func AddTask(planPath string, t WaveTask) error {
+	t.ID, t.Task = strings.TrimSpace(t.ID), strings.Join(strings.Fields(t.Task), " ")
+	if err := checkNewTask(t); err != nil {
+		return err
+	}
+	return editPlan(planPath, func(text string) (string, error) {
+		p := parseBytes(planPath, []byte(text))
+		if _, ok := findTask(p, t.ID); ok {
+			return "", fmt.Errorf("plans: task %q already exists in %s", t.ID, planPath)
+		}
+		for _, b := range t.BlockedBy {
+			if ids, rest := blockers(b); rest != "" || !slices.Equal(ids, []string{b}) ||
+				!slices.ContainsFunc(p.Tasks, func(o Task) bool { return o.ID == b }) {
+				return "", fmt.Errorf("plans: blocked-by %q is not a \"Phase N.M\" task id of %s", b, planPath)
+			}
+		}
+		at, err := tasksEnd(strings.Split(text, "\n"), p)
+		if err != nil {
+			return "", err
+		}
+		out := strings.Join(slices.Insert(strings.Split(text, "\n"), at, TaskLine(t)), "\n")
+		return out, checkRendered(planPath, out, t, len(p.Tasks))
+	})
+}
+
+// tasksSpan is the line range of the "## Tasks" section: its heading and the next "## " heading or the end.
+func tasksSpan(lines []string) (start, stop int, ok bool) {
+	start = slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Tasks" })
+	if start < 0 {
+		return 0, 0, false
+	}
+	next := slices.IndexFunc(lines[start+1:], func(l string) bool { return strings.HasPrefix(l, "## ") })
+	if next < 0 {
+		return start, len(lines), true
+	}
+	return start, start + 1 + next, true
+}
+
+// tasksEnd is the line after the last task of the "## Tasks" section, or its last non-blank line when it has none.
+func tasksEnd(lines []string, p Plan) (int, error) {
+	start, stop, ok := tasksSpan(lines)
+	if !ok {
+		return 0, errors.New("plans: the plan has no \"## Tasks\" heading")
+	}
+	end := start
+	for _, t := range p.Tasks {
+		if t.Start > start && t.End < stop {
+			end = max(end, t.End)
+		}
+	}
+	for end == start && stop-1 > start && strings.TrimSpace(lines[stop-1]) == "" {
+		stop--
+	}
+	if end == start {
+		end = stop - 1
+	}
+	return end + 1, nil
+}
+
+// checkRendered refuses text where the new line does not parse back as t, or a Phase task the wave parser rejects.
+func checkRendered(planPath, text string, t WaveTask, before int) error {
+	np := parseBytes(planPath, []byte(text))
+	if !readsBack(np, t, before) {
+		return fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
+	}
+	if !waveID().MatchString(t.ID) {
+		return nil
+	}
+	_, err := parseWavesBytes(planPath, []byte(text))
+	var we *WaveError
+	if !errors.As(err, &we) {
+		return err
+	}
+	if we.ID == t.ID && (we.Reason == "missing Waves row" || strings.Contains(we.Reason, "membership")) {
+		return fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
+			t.ID, strings.TrimPrefix(strings.SplitN(t.ID, ".", 2)[0], "Phase "))
+	}
+	return fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+}
+
+// readsBack reports whether np holds exactly one new task whose parsed fields equal t's rendered line.
+func readsBack(np Plan, t WaveTask, before int) bool {
+	got, ok := findTask(np, t.ID)
+	return ok && (got.ID == "" || got.ID == t.ID) && len(np.Tasks) == before+1 && slices.Equal(got.Owns, t.Owns) &&
+		got.Title == strings.TrimPrefix(TaskLine(t), "- [ ] ") && got.Sha == ""
 }

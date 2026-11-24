@@ -266,21 +266,9 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 			if refresh {
 				return "", errors.New("resolve --refresh: an armed launch's token cannot be renewed here")
 			}
-			route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
-			remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
-			if !ok {
-				return tok, nil
-			}
-			pid = remint
-			if c, ok := authenticClaims(tok); ok { // keep the launch's own scope and failover, never the registry's
-				return remintExact(c.Profiles, c.Failover, pid)
-			}
-			if route == "" { // unverifiable claims: only the route is trusted, never --profile
-				return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
-			}
-			return remintExact([]string{route}, "", pid) // confinement never widens or moves
+			return armedProxyToken(tok, profile, pid)
 		}
-		tok, err := scopedProxyToken(profile, refresh, pid)
+		tok, err := scopedProxyToken(context.Background(), profile, refresh, pid) // Background reads the launcher-set overlay env
 		if err != nil {
 			return "", fmt.Errorf("resolve --proxy: %w", err) // never falls back to the router secret
 		}
@@ -306,9 +294,72 @@ var (
 	authenticClaims           = proxy.AuthenticClaims
 )
 
+// armedProxyToken is tok, or its exact-scope re-mint once refused, never beyond the launch's own overlay fence.
+func armedProxyToken(tok, profile string, pid int) (string, error) {
+	route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
+	c, signed := authenticClaims(tok)
+	if signed { // verified claims, valid or refused, stay inside the launcher-set fence
+		if err := withinFence(&c, c.Profiles); err != nil {
+			return "", err
+		}
+	}
+	remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
+	if ok {
+		return remintArmed(c, signed, route, remint)
+	}
+	if !signed { // an unsigned token is still held to the env's fence
+		if err := withinFence(nil, []string{cmp.Or(route, profile)}); err != nil {
+			return "", err
+		}
+	}
+	return tok, nil
+}
+
+// remintArmed re-mints a refused armed token for pid inside its own scope, failover and fence.
+func remintArmed(c proxy.SessionClaims, signed bool, route string, pid int) (string, error) {
+	profiles, failover, ctx := []string{route}, "", context.Background()
+	if signed { // keep the launch's own scope, failover and fence, never the registry's
+		profiles, failover = c.Profiles, c.Failover
+		if c.Open || len(c.Fence) > 0 {
+			ctx = proxy.WithFence(ctx, c.Fence, c.Open)
+		}
+	} else if route == "" { // unverifiable claims: only the route is trusted, never --profile
+		return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
+	} else if err := withinFence(nil, profiles); err != nil {
+		return "", err
+	}
+	return remintExact(ctx, profiles, failover, pid)
+}
+
+// withinFence refuses profiles outside c's signed fence, else the env's overlay fence when c is legacy or unsigned.
+func withinFence(c *proxy.SessionClaims, profiles []string) error {
+	if c != nil && c.Open {
+		return nil
+	}
+	fence := []string(nil)
+	if c != nil && len(c.Fence) > 0 {
+		fence = c.Fence
+	} else {
+		f, open, err := proxy.ConfinementFence(context.Background())
+		if err != nil {
+			return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
+		}
+		if open {
+			return nil
+		}
+		fence = f
+	}
+	for _, p := range profiles {
+		if !slices.Contains(fence, p) {
+			return fmt.Errorf("resolve --proxy: %s is outside the token's confinement fence; relaunch it", p)
+		}
+	}
+	return nil
+}
+
 // remintExact re-mints a refused armed token for pid with exactly profiles and failover, never a wider set.
-func remintExact(profiles []string, failover string, pid int) (string, error) {
-	tok, err := resolveProxyTokenFailover(context.Background(), profiles, pid, failover)
+func remintExact(ctx context.Context, profiles []string, failover string, pid int) (string, error) {
+	tok, err := resolveProxyTokenFailover(ctx, profiles, pid, failover)
 	if err != nil {
 		return "", fmt.Errorf("resolve --proxy: %w", err)
 	}
@@ -343,7 +394,7 @@ func armedRemint(tok, profile string, fallback int) (int, bool) {
 }
 
 // scopedProxyToken mints (or reuses) the session token the launcher would arm for the process pid.
-func scopedProxyToken(profile string, refresh bool, pid int) (string, error) {
+func scopedProxyToken(ctx context.Context, profile string, refresh bool, pid int) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return "", err
@@ -356,14 +407,14 @@ func scopedProxyToken(profile string, refresh bool, pid int) (string, error) {
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)
 	}
-	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
+	scope, err := agent.TokenScope(ctx, sel.Provider.Name, aliases...)
 	if err != nil {
 		return "", err
 	}
 	if refresh {
-		return refreshProxyToken(context.Background(), scope, pid)
+		return refreshProxyToken(ctx, scope, pid)
 	}
-	return resolveProxyToken(context.Background(), scope, pid)
+	return resolveProxyToken(ctx, scope, pid)
 }
 
 // keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.

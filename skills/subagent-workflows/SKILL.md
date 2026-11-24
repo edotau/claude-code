@@ -34,11 +34,13 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 
 | Leaf | Role | Output |
 | --- | --- | --- |
-| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; dispatches a step it needs another agent for | Status and verification |
+| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (`rules/harness/agent.md` → pi runner); dispatches a step it needs another agent for | Status and verification |
 | `Explore` | Scoped scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type> --provider databricks` its file bakes, waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
+| `pi` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
@@ -49,16 +51,17 @@ family, R6), mechanical fixes `Tier: fast` with `--model auto` (R24; Haiku on a 
 leaf); Opus
 or higher only for planning, security and guard design, architecture, and judgment calls (benchmark verdicts,
 schedule, retry, keep/revert); `fable` only for two large designs at once, never inherited from the session; a
-deterministic step uses no model. `dispatch-effort` sets model and
-effort only for an agent with no `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The
-root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
+deterministic step uses no model. The root machine's pins and per-call flags select external execution; never
+overwrite another machine's pins.
 
 ### Carried dispatch (main session, no relay)
 
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
 task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
-model for review, audits and self-tested edits. No external agent has a relay subagent; codex handles cross-family
-review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
+model for review, audits and self-tested edits. To run one as an Agent leaf instead, pick its type (`codex`,
+`copilot`, `gemini`, `opencode`, `agents/<type>.md`): it runs the typed Databricks ask its file bakes, and its own
+CLI on its own login stays reachable here (`claude-code <agent> …`, overlay `{"runner":"own"}`). Codex handles
+cross-family review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
 codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
@@ -82,7 +85,11 @@ Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; aut
 For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` → Work here or dispatch), or a routed
 `claude` workflow stage; the wait, hand-back and receipt rules bind both:
 
-- Run the prescribed `claude-code agents ask --carry --agent <a> …` (or plain ask for `claude`/`pi`) once:
+- Run the prescribed ask once: `claude-code agents ask --carry --agent <a> …`, the plain ask for `claude`/`pi`, or,
+  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `pi.md`), the one non-carry typed
+  `agents ask --background --agent <type> --provider databricks --tools - < PATH` its file prints (pi adds
+  `--codemode on`); copy it as printed, add `--workdir <dir>` only for a `Workdir:` line, and never add `--profile`
+  or `--model`:
   1. Write the task to the path `claude-code agents brief --path <agent>` prints (Read it first), and attach it as
      `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
      flag or start another ask.
@@ -92,11 +99,8 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
 - Background only via `agents ask --background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
-  1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), and a foreground ask the Bash tool backgrounds
-     prints no id, so unless your own successful `agents result|wait <id>` names a record of your session whose agent
-     and prompt match your ask, the hand-back passes unattributed: a note naming the candidate ids, your `ask: ran on`
-     lines marked unverified. Long tasks therefore carry `--background`; read the id from its
-     `job <id> started` line. Run an ask with `"timeout": 600000`, once, never re-run it.
+  1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), so long tasks carry `--background`; read the id
+     from its `job <id> started` line. Run an ask with `"timeout": 600000`, once, never re-run it.
   2. Wait with ONE call per turn: `claude-code agents result -f <id>` (`-f` follows to the end; or `agents wait <id>
      --timeout 590s`, exit 4 = still running), 600000 ms Bash timeout. Never poll with Read, `head`, `ls`, `--verdict`
      or `agents ls`, never sleep, start a second poller or use Monitor.
@@ -178,12 +182,13 @@ else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) · `NEED
 ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged); then `Ran on:` (the
 `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an `Agent: in-context` brief), outcome per item,
 test or gate results, what needs a decision, and the report path. The full report (root cause, before/after output,
-numstat, teeth proof, commands) goes to `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`, wrapped
-at 118 columns. Scratch files only under an absolute `/tmp/<job>/` path, removed before reporting.
+numstat, teeth proof, commands) goes to `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`.
+Scratch files only under an absolute `/tmp/<job>/` path, removed before reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, the manager making the one integration edit. The manager owns decisions,
-integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed).
+integration and commits; leaves never dispatch subagents, commit (bar the verifier's lane commit) or run the
+suite (an `ask` is allowed); the owner layer below is not built, so today no leaf dispatches a fleet.
 
 ### Phase 2: dispatch
 
@@ -202,11 +207,24 @@ limits are overlapping files, dependency order and an account's own rate limit.
 #### Dispatch workflow (R32)
 
 1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
-2. One sign-off gate: `claude-code worktree merge <lane>`; a leaf runs no gate chain of its own.
-3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing.
+2. One sign-off gate: `claude-code worktree land <lane>`; a leaf runs no gate chain of its own.
+3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
+   rounds in a row each finding a new HIGH in one area stop the loop and go to the owner.
 4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
 5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane; main merges.
-6. In a contract (typed-pi-dispatch plan, phases 10-12, not built) the Opus owner runs this fan-out; until then main.
+6. In a contract the Opus owner runs this fan-out; until then main.
+
+##### Owner layer (the contract)
+
+Most tasks are led by an Opus owner with a fleet on Sonnet or Haiku executing, down to one function or a test repair.
+The owner does a unit alone or sub-contracts it, and checks every leaf it dispatched. The fixed checklist (create the
+lane, confirm the dispatch did not die, lint passes with no syntax errors, tick the plan, close the proxy) is to be
+performed and recorded by Go, never written by the model. The eyeball check that tests would pass is the owner's own
+judged verdict, and a test step or test repair still needs executed tests.
+Built so far: the schema and lifecycle only (`internal/contract`: kinds, roles, terms, limits, `Open` and the state
+transitions). Nothing in dispatch calls it yet (plan 2026-11-24-typed-pi-dispatch, tasks 10.2 to 12.3), so there is
+no command for it and the rules above still bind: a fleet leaf never dispatches, and no leaf commits (bar the
+verifier's lane commit, step 5) or runs the suite.
 
 #### Wave loop
 
@@ -219,7 +237,7 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
    reads the diff, not the manager) → a fix leaf for each finding (review loop until clear;
    the manager fixes what the leaf could not, R28) → the manager re-runs the scoped gate and commits named files
    (`rules/standards/worktree-git.md`) → dispatch what that unblocked. Push, install and the audit follow
-   `CLAUDE.md` hard rule 5 (the audit runs after each worktree merge), not per wave.
+   `CLAUDE.md` hard rule 5 (the audit runs after each worktree land), not per wave.
 3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking,
    within the owner's named priority (R25).
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
@@ -252,18 +270,18 @@ unblocked row in one message.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
   dispatching reads and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
 - **Lanes:** with `HARNESS_WORKTREE=lanes` each stream's leaves work in their own lane and the main session lands it
-  with `claude-code worktree merge <lane>` (rebase in the lane, gate, fast-forward; a conflict exits 3):
-  `skills/using-git-worktrees/SKILL.md` → The lane protocol.
-- **Merge on completion:** each fan-out worktree merges onto the working branch as its task completes, conflicts
-  resolved in the worktree, and is removed by that merge: `rules/standards/worktree-git.md` → Merge on completion.
+  with `claude-code worktree land <lane>` (rebase in the lane, gate, land uncommitted; a conflict or a dirty landed
+  path exits 3): `skills/using-git-worktrees/SKILL.md` → The lane protocol.
+- **Land on completion:** each fan-out worktree lands on the live checkout (uncommitted; you commit) as its task
+  completes, conflicts resolved in the worktree, and is removed by that land (its branch stays until clean):
+  `rules/standards/worktree-git.md` → Land on completion.
 - **Scouts and reviews** never wait for edit work.
 
 #### Tests
 
 The implementer writes the basic tests for its own feature (R15); other cases are proposals in its hand-back. Broken
 existing tests are repaired by the implementer, a `claude` leaf or a carried `copilot` ask. The main thread owns the
-live check. A leaf runs only a test it wrote or repairs; package tests run in the sign-off gate (R32).
-Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
+live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
 (`rules/standards/testing-guidelines.md` → When a test fails).
 
 | Situation | Shape |
@@ -326,7 +344,7 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 - **Fold before merge.** One fold leaf moves each unit into its home file (functions beside their callers, tests into
   the `_test.go` matching their source), deletes the unit files, and resolves two units changing the same code as a
   branch conflict, keeping both intents; give it every brief, not only the diffs. Then one gate over the folded tree
-  (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree merge`.
+  (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree land`.
 - **Never commit a unit file.** It breaks the one-test-file-per-source rule (`rules/harness/go.md`); the gate catches
   one left behind.
 - A test leaf proves teeth on a scratch copy (`go test -overlay`), never by editing source an editor leaf owns.
@@ -334,16 +352,13 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, Pi first by default; external work agents run carried, Pi as a plain
-  ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the main session itself with
-  `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
-  no leaf sits waiting on a shell. External agents run via carried asks (`claude-code agents ask --carry --agent <a>`);
-  a long ask started from a leaf puts `--background` on the command: the stop gate holds the leaf until the job ends
-  (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
-  `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt; with
-  none it passes unattributed, never refused),
-  whereas a shell-backgrounded ask dies when the leaf stops. A hand-back waits up to 13 s for a running job, then is
-  held; a hold keeps every finished job's answer and the later pass attaches them in dispatch order. Cap:
+  the Agent tool with a harness type (`claude`, Pi first by default; external work agents as their own type
+  or carried, Pi as a plain ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the
+  main session itself with `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m`
+  and `agents result <id>`: no leaf sits waiting on a shell. External agents run via carried asks
+  (`claude-code agents ask --carry --agent <a>`); a long ask started from a leaf puts `--background` on the command:
+  the stop gate holds the leaf until the job ends (`dispatch-stop`, `dispatch-handback`),
+  whereas a shell-backgrounded ask dies when the leaf stops. Cap:
   `rules/harness/hooks.md` → (dispatch cap); queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
@@ -365,11 +380,6 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 
 - **Normal**: two `claude` leaves on disjoint packages in one message; fan-in reads each
   diff and the seam, simplify runs once, one commit names the files and task
-  (`worktree commit --task <id>`; repeat for multiple ids).
-  Use `--plan <file>` when ids collide. The trailer `Task: <plan-slug> <id>` survives rebase and cherry-pick;
-  a named task ticks once its commit is on main, however many `owns:` files it covers; name it on its last commit.
-  Only main ticks, after verifying a hand-back; leaves hand back uncommitted unless the brief says to commit.
-  Coverage never ticks, it prints one candidate; `plan task <id> --done --sha <sha> --plan <file>`
-  is the manual route.
+  (`worktree commit --task <id>`; ticking rules: `rules/standards/worktree-git.md`).
 - **Error**: a leaf fails `Verify:` twice (second time with failure output and a changed brief); the others land, the
   report names the gap, nothing is silently redone in-context.

@@ -50,6 +50,24 @@ type SessionClaims struct {
 	Issued   int64    `json:"iat"`
 	Expires  int64    `json:"exp"`
 	Nonce    string   `json:"n"`
+	Fence    []string `json:"fz,omitempty"` // the profile set the launch is confined to
+	Open     bool     `json:"fo,omitempty"` // explicitly unconfined; neither set is a legacy token
+}
+
+// FenceAllows reports whether the token's confinement fence admits profile; a legacy token has none.
+func (c SessionClaims) FenceAllows(profile string) bool {
+	return c.Open || len(c.Fence) == 0 || slices.Contains(c.Fence, profile)
+}
+
+// Fenced reports the token carries a confinement fence (neither open nor a legacy token).
+func (c SessionClaims) Fenced() bool { return !c.Open && len(c.Fence) > 0 }
+
+// FencedProfiles is a copy of the token's profiles its fence admits; nil when it has none (a client token).
+func (c SessionClaims) FencedProfiles() []string {
+	if c.Profiles == nil {
+		return nil
+	}
+	return slices.DeleteFunc(slices.Clone(c.Profiles), func(p string) bool { return !c.FenceAllows(p) })
 }
 
 // Token-shape errors; ParseSessionToken wraps each so the refusal can name it.
@@ -88,6 +106,10 @@ func SignSessionToken(secret string, c SessionClaims, now time.Time) (string, er
 		return "", err
 	}
 	c.Profiles = slices.Compact(slices.Sorted(slices.Values(c.Profiles)))
+	c.Fence = slices.Compact(slices.Sorted(slices.Values(c.Fence)))
+	if err := checkFence(c); err != nil {
+		return "", err
+	}
 	c.Issued, c.Expires, c.Nonce = now.Unix(), now.Add(SessionTokenTTL).Unix(), hex.EncodeToString(n)
 	raw, err := json.Marshal(c)
 	if err != nil {
@@ -103,6 +125,17 @@ func SignSessionToken(secret string, c SessionClaims, now time.Time) (string, er
 		return "", fmt.Errorf("session token would be %d bytes (max %d): too many profiles", len(tok), maxSessionToken)
 	}
 	return tok, nil
+}
+
+// checkFence refuses claims whose fence contradicts itself or its profiles.
+func checkFence(c SessionClaims) error {
+	if c.Open && len(c.Fence) > 0 {
+		return errors.New("session token is both open and fenced")
+	}
+	if len(c.Fence) > 0 && slices.ContainsFunc(c.Profiles, func(p string) bool { return !slices.Contains(c.Fence, p) }) {
+		return errors.New("token profiles outside its fence")
+	}
+	return nil
 }
 
 func sessionMAC(secret, payload string) ([]byte, error) {
@@ -190,6 +223,9 @@ func CheckSessionToken(secret, tok, profile string, now time.Time, start func(in
 	}
 	if profile != "" && !slices.Contains(c.Profiles, profile) {
 		return fmt.Errorf("session token is not scoped to %s", profile)
+	}
+	if profile != "" && !c.FenceAllows(profile) {
+		return fmt.Errorf("session token is outside its confinement fence (%s only)", strings.Join(c.Fence, ","))
 	}
 	if got, err := start(c.PID); err != nil || got != c.Start {
 		return fmt.Errorf("the process the session token was bound to has exited (pid %d)", c.PID)

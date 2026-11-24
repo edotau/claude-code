@@ -7,7 +7,7 @@ function engineerPreflightBrief({ EXT }) {
 /** @param {{ CWD: * }} input */
 function engineerRules({ CWD }) {
   return 'Shared live tree: never git stash|checkout|reset|restore|clean|commit|add, never make build|install|audit, never edit settings.json. ' +
-  'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+  'Run every command in cwd ' + JSON.stringify(CWD) + ' (external agents: ask --workdir ' + CWD + ').'
 }
 
 /** @param {{ RANGE: *, RULES: * }} input */

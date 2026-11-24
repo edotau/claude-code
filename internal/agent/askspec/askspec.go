@@ -3,6 +3,7 @@ package askspec
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -43,16 +44,40 @@ const PromptKey = "prompt"
 
 // Task is the spec's execution contract: keys with no flag, rendered into the brief and run by the harness.
 type Task struct {
-	Own    []string `json:"own"`
-	Report string   `json:"report"`
-	Verify string   `json:"verify"`
+	Own      []string  `json:"own"`
+	Report   string    `json:"report"`
+	Verify   string    `json:"verify"`
+	Contract *Contract `json:"contract"`
+	// Action is a typed no-model step (one of Actions) the harness runs in a plain child; it is not a brief key.
+	Action string `json:"action"`
+}
+
+// Actions are the values of the spec's action key: each runs one existing verb with Go-built argv and no model.
+var Actions = []string{"gate", "diff", "gateway", "scope"}
+
+// Contract is the spec's contract key: the unit, its size and optional limits; Go derives every other field.
+type Contract struct {
+	Unit   string         `json:"unit"`
+	Kind   string         `json:"kind"`
+	Limits ContractLimits `json:"limits"`
+	// Role is "owner" (default) or "fleet"; a fleet member names the owner contract it joins as Parent.
+	Role   string `json:"role"`
+	Parent string `json:"parent"`
+}
+
+// ContractLimits overrides the kind's default budget; zero keeps the default.
+type ContractLimits struct {
+	Tokens int `json:"tokens"`
+	Leaves int `json:"leaves"`
 }
 
 // Set reports whether any contract key was given.
-func (t Task) Set() bool { return t.Own != nil || t.Report != "" || t.Verify != "" }
+func (t Task) Set() bool {
+	return t.Own != nil || t.Report != "" || t.Verify != "" || t.Contract != nil
+}
 
 // TaskKeys are the spec keys Argv reads into Task instead of argv.
-var TaskKeys = []string{"own", "report", "verify"}
+var TaskKeys = []string{"own", "report", "verify", "contract", "action"}
 
 // FromFlagSet builds the schema from fs, skipping internal flags and --spec itself.
 func FromFlagSet(fs *flag.FlagSet, o Opts) Schema {
@@ -173,18 +198,44 @@ func taskOf(doc map[string]json.RawMessage) (t Task, err error) {
 		if !ok {
 			continue
 		}
-		dst, want := any(&t.Report), "a string"
-		switch k {
-		case "own":
-			dst, want = &t.Own, "an array of strings"
-		case "verify":
-			dst = &t.Verify
+		if k == "contract" {
+			if t.Contract, err = contractOf(v); err != nil {
+				return Task{}, err
+			}
+			continue
 		}
+		dst := cmp.Or(map[string]any{"own": &t.Own, "verify": &t.Verify, "action": &t.Action}[k], any(&t.Report))
+		want := map[bool]string{true: "an array of strings", false: "a string"}[k == "own"]
 		if json.Unmarshal(v, dst) != nil || string(v) == "null" || string(v) == `""` {
 			return Task{}, fmt.Errorf("spec %s: want %s", k, want)
 		}
 	}
-	return t, nil
+	return t, t.checkAction()
+}
+
+func (t Task) checkAction() error {
+	if t.Action == "" || slices.Contains(Actions, t.Action) {
+		return nil
+	}
+	return fmt.Errorf("spec action %q unknown (%s)", t.Action, strings.Join(Actions, "|"))
+}
+
+// contractOf decodes the contract key strictly: an unknown field is a typo, never ignored.
+func contractOf(v json.RawMessage) (*Contract, error) {
+	const want = "spec contract: want {\"unit\": \"...\", \"kind\": \"...\", \"limits\": {\"tokens\": N, \"leaves\": N}}"
+	if string(v) == "null" {
+		return nil, errors.New(want)
+	}
+	var c Contract
+	dec := json.NewDecoder(bytes.NewReader(v))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return nil, fmt.Errorf("%s: %v", want, err)
+	}
+	if (c.Role != "" && c.Role != "owner" && c.Role != "fleet") || (c.Role == "fleet") != (c.Parent != "") {
+		return nil, errors.New("spec contract: role is owner or fleet, and parent goes with role fleet only")
+	}
+	return &c, nil
 }
 
 // CheckKeys refuses the first key (sorted) neither in s nor in extra, naming the nearest valid key.

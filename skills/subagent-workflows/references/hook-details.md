@@ -62,7 +62,7 @@ slices strings; a one-word or f-string literal still does.
 Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed output) and runs the pinned `bin/rtk`
 (else PATH); for Claude in place with no permission decision, or in auto mode a block naming the form when that form
 passes the hook itself. codex and opencode (plugin, after the guards allow) run `rtk hook
-<agent>` instead, never with `HARNESS_CODEMODE` set; the rewrite
+<agent>` instead, never with `CODEMODE` on or only; the rewrite
 is offered only when every Bash PreToolUse gate the agent runs (`safety-scan`, `docs-placement`,
 `worktree-claim-check`; an unknown one stops it) allows both the raw and the rewritten command, any error runs the
 command as typed, and copilot and agy are not hooked (agy judges its own rules on the rewritten text). On codex a
@@ -187,9 +187,10 @@ allowlist is under dispatch-handback) plus the scoped gate on that sha in a scra
 shape-refused `verify:` ticks on the gate with a note, red stays open with the failing command and tail; with no trunk,
 nothing ticks and one line says so. Only the main session's verified `worktree commit --task` ticks; coverage prints one
 candidate per task (recent or claimed plans) and writes nothing; draft mirrors and struck tasks never tick. A lane, a
-feature branch or a detached HEAD ticks nothing; a lane commit ticks when it lands (`worktree merge` promotes it, or the
-hook sees in the HEAD reflog a fast-forward or merge commit land on main, whatever the call printed or a later command
-did; `plan tick --range` otherwise). The Stop reminder's partials record (one shared lock) is no longer written.
+feature branch or a detached HEAD ticks nothing; a lane commit ticks when it reaches main (`worktree land --merge`
+promotes it, or the hook sees in the HEAD reflog a fast-forward or merge commit land on main, whatever the call
+printed or a later command did; `plan tick --range` otherwise). The Stop reminder's partials record (one shared
+lock) is no longer written.
 `claude-code clean` sweeps obsolete `*.partial.lock` files older than one day
 
 ## memory-update

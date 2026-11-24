@@ -134,7 +134,7 @@ var Registry = []Group{
 	}},
 	// Claude's edit tools reach safety-scan for the instruction-file rule through every launch's --settings layer.
 	{Name: "safety-claude-edit", Gate: true, AgentOnly: true, Events: []EventSpec{
-		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "MultiEdit|Write|Edit", Budget: 5 * sec, Blocks: true, AlwaysOn: true},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "MultiEdit|Write|Edit|NotebookEdit", Budget: 5 * sec, Blocks: true, AlwaysOn: true},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten through rtk (Claude, Codex, OpenCode; agy judges rules post-rewrite).
@@ -162,6 +162,8 @@ var Registry = []Group{
 		{Name: "dispatch-stop", Event: EventSubagentStop, Budget: 15 * sec},
 		// Stop gates at SubagentHandback (ends a background leaf first); on Bash, a reported or second relay poll is refused.
 		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback|Bash", Budget: 15 * sec},
+		// A foreground `agents ask|wait|result -f` gets the Bash timeout it needs (Claude only; never blocks).
+		{Name: "bash-timeout", Event: EventPreToolUse, Matcher: "Bash", Budget: 2 * sec},
 	}},
 	{Name: "paths", Events: []EventSpec{
 		// A pasted path (Windows, POSIX or client-only) resolves for the model, naming images and large files.

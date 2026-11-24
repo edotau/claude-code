@@ -101,7 +101,7 @@ func TestCompletionExact(t *testing.T) {
 		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
 		{"vendor past double dash", []string{"codex", "--", ""}, nil},
-		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""},
+		{"resolve-agent domain", []string{"worktree", "land", "--resolve-agent", ""},
 			[]string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -474,15 +474,15 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	tree := specTree()
 	for verb, want := range map[string][]string{
-		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "delete", "env", "overlay", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve"},
-		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
+		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
-		"worktree": {"list", "create", "merge", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
+		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
 	} {
@@ -851,7 +851,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "configure --history diff": true, "workflow lint": true, "workflow sync": true,
-		"vault delete": true, "test ramdisk": true, "memory init": true,
+		"vault delete": true, "vault overlay ls": true, "test ramdisk": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}

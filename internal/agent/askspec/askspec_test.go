@@ -30,6 +30,16 @@ func TestArgvNearestKey(t *testing.T) {
 	}
 }
 
+func TestArgvContractKey(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"own":["a.go"],"contract":{"unit":"func x","kind":"function"}}`))
+	if err != nil || task.Contract == nil || task.Contract.Unit != "func x" || !task.Set() {
+		t.Fatalf("task = %+v err %v", task, err)
+	}
+	if _, _, _, err := testSchema().Argv([]byte(`{"contract":{"unit":"x","knd":"f"}}`)); err == nil {
+		t.Fatal("unknown contract field accepted")
+	}
+}
+
 func TestArgvTaskKeys(t *testing.T) {
 	argv, _, task, err := testSchema().Argv([]byte(`{"own":["a.go"],"report":"r.md","verify":"go vet ./x","model":"m"}`))
 	if want := (Task{Own: []string{"a.go"}, Report: "r.md", Verify: "go vet ./x"}); err != nil ||
@@ -39,5 +49,28 @@ func TestArgvTaskKeys(t *testing.T) {
 	}
 	if _, _, _, err := testSchema().Argv([]byte(`{"own":"a.go"}`)); err == nil || !strings.Contains(err.Error(), "own") {
 		t.Fatalf("wrong type err = %v, want one naming own", err)
+	}
+}
+
+func TestArgvActionKey(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"action":"diff","own":["a.go"]}`))
+	if err != nil || task.Action != "diff" || len(task.Own) != 1 {
+		t.Fatalf("task = %+v err %v", task, err)
+	}
+	if _, _, _, err := testSchema().Argv([]byte(`{"action":"rm"}`)); err == nil || !strings.Contains(err.Error(), "gate|diff") {
+		t.Fatalf("unknown action err = %v, want one listing the actions", err)
+	}
+}
+
+func TestArgvContractRoleParent(t *testing.T) {
+	_, _, task, err := testSchema().Argv([]byte(`{"contract":{"unit":"x","kind":"function","role":"fleet","parent":"d-1"}}`))
+	if err != nil || task.Contract.Role != "fleet" || task.Contract.Parent != "d-1" {
+		t.Fatalf("task = %+v err %v", task.Contract, err)
+	}
+	for _, bad := range []string{`{"role":"fleet"}`, `{"parent":"d-1"}`, `{"role":"boss","parent":"d-1"}`} {
+		doc := `{"contract":{"unit":"x","kind":"function",` + bad[1:] + `}`
+		if _, _, _, err := testSchema().Argv([]byte(doc)); err == nil {
+			t.Errorf("contract %s accepted", bad)
+		}
 	}
 }

@@ -24,12 +24,12 @@ import (
 var worktreePage = helptext.Page{
 	Usage: "claude-code worktree <command> [flags] [<name>]",
 	About: "Linked worktrees of the current repo under ~/worktrees/<repo>/: create one\n" +
-		"per lane, then rebase it onto main, verify it and fast-forward main.",
+		"per lane, then rebase it onto main, verify it and land it on your checkout.",
 	Commands: [][2]string{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
-		{"merge", "verified fast-forward merge; --dry-run previews, --resume"},
-		{"clean", "remove one merged worktree (--force, --dry-run)"},
+		{"land", "verified land on local (--merge commits); --dry-run, --resume"},
+		{"clean", "remove a merged worktree or landed branch (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
 		{"gate", "print (or --run) the verify gate for --dir (--scope, --lint-check)"},
@@ -41,11 +41,17 @@ var worktreePage = helptext.Page{
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
 
-// worktreeVerifyNote explains merge's verification gate; it trails both the verb and the merge page.
-const worktreeVerifyNote = `Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
-Verify in the lane on the rebased tree, before promotion.
+// worktreeVerifyNote explains land's modes and verification gate; it trails both the verb and the land page.
+const worktreeVerifyNote = `Modes:
+  Land on local (Recommended): uncommitted changes in your checkout; you
+    commit (default)
+  Merge into working branch: committed onto the branch (--merge)
+Land on local refuses (exit 3, nothing changed) when a landed path is dirty
+in your checkout.
+Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
+Verify in the lane on the rebased tree, before landing.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
-package.json, or Cargo.toml. Without a gate, promotion is refused.
+package.json, or Cargo.toml. Without a gate, landing is refused.
 Makefile + go.mod: build+vet all, test changed, importing and registry pkgs;
 --full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
@@ -82,7 +88,7 @@ func cmdWorktree(args []string) int {
 var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 	"list":      cmdWorktreeList,
 	"create":    cmdWorktreeCreate,
-	"merge":     cmdWorktreeMerge,
+	"land":      cmdWorktreeLand,
 	"clean":     cmdWorktreeClean,
 	"clean-all": cmdWorktreeCleanAll,
 	"base":      cmdWorktreeBase,
@@ -233,13 +239,14 @@ func runWorktreeGate(dir string, scope []string, lintCheck bool) int {
 
 // cmdWorktreeCommit commits the named files (else this session's claimed ones); 1 refused, 2 usage.
 func cmdWorktreeCommit(cwd string, args []string) int {
-	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
+	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message>|--type <t> [flags] [<file>...]",
 		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
 			"Refuses a peer's file or a non-Conventional subject; never pushes.\n" +
 			"--task writes Task: <plan-slug> <id>; a named task ticks once the commit is on main.\n" +
 			"Quote an id with spaces: --task \"Phase 2.1\".\n" +
 			"List the candidates first: claude-code worktree commit --list (no -m)."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
+	typ := fs.String("type", "", "Conventional type; with no -m the subject is the one --task's plan title")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
 	list := fs.Bool("list", false, "print each dirty file as @id<TAB>path and exit; no -m needed")
 	var tasks []string
@@ -261,11 +268,15 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 		*plan = resolved
 	}
 	err = worktree.Commit(context.Background(), worktree.CommitRequest{
-		Dir: cwd, Message: *msg, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout, Source: callerClaims(),
+		Dir: cwd, Message: *msg, Type: *typ, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout, Source: callerClaims(),
 	})
 	var ce *worktree.CommitError
 	switch {
 	case err == nil:
+		if !*dryRun {
+			top, _ := paths.CheckoutOf(cwd)
+			recordCloseTerms(forTasks(plans.WorktreeName(top), plans.Home(paths.MainCheckout(top)), *plan, tasks), "", os.Stderr)
+		}
 		return 0
 	case errors.As(err, &ce) && ce.Code == 2:
 		return helptext.FailUsage("worktree commit: %v", err)
@@ -309,15 +320,16 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	return 0
 }
 
-// cmdWorktreeMerge previews (--dry-run) or applies Preflight's two-phase merge under one worktree lease.
-func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>",
-		About: "Rebase <name> onto main, verify, fast-forward, tick plans, notify lanes.", Hint: worktreeVerifyNote})
-	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
+// cmdWorktreeLand previews (--dry-run) or applies Preflight's two-phase land under one worktree lease.
+func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
+	fs := helptext.NewFlagSet("worktree land", helptext.Page{Usage: "claude-code worktree land [flags] <name>\nclaude-code worktree land --resume [flags] <name>",
+		About: "Rebase <name> onto main, verify, then land it on your checkout as uncommitted changes.", Hint: worktreeVerifyNote})
+	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without landing")
+	intoBranch := fs.Bool("merge", false, "Merge into working branch: fast-forward and commit, tick plans, notify lanes")
 	target := fs.String("target", "", "require this main branch (default: current branch)")
-	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
-	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
-	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
+	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful land")
+	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks landing")
+	noVerify := fs.Bool("no-verify", false, "land without any verification gate — the only way to skip one")
 	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve a conflict in the lane with a tools-capable agent")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
@@ -325,51 +337,72 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		return code
 	}
 	if !worktree.ValidResolveAgent(*resolveAgent) {
-		return helptext.Fail("worktree merge: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
+		return helptext.Fail("worktree land: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
-		return helptext.Fail("worktree merge: give exactly one name")
+		return helptext.Fail("worktree land: give exactly one name")
 	}
 	name := rest[0]
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var promoted string
 	req := worktree.MergeRequest{
 		Name: name, Target: *target, ResolveAgent: *resolveAgent, Verify: *verify,
-		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
+		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify, IntoBranch: *intoBranch,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
-			before, after, _ := strings.Cut(rng, "..")
-			docs.BenchLanded(ctx, repo.Main, before, after, os.Getenv(paths.SessionIDEnv)) // a fast-forward fires no commit hook
-			return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
+			promoted = rng
+			return tickPromoted(ctx, repo, name, rng)
 		},
+		AfterLand: func(head string) { promoted = ".." + head },
 	}
 	if *dryRun {
 		return mergeDryRun(ctx, repo, req)
 	}
 
+	code := mergeUnderLease(ctx, repo, req)
+	if _, landed, ok := strings.Cut(promoted, ".."); ok { // promoted even when the clean failed
+		recordCloseTerms(onLane(name, plans.Home(repo.Main)), landed, os.Stderr)
+	}
+	return code
+}
+
+// mergeUnderLease runs mergeLocked holding the lane's lease; a lease failure is exit 1.
+func mergeUnderLease(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	var code int
-	if err := worktree.WithWorktreeLease(repo, name, func() error {
+	if err := worktree.WithWorktreeLease(repo, req.Name, func() error {
 		code = mergeLocked(ctx, repo, req)
 		return nil
 	}); err != nil {
-		return helptext.Fail("worktree merge: %v", err)
+		return helptext.Fail("worktree land: %v", err)
 	}
 	return code
+}
+
+// tickPromoted announces the landed range to the bench and ticks the plans the range's commits name.
+func tickPromoted(ctx context.Context, repo *worktree.Repo, name, rng string) error {
+	before, after, _ := strings.Cut(rng, "..")
+	docs.BenchLanded(ctx, repo.Main, before, after, os.Getenv(paths.SessionIDEnv)) // a fast-forward fires no commit hook
+	return plans.TickRange(ctx, repo.Main, name, rng, "", plans.MirrorDests(), false, os.Stdout)
 }
 
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	if req.Resume {
 		if err := worktree.CheckResumable(repo, req.Name); err != nil {
-			return helptext.Fail("worktree merge: %v", err)
+			return helptext.Fail("worktree land: %v", err)
 		}
 	}
 	plan, err := worktree.PlanOrResolve(ctx, repo, req, true)
 	if err != nil {
-		return helptext.Fail("worktree merge: %v", err)
+		code := helptext.Fail("worktree land: %v", err)
+		if errors.Is(err, worktree.ErrLandRefused) {
+			return 3
+		}
+		return code
 	}
 	if plan == nil {
 		return 1
@@ -377,13 +410,13 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	return 0
 }
 
-// mergeLocked runs worktree.Merge under the lease cmdWorktreeMerge holds and prints the outcome.
+// mergeLocked runs worktree.Merge under the lease cmdWorktreeLand holds and prints the outcome.
 func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	out, err := worktree.Merge(ctx, repo, req)
 	if err != nil {
-		helptext.Fail("worktree merge: %v", err)
-		if errors.Is(err, worktree.ErrRebaseConflict) {
-			return 3 // the rebase was aborted; resolve in the lane and re-run
+		helptext.Fail("worktree land: %v", err)
+		if errors.Is(err, worktree.ErrRebaseConflict) || errors.Is(err, worktree.ErrLandRefused) {
+			return 3 // rebase aborted, or the live tree left untouched; fix it and re-run
 		}
 		return 1
 	}
@@ -538,8 +571,8 @@ func worktreeSpec() *helptext.Node {
 	sub := map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
-		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
-		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
+		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("type"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
+		"land": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("merge"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},

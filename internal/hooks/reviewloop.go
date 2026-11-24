@@ -51,22 +51,38 @@ func StatedVerdict(report string) string {
 	return ""
 }
 
+// ComputeVerdict is the one reducer: CRITICAL BLOCK, HIGH FIX REQUIRED, unjudged, MEDIUM/LOW mergeable, else SHIP.
+func ComputeVerdict(fs []Finding, unjudged bool) (verdict string, mergeable bool) {
+	n := map[string]int{}
+	for _, f := range fs {
+		n[f.Severity]++
+	}
+	switch {
+	case n["CRITICAL"] > 0:
+		return "BLOCK", false
+	case n["HIGH"] > 0:
+		return "FIX REQUIRED", false
+	case unjudged:
+		return "unjudged", false
+	case n["MEDIUM"]+n["LOW"] > 0:
+		return "FIX REQUIRED", true
+	}
+	return "SHIP", false
+}
+
 // verdictMismatch names the verdict a report's findings compute when its stated verdict is milder, else "".
 func verdictMismatch(report string) string {
 	stated := StatedVerdict(report)
 	if stated == "" {
 		return ""
 	}
-	computed := "SHIP"
+	var serious []Finding // the hook flags CRITICAL/HIGH only
 	for _, f := range ParseFindings(report) {
-		if f.Severity == "CRITICAL" {
-			computed = "BLOCK"
-			break
-		}
-		if f.Severity == "HIGH" { // the hook flags CRITICAL/HIGH only
-			computed = "FIX REQUIRED"
+		if f.Severity == "CRITICAL" || f.Severity == "HIGH" {
+			serious = append(serious, f)
 		}
 	}
+	computed, _ := ComputeVerdict(serious, false)
 	rank := map[string]int{"SHIP": 0, "FIX REQUIRED": 1, "BLOCK": 2}
 	if rank[stated] < rank[computed] {
 		return "The report states " + stated + " but its CRITICAL/HIGH findings compute " + computed + ". "

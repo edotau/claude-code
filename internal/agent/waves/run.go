@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -49,6 +50,7 @@ type runner struct {
 	day                      time.Time              // fixed at start so report names agree across midnight
 	launched                 map[string]bool        // leaf ids this run launches, in any wave; their kept dependents relaunch
 	checked                  map[string]checkResult // verify results taken at release, reused by verifyLeaf
+	group                    string                 // the phase proxy id of the wave being run
 }
 
 type checkResult struct {
@@ -195,6 +197,13 @@ func (r *runner) adoptLegacy(old string) {
 	r.path = old // the move failed: resume from the old file in place
 }
 
+// phaseScopeID names wave n's phase proxy: the path-keyed state dir name, so same-named plans never collide.
+func phaseScopeID(dir string, n int) string {
+	suffix := "-w" + strconv.Itoa(n)
+	base := strings.TrimLeft(filepath.Base(dir), "._-")
+	return base[:min(len(base), 64-len(suffix))] + suffix
+}
+
 // planSlug names a plan's state dir, reports and notices.
 func planSlug(plan string) string {
 	return paths.Slug(strings.TrimSuffix(filepath.Base(plan), filepath.Ext(plan)), "._-", 50, "plan")
@@ -286,6 +295,13 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return 0, nil
 	}
 	defer r.notify(w.Number)
+	group, closeProxy := "", func() {}
+	if len(launch) > 0 {
+		group, closeProxy = agent.HostPhaseProxy(ctx, phaseScopeID(r.dir, w.Number))
+	}
+	defer closeProxy()
+	r.group = group
+	defer func() { r.group = "" }()
 	_, launchErr := r.launchRounds(ctx, launch, specs, r.waits(w), func(envelopes []Envelope) error {
 		ws, err = r.record(ws, envelopes)
 		return err
@@ -349,7 +365,7 @@ func (r *runner) launch(ctx context.Context, specs, wave []Spec) ([]Envelope, er
 	}
 	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports, Day: r.day,
 		Provider: r.o.Provider, Profiles: r.o.Profiles, Route: r.o.Route, Timeout: r.o.Timeout, Wave: wave,
-		Fingerprint: r.fingerprint})
+		Fingerprint: r.fingerprint, Group: r.group})
 }
 
 func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error) {

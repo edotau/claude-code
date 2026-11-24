@@ -42,6 +42,8 @@ type armRetry struct {
 	tried                                    []string  // the workspaces asked so far, in order
 	hops                                     []wire.Hop
 	record                                   *agent.Record
+	spent                                    int  // tokens every attempt used, for the contract's budget
+	timedOut                                 bool // the whole-dispatch deadline ended the run
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -74,7 +76,9 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	attempt := opts
 	attempt.Hold = true
 	var held *resultHold
-	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
+	sctx, rctx, cancel := wholeDeadline(ctx, req)
+	defer cancel()
+	p, res, err := a.attempts(rctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
 		sink := sinkTo(sinkOut(a.out, a.format, a.save), a.format, p.Record.ID)
 		if a.format == agent.FormatStreamJSON {
 			held = &resultHold{Sink: sink}
@@ -82,6 +86,15 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		}
 		return cl.Exec(ctx, p, sink, attempt)
 	})
+	total := res
+	total.Usage = wire.Usage{InputTokens: a.spent} // the budget counts every attempt, the record only the last
+	if rctx.Err() == nil || err == nil {
+		rctx = sctx // a run that finished gets the settle gate's time
+	} else if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		err = fmt.Errorf("dispatch deadline passed: %w (%w)", context.DeadlineExceeded, err) // kind timeout, not fatal
+		a.timedOut = true
+	}
+	settleHeld(rctx, p, total, err) // the record still runs, so no reaper takes the contract meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if held != nil {
@@ -92,6 +105,15 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		return prepareExitCode(prep.err)
 	}
 	return code
+}
+
+// wholeDeadline caps every attempt plus the settle gate at req's timeout: sctx ends there, rctx a gate's time earlier.
+func wholeDeadline(ctx context.Context, req agent.RunOptions) (sctx, rctx context.Context, cancel func()) {
+	end := time.Now().Add(agent.AttemptTimeoutFor(req))
+	sctx, cancelS := context.WithDeadline(ctx, end)
+	end, _ = sctx.Deadline() // an earlier parent deadline wins
+	rctx, cancelR := context.WithDeadline(sctx, end.Add(-min(settleGateTimeout, time.Until(end)/2)))
+	return sctx, rctx, func() { cancelR(); cancelS() }
 }
 
 // resultHold keeps an attempt's result event back so only the last attempt's reaches the stream.
@@ -111,7 +133,7 @@ func (h *resultHold) Emit(ev wire.Event) error {
 // emitFinal sends the one result event of a stream: the last attempt's own, or the aggregate once the run moved.
 func (a *armRetry) emitFinal(h *resultHold, p *agent.Prepared, res wire.Result, err error) {
 	ev := h.ev
-	if len(a.tried) > 1 || ev == nil {
+	if len(a.tried) > 1 || ev == nil || a.timedOut {
 		env := wire.NewEnvelope(res, err, p.Record.ID)
 		env.RanOn = ranOn(res)
 		e := wire.ResultEvent(env)
@@ -148,6 +170,9 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 		}
 		reserved = next.Repicks > req.Repicks
 		req = next
+		if end, ok := ctx.Deadline(); ok {
+			req.Timeout = min(agent.AttemptTimeoutFor(req), time.Until(end)) // the last attempt gets what is left
+		}
 		np, perr := a.prepare(ctx, cl, req, a.record)
 		if perr != nil {
 			res.Hops = slices.Clone(a.hops)
@@ -159,6 +184,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 }
 
 func (a *armRetry) collect(res wire.Result, err error) wire.Result {
+	a.spent += spentTokens(&res.Usage)
 	if err != nil && len(res.Hops) == 0 {
 		res.Hops = []wire.Hop{{Agent: a.agentName, Account: "databricks·" + a.current(),
 			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true}}

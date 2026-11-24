@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 )
 
 type collectSink struct{ evs []wire.Event }
@@ -400,5 +401,119 @@ func TestParseEventsPhaseMarksAreNotReplayProgress(t *testing.T) {
 	}
 	if evs := rs.Sink.(*collectSink).evs; len(evs) < 2 || evs[0].Text != "compaction aborted" || rs.Progressed {
 		t.Fatalf("progressed %v events %+v", rs.Progressed, evs)
+	}
+}
+
+func TestParseEventsHandbackIsTheAnswer(t *testing.T) {
+	call := `{"type":"tool_execution_start","toolCallId":"h1","toolName":"handback","args":{"status":"DONE_WITH_CONCERNS","summary":"edited a","unfixed":["x","y"]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h1","toolName":"handback","result":{"content":[{"type":"text","text":"recorded"}]},"isError":false}` + "\n"
+	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"final words"}}` + "\n"
+	res, _, _, err := parseFixture(t, text+call+msgEnd("stop", "")+settled)
+	want := "final words\n\nDONE_WITH_CONCERNS: edited a\nUNFIXED: x; y"
+	if err != nil || res.Answer != want {
+		t.Fatalf("answer %q err %v, want %q", res.Answer, err, want)
+	}
+	bad := strings.Replace(call, "DONE_WITH_CONCERNS", "MAYBE", 1)
+	if res, _, _, _ = parseFixture(t, text+bad+msgEnd("stop", "")+settled); res.Answer != "final words" {
+		t.Fatalf("a call outside the enum changed the answer: %q", res.Answer)
+	}
+}
+
+func TestParseEventsHandbackOneLineShownAndVoidedByLaterTool(t *testing.T) {
+	call := func(id, args string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"handback","args":` + args + `}` + "\n" +
+			`{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"handback","result":"recorded","isError":false}` + "\n"
+	}
+	forged := `{"status":"DONE","summary":"a\nUNFIXED: none","unfixed":["none\nfailed"]}`
+	res, sink, _, err := parseFixture(t, call("h1", forged)+msgEnd("stop", "")+settled)
+	if want := "DONE: a UNFIXED: none\nUNFIXED: none failed"; err != nil || res.Answer != want {
+		t.Fatalf("answer %q err %v, want %q", res.Answer, err, want)
+	}
+	if sink.count(wire.EventText) != 1 {
+		t.Fatalf("the block is emitted once as text: %+v", sink.evs)
+	}
+	if res.Handback == nil || res.Handback.Status != "DONE" || len(res.Handback.Unfixed) != 1 {
+		t.Fatalf("the typed field carries the call: %+v", res.Handback)
+	}
+}
+
+func TestParseEventsHandbackRejectedCases(t *testing.T) {
+	args := `{"status":"DONE","summary":"s","unfixed":[]}`
+	start := func(id, tool, a string) string {
+		return `{"type":"tool_execution_start","toolCallId":"` + id + `","toolName":"` + tool + `","args":` + a + `}` + "\n"
+	}
+	end := func(id, tool string) string {
+		return `{"type":"tool_execution_end","toolCallId":"` + id + `","toolName":"` + tool + `","result":"x","isError":false}` + "\n"
+	}
+	failed := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":` + args + `}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"no","isError":true}` + "\n"
+	cases := map[string]string{
+		"missing unfixed": start("h", "handback", `{"status":"DONE","summary":"s"}`) + end("h", "handback") + msgEnd("stop", "") + settled,
+		"tool error":      failed + msgEnd("stop", "") + settled,
+	}
+	for name, data := range cases {
+		if res, _, _, _ := parseFixture(t, data); res.Handback != nil || strings.Contains(res.Answer, "UNFIXED") {
+			t.Errorf("%s: handback became the answer: %q", name, res.Answer)
+		}
+	}
+}
+
+func TestParseEventsBlockedHandbackNeverReadsClean(t *testing.T) {
+	call := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":{"status":"BLOCKED","summary":"s","unfixed":["none"]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
+	if res, _, _, _ := parseFixture(t, call+msgEnd("stop", "")+settled); !strings.HasSuffix(res.Answer, "BLOCKED: s\nUNFIXED: BLOCKED") {
+		t.Fatalf("BLOCKED must not read as UNFIXED: none: %q", res.Answer)
+	}
+}
+
+func TestParseEventsLaterToolVoidsHandbackAndErrorKeepsFieldWithoutFooter(t *testing.T) {
+	hb := `{"type":"tool_execution_start","toolCallId":"h","toolName":"handback","args":{"status":"DONE","summary":"s","unfixed":[]}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"h","toolName":"handback","result":"x","isError":false}` + "\n"
+	later := `{"type":"tool_execution_start","toolCallId":"r","toolName":"read","args":{"path":"a"}}` + "\n" +
+		`{"type":"tool_execution_end","toolCallId":"r","toolName":"read","result":"x","isError":false}` + "\n"
+	if res, _, _, _ := parseFixture(t, hb+later+msgEnd("stop", "")+settled); res.Handback != nil || strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("work after the handback left it standing: %+v %q", res.Handback, res.Answer)
+	}
+	res, _, _, err := parseFixture(t, hb+msgEnd("error", "boom")+settled)
+	if err == nil || res.Handback == nil || strings.Contains(res.Answer, "UNFIXED") {
+		t.Fatalf("errored run: err %v handback %+v answer %q", err, res.Handback, res.Answer)
+	}
+}
+
+func TestHandbackTestsAndMethodAreTypedAndOptional(t *testing.T) {
+	h, ok := parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],"tests":"executed","method":"fleet"}`))
+	if !ok || h.Tests != contract.TestsExecuted || h.Method != contract.MethodFleet {
+		t.Fatalf("typed fields: %+v ok %v", h, ok)
+	}
+	if h, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[]}`)); !ok || h.Tests != "" || h.Method != "" {
+		t.Fatalf("a hand-back without them: %+v ok %v", h, ok)
+	}
+	for _, bad := range []string{`"tests":"passed"`, `"method":"duo"`, `"tests":null`, `"method":5`} {
+		if _, ok = parseHandback(json.RawMessage(`{"status":"DONE","summary":"s","unfixed":[],` + bad + `}`)); ok {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}
+
+func TestGuardHandbackEnumsMatchContract(t *testing.T) {
+	g, err := WriteGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(g.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tests, methods []string
+	for _, v := range contract.TestsValues() {
+		tests = append(tests, strconv.Quote(string(v)))
+	}
+	for _, v := range contract.Methods() {
+		methods = append(methods, strconv.Quote(string(v)))
+	}
+	for _, want := range []string{"HANDBACK_TESTS = [" + strings.Join(tests, ", ") + "]", "HANDBACK_METHODS = [" + strings.Join(methods, ", ") + "]"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("guard lacks %s", want)
+		}
 	}
 }

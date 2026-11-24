@@ -479,7 +479,7 @@ func pasteAuthValue(d *dialog, o configure.AuthOption) bool {
 	if u := configure.ConsoleURLs[o.Env]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the key?") {
 		openBrowser(u)
 	}
-	val, err := secretLine(d, "Paste a value for "+o.Env+" (input hidden, Enter when done): ")
+	val, err := secretLine(d, "Paste a value for "+o.Env+" (input hidden; empty cancels): ")
 	if err != nil {
 		d.printf("%s: could not read the value: %v\n", o.Env, err)
 		return false

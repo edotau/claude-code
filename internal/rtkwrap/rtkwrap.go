@@ -9,15 +9,50 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CodemodeEnv is set by every code-mode launcher (Pi: on|only); no shim, hook or ForModel adds rtk under it.
-const CodemodeEnv = "HARNESS_CODEMODE"
+// CodemodeEnv (off|on|only) is set by the launcher for a dispatched run; on/only: no shim, hook or ForModel adds rtk.
+const CodemodeEnv = "CODEMODE"
 
-// CodeMode reports whether this process runs inside a code-mode agent run.
-func CodeMode() bool { return os.Getenv(CodemodeEnv) != "" }
+// vendorVars are the agents' code-mode variable names, computed once.
+var vendorVars = sync.OnceValue(func() []string {
+	var out []string
+	for _, name := range agentid.All() {
+		if v := agentid.Routing(name).CodeMode.Var; v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
+})
+
+// CodeMode reports whether this process runs in code mode: CODEMODE on, or an agent's vendor variable on (env only).
+func CodeMode() bool { return CodeModeSource() != "" }
+
+// CodeModeSource names the variable that turns code mode on, or "" when it is off.
+func CodeModeSource() string {
+	if CodemodeOn(os.Getenv(CodemodeEnv)) {
+		return CodemodeEnv
+	}
+	for _, v := range vendorVars() {
+		if CodemodeOn(os.Getenv(v)) {
+			return v
+		}
+	}
+	return ""
+}
+
+// CodemodeOn reports whether a CODEMODE value turns code mode on: on, only, 1 or true.
+func CodemodeOn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "only", "1", "true":
+		return true
+	}
+	return false
+}
 
 // Names are the shimmed commands: rtk_rewrite_words entries that are real command heads (TestNamesAreRTKWords).
 var Names = []string{"curl", "df", "diff", "docker", "du", "find", "gh", "git", "go", "golangci-lint", "grep", "jq",
@@ -64,11 +99,10 @@ func Ensure(dir, bin string) error {
 
 // Launch puts Dir first on PATH, sets CodemodeEnv and, outside code mode, BASH_ENV; a failure notes, env unchanged.
 func Launch(env []string, codemode string, notice io.Writer) []string {
-	if codemode != "" { // set even when the shims are unusable: the hook and ForModel read it too
-		env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-			return strings.HasPrefix(kv, CodemodeEnv+"=")
-		}), CodemodeEnv+"="+codemode)
-	}
+	// set on every path, even with unusable shims, so an inherited CODEMODE never reaches the child
+	env = append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		return strings.HasPrefix(kv, CodemodeEnv+"=")
+	}), CodemodeEnv+"="+codemode)
 	if runtime.GOOS == "windows" {
 		return env
 	}
@@ -88,7 +122,7 @@ func Launch(env []string, codemode string, notice io.Writer) []string {
 	path = strings.Join(withoutDir(filepath.SplitList(path), dir), string(os.PathListSeparator))
 	out = append(out, "PATH="+dir+string(os.PathListSeparator)+path, CodemodeEnv+"="+codemode)
 	file := filepath.Join(dir, bashEnvName)
-	if codemode != "" {
+	if CodemodeOn(codemode) {
 		return withoutBashEnv(out, file)
 	}
 	return withBashEnv(out, file)

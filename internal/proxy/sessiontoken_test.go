@@ -79,3 +79,26 @@ func TestCheckSessionTokenExpiryAndPid(t *testing.T) {
 		t.Errorf("PeekSessionClaims = %+v, %v", c, ok)
 	}
 }
+
+func TestSessionTokenFenceIsSignedAndEnforced(t *testing.T) {
+	now := time.Now()
+	start := func(int) (string, error) { return "7", nil }
+	c := SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7", Fence: []string{"dev", "own"}}
+	tok, err := SignSessionToken("s1", c, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := PeekSessionClaims(tok); !got.FenceAllows("own") || got.FenceAllows("qa") {
+		t.Errorf("signed fence = %v", got.Fence)
+	}
+	if CheckSessionToken("s1", tok, "dev", now, start) != nil {
+		t.Error("in-fence profile refused")
+	}
+	c.Profiles = []string{"qa"}
+	if _, err := SignSessionToken("s1", c, now); err == nil {
+		t.Error("a token wider than its fence was signed")
+	}
+	if _, err := SignSessionToken("s1", SessionClaims{Profiles: []string{"dev"}, PID: 42, Start: "7", Open: true, Fence: []string{"dev"}}, now); err == nil {
+		t.Error("open and fenced together was signed")
+	}
+}

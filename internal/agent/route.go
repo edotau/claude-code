@@ -37,6 +37,7 @@ type Dispatch struct {
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 	quotaOverflow                bool                       // the last hop: runs only after a quota-class failure
 	runFor                       string                     // the pi runner hop: the asked agent it executes for
+	fixedModel                   bool                       // a validated model no typed or pinned auto replaces
 }
 
 // agentName is the agent d stands for: the asked agent on a pi runner hop, else its engine.
@@ -246,8 +247,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 // withAgyOverflow ends the claude ladder with the Claude model agy serves on the Google login (G3).
 func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Chain {
 	claudeHop := func(d Dispatch) bool { return VaultAgentIsClaude(d.Agent.Name()) }
-	if !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
-		(rc.row != "" && rc.row != rc.current) || !slices.ContainsFunc(c.Dispatches, claudeHop) {
+	if noOverflow(rc) || !slices.ContainsFunc(c.Dispatches, claudeHop) {
 		return c
 	}
 	id, _ := models.Alias(alias)
@@ -271,6 +271,20 @@ func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Cha
 	disp.otherRoute, disp.quotaOverflow = true, true
 	c.Dispatches = append(c.Dispatches, disp)
 	return c
+}
+
+// noOverflow reports a dispatch the agy overflow must not extend: not claude, one-hop, typed, or a kept-out Google row.
+func noOverflow(rc routeCtx) bool {
+	return !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
+		(rc.row != "" && rc.row != rc.current) || googleDropped(rc)
+}
+
+// googleDropped reports a rotated lead that keeps a Google-login row out, which the agy overflow would bring back.
+func googleDropped(rc routeCtx) bool {
+	return slices.ContainsFunc(router.RotatedLeadOf(rc.ctx).Drop, func(row string) bool {
+		p := rc.reg.Row(row)
+		return p != nil && p.SpellingRule() == "agy"
+	})
 }
 
 // finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.
@@ -511,10 +525,12 @@ type RouteReq struct {
 	Fallback, WorkDir             string
 	Native, Preview               bool
 	AutoModel, Tools              bool
-	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
-	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
-	Resumed                       bool   // a resumed session stays on the row that holds it
-	Engine                        Engine // the resolved engine an explicit or --host chain runs on
+	FallbackDefaulted             bool       // Fallback is the env default, never typed
+	Pinned                        bool       // Profile is an explicit backend whatever the fallback (a dispatch's pin)
+	Host                          bool       // Engine runs remotely as one unrouted dispatch (--host)
+	Resumed                       bool       // a resumed session stays on the row that holds it
+	Opts                          RunOptions // the ask's own options: what the pi runner must be able to run
+	Engine                        Engine     // the resolved engine an explicit or --host chain runs on
 	Refresh                       func(context.Context, string) bool
 }
 
@@ -528,177 +544,6 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 		return c, pick, err
 	}
 	return withPiRunner(ctx, q, c), pick, nil
-}
-
-// piRunnerAsked reports q taking the pi runner (D8: claude unless runner own; others on runner pi) and if it was typed.
-func piRunnerAsked(ctx context.Context, q RouteReq) (asked, typed bool) {
-	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable document already failed the ask
-	typed = ov.Runner == agentconfig.RunnerPi
-	if ov.Runner == agentconfig.RunnerOwn || q.Agent == agentid.Pi {
-		return false, false
-	}
-	return typed || VaultAgentIsClaude(q.Agent), typed
-}
-
-// withPiRunner leads c with the pi runner when its first hop is the asked agent on a Databricks route.
-func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
-	asked, typed := piRunnerAsked(ctx, q)
-	if len(c.Dispatches) == 0 || !asked {
-		return c
-	}
-	reg := loadRegistryWarn()
-	lead := c.Dispatches[0]
-	if lead.Agent.Name() != q.Agent || reg == nil || !databricksDispatch(reg, lead) {
-		if typed { // first-party, Copilot and Google logins keep their own CLI
-			return c.noted(q.Agent + ": pi runner skipped: " + hopTarget(lead) + " is not the agent's Databricks hop")
-		}
-		return c
-	}
-	pi, err := Lookup(agentid.Pi)
-	if err != nil { // a build without the pi driver
-		return c
-	}
-	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
-	if why != "" {
-		return c.noted(q.Agent + ": pi runner skipped: " + why)
-	}
-	for _, s := range skips { // a sibling workspace the validation refused: recorded, never run
-		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
-	}
-	return c.ledBy(hops)
-}
-
-// ledBy is c with hops ahead of its own, so the agent's own CLI always follows the pi runner hops.
-func (c Chain) ledBy(hops []Dispatch) Chain {
-	c.Dispatches = append(slices.Clone(hops), c.Dispatches...)
-	if c.Preflight != nil {
-		pf := *c.Preflight
-		pf.Chosen, c.Preflight = hopTarget(hops[0]), &pf
-	}
-	return c
-}
-
-// piRunnerHops is the pi hops router.Chain orders from lead's profile and model, each validated; why when none run.
-func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, pi Engine) ([]Dispatch, []string, string) {
-	if why := piRunnerBarred(q); why != "" {
-		return nil, nil, why
-	}
-	_, profile, _ := strings.Cut(lead.Account, "·")
-	model, why := piRunnerModel(ctx, reg, q, lead, profile) // the head is validated here: a rejected head runs no sibling
-	if why != "" {
-		return nil, nil, why
-	}
-	tb, err := router.Load()
-	if err != nil {
-		return nil, nil, err.Error()
-	}
-	fb := q.Fallback
-	if staysOnWorkspace(q, lead) {
-		fb = router.FallbackNone
-	}
-	var hops []Dispatch
-	var skips []string
-	for _, h := range tb.Chain(reg, router.ChainReq{Agent: agentid.Pi, Profile: profile, Model: model, Alias: q.AliasHint,
-		Fallback: fb, Asked: q.Agent, TypedModel: q.Model != ""}) {
-		if h.Agent != agentid.Pi || h.OffArm { // the agent's own CLI hops stay today's chain, after these
-			continue
-		}
-		d, why := piHop(reg, h, lead, profile)
-		if why != "" {
-			skips = append(skips, why)
-			continue
-		}
-		d.Agent, d.runFor = pi, q.Agent
-		hops = append(hops, d)
-	}
-	return hops, skips, ""
-}
-
-// staysOnWorkspace reports pi hops kept on lead's workspace: an explicit backend, or an agent that never moves.
-func staysOnWorkspace(q RouteReq, lead Dispatch) bool {
-	explicit := lead.unroutedDispatch || q.Pinned && q.Profile != "" && q.Profile != LeadSession
-	return explicit || agentid.Routing(q.Agent).NoWorkspaceFallback
-}
-
-// piRunnerBarred is why q keeps the agent's own CLI whatever the model: one named hop, a resumed session, --native.
-func piRunnerBarred(q RouteReq) string {
-	switch {
-	case q.Fallback == router.FallbackNone:
-		return "--fallback none keeps the one hop it names"
-	case q.Resumed:
-		return "a resumed session stays on its own CLI"
-	case q.Native:
-		return "--native runs the agent's own config"
-	}
-	return ""
-}
-
-// piHop is the pi runner dispatch for chain hop h once ProfileServes passes; the head keeps lead's route flags.
-func piHop(reg *providers.Registry, h router.ChainHop, lead Dispatch, head string) (Dispatch, string) {
-	p := reg.Row(h.Profile)
-	if p == nil {
-		return Dispatch{}, "pi (" + h.Profile + "): not a registry row"
-	}
-	wire, why := ProfileServes(agentid.Pi, p, h.Model)
-	if why != "" {
-		return Dispatch{}, "pi (" + h.Profile + "): " + why
-	}
-	d := Dispatch{Model: wire, Effort: lead.Effort, Route: rowRoute(reg, h.Profile), Account: h.Account,
-		Billing: router.DefaultBilling(p), otherRoute: true}
-	if h.Profile == head {
-		d.Account, d.Billing = lead.Account, lead.Billing
-		d.otherRoute, d.swap, d.routerChose, d.rung = lead.otherRoute, lead.swap, lead.routerChose, lead.rung
-	}
-	return d, ""
-}
-
-// piRunnerModel is the model q.Agent resolves on profile (the resolver gateway resolve uses) when Pi's menu has it.
-func piRunnerModel(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, profile string) (string, string) {
-	if q.AutoModel || IsAuto(q.Model) || IsAuto(lead.Model) {
-		return "", autoPickWhy
-	}
-	model, why := agentModelOn(ctx, reg, q, cmp.Or(q.Model, lead.Model), profile) // the typed model first (R8)
-	if why == "" {
-		why = ownHopDiffers(ctx, reg, q, lead, profile, model)
-	}
-	if why != "" {
-		return "", why
-	}
-	if _, why := ProfileServes(agentid.Pi, reg.Row(profile), model); why != "" {
-		return "", "pi on " + profile + ": " + why
-	}
-	return model, ""
-}
-
-// ownHopDiffers is why lead's own CLI hop would run another model than model, "" when both hops run one model.
-func ownHopDiffers(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, profile, model string) string {
-	if q.Model == "" || lead.Model == "" || lead.Model == q.Model {
-		return ""
-	}
-	if own, why := agentModelOn(ctx, reg, q, lead.Model, profile); why != "" || !models.SameModel(own, model) {
-		return "the agent's own hop runs " + lead.Model + ", not " + model
-	}
-	return ""
-}
-
-const autoPickWhy = "an auto pick runs on the agent's own CLI"
-
-// agentModelOn is model as q.Agent resolves it on profile, or why it is no fixed model there (an error, an auto pick).
-func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, model, profile string) (string, string) {
-	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: model, Profile: profile, Task: q.Task,
-		Default: q.AliasHint, Tools: q.Tools})
-	// an untyped ask under an auto pin rotates at dispatch; a peek would pin the next pick without stamping it
-	if IsAuto(mq.Model) || q.Model == "" && IsAuto(mq.PinModel) {
-		return "", autoPickWhy
-	}
-	r, err := ResolveRun(reg, mq, time.Now())
-	switch {
-	case err != nil:
-		return "", FallbackReason(err)
-	case r.Model == "" || IsAuto(r.Model) || r.Source == "pool":
-		return "", autoPickWhy
-	}
-	return r.Model, ""
 }
 
 // noted is c with one preflight note; the chain itself is unchanged.

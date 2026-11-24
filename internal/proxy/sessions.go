@@ -18,12 +18,84 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 type SessionRequest struct {
 	Profiles         []string `json:"profiles,omitempty"`
 	PID              int      `json:"pid,omitempty"`
 	FailoverProvider string   `json:"failover_provider,omitempty"`
+	Fence            []string `json:"fence,omitempty"`
+	Open             bool     `json:"open,omitempty"`
+}
+
+type fenceKey struct{}
+
+type fenceOverride struct {
+	fence []string
+	open  bool
+}
+
+// WithFence overrides the fence a mint under ctx carries; only verified token claims may feed it.
+func WithFence(ctx context.Context, fence []string, open bool) context.Context {
+	return context.WithValue(ctx, fenceKey{}, fenceOverride{fence: fence, open: open})
+}
+
+// ArmAllows reports whether a databricks:<arm> confinement admits row p: an own sign-in, never a Databricks row.
+func ArmAllows(p *providers.Provider) bool {
+	return p != nil && p.Preset != providers.PresetDatabricks &&
+		(p.Auth.Login != "" || p.Auth.Method() == providers.AuthCLI)
+}
+
+// overlayShapeErr is why the overlay env is no confinement: OverlayRoute reads these shapes as unconfined.
+func overlayShapeErr(ctx context.Context) error {
+	if _, _, err := router.OverlayRoute(ctx); err != nil {
+		return err
+	}
+	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
+	if v == "" {
+		return nil
+	}
+	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider[:profile]
+		p, prof, err := route.Parse(v)
+		if err != nil || (p == router.RouteDatabricks && prof != "") { // a bare databricks:<p> would read as unconfined
+			return fmt.Errorf("%s: not an inline JSON document or a bare provider", route.OverlayVar)
+		}
+		return nil
+	}
+	var doc struct{ Provider, Profile string }
+	if json.Unmarshal([]byte(v), &doc) == nil && doc.Provider == "" && doc.Profile != "" {
+		return fmt.Errorf("%s: a profile without a provider", route.OverlayVar)
+	}
+	return nil
+}
+
+// ConfinementFence is the profile set the overlay confines ctx to; open when unconfined, an error when malformed.
+func ConfinementFence(ctx context.Context) (fence []string, open bool, err error) {
+	if o, ok := ctx.Value(fenceKey{}).(fenceOverride); ok {
+		return o.fence, o.open, nil
+	}
+	if err := overlayShapeErr(ctx); err != nil {
+		return nil, false, fmt.Errorf("confinement overlay: %w", err)
+	}
+	arm := router.ArmProfileContext(ctx)
+	if arm == "" {
+		return nil, true, nil
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return nil, false, fmt.Errorf("confinement fence: %w", err)
+	}
+	fence = []string{arm}
+	for _, n := range reg.Names() {
+		if n != arm && ArmAllows(reg.Row(n)) {
+			fence = append(fence, n)
+		}
+	}
+	slices.Sort(fence)
+	return fence, false, nil
 }
 
 type SessionResponse struct {
@@ -38,13 +110,59 @@ func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, e
 
 // MintScopedTokenWithFailover mints a profile-bound token with optional server-side same-provider failover.
 func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int, failoverProvider string) (string, error) {
+	fence, open, err := ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
+	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: fence, Open: open}
+	tok, err := mintFenced(ctx, req)
+	if !errors.Is(err, errNoFenceSupport) {
+		return tok, err
+	}
+	// an old daemon cannot fence: swap it and retry once, even after a failed swap (Ensure respawns a dead one)
+	rerr := replaceStaleDaemon(ctx)
+	if tok, err = mintFenced(ctx, req); err != nil && rerr != nil {
+		err = errors.Join(err, rerr)
+	}
+	return tok, err
+}
+
+var errNoFenceSupport = errors.New("proxy: the daemon signed a token without the requested confinement fence; " +
+	"restart the proxy")
+
+// mintFenced posts req; an older daemon signs a fenceless token: fine when open, never handed back as fenced.
+func mintFenced(ctx context.Context, req SessionRequest) (string, error) {
 	var out SessionResponse
-	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider}
 	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
+	c, ok := PeekSessionClaims(out.Token)
+	if !ok || (req.Open && c.Fenced()) || (!req.Open && !slices.Equal(c.Fence, req.Fence)) {
+		return "", errNoFenceSupport
+	}
 	return out.Token, nil
 }
+
+// replaceStaleDaemon swaps a daemon running another build for this one; in-flight streams drain as in --force.
+func replaceStaleDaemon(ctx context.Context) error {
+	// the swap outlives a cancelled mint: a daemon stopped and never respawned would strand every dispatch
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), replaceBudget)
+	defer cancel()
+	return paths.WithFileLockWithin(filepath.Join(paths.StateDir(), "router.replace"), replaceBudget, func() error {
+		st, ok := Running(ctx)
+		if !ok || !Stale(st) { // down, or a peer already replaced it: the retry starts or meets the new daemon
+			return nil
+		}
+		_, err := restartDaemon(ctx, st)
+		return err
+	})
+}
+
+// replaceBudget bounds both the wait for a peer's swap and the swap itself.
+const replaceBudget = 30 * time.Second
+
+// restartDaemon is the replacement seam of replaceStaleDaemon.
+var restartDaemon = restart
 
 func postSession(ctx context.Context, path string, body SessionRequest, out *SessionResponse) error {
 	if _, err := Ensure(ctx); err != nil {
@@ -135,6 +253,9 @@ const sessionTimeout = 5 * time.Second
 // SessionPath is the POST mint endpoint, requiring the router secret.
 const SessionPath = "/internal/session"
 
+// DrainPath is the POST endpoint that makes an idle scoped proxy refuse new requests, requiring the router secret.
+const DrainPath = "/internal/drain-if-idle"
+
 // proxyTokenMaxAge re-mints inside the router's 7-day idle lifetime, as agent.SessionToken does.
 const proxyTokenMaxAge = time.Hour
 
@@ -152,6 +273,8 @@ type proxyTokenRecord struct {
 	Start    string    `json:"start"`
 	Scope    []string  `json:"scope"`
 	Failover string    `json:"failover,omitempty"`
+	Fence    []string  `json:"fence,omitempty"`
+	Open     bool      `json:"open,omitempty"`
 	MintedAt time.Time `json:"minted_at"`
 }
 
@@ -173,6 +296,11 @@ func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, er
 }
 
 func resolveProxyToken(ctx context.Context, scope []string, pid int, failover string, refresh bool) (string, error) {
+	fence, open, err := ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
+	ctx = WithFence(ctx, fence, open) // one snapshot for the cache binding and the mint
 	start, err := proxyTokenStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("identify token process %d: %w", pid, err)
@@ -181,7 +309,8 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
 	if !refresh {
-		if tok, ok := cachedProxyToken(file, start, scope, failover); ok {
+		want := proxyTokenRecord{Start: start, Scope: scope, Failover: failover, Fence: fence, Open: open}
+		if tok, ok := cachedProxyToken(file, want); ok {
 			return tok, nil
 		}
 	}
@@ -189,7 +318,8 @@ func resolveProxyToken(ctx context.Context, scope []string, pid int, failover st
 	if err != nil {
 		return "", fmt.Errorf("mint scoped token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
-	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, Failover: failover, MintedAt: time.Now()})
+	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, Failover: failover, Fence: fence, Open: open,
+		MintedAt: time.Now()})
 	if err != nil {
 		return "", err
 	}
@@ -210,18 +340,23 @@ func mintFor(ctx context.Context, scope []string, pid int, failover string) (str
 }
 
 // cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
-func cachedProxyToken(file, start string, scope []string, failover string) (string, bool) {
+func cachedProxyToken(file string, want proxyTokenRecord) (string, bool) {
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return "", false
 	}
 	var rec proxyTokenRecord
-	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || rec.Start != start || !slices.Equal(rec.Scope, scope) ||
-		rec.Failover != failover ||
+	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || !rec.sameBinding(want) ||
 		time.Since(rec.MintedAt) >= proxyTokenMaxAge || SessionRefused(SessionInvalid(rec.Token, "")) {
 		return "", false
 	}
 	return rec.Token, true
+}
+
+// sameBinding reports r was minted for want's process, scope, failover group and confinement fence.
+func (r proxyTokenRecord) sameBinding(want proxyTokenRecord) bool {
+	return r.Start == want.Start && slices.Equal(r.Scope, want.Scope) && r.Failover == want.Failover &&
+		slices.Equal(r.Fence, want.Fence) && r.Open == want.Open
 }
 
 // ErrSessionUnverified means only a proxy can judge the token: the secret is unreadable here, or it is a legacy token.

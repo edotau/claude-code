@@ -24,9 +24,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
-| `plans/` | Implementation plans (native `plansDirectory`), gitignored, under `plans/<repo>/` named by the launch dir's git repo (`@home` outside any repo); the root holds only plan-mode drafts |
+| `plans/` | Implementation plans (native `plansDirectory`), gitignored; home and naming: `rules/harness/docs-placement.md` |
 | `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
-| `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`; `mods/agents-band` is kept but not loaded) |
+| `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`, `mods/codemode`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (`<repo>` = checkout dir without a leading dot: `~/worktrees/claude/`) |
 
 ## Hard rules (always on)
@@ -43,11 +43,11 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
 5. **Finish at the requested boundary.** A review or an edit task stops there. To land an authorized change,
-   follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
-   `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then install and
-   live-check on the Mac (the required check; WSL is a periodic sync, R19). Under `HARNESS_WORKTREE=lanes` a verified
-   lane merges without asking unless its diff adds a restriction. Full `make audit` runs on main after each
-   worktree merge (automatic) and at session end; `make install` after pulls.
+   follow `rules/standards/worktree-git.md`. A verified lane lands on local without asking (uncommitted in the live
+   checkout; the owner commits; `worktree land --merge` commits) unless its diff adds a restriction. Once the owner's
+   commit builds (macOS, `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin
+   main, then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). `make audit` runs at
+   session end (a worktree land starts its own); `make install` after pulls.
 
 ## Behavioral guidelines
 
@@ -57,8 +57,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch with the Agent tool.** On the Databricks arm (R20), choose `subagent_type` from `claude`,
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
-   offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work agents
-   run carried (see `skills/subagent-workflows/SKILL.md` → Carried dispatch);
+   offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work
+   agents are the types `codex`, `copilot`, `gemini`, `opencode` (each relays its baked `agents ask --agent <type>`)
+   and `pi` (code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` → Carried dispatch);
    description starts `<model>:` followed by a space (`web-fetch` takes none),
    printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
    files;
@@ -99,6 +100,6 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
 | Agents and dispatch | Agent tool (guideline 3) | `rules/workflows/agents.md` · `skills/subagent-workflows/SKILL.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
-| Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
+| Git and worktrees | `claude-code worktree create\|land <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `claude-code agents diff --check` · `/code-review` | `rules/standards/quality.md` |

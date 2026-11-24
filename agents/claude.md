@@ -40,6 +40,10 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 | Paired Databricks identity | `--as user\|sp` |
 | Isolation | `--no-persist` keeps no session · `--debug-file <path>` |
 | Inline agents | `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
+| Code mode | `--provider anthropic --tools --codemode on` (only when the brief says so); rtk is off inside the run |
+
+Claude's code mode runs only on the direct Anthropic API; any other route runs with code mode off and prints
+`codemode: off for claude (<reason>)`. `--codemode only` is not offered for claude.
 
 ## Owns
 
@@ -104,6 +108,9 @@ diff" request runs Simplify detect-only (report the findings) → Review.
   gate tasks stay in-context. On a Pi refusal or failed start (not on the menu, no Databricks route, guard did not
   load) do it in-context and say so (`Ran on:`). A brief needing the Agent tool, skills or MCP names
   `Agent: in-context`.
+- A typed `claude` ask on a Databricks route runs through the pi runner first, its own CLI the later hop
+  (`rules/harness/agent.md` → pi runner). The owner layer (a contract owner with a terminal fleet) has a schema only;
+  nothing dispatches it yet (`skills/subagent-workflows/SKILL.md` → Owner layer), so you stay a terminal leaf.
 - Otherwise do the task yourself. Dispatch only when it needs another agent partway through, or the brief names
   one (`Agent:`).
   A task wholly another agent's is the main session's direct carried ask, never a leaf that only forwards it (about 10

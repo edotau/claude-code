@@ -17,6 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
@@ -25,9 +27,11 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	if top == "" {
 		return nil
 	}
+	lane := leafCheckout(in, top)
+	dirtyTop := cmp.Or(lane, top)
 	dirtyc := make(chan []string, 1)
-	go func() { dirtyc <- dirtyPaths(top) }() // git status overlaps the plan parse
-	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
+	go func() { dirtyc <- dirtyPaths(dirtyTop) }() // git status overlaps the plan parse
+	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(dirtyTop), plans.MirrorDests())
 	dirty := <-dirtyc
 	recTask := recordPlanTask(loadRecords(lr.ids))
 	named, task, isNamed, ok := docs.NamedPlanTask(lr.scan.brief, recTask)
@@ -43,20 +47,65 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	}
 	id := cmp.Or(task.ID, task.Title)
 	files := dirtyOwned(dirty, plans.OwnedPaths(task))
-	commit := "commit+tick: claude-code worktree commit --task '" + id + "' --plan " + planPath +
-		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, files...), " ")
+	commit := commitLine(lane, id, planPath, files, dirty)
+	if lane == "" && len(files) == 0 { // no lane and no owned edit in the checkout: nothing shows where the leaf worked
+		return []string{"verify " + id + ": lane not resolved; not run", commit}
+	}
 	if time.Until(deadline) < 2*time.Second {
 		return []string{"verify " + id + ": no time left in the hand-back budget; the commit-time verify still runs", commit}
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: top, Task: task, Files: files,
+	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: dirtyTop, Task: task, Files: files,
 		OutDir: filepath.Join(paths.StateDir(), "verify", "handback")})
-	lines := make([]string, 0, len(checks)+1)
+	return append(verifyLines(checks), commit)
+}
+
+// commitLine is the commit command, run from the lane when the leaf worked in one.
+func commitLine(lane, id, planPath string, files, dirty []string) string {
+	cd := ""
+	if lane != "" {
+		cd = "cd " + textutil.ShellQuote(lane) + " && "
+	}
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = worktree.FileID(f)
+		shared := slices.ContainsFunc(dirty, func(d string) bool { return d != f && worktree.FileID(d) == ids[i] })
+		if shared || slices.Contains(dirty, ids[i]) { // an id shared with, or the literal name of, another dirty file
+			ids[i] = textutil.ShellQuote(f)
+		}
+	}
+	return "commit+tick: " + cd + "claude-code worktree commit --task '" + id + "' --plan " + planPath +
+		` --type "<feat|fix|docs|refactor|test|chore>"` + strings.Join(append([]string{""}, ids...), " ")
+}
+
+// leafCheckout is the lane the leaf worked in when it belongs to top's repo; "" when none resolves.
+func leafCheckout(in *core.Input, top string) string {
+	lane := leafLane(withAgentID(in))
+	if lane == "" || !paths.SamePath(paths.MainCheckout(lane), paths.MainCheckout(top)) {
+		return ""
+	}
+	return lane
+}
+
+// withAgentID is in with the hand-back's subagent id, which leafLane reads from AgentID.
+func withAgentID(in *core.Input) *core.Input {
+	c := *in
+	c.AgentID = in.SubagentID()
+	return &c
+}
+
+// verifyLines is one line per finished check, then one line for the deadline cut; "no checks ran" is dropped after it.
+func verifyLines(checks []waves.TaskCheck) []string {
+	cut := slices.IndexFunc(checks, func(c waves.TaskCheck) bool { return strings.HasPrefix(c.Skip, "not finished") })
+	if cut >= 0 {
+		checks = checks[:cut+1]
+	}
+	lines := make([]string, 0, len(checks))
 	for _, c := range checks {
 		lines = append(lines, c.Line())
 	}
-	return append(lines, commit)
+	return lines
 }
 
 // checkoutTop is dir's git toplevel by stat walk; git runs only for a layout the walk cannot see (bare gitdir).

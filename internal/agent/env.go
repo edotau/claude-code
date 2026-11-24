@@ -63,11 +63,31 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		env = append(slices.DeleteFunc(env, func(e string) bool {
 			return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
 		}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
+		if !slices.ContainsFunc(s.Extra, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
+			env = withDispatchProxy(env, id) // a typed --env value wins
+		}
 	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
 	return withMemoryOrigin(withRTKQuiet(env))
+}
+
+const dispatchProxyEnv = "HARNESS_DISPATCH_PROXY"
+
+// withDispatchProxy exports the chosen scope proxy to child asks; no choice keeps the inherited, a daemon clears it.
+func withDispatchProxy(env []string, id string) []string {
+	routeMu.Lock()
+	label, chosen := chosenByID[id]
+	routeMu.Unlock()
+	if !chosen {
+		return env
+	}
+	env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") })
+	if strings.Contains(label, ":") {
+		env = append(env, dispatchProxyEnv+"="+label)
+	}
+	return env
 }
 
 // withRTKQuiet adds the rtk banner and telemetry switches unless env already sets them.
@@ -78,6 +98,21 @@ func withRTKQuiet(env []string) []string {
 		}
 	}
 	return env
+}
+
+// vaultLayer merges the vault env under set; set and unset names win, and CODEMODE is never taken from the vault.
+func vaultLayer(set map[string]string, unset []string, custom map[string]string) map[string]string {
+	merged := maps.Clone(set)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	for k, v := range custom {
+		_, harness := set[k]
+		if !harness && !slices.Contains(unset, k) && k != rtkwrap.CodemodeEnv {
+			merged[k] = v
+		}
+	}
+	return merged
 }
 
 // withoutShimPath drops the rtkwrap shim dir from an inherited PATH, so a nested agent's commands stay unshimmed.

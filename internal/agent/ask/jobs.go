@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -38,15 +39,33 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
 	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail(prefix, rows)
+		return helptext.WriteJSONOrFail(prefix, statusRows(prefix, rows))
 	}
 	if len(rows) == 0 && empty != "" {
 		fmt.Println(empty)
 	}
 	for _, r := range rows {
-		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, r.Detail())
+		detail := r.Detail()
+		if c, err := inspect.ContractOf(r.ID); err == nil && c != nil && c.Note() != "" {
+			detail = "[" + c.Note() + "] " + detail
+		}
+		fmt.Printf("%-24s %-8s %-10s %s\n", r.ID, r.Status, r.Elapsed, detail)
 	}
 	return 0
+}
+
+// statusRows adds each row's contract view; a contract that fails to load is noted and left off.
+func statusRows(prefix string, rows []agent.Row) []inspect.StatusRow {
+	out := make([]inspect.StatusRow, len(rows))
+	for i, r := range rows {
+		out[i].Row = r
+		c, err := inspect.ContractOf(r.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s: %v\n", prefix, r.ID, err)
+		}
+		out[i].Contract = c
+	}
+	return out
 }
 
 // jobRows is agent.Status plus the harness's jobs from another repo, and every repo's from outside any repo.
@@ -458,6 +477,8 @@ func checkResumable(rec agent.Record) error {
 		return fmt.Errorf("dispatch %s is still running and is not a live session (claude-code agents wait %s, then send)", rec.ID, rec.ID)
 	case rec.SessionID == "":
 		return fmt.Errorf("dispatch %s recorded no session id, so there is nothing to resume", rec.ID)
+	case agent.RunnerOf(rec) != "" && agent.RunnerOf(rec) != rec.Agent: // pi's own ask owns its session
+		return fmt.Errorf("dispatch %s ran on %s for %s; its session is %s's and cannot be resumed as %s", rec.ID, rec.RanAs, rec.Agent, rec.RanAs, rec.Agent)
 	case rec.RanAs != "" && rec.RanAs != rec.Agent:
 		return fmt.Errorf("dispatch %s ran on %s as a fallback for %s; that session cannot be resumed as %s", rec.ID, rec.RanAs, rec.Agent, rec.Agent)
 	}
@@ -505,7 +526,7 @@ func liveRequest(ctx context.Context, s *askState, name string) agent.RunOptions
 	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, TimeoutTyped: *s.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
-		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
+		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true, Codemode: *s.Codemode}
 }
 
 func startLive(ctx context.Context, s *askState, name, as, format string) int {

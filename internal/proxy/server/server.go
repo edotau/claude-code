@@ -47,6 +47,9 @@ type Router struct {
 	sessions *sessionStore // signed per-profile tokens, valid on every daemon of this config
 	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
+	draining atomic.Bool    // set by drain-if-idle: new requests are refused
+	drainMu  sync.Mutex     // serializes drain-if-idle calls, so a busy one never clears another's drain
+	scoped   bool           // a scoped proxy answers DrainPath; the shared daemon never drains
 	bg       sync.WaitGroup // background state writes (cooling, quota-dead)
 
 	regLoad  sync.Mutex // serializes providers.Load outside mu
@@ -92,12 +95,15 @@ type Router struct {
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
 const quotaDeadFor = 30 * time.Minute
 
-func newRouter(secret string) *Router {
+func newRouter(secret string) *Router { return newRouterWith(secret, newSessionStore) }
+
+// newRouterWith builds a router whose session store comes from mk, so a scoped one never reads the daemon's files.
+func newRouterWith(secret string, mk func(string, func() time.Time) *sessionStore) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, deprecated: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
-	r.sessions = newSessionStore(secret, func() time.Time { return r.now() })
+	r.sessions = mk(secret, func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
 	return r
@@ -110,6 +116,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	r.inflight.Add(1)
 	defer r.inflight.Add(-1)
+	if r.draining.Load() && !drainCleared(r) { // after the increment: a drain sees this request or it sees the drain
+		r.refuse(w, req, http.StatusServiceUnavailable, "proxy: draining")
+		return
+	}
 	req = r.admit(req)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
@@ -122,14 +132,15 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	start := r.now()
-	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
-	provider, model, attempts := r.route(sw, req, session, count)
-	kind := ""
+	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w),
+		meta: &reqMeta{route: modelToken(session), call: callMessages}}
 	if count {
-		kind = " kind=count_tokens"
+		sw.meta.call = callCountTokens
 	}
+	provider, model, attempts := r.route(sw, req, session, count)
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond), kind+reqDiag(sw.asked, model), viaDiag(req), dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
+		time.Since(start).Round(time.Millisecond), reqDiag(sw.meta.plain, model)+sw.meta.diag(provider), viaDiag(req),
+		dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
 	sw.abortIfBroken()
 }
 
@@ -169,11 +180,54 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		}
 		return true
 	}
+	if r.scoped && req.URL.Path == proxy.DrainPath {
+		serveDrain(r, w, req)
+		return true
+	}
 	if !r.authorized(req) {
 		r.refuseUnauthorized(w, req)
 		return true
 	}
 	return false
+}
+
+// serveDrain answers POST DrainPath: 200 when idle (and now draining for good), 409 when busy.
+func serveDrain(r *Router, w http.ResponseWriter, req *http.Request) {
+	switch {
+	case req.Method != http.MethodPost:
+		r.refuse(w, req, http.StatusMethodNotAllowed, "proxy: POST only")
+	case !r.secretOK(req):
+		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+	case !drainIfIdle(r):
+		r.refuse(w, req, http.StatusConflict, "proxy: busy")
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// drainIfIdle starts refusing requests when none is in flight; a busy router is left serving.
+func drainIfIdle(r *Router) bool {
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
+	if r.draining.Load() { // an earlier call drained it; rejected requests count in flight only for an instant
+		return true
+	}
+	if r.inflight.Load() > 0 { // busy: leave admission open, so a busy proxy never refuses a request
+		return false
+	}
+	r.draining.Store(true)
+	if r.inflight.Load() > 0 {
+		r.draining.Store(false)
+		return false
+	}
+	return true
+}
+
+// drainCleared waits out a drain attempt in progress, then reports whether it left the router admitting.
+func drainCleared(r *Router) bool {
+	r.drainMu.Lock()
+	defer r.drainMu.Unlock()
+	return !r.draining.Load()
 }
 
 // helloProbe reports a HEAD or GET of /p/<profile>/api/hello.
@@ -210,6 +264,10 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	}
 	decoded := decodeProxyBody(body)
 	model := decoded.model
+	if w.meta == nil {
+		w.meta = &reqMeta{route: modelToken(session), call: callMessages}
+	}
+	w.meta.noteBody(model, decoded.top)
 	if model == "" {
 		writeError(w, http.StatusBadRequest, "proxy: request body must be JSON with a model")
 		return session, "-", 0
@@ -223,8 +281,8 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	if !ok {
 		return session, model, 0
 	}
-	clientModel := models.Strip1M(plain) // the ledger keeps the plain id; the row is the target's
-	w.asked, in = clientModel, withAsked(in, clientModel)
+	clientModel := models.Strip1M(plain)                                                     // the ledger keeps the plain id; the row is the target's
+	w.meta.plain, w.meta.route, in = clientModel, target.Provider.Name, withMeta(in, w.meta) // route: as resolved
 	clientAuth := in.Header.Get("Authorization") != "" ||
 		r.oauthToken() != "" // the sealed token authenticates passthrough
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
@@ -644,6 +702,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 	})
 }
 
+// sendWithAuth replays a rejected credential once re-minted: recovery, not a retry, so x-should-retry never gates it.
 func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	do func(string) (*http.Response, error)) (*http.Response, error) {
 	ctx := in.Context()

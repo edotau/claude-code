@@ -13,14 +13,14 @@ import (
 // A carried pair is one row: the carry id and elapsed, the child's model, tokens and route; Pi shows as "codex→pi".
 func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	now := time.Now()
-	outer := Dispatch{ID: "1-codex", Agent: "codex", Model: "auto", Status: statusRunning, Duration: "2m43s", carry: true, launch: "dev"}
+	outer := Dispatch{ID: "1-codex", Agent: "codex", Model: "auto", Status: statusRunning, Duration: "2m43s", carry: true, launch: "dev", Route: "databricks:dev"}
 	child := Dispatch{ID: "2-codex", Agent: "codex", Model: "databricks-gpt-6-astra", Status: statusRunning, Parent: "1-codex",
 		Usage: &wire.Usage{InputTokens: 1_200_000, OutputTokens: 9100}, LastSignal: now.Add(-7 * time.Second)}
 	rows := jobRows([]Dispatch{outer, child})
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "gpt-6-astra · dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
+	want := []string{"codex", "gpt-6-astra", "· databricks", "dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
@@ -87,5 +87,48 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 	ends := func(line string) int { return textutil.DisplayWidth(line) }
 	if ends(lines[0]) != ends(lines[1]) {
 		t.Errorf("elapsed columns do not end together:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestJobRowsTypeLabelsAndAlignedRoute(t *testing.T) {
+	now := time.Now()
+	run := func(agent, model, kind, profile string) Dispatch {
+		return Dispatch{ID: model, Agent: agent, Model: model, Status: statusRunning, Duration: "2s",
+			launch: profile, Provider: "databricks", routeKind: kind}
+	}
+	for _, c := range []struct {
+		d    Dispatch
+		want string
+	}{
+		{run("claude", "databricks-claude-sonnet-5-5", "databricks", "qa"), "claude"},
+		{run("codex", "databricks-gpt-6-sol", "databricks", "qa"), "codex"},
+		{run("gemini", "gemini-4-argon", "databricks", "qa"), "gemini"},
+		{run("copilot", "gpt-6-sol", "github", "qa"), "copilot"},
+		{run("pi", "databricks-gpt-6-sol", "databricks", "dev"), "codex via pi"},
+		{run("pi", "gemini-4-argon", "databricks", "dev"), "gemini via pi"},
+		{run("pi", "gpt-6-sol", "github", "dev"), "copilot via pi"},
+		{run("pi", "databricks-kimi-k3", "databricks", "dev"), "kimi via pi"},
+		{run("pi", "databricks-grok-4-7", "databricks", "dev"), "grok via pi"},
+	} {
+		if got := jobCells(c.d, now, nil)[0]; got != c.want {
+			t.Errorf("%s on %s: label %q, want %q", c.d.Agent, c.d.Model, got, c.want)
+		}
+	}
+	ds := []Dispatch{run("codex", "databricks-gpt-6-sol", "databricks", "qa"), run("pi", "databricks-kimi-k3", "databricks", "dev")}
+	var b strings.Builder
+	renderTree(&b, &Tree{Dispatches: ds}, now, 0, "")
+	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")[1:]
+	if strings.Index(lines[0], "· databricks") != strings.Index(lines[1], "· databricks") ||
+		strings.Index(lines[0], "qa") != strings.Index(lines[1], "dev") {
+		t.Errorf("route columns not aligned:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// A row whose single-space model separator makes it exactly the terminal width keeps its profile cell.
+func TestJobRowExactWidthKeepsProfile(t *testing.T) {
+	var l layout
+	l.add(levelJob, "●", "pi", "gpt-6-sol", "· databricks", "dev", "", "", "", "9s", "")
+	if got := l.lines(40, "")[0]; !strings.Contains(got, "dev") || !strings.HasSuffix(got, "9s") {
+		t.Errorf("row = %q, want profile and elapsed at width 40", got)
 	}
 }

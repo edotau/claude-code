@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
@@ -56,6 +57,66 @@ type Error struct {
 
 	// ProxyRefused: this attempt's KindAuth came from the loopback proxy refusing its own session token, never an account.
 	ProxyRefused bool
+	// ProxyDown: a loopback proxy refused or reset the connection; never an account fault, Do retries once at once.
+	ProxyDown bool
+	// PolicyRefusal: the vendor declined the content; the same model never retries and no account is marked.
+	PolicyRefusal bool
+	// ShouldRetry is the upstream's x-should-retry verdict; ShouldRetryNo ends the retries of this request.
+	ShouldRetry ShouldRetry
+}
+
+// ShouldRetry is the typed x-should-retry response header: absent, true or false.
+type ShouldRetry int
+
+const (
+	ShouldRetryUnset ShouldRetry = iota
+	ShouldRetryYes
+	ShouldRetryNo
+)
+
+// ParseShouldRetry reads the x-should-retry header value; anything but true or false is unset.
+func ParseShouldRetry(v string) ShouldRetry {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true":
+		return ShouldRetryYes
+	case "false":
+		return ShouldRetryNo
+	}
+	return ShouldRetryUnset
+}
+
+// policyCodes are the typed error codes a vendor sends when it declines the content.
+var policyCodes = []string{"content_filter", "content_moderation", "responsibleaipolicyviolation", "refusal"}
+
+// policyTextRE is the last resort for a vendor with no typed code: one phrase per pattern, listed in the commit.
+var policyTextRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`content[ _-]?(?:policy|filter|moderation)|safety (?:system|filter|polic)|` +
+		`responsible ?ai|violates (?:our|the) (?:usage|content) polic`)
+})
+
+// IsPolicyRefusal is true when err is a vendor policy refusal: typed on a classified Error, else code or text.
+func IsPolicyRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if e, ok := errors.AsType[*Error](err); ok && e.PolicyRefusal {
+		return true
+	}
+	return policyRefusal(err)
+}
+
+// policyRefusal reads a typed ErrorCode(); text patterns apply only to an untyped status or a 400/422 refusal status.
+func policyRefusal(err error) bool {
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) && slices.Contains(policyCodes, strings.ToLower(coded.ErrorCode())) {
+		return true
+	}
+	var st interface{ StatusCode() int }
+	if errors.As(err, &st) && st.StatusCode() != 0 &&
+		st.StatusCode() != http.StatusBadRequest && st.StatusCode() != http.StatusUnprocessableEntity {
+		return false
+	}
+	return policyTextRE().MatchString(strings.ToLower(err.Error()))
 }
 
 // Fatal is a terminal, never-retried failure of agent wrapping err.
@@ -106,7 +167,7 @@ func (e *Error) AttemptMessage() string {
 
 // retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) retryable() bool {
-	return !e.Progressed && !e.Terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
+	return !e.Progressed && !e.Terminal && !e.PolicyRefusal && e.ShouldRetry != ShouldRetryNo && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
 // kindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
@@ -170,6 +231,21 @@ func Classify(agent string, err error, progressed bool) *Error {
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		e.RetryAfter = ra.RetryAfter()
 	}
+	return e.typedHints(err)
+}
+
+// typedHints sets the upstream's x-should-retry verdict and the policy-refusal class, which is never an account fault.
+func (e *Error) typedHints(err error) *Error {
+	var sr interface{ ShouldRetry() ShouldRetry }
+	if errors.As(err, &sr) {
+		e.ShouldRetry = sr.ShouldRetry()
+	}
+	if (e.Kind == KindTransient || e.Kind == KindFatal) && e.Status == 0 && loopbackDown(err) {
+		e.Kind, e.ProxyDown, e.Connect, e.RetryAfter = KindTransient, true, false, 0
+	}
+	if policyRefusal(err) {
+		e.PolicyRefusal, e.Kind, e.RetryAfter = true, KindFatal, 0
+	}
 	return e
 }
 
@@ -187,6 +263,40 @@ func connectFailure(err error) bool {
 		return true
 	}
 	return connectRE().MatchString(strings.ToLower(err.Error()))
+}
+
+var loopbackDownRE = sync.OnceValue(func() *regexp.Regexp {
+	const host = `(?:^|[^\w.-])((?:127\.\d+\.\d+\.\d+|localhost|\[::1\]):\d+)\b`
+	const down = `connection (?:refused|reset)|econn(?:refused|reset)|actively refused|forcibly closed`
+	return regexp.MustCompile(host + `[^\n]*(?:` + down + `)|(?:` + down + `)[^\n]*` + host)
+})
+
+// KnownProxy says whether a loopback host:port is a proxy of this harness; nil accepts every loopback address.
+var KnownProxy func(hostport string) bool
+
+// OnProxyDown is told, with the attempt's ctx, that the dispatch's proxy died, so the relaunch can skip its route.
+var OnProxyDown func(ctx context.Context)
+
+// loopbackDown is true when err is a refused or reset connection to a known loopback proxy address.
+func loopbackDown(err error) bool {
+	addr := ""
+	if op, ok := errors.AsType[*net.OpError](err); ok {
+		a, isTCP := op.Addr.(*net.TCPAddr)
+		if isTCP && !a.IP.IsLoopback() {
+			return false
+		}
+		if isTCP && (errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)) {
+			addr = a.String()
+		}
+	}
+	if addr == "" {
+		m := loopbackDownRE().FindStringSubmatch(strings.ToLower(err.Error()))
+		if m == nil {
+			return false
+		}
+		addr = m[1] + m[2]
+	}
+	return KnownProxy == nil || KnownProxy(addr)
 }
 
 func classifyText(err error) (Kind, time.Duration) {
@@ -343,7 +453,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
 	var earlier []*Error
-	fn = p.reroute(fn, &earlier)
+	fn = p.reroute(proxyHop(fn), &earlier)
 	start := time.Now()
 	fail := func() *Error { // every attempt before the last rides on the error returned
 		last.Earlier = earlier
@@ -383,6 +493,27 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	return fail()
 }
 
+// proxyHop gives a dead loopback proxy one immediate retry (the relaunch re-walks the route list), then it is terminal.
+func proxyHop(fn func(context.Context, int) *Error) func(context.Context, int) *Error {
+	spent := false
+	return func(ctx context.Context, attempt int) *Error {
+		e := fn(ctx, attempt)
+		if e == nil || !e.ProxyDown || !e.retryable() {
+			return e
+		}
+		if spent {
+			e.Kind = KindFatal
+			return e
+		}
+		spent, e.RetryNow = true, true
+		if OnProxyDown != nil {
+			OnProxyDown(ctx)
+		}
+		e.Err = fmt.Errorf("scoped proxy unreachable, rerouting to the next route: %w", e.Err)
+		return e
+	}
+}
+
 // reroute wraps fn so the first connection failure is retried at once over the other egress path, never again.
 func (p Policy) reroute(fn func(context.Context, int) *Error, earlier *[]*Error) func(context.Context, int) *Error {
 	tried := false
@@ -420,7 +551,7 @@ func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
 	if last.Kind == KindRateLimit && last.RetryAfter <= 0 {
 		wait = max(wait, RateLimitFloor+time.Duration(jitter*float64(RateLimitFloor)/2))
 	}
-	if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
+	if p.Key != "" && !last.ProxyDown && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
 		CoolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
 	}
 	return wait

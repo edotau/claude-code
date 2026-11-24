@@ -156,12 +156,16 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 	res := wire.Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
 		SessionID: env.SessionID, Answer: env.Answer, DurationMs: env.DurationMs, Dropped: append(dropped, env.Dropped...),
 		SchemaUnchecked: env.SchemaUnchecked, Emulated: env.Emulated, FallbackReason: env.FallbackReason, Requested: env.Requested, RequestedRoute: env.RequestedRoute, RequestedWhy: env.RequestedWhy, Handoff: env.Handoff,
-		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured}
+		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured, Handback: env.Handback}
 	if env.Usage != nil {
 		res.Usage = *env.Usage
 	}
 	if env.Fallback != nil {
 		res.Fallback = *env.Fallback
+	}
+	res.Type, res.Runner = env.Type, env.Runner
+	if env.Runner != "" { // the envelope's agent is the asked one; the runner executed
+		res.Agent, res.Asked = env.Runner, env.Agent
 	}
 	if res.Transport == nil {
 		res.Transport = &wire.Transport{Attempts: 1}

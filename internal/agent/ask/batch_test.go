@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 )
 
@@ -167,5 +170,35 @@ func TestBatchRejectsUnknownProvider(t *testing.T) {
 	code, out, stderr := runCLI(t, "ask", "--batch", file, "--provider", "nonexistent")
 	if code != 2 || !strings.Contains(stderr, "nonexistent") || strings.TrimSpace(out) != "" {
 		t.Fatalf("exit %d, want 2 naming the provider with no envelopes\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+}
+
+// A line's runner joins an inherited overlay document and keeps its other keys.
+func TestWithRunnerKeepsInheritedKeys(t *testing.T) {
+	got := withRunner(`{"effort":"high"}`, "pi")
+	if !strings.Contains(got, `"effort":"high"`) || !strings.Contains(got, `"runner":"pi"`) {
+		t.Fatalf("withRunner = %s, want effort and runner", got)
+	}
+	if got := withRunner("", "own"); got != `{"runner":"own"}` {
+		t.Fatalf("withRunner(empty) = %s", got)
+	}
+}
+
+func TestBatchLineOverlayKeepsRunner(t *testing.T) {
+	base := agent.RunOptions{Values: proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","budgetUSD":2}`, "X": "1"}}
+	lines, err := readTaskLines(strings.NewReader(`{"prompt":"x","overlay":{"runner":"own"}}` + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _, err := lineRequest(lines[0], "codex", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov, err := agentconfig.LoadOverlayContext(proc.WithValues(context.Background(), req.Values), "", nil)
+	if err != nil || ov.Runner != agentconfig.RunnerOwn || ov.Provider != "databricks" || ov.BudgetUSD == nil || req.Values["X"] != "1" {
+		t.Errorf("overlay %+v, values %v, error %v", ov, req.Values, err)
+	}
+	if strings.Contains(base.Values[route.OverlayVar], "runner") {
+		t.Errorf("the batch base values were mutated: %v", base.Values)
 	}
 }

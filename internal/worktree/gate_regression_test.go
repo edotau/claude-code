@@ -10,8 +10,8 @@ func TestScopedVerifyGatePythonOptionLikePath(t *testing.T) {
 	for _, c := range []struct {
 		name, files, want string
 	}{
-		{"pytest", "pyproject.toml", "pytest -q './--collect-only'"},
-		{"ruff and pytest", "pyproject.toml,ruff.toml", "ruff check './--collect-only' && pytest -q './--collect-only'"},
+		{"pytest", "pyproject.toml", "(pytest './--collect-only')"},
+		{"ruff and pytest", "pyproject.toml,ruff.toml", "ruff check './--collect-only' && (pytest './--collect-only')"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()

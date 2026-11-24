@@ -183,6 +183,12 @@ func guardBindingProbes() map[string]bindingProbe {
 			bin := hosttest.FakeRTK(t)
 			return hosttest.RTKBashIn("git status"), func(r core.Result) bool { return r.UpdatedInput["command"] == bin+" git status" }
 		},
+		"bash-timeout": func(*testing.T, string) (string, func(core.Result) bool) {
+			return hosttest.RTKBashIn("claude-code agents result -f j1"),
+				func(r core.Result) bool {
+					return r.Decision == core.Allow && r.UpdatedInput["timeout"] == int(maxBashTimeout.Milliseconds())
+				}
+		},
 		"docs-placement": func(t *testing.T, _ string) (string, func(core.Result) bool) {
 			repo := hosttest.Repo(t)
 			return writeProbe(repo, filepath.Join(repo, "NOTES.md"), "# n\n"),

@@ -163,7 +163,7 @@ func askRetryCases() []askRetryCase {
 		{name: "fresh tools typed timeout wins", flags: []string{"--tools", "--timeout", "5m"},
 			wantTimeout: 5 * time.Minute},
 		{name: "fresh without a tools flag gets tools on", wantTimeout: agent.DefaultToolsTimeout},
-		{name: "fresh --tools=false stays toolless", flags: []string{"--tools=false"}, wantTimeout: 10 * time.Minute},
+		{name: "fresh --tools=false stays toolless", flags: []string{"--tools=false"}, wantTimeout: agent.DefaultToolsTimeout},
 		{name: "retry attachment replaces recorded", retry: true, attachments: []string{"b.txt"},
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
 		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},

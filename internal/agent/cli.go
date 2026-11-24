@@ -297,6 +297,8 @@ func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
 
 func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = DirectCtx(ctx, req)
+	forgetChosenProxy(ctx)       // a stale label from an earlier attempt must not reach this one
+	defer forgetChosenProxy(ctx) // a pre-stream failure leaves no entry behind
 	p, err := v.prepare(ctx, req)
 	if p.Cleanup != nil {
 		defer p.Cleanup()
@@ -342,7 +344,7 @@ func RunStreamWith(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.
 func withParsed(res, out wire.Result) wire.Result {
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
-	res.Written, res.Turns = out.Written, out.Turns
+	res.Written, res.Turns, res.Handback = out.Written, out.Turns, out.Handback
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = cmp.Or(strings.TrimSpace(out.Model), strings.TrimSpace(out.Reported)) // never res.Model: launch default
 	return res
@@ -399,7 +401,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
-	res.Transport = idle.stampFirst(res.Transport)
+	res.Transport = stampProxy(idle.stampFirst(res.Transport), TakeChosenProxy(id))
 	return streamResult(ctx, name, res, perr, werr, opts, tail)
 }
 
@@ -458,6 +460,19 @@ type idleReader struct {
 	last  int64 // unix nanos of the last read, atomic
 	start time.Time
 	first atomic.Int64 // ms from start to the first byte read, plus 1 so 0 means none
+}
+
+// stampProxy returns t with Proxy set to the chosen route label; t unchanged when label is empty.
+func stampProxy(t *wire.Transport, label string) *wire.Transport {
+	if label == "" {
+		return t
+	}
+	out := wire.Transport{}
+	if t != nil {
+		out = *t
+	}
+	out.Proxy = label
+	return &out
 }
 
 // stampFirst sets t.FirstEventMs from the first byte read when the parser left it unset.

@@ -257,15 +257,19 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	}
 	lr.recs = loadRecords(lr.ids)
 	lr.capHold(firstAskAt(lr.scan.askTimes))
+	lr.scan.addHeldIDs(ReadHeldJobs(agentID))
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
+		saveHeldJob(agentID, expired.Reason)
 		return preserveReport(in, agentID, lr, expired), true
 	}
 	res, block := ranOnVerdict(in, agentID, &lr)
 	if block {
+		saveHeldJob(agentID, res.Reason)
 		return preserveReport(in, agentID, lr, res), true
 	}
 	_ = os.Remove(heldPath(agentID)) // the hand-back or stop passes: its hold is over
+	_ = os.Remove(heldJobsPath(agentID))
 	return mergeGate(expired, res), false
 }
 
@@ -451,9 +455,44 @@ var heldJobRe = sync.OnceValue(func() *regexp.Regexp {
 // addHolds records the jobs an earlier hold of this hook named, so a repeat hold can be short.
 func (s *leafScan) addHolds(text string) {
 	for _, m := range heldJobRe().FindAllStringSubmatch(text, -1) {
-		if !slices.Contains(s.heldJobs, m[1]) {
-			s.heldJobs = append(s.heldJobs, m[1])
+		s.addHeldIDs([]string{m[1]})
+	}
+}
+
+func (s *leafScan) addHeldIDs(ids []string) {
+	for _, id := range ids {
+		if !slices.Contains(s.heldJobs, id) {
+			s.heldJobs = append(s.heldJobs, id)
 		}
+	}
+}
+
+// heldJobsPath keeps the ids a leaf's holds named, so a repeat hold needs no transcript text to know them.
+func heldJobsPath(agentID string) string { return heldPath(agentID) + "jobs" }
+
+// ReadHeldJobs is the held ids saved for agentID; a file older than leafStopMaxWait is stale and ignored.
+func ReadHeldJobs(agentID string) []string {
+	p := heldJobsPath(agentID)
+	fi, err := os.Stat(p)
+	if err != nil || time.Since(fi.ModTime()) >= leafStopMaxWait {
+		return nil
+	}
+	b, _ := os.ReadFile(p)
+	return strings.Fields(string(b))
+}
+
+// saveHeldJob adds the job a hold's reason names (its poll command) to agentID's saved held ids.
+func saveHeldJob(agentID, reason string) {
+	m := heldJobRe().FindStringSubmatch(reason)
+	if m == nil {
+		return
+	}
+	ids := ReadHeldJobs(agentID)
+	if slices.Contains(ids, m[1]) {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(heldPath(agentID)), 0o700) == nil {
+		_ = os.WriteFile(heldJobsPath(agentID), []byte(strings.Join(append(ids, m[1]), "\n")), 0o600)
 	}
 }
 
@@ -466,7 +505,7 @@ func pollOnce(id string) string {
 
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
 var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
+	return regexp.MustCompile(`ask: ran on [\w.-]+(?: via [\w.-]+)? · |"ran_on":\s*"ran on [\w.-]+(?: via [\w.-]+)? · `)
 })
 
 // ownIDRe matches a whole line naming an ask's own job: the `--background` launch line, the exit line, a bare id.

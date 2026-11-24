@@ -74,15 +74,32 @@ paths:
   judged by `safety-scan`. `make` and the live check stay with the main session. An overlay setting `HARNESS_HOOK_*` is
   refused too, and Pi's process never inherits one. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
-- **pi for another agent's model** — any model another agent resolves on a Databricks profile runs on Pi as typed:
-  `claude-code gateway resolve <agent> --overlay '{"provider":"databricks","profile":"dev"}'` names the model, then
-  `claude-code agents ask --agent pi --overlay '<same>' --model <id> "<task>"` runs it (about a tenth of the input
-  tokens). The label, record and `ran on` read `pi`; the brief must stand alone (no CLAUDE.md, skills or MCP), and
-  another agent's `--session` or `--retry` id does not carry over. There is no swap inside another agent's dispatch.
+- **pi runner** — an ask of any roster agent except pi whose first hop is its own Databricks route runs through Pi
+  first, on the model the agent resolves there; the asked agent's own CLI is the later hop. `runner: own` in the
+  overlay opts a dispatch out. A plain `--agent pi` ask with no fallback mode set (overlay, env, vault) follows
+  `agents`: pi on the workspace, pi on the other workspaces (same model; not under a rotation's drop or a
+  confinement), then claude on that Databricks workspace (`withPiClaudeHop`, `withPiSiblings`).
+  First-party Anthropic, Copilot and Google routes are unchanged, and an auto pick,
+  `--fallback none`, a resumed session and `--native` stay on the own CLI, and an explicit profile pin keeps the Pi
+  hops on that workspace (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`, `staysOnWorkspace`).
+  A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
+  budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens through Pi against 61k
+  on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles, then the agent's own CLI;
+  hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once by context size under
+  `all` or `agents` (a typed model is kept, not replaced); a policy refusal and
+  `x-should-retry` are typed error classes. Fable is refused on Databricks by name, never run as Opus;
+  among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name.
+  A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
+- **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
+  typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
+  its footer line (`internal/pi/stream.go` `handbackStatuses`). A spec's `own`, `report` and `verify` keys on
+  `agents ask --spec` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
+  and records it as the result's `verify` object; a failed verify does not change the run's status.
+  The record carries per-tool stats.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
   `--direct` is refused, and Pi has no interactive launch.
-- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `PI_CODEMODE` resolving to on;
-  `--codemode off` wraps; Pi sets `HARNESS_CODEMODE` for it): every Pi launch puts `state/harness/rtkwrap/bin`
+- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `CODEMODE` resolving to on;
+  `--codemode off` wraps; Pi sets `CODEMODE=on` for it): every Pi launch puts `state/harness/rtkwrap/bin`
   first on PATH and, with code mode off, sets `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing
   a line's last command, sourcing the user's own `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one symlink per
   rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
@@ -91,15 +108,24 @@ paths:
   Each call appends a name-and-verdict line to `state/harness/rtkwrap/decisions.jsonl`; there is no switch (a
   missing `bin/.rtkwrap` launches unshimmed with a notice). Windows has no shims.
 - **rtk for the other agents** — `rtk-rewrite` in the codex and opencode hooks rewrites every eligible command, never
-  while `HARNESS_CODEMODE` is set. Copilot's SDK shell tool rewrites through the same function. agy cannot rewrite
-  (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets awareness text only.
+  while `CODEMODE` is on or only, or while a code-mode vendor variable (claude's `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE`,
+  opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`) is on. Copilot's SDK shell tool rewrites through the same function.
+  agy cannot rewrite (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets
+  awareness text only.
   `claude-code doctor` shows one rtk row per agent.
-- **pi code mode (trial)** — `agents ask --agent pi --tools --codemode off|on|only`, or `PI_CODEMODE=off|on|only` per
-  machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`), loads `builtin:codemode`. The
-  model writes a script that calls the guard's tools in a QuickJS sandbox; `only` routes every tool through scripts.
-  The guard allows that one tool only from `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode
-  never wraps (see Pi carrier and experiments, rule 4).
-  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`.
+- **code mode (trial, per agent)** — `agents ask --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
+  machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`). Each agent with a row
+  (`agentid.CodeModeAgents()`: pi, claude, opencode) turns it on its own way: pi loads `builtin:codemode`, where the
+  model writes a script that calls the guard's tools in a QuickJS sandbox, and `only` routes every tool through
+  scripts; claude takes `on` only on the direct Anthropic route (`--provider anthropic`), via its
+  `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` in the `--settings` env block; opencode takes `on` via
+  `OPENCODE_EXPERIMENTAL_CODE_MODE`. A run that cannot give code mode (no row, `only` where it is not offered, claude
+  off the direct route, or `--tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
+  recorded as `codemode_reason`; only a misspelled value exits 2. The guard allows pi's one tool only from
+  `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
+  experiments, rule 4).
+  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
+  `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
@@ -242,6 +268,25 @@ vendor CLI untouched.
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 
+## Proxy routes
+
+- **Which agents:** pi, codex and opencode (`ScopedProxy` in their roster rows), gemini and copilot (their launch seam
+  marks the context) walk the team route list. Headless claude and the interactive session use the shared daemon.
+- **The walk:** `agent.ProxyRoutes` (`internal/agent/proxyroute.go`) maps the dispatch's record to its kind, then takes
+  that kind's routes from the team config (`providers-reference.md` → Proxy teams). A parent's phase team goes first
+  when `HARNESS_DISPATCH_PROXY` names one. A daemon route is `proxy.Ensure`; a scoped route is live when its scope
+  record's pid and start time match, `/healthz` answers, and no other process holds its port.
+- **The choice:** the first live route wins. A later one prints `<agent>: proxy: <first> unavailable (<reason>); using
+  <chosen>` on stderr, and the envelope's `transport.proxy` names the route (`<team>:<id>`, or the daemon team's name).
+  A scoped route's token is signed locally (`providers.md` → Session tokens).
+- **Child asks:** a scoped choice is exported to the child as `HARNESS_DISPATCH_PROXY=<team>:<id>`; a daemon choice
+  clears it. A nested or carried ask reads it and puts that phase team first.
+- **Reroute:** a refused or reset connection to a known loopback proxy is a transport error, never an account fault.
+  The dispatch retries once at once; its relaunch walks the list again without the route that died, and starts over
+  when every route is dead.
+- **Batch and wave lines:** a batch line's `group` key (`internal/agent/ask/batch.go`) names a phase scope id. A wave
+  and a bare batch host their own phase proxy (the `phase` team) and close it when they end.
+
 ## Pi carrier and experiments
 
 1. **Carrier (D1).** `agents ask --carry --agent <a> [ask flags] -- "<task>"` (spec key `carry`) builds the inner
@@ -272,12 +317,13 @@ vendor CLI untouched.
    - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
      parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
    - A record names one `experiment`: `codemode`, `rtk-wrap` (a bash tool, off Windows) or `none`.
-5. **When to use code mode (`--codemode on|only`, `off` for one call, or `PI_CODEMODE` per machine):** read-heavy
+5. **When to use code mode** (`--codemode on|only` for pi, `on` for claude and opencode, `off` for one call, or
+   `CODEMODE` per machine): read-heavy
    work that fans out (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not
    single reads or edits: the first runs cost more tokens there.
 6. **Turning trials on.** Every switch is recorded in its plan with the numbers behind it.
    - rtk wrapping is on: review `state/harness/rtkwrap/decisions.jsonl` for a wrap on program-parsed output.
-   - Code mode: per call until its trial passes, then `PI_CODEMODE` per machine.
+   - Code mode: per call until its trial passes, then `CODEMODE` per machine.
 7. **Don't** lean on Pi's Databricks route on purpose in a carried command (name the route);
    a leaf's default Pi route is intended.
 

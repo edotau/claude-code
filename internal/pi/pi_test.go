@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -34,7 +35,7 @@ func TestWireArgvAndEnv(t *testing.T) {
 	if !slices.Equal(argv, want) {
 		t.Errorf("argv = %v, want %v", argv, want)
 	}
-	wantEnv := []string{"PI_CODING_AGENT_DIR", "HARNESS_PROXY_API_KEY", nonceFileEnv, nonceValueEnv}
+	wantEnv := []string{"PI_CODING_AGENT_DIR", "HARNESS_PROXY_API_KEY", nonceFileEnv, nonceValueEnv, "CODEMODE"}
 	if !slices.Equal(envNames(env), wantEnv) || env[1] != "HARNESS_PROXY_API_KEY="+testCred {
 		t.Errorf("env names = %v, want %v", envNames(env), wantEnv)
 	}
@@ -206,11 +207,51 @@ func TestAfterPutsPromptLast(t *testing.T) {
 	if got := p.Argv[len(p.Argv)-1]; got != "do it" || !slices.Contains(p.Argv, "--no-builtin-tools") || !slices.Contains(p.Argv, g.Path) {
 		t.Errorf("argv = %v", p.Argv)
 	}
-	if !slices.Contains(p.Env, guardToolsEnv+"=read,bash,edit,write,grep,find,ls,gate,handback") {
+	if !slices.Contains(p.Env, guardToolsEnv+"=read,bash,edit,write,grep,find,ls,gate,handback,report") {
 		t.Errorf("env = %v", p.Env)
 	}
 	if slices.Contains(p.Argv, "--tools") {
 		t.Errorf("--tools would re-enable builtin tools: %v", p.Argv)
+	}
+}
+
+func TestAfterPassesVerifyToGuard(t *testing.T) {
+	for _, verify := range []string{"go vet ./internal/pi", ""} { // empty still set: an inherited line never applies
+		env, _ := guardedEnv(t)
+		p := &agent.CLIPrep{Env: env, Prompt: "do it"}
+		piEngine{}.After(p, agent.RunOptions{Tools: true, Verify: verify})
+		if !slices.Contains(p.Env, guardVerifyEnv+"="+verify) {
+			t.Errorf("verify %q: env = %v", verify, p.Env)
+		}
+	}
+	if src := assets.PiGuardSource(); !strings.Contains(src, guardVerifyEnv) {
+		t.Error("the guard must read the verify env")
+	}
+}
+
+func TestAfterSystemPrompt(t *testing.T) {
+	env, _ := guardedEnv(t)
+	for name, c := range map[string]struct {
+		req  agent.RunOptions
+		want string
+	}{
+		"tools run gets the harness prompt": {agent.RunOptions{Tools: true}, assets.PiSystemPrompt()},
+		"caller's prompt wins":              {agent.RunOptions{Tools: true, SystemPrompt: "mine"}, "mine"},
+		"no tools run names no tools":       {agent.RunOptions{}, ""},
+		"codemode hides the tools":          {agent.RunOptions{Tools: true, Codemode: "only"}, ""},
+		"codemode on keeps the tools":       {agent.RunOptions{Tools: true, Codemode: "on"}, assets.PiSystemPrompt()},
+	} {
+		p := &agent.CLIPrep{Env: env, Prompt: "x"}
+		piEngine{}.After(p, c.req)
+		i := slices.Index(p.Argv, "--system-prompt")
+		if (c.want == "") != (i < 0) || i >= 0 && p.Argv[i+1] != c.want {
+			t.Errorf("%s: argv = %v", name, p.Argv)
+		}
+	}
+	for tool := range strings.SplitSeq(guardTools, ",") {
+		if !strings.Contains(assets.PiSystemPrompt(), tool) {
+			t.Errorf("prompt does not name registered tool %s", tool)
+		}
 	}
 }
 

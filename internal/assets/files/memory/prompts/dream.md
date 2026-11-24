@@ -51,10 +51,11 @@ Run `claude-code memory review` for cap/staleness findings, then:
 
 ## Phase 5b: Feedback candidates
 
-Propose, never apply: this phase edits no code, no rule and no plan, only `knowledge/feedback-candidates.md`.
-A lesson that recurs across `feedback/` and `notes/` notes may belong in a tool instead of prose. Using the changed
-notes, Grep to find other notes that restate the same lesson, then rewrite that one file (a prose header, then one
-fenced block). Each line of the block is one JSON object with exactly these fields, no others:
+Propose, never apply: this phase edits no code, no rule and no plan. A lesson that recurs across `feedback/` and
+`notes/` notes may belong in a tool instead of prose. Using the changed notes, Grep to find other notes that restate
+the same lesson, then add each new candidate with `claude-code memory review --propose '<json>'`; never rewrite
+`knowledge/feedback-candidates.md` as a whole file (it can overwrite an approval). The JSON is one object with exactly
+these fields, no others:
 
 ```jsonl
 {"id":"fc-<slug>","evidence":["feedback/<a>.md","notes/<b>.md"],"repeats":0,"change":"One sentence.","target":"rules/standards/<x>.md","kind":"hook","size":"small"}
@@ -65,15 +66,17 @@ fenced block). Each line of the block is one JSON object with exactly these fiel
   (how often the owner restated it); one remark is never a candidate.
 - `change`: one sentence, at most 200 characters. `target`: a path inside `~/.claude` or the store, or `unknown`.
 - `kind`: `prose`, `hook`, `verb` or `test`. `size`: `small`, `medium` or `large` (an estimate).
-- Skip ids whose record has `status` `approved` or `enforced`: the owner or a landed change owns them; keep the line.
-- Never write a credential-shaped string. Run `claude-code memory review` after writing: it prints one line per
+- Skip ids whose record has `status` `approved` or `enforced`: the owner or a landed change owns them.
+- Never write a credential-shaped string. Run `claude-code memory review` after proposing: it prints one line per
   problem with its line number and exits non-zero; fix them before Phase 6.
 
 ## Phase 5c: Test proposals
 
-Collect the tests agents proposed but did not write ("Proposed tests", "proposals" in `reports/`, `handoffs/` and
-`sessionHistory.md`) into `techdebt/tests.md`: one line each (package, case, what it guards, source report), newest
-first, at most 40 lines. Drop a line once a test covers that behavior or the feature is gone. The owner picks from it.
+Go keeps the proposed-test list (`techdebt/tests.jsonl`: deduped on package plus case, newest first, capped at 40);
+do not write it. Reports carry proposals as a ```proposed_tests fence of JSON lines
+(`{"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}`) and Go
+appends them from report files only. The older `techdebt/tests.md` stays as it is (read only, the owner's second
+source). The owner picks from both.
 
 ## Phase 5d: Plans audit
 

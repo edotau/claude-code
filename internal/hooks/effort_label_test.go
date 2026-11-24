@@ -289,3 +289,20 @@ func TestLabelQueryTypedAliasIsTheAsksModel(t *testing.T) {
 		}
 	}
 }
+
+// An inherit agent on a Databricks route labels Opus for a Fable session id; a typed Fable stays refused.
+func TestInheritedFableSessionLabelsOpusOnDatabricks(t *testing.T) {
+	useAgentsDir(t, "Plan:inherit")
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(route.OverlayVar, "")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/dev")
+	run := newDispatchRun(func() string { return "databricks-claude-fable-5-2" })
+	if got := ownModel(context.Background(), run, map[string]any{}, "Plan"); got != "databricks-claude-opus-5-5" {
+		t.Errorf("inherit Plan on a Fable session = %q, want databricks-claude-opus-5-5", got)
+	}
+	run.profile = "dev"
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") {
+		t.Errorf("a typed Fable label lost its refusal note: %q", n)
+	}
+}

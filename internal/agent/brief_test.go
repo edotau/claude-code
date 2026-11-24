@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -52,7 +53,7 @@ func TestBriefParseOwned(t *testing.T) {
 
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
-	want := filepath.Join(config, "memory", "reports", "YYYY-MM-DD-<name>.md")
+	want := "\nReport: " + filepath.Join(config, "memory", "reports", "leaf.md") + "\n"
 	if got := strings.Count(brief, want); got != 1 {
 		t.Errorf("brief has %d report paths matching %q; want 1", got, want)
 	}
@@ -201,5 +202,29 @@ func TestBriefCodeModeFollowsTarget(t *testing.T) {
 				t.Errorf("session %q target %v: rtk line present = %v", session, target, got)
 			}
 		}
+	}
+}
+
+func TestBriefTypedTierAndPlanTask(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	brief, err := RenderBrief(BriefInput{Task: "fix it", Owned: []string{"a.go"}, PlanTask: "Next N7", Tier: "fast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alias, _ := TaskTier(brief); alias != models.Haiku || !strings.Contains(brief, "\nTask: Next N7") {
+		t.Fatalf("tier or task line missing: %q", brief)
+	}
+	if _, err := RenderBrief(BriefInput{Task: "t", Owned: []string{"a.go"}, Tier: "huge"}); err == nil {
+		t.Fatal("unknown tier accepted")
+	}
+}
+
+func TestBriefAlwaysBakesReportPath(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := BriefInput{Task: "t", Owned: []string{"a.go"}, PlanTask: "Next N16"}
+	a, errA := RenderBrief(in)
+	b, errB := RenderBrief(in)
+	if errA != nil || errB != nil || a == b || !strings.Contains(a, "\nReport: ") || !strings.Contains(a, "-next-n16-") {
+		t.Fatalf("report path not baked uniquely: %v %v\n%s", errA, errB, a)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -366,8 +367,30 @@ func (l *EventLog) writeLocked(ev Event) {
 		}
 		ev.Envelope = &env
 	}
-	_ = l.sink.Emit(ev) // fail-open
-	_ = l.bw.Flush()    // bufio keeps one event's write atomic; flushing per event lets tail -f see it at once
+	if ev.Envelope != nil && ev.Envelope.Handback != nil {
+		env, h := *ev.Envelope, *ev.Envelope.Handback
+		h.Summary = textutil.RedactSecrets(h.Summary)
+		h.Unfixed = slices.Clone(h.Unfixed)
+		for i, item := range h.Unfixed {
+			h.Unfixed[i] = textutil.RedactSecrets(item)
+		}
+		env.Handback = &h
+		ev.Envelope = &env
+	}
+	_ = l.sink.Emit(redactVerify(ev)) // fail-open
+	_ = l.bw.Flush()                  // bufio keeps one event's write atomic; flushing per event lets tail -f see it at once
+}
+
+// redactVerify is ev with the envelope's verify command and output tail shape-redacted.
+func redactVerify(ev Event) Event {
+	if ev.Envelope == nil || ev.Envelope.Verify == nil {
+		return ev
+	}
+	env, v := *ev.Envelope, *ev.Envelope.Verify
+	v.Command, v.Tail = maskText(v.Command), maskText(v.Tail)
+	env.Verify = &v
+	ev.Envelope = &env
+	return ev
 }
 
 // redactJSON redacts every string key and value in raw, numbers kept exact; undecodable raw is dropped, never kept.

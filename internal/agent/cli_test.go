@@ -343,6 +343,20 @@ func TestEmptyOrWorked(t *testing.T) {
 	}
 }
 
+func TestStampProxyNamesRouteInRanOn(t *testing.T) {
+	if got := stampProxy(nil, ""); got != nil {
+		t.Fatalf("empty label: %+v, want nil", got)
+	}
+	tr := stampProxy(&wire.Transport{Attempts: 2}, "phase:x-w1")
+	if tr.Proxy != "phase:x-w1" || tr.Attempts != 2 {
+		t.Fatalf("stamped = %+v", tr)
+	}
+	res := wire.Result{Agent: "pi", Transport: tr}
+	if got := wire.RanOn(res); !strings.HasSuffix(got, " · proxy phase:x-w1") {
+		t.Fatalf("RanOn = %q, want proxy suffix", got)
+	}
+}
+
 func TestIdleReaderStampsFirstEventOnce(t *testing.T) {
 	r := &idleReader{src: eofReader{R: strings.NewReader("ab")}, start: time.Now().Add(-time.Second)}
 	if got := r.stampFirst(nil); got != nil {

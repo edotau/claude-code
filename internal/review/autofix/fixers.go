@@ -256,7 +256,7 @@ func finishRepair(ctx context.Context, bin string, res Result) (Result, string, 
 	if _, err := run(ctx, res.Path, bin, args...); err != nil {
 		return res, "commit refused", err
 	}
-	res.Notice = fmt.Sprintf("autofix %s: fixed %s in lane %s; gate green; land it: claude-code worktree merge %s",
+	res.Notice = fmt.Sprintf("autofix %s: fixed %s in lane %s; gate green; land it: claude-code worktree land %s",
 		short, classes, res.Lane, res.Lane)
 	return res, "", nil
 }

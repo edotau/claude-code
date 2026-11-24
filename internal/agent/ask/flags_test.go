@@ -660,3 +660,58 @@ func TestRecoverClaimReleasedOnlyByHolder(t *testing.T) {
 		t.Fatalf("claim leaked after release: %v", err)
 	}
 }
+
+func TestValidateCodemodeTable(t *testing.T) {
+	cases := []struct {
+		mode, ag string
+		direct   bool
+		want     string
+		reason   bool
+	}{
+		{"on", "claude", true, "on", false},
+		{"on", "claude", false, "off", true},
+		{"only", "claude", true, "off", true},
+		{"on", "opencode", false, "on", false},
+		{"only", "opencode", false, "off", true},
+		{"on", "codex", true, "off", true},
+		{"off", "codex", true, "", false},
+	}
+	for _, c := range cases {
+		got, why, err := validateCodemode(c.mode, c.ag, true, c.direct)
+		if err != nil || got != c.want || (why != "") != c.reason {
+			t.Errorf("validateCodemode(%q, %q, direct=%v) = %q, %q, %v", c.mode, c.ag, c.direct, got, why, err)
+		}
+	}
+	if _, _, err := validateCodemode("onn", "claude", true, true); err == nil {
+		t.Error("a misspelled mode must still error")
+	}
+}
+
+func TestCodemodeRouteGuards(t *testing.T) {
+	for _, ag := range []string{"claude", "opencode"} {
+		if got, why, err := validateCodemode("on", ag, false, true); err != nil || got != "off" || why == "" {
+			t.Errorf("%s --codemode on without tools = %q, %q, %v", ag, got, why, err)
+		}
+	}
+}
+
+func TestCodemodeLineAndDirectRoute(t *testing.T) {
+	if directRoute("", "") || directRoute("databricks", "dev") || !directRoute("anthropic", "") {
+		t.Error("directRoute must be true only for an explicit anthropic route")
+	}
+	line := agent.RunOptions{Codemode: "on", Tools: true, Provider: "dev"}
+	if err := lineCapable("claude", &line); err != nil || line.Codemode != "off" || line.CodemodeReason == "" {
+		t.Errorf("batch line on a gateway profile: %v %q %q", err, line.Codemode, line.CodemodeReason)
+	}
+}
+
+func TestReplayCodemode(t *testing.T) {
+	f := &askFlags{name: "claude", codemode: "on", tools: true, retry: "x", profile: "dev"}
+	if err := replayCodemode(f); err != nil || f.codemode != "off" || f.codemodeReason == "" {
+		t.Errorf("replayed claude code mode on a gateway profile: %v %q %q", err, f.codemode, f.codemodeReason)
+	}
+	f = &askFlags{name: "claude", codemode: "on", tools: true, profile: "dev"}
+	if err := replayCodemode(f); err != nil || f.codemode != "on" {
+		t.Errorf("non-replay run rechecked: %v %q", err, f.codemode)
+	}
+}

@@ -11,7 +11,7 @@ func HookLaneQueueMore(count int) string {
 	return renderHook("lane-queue-more.tmpl", tmplFields{"Count": count})
 }
 
-// HookLaneMerged is the notice text for a lane the lane-merge worker promoted.
+// HookLaneMerged is the notice text for a lane the lane-merge worker landed.
 func HookLaneMerged(lane, detail string, removed bool) string {
 	return renderHook("lane-merged.tmpl", tmplFields{"Lane": lane, "Detail": detail, "Removed": removed})
 }

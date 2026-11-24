@@ -61,10 +61,10 @@ func checkDispatchRows(t *testing.T, width int, queued, tokens bool) {
 		in, out = "↑12.4k", "↓3.1k"
 	}
 	var l layout
-	l.add(levelDispatch, nested, "codex-reviewer-long", "gpt-6-astra · qa", in, out, "12s", "2m43s", "")
-	l.add(levelDispatch, "↳", "pi", "databricks-claude-sonnet-5-5 · dev", in, out, "1s", "9s", "")
+	l.add(levelDispatch, nested, "codex-reviewer-long", "gpt-6-astra", "· databricks", "qa", in, out, "12s", "2m43s", "")
+	l.add(levelDispatch, "↳", "pi", "databricks-claude-sonnet-5-5", "· databricks", "dev", in, out, "1s", "9s", "")
 	if queued {
-		l.add(levelDispatch, "↳", "pi", "gpt-6-astra · qa", "queued 12s (pool: 3 waiting on qa)", "", "", "14s", "")
+		l.add(levelDispatch, "↳", "pi", "gpt-6-astra", "· databricks", "qa", "queued 12s (pool: 3 waiting on qa)", "", "", "14s", "")
 		l.spanLast(true, false)
 	}
 	wantEnd := []string{"2m43s", "9s", "14s"}
@@ -78,8 +78,8 @@ func checkDispatchRows(t *testing.T, width int, queued, tokens bool) {
 
 func TestDispatchBudgetJustifiesColumns(t *testing.T) {
 	var l layout
-	l.add(levelDispatch, "↳", "pi", "gpt-6-astra · qa", "↑1k", "↓2k", "1s", "9s", "")
-	l.add(levelDispatch, "↳", "codex", "claude-sonnet-5-5 · dev", "↑12.4k", "↓3.1k", "10s", "2m43s", "")
+	l.add(levelDispatch, "↳", "pi", "gpt-6-astra", "· databricks", "qa", "↑1k", "↓2k", "1s", "9s", "")
+	l.add(levelDispatch, "↳", "codex", "claude-sonnet-5-5", "· databricks", "dev", "↑12.4k", "↓3.1k", "10s", "2m43s", "")
 	lines := l.lines(60, "")
 	if i, j := strings.Index(lines[0], "9s"), strings.Index(lines[1], "2m43s"); i != j+3 {
 		t.Errorf("elapsed not right-justified: %q", lines)

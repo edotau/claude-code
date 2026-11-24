@@ -132,3 +132,14 @@ func TestPartProseKeepsAnswerForEmptyFindings(t *testing.T) {
 		t.Fatalf("prose=%q judged=%+v", got, envJudged(env).reviewVerdict)
 	}
 }
+
+func TestSchemaInvalidFindingsAreUnjudged(t *testing.T) {
+	env, err := reviewFindings(reviewEnvelope{Structured: json.RawMessage(`{"findings":"x"}`)}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.Answer = "SHIP\n"
+	if v := withVerdict(env).Computed; v != "unjudged" {
+		t.Fatalf("computed = %q", v)
+	}
+}

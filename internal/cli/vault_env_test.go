@@ -18,11 +18,13 @@ func TestVaultEnvSetUnset(t *testing.T) {
 		out  string
 		env  string
 	}{
-		{[]string{"set", "CLAUDE_REMOTE_HOST", "devhost"}, 0, "env CLAUDE_REMOTE_HOST: (unset) → devhost", "devhost"},
-		{[]string{"set", "--dry-run", "CLAUDE_REMOTE_HOST", "other"}, 0, "would set env CLAUDE_REMOTE_HOST: devhost → other; nothing written", "devhost"},
+		{[]string{"set", "CLAUDE_REMOTE_HOST", "devhost"}, 0, "env CLAUDE_REMOTE_HOST set to devhost (was not set)", "devhost"},
+		{[]string{"set", "--dry-run", "CLAUDE_REMOTE_HOST", "other"}, 0, "dry run: env CLAUDE_REMOTE_HOST changed from devhost to other; nothing written", "devhost"},
 		{[]string{"set", "ANTHROPIC_API_KEY", "sk-x"}, 1, "use `claude-code vault set ANTHROPIC_API_KEY`", "devhost"},
 		{[]string{"set", "CLAUDE_REMOTE_HOST"}, 2, "usage: claude-code vault env set NAME VALUE", "devhost"},
-		{[]string{"unset", "CLAUDE_REMOTE_HOST"}, 0, "env CLAUDE_REMOTE_HOST: devhost → (unset)", ""},
+		{[]string{"unset", "CLAUDE_REMOTE_HOST"}, 2, "pass --yes to remove it", "devhost"},
+		{[]string{"set", "CLAUDE_REMOTE_HOST", "x"}, 2, "pass --yes to overwrite it", "devhost"},
+		{[]string{"unset", "-y", "CLAUDE_REMOTE_HOST"}, 0, "env CLAUDE_REMOTE_HOST removed (was devhost)", ""},
 		{[]string{"unset", "CLAUDE_REMOTE_HOST"}, 0, "is not set; nothing written", ""},
 		{[]string{"bogus"}, 2, "unknown subcommand", ""},
 	} {

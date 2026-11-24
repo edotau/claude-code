@@ -92,7 +92,7 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 - Sequential plan: per task implementer, spec review until `SPEC_COMPLIANT`, `Skill(simplify)`, quality review until
   `SHIP` ([prompts.md](prompts.md)); stop and ask when an assumption breaks. Ticks via `docs-plan-tick`.
 - Tournament: after the owner approves worktree creation, baseline the eval, send one brief verbatim to N `claude`
-  leaves (`isolation: "worktree"`, branch `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree merge` the
+  leaves (`isolation: "worktree"`, branch `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree land` the
   winner, tag losers. A tie is not a win.
 
 ### Not used

@@ -12,6 +12,7 @@
 # legacy-layout: dispatch-events
 # legacy-layout: dispatch-record
 # legacy-layout: login-state
+# legacy-layout: model-prices
 # legacy-layout: notices
 # legacy-layout: oauth-usage-cache
 # legacy-layout: opencode-auth-cache
@@ -44,6 +45,7 @@ bench-history | log | 1 | state/harness/bench/*/history.jsonl | internal/review/
 claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks/wthook | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/codex | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
+contract | record | 1 | state/harness/contract/*.json | internal/contract | keep
 coworker-overlay | wire | 1 | - | internal/agentconfig | keep
 desktop-meta | derived | 0 | <fixed at init> | internal/desktop | keep
 desktop-profile | derived | 0 | <fixed at init> | internal/desktop | keep
@@ -58,6 +60,7 @@ memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/me
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 memory-sync | cache | 2 | state/harness/memory/sync.json | internal/memory | keep
 merge-queue | record | 1 | state/harness/worktree/merge-queue.json | internal/worktree | keep
+model-prices | cache | 1 | state/harness/router/prices.json | internal/catalog | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
@@ -68,6 +71,7 @@ pi-guard | derived | 1 | state/harness/pi/*/runs/*/guard.ts | internal/pi | clea
 pi-packages | derived | 1 | state/harness/pi/packages/*/.spec | internal/pi | keep
 picker-additions | store | 1 | state/vault.db | internal/catalog | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
+proxy-scope | record | 1 | state/harness/proxy/scopes/*.json | internal/proxy | keep
 proxy-teams | wire | 1 | - | internal/proxyteam | keep
 proxy-teams-last-good | cache | 1 | state/harness/proxy/teams.last-good.json | internal/proxyteam | keep
 quota | derived | 0 | state/harness/quota.json | internal/router | keep

@@ -85,6 +85,9 @@ func (s *sessionStore) slideLegacyLocked(hash string, now time.Time) {
 
 // reloadLegacyLocked folds a changed sessions.json or renewal file into memory, keeping this daemon's own slides.
 func (s *sessionStore) reloadLegacyLocked() {
+	if s.legacyFile == "" {
+		return
+	}
 	fi, err := os.Stat(s.legacyFile)
 	if errors.Is(err, os.ErrNotExist) { // the bridge holds only what sessions.json lists, as a fresh daemon would
 		s.legacy, s.legacyRead = map[string]legacySession{}, nil
@@ -155,6 +158,9 @@ func readRenewals(file string) (map[string]legacyRenewal, error) {
 
 // saveRenewalsLocked merges this daemon's slides into the file under its lock, dropping expired and dead holders.
 func (s *sessionStore) saveRenewalsLocked() error {
+	if s.renewFile == "" {
+		return nil
+	}
 	return paths.WithFileLock(s.renewFile, func() error {
 		merged, err := readRenewals(s.renewFile)
 		if err != nil { // never overwrite renewals this daemon cannot read: another daemon may hold them

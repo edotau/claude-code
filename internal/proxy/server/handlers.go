@@ -145,7 +145,7 @@ func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Tar
 		peek := peekBody(resp, 64<<10)
 		if hard = providers.ModelDenied(string(peek)); hard {
 			r.markDead(t)
-			if _, ok := r.demotion(t); ok {
+			if r.mayDemote(t, resp) {
 				drain(resp)
 				return true, true
 			}
@@ -157,11 +157,17 @@ func (r *Router) failover(in *http.Request, resp *http.Response, t providers.Tar
 			last = last && !tpmSpare(in) // walkAttempts holds a workspace to hop to
 		}
 	}
-	if last || !retryable[resp.StatusCode] {
+	if last || !retryable[resp.StatusCode] || upstreamNoRetry(resp) {
 		return false, hard
 	}
 	drain(resp)
 	return true, hard
+}
+
+// mayDemote is true when t has a demotion target and the upstream did not say x-should-retry: false.
+func (r *Router) mayDemote(t providers.Target, resp *http.Response) bool {
+	_, ok := r.demotion(t)
+	return ok && !upstreamNoRetry(resp)
 }
 
 // coolDown sinks p for resp's Retry-After (clamped) after a transient 429; a hold of coolPersistMin+ is also persisted.
@@ -342,7 +348,13 @@ func (r *Router) authorized(req *http.Request) bool {
 		return true
 	}
 	tok, profile := presentedSecret(req), profileOfPath(req.URL.Path)
-	return r.sessions.accept(tok, profile) || r.clientAccepted(req, tok, profile)
+	return (r.sessions.accept(tok, profile) && r.fenceAllows(tok, profile)) || r.clientAccepted(req, tok, profile)
+}
+
+// fenceAllows reports tok's signed confinement fence admits profile; an unsigned token has none.
+func (r *Router) fenceAllows(tok, profile string) bool {
+	c, ok := r.sessions.claims(tok)
+	return !ok || c.FenceAllows(profile)
 }
 
 // admit scopes a token to its profile set, drops the proxy auth headers, and honours the identity for launches only.
@@ -351,13 +363,15 @@ func (r *Router) admit(req *http.Request) *http.Request {
 	if !r.secretOK(req) { // a session or client token: pin its profiles for the resolved target and fallbacks
 		tok := presentedSecret(req)
 		launch = !strings.HasPrefix(tok, clientTokenPf) // an editor's client token picks no identity
-		scope := r.sessions.profiles(tok)
+		c, _ := r.sessions.claims(tok)
+		scope := c.FencedProfiles()
 		if scope == nil { // a client token reaches only its path's profile
 			scope = []string{profileOfPath(req.URL.Path)}
 		}
 		r.touch(req.Context(), scope...)
 		ctx := context.WithValue(req.Context(), scopeKey{}, scope)
-		if fp := r.sessions.failoverProvider(tok); fp != "" {
+		// a fenced token never fails over: the sibling profiles of its provider lie outside the fence
+		if fp := r.sessions.failoverProvider(tok); fp != "" && !c.Fenced() {
 			ctx = context.WithValue(ctx, failoverProviderKey{}, fp)
 		}
 		req = req.WithContext(ctx)
@@ -373,8 +387,11 @@ func (r *Router) admit(req *http.Request) *http.Request {
 func (r *Router) refuseUnauthorized(w http.ResponseWriter, req *http.Request) {
 	if tok := presentedSecret(req); !r.clients.valid(tok) {
 		w.Header().Set(proxy.RefusalHeader, proxy.RefusalSession) // the proxy's own refusal: no upstream ever saw it
-		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret: "+
-			r.sessions.refusal(tok, profileOfPath(req.URL.Path))+
+		why := r.sessions.refusal(tok, profileOfPath(req.URL.Path))
+		if c, ok := r.sessions.claims(tok); ok && !c.FenceAllows(profileOfPath(req.URL.Path)) {
+			why = "session token is outside its confinement fence"
+		}
+		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret: "+why+
 			" ("+proxy.RefusalSession+"; apiKeyHelper: claude-code resolve --secret --proxy)")
 		return
 	}
@@ -451,6 +468,11 @@ func (r *Router) health(w http.ResponseWriter) {
 	w.Header().Set(proxy.HeaderInflight, strconv.FormatInt(r.inflight.Load(), 10))
 	if c := proxy.CacheSummary(); c != "" {
 		w.Header().Set(proxy.HeaderCache, c)
+	}
+	if r.draining.Load() { // a drained proxy is no endpoint: health callers see it as down
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(w, "draining\n")
+		return
 	}
 	_, _ = io.WriteString(w, "ok\n")
 }

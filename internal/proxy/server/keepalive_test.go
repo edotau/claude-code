@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -249,6 +250,7 @@ func TestRequestAndSessionScopeMarkProfilesUsed(t *testing.T) {
 		t.Fatalf("recentlyUsed = %v after a session request, want [dev]", got)
 	}
 	g.r.used = map[string]profileUse{}
+	_ = os.RemoveAll(markerDir())
 	g.call(t, "/p/dev/v1/messages", `{}`, secret) // the router secret scopes nothing and routes nothing here
 	if got := g.r.recentlyUsed(); len(got) != 0 {
 		t.Errorf("an unscoped request that sent nothing marked %v", got)
@@ -304,5 +306,24 @@ func TestLoginTextSkipsRowsWithoutAUserLogin(t *testing.T) {
 	key := &providers.Provider{Name: "k", Auth: providers.Auth{Type: providers.AuthKey}}
 	if got := loginText(context.Background(), key, providers.VerdictRejected); got != "" {
 		t.Errorf("key row: %q, want the generic text", got)
+	}
+}
+
+// A marker another daemon wrote keeps its profile alive here; one older than the window is dropped and removed.
+func TestUseMarkerFeedsKeepaliveAndExpires(t *testing.T) {
+	g := newKARig(t)
+	g.r.touch(t.Context(), "dev")
+	g.r.used = map[string]profileUse{}
+	if got := g.r.recentlyUsed(); len(got) != 1 || got[0] != "dev" {
+		t.Fatalf("recentlyUsed = %v, want [dev] from its marker", got)
+	}
+	g.mu.Lock()
+	g.now = g.now.Add(keepaliveWindow + time.Hour)
+	g.mu.Unlock()
+	if got := g.r.recentlyUsed(); len(got) != 0 {
+		t.Fatalf("recentlyUsed = %v, want the expired marker dropped", got)
+	}
+	if _, err := os.Stat(filepath.Join(markerDir(), "dev")); err == nil {
+		t.Error("the expired marker file was not removed")
 	}
 }

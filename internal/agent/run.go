@@ -92,8 +92,9 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return o, nil, Chain{}, clientUsageError{err}
 	}
+	ctx, o, rotated, rerr := rotateRole(ctx, o)
 	r, err := Lookup(o.Agent)
-	if err != nil {
+	if err = cmp.Or(rerr, err); err != nil {
 		return o, nil, Chain{}, err
 	}
 	if o.Host != "" {
@@ -102,6 +103,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 		}
 	}
 	ch, err := c.route(ctx, r, o)
+	ch = rotated.onto(ch)
 	if err == nil {
 		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
 			err = clientUsageError{perr}
@@ -162,6 +164,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	if o.Fallback == "" && !slices.Contains(router.FallbackModes, fallback) {
 		return o, clientUsageError{fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, raw, strings.Join(router.FallbackModes, "|"))}
 	}
+	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone
@@ -227,13 +230,22 @@ func (clientUsageError) ExitCode() int { return 2 }
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
-		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools})
+		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools,
+		FallbackDefaulted: o.FallbackDefaulted, Opts: o})
 	return chain, err
 }
 
 func (c *Client) alias(prompt string) string {
-	if c.Alias != nil {
-		return c.Alias(WithoutReviewLoop(prompt))
+	return HopAlias(prompt, c.Alias)
+}
+
+// HopAlias is the tier alias every hop of a dispatch takes: TaskTier's (the lead's), else classify's, else "".
+func HopAlias(prompt string, classify func(string) string) string {
+	if alias, _ := TaskTier(prompt); alias != "" {
+		return alias
+	}
+	if classify != nil {
+		return classify(WithoutReviewLoop(prompt))
 	}
 	return ""
 }
@@ -356,6 +368,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 		return wire.Result{Agent: r.Name(), Status: wire.StatusError, NotStarted: true}, retry.Fatal(r.Name(), err)
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
+	req = withCodemodeEnv(r.Name(), req)
 	res := wire.Result{Agent: r.Name(), Status: wire.StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
@@ -546,7 +559,7 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 }
 
 // DefaultToolsTimeout is the per-attempt deadline of a tools run without an explicit timeout.
-const DefaultToolsTimeout = 15 * time.Minute
+const DefaultToolsTimeout = 9*time.Minute + 30*time.Second
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type repickBudgetKey struct{}
@@ -585,7 +598,8 @@ type RunOptions struct {
 	KeepEnv                                             []string   // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool       // Direct: agent keeps the provider route, skips the router
 	Fleet                                               bool       // copilot only: run in fleet mode (parallel subagents)
-	Codemode                                            string     `json:"codemode,omitempty"` // pi only: off|on|only, Pi's codemode tool
+	Codemode                                            string     `json:"codemode,omitempty"`        // off|on|only: the agent's code mode (agentid.CodeMode row)
+	CodemodeReason                                      string     `json:"codemode_reason,omitempty"` // why a requested code mode runs off
 	NoTools                                             bool       // claude only: answer from the provider directly, no claude process
 	NoPersist                                           bool       // claude, codex: no session persistence
 	DebugFile                                           string     // claude, gemini: debug log at <path>
@@ -627,6 +641,11 @@ type RunOptions struct {
 	Route route.Route `json:"route,omitzero"`
 	// CellRoute is the registry row a router-pinned ladder cell runs on; it outranks Provider. Per hop, never stored.
 	CellRoute route.Route `json:"-"`
+
+	// FallbackDefaulted: Fallback is ask's env default, not typed; any other none (a flag, code, an old record) holds.
+	FallbackDefaulted bool `json:"fallback_defaulted,omitempty"`
+	// Rotated: Lead and Model are a role rotation's pick, so a --job or --retry replay leads with them again.
+	Rotated bool `json:"rotated,omitempty"`
 }
 
 // EffectiveRoute is Route when set, else built from the legacy Provider, Account and the cell's row.

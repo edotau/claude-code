@@ -524,14 +524,14 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	if again := Busy(in); again.Context != "" {
 		t.Fatalf("second prompt = %q, want the divergence line only once", again.Context)
 	}
-	if err := worktree.Append("sB", worktree.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
+	if err := worktree.Append("sB", worktree.Notice{Kind: "conflict", From: "worktree land", Text: "x.go"}); err != nil {
 		t.Fatal(err)
 	}
 	git := func() core.Result {
 		return ClaimCheck(claimInput(t, map[string]any{"session_id": "sB", "cwd": work, "tool_name": "Bash",
 			"tool_input": map[string]any{"command": "git status"}}))
 	}
-	if r := git(); r.Context != "notice (conflict, from worktree merge): x.go" || r.Decision != core.Allow {
+	if r := git(); r.Context != "notice (conflict, from worktree land): x.go" || r.Decision != core.Allow {
 		t.Fatalf("git status = %+v, want the drained notice and no decision", r)
 	}
 	if r := git(); r.Context != "" {
@@ -619,14 +619,14 @@ func TestBusyReportsFinishedAuditOnce(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	rec := `{"sha":"abcdef0123456789","log":"/x/abcdef01.log","started":1}`
+	rec := `{"sha":"abcdef0123456789","repo":"/x","log":"/x/abcdef01.log","started":1}`
 	for name, body := range map[string]string{"abcdef01.json": rec, "abcdef01.exit": "1 42\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	in := &core.Input{SessionID: "s1", CWD: t.TempDir()}
-	if got := Busy(in).Context; !strings.Contains(got, "audit of abcdef01 FAILED (exit 1): /x/abcdef01.log") {
+	if got := Busy(in).Context; !strings.Contains(got, "audit of abcdef01 FAILED (exit 1) in /x: /x/abcdef01.log") {
 		t.Fatalf("first prompt: %q", got)
 	}
 	if got := Busy(in).Context; got != "" {

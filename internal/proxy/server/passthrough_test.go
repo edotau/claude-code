@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	_ "github.com/edotau/claude-code/internal/codex" // register the rows whose suffixes are checked
 	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -731,9 +732,11 @@ func TestPassthroughMetersChatUsage(t *testing.T) {
 				t.Fatalf("status %d body %q, want relayed unchanged", resp.StatusCode, b)
 			}
 			got := ledgerSettled(t, 1)
-			if len(got) != 1 || got[0].Profile != "pt" || got[0].Model != "m" || got[0].Input != 11 ||
-				got[0].Output != 4 {
+			if len(got) != 1 || got[0].Profile != "pt" || got[0].Model != "m" || got[0].Input != 11 || got[0].Output != 4 {
 				t.Fatalf("ledger = %+v, want pt/m 11 in 4 out", got)
+			}
+			if e := got[0]; e.AskedModel != "m" || e.Call != "chat" || e.Route != "" {
+				t.Fatalf("ledger = %+v, want asked_model m, call chat, no route", e)
 			}
 		})
 	}
@@ -1141,7 +1144,7 @@ func BenchmarkFixPassthroughBody(b *testing.B) {
 	b.SetBytes(int64(len(body)))
 	b.ReportAllocs()
 	for b.Loop() {
-		out, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
+		out, _, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
 		if err != nil || bytes.Equal(out, body) || !strings.HasPrefix(m, models.DatabricksPrefix) {
 			b.Fatal(err, m)
 		}
@@ -1204,5 +1207,16 @@ func TestPassthroughOverflowLeavesOthersAlone(t *testing.T) {
 				t.Fatalf("altered: %d %q", resp.StatusCode, got)
 			}
 		})
+	}
+}
+
+func TestPassthroughRetryableHonoursShouldRetry(t *testing.T) {
+	in := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	if !passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryUnset) ||
+		!passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryYes) {
+		t.Error("a 429 without a false hint keeps failing over")
+	}
+	if passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryNo) {
+		t.Error("x-should-retry: false must end the failover")
 	}
 }

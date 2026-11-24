@@ -273,3 +273,25 @@ func TestSeedPathVenvWithDirOnlyIgnoreRule(t *testing.T) {
 	}
 	requireSeededVenv(t, dest, main)
 }
+
+// A venv the repo does not ignore is still linked, and git's info/exclude keeps the lane clean.
+func TestSeedLinksUnignoredVenvAndExcludesIt(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
+	t.Parallel()
+	repo := testRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo.Main, "venv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Create(repo, "plainvenv", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link, err := os.Readlink(filepath.Join(dest, "venv")); err != nil || link != filepath.Join(repo.Main, "venv") {
+		t.Fatalf("venv -> %q, err %v; want a link to the primary venv", link, err)
+	}
+	cmd := exec.Command("git", "-C", dest, "status", "--porcelain")
+	cmd.Env = gitEnv()
+	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("status = %q, err %v; the venv link must stay invisible to git", out, err)
+	}
+}

@@ -86,6 +86,7 @@ type Dispatch struct {
 	Model          string `json:"model,omitempty"`
 	Status         string `json:"status"` // running|ok|error, mirroring agent.Record
 	Duration       string `json:"duration,omitempty"`
+	Runner         string `json:"runner,omitempty"` // "pi" when the pi runner carried the asked agent's run
 	Fallback       string `json:"fallback,omitempty"`
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
@@ -110,6 +111,7 @@ type Dispatch struct {
 	started   time.Time // dispatch start; a matching session must be updated at or after it
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 
+	recType   string    // the type the record stored (models.AgentType at the run's end); "" while running
 	codeMode  bool      // the answering run had pi codemode on or only: the row shows pi
 	routeKind string    // the route's provider kind (rec.Provider can be a profile name)
 	carry     bool      // the outer record of a carried dispatch: its row folds in the child doing the work
@@ -456,8 +458,11 @@ func namedDispatches(sub Subagent) []Dispatch {
 
 // dispatchType is the type of the model the run used (models.AgentType); the asked agent when the id names none.
 func dispatchType(d Dispatch) string {
-	if d.Model == agent.AutoModel {
-		return d.Agent
+	if d.recType != "" {
+		return d.recType
+	}
+	if d.Model == agent.AutoModel || (d.Agent != "pi" && !d.codeMode) {
+		return d.Agent // a running typed agent keeps its own name, as stampRunner stamps it
 	}
 	return cmp.Or(string(models.AgentType(d.routeKind, d.Model, d.codeMode)), d.Agent)
 }

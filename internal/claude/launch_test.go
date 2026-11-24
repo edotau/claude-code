@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -503,6 +504,33 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	}
 }
 
+// A nested claude whose shell base is a scoped proxy (not the shared port) keeps its credential.
+func TestKeepShellEndpointScopedProxyBaseKeepsCredential(t *testing.T) {
+	orig := listScopes
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	t.Setenv("ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d/p/qa", port))
+	start, _ := proc.StartTime(os.Getpid())
+	listScopes = func() ([]proxy.Scope, error) { return []proxy.Scope{{Port: port, PID: os.Getpid(), Start: start}}, nil }
+	t.Cleanup(func() { listScopes = orig })
+	plan := agent.Plan{Set: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/qa"}}
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
+	if plan.ForeignBase || plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] != "tok" {
+		t.Errorf("scoped base dropped credential: foreign=%v set=%v", plan.ForeignBase, plan.Set)
+	}
+	if scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: "other"}) || scopeAlive(proxy.Scope{Port: port, PID: 1 << 30}) {
+		t.Error("a changed start time or unprobeable pid must read as stale")
+	}
+	ln.Close()
+	if scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: start}) {
+		t.Error("a closed listener must read as stale")
+	}
+}
+
 // From a direct Databricks session (serving route, no proxy) an ultra launch drops that base and keeps its own login.
 func TestKeepShellEndpointSessionRouteBaseToFirstParty(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
@@ -678,6 +706,27 @@ func TestClaudeProxyTokenCoversAliasProfiles(t *testing.T) {
 		if !slices.Equal(minted, []string{c.mint}) || plan.Set[ProxyKeyEnv] != "cct_SCOPED" {
 			t.Errorf("%s: mints %v, token set %v; want [%s]", c.name, minted, plan.Set[ProxyKeyEnv] != "", c.mint)
 		}
+	}
+}
+
+// A confinement carried in the launch context (no process env) fences the token like the env one does.
+func TestClaudeProxyTokenFencedByContextOverlay(t *testing.T) {
+	hermetic(t, armDBX)
+	var minted []string
+	stubMint(t, func(_ context.Context, profiles []string, _ int) (string, error) {
+		minted = append(minted, strings.Join(profiles, ","))
+		return "cct_SCOPED", nil
+	})
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := proc.WithValues(t.Context(), proc.Values{"COWORKER_OVERLAY": `{"provider":"databricks","profile":"dev"}`})
+	if _, err := proxyToken(ctx, "http://127.0.0.1:1", providers.Selection{Provider: reg.Providers["dev"]}); err != nil || !slices.Equal(minted, []string{"dev"}) {
+		t.Fatalf("confined to dev: mints %v, err %v; want [dev]", minted, err)
+	}
+	if _, err := proxyToken(ctx, "http://127.0.0.1:1", providers.Selection{Provider: reg.Providers["qa"]}); err == nil || len(minted) != 1 {
+		t.Fatalf("confined to dev, qa asked: mints %v, err %v; want a refusal and no mint", minted, err)
 	}
 }
 
@@ -1032,5 +1081,55 @@ func TestLaunchVaultKeyReachesClaudeNotAgentCLI(t *testing.T) {
 	vendor := agent.EnvSpec{Mode: agent.EnvAgent, Base: env}.Environ(context.Background())
 	if slices.Contains(vendor, want) {
 		t.Fatal("vendor CLI child env kept the vault key")
+	}
+}
+
+func TestCodemodeSettingsAndRouteCheck(t *testing.T) {
+	args, err := codemodeSettings("on")
+	if err != nil || len(args) != 2 || args[0] != "--settings" || !strings.Contains(args[1], `"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE":"on"`) {
+		t.Fatalf("args %v err %v", args, err)
+	}
+	if args, _ := codemodeSettings("off"); args != nil {
+		t.Fatalf("off gave %v", args)
+	}
+	direct := &providers.Provider{Protocol: providers.ProtocolAnthropic, BaseURL: "https://api.anthropic.com"}
+	if err := checkCodemodeRoute(direct, ""); err != nil {
+		t.Fatalf("direct refused: %v", err)
+	}
+	for name, c := range map[string]struct {
+		p    *providers.Provider
+		base string
+	}{
+		"proxy":   {direct, "http://127.0.0.1:9"},
+		"gateway": {&providers.Provider{Protocol: providers.ProtocolAnthropic, BaseURL: "https://gw.example.com"}, ""},
+		"openai":  {&providers.Provider{Protocol: "openai", BaseURL: "https://api.anthropic.com"}, ""},
+		"nil":     {nil, ""},
+	} {
+		if err := checkCodemodeRoute(c.p, c.base); err == nil {
+			t.Errorf("%s: want refusal", name)
+		}
+	}
+}
+
+func TestMergeDocUnionsEnv(t *testing.T) {
+	doc := mergeDoc(map[string]any{"env": map[string]any{"A": "1"}}, map[string]any{"env": map[string]any{"B": "2"}})
+	if env := doc["env"].(map[string]any); env["A"] != "1" || env["B"] != "2" {
+		t.Fatalf("env merge %v", env)
+	}
+}
+
+func TestLastEnvTakesTheLastEntry(t *testing.T) {
+	if got := lastEnv([]string{"A=1", "B=2", "A=3"}, "A"); got != "3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestChildBasePrefersSettingsEnv(t *testing.T) {
+	argv := []string{"--settings", `{"env":{"ANTHROPIC_BASE_URL":"https://gw.example"}}`}
+	if got := childBase(argv, []string{"ANTHROPIC_BASE_URL=https://api.anthropic.com"}); got != "https://gw.example" {
+		t.Fatalf("got %q", got)
+	}
+	if got := childBase(nil, []string{"ANTHROPIC_BASE_URL=x"}); got != "x" {
+		t.Fatalf("got %q", got)
 	}
 }

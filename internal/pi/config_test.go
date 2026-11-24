@@ -212,9 +212,12 @@ func TestBuildConfigDefaultIsTheRunsModelElseFirstEntry(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", want, err)
 		}
-		var s struct{ DefaultProvider, DefaultModel string }
+		var s struct{ DefaultProvider, DefaultModel, CacheWarming string }
 		if err := json.Unmarshal(sj, &s); err != nil || menu[s.DefaultModel] != s.DefaultProvider || s.DefaultModel == "" {
 			t.Fatalf("%s: settings %s not on the menu: %v", want, sj, err)
+		}
+		if s.CacheWarming != "off" {
+			t.Errorf("cacheWarming = %q, want off", s.CacheWarming)
 		}
 		if def != "" && s.DefaultModel != def {
 			t.Errorf("default %q, want the run's model %q", s.DefaultModel, def)

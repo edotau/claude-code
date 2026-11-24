@@ -162,7 +162,7 @@ func TestSessionTokenRemintsWhenStale(t *testing.T) {
 		t.Fatalf("fresh token not reused: %q after %d mints", again, mints)
 	}
 	sessionMu.Lock()
-	e := sessionTokens[base+"|"+profile]
+	e := sessionTokens[base+"|"+profile+"|open"]
 	sessionMu.Unlock()
 	e.mu.Lock()
 	e.minted = time.Now().Add(-2 * sessionTokenMaxAge)
@@ -249,14 +249,14 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 // TestEnvWithCustomLosesToSetAndUnset: a custom var overrides the inherited env but never a launch Set or Unset key.
 func TestEnvWithCustomLosesToSetAndUnset(t *testing.T) {
 	p := Plan{Set: map[string]string{"ANTHROPIC_MODEL": "harness"}, Unset: []string{"CLAUDE_X"}}
-	custom := map[string]string{"ANTHROPIC_MODEL": "mine", "CLAUDE_X": "mine", "FOO": "bar", "PATH": "/custom"}
+	custom := map[string]string{"ANTHROPIC_MODEL": "mine", "CLAUDE_X": "mine", "FOO": "bar", "PATH": "/custom", "CODEMODE": "on"}
 	env := p.envWith([]string{"PATH=/usr/bin", "KEEP=1", "CLAUDE_X=old"}, custom)
 	for _, want := range []string{"ANTHROPIC_MODEL=harness", "FOO=bar", "PATH=/custom", "KEEP=1"} {
 		if !slices.Contains(env, want) {
 			t.Errorf("env missing %q: %d", want, len(env))
 		}
 	}
-	for _, bad := range []string{"ANTHROPIC_MODEL=mine", "CLAUDE_X=mine", "CLAUDE_X=old", "PATH=/usr/bin"} {
+	for _, bad := range []string{"ANTHROPIC_MODEL=mine", "CLAUDE_X=mine", "CLAUDE_X=old", "PATH=/usr/bin", "CODEMODE=on"} {
 		if slices.Contains(env, bad) {
 			t.Errorf("env has %q: %d", bad, len(env))
 		}

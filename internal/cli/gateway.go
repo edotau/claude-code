@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -70,6 +71,7 @@ type proxyOpts struct {
 	start, stop, restart, status, serve bool
 	ifChanged, force, dry               bool
 	port                                int
+	scope                               string
 	format                              *string
 	clientToken, revokeClientToken      string
 	secret                              *bool
@@ -99,6 +101,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 		"with --serve: loopback port (a busy port held by an older proxy is reclaimed; a foreign holder "+
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
+	fs.StringVar(&o.scope, "scope", "", "with --serve: serve one scoped proxy for <team>@<id> on a free port (no --port)")
 	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
 	fs.StringVar(&o.clientToken, "client-token", "", "with --secret: mint a named editor token; print it once")
 	fs.StringVar(&o.revokeClientToken, "revoke-client-token", "", "delete the named editor token")
@@ -113,6 +116,9 @@ func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	}
 	if err := helptext.CheckFormat(*o.format); err != nil {
 		return helptext.BadFormat("gateway proxy", err), false
+	}
+	if o.scope != "" && (!o.serve || flagSet(fs, "port")) {
+		return helptext.Fail("gateway proxy: --scope needs --serve and takes no --port"), false
 	}
 	return o.checkCombos(fs)
 }
@@ -172,7 +178,7 @@ func cmdGatewayProxy(args []string) int {
 	ctx := context.Background()
 	switch {
 	case o.serve:
-		return proxyServe(ctx, o.port)
+		return o.serveCmd(ctx)
 	case o.start:
 		return proxyStart(ctx)
 	case o.report():
@@ -236,6 +242,36 @@ func proxyServe(ctx context.Context, port int) int {
 	return 0
 }
 
+func (o *proxyOpts) serveCmd(ctx context.Context) int {
+	if o.scope != "" {
+		return proxyServeScope(ctx, o.scope)
+	}
+	return proxyServe(ctx, o.port)
+}
+
+// proxyServeScope runs one scoped proxy for "<team>@<id>" until SIGINT/SIGTERM, then removes its scope file.
+func proxyServeScope(ctx context.Context, spec string) int {
+	team, id, ok := strings.Cut(spec, "@")
+	if !ok || !proxy.ValidScopePart(team) || !proxy.ValidScopePart(id) {
+		return helptext.Fail("gateway proxy: --scope wants <team>@<id> (lower-case letters, digits, . _ -), got %q", spec)
+	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	s, err := server.Open(ctx, proxy.Scope{Team: team, ID: id, Host: proxy.HostDetached})
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	defer s.Close()
+	select {
+	case <-ctx.Done():
+	case <-s.Done():
+		if ctx.Err() == nil {
+			return helptext.Fail("gateway proxy: scoped server stopped unexpectedly")
+		}
+	}
+	return 0
+}
+
 func proxyStatus(ctx context.Context, format string) int {
 	ps, err := proxy.LoadStatus(ctx)
 	if err != nil {
@@ -248,10 +284,34 @@ func proxyStatus(ctx context.Context, format string) int {
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	if !ps.Running {
+	problems, err := printProxyTeams(format)
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	if !ps.Running || problems > 0 {
 		return 1
 	}
 	return 0
+}
+
+// printProxyTeams prints the team rows and `problem` lines (problems alone, to stderr, in JSON mode).
+func printProxyTeams(format string) (problems int, err error) {
+	lines, ps := doctor.ProxyTeams()
+	if format == helptext.JSON {
+		lines = nil
+	}
+	for _, p := range ps {
+		lines = append(lines, "problem  "+p.String())
+	}
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	text := strings.Join(lines, "\n") + "\n"
+	if format == helptext.JSON {
+		_, err = fmt.Fprint(os.Stderr, text)
+		return len(ps), err
+	}
+	return len(ps), stdoutf("", "%s", text)
 }
 
 // gatewayPage is bare `gateway`: the route pick and why, then the proxy status; never dispatches.
@@ -579,11 +639,20 @@ func proxyStopHold(ctx context.Context) int {
 	if err := proxy.Hold(); err != nil {
 		return helptext.Fail("gateway proxy: hold: %v", err)
 	}
+	n, serr := proxy.StopDetached()
+	if n > 0 {
+		if code := sayCode("proxy: stopped %d standing proxies\n", n); code != 0 {
+			return code
+		}
+	}
 	st, err := gatewayStop(ctx)
 	if errors.Is(err, proxy.ErrNotRunning) {
-		return sayCode("proxy: not running\n")
+		err = nil
+		if serr == nil {
+			return sayCode("proxy: not running\n")
+		}
 	}
-	if err != nil {
+	if err = errors.Join(serr, err); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	return sayCode("proxy: stopped pid %d\n", st.PID)

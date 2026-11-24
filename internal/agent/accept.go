@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -60,6 +61,9 @@ func (e *UnacceptedError) Reason() string {
 	}
 	if e.Detail != "" && e.Kind != UnacceptedPrefixed {
 		textutil.WriteStrings(&b, " (", e.Detail, ")")
+	}
+	if hint := router.FableHint(e.Model); hint != "" && e.Kind == UnacceptedUnserved {
+		textutil.WriteStrings(&b, "; ", hint)
 	}
 	if len(e.Nearest) > 0 {
 		textutil.WriteStrings(&b, "; nearest: ", strings.Join(e.Nearest, ", "))

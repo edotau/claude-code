@@ -29,7 +29,7 @@ func TestExperimentIsOneTrial(t *testing.T) {
 }
 
 func TestResolveCodemode(t *testing.T) {
-	vaulttest.Use(t) // an unset env falls through to the vault: never this machine's PI_CODEMODE
+	vaulttest.Use(t)
 	for name, c := range map[string]struct {
 		typed, setting, want string
 		tools                bool
@@ -43,7 +43,9 @@ func TestResolveCodemode(t *testing.T) {
 		"bad value":   {"", "yes", "", true},
 		"unset":       {"", "", "", true},
 	} {
-		t.Setenv(CodemodeEnv, c.setting)
+		if err := providers.SetCustomEnv(rtkwrap.CodemodeEnv, c.setting); err != nil {
+			t.Fatal(err)
+		}
 		got, err := ResolveCodemode(c.typed, c.tools)
 		if got != c.want || err != nil {
 			t.Errorf("%s: got %q, %v; want %q", name, got, err, c.want)
@@ -51,10 +53,17 @@ func TestResolveCodemode(t *testing.T) {
 	}
 }
 
+func TestResolveCodemodeIgnoresAmbientEnv(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(rtkwrap.CodemodeEnv, "on")
+	if got, err := ResolveCodemode("", true); got != "" || err != nil {
+		t.Fatalf("ambient CODEMODE=on resolved to %q, %v; want off", got, err)
+	}
+}
+
 func TestCodemodeOffOverridesVault(t *testing.T) {
 	vaulttest.Use(t)
-	t.Setenv(CodemodeEnv, "")
-	if err := providers.SetCustomEnv(CodemodeEnv, "on"); err != nil {
+	if err := providers.SetCustomEnv(rtkwrap.CodemodeEnv, "on"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := ResolveCodemode("", true); got != "on" || err != nil {

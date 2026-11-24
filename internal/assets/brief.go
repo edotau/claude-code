@@ -12,7 +12,7 @@ func renderBriefText(name string, input any) string { return renderFrom(briefTem
 func BriefBody(in BriefFrame) string {
 	return renderBriefText("brief.tmpl", tmplFields{
 		"Agent": in.Agent, "OwnedLine": in.OwnedLine, "Verify": in.Verify, "Report": in.Report, "Task": in.Task,
-		"ReportsDir": in.ReportsDir, "Rtk": in.Rtk,
+		"ReportsDir": in.ReportsDir, "Rtk": in.Rtk, "Handback": in.Agent == "pi",
 	})
 }
 

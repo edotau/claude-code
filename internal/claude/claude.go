@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
@@ -181,11 +182,17 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseClaudeCmd(req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
+	origArgs := args
 	p := agent.CLIPrep{Argv: args}
 	if _, err := agent.PrepareLaunch(ctx, claudeAgent, req, launchTarget(ctx, req), &p); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(p.Argv, toolArgs(req)...)
+	cmArgs, req, err := codemodeArgs(ctx, req)
+	if err != nil {
+		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
+	}
+	args = append(args, cmArgs...)
 	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
@@ -195,7 +202,48 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, cl, err
 	}
 	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
+	if err == nil && len(cmArgs) > 0 { // the child's own env: a shell-kept endpoint counts
+		if err = checkCodemodeRoute(launchTarget(ctx, req).Provider, childBase(cl.Argv, cmd.Env)); err != nil {
+			return claudeCmd(ctx, agent.CodemodeOff(ctx, agentid.Claude, err.Error(), req), origArgs, prompt)
+		}
+	}
 	return cmd, tail, cl, err
+}
+
+// codemodeArgs is the --settings arg for a code-mode request (tools only); a route off the Anthropic API runs it off.
+func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.RunOptions, error) {
+	if !req.Tools {
+		return nil, req, nil
+	}
+	args, err := codemodeSettings(req.Codemode)
+	if err != nil || len(args) == 0 {
+		return nil, req, err
+	}
+	if why := checkCodemodeRoute(launchTarget(ctx, req).Provider, ""); why != nil {
+		return nil, agent.CodemodeOff(ctx, agentid.Claude, why.Error(), req), nil
+	}
+	return args, req, nil
+}
+
+// childBase is the endpoint the child uses: the --settings env block's ANTHROPIC_BASE_URL over the process env's.
+func childBase(argv, env []string) string {
+	base := lastEnv(env, proc.EnvAnthropicBaseURL)
+	for i, a := range argv {
+		v, ok := strings.CutPrefix(a, "--settings=")
+		if a == "--settings" && i+1 < len(argv) {
+			v, ok = argv[i+1], true
+		}
+		if !ok {
+			continue
+		}
+		doc, err := readSettings(v)
+		if m, isMap := doc["env"].(map[string]any); err == nil && isMap {
+			if u, isStr := m[proc.EnvAnthropicBaseURL].(string); isStr {
+				base = u
+			}
+		}
+	}
+	return base
 }
 
 // refuseClaudeCmd is claudeCmd's refusal before any resolution: an unsupported capability or no launcher.
@@ -338,7 +386,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 		}
 		return res, err
 	}
-	edits := fileEdits{}
+	edits, tools := fileEdits{}, toolTimer{}
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
 		edits.observe(ev, &res)
 		msg := ev.topMessage()
@@ -356,7 +404,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 		if ev.Type == "result" {
 			sawResult = true
 		}
-		state := claudeStreamState{res: &res, transport: ts, log: lg, sink: sink, seen: &seen}
+		state := claudeStreamState{res: &res, transport: ts, log: lg, sink: sink, seen: &seen, tools: tools}
 		return state.apply(ev, msg, untilResult)
 	})
 	res.Transport = tr
@@ -375,6 +423,56 @@ type claudeStreamState struct {
 	log       wire.StreamLog
 	sink      wire.Sink
 	seen      *wire.Answer
+	tools     toolTimer
+}
+
+// toolTimer times top-level calls by tool_use id, tool_use to result (no start event, so waits count).
+type toolTimer map[string]pendingTool
+
+type pendingTool struct {
+	name  string
+	start time.Time
+}
+
+// started notes every tool_use of a top-level assistant message, on the adapter's own clock.
+func (t toolTimer) started(ev claudeEvent, msg anthropic.Message) {
+	if ev.ParentToolUseID != "" {
+		return
+	}
+	for _, b := range msg.Content {
+		if u, ok := b.AsAny().(anthropic.ToolUseBlock); ok {
+			t[u.ID] = pendingTool{name: u.Name, start: wire.Clock()}
+		}
+	}
+}
+
+// finished emits a tool_result event per answered tool_use of a user message; the error is the is_error field.
+func (t toolTimer) finished(ev claudeEvent, sink wire.Sink) error {
+	if ev.ParentToolUseID != "" || len(t) == 0 || !bytes.Contains(ev.Message, []byte(`"tool_result"`)) {
+		return nil
+	}
+	var m struct {
+		Content []editBlock `json:"content"`
+	}
+	if json.Unmarshal(ev.Message, &m) != nil {
+		return nil
+	}
+	for _, b := range m.Content {
+		p, ok := t[b.ToolUseID]
+		if b.Type != "tool_result" || !ok {
+			continue
+		}
+		delete(t, b.ToolUseID)
+		status := "completed"
+		if b.IsError {
+			status = "error"
+		}
+		if err := sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: p.name, ID: b.ToolUseID},
+			Status: status, DurationMs: wire.Clock().Sub(p.start).Milliseconds()}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type claudeUsage struct {
@@ -424,7 +522,10 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 		s.transport.Event(wire.Clock())
 	case "system":
 		return false, applyClaudeSystem(ev, s.res, s.transport, s.log, s.sink)
+	case "user":
+		return false, s.tools.finished(ev, s.sink)
 	case "assistant":
+		s.tools.started(ev, msg)
 		return false, applyClaudeAssistantEvent(ev, msg, s.res, s.log, s.sink, s.seen)
 	case "result":
 		if err := applyClaudeResult(s.res, ev); err != nil {
@@ -620,7 +721,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native},
-	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
+	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
 	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 }}
 

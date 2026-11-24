@@ -228,7 +228,7 @@ func (s Status) lanesText() []string {
 		}
 		rows = append(rows, fmt.Sprintf("%s: %s, dirty=%t, behind=%d", lane.Name, state, lane.Dirty, lane.Behind))
 		if !lane.Merged && !lane.Dirty {
-			rows = append(rows, "claude-code worktree merge "+lane.Name)
+			rows = append(rows, "claude-code worktree land "+lane.Name)
 		}
 	}
 	return rows

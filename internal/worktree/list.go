@@ -47,6 +47,8 @@ type Entry struct {
 	mergedKnown bool
 	// Merged by patch-equivalence (cherry-picked), not ancestry: its branch needs `branch -D`.
 	patchMerged bool
+	// land removes the worktree only: its branch is the one committed copy until `worktree clean`.
+	keepBranch bool
 }
 
 // List returns every worktree under repo.Root (git registration plus directories on disk), each inspected.

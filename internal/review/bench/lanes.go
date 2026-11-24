@@ -110,7 +110,7 @@ func CleanLanes(ctx context.Context, top string, out io.Writer) error {
 		case lane.Dirty:
 			_, err = fmt.Fprintf(out, "kept dirty automatic lane %s\n", lane.Name)
 		case !lane.Merged && lane.Behind > staleBehind:
-			_, err = fmt.Fprintf(out, "kept stale automatic lane %s (%d behind, unmerged): claude-code worktree merge %s\n",
+			_, err = fmt.Fprintf(out, "kept stale automatic lane %s (%d behind, unmerged): claude-code worktree land %s\n",
 				lane.Name, lane.Behind, lane.Name)
 		case !lane.Merged:
 			continue

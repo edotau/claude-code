@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -378,13 +379,19 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	var text strings.Builder
-	var tools []string
+	var tools, results []string
+	now := time.Unix(0, 0)
+	orig := wire.Clock
+	wire.Clock = func() time.Time { now = now.Add(5 * time.Millisecond); return now }
+	t.Cleanup(func() { wire.Clock = orig })
 	sink := goldenSink(func(ev wire.Event) {
 		switch ev.Type {
 		case wire.EventText:
 			text.WriteString(ev.Text)
 		case wire.EventToolUse:
 			tools = append(tools, ev.Tool.Name)
+		case wire.EventToolResult:
+			results = append(results, ev.Tool.Name+":"+ev.Status+":"+strconv.FormatBool(ev.DurationMs > 0))
 		}
 	})
 	res, err := parseClaudeStream(newBR(string(raw)), sink) // includes plain-string message lines
@@ -393,6 +400,9 @@ func TestParseClaudeStreamGolden(t *testing.T) {
 	}
 	const answer = "Hi! Here's what `ls` shows in `/home/user/project`."
 	assertGoldenClaudeResult(t, res, text.String(), answer, tools)
+	if want := []string{"Bash:completed:true", "Read:error:true"}; !slices.Equal(results, want) {
+		t.Errorf("tool results = %q, want %q", results, want)
+	}
 	if deltas := goldenStreamDeltas(t, raw); deltas != answer {
 		t.Errorf("stream_event text deltas = %q", deltas)
 	}
@@ -403,8 +413,8 @@ func assertGoldenClaudeResult(t *testing.T, res wire.Result, text, answer string
 	if text != answer || res.Answer != answer {
 		t.Errorf("text = %q, answer = %q", text, res.Answer)
 	}
-	if len(tools) != 1 || tools[0] != "Bash" {
-		t.Errorf("tool events = %q, want one Bash", tools)
+	if !slices.Equal(tools, []string{"Bash", "Read"}) {
+		t.Errorf("tool events = %q, want Bash, Read", tools)
 	}
 	if res.SessionID != "uuid_01" || res.Model != "claude-opus-5-5" || res.Usage.CostUSD != 0.359989 || res.Usage.OutputTokens != 470 {
 		t.Errorf("res = %+v", res)

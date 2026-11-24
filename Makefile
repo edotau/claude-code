@@ -105,7 +105,9 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@out="$$($(BIN) gateway proxy --restart --if-changed 2>&1)"; case "$$out" in \
 		*unchanged*|*"not running"*) ;; *restarted*) echo "$$out" ;; \
-		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line replaces it once no request is in flight" ;; esac
+		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line or the next fenced mint replaces it" ;; esac
+	@out="$$($(BIN) gateway proxy --status 2>&1 || true)"; n="$$(printf '%s\n' "$$out" | grep -c '^problem ' || true)"; t="$$(printf '%s\n' "$$out" | grep -c '^teams: ' || true)"; \
+		if [ "$$n" != 0 ] || [ "$$t" = 0 ]; then echo "$$out"; exit 1; fi
 	@if $(BIN) agents serve --status >/dev/null 2>&1; then \
 		$(BIN) agents serve --restart || echo -e "$(C_NOTE)agents serve did not restart (install itself succeeded)"; fi
 

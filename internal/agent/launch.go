@@ -175,9 +175,9 @@ var (
 	MintSessionWithFailover = proxy.MintScopedTokenWithFailover
 )
 
-// ensureRouter is proxy.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
+// ensureRouter is the proxy base (a route walk for a scoped agent); --remote adds /via/<host>, a dispatch /d/<id>.
 func ensureRouter(ctx context.Context) (string, error) {
-	base, err := proxy.Ensure(ctx)
+	base, err := ensureProxyRoute(ctx)
 	if err != nil {
 		return base, err
 	}
@@ -228,6 +228,9 @@ func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(boo
 
 // routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+	if s.CLI.ScopedProxy {
+		ctx = WithScopedProxy(ctx, s.Name)
+	}
 	rb, key, err := launchRouter(ctx, p.Name)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
@@ -250,10 +253,26 @@ func PreviewRouterBase(ctx context.Context) string {
 	return proxy.ViaBaseContext(ctx, base)
 }
 
+// previewScopedBase is the router base a scoped dispatch would walk to, stamped so the preview env shows its proxy.
+func previewScopedBase(ctx context.Context) string {
+	if agent, _ := ctx.Value(scopedProxyKey{}).(string); agent != "" {
+		preview := func(ctx context.Context) (string, error) { return PreviewRouterBase(ctx), nil }
+		if c, base, _, err := chooseRoute(ctx, agent, routeCands(ctx), nil, preview); err == nil {
+			if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" {
+				routeMu.Lock()
+				chosenByID[id] = c.label()
+				routeMu.Unlock()
+			}
+			return base
+		}
+	}
+	return PreviewRouterBase(ctx)
+}
+
 // launchRouter previews routing without starting a daemon or minting a credential.
 func launchRouter(ctx context.Context, profile string) (string, string, error) {
 	if dry, _ := ctx.Value(launchDryKey{}).(bool); dry {
-		return PreviewRouterBase(ctx), "<redacted>", nil
+		return previewScopedBase(ctx), "<redacted>", nil
 	}
 	base, err := EnsureRouter(ctx)
 	if err != nil {
@@ -288,7 +307,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 		}
 		return tok, nil
 	}
-	scope, err := tokenScope(ctx, profile)
+	scope, err := TokenScope(ctx, profile)
 	if err != nil {
 		return "", err
 	}
@@ -300,12 +319,15 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 }
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
-func TokenScope(profile string, extra ...string) ([]string, error) {
-	return tokenScope(context.Background(), profile, extra...)
-}
-
-func tokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
-	if router.ArmProfileContext(ctx) != "" { // confinement never widens
+func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
+	fence, open, err := proxy.ConfinementFence(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("token scope: %w", err)
+	}
+	if !open { // confinement never widens, nor moves to a sibling workspace
+		if !slices.Contains(fence, profile) {
+			return nil, fmt.Errorf("token scope: %s is outside the confinement fence (%s)", profile, strings.Join(fence, ","))
+		}
 		return []string{profile}, nil
 	}
 	reg, err := providers.Load()
@@ -339,8 +361,16 @@ func SessionToken(ctx context.Context, routerBase string, profiles ...string) (s
 
 // SessionTokenWithFailover mints a token strictly bound to profiles, with optional server-side same-provider failover.
 func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider string, profiles ...string) (string, error) {
+	fence, open, err := proxy.ConfinementFence(ctx)
+	if err != nil {
+		return "", err
+	}
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
-	key := routerBase + "|" + strings.Join(profiles, ",")
+	ctx = proxy.WithFence(ctx, fence, open)                          // one snapshot for the slot key and the mint
+	key := routerBase + "|" + strings.Join(profiles, ",") + "|open"
+	if !open {
+		key = routerBase + "|" + strings.Join(profiles, ",") + "|fence:" + fmt.Sprintf("%q", fence)
+	}
 	if failoverProvider != "" {
 		key += "|failover:" + failoverProvider
 	}
@@ -356,11 +386,10 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 	if e.tok != "" && time.Since(e.minted) < sessionTokenMaxAge {
 		return e.tok, nil
 	}
-	var (
-		tok string
-		err error
-	)
-	if failoverProvider == "" {
+	var tok string
+	if localProxyBase(routerBase) {
+		tok, err = signLocalToken(ctx, profiles, failoverProvider)
+	} else if failoverProvider == "" {
 		tok, err = MintSession(ctx, profiles, os.Getpid())
 	} else {
 		tok, err = MintSessionWithFailover(ctx, profiles, os.Getpid(), failoverProvider)
@@ -591,23 +620,9 @@ var customEnv = func() map[string]string {
 	return vals
 }
 
-// envWith layers base, then custom (user vars), then Set; Unset and Set beat custom.
+// envWith layers base, then custom (user vars), then Set; Unset and Set beat custom; CODEMODE stays out.
 func (p Plan) envWith(base []string, custom map[string]string) []string {
-	unset := map[string]bool{}
-	for _, k := range p.Unset {
-		unset[k] = true
-	}
-	merged := maps.Clone(p.Set)
-	if merged == nil {
-		merged = map[string]string{}
-	}
-	for k, v := range custom {
-		_, harness := p.Set[k]
-		if !harness && !unset[k] {
-			merged[k] = v
-		}
-	}
-	p.Set = merged
+	p.Set = vaultLayer(p.Set, p.Unset, custom)
 	return p.plainEnv(base)
 }
 

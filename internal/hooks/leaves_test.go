@@ -1094,12 +1094,15 @@ func TestHandbackJobResultIsTheAnswer(t *testing.T) {
 	}
 }
 
-// shrinkHandbackWait sets Handback's poll and budget to test sizes; the record flips to final on the flip-th re-read.
+// shrinkHandbackWait sets Handback's poll and budget; re-read-ended cases (flip or unreadable) get a long one.
 func shrinkHandbackWait(t *testing.T, id string, flip int, final string, readErr bool) {
 	t.Helper()
-	poll, wait, load := handbackPoll, handbackWait, loadDispatch
-	t.Cleanup(func() { handbackPoll, handbackWait, loadDispatch = poll, wait, load })
+	poll, budget, load := handbackPoll, handbackWait, loadDispatch
+	t.Cleanup(func() { handbackPoll, handbackWait, loadDispatch = poll, budget, load })
 	handbackPoll, handbackWait = time.Millisecond, 30*time.Millisecond
+	if flip > 0 || readErr {
+		handbackWait = time.Minute
+	}
 	calls := 0
 	loadDispatch = func(got string) (agent.Record, error) {
 		if calls++; got == id && calls > 1 && readErr {
@@ -1366,5 +1369,16 @@ func TestLeafDenialProvenance(t *testing.T) {
 				t.Fatalf("ambiguous result: %+v blocked=%v", r, blocked)
 			}
 		})
+	}
+}
+
+func TestHeldJobsKeptInState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	saveHeldJob("a1", pollOnce("j1"))
+	saveHeldJob("a1", repeatHold("info", "", "j1"))
+	var s leafScan
+	s.addHeldIDs(ReadHeldJobs("a1"))
+	if len(s.heldJobs) != 1 || s.heldJobs[0] != "j1" {
+		t.Fatalf("held ids = %v", s.heldJobs)
 	}
 }

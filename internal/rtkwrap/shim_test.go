@@ -33,7 +33,7 @@ func TestWrapDecision(t *testing.T) {
 		return call{name: name, args: args, pipe: true, pid: 20, ppid: 10, sid: 20, cwd: cwd}
 	}
 	tty, script := forked("git", "status"), forked("git", "status")
-	tty.pipe, script.codemode = false, "only"
+	tty.pipe, script.codemode = false, true
 	footer := execd("git", "status")
 	footer.sid = 5 // Pi's own git (footer, packages): not a detached tool shell
 	sub, recipe := forked("git", "status"), forked("git", "status")

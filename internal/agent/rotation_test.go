@@ -14,7 +14,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -280,3 +282,52 @@ type onlyKeep struct {
 }
 
 func (o onlyKeep) Runnable(_ *providers.Provider, m string) bool { return m == o.id }
+
+// Only a typed `Tier: deep` makes an owner; an exclusive provider keeps its own starts and takes no one else's.
+func TestRoleRotationModes(t *testing.T) {
+	if dispatchRole("Tier: deep\ndo it") != router.RoleOwner || dispatchRole("design the security audit") != router.RoleFleet {
+		t.Fatal("role must come from the Tier line only")
+	}
+	tiers := func(prefix string) map[string]string {
+		return map[string]string{"opus": prefix + "claude-opus-5-5", "sonnet": prefix + "claude-sonnet-5-5", "haiku": prefix + "claude-haiku-5-5"}
+	}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"ultra": {Name: "ultra", Provider: "anthropic", Models: tiers("")},
+		"dev":   {Name: "dev", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers("databricks-")},
+		"qa":    {Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers("databricks-")},
+	}}
+	excl := map[string]string{"anthropic": "exclusive"}
+	if cells, _ := modeCells(reg, nil, router.RoleOwner, "dev"); len(cells) != 3 {
+		t.Fatalf("rotate: owner cells = %v, want 3", cells)
+	}
+	if cells, scope := modeCells(reg, excl, router.RoleFleet, "dev"); len(cells) != 4 || slices.ContainsFunc(cells,
+		func(c router.RoleCell) bool { return c.Provider == "anthropic" }) || !strings.Contains(scope.String(), "kept out") {
+		t.Fatalf("exclusive elsewhere: cells %v scope %q", cells, scope)
+	}
+	if cells, scope := modeCells(reg, excl, router.RoleFleet, "ultra"); len(cells) != 2 || cells[0].Provider != "anthropic" ||
+		!strings.Contains(scope.String(), "stays on") {
+		t.Fatalf("exclusive start: cells %v scope %q", cells, scope)
+	}
+}
+
+// An arm-confined (databricks:<p>) or provider-fenced dispatch does not rotate at all; an unfenced one may.
+func TestRoleRotationFenced(t *testing.T) {
+	o := RunOptions{Agent: "claude", Prompt: "say hi"}
+	if !untypedClaude(context.Background(), o) {
+		t.Fatal("an unfenced untyped claude dispatch should rotate")
+	}
+	for _, fence := range []string{`{"provider":"databricks","profile":"qa"}`, `{"provider":"anthropic"}`} {
+		if ctx := valuesContext(context.Background(), proc.Values{route.OverlayVar: fence}); untypedClaude(ctx, o) {
+			t.Errorf("fence %s: rotated", fence)
+		}
+	}
+}
+
+// A rotation that stays on an exclusive start pins the row as Provider: Lead stays empty and the record marks Rotated.
+func TestPlaceRotationStayPinsProvider(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"ultra": {Name: "ultra", Provider: "anthropic"}}}
+	_, o := placeRotation(context.Background(), reg, RunOptions{Lead: "old"}, "ultra", modeScope{stay: true, off: []string{"anthropic"}})
+	if o.Lead != "" || o.Provider != "ultra" || !o.Rotated {
+		t.Fatalf("lead %q provider %q rotated %v, want empty, ultra, true", o.Lead, o.Provider, o.Rotated)
+	}
+}

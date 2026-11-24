@@ -29,6 +29,9 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 
 func maskedOut(out io.Writer) io.WriteCloser { return redact.Writer(out) }
 
+// maskText masks credential-shaped runs, then vault values, in s.
+func maskText(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
+
 func warmMask() { redact.Shared() }
 
 func closeAskOutput(out io.Closer, exit int) int {
@@ -80,6 +83,20 @@ func maskEnvelope(env wire.Envelope) wire.Envelope {
 			d.Commands[i] = redact.Text(command)
 		}
 		env.Denials = &d
+	}
+	if env.Handback != nil {
+		h := *env.Handback
+		h.Summary = redact.Text(h.Summary)
+		h.Unfixed = slices.Clone(h.Unfixed)
+		for i, item := range h.Unfixed {
+			h.Unfixed[i] = redact.Text(item)
+		}
+		env.Handback = &h
+	}
+	if env.Verify != nil {
+		v := *env.Verify
+		v.Command, v.Tail = maskText(v.Command), maskText(v.Tail)
+		env.Verify = &v
 	}
 	env.Structured = maskStructured(env.Structured)
 	return env

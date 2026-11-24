@@ -458,7 +458,11 @@ func CheckArm(ctx context.Context, agentName, profile, provider, model string, d
 		return nil
 	}
 	if _, failed := agent.CheckModelNoted(agentName, reg.Providers[arm], model, time.Now(), nil); failed != nil {
-		return fmt.Errorf("--model: not served to %s on databricks:%s", agentName, arm)
+		msg := fmt.Sprintf("--model: not served to %s on databricks:%s", agentName, arm)
+		if hint := router.FableHint(model); hint != "" {
+			msg += " (" + hint + ")"
+		}
+		return errors.New(msg)
 	}
 	return nil
 }

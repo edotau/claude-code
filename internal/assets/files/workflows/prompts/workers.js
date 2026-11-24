@@ -9,12 +9,6 @@ function workersLenses({ JOB }) {
 ]
 }
 
-/** @param {{ EXT: * }} input */
-function workersPreflightBrief({ EXT }) {
-  return 'For each line, run it and report its candidate count and the first candidate as agent/account/model. Report what you find.\n' +
-      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n')
-}
-
 /** @param {{ a: * }} input */
 function workersFocus({ a }) {
   return a.focus ? ' Focus for this group: ' + a.focus + '.' : ''
@@ -23,7 +17,7 @@ function workersFocus({ a }) {
 /** @param {{ CWD: * }} input */
 function workersRules({ CWD }) {
   return 'Shared live tree, other packages are being edited in parallel: never git stash|checkout|reset|restore|clean|commit|add, never ' +
-  'make build|install|audit, never edit settings.json. cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).'
+  'make build|install|audit, never edit settings.json. Run every command in cwd ' + JSON.stringify(CWD) + ' (external agents: ask --workdir ' + CWD + ').'
 }
 
 /** @param {{ RULES: *, a: * }} input */

@@ -83,7 +83,7 @@ var runWorktreeMerge = func(main, name, session string) (int, string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), laneMergeTime)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "worktree", "merge", "--resolve-agent", laneResolveWith, name)
+	cmd := exec.CommandContext(ctx, bin, "worktree", "land", "--resolve-agent", laneResolveWith, name)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = main, append(os.Environ(), paths.SessionIDEnv+"="+session), 5*time.Second
 	out, err := proc.CombinedOutputCapped(cmd)
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
@@ -113,7 +113,7 @@ func laneMerged(j laneJob, base, out string) {
 	}
 	var keep []string
 	for line := range strings.Lines(out) {
-		if l := strings.TrimSpace(line); strings.HasPrefix(l, "promoted:") || strings.Contains(strings.ToLower(l), "ticked") {
+		if l := strings.TrimSpace(line); strings.HasPrefix(l, "landed ") || strings.HasPrefix(l, "promoted:") || strings.Contains(strings.ToLower(l), "ticked") {
 			keep = append(keep, strings.Join(strings.Fields(l), " "))
 		}
 	}
@@ -128,6 +128,8 @@ func laneFailed(j laneJob, repo *worktree.Repo, code int, out, logPath string) {
 	merge := laneMergeCmd(j.lane)
 	q := worktree.QueuedLane{Repo: repo.Main, Task: j.task}
 	switch m := conflictFiles.FindStringSubmatch(out); {
+	case strings.Contains(out, worktree.ErrLandRefused.Error()):
+		q.Reason, q.Detail, q.Next = "land refused: live tree dirty", capText(lastLine(out)), "commit or move those edits, then "+merge
 	case code == 3 || m != nil && strings.Contains(out, "resolv"):
 		q.Reason, q.Next = "conflict unresolved", "resolve it in "+j.lane+", then "+merge+" (or --resume)"
 		if m != nil {
@@ -144,7 +146,7 @@ func laneFailed(j laneJob, repo *worktree.Repo, code int, out, logPath string) {
 func lastLine(out string) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for _, l := range slices.Backward(lines) {
-		if strings.Contains(l, "worktree merge:") {
+		if strings.Contains(l, "worktree land:") {
 			return strings.TrimSpace(l)
 		}
 	}

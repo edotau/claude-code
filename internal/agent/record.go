@@ -56,16 +56,20 @@ type Record struct {
 	Request        RunOptions  `json:"request"`
 	Status         string      `json:"status"`               // running | ok | error | partial | stalled | quota
 	Experiment     string      `json:"experiment,omitempty"` // the one trial the run carries (pi: rtk-wrap|codemode|none)
+	Role           string      `json:"role,omitempty"`       // owner | fleet, from a Tier: line in the prompt; "" for a no-model action
 	Error          string      `json:"error,omitempty"`
 	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
 	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
 	Provider       string      `json:"provider,omitempty"`
+	Type           string      `json:"type,omitempty"`           // the agent type of the model that ran (models.AgentType)
+	Runner         string      `json:"runner,omitempty"`         // "pi" when the pi runner carried Agent's run; "" when Agent ran itself
 	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
 	Invoked        string      `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
 	Reported       string      `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
 	SessionID      string      `json:"session_id,omitempty"`
 	DurationMs     int64       `json:"duration_ms,omitempty"`
 	FirstEventMs   int64       `json:"first_event_ms,omitempty"` // spawn to the first stream event, ms
+	Proxy          string      `json:"proxy,omitempty"`          // the proxy route label the final attempt ran through
 	Fallback       string      `json:"fallback,omitempty"`       // the original agent's name, when it ran instead
 	FallbackReason string      `json:"fallback_reason,omitempty"`
 	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
@@ -287,7 +291,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens,
-		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req)}
+		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req), Role: string(dispatchRole(req.Prompt))}
 }
 
 // Experimenter is an optional Driver method: the trial a run of req carries, for the record.
@@ -597,8 +601,8 @@ func (r Record) LogLine() string {
 	if r.Cutoff != "" {
 		tools += " [" + r.Cutoff + "]"
 	}
-	agentCol := r.Agent
-	if r.Fallback != "" {
+	agentCol := RowLabel(r)
+	if r.Fallback != "" && RunnerOf(r) == "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
 	elapsed := r.Elapsed()
@@ -633,13 +637,14 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
 	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
-	if res.Fallback != "" {
+	r.Type, r.Runner = res.Type, res.Runner
+	if res.Fallback != "" || res.Agent != "" && res.Agent != r.Agent { // a fallback, or a runner executed the ask
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
-	r.FirstEventMs = 0
+	r.FirstEventMs, r.Proxy = 0, ""
 	if res.Transport != nil {
-		r.FirstEventMs = res.Transport.FirstEventMs
+		r.FirstEventMs, r.Proxy = res.Transport.FirstEventMs, res.Transport.Proxy
 	}
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
@@ -833,31 +838,6 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	pruneDispatches(paths.DispatchDir(), r.ID) // claimRecord pre-creates the file, so Save never sees a new record
 }
 
-// pruneDispatches trims the oldest records past dispatchKeep, never the ids in keep nor an active record.
-func pruneDispatches(dir string, keep ...string) {
-	names, err := recordNames(dir)
-	if err != nil || len(names) <= dispatchKeep+dispatchPruneMargin { // best-effort: a failed listing skips this prune
-		return
-	}
-	excess := len(names) - dispatchKeep
-	for _, name := range names {
-		if excess <= 0 {
-			return
-		}
-		if slices.Contains(keep, strings.TrimSuffix(name, ".json")) || activeRecord(filepath.Join(dir, name)) {
-			continue
-		}
-		_ = os.Remove(filepath.Join(dir, name))
-		_ = os.Remove(filepath.Join(dir, name+".lock"))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log"))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
-		_ = os.Remove(AgyLogPath(strings.TrimSuffix(name, ".json")))
-		_ = os.Remove(ranIdentityPath(strings.TrimSuffix(name, ".json")))
-		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))
-		excess--
-	}
-}
-
 // activeRecord keeps a live dispatch (see Record.Alive) and any record it cannot read out of the prune.
 func activeRecord(path string) bool {
 	r, err := readRecord(path)
@@ -956,8 +936,7 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status); nearest: %s",
-			id, len(match), strings.Join(nearestIDs(names, id), ", "))
+		return Record{}, noMatch(id, names, len(match))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
 }
@@ -1012,7 +991,7 @@ func SessionModel(session string) (profile, model string) {
 			return true
 		}
 		model = m
-		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it); the record's row
+		if r.RanAs == "" || r.RanAs == r.Fallback || r.Runner != "" { // ran on the asked agent (Fallback names it); the record's row
 			profile = r.Provider
 		}
 		return false
@@ -1088,6 +1067,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 	}
 	tl := &tally{Sink: sink, live: startActivity(rec.ID)}
 	res, err = run(ctx, tl)
+	res = stampRunner(*rec, res)
 	tl.live.close()
 	rec.ToolStats = tl.toolStats()
 	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
@@ -1118,12 +1098,16 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	}
 	var runErr error
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
-		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason,
+		Type: rec.Type, Runner: rec.Runner, Asked: rec.Agent}
 	if rec.Failed() {
 		runErr, res.Status = fmt.Errorf("%s", rec.Error), rec.Status
 	}
 	if rec.Usage != nil {
 		res.Usage = *rec.Usage
+	}
+	if rec.Proxy != "" {
+		res.Transport = &wire.Transport{Attempts: 1, Proxy: rec.Proxy}
 	}
 	if log, err := os.ReadFile(rec.LogPath()); err == nil {
 		res.Answer = string(log)

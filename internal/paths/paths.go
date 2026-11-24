@@ -301,31 +301,89 @@ var lockPoll = func(attempt int) time.Duration {
 
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return false, err
+	return tryFileLock(path, wait, fn, func() (*os.File, error) {
+		return os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	})
+}
+
+// maxLockReopens bounds how often TryFileLock reopens the path after the lock it took names a removed or replaced file.
+const maxLockReopens = 8
+
+// errLockReplaced means the lock path kept naming a different file than the one this process locked.
+var errLockReplaced = errors.New("file lock path keeps being replaced")
+
+// tryFileLock is TryFileLock with the open step injected, so a test can replace the path between open and acquire.
+func tryFileLock(path string, wait time.Duration, fn func() error, open func() (*os.File, error)) (bool, error) {
+	deadline := time.Now().Add(wait)
+	for range maxLockReopens {
+		f, err := open()
+		if err != nil {
+			return false, err
+		}
+		ok, err := acquireUntil(f, deadline)
+		if err != nil || !ok {
+			return false, joinIfAny(err, f.Close())
+		}
+		same, err := lockedPath(path, f)
+		if err != nil {
+			return false, joinIfAny(err, release(f))
+		}
+		if same {
+			return runLocked(f, fn)
+		}
+		if err := release(f); err != nil {
+			return false, err
+		}
 	}
-	defer f.Close()
-	for deadline, attempt := time.Now().Add(wait), 0; ; attempt++ {
+	return false, errLockReplaced
+}
+
+// acquireUntil polls tryLock on f until it is granted or deadline passes; false with a nil error means it timed out.
+func acquireUntil(f *os.File, deadline time.Time) (bool, error) {
+	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
 			time.Sleep(lockPoll(attempt - 1))
 		}
-		ok, lerr := tryLock(f)
-		if lerr != nil {
-			return false, lerr
-		}
-		if ok {
-			break
+		ok, err := tryLock(f)
+		if err != nil || ok {
+			return ok, err
 		}
 		if time.Now().After(deadline) {
 			return false, nil
 		}
 	}
-	defer func() {
-		if uerr := unlock(f); uerr != nil {
-			err = errors.Join(err, uerr)
-		}
-	}()
+}
+
+// lockedPath reports whether path still names the file f holds; a missing path means a holder unlinked it.
+func lockedPath(path string, f *os.File) (bool, error) {
+	held, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	named, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(held, named), nil
+}
+
+// release unlocks f and closes it, returning both failures.
+func release(f *os.File) error { return errors.Join(unlock(f), f.Close()) }
+
+// joinIfAny is err unchanged when extra is nil, so callers still compare fn's sentinel errors by identity.
+func joinIfAny(err, extra error) error {
+	if extra == nil {
+		return err
+	}
+	return errors.Join(err, extra)
+}
+
+// runLocked runs fn while f holds the lock, then releases it; a release failure joins fn's error.
+func runLocked(f *os.File, fn func() error) (ran bool, err error) {
+	defer func() { err = joinIfAny(err, release(f)) }()
 	return true, fn()
 }
 

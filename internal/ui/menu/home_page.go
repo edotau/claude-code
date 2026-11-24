@@ -182,7 +182,7 @@ func runCustomEnv(d *dialog) {
 		if idx-1 < len(names) {
 			name = names[idx-1]
 		}
-		if n, e, ok := editCustomEnv(d, name); ok {
+		if n, e, ok := editCustomEnv(d, name, env); ok {
 			stageEnvEdit(edits, n, e)
 		}
 	}
@@ -270,8 +270,8 @@ func customEnvRows(env map[string]string, names []string) [][2]string {
 	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
 }
 
-// editCustomEnv reads one change.
-func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
+// editCustomEnv reads one change to name; env is the staged bucket the page shows.
+func editCustomEnv(d *dialog, name string, env map[string]string) (string, envEdit, bool) {
 	isNew := name == ""
 	if isNew {
 		var ok bool
@@ -279,16 +279,39 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 			return "", envEdit{}, false
 		}
 	}
-	wasSecret := providers.CustomEnv()[name] == providers.SecretRef
-	val, err := secretLine(d, "Value for "+name+" (input hidden; empty deletes it): ")
-	if err != nil {
+	cur, exists := env[name]
+	wasSecret := cur == providers.SecretRef
+	if exists {
+		act, err := d.shell().Pick(name, [][2]string{
+			{"change value", "type a new value"}, {"delete", "remove it from the vault env"}, {"cancel", "change nothing"}})
+		if err != nil || act < 0 || act == 2 {
+			d.println("environment: nothing changed")
+			return "", envEdit{}, false
+		}
+		if act == 1 {
+			return deleteCustomEnv(d, name, wasSecret)
+		}
+	}
+	val, err := secretLine(d, "Value for "+name+" (input hidden; empty cancels): ")
+	if val = strings.TrimSpace(val); err != nil || val == "" {
+		d.println("environment: nothing changed")
 		return "", envEdit{}, false
 	}
-	if val = strings.TrimSpace(val); val == "" {
-		del := wasSecret && d.shell().Confirm("also delete the sealed secret "+name+"?")
-		return name, envEdit{deleteSecret: del}, true
+	if exists && !wasSecret && cur != val && !d.shell().Confirm(name+" is "+vault.Redact(cur)+"; change it?") {
+		d.println("environment: nothing changed")
+		return "", envEdit{}, false
 	}
 	return pickEnvStorage(d, name, val, wasSecret)
+}
+
+// deleteCustomEnv confirms removing name, and whether to drop its sealed secret too.
+func deleteCustomEnv(d *dialog, name string, wasSecret bool) (string, envEdit, bool) {
+	if !d.shell().Confirm("delete " + name + " from the vault env?") {
+		d.println("environment: nothing changed")
+		return "", envEdit{}, false
+	}
+	del := wasSecret && d.shell().Confirm("also delete the sealed secret "+name+"?")
+	return name, envEdit{deleteSecret: del}, true
 }
 
 // pickEnvStorage asks whether the non-empty value val lives plain or sealed as a secret.

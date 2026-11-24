@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -146,7 +147,11 @@ func (t *RouteTable) pick(
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	ctx = context.WithValue(ctx, accountKey{}, accountFn(pg.providerAccount))
 	gate := func(agent string) []Candidate {
-		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
+		g := t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
+		if agent == want {
+			g = t.leadRotated(ctx, pg, alias, agent, g, st, o, now, configured, &res)
+		}
+		return g
 	}
 	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)
 	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res}
@@ -177,6 +182,48 @@ func (t *RouteTable) pick(
 	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
 	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, reg, now, &res)
 	return res
+}
+
+// RotatedLead is a role rotation's pick as the route sees it: the row that leads, and rows no hop may use.
+type RotatedLead struct {
+	Row  string   `json:"row"`
+	Drop []string `json:"drop,omitempty"` // rows of exclusive providers the dispatch did not start on
+}
+
+type rotatedLeadKey struct{}
+
+// WithRotatedLead marks l on ctx: a wanted claude whose PickOpts.Lead is l.Row runs there first, never on l.Drop.
+func WithRotatedLead(ctx context.Context, l RotatedLead) context.Context {
+	return context.WithValue(ctx, rotatedLeadKey{}, l)
+}
+
+// RotatedLeadOf is the rotated lead marked on ctx; zero when none.
+func RotatedLeadOf(ctx context.Context) RotatedLead { return rotatedLead(ctx) }
+
+func rotatedLead(ctx context.Context) RotatedLead {
+	l, _ := ctx.Value(rotatedLeadKey{}).(RotatedLead)
+	return l
+}
+
+// leadRotated puts a wanted claude's rotated lead row ahead of base, which stays its fallback in order minus Drop.
+func (t *RouteTable) leadRotated(
+	ctx context.Context, pg *pickGate, alias, agent string, base []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	lead := rotatedLead(ctx)
+	if lead.Row == "" || lead.Row != o.Lead || agent != "claude" || pg.reg == nil {
+		return base
+	}
+	o.CanServe = nil // claude runs on any row through the proxy, and the rotation already checked this one
+	head := t.gateRow(ctx, pg, alias, agent, lead.Row, "", false, st, o, now, configured, res)
+	drop := slices.Clone(lead.Drop)
+	if len(head) > 0 { // base's own cell on the lead's account is the same hop spelled another way
+		drop = append(drop, lead.Row)
+	}
+	rest := slices.DeleteFunc(slices.Clone(base), func(c Candidate) bool {
+		return slices.ContainsFunc(drop, func(row string) bool { return c.Profile == row || c.Account == pg.providerAccount(row) })
+	})
+	return append(head, rest...)
 }
 
 // deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.
@@ -738,4 +785,53 @@ func matchesWorkMarkers(urls, markers []string) bool {
 		}
 	}
 	return false
+}
+
+// WindowPick is a model whose context window is larger than the one a prompt overflowed.
+type WindowPick struct {
+	Model  string
+	Window int
+}
+
+// LargerWindow lists what may replace ran on p after an overflow: its 1M variant (allow1M), same family, the rest.
+func LargerWindow(p *providers.Provider, ran string, pool []string, floor int, allow1M bool) []WindowPick {
+	fits := func(id string) bool { return windowFits(p, id, ran, floor) }
+	var out, same, other []WindowPick
+	if bigger := models.Strip1M(ran) + "[1m]"; allow1M && !models.Has1M(ran) && fits(bigger) {
+		out = append(out, WindowPick{bigger, providers.Window(p, bigger)})
+	}
+	for _, entry := range pool {
+		id := providers.SpellPin(p, entry)
+		if w := providers.Window(p, id); fits(id) && rePickable(p, id, ran) {
+			if models.FamilyKind(id) == models.FamilyKind(ran) {
+				same = append(same, WindowPick{id, w})
+			} else {
+				other = append(other, WindowPick{id, w})
+			}
+		}
+	}
+	byWindow := func(a, b WindowPick) int { return cmp.Compare(a.Window, b.Window) }
+	slices.SortStableFunc(same, byWindow)
+	slices.SortStableFunc(other, byWindow)
+	return slices.Concat(out, same, other)
+}
+
+// OutputReserve is the reply room assumed for a model with no listed output limit (Claude Code's default max output).
+const OutputReserve = 32_000
+
+// windowFits: id's window is above ran's and, with a known prompt floor, above floor plus id's output limit.
+func windowFits(p *providers.Provider, id, ran string, floor int) bool {
+	need := providers.Window(p, ran) + 1
+	if floor > 0 {
+		lim, _ := providers.LimitsFor(p, models.Strip1M(id))
+		need = max(need, floor+cmp.Or(lim.Output, OutputReserve))
+	}
+	return providers.Window(p, id) >= need
+}
+
+// rePickable drops ran itself and, on Databricks, Fable, which that route refuses by name.
+func rePickable(p *providers.Provider, id, ran string) bool {
+	fam, _, _, claude := models.ParseClaudeID(id)
+	fable := claude && fam == models.Fable && p.Preset == providers.PresetDatabricks
+	return id != "" && !models.SameModel(id, ran) && !fable
 }

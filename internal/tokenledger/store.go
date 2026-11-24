@@ -27,9 +27,13 @@ type Entry struct {
 	Model    string    `json:"model"`
 	// Requested is the model the client asked for, set only when the proxy served a different one.
 	Requested string `json:"requested,omitempty"`
-	Input     int    `json:"input"`
-	Output    int    `json:"output"`
-	CacheRead int    `json:"cache_read"`
+	// AskedModel is the body's model string, Call the request kind, Route the asked /p/<profile> when another served it.
+	AskedModel string `json:"asked_model,omitempty"`
+	Call       string `json:"call,omitempty"`
+	Route      string `json:"route,omitempty"`
+	Input      int    `json:"input"`
+	Output     int    `json:"output"`
+	CacheRead  int    `json:"cache_read"`
 	// CacheWrite is every cache-write token (5m and 1h); CacheWrite1h is the 1h part, 0 when unsplit.
 	CacheWrite   int `json:"cache_write,omitempty"`
 	CacheWrite1h int `json:"cache_write_1h,omitempty"`

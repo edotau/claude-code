@@ -69,7 +69,7 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 
 // spawnWatcher launches `memory watch`; args[1] is the session ID naming its log.
 func spawnWatcher(args []string, cwd string) bool {
-	// The helper runs from the state dir: a cwd inside the spawning worktree makes `worktree merge` refuse the lane.
+	// The helper runs from the state dir: a cwd inside the spawning worktree makes `worktree land` refuse the lane.
 	return spawnSelf(append([]string{"memory", "watch"}, args...), paths.MemoryStateDir(), "watch-"+filepath.Base(args[1])+".log")
 }
 
