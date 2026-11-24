@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,8 +51,7 @@ func parseProposalLine(line string) (TestProposal, error) {
 }
 
 // ParseTestProposals reads the ```proposed_tests fence of a report: one JSON object per line, source filled in.
-func ParseTestProposals(report, source string) ([]TestProposal, error) {
-	var out []TestProposal
+func ParseTestProposals(report, source string) (out []TestProposal, bad error) {
 	for _, m := range proposedFenceRE.FindAllStringSubmatch(report, -1) {
 		for line := range strings.SplitSeq(m[1], "\n") {
 			if strings.TrimSpace(line) == "" {
@@ -59,13 +59,14 @@ func ParseTestProposals(report, source string) ([]TestProposal, error) {
 			}
 			p, err := parseProposalLine(line)
 			if err != nil {
-				return nil, fmt.Errorf("proposed_tests line %q: %w", line, err)
+				bad = errors.Join(bad, fmt.Errorf("proposed_tests line %q: %w", line, err))
+				continue
 			}
 			p.Source = source
 			out = append(out, p)
 		}
 	}
-	return out, nil
+	return out, bad
 }
 
 func mergeProposals(add []TestProposal, old []byte) ([]TestProposal, error) {
@@ -95,7 +96,7 @@ func mergeProposals(add []TestProposal, old []byte) ([]TestProposal, error) {
 
 // AppendTestProposals puts add first in the file (newest first), drops repeats of pkg+case, keeps 40 lines.
 func AppendTestProposals(file string, add []TestProposal) (n int, err error) {
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return 0, err
 	}
 	err = paths.WithFileLock(file, func() error {
@@ -122,37 +123,54 @@ func appendLocked(file string, add []TestProposal) (int, error) {
 		}
 		buf.Write(append(b, '\n'))
 	}
-	return len(kept), paths.AtomicWrite(file, buf.Bytes(), 0o644)
+	return len(kept), paths.AtomicWrite(file, buf.Bytes(), 0o600)
 }
 
 // testProposalsFile is the Go-kept list under the store; techdebt/tests.md stays the owner's, read only.
 func testProposalsFile() string { return paths.MemorySub("techdebt", "tests.jsonl") }
 
-// ingestTestProposals appends the proposed_tests of every report newer than since; a bad report is noted on out.
-func ingestTestProposals(since time.Time, out io.Writer) {
-	ents, _ := os.ReadDir(paths.MemorySubDir("reports"))
-	var found []TestProposal
+// newReports lists the reports modified after since, newest first.
+func newReports(since time.Time) ([]string, error) {
+	ents, err := os.ReadDir(paths.MemorySubDir("reports"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	mod := map[string]time.Time{}
+	var names []string
 	for _, e := range ents {
-		fi, err := e.Info()
-		if err != nil || e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || !fi.ModTime().After(since) {
-			continue
+		if fi, err := e.Info(); err == nil && !e.IsDir() && strings.HasSuffix(e.Name(), ".md") && fi.ModTime().After(since) {
+			mod[e.Name()] = fi.ModTime()
+			names = append(names, e.Name())
 		}
-		body, err := os.ReadFile(paths.MemorySub("reports", e.Name()))
+	}
+	slices.SortFunc(names, func(a, b string) int { return mod[b].Compare(mod[a]) })
+	return names, nil
+}
+
+// ingestTestProposals keeps the valid proposals of reports newer than since; a read or write failure is returned.
+func ingestTestProposals(since time.Time, out io.Writer) error {
+	names, err := newReports(since)
+	if err != nil {
+		return err
+	}
+	var found []TestProposal
+	for _, name := range names {
+		body, err := os.ReadFile(paths.MemorySub("reports", name))
 		if err != nil {
-			continue
+			return err
 		}
-		got, err := ParseTestProposals(string(body), "reports/"+e.Name())
-		if err != nil {
-			fmt.Fprintf(out, "memory dream: reports/%s: %v\n", e.Name(), err)
+		got, perr := ParseTestProposals(string(body), "reports/"+name)
+		if perr != nil {
+			fmt.Fprintf(out, "memory dream: reports/%s: %v\n", name, perr)
 		}
 		found = append(found, got...)
 	}
 	if len(found) == 0 {
-		return
+		return nil
 	}
-	if n, err := AppendTestProposals(testProposalsFile(), found); err != nil {
-		fmt.Fprintln(out, "memory dream: test proposals:", err)
-	} else {
+	n, err := AppendTestProposals(testProposalsFile(), found)
+	if err == nil {
 		fmt.Fprintf(out, "memory dream: %d proposed test(s) kept\n", n)
 	}
+	return err
 }
