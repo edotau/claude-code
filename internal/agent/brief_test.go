@@ -53,7 +53,7 @@ func TestBriefParseOwned(t *testing.T) {
 
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
-	want := filepath.Join(config, "memory", "reports", "YYYY-MM-DD-<name>.md")
+	want := "\nReport: " + filepath.Join(config, "memory", "reports", "leaf.md") + "\n"
 	if got := strings.Count(brief, want); got != 1 {
 		t.Errorf("brief has %d report paths matching %q; want 1", got, want)
 	}
