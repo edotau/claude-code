@@ -496,7 +496,11 @@ func TestLintVerbArgv(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("lintVerb = %q, want %q", got, want)
 	}
-	if line := lintLine(lintVerb([]string{lintBase})); !strings.HasSuffix(line, `--path '`+lintBase+`'`) {
-		t.Fatalf("a path named like the base must stay literal: %s", line)
+	paths := []string{lintBase, "-x", "a;b $(c)"}
+	script := `claude-code() { printf '<%s>' "$@"; }; ` + lintLine(lintVerb(paths))
+	out, err := exec.Command("bash", "-c", script).Output()
+	wantOut := "<agents><diff><--check><--gates><lint><--base><HEAD><--path><" + lintBase + "><--path><-x><--path><a;b $(c)>"
+	if err != nil || string(out) != wantOut {
+		t.Fatalf("rendered line ran as %q (err %v), want %q", out, err, wantOut)
 	}
 }
