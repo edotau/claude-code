@@ -223,6 +223,19 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	if sib := got.Dispatches[1]; sib.Model != "databricks-gemini-3-8-flash" {
 		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
 	}
+	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
+	if got := withPiClaudeHop(armed, q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
+		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
+	}
+}
+
+// Under pin a plain pi ask is pi then claude on the same workspace; an unreadable overlay never widens.
+func TestWithPiClaudeHopPin(t *testing.T) {
+	autoFixture(t)
+	registerPiForTest(t)
+	pi := &fakeRunner{name: "pi"}
+	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
+	open := proc.WithValues(context.Background(), proc.Values{})
 	pinned, err := piChainMode(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin})
 	if pinned != router.FallbackPin || err != nil {
 		t.Fatalf("plain pin ask mode = %q, %v", pinned, err)
@@ -242,10 +255,6 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, c)
 	if len(one.Dispatches) != 1 || one.Preflight == nil || !strings.Contains(strings.Join(one.Preflight.Notes, "\n"), "overlay unreadable") {
 		t.Fatalf("a malformed overlay widened or went unnoted: %+v", one)
-	}
-	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiClaudeHop(armed, q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
-		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
 	}
 }
 
