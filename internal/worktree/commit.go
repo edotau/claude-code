@@ -28,6 +28,7 @@ import (
 // CommitRequest is one `worktree commit` call; Source carries the caller's session, liveness probe and peer labels.
 type CommitRequest struct {
 	Dir, Message string
+	Type         string // a Conventional type; with no Message the subject is the one task's plan title
 	Paths        []string
 	Tasks        []string
 	Plan         string
@@ -67,15 +68,16 @@ func Commit(ctx context.Context, req CommitRequest) error {
 		return err
 	}
 	tree := commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries)}
-	if strings.TrimSpace(req.Message) == "" {
-		return usage("give the message with -m")
+	message, err := commitSubject(req)
+	if err != nil {
+		return err
 	}
 	dispatched := proc.InDispatch(ctx)
 	set, err := commitSet(req, tree, dispatched)
 	if err != nil {
 		return err
 	}
-	msg, err := cleanMessage(req.Message, req.Out)
+	msg, err := cleanMessage(message, req.Out)
 	if err != nil {
 		return err
 	}
@@ -98,6 +100,56 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	fmt.Fprintln(req.Out, withoutShortstat(res))
 	tickPlans(ctx, req.Out, tree.top, set)
 	return nil
+}
+
+// commitSubject is the message to commit: Type prefixes a bare description, or alone takes the one task's plan title.
+func commitSubject(req CommitRequest) (string, error) {
+	msg := strings.TrimSpace(req.Message)
+	if req.Type == "" {
+		if msg == "" {
+			return "", usage("give the message with -m")
+		}
+		return req.Message, nil
+	}
+	types := shell.GuardWords("conventional_commit_types")
+	if !slices.Contains(types, req.Type) {
+		return "", usage("--type %q is not one of %s", req.Type, strings.Join(types, "|"))
+	}
+	if msg == "" {
+		if msg = taskTitle(req); msg == "" {
+			return "", usage("give the message with -m: --type needs one --task and a --plan that holds its title")
+		}
+	}
+	if shell.ConventionalSubject(msg) {
+		return msg, nil
+	}
+	return req.Type + ": " + msg, nil
+}
+
+// taskTitle is the plan title of req's only task; "" when there is not exactly one task or it is not found.
+func taskTitle(req CommitRequest) string {
+	if len(req.Tasks) != 1 || req.Plan == "" {
+		return ""
+	}
+	plan, err := plans.Parse(req.Plan)
+	if err != nil {
+		return ""
+	}
+	for _, t := range plan.Tasks {
+		if t.ID == req.Tasks[0] || t.Title == req.Tasks[0] {
+			return titleText(t.Title, req.Tasks[0])
+		}
+	}
+	return ""
+}
+
+// titleText drops the leading "<id> — " and the trailing " — owns: ..." a plan task line carries around its words.
+func titleText(title, id string) string {
+	if head, rest, ok := strings.Cut(title, " — "); ok && strings.Contains(head, id) {
+		title = rest
+	}
+	title, _, _ = strings.Cut(title, " — owns:")
+	return strings.TrimSpace(title)
 }
 
 var commitShortstat = regexp.MustCompile(`^ [0-9]+ files? changed(?:, [0-9]+ (?:insertions?\(\+\)|deletions?\(-\)))*$`)
@@ -178,7 +230,7 @@ func Candidates(ctx context.Context, dir string) ([]string, error) {
 	}
 	var out []string
 	for _, p := range dirtyPaths(entries) {
-		out = append(out, fileID(p)+" "+p)
+		out = append(out, FileID(p)+" "+p)
 	}
 	return out, nil
 }
@@ -192,8 +244,8 @@ func dirtyPaths(entries []proc.StatusEntry) []string {
 	return slices.Compact(out)
 }
 
-// fileID is "@" plus 6 hex of the path's hash: it stays the same while other files change.
-func fileID(path string) string {
+// FileID is "@" plus 6 hex of the path's hash: it stays the same while other files change.
+func FileID(path string) string {
 	sum := sha1.Sum([]byte(path))
 	return "@" + hex.EncodeToString(sum[:3])
 }
@@ -201,7 +253,7 @@ func fileID(path string) string {
 func idListing(t commitTree) string {
 	var b strings.Builder
 	for _, p := range dirtyPaths(t.entries) {
-		fmt.Fprintf(&b, "\n  %s %s", fileID(p), p)
+		fmt.Fprintf(&b, "\n  %s %s", FileID(p), p)
 	}
 	return b.String()
 }
@@ -212,7 +264,7 @@ func pickIDs(t commitTree, args []string) (picked, rest []string, err error) {
 	for _, a := range args {
 		var hit []string
 		if strings.HasPrefix(a, "@") && !slices.Contains(dirty, a) {
-			hit = slices.DeleteFunc(slices.Clone(dirty), func(p string) bool { return fileID(p) != a })
+			hit = slices.DeleteFunc(slices.Clone(dirty), func(p string) bool { return FileID(p) != a })
 		}
 		switch {
 		case len(hit) > 1:

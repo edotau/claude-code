@@ -769,15 +769,30 @@ func TestCommitFileIDs(t *testing.T) {
 	hosttest.WriteRel(t, dir, "a.txt", "one\n")
 	hosttest.WriteRel(t, dir, "b.txt", "two\n")
 	list, err := Candidates(context.Background(), dir)
-	if err != nil || len(list) != 2 || list[1] != fileID("b.txt")+" b.txt" {
+	if err != nil || len(list) != 2 || list[1] != FileID("b.txt")+" b.txt" {
 		t.Fatalf("Candidates = %v, %v", list, err)
 	}
 	hosttest.WriteRel(t, dir, "c.txt", "three\n") // a changed set keeps b.txt's id
-	if _, err = commitRun(commitReq(dir, "fix: b", fileID("b.txt"))); err != nil {
+	if _, err = commitRun(commitReq(dir, "fix: b", FileID("b.txt"))); err != nil {
 		t.Fatal(err)
 	}
 	if got := commitFiles(t, dir); strings.TrimSpace(got) != "M\tb.txt" {
 		t.Fatalf("commit holds %q, want only b.txt", got)
+	}
+}
+
+func TestCommitSubjectType(t *testing.T) {
+	plan := filepath.Join(t.TempDir(), "2026-01-01-p.md")
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "- [ ] Phase 1.1 — Do the thing (S) — owns: a.go\n")
+	got, err := commitSubject(CommitRequest{Type: "feat", Tasks: []string{"Phase 1.1"}, Plan: plan})
+	if err != nil || got != "feat: Do the thing (S)" {
+		t.Fatalf("title subject = %q, %v", got, err)
+	}
+	if got, _ = commitSubject(CommitRequest{Type: "fix", Message: "bare"}); got != "fix: bare" {
+		t.Fatalf("prefixed subject = %q", got)
+	}
+	if _, err = commitSubject(CommitRequest{Type: "nope", Message: "x"}); err == nil {
+		t.Fatal("unknown type accepted")
 	}
 }
 

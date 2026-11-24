@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
@@ -66,8 +67,12 @@ func commitLine(lane, id, planPath string, files []string) string {
 	if lane != "" {
 		cd = "cd " + textutil.ShellQuote(lane) + " && "
 	}
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = worktree.FileID(f)
+	}
 	return "commit+tick: " + cd + "claude-code worktree commit --task '" + id + "' --plan " + planPath +
-		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, files...), " ")
+		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, ids...), " ")
 }
 
 // leafCheckout is the lane the leaf worked in when it belongs to top's repo; "" when none resolves.
