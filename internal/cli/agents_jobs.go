@@ -141,9 +141,10 @@ func statusAgent(agentName string, pos []string, all bool, format string) int {
 	if code != 0 || len(pos) != 1 || format == helptext.JSON {
 		return code
 	}
-	rec, err := agent.LoadRecord(pos[0])
+	cwd, _ := os.Getwd()
+	rec, err := agent.ResolveJob(context.Background(), agentName, cwd, pos[0])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agents status: contract terms:", err) // an ambiguous prefix names its candidates
+		fmt.Fprintln(os.Stderr, "agents status: contract terms:", err)
 		return code
 	}
 	printContractTerms(rec.ID)
@@ -239,11 +240,15 @@ func (o resultFlags) check(hasID bool) error {
 	return o.checkTarget(hasID)
 }
 
+func (o resultFlags) heldConflict(hasID bool) bool {
+	return hasID || o.agent != "" || o.save != "" || o.verdict || o.events || o.format == helptext.JSON
+}
+
 // checkTarget reports why the job selection is refused: --held excludes every other selector and sink.
 func (o resultFlags) checkTarget(hasID bool) error {
 	switch {
-	case o.held != "" && (hasID || o.agent != "" || o.save != "" || o.verdict || o.events):
-		return errors.New("--held takes no <id>, --agent, --save, --verdict or --events")
+	case o.held != "" && o.heldConflict(hasID):
+		return errors.New("--held takes no <id>, --agent, --save, --verdict, --events or --format json")
 	case !hasID && o.agent == "" && o.held == "":
 		return errors.New("name a dispatch <id>, or --agent for that agent's newest job here")
 	}
