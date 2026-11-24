@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -29,6 +30,7 @@ const (
 // Progress is what the harness can tell about a running dispatch right now; Tools < 0 means unknown.
 type Progress struct {
 	Agent, Model, Doing string
+	Contract            string // terms, leaves and budget of the run's contract; empty: none
 	Label               string // the type label RowLabel gives the run; Agent stays the engine the limits key on
 	Elapsed, Quiet      time.Duration
 	Tools               int
@@ -107,8 +109,29 @@ func ProgressOf(r Record, now time.Time) Progress {
 		u := a.Usage
 		p.In, p.Out, p.ToolMs = int64(u.InputTokens+u.CacheCreationTokens+u.CacheReadTokens), int64(u.OutputTokens), a.ToolMs
 	}
+	if c, err := contract.Load(r.ID); err == nil {
+		p.Contract = contractText(c, p.In+p.Out)
+	}
 	p.Seen = p.Doing != "" || p.Tools > 0 || p.In+p.Out > 0
 	return p
+}
+
+// contractText is "terms 3/7 · leaves 2/6 · 41% budget"; leaves and budget drop when unlimited.
+func contractText(c contract.Contract, tokens int64) string {
+	passed := map[contract.Term]bool{}
+	for _, r := range c.Records {
+		if r.Verdict == contract.VerdictPass {
+			passed[r.Term] = true
+		}
+	}
+	s := fmt.Sprintf("terms %d/%d", len(passed), len(c.Terms))
+	if c.Limits.Leaves > 0 {
+		s += fmt.Sprintf(" · leaves %d/%d", len(c.Children), c.Limits.Leaves)
+	}
+	if c.Limits.Tokens > 0 {
+		s += fmt.Sprintf(" · %d%% budget", tokens*100/int64(c.Limits.Tokens))
+	}
+	return s
 }
 
 // countFile streams path through count; ok is false when it cannot be read whole.
@@ -308,10 +331,19 @@ func (p Progress) head(width int, sig string, noLive bool, lead []string) string
 	return textutil.TruncateCells(join(sig, "", ""), width-textutil.DisplayWidth(usage)-3, "…") + " · " + usage
 }
 
+// withContract appends the contract text when it fits whole, so it yields before the doing field.
+func (p Progress) withContract(head string, width int, noLive bool) string {
+	if p.Contract == "" || noLive || width-textutil.DisplayWidth(head)-3 < textutil.DisplayWidth(p.Contract) {
+		return head
+	}
+	return head + " · " + p.Contract
+}
+
 func (p Progress) render(width int, lead ...string) string {
 	sig, hung := p.signal()
 	noLive := strings.HasPrefix(sig, "⚠ no live")
 	head := p.head(width, sig, noLive, lead)
+	head = p.withContract(head, width, noLive)
 	label := ""
 	if hung {
 		label = "last: "

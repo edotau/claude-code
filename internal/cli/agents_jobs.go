@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -129,11 +130,45 @@ func cmdAgentsStatus(args []string) int {
 	case len(pos) == 0:
 		return agentsDispatchLog(*format)
 	}
-	rec, err := agent.LoadRecord(pos[0])
+	return statusOne(pos[0], *format)
+}
+
+// statusOne is one dispatch's status, then its contract's terms in text form.
+func statusOne(id, format string) int {
+	rec, err := agent.LoadRecord(id)
 	if err != nil {
 		return helptext.Fail("agents status: %v", err)
 	}
-	return ask.Status("agents status", rec.Agent, rec.ID, true, *format, "")
+	code := ask.Status("agents status", rec.Agent, rec.ID, true, format, "")
+	if code == 0 && format != helptext.JSON {
+		printContractTerms(rec.ID)
+	}
+	return code
+}
+
+func printContractTerms(id string) {
+	c, err := contract.Load(id)
+	if err != nil {
+		return
+	}
+	for _, l := range contractTermLines(c) {
+		fmt.Println(l)
+	}
+}
+
+// contractTermLines is one line per term with its last record's verdict, or pending.
+func contractTermLines(c contract.Contract) []string {
+	var lines []string
+	for _, t := range c.Terms {
+		verdict, by, ev := "pending", "", ""
+		for _, r := range c.Records {
+			if r.Term == t {
+				verdict, by, ev = string(r.Verdict), r.By, r.Evidence
+			}
+		}
+		lines = append(lines, strings.TrimRight(fmt.Sprintf("  term %s %s by %s %s", t, verdict, by, ev), " "))
+	}
+	return lines
 }
 
 func agentsDispatchLog(format string) int {

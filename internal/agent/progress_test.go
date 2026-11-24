@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -140,5 +141,17 @@ func TestProgressOfActivitySeen(t *testing.T) {
 		Activity: &Activity{Usage: wire.Usage{InputTokens: 1500, OutputTokens: 20}}}
 	if got := ProgressOf(r, time.Now()).Line(80); !strings.Contains(got, "↑1.5k ↓20") || strings.Contains(got, "no live") {
 		t.Errorf("line = %q", got)
+	}
+}
+
+func TestContractText(t *testing.T) {
+	c := contract.Contract{Terms: []contract.Term{"a", "b", "c"}, Children: []string{"x", "y"}, Limits: contract.Limits{Tokens: 1000, Leaves: 6},
+		Records: []contract.TermRecord{{Term: "a", Verdict: contract.VerdictPass}, {Term: "a", Verdict: contract.VerdictPass}, {Term: "b", Verdict: contract.VerdictFail}}}
+	if got, want := contractText(c, 410), "terms 1/3 · leaves 2/6 · 41% budget"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	c.Limits = contract.Limits{}
+	if got := contractText(c, 410); got != "terms 1/3" {
+		t.Fatalf("got %q", got)
 	}
 }
