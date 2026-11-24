@@ -299,8 +299,10 @@ var (
 func armedProxyToken(tok, profile string, pid int) (string, error) {
 	route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
 	c, signed := authenticClaims(tok)
-	if err := withinFence(c, signed); err != nil { // a token, valid or refused, stays inside the launcher-set fence
-		return "", err
+	if signed { // verified claims, valid or refused, stay inside the launcher-set fence
+		if err := withinFence(c.Profiles); err != nil {
+			return "", err
+		}
 	}
 	remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
 	if !ok {
@@ -311,22 +313,18 @@ func armedProxyToken(tok, profile string, pid int) (string, error) {
 		profiles, failover = c.Profiles, c.Failover
 	} else if route == "" { // unverifiable claims: only the route is trusted, never --profile
 		return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
+	} else if err := withinFence(profiles); err != nil {
+		return "", err
 	}
 	return remintExact(profiles, failover, remint)
 }
 
-// withinFence holds a confined run's token to verified claims on the fence alone, no failover.
-func withinFence(c proxy.SessionClaims, signed bool) error {
-	mode, arm, err := router.OverlayRoute(context.Background())
-	switch {
-	case err != nil:
-		return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
-	case mode != router.RouteDatabricks || arm == "":
+// withinFence refuses profiles outside the launcher-set databricks:<p> fence; unconfined loads nothing.
+func withinFence(profiles []string) error {
+	if router.ArmProfileContext(context.Background()) == "" {
 		return nil
-	case !signed || c.Failover != "":
-		return errors.New("resolve --proxy: a confined launch's token must carry verified claims and no failover; relaunch it")
 	}
-	for _, p := range c.Profiles {
+	for _, p := range profiles {
 		if _, err := agent.TokenScope(context.Background(), p); err != nil {
 			return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
 		}

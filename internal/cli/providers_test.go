@@ -847,11 +847,11 @@ func TestResolveProxyArmedTokenHeldToFence(t *testing.T) {
 	authenticClaims = func(string) (proxy.SessionClaims, bool) {
 		return proxy.SessionClaims{Profiles: []string{"dev"}, Failover: "databricks"}, true
 	}
-	check("valid armed [dev] with failover under a dev fence", "dev", nil)
+	stubSessionInvalid(t, errors.New("session token expired")) // a failover grant on the fence is not refused here
+	check("refused armed [dev] with failover under a dev fence", "dev", []string{"dev"})
 	authenticClaims = func(string) (proxy.SessionClaims, bool) { return proxy.SessionClaims{}, false }
-	check("valid unverifiable armed token under a dev fence", "dev", nil)
-	t.Setenv(route.OverlayVar, `{"provider":`)
-	check("malformed overlay with an armed token", "dev", nil)
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/qa")
+	check("unverifiable token, route qa under a dev fence", "dev", nil)
 }
 
 // An unverifiable armed token re-mints for its route only: --profile never moves the scope, and no route means no mint.

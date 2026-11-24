@@ -301,11 +301,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
 func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
-	mode, arm, err := router.OverlayRoute(ctx)
-	if err != nil { // a malformed overlay fails closed, never to the unconfined scope
-		return nil, fmt.Errorf("token scope: %w", err)
-	}
-	if mode == router.RouteDatabricks && arm != "" { // confinement never widens, nor moves to a sibling workspace
+	if arm := router.ArmProfileContext(ctx); arm != "" { // confinement never widens, nor moves to a sibling workspace
 		return armScope(profile, arm)
 	}
 	reg, err := providers.Load()

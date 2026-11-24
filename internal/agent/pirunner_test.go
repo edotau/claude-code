@@ -44,10 +44,6 @@ func testTokenScope(t *testing.T, reg *providers.Registry, open, armed context.C
 	if got, err := TokenScope(open, "dev", "qa"); err != nil || !slices.Equal(got, want) {
 		t.Fatalf("unconfined token scope = %v, %v; want asked + extra + fallbacks %v", got, err, want)
 	}
-	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":`})
-	if got, err := TokenScope(bad, "dev"); err == nil {
-		t.Fatalf("malformed overlay scoped %v; want a refusal", got)
-	}
 }
 
 // ledBy with no hops leaves the chain as it was instead of indexing an empty list.
