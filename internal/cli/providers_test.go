@@ -837,6 +837,8 @@ func TestResolveProxyConfinedStaysOnWorkspace(t *testing.T) {
 	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/dev")
 	check("armed claims [dev qa] under a dev fence", "dev", nil)
+	stubSessionInvalid(t, nil) // a still-valid token is held to the fence too
+	check("valid armed claims [dev qa] under a dev fence", "dev", nil)
 }
 
 // An unverifiable armed token re-mints for its route only: --profile never moves the scope, and no route means no mint.

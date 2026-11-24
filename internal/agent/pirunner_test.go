@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -27,6 +28,12 @@ func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
 	if sibs, skips, why := piSiblings(armed, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
 		t.Fatalf("confined to dev, pi hops planned beyond it: hops %v, skips %v, why %q", sibs, skips, why)
 	}
+	testTokenScope(t, reg, open, armed)
+}
+
+// testTokenScope: confined to dev scopes dev only; unconfined keeps asked + extra + fallbacks; a bad overlay refuses.
+func testTokenScope(t *testing.T, reg *providers.Registry, open, armed context.Context) {
+	t.Helper()
 	if _, err := TokenScope(armed, "qa"); err == nil {
 		t.Fatal("confined to dev, a token for qa was scoped")
 	}
@@ -36,6 +43,10 @@ func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
 	want := slices.Compact(slices.Sorted(slices.Values(append([]string{"dev", "qa"}, reg.Fallback...))))
 	if got, err := TokenScope(open, "dev", "qa"); err != nil || !slices.Equal(got, want) {
 		t.Fatalf("unconfined token scope = %v, %v; want asked + extra + fallbacks %v", got, err, want)
+	}
+	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":`})
+	if got, err := TokenScope(bad, "dev"); err == nil {
+		t.Fatalf("malformed overlay scoped %v; want a refusal", got)
 	}
 }
 

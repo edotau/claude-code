@@ -298,24 +298,38 @@ var (
 // armedProxyToken is tok, or its exact-scope re-mint once refused, never beyond the launch's own overlay fence.
 func armedProxyToken(tok, profile string, pid int) (string, error) {
 	route := routeProfile(os.Getenv(proc.EnvAnthropicBaseURL)) // the profile the refused request was made on
+	c, signed := authenticClaims(tok)
+	if signed { // a token, valid or refused, never covers a profile outside the launcher-set fence
+		if err := withinFence(c.Profiles); err != nil {
+			return "", err
+		}
+	}
 	remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
 	if !ok {
 		return tok, nil
 	}
 	profiles, failover := []string{route}, ""
-	if c, ok := authenticClaims(tok); ok { // keep the launch's own scope and failover, never the registry's
+	if signed { // keep the launch's own scope and failover, never the registry's
 		profiles, failover = c.Profiles, c.Failover
 	} else if route == "" { // unverifiable claims: only the route is trusted, never --profile
 		return "", errors.New("resolve --proxy: an armed launch's token scope cannot be recovered; relaunch it")
-	}
-	if router.ArmProfileContext(context.Background()) != "" { // an unconfined re-mint loads no registry
-		for _, p := range profiles { // the launcher-set overlay env fences the re-mint like the launch itself
-			if _, err := agent.TokenScope(context.Background(), p); err != nil {
-				return "", fmt.Errorf("resolve --proxy: %w; relaunch it", err)
-			}
-		}
+	} else if err := withinFence(profiles); err != nil {
+		return "", err
 	}
 	return remintExact(profiles, failover, remint)
+}
+
+// withinFence refuses profiles the launcher-set overlay env confines out; an unconfined run loads no registry.
+func withinFence(profiles []string) error {
+	if router.ArmProfileContext(context.Background()) == "" {
+		return nil
+	}
+	for _, p := range profiles {
+		if _, err := agent.TokenScope(context.Background(), p); err != nil {
+			return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
+		}
+	}
+	return nil
 }
 
 // remintExact re-mints a refused armed token for pid with exactly profiles and failover, never a wider set.
