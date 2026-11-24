@@ -11,9 +11,10 @@
 - **Decisions carry facts** — when asking the owner to decide, give what happens today, what the change does, and the
   pros and cons of the actual behaviour; never bare picks.
 - **Approval and stops** — the owner counts your own recommendations as approved (unless it adds a permission or
-  restriction, R13); a decision that comes up mid-task is made and acted on at once, never put to the owner (owner,
-  2026-11-24: "decision will always be address now"); a question you put to the owner ("want me to …?") waits for a yes to that exact question, and
-  deleting the owner's data always asks. A stop freezes everything, undoing your own edits included.
+  restriction, R13); a decision that comes up mid-task is made and acted on at once, never put to the owner
+  (owner, 2026-11-24: "decision will always be address now"); a question you put to the owner ("want me to …?")
+  waits for a yes to that exact question, and deleting the owner's data always asks. A stop freezes everything,
+  undoing your own edits included.
   Understand why a working setup exists before changing it, else leave it.
 - **Old plans are ideas** — re-derive each claim from today's code; a build request is recorded as a task with its
   goal, never parked as an opinion.

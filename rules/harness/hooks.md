@@ -122,7 +122,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 | `memory-update` ¶ | Stop | Never blocks. At ≥`HARNESS_CONTEXT_STEWARD_PCT` (default 75; `0` mutes the handoff) the detached update also writes `handoffs/YYYY-MM-DD-session-<id8>.md`, once per crossing; a failed spawn prints a NOT-saved note naming `claude-code memory update`; 3 spawns in all |
 | `format-stop` | Stop | Formats this session's still-dirty edited files under its cwd (≤50, newest first): repo `make format\|fmt` per file, else the pyproject chain, else gofmt/ruff/prettier/shfmt; a missing formatter is one note per tool per session, never a failure |
 | `review-simplicity` | PostToolUse (Write\|Edit) | Advisory: feeds back ≤8 comment, complexity and smell findings the edit introduced |
-| `review-handback` | PostToolUse (Agent\|Task) | Never blocks: a leaf report saying a finding was left unfixed or asks the owner to decide adds `Fix these now` context with the matched lines (R28) |
+| `review-handback` (and `review-notified`, on a task-notification prompt) | PostToolUse (Agent\|Task\|TaskOutput) | Never blocks: a leaf report saying a finding was left unfixed or asks the owner to decide adds `Fix these now` context with the matched lines (R28) |
 | `review-decide` | Stop | Main session only: blocks once (not when `stop_hook_active`) when the last turn asks the owner to decide a fix, finding or follow-up (R28) |
 | `memory-start` ¶ | SessionStart | Injects the bank's focus, a `memory search` pointer and a `plans open:` line (≤5 plans under 7 days old with open tasks); repairs `projects/<slug>/memory`; on `clear`/`compact` adds the compaction record and handoffs (9,500-character cap) |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
@@ -163,7 +163,7 @@ Prose is the instruction; the hook is the guarantee. Every gate:
 4. **Caps and fails open** — a Stop gate that can trap a session needs a cap and a visible fail-open; a deny-one-call
    gate (`docs-placement`) rejects the input and the model retries. Infra errors fail open, except workflow stage
    route-preview errors; a `Blocks` hook that panics, times out (0.5 s before the host's) or gets an empty or
-   unparseable payload blocks.
+   unparsable payload blocks.
 
 Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script reading payloads
 from a data file (quoted payloads in the probe command trip the guard) and tally allow, ask and block. Permission

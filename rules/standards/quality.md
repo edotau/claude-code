@@ -78,8 +78,9 @@ within the named priority (R25).
 fixes every finding, any severity, without asking, and one more review checks only those fixes. A lane merges when
 that check has no CRITICAL or HIGH; anything it still finds is fixed in a follow-up commit on main, never parked.
 Findings are fixed, not reported: a leaf hands back only what it could not fix, and the main session fixes or decides
-that at once (its recommendation is the decision; it never asks the owner) and relays only the outcome. Every dispatched code task carries this goal (`agents ask` adds it to every brief
-that can write code; a review-only task reports findings instead).
+that at once (its recommendation is the decision; it never asks the owner) and relays only the outcome.
+Every dispatched code task carries this goal (`agents ask` adds it to every brief that can write code; a
+review-only task reports findings instead).
 
 **Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small,
 else by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or
