@@ -467,3 +467,90 @@ func ArmProfileContext(ctx context.Context) string {
 	}
 	return ""
 }
+
+// ChainReq is one pi runner chain: the head hop's agent, workspace and model, the ask's alias and typed fallback mode.
+type ChainReq struct {
+	Agent, Profile, Model, Alias, Fallback string
+	// Asked is the agent whose own CLI hop 3 runs; empty is claude for a pi head, else the head's own agent
+	Asked string
+	// TypedModel: the model was named on the command line, so no hop changes it and none leaves the arm
+	TypedModel bool
+}
+
+// ChainHop is one hop of a chain; OffArm marks the hop that leaves the Databricks arm, taken only under a typed all.
+type ChainHop struct {
+	Agent, Profile, Account, Model string
+	OffArm                         bool
+}
+
+// Chain is q's ordered hops and the Skips for hops it could not serve (a model is never swapped, R8).
+func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq, now time.Time) ([]ChainHop, []Skip) {
+	lp := ladderPick{t: t, reg: reg, alias: q.Alias, now: now, res: &PickResult{}}
+	head, _ := lp.chainHop(q.Agent, q.Profile, q.Model, false)
+	if head.Agent == "" {
+		head = ChainHop{Agent: q.Agent, Profile: q.Profile, Account: ProviderAccount(q.Profile), Model: q.Model}
+	}
+	out := []ChainHop{head}
+	if q.Fallback == FallbackNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
+		return out, lp.res.Skipped
+	}
+	if !agentid.Routing(q.Agent).NoWorkspaceFallback {
+		for _, ws := range workspaceRows(reg, q.Profile) {
+			out = lp.addHop(out, q.Agent, ws, q.Model, false)
+		}
+	}
+	if q.Fallback != FallbackPin {
+		out = lp.ownHops(out, q)
+	}
+	return out, lp.res.Skipped
+}
+
+// ownHops appends hop 3 (own CLI, same profile) and, under a typed all with no typed model, hop 4 off the arm.
+func (lp ladderPick) ownHops(out []ChainHop, q ChainReq) []ChainHop {
+	own := chainOwn(q)
+	if own != q.Agent {
+		out = lp.addHop(out, own, q.Profile, cmp.Or(q.Model, q.Alias), false)
+	}
+	if q.Fallback == FallbackAll && !q.TypedModel {
+		for _, row := range OwnProfiles(lp.reg, own, "anthropic") {
+			out = lp.addHop(out, own, row, q.Alias, true)
+		}
+	}
+	return out
+}
+
+// addHop appends the hop when its row serves model.
+func (lp ladderPick) addHop(out []ChainHop, agent, profile, model string, off bool) []ChainHop {
+	if h, ok := lp.chainHop(agent, profile, model, off); ok {
+		return append(out, h)
+	}
+	return out
+}
+
+// chainOwn is the agent whose own CLI hop 3 runs: Asked, else claude for a pi head, else the head's agent.
+func chainOwn(q ChainReq) string {
+	if q.Asked != "" {
+		return q.Asked
+	}
+	if q.Agent == agentid.Pi {
+		return "claude"
+	}
+	return q.Agent
+}
+
+// chainHop is agent on profile with model, or false and a Skip when the row cannot serve it (never swapped).
+func (lp ladderPick) chainHop(agent, profile, model string, off bool) (ChainHop, bool) {
+	p := lp.reg.Providers[profile]
+	if p == nil {
+		return ChainHop{}, false
+	}
+	m, why := lp.rungModel(Candidate{Agent: agent, Account: AccountOf(p), Profile: profile}, model)
+	if canon, _, ok := models.Resolve(m); why == "" && ok && p.Preset == providers.PresetDatabricks && models.FamilyOf(canon) == models.Fable {
+		why = "databricks serves no Fable"
+	}
+	if why != "" {
+		lp.res.Skipped = append(lp.res.Skipped, Skip{agent + "·" + AccountOf(p), gateLadder, why})
+		return ChainHop{}, false
+	}
+	return ChainHop{agent, profile, AccountOf(p), m, off}, true
+}

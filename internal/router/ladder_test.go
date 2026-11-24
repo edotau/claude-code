@@ -268,3 +268,53 @@ func TestConfinedContextConcurrentRuns(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// chainOf runs Chain for a sonnet ask on dev over a hermetic registry with dev, qa and the anthropic login.
+func chainOf(t *testing.T, q ChainReq) []string {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb, err := LoadFrom(reg, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hops, skips := tb.Chain(reg, q, now0)
+	var out []string
+	for _, h := range hops {
+		out = append(out, h.Agent+" "+h.Account+" "+h.Model+map[bool]string{true: " OFF-ARM"}[h.OffArm])
+	}
+	t.Logf("%s %v skips=%+v", q.Fallback, out, skips)
+	return out
+}
+
+// TestChainSteps: same-profile siblings and claude on the profile first; the off-arm login only under a typed all.
+func TestChainSteps(t *testing.T) {
+	base := ChainReq{Agent: "pi", Profile: "dev", Model: "databricks-claude-sonnet-4-6", Alias: "sonnet"}
+	has := func(got []string, sub string) bool {
+		return slices.ContainsFunc(got, func(s string) bool { return strings.Contains(s, sub) })
+	}
+	agents := chainOf(t, ChainReq{Agent: base.Agent, Profile: "dev", Model: base.Model, Alias: "sonnet", Fallback: FallbackAgents})
+	if has(agents, "OFF-ARM") {
+		t.Errorf("agents chain left the arm: %v", agents)
+	}
+	all := base
+	all.Fallback = FallbackAll
+	if got := chainOf(t, all); !has(got, "OFF-ARM") || !strings.HasSuffix(got[len(got)-1], "OFF-ARM") {
+		t.Errorf("all chain = %v, want the off-arm hop last", got)
+	}
+	none := base
+	none.Fallback = FallbackNone
+	if got := chainOf(t, none); len(got) != 1 {
+		t.Errorf("none chain = %v, want one hop", got)
+	}
+	fable := ChainReq{Agent: "claude", Profile: "dev", Model: "claude-fable-5", Alias: "sonnet", Fallback: FallbackAll, TypedModel: true}
+	if got := chainOf(t, fable); has(got, "opus") || len(got) != 1 {
+		t.Errorf("fable chain = %v, want the one fable hop and no opus", got)
+	}
+}
