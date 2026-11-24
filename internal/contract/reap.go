@@ -12,6 +12,7 @@ import (
 type Env struct {
 	Lost      func(dispatch string) bool // the dispatch's record is lost
 	Successor func(Contract) string      // a live replacement dispatch id for c, or "" for none; nil means none
+	Claimed   func(dispatch string) bool // a recovery of the dispatch is under way: spare its contract this round
 }
 
 // Reaped is one contract Reap acted on: Action is "reassigned" or "failed".
@@ -58,9 +59,10 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 	if !orphaned(c, env) {
 		return Reaped{}, nil
 	}
-	holder, next := c.Holders[len(c.Holders)-1], ""
-	if env.Successor != nil && len(c.Holders) == 1 {
-		next = env.Successor(c)
+	holder := c.Holders[len(c.Holders)-1]
+	next, spare := successorOf(c, env)
+	if spare {
+		return Reaped{}, nil
 	}
 	_, err = Update(id, func(c Contract) (Contract, error) {
 		if !orphaned(c, env) || c.Holders[len(c.Holders)-1] != holder {
@@ -75,6 +77,14 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 		r.Action = ""
 	}
 	return r, err
+}
+
+// successorOf is c's re-send (once only); spare is true when none came back because a recovery is already under way.
+func successorOf(c Contract, env Env) (next string, spare bool) {
+	if env.Successor != nil && len(c.Holders) == 1 {
+		next = env.Successor(c)
+	}
+	return next, next == "" && env.Claimed != nil && env.Claimed(c.Holders[len(c.Holders)-1])
 }
 
 // reassignOrFail hands c to next when there is one and it takes, else fails c owner-dead.

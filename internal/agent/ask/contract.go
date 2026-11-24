@@ -578,8 +578,13 @@ func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob boo
 	attempt := opts
 	attempt.Hold = true
 	held := &resultHold{Sink: sinkTo(sinkOut(out, format, save), format, p.Record.ID)}
-	res, err := cl.Exec(ctx, p, held, attempt)
-	settleHeld(ctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
+	sctx, rctx, cancel := wholeDeadline(ctx, p.Opts) // the settle wait and gate come out of the ask's own timeout
+	defer cancel()
+	res, err := cl.Exec(rctx, p, held, attempt)
+	if rctx.Err() == nil || err == nil {
+		rctx = sctx // a run that finished gets the settle's time
+	}
+	settleHeld(rctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if format == agent.FormatStreamJSON {
@@ -683,8 +688,8 @@ func deadUses(c contract.Contract) []contract.Use {
 	return subtreeUses(c.Holders[0], first)
 }
 
-// The settle gate gets 90 s (a cold lane gate takes ~25 s); wholeDeadline (armretry.go) still caps run plus gate.
-const settleGateTimeout = 90 * time.Second
+// The settle gate gets 60 s (a cold lane gate takes ~25 s); wholeDeadline reserves it inside the ask's own timeout.
+const settleGateTimeout = 60 * time.Second
 
 // gateOf runs the scoped gate over own; nil when none is found, and a green run with unknown changed files is no pass.
 func gateOf(ctx context.Context, dir string, own []string) *worktree.GateRun {

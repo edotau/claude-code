@@ -84,3 +84,16 @@ func TestReapSuccessorRunsOutsideTheLock(t *testing.T) {
 		t.Fatalf("Reap = %v, %v; want one reassigned", got, err)
 	}
 }
+
+// TestReapSparesAClaimedRecovery: no successor while another recovery is under way leaves the contract working.
+func TestReapSparesAClaimedRecovery(t *testing.T) {
+	savedWorking(t)
+	env := Env{Lost: func(string) bool { return true }, Successor: func(Contract) string { return "" },
+		Claimed: func(string) bool { return true }}
+	if got, err := Reap(env); err != nil || len(got) != 0 {
+		t.Fatalf("Reap = %v, %v; want nothing reaped", got, err)
+	}
+	if c, _ := Load("d-1"); c.State() != StateWorking {
+		t.Fatalf("state = %s, want working", c.State())
+	}
+}

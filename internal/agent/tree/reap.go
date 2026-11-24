@@ -113,7 +113,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 
 // ContractEnv wires contract.Reap to the dispatch records; Successor re-sends a lost holder's dispatch once.
 func ContractEnv() contract.Env {
-	return contract.Env{Lost: holderLost, Successor: resendHolder}
+	return contract.Env{Lost: holderLost, Successor: resendHolder, Claimed: agent.ResendClaimed}
 }
 
 // resendHolder is the new dispatch of c's lost holder, "" when it cannot be re-sent (c is then failed owner-dead).

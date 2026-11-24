@@ -158,11 +158,16 @@ function action(name: string) {
 // runAction runs Go's argv abortably: a cancelled call stops the tree; a failed launch or exit is a tool error.
 async function runAction(name: string, run: string[], cwd: string, signal: any, stdin?: string): Promise<string> {
   const p = execFileAsync(BIN, run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 })
-  if (stdin !== undefined) { p.child.stdin?.on("error", () => {}); p.child.stdin?.end(stdin) }
+  const sent = new Promise<void>((ok, bad) => { // a failed or cut write must fail the call, not file a truncated body
+    if (stdin === undefined || !p.child.stdin) return ok()
+    p.child.stdin.on("error", bad)
+    p.child.stdin.end(stdin, () => ok())
+  })
+  sent.catch(() => {}) // surfaced below, after the child's own exit
   const stop = () => stopTree(p.child) // Node's abort kills only the child; the gate stops its own tree on SIGTERM
   signal?.addEventListener("abort", stop, { once: true })
   if (signal?.aborted) stop() // cancelled before the listener existed
-  try { return (await p).stdout }
+  try { const out = (await p).stdout; await sent; return out }
   catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
   finally { signal?.removeEventListener("abort", stop) }
 }

@@ -62,14 +62,18 @@ func watchOnce(ctx context.Context, owner string, send sendFunc, tries map[strin
 			return
 		}
 		k, err := contract.Load(id)
-		if err != nil || k.State() != contract.StateWorking || !leafLost(k) {
+		if err != nil || k.State() != contract.StateWorking {
+			continue
+		}
+		if !leafLost(k) {
+			delete(tries, id) // it recovered: the next death starts its count afresh
 			continue
 		}
 		resendLeaf(ctx, k, send, tries)
 	}
 }
 
-// settleLeaves waits until no leaf in ids is working, ctx ends, or the cap passes; it returns the ids still working.
+// settleLeaves waits until no leaf in ids is working, ctx ends, or the cap passes (none when no budget is left).
 func settleLeaves(ctx context.Context, ids []string) []string {
 	cp := leavesSettle
 	if dl, ok := ctx.Deadline(); ok {

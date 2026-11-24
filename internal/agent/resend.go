@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,10 +57,13 @@ func ResendClaimed(holder string) bool {
 	return m != "" && err == nil && time.Since(fi.ModTime()) < resendTimeout
 }
 
-// followable reports whether dispatch id is worth following: it finished ok or its job is still live.
-func followable(id string) bool {
+// followable reports whether the dispatch id that holder resumed as is worth following: ok, live or not yet saved.
+func followable(holder, id string) bool {
 	rec, err := LoadRecord(id)
-	return err == nil && (rec.Status == wire.StatusOK || jobLive(rec))
+	if errors.Is(err, ErrNoRecord) {
+		return ResendClaimed(holder) // the recovery is starting: its record is not written yet
+	}
+	return err == nil && (rec.Status == wire.StatusOK || rec.Status == "running" && jobLive(rec))
 }
 
 // Resend runs `agents ask --retry <holder> --recover` under the holder's parent and returns the new dispatch id.
@@ -85,7 +89,7 @@ func Resend(ctx context.Context, holder string) (string, error) {
 		err = fmt.Errorf("no dispatch id in %d bytes of output", len(out))
 	}
 	if err != nil { // a recovery that launched anyway (timeout, lost claim) is named by its marker: follow it
-		if won, ok := ResumedAs(holder); ok && followable(won) {
+		if won, ok := ResumedAs(holder); ok && followable(holder, won) {
 			return won, nil
 		}
 		return "", err
