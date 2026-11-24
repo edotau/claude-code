@@ -114,17 +114,51 @@ func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int
 	if err != nil {
 		return "", err
 	}
-	var out SessionResponse
 	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: fence, Open: open}
+	tok, err := mintFenced(ctx, req)
+	if errors.Is(err, errNoFenceSupport) && replaceStaleDaemon(ctx) { // an old daemon cannot fence: swap it, retry once
+		tok, err = mintFenced(ctx, req)
+	}
+	return tok, err
+}
+
+var errNoFenceSupport = errors.New("proxy: the daemon signed a token without the requested confinement fence; " +
+	"restart the proxy")
+
+// mintFenced posts req; an older daemon signs a fenceless token: fine when open, never handed back as fenced.
+func mintFenced(ctx context.Context, req SessionRequest) (string, error) {
+	var out SessionResponse
 	if err := postSession(ctx, SessionPath, req, &out); err != nil {
 		return "", err
 	}
-	// an older daemon ignores the fence fields and signs a fenceless token: fine when open, never handed back as fenced
-	if c, ok := PeekSessionClaims(out.Token); !ok || (open && c.Fenced()) || (!open && !slices.Equal(c.Fence, fence)) {
-		return "", errors.New("proxy: the daemon signed a token without the requested confinement fence; restart the proxy")
+	c, ok := PeekSessionClaims(out.Token)
+	if !ok || (req.Open && c.Fenced()) || (!req.Open && !slices.Equal(c.Fence, req.Fence)) {
+		return "", errNoFenceSupport
 	}
 	return out.Token, nil
 }
+
+// replaceStaleDaemon swaps a daemon running another build for this one (in-flight streams drain); false when it cannot.
+func replaceStaleDaemon(ctx context.Context) bool {
+	replaced := false
+	err := paths.WithFileLock(filepath.Join(paths.StateDir(), "router.replace"), func() error {
+		st, ok := Running(ctx)
+		if !ok {
+			return nil
+		}
+		if !Stale(st) { // a peer already replaced it: the retry meets the new daemon
+			replaced = true
+			return nil
+		}
+		_, err := restartDaemon(ctx, st)
+		replaced = err == nil
+		return err
+	})
+	return err == nil && replaced
+}
+
+// restartDaemon is the replacement seam of replaceStaleDaemon.
+var restartDaemon = restart
 
 func postSession(ctx context.Context, path string, body SessionRequest, out *SessionResponse) error {
 	if _, err := Ensure(ctx); err != nil {
