@@ -70,7 +70,7 @@ func stripLabels(desc, st, label string) string {
 	for {
 		head, rest, ok := cutHead(desc)
 		head = strings.TrimSpace(head)
-		if !ok || head == "" || (head != st && (label == "" || !labelShaped(head, label))) {
+		if !ok || head == "" || (head != st && !labelShaped(head, label)) { // label "": a typed model head is unverified
 			return strings.TrimSpace(desc)
 		}
 		desc = rest
@@ -267,7 +267,36 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	case r.Note != "":
 		note = fmt.Sprintf("dispatch-effort: label %s: %s.", label, r.Note)
 	}
-	return label, strings.TrimSpace(note + "\n" + googleQuotaNote(ctx, r))
+	return label, strings.TrimSpace(note + "\n" + run.fableNote(r, label) + "\n" + googleQuotaNote(ctx, r))
+}
+
+// fableNote warns that the proxy refuses a Fable label on a Databricks route (R8); the call is unchanged.
+func (r *dispatchRun) fableNote(route agentpkg.ModelRoute, label string) string {
+	if c, _, ok := models.Resolve(label); !ok || models.FamilyOf(c) != models.Fable || (route.Agent != "" && r.profile == "") {
+		return "" // an external agent's own route is not the session's
+	}
+	name, routed := providers.SessionName()
+	if r.profile != "" {
+		name, routed = r.profile, true
+	}
+	reg, err := r.registry()
+	if err != nil || !routed {
+		return ""
+	}
+	p := reg.Row(name)
+	if p == nil || p.SpellingRule() != "databricks-serving" {
+		return ""
+	}
+	return fmt.Sprintf("dispatch-effort: label %s: profile %s serves no Fable, the proxy refuses this call; use model opus (%s).",
+		label, name, opusPin(reg, p))
+}
+
+// opusPin is the profile's Opus id as the proxy's refusal names it: the session pin, else the wire spelling.
+func opusPin(reg *providers.Registry, p *providers.Provider) string {
+	if sel, err := providers.Select(reg, p.Name); err == nil && sel.ClientModel(models.Opus) != "" {
+		return sel.ClientModel(models.Opus)
+	}
+	return p.WireModel(models.Opus)
 }
 
 // googleQuotaCheck is the agy /usage seam, cache-only so a label never waits on an agy spawn; tests stub it.

@@ -1,9 +1,9 @@
 ---
 name: Plan
 description: |
-  Planning on the session's model; return docs/templates/plan.md with a tickable Tasks checklist.
+  Planning on Fable; return docs/templates/plan.md with a tickable Tasks checklist.
 tools: [Read, Grep, Glob, Write, Edit, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
-model: inherit
+model: fable
 ---
 
 # Plan
@@ -142,6 +142,12 @@ Build every plan for the widest parallel delegation, so the main session never r
 - **Small context** — every leaf writes its full report to `$(claude-code memory path reports NAME)` and returns a
   verdict of at most 8 lines.
 - **Leaf rules once** — state the standing leaf rules once in the plan (`## Leaf rules`); briefs point at them.
+
+### Routing default
+
+Fable is first-party only, so the plan assigns execution to Databricks Claude, spread over dev, qa and prod: Opus for
+a lead or owner, Sonnet or Haiku for executing leaves. Name first-party Anthropic only for a task that needs it
+(Fable) or when the owner asks; non-vendor families in rotation are kimi, grok and qwen only.
 
 ### Self-review before returning
 

@@ -191,6 +191,30 @@ func TestLabelModelGoogleQuotaNote(t *testing.T) {
 	}
 }
 
+// With no resolved model a typed model head is dropped, not kept as a claim; a Fable label on Databricks is flagged.
+func TestLabelNamesOnlyTheModelThatRuns(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(route.OverlayVar, "")
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	u := map[string]any{"subagent_type": "claude", "description": "databricks-kimi-k3: do x"}
+	if changed, _ := applyLabel(context.Background(), newDispatchRun(func() string { return "" }), u, "do x"); !changed || u["description"] != "do x" {
+		t.Errorf("unresolved label: changed=%v description %q, want the stale head dropped", changed, u["description"])
+	}
+	run := newDispatchRun(nil)
+	run.profile = "dev"
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") || !strings.Contains(n, "databricks-claude-opus-5-5") {
+		t.Errorf("fableNote on dev = %q, want the refusal and the Opus id", n)
+	}
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-opus-5-5"); n != "" {
+		t.Errorf("fableNote for Opus = %q, want none", n)
+	}
+	run.profile = "anthropic"
+	if n := run.fableNote(agentpkg.ModelRoute{}, "claude-fable-5-2"); n != "" {
+		t.Errorf("fableNote on a first-party row = %q, want none", n)
+	}
+}
+
 // An equivalent label (alias, dotted or full id) is kept; a different model, or a `databricks-` claim it lacks, is not.
 func TestSameLabel(t *testing.T) {
 	for _, c := range []struct {
