@@ -390,10 +390,7 @@ func readCapped(r *bufio.Reader, partial *[]byte, cut *bool) (bool, error) {
 }
 
 func transcriptFinished(path string) bool {
-	raw, err := os.ReadFile(metaPath(path))
-	if err != nil {
-		return false
-	}
+	raw, _ := os.ReadFile(metaPath(path)) // a missing sidecar still leaves the journal to decide
 	m, _ := parseMeta(raw)
 	return m.Finished || readJournal(filepath.Dir(path))[subagentIDFromPath(path)].Resulted
 }
