@@ -118,7 +118,7 @@ func ServedRoutingOn() bool {
 // DefaultRouting is defaults.json's own routing object with no overlay, so lane B can label a value default or vault.
 func DefaultRouting() Routing {
 	var base Registry
-	if err := json.Unmarshal(defaultsJSON, &base); err != nil {
+	if err := json.Unmarshal(providerDefaults(), &base); err != nil {
 		return Routing{}
 	}
 	return base.Routing

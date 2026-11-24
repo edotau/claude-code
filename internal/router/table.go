@@ -2,7 +2,6 @@ package router
 
 import (
 	"cmp"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,15 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
-
-//go:embed table.json
-var tableJSON []byte
 
 // Aliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var Aliases = providers.RouteAliases
@@ -49,7 +46,7 @@ func OpencodeTableModels() (string, string, bool) {
 // parsedTable is table.json decoded once per process; LoadFrom clones what it mutates.
 var parsedTable = sync.OnceValues(func() (fileTable, error) {
 	var f fileTable
-	err := json.Unmarshal(tableJSON, &f)
+	err := json.Unmarshal(assets.RouteTable(), &f)
 	return f, err
 })
 

@@ -54,7 +54,7 @@ func forgetLayout() { layoutCache.Delete(paths.MemoryStoreDir()) }
 
 const homeDir = "home"
 
-// flatSubs are the store folders; derived from folderRoles so sandbox and import never miss one.
+// flatSubs derives the store folders from the asset roles so sandbox and import never miss one.
 var flatSubs = storeFolderNames()
 
 // errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.

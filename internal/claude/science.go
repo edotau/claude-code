@@ -2,7 +2,6 @@ package claude
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"net"
@@ -13,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -53,7 +52,7 @@ func science(env, args []string) (agent.Plan, error) {
 
 // scienceEnv is science over the live environment, with the site config and pinned serve ports applied.
 func scienceEnv(args []string) (agent.Plan, error) {
-	port, rest, err := scienceArgs(args, scienceConfigPort(scienceTOML))
+	port, rest, err := scienceArgs(args, scienceConfigPort(assets.ScienceConfig()))
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -67,15 +66,10 @@ func scienceEnv(args []string) (agent.Plan, error) {
 	}
 	plan, err := science(os.Environ(), argv)
 	if err == nil && cfg != "" {
-		plan.Files = []agent.LaunchFile{{Path: cfg, Data: scienceTOML}} // written at exec, so --print-env stays read-only
+		plan.Files = []agent.LaunchFile{{Path: cfg, Data: assets.ScienceConfig()}} // written at exec, so --print-env stays read-only
 	}
 	return plan, err
 }
-
-// scienceTOML is the generic claude-science config shipped in the binary; company/HPC detail stays out of it.
-//
-//go:embed science.toml
-var scienceTOML []byte
 
 // scienceConfigPort reads the top-level `port = N` (a `port` inside a [table] is not the app port); 3000 if unset.
 func scienceConfigPort(raw []byte) int {

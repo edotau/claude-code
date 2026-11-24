@@ -3,7 +3,6 @@ package setup
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
@@ -586,9 +586,6 @@ func sameBytes(a, b string) bool {
 	}
 }
 
-//go:embed tmux.conf
-var tmuxConf []byte
-
 // tmuxConfPaths are the files tmux reads at startup; the first is where a missing config is seeded.
 var tmuxConfPaths = func() []string {
 	home, err := os.UserHomeDir()
@@ -630,7 +627,7 @@ func seedTmuxConf(w io.Writer, dryRun bool) string {
 		return "kept"
 	}
 	if err == nil {
-		_, err = f.Write(tmuxConf)
+		_, err = f.Write(assets.TmuxConf())
 		err = errors.Join(err, f.Close())
 		if err != nil {
 			err = errors.Join(err, os.Remove(paths[0])) // a truncated conf must not pass for an existing one

@@ -26,7 +26,6 @@ package clipboard
 
 import (
 	"bytes"
-	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -38,6 +37,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -250,9 +250,7 @@ func isSocket(path string) bool {
 }
 
 // ProxyScript is the wl-paste shim that forwards every call to `claude-code clip paste`.
-//
-//go:embed wl-paste-claude.sh
-var ProxyScript []byte
+func ProxyScript() []byte { return assets.WLPasteProxy() }
 
 // proxyMarker identifies a file as this proxy (any version), so a foreign wl-paste is never overwritten.
 const proxyMarker = "Claude-aware `wl-paste` proxy for WSL2"
@@ -279,7 +277,7 @@ func proxyState(path string) proxyFileState {
 		return proxyAbsent
 	case err != nil:
 		return proxyForeign // unreadable: never overwrite what we cannot identify
-	case bytes.Equal(b, ProxyScript):
+	case bytes.Equal(b, ProxyScript()):
 		return proxyCurrent
 	case bytes.Contains(b, []byte(proxyMarker)):
 		return proxyStale
@@ -332,7 +330,7 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 		fmt.Fprintf(w, "  %-17s %s\n", "would write", dest)
 		return nil
 	}
-	if err := paths.AtomicWrite(dest, ProxyScript, 0o755); err != nil {
+	if err := paths.AtomicWrite(dest, ProxyScript(), 0o755); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "  %-17s %s\n", "wrote", dest)

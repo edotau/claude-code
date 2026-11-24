@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -32,14 +33,14 @@ func TestEmbedIndexUsesTheResolvedProfile(t *testing.T) {
 	}
 }
 
-// referenceCalls greps memDir's non-test Go files for the verbs passed to Reference("<verb>").
+// referenceCalls finds the named procedure readers used by memory operations.
 func referenceCalls(t *testing.T, memDir string) map[string]bool {
 	t.Helper()
 	entries, err := os.ReadDir(memDir)
 	if err != nil {
 		t.Fatalf("read %s: %v", memDir, err)
 	}
-	callRe := regexp.MustCompile(`Reference\("([a-z-]+)"\)`)
+	callRe := regexp.MustCompile(`assets\.Memory([A-Za-z]+)Procedure\(\)`)
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
@@ -56,21 +57,17 @@ func referenceCalls(t *testing.T, memDir string) map[string]bool {
 	return seen
 }
 
-// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb passed to Reference (grepped) has a prompt.
-func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
+func TestProcedureReadersCoverMemoryOperations(t *testing.T) {
 	seen := referenceCalls(t, ".")
-	if len(seen) == 0 {
-		t.Fatal("no Reference(\"<verb>\") calls found in internal/memory — regex drifted or the API moved")
+	readers := map[string]func() string{"Init": assets.MemoryInitProcedure, "Update": assets.MemoryUpdateProcedure,
+		"Dream": assets.MemoryDreamProcedure, "Review": assets.MemoryReviewProcedure, "Promote": assets.MemoryPromoteProcedure}
+	for name, read := range readers {
+		if !seen[name] || strings.TrimSpace(read()) == "" {
+			t.Errorf("%s procedure lacks a real consumer or embedded text", name)
+		}
 	}
-	for verb := range seen {
-		got, err := Reference(verb)
-		if err != nil {
-			t.Errorf("Reference(%q) is called from Go but errors: %v", verb, err)
-			continue
-		}
-		if strings.TrimSpace(got) == "" {
-			t.Errorf("Reference(%q) is called from Go but resolves to an empty prompt", verb)
-		}
+	if len(seen) != len(readers) {
+		t.Errorf("procedure calls %v, want exactly %d named readers", seen, len(readers))
 	}
 }
 

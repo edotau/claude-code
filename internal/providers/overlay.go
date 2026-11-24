@@ -305,7 +305,7 @@ func builtinGithubRow() string {
 
 // builtinEntry is defaults.json's raw entry for profile name (empty when there is none).
 func builtinEntry(name string) (map[string]json.RawMessage, error) {
-	rows, err := decodeRows(providersField(defaultsJSON), nil)
+	rows, err := decodeRows(providersField(providerDefaults()), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func OverlayDrift() (map[string][]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return overlayDrift(defaultsJSON, doc)
+	return overlayDrift(providerDefaults(), doc)
 }
 
 // overlayDrift is OverlayDrift over explicit documents; a removed row (null) is a choice, not drift.
@@ -420,7 +420,7 @@ type rawRow struct {
 
 // builtinProviders maps every built-in profile to its provider.
 var builtinProviders = sync.OnceValue(func() map[string]string {
-	rows, err := decodeRows(providersField(defaultsJSON), nil)
+	rows, err := decodeRows(providersField(providerDefaults()), nil)
 	out := map[string]string{}
 	if err != nil {
 		return out

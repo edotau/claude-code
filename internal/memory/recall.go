@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -119,13 +120,13 @@ const expandKey = "expand-shown"
 func recallBodyLine(e Entry) string {
 	flat := capRecallPreview(recallFlat(e), recallBodyCapRunes)
 	if e.Type == "topic" && strings.HasPrefix(strings.TrimLeft(e.Body, "#- "), strings.TrimSuffix(e.File, ".md")) {
-		return "- " + flat
+		return assets.MemoryRecallLine("", flat, false)
 	}
-	return fmt.Sprintf("- [%s] %s", e.File, flat)
+	return assets.MemoryRecallLine(e.File, flat, true)
 }
 
 func recallPointerLine(e Entry) string {
-	return "- " + capRecallPreview(e.pointer(), recallPointerCapRunes)
+	return assets.MemoryRecallLine("", capRecallPreview(e.pointer(), recallPointerCapRunes), false)
 }
 
 func capRecallPreview(s string, limit int) string {
@@ -145,10 +146,7 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil
 	}
-	header := "<!-- memory-recall -->"
-	if expand {
-		header = "<!-- memory-recall; expand: claude-code memory search <id> -->"
-	}
+	header := assets.MemoryRecallHeader(expand)
 	var b strings.Builder
 	b.WriteString(header)
 	lines := make([]string, len(picks))
@@ -208,13 +206,10 @@ const (
 	agentRecallBlockCapBytes = 1024
 )
 
-// agentRecallMarker guards against appending twice if a caller already attached one.
-const agentRecallMarker = "<memory-recall>"
-
 // AgentRecall is a subagent spawn's <memory-recall> block plus its up to 3 cited ids; ("", nil) on no match.
 func AgentRecall(ctx context.Context, sessionID, task string) (block string, ids []string) {
 	q := strings.TrimSpace(task)
-	if q == "" || strings.Contains(q, agentRecallMarker) {
+	if q == "" || strings.Contains(q, assets.MemoryRecallMarker()) {
 		return "", nil
 	}
 	picks, _ := recallPicks(ctx, "", q, false, false) // no seen set: the subagent has not seen what its parent did
@@ -233,9 +228,9 @@ func AgentRecall(ctx context.Context, sessionID, task string) (block string, ids
 
 // capRecallLines drops whole trailing lines until the block fits the cap; n is how many lines survived.
 func capRecallLines(lines []string) (string, int) {
-	const footer = "\nLoad one with: claude-code memory show <id>\n</memory-recall>"
+	marker, footer := assets.MemoryRecallMarker(), assets.MemoryRecallFooter()
 	for len(lines) > 0 {
-		block := fmt.Sprintf("\n\n%s%s%s", agentRecallMarker, strings.Join(lines, ""), footer)
+		block := fmt.Sprintf("\n\n%s%s%s", marker, strings.Join(lines, ""), footer)
 		if len(block) <= agentRecallBlockCapBytes {
 			return block, len(lines)
 		}

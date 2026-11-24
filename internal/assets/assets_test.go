@@ -25,6 +25,17 @@ var inventory = []struct {
 	read               func() []byte
 }{
 	{"files/catalog/ranks.json", "json", "RankTable", RankTable},
+	{"files/providers/defaults.json", "json", "ProviderDefaults", ProviderDefaults},
+	{"files/models/catalog.json", "json", "ModelCatalog", ModelCatalog},
+	{"files/router/table.json", "json", "RouteTable", RouteTable},
+	{"files/shell/guards.json", "json", "ShellGuards", ShellGuards},
+	{"files/agentconfig/agents.json", "json", "AgentDefaults", AgentDefaults},
+	{"files/agentconfig/overlay.schema.json", "json", "OverlaySchemaSnapshot", OverlaySchemaSnapshot},
+	{"files/agentconfig/template/opencode.json", "json", "OpencodeConfigTemplate", OpencodeConfigTemplate},
+	{"files/agentconfig/template/opencode-tui.json", "json", "OpencodeTUITemplate", OpencodeTUITemplate},
+	{"files/settings/automode.json", "json", "SettingsAutoMode", SettingsAutoMode},
+	{"files/settings/template.json", "json", "SettingsTemplate", SettingsTemplate},
+	{"files/settings/claude-code-settings.schema.json", "json", "SettingsSchema", SettingsSchema},
 	{"files/review/source/retired_words.json", "json", "RetiredWords", RetiredWords},
 	{"files/ui/theme/default_config.json", "json", "ThemeDefaultConfig", ThemeDefaultConfig},
 	{"files/ui/theme/default_palettes.json", "json", "ThemeDefaultPalettes", ThemeDefaultPalettes},
@@ -40,6 +51,67 @@ var inventory = []struct {
 	{"files/workflows/skeletons/parallel.js.tmpl", "js", "WorkflowParallelSkeleton", func() []byte { return []byte(WorkflowParallelSkeleton("{{.Name}}")) }},
 	{"files/workflows/skeletons/evaluator.js.tmpl", "js", "WorkflowEvaluatorSkeleton", func() []byte { return []byte(WorkflowEvaluatorSkeleton("{{.Name}}")) }},
 	{"files/workflows/skeletons/orchestrator.js.tmpl", "js", "WorkflowOrchestratorSkeleton", func() []byte { return []byte(WorkflowOrchestratorSkeleton("{{.Name}}")) }},
+	{"files/memory/templates/activeContext.md", "md", "MemoryActiveContextSeed", func() []byte { return []byte(MemoryActiveContextSeed()) }},
+	{"files/memory/templates/conventions.md", "md", "MemoryConventionsSeed", func() []byte { return []byte(MemoryConventionsSeed()) }},
+	{"files/memory/templates/decisionLog.md", "md", "MemoryDecisionLogSeed", func() []byte { return []byte(MemoryDecisionLogSeed()) }},
+	{"files/memory/templates/progress.md", "md", "MemoryProgressSeed", func() []byte { return []byte(MemoryProgressSeed()) }},
+	{"files/memory/templates/projectContext.md", "md", "MemoryProjectContextSeed", func() []byte { return []byte(MemoryProjectContextSeed()) }},
+	{"files/memory/templates/sessionHistory.md", "md", "MemorySessionHistorySeed", func() []byte { return []byte(MemorySessionHistorySeed()) }},
+	{"files/memory/prompts/dream.md", "md", "MemoryDreamProcedure", func() []byte { return read("files/memory/prompts/dream.md") }},
+	{"files/memory/prompts/init.md", "md", "MemoryInitProcedure", func() []byte { return read("files/memory/prompts/init.md") }},
+	{"files/memory/prompts/promote.md", "md", "MemoryPromoteProcedure", func() []byte { return read("files/memory/prompts/promote.md") }},
+	{"files/memory/prompts/review.md", "md", "MemoryReviewProcedure", func() []byte { return read("files/memory/prompts/review.md") }},
+	{"files/memory/prompts/update.md", "md", "MemoryUpdateProcedure", func() []byte { return read("files/memory/prompts/update.md") }},
+	{"files/memory/prompts/update-opening.tmpl", "tmpl", "MemoryUpdateWorker", func() []byte { return read("files/memory/prompts/update-opening.tmpl") }},
+	{"files/memory/prompts/dream-opening.tmpl", "tmpl", "MemoryDreamWorker", func() []byte { return read("files/memory/prompts/dream-opening.tmpl") }},
+	{"files/memory/prompts/legacy-update-opening.tmpl", "tmpl", "MemoryLegacyUpdateWorker", func() []byte { return read("files/memory/prompts/legacy-update-opening.tmpl") }},
+	{"files/memory/prompts/legacy-dream-opening.tmpl", "tmpl", "MemoryLegacyDreamWorker", func() []byte { return read("files/memory/prompts/legacy-dream-opening.tmpl") }},
+	{"files/memory/prompts/historical.txt", "txt", "MemoryHistoricalRule", func() []byte { return read("files/memory/prompts/historical.txt") }},
+	{"files/memory/prompts/update-worker.tmpl", "tmpl", "MemoryUpdatePrompt", func() []byte { return read("files/memory/prompts/update-worker.tmpl") }},
+	{"files/memory/prompts/transcript-pointer.tmpl", "tmpl", "MemoryTranscriptPointer", func() []byte { return read("files/memory/prompts/transcript-pointer.tmpl") }},
+	{"files/memory/prompts/session-digest.tmpl", "tmpl", "MemorySessionDigest", func() []byte { return read("files/memory/prompts/session-digest.tmpl") }},
+	{"files/memory/prompts/git-activity.tmpl", "tmpl", "MemoryGitActivity", func() []byte { return read("files/memory/prompts/git-activity.tmpl") }},
+	{"files/memory/prompts/session-tags.tmpl", "tmpl", "MemorySessionTags", func() []byte { return read("files/memory/prompts/session-tags.tmpl") }},
+	{"files/memory/prompts/dream-worker.tmpl", "tmpl", "MemoryDreamPrompt", func() []byte { return read("files/memory/prompts/dream-worker.tmpl") }},
+	{"files/memory/prompts/dream-unchanged.txt", "txt", "MemoryDreamUnchanged", func() []byte { return read("files/memory/prompts/dream-unchanged.txt") }},
+	{"files/memory/prompts/open-tasks.tmpl", "tmpl", "MemoryOpenTasks", func() []byte { return read("files/memory/prompts/open-tasks.tmpl") }},
+	{"files/memory/prompts/rtk-misses.tmpl", "tmpl", "MemoryRTKMisses", func() []byte { return read("files/memory/prompts/rtk-misses.tmpl") }},
+	{"files/memory/prompts/index-hint.txt", "txt", "MemoryIndexHint", func() []byte { return read("files/memory/prompts/index-hint.txt") }},
+	{"files/memory/prompts/block-begin.txt", "txt", "MemoryBlockBegin", func() []byte { return read("files/memory/prompts/block-begin.txt") }},
+	{"files/memory/prompts/bank-head.tmpl", "tmpl", "MemoryBankHead", func() []byte { return read("files/memory/prompts/bank-head.tmpl") }},
+	{"files/memory/prompts/more-entries.tmpl", "tmpl", "MemoryMoreEntries", func() []byte { return read("files/memory/prompts/more-entries.tmpl") }},
+	{"files/memory/prompts/unresolved.tmpl", "tmpl", "MemoryUnresolvedEntries", func() []byte { return read("files/memory/prompts/unresolved.tmpl") }},
+	{"files/memory/prompts/catalog-header.tmpl", "tmpl", "MemoryCatalogHeader", func() []byte { return read("files/memory/prompts/catalog-header.tmpl") }},
+	{"files/memory/prompts/catalog-bank.tmpl", "tmpl", "MemoryCatalogBank", func() []byte { return read("files/memory/prompts/catalog-bank.tmpl") }},
+	{"files/memory/prompts/home-index.txt", "txt", "MemoryHomeIndexHeading", func() []byte { return read("files/memory/prompts/home-index.txt") }},
+	{"files/memory/prompts/knowledge.txt", "txt", "MemoryKnowledgeHeading", func() []byte { return read("files/memory/prompts/knowledge.txt") }},
+	{"files/memory/prompts/home-overflow.tmpl", "tmpl", "MemoryHomeOverflow", func() []byte { return read("files/memory/prompts/home-overflow.tmpl") }},
+	{"files/memory/folder-roles.json", "json", "MemoryFolderRoles", func() []byte { return read("files/memory/folder-roles.json") }},
+	{"files/memory/prompts/layout.txt", "txt", "MemoryLayoutHeading", func() []byte { return read("files/memory/prompts/layout.txt") }},
+	{"files/memory/prompts/layout-row.tmpl", "tmpl", "MemoryLayoutRow", func() []byte { return read("files/memory/prompts/layout-row.tmpl") }},
+	{"files/memory/prompts/native.txt", "txt", "MemoryNativeHeading", func() []byte { return read("files/memory/prompts/native.txt") }},
+	{"files/memory/prompts/native-folder.tmpl", "tmpl", "MemoryNativeFolder", func() []byte { return read("files/memory/prompts/native-folder.tmpl") }},
+	{"files/memory/prompts/native-unparsed.tmpl", "tmpl", "MemoryNativeUnparsed", func() []byte { return read("files/memory/prompts/native-unparsed.tmpl") }},
+	{"files/memory/prompts/recall-line.tmpl", "tmpl", "MemoryRecallLine", func() []byte { return read("files/memory/prompts/recall-line.tmpl") }},
+	{"files/memory/prompts/recall-header.tmpl", "tmpl", "MemoryRecallHeader", func() []byte { return read("files/memory/prompts/recall-header.tmpl") }},
+	{"files/memory/prompts/recall-footer.txt", "txt", "MemoryRecallFooter", func() []byte { return read("files/memory/prompts/recall-footer.txt") }},
+	{"files/memory/prompts/recall-marker.txt", "txt", "MemoryRecallMarker", func() []byte { return read("files/memory/prompts/recall-marker.txt") }},
+	{"files/memory/prompts/bank-load.tmpl", "tmpl", "MemoryBankLoadNote", func() []byte { return read("files/memory/prompts/bank-load.tmpl") }},
+	{"files/memory/prompts/previous-session.tmpl", "tmpl", "MemoryPreviousSession", func() []byte { return read("files/memory/prompts/previous-session.tmpl") }},
+	{"files/memory/prompts/update-recovery.tmpl", "tmpl", "MemoryUpdateRecovery", func() []byte { return read("files/memory/prompts/update-recovery.tmpl") }},
+	{"files/memory/prompts/scaffold.tmpl", "tmpl", "MemoryScaffoldNote", func() []byte { return read("files/memory/prompts/scaffold.tmpl") }},
+	{"files/memory/prompts/catalog-pointer.tmpl", "tmpl", "MemoryCatalogPointer", func() []byte { return read("files/memory/prompts/catalog-pointer.tmpl") }},
+	{"files/memory/prompts/bank-heading.tmpl", "tmpl", "MemoryBankHeading", func() []byte { return read("files/memory/prompts/bank-heading.tmpl") }},
+	{"files/memory/prompts/native-context.tmpl", "tmpl", "MemoryNativeContext", func() []byte { return read("files/memory/prompts/native-context.tmpl") }},
+	{"files/memory/prompts/transcript-handoff.tmpl", "tmpl", "TranscriptHandoff", func() []byte { return read("files/memory/prompts/transcript-handoff.tmpl") }},
+	{"files/claude/science.toml", "toml", "ScienceConfig", ScienceConfig},
+	{"files/clipboard/wl-paste-claude.sh", "shell", "WLPasteProxy", WLPasteProxy},
+	{"files/databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
+	{"files/databricks/templates/codex.toml", "toml", "DatabricksCodexTemplate", DatabricksCodexTemplate},
+	{"files/setup/tmux.conf", "conf", "TmuxConf", TmuxConf},
+	{"files/ui/vscode/keybindings.template.json", "jsonc", "VSCodeKeybindingsTemplate", VSCodeKeybindingsTemplate},
+	{"files/ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
+	{"files/pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
 }
 
 // readers maps each exported production accessor to the embedded paths its body reads.
@@ -62,13 +134,16 @@ func readPaths(fn *ast.FuncDecl) []string {
 	var paths []string
 	ast.Inspect(fn, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) != 1 {
+		if !ok || len(call.Args) < 1 {
 			return true
 		}
 		id, ok := call.Fun.(*ast.Ident)
 		lit, isLit := call.Args[0].(*ast.BasicLit)
-		if ok && id.Name == "read" && isLit && lit.Kind == token.STRING {
+		if ok && (id.Name == "read" || id.Name == "renderMemory") && isLit && lit.Kind == token.STRING {
 			p, _ := strconv.Unquote(lit.Value)
+			if id.Name == "renderMemory" {
+				p = "files/memory/prompts/" + p
+			}
 			paths = append(paths, p)
 		}
 		return true

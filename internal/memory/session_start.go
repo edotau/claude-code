@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -86,11 +87,7 @@ const catchupStamp = "memory-catchup"
 
 // bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.
 func bankLoadNote(prefix string) string {
-	note := "Session memory bank loaded below; auto-saves at session end (`claude-code memory update` = manual)."
-	if prefix != "" {
-		note = prefix + " " + note
-	}
-	return note
+	return assets.MemoryBankLoadNote(prefix)
 }
 
 // chainNote appends the previous-session pointer and any catch-up/attention note, or "" with no chain entry.
@@ -101,15 +98,10 @@ func chainNote(chain, sessionID string, now time.Time) string {
 	}
 	note := ""
 	if prevID != sessionID {
-		note = " Previous session: " + prevID + "."
+		note = assets.MemoryPreviousSession(prevID)
 	}
 	if res, ok := readUpdateResult(prevID); ok && res.needsAttention(now) {
-		hint := ""
-		if res.Log != "" {
-			hint = " (log: " + res.Log + ")"
-		}
-		note += " NOTE: the previous session's memory update did not complete (" + res.Status + ")" + hint +
-			" — run `claude-code memory update --session " + prevID + "` to recover it."
+		note += assets.MemoryUpdateRecovery(prevID, res.Status, res.Log)
 	}
 	return note
 }
@@ -141,7 +133,7 @@ func maybeAutoInit(cwd string, banked bool) (string, bool) {
 	if err != nil {
 		return "", banked
 	}
-	return "Memory bank scaffolded at " + dir + " — it fills automatically at session end (optionally enrich with `claude-code memory init`).", banked
+	return assets.MemoryScaffoldNote(dir), banked
 }
 
 // scaffoldSafe: the config dir, a dir already carrying .claude/, or a git TOPLEVEL (a subdir would misplace the bank).
@@ -455,10 +447,10 @@ const focusCapChars = 1200
 func sessionSurface(root string) string {
 	var parts []string
 	if _, err := os.Stat(filepath.Join(paths.MemoryStoreDir(), routerFile)); err == nil {
-		parts = append(parts, "<!-- catalog: "+filepath.Join(paths.MemoryStoreDir(), routerFile)+"; search: `claude-code memory search <terms>` -->")
+		parts = append(parts, assets.MemoryCatalogPointer(filepath.Join(paths.MemoryStoreDir(), routerFile)))
 	}
 	if bankExists() { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- MEMORY (" + paths.MemorySubDir("") + ") -->"
+		head := assets.MemoryBankHeading(paths.MemorySubDir(""))
 		if focus := repoFocus(); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
@@ -466,7 +458,7 @@ func sessionSurface(root string) string {
 	}
 	if !nativeLinked(root, paths.MemorySubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
 		if data, err := os.ReadFile(NativeIndex()); err == nil && len(data) > 0 {
-			parts = append(parts, capChars("<!-- MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+			parts = append(parts, capChars(assets.MemoryNativeContext(strings.TrimSpace(string(data))), indexCapChars))
 		}
 	}
 	return capChars(strings.Join(parts, "\n\n"), totalCapChars)

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -109,7 +110,7 @@ const nestedTestDoc = `{"default":"work","providers":{
  "openai":{"scratch":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"}}}}}`
 
 func TestParseNestedByProvider(t *testing.T) {
-	reg, err := Parse(defaultsJSON, []byte(nestedTestDoc))
+	reg, err := Parse(assets.ProviderDefaults(), []byte(nestedTestDoc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestParseNestedByProvider(t *testing.T) {
 
 // The embedded defaults validate on their own, and every built-in row is named by its key under a known provider.
 func TestEmbeddedDefaultsValid(t *testing.T) {
-	reg, err := Parse(defaultsJSON, nil)
+	reg, err := Parse(assets.ProviderDefaults(), nil)
 	if err != nil || len(reg.Providers) == 0 {
 		t.Fatalf("Parse(defaults) = %v, %d rows", err, len(reg.Providers))
 	}
@@ -146,7 +147,7 @@ func TestDuplicateProfileRejected(t *testing.T) {
 		"overlay profile owned by another provider": `{"providers":{"openai":{"ultra":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
 	}
 	for name, doc := range cases {
-		_, err := Parse(defaultsJSON, []byte(doc))
+		_, err := Parse(assets.ProviderDefaults(), []byte(doc))
 		if err == nil || !strings.Contains(err.Error(), "unique across providers") {
 			t.Errorf("%s: err = %v, want a unique-across-providers rejection", name, err)
 		}
@@ -179,7 +180,7 @@ func TestOverlayWritesNestedAndAcceptsFlatView(t *testing.T) {
 func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
 	for key, ok := range map[string]bool{"opus": true, "claude-opus-5-5": true, "claude-haiku-5-5": true, "claude-fable-5-1": false, "bogus": false} {
 		doc := `{"routing":{"cells":{"claude":{"` + key + `":{"model":"claude-opus-5-5"}}}}}`
-		_, err := Parse(defaultsJSON, []byte(doc))
+		_, err := Parse(assets.ProviderDefaults(), []byte(doc))
 		if (err == nil) != ok {
 			t.Errorf("cells key %q: err = %v, want accepted=%v", key, err, ok)
 		}
@@ -188,10 +189,10 @@ func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
 
 func TestDuplicateOpencodeIDRejected(t *testing.T) {
 	doc := `{"providers":{"openai":{"openai":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"},"opencodeID":"openai"}}}}`
-	if _, err := Parse(defaultsJSON, []byte(doc)); err == nil || !strings.Contains(err.Error(), "both claim opencodeID") {
+	if _, err := Parse(assets.ProviderDefaults(), []byte(doc)); err == nil || !strings.Contains(err.Error(), "both claim opencodeID") {
 		t.Errorf("err = %v, want an opencodeID ownership rejection", err)
 	}
-	reg, _ := Parse(defaultsJSON, nil)
+	reg, _ := Parse(assets.ProviderDefaults(), nil)
 	if reg.Providers["chatgpt"].OpencodeID != "openai" || reg.Providers["openai"].OpencodeID != "" {
 		t.Error("chatgpt must own opencodeID openai in the built-ins")
 	}
@@ -212,7 +213,7 @@ func TestSameModelIgnoresOneMAndSpelling(t *testing.T) {
 
 // A malformed overlay still yields the base registry named, ordered and preset-expanded, alongside the error.
 func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
-	reg, err := Parse(defaultsJSON, []byte(`{"providers": `))
+	reg, err := Parse(assets.ProviderDefaults(), []byte(`{"providers": `))
 	if err == nil {
 		t.Fatal("want an error for a malformed overlay")
 	}
@@ -365,7 +366,7 @@ func TestParseNamesGithubRowsByLogin(t *testing.T) {
 		{"logins differ by case", `"x":{` + row + `,"login":"Octo"},"y":{` + row + `,"login":"octo"}`, []string{"Octo"}, []string{"y"}},
 		{"login names another row", `"x":{` + row + `,"login":"copilot"}`, nil, []string{"x"}},
 	} {
-		reg, err := Parse(defaultsJSON, []byte(`{"providers":{"github":{`+tc.rows+`}}}`))
+		reg, err := Parse(assets.ProviderDefaults(), []byte(`{"providers":{"github":{`+tc.rows+`}}}`))
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}

@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	_ "embed"
 	"encoding/json"
 	"maps"
 	"reflect"
@@ -11,11 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
-
-// OverlaySchemaJSON is the checked-in schema; TestOverlaySchemaGolden keeps it equal to OverlaySchema().
-//
-//go:embed overlay.schema.json
-var OverlaySchemaJSON []byte
 
 type obj = map[string]any
 

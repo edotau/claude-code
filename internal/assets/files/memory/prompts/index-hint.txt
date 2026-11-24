@@ -1,0 +1,1 @@
+A pointer you add here is folded into index.md at session end; older ones: `claude-code memory search`

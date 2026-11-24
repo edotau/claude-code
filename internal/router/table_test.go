@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
@@ -246,7 +247,7 @@ func TestTableColumnsAndEffortsMatchAgentid(t *testing.T) {
 			Effort string `json:"effort"`
 		} `json:"rows"`
 	}
-	if err := json.Unmarshal(tableJSON, &doc); err != nil {
+	if err := json.Unmarshal(assets.RouteTable(), &doc); err != nil {
 		t.Fatal(err)
 	}
 	for row, cols := range doc.Rows {

@@ -77,8 +77,9 @@ within the named priority (R25).
 **Review loop (R28):** every code change gets an other-family review that lists every finding at once; the author
 fixes every finding, any severity, without asking, and one more review checks only those fixes. A lane merges when
 that check has no CRITICAL or HIGH; anything it still finds is fixed in a follow-up commit on main, never parked.
-Findings are fixed, not reported: a leaf hands back only what it could not fix, and the main session fixes or decides
-that at once (its recommendation is the decision; it never asks the owner) and relays only the outcome.
+Findings are fixed, not reported: a leaf hands back only what it could not fix, as one final `UNFIXED: none` or
+`UNFIXED: <item>; <item>` line, and the main session fixes or decides that at once (its recommendation is the
+decision; it never asks the owner) and relays only the outcome.
 Every dispatched code task carries this goal (`agents ask` adds it to every brief that can write code; a
 review-only task reports findings instead).
 

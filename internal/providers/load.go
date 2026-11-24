@@ -3,7 +3,6 @@ package providers
 import (
 	"bytes"
 	"cmp"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-//go:embed defaults.json
-var defaultsJSON []byte
 
 // OverlayDoc returns vault overlay/providers, or fs.ErrNotExist when absent.
 func OverlayDoc() ([]byte, error) {
@@ -69,7 +66,9 @@ var registryContent struct {
 	reg *Registry
 }
 
-var parseProviderOverlay = func(doc []byte) (*Registry, error) { return Parse(defaultsJSON, doc) }
+var providerDefaults = sync.OnceValue(assets.ProviderDefaults)
+
+var parseProviderOverlay = func(doc []byte) (*Registry, error) { return Parse(providerDefaults(), doc) }
 
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
@@ -231,7 +230,7 @@ func clonePtr[T any](p *T) *T {
 
 // Validate checks an overlay merged with the embedded defaults; unlike Load it refuses an unknown routing key.
 func Validate(overlay []byte) error {
-	if _, err := Parse(defaultsJSON, overlay); err != nil {
+	if _, err := Parse(providerDefaults(), overlay); err != nil {
 		return err
 	}
 	return checkRoutingKeys(overlay)
