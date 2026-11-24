@@ -307,13 +307,20 @@ func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint stri
 	}
 	padded := textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right && (!r.span || c != spanFrom))
 	if c == 0 && r.tint != "" && paint != "" && !r.sel {
-		if cell := strings.TrimRight(padded, " "); cell != "" { // pad on plain text, then wrap the glyph alone
-			g, n := utf8.DecodeLastRuneInString(cell)
-			padded = cell[:len(cell)-n] + r.tint + string(g) + ansi.Reset + padded[len(cell):]
-		}
+		padded = tintGlyph(padded, r.tint)
 	}
 	b.WriteString(padded)
 	if hot {
 		b.WriteString(ansi.Reset)
 	}
+}
+
+// tintGlyph pads on plain text, then wraps the last visible glyph alone in tint.
+func tintGlyph(padded, tint string) string {
+	cell := strings.TrimRight(padded, " ")
+	if cell == "" {
+		return padded
+	}
+	g, n := utf8.DecodeLastRuneInString(cell)
+	return cell[:len(cell)-n] + tint + string(g) + ansi.Reset + padded[len(cell):]
 }
