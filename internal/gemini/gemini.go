@@ -582,7 +582,13 @@ type agyEvent struct {
 		State     string `json:"state"`
 		TextDelta string `json:"text_delta"`
 		ToolName  string `json:"tool_name"`
-		ToolInfo  struct {
+		Usage     struct {
+			InputTokens     int `json:"input_tokens"`
+			OutputTokens    int `json:"output_tokens"`
+			ThinkingTokens  int `json:"thinking_tokens"`
+			CacheReadTokens int `json:"cache_read_tokens"`
+		} `json:"usage"` // one model call's own tokens, on its agent_response step
+		ToolInfo struct {
 			Parameters json.RawMessage `json:"parameters"`
 			Error      struct {
 				Message string `json:"message"`
@@ -647,6 +653,7 @@ type agyTurn struct {
 	lastStep  string // the last step type/state logged, so repeated updates stay one line
 	openStep  string // the last non-response step still running (a backgrounded command), else ""
 	toolOpen  bool   // a tool step is running, so one tool_use is emitted per step, not per update
+	sofar     wire.Usage
 }
 
 func (t *agyTurn) flush() {
@@ -671,7 +678,11 @@ func (t *agyTurn) step(ev agyEvent) error {
 	if call, ok := agyRefusedCall(ev); ok {
 		t.refused = append(t.refused, call)
 	}
-	if err := emitAgyToolStart(ev, &t.toolOpen, t.sink); err != nil {
+	u := ev.StepUpdate.Usage
+	t.sofar.InputTokens += u.InputTokens
+	t.sofar.OutputTokens += u.OutputTokens + u.ThinkingTokens
+	t.sofar.CacheReadTokens += u.CacheReadTokens
+	if err := emitAgyToolStart(ev, &t.toolOpen, t.sofar, t.sink); err != nil {
 		return err
 	}
 	if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
@@ -718,7 +729,7 @@ func agyDeniedActions(ev agyEvent) []string {
 }
 
 // emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.
-func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink wire.Sink) error {
+func emitAgyToolStart(ev agyEvent, toolOpen *bool, sofar wire.Usage, sink wire.Sink) error {
 	if ev.StepUpdate.StepType != agyToolStep {
 		return nil
 	}
@@ -728,7 +739,11 @@ func emitAgyToolStart(ev agyEvent, toolOpen *bool, sink wire.Sink) error {
 	if !start {
 		return nil
 	}
-	return sink.Emit(wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}})
+	e := wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}}
+	if sofar != (wire.Usage{}) { // the dispatch record's live token count; the result event replaces it
+		e.Usage = &sofar
+	}
+	return sink.Emit(e)
 }
 
 // noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
