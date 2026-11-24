@@ -141,7 +141,7 @@ func runActionChild(ctx context.Context, f *askFlags, exe string, argv []string)
 	err := cmd.Run()
 	stdout := bytes.Clone(buf.Bytes())
 	buf.cut = buf.cut || stderr.cut
-	buf.Write(stderr.Bytes())
+	_, _ = buf.Write(stderr.Bytes())
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ctx.Err() == nil {
 		return buf, fmt.Errorf("%s exited %d", strings.Join(argv[:min(2, len(argv))], " "), ee.ExitCode())
 	}
