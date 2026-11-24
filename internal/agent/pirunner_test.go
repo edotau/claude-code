@@ -246,3 +246,19 @@ func TestFallbackUnsetSources(t *testing.T) {
 		t.Error("a vault fallback reads as unset")
 	}
 }
+
+// The ask's runner capabilities bar the pi runner before a rotation pick is stamped.
+func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
+	setConfigDir(t)
+	registerPiForTest(t)
+	ctx := context.Background()
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Carry: true}); why == "" {
+		t.Error("carry: want a reason")
+	}
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", OutputSchema: "{}"}); why == "" {
+		t.Error("output schema: want a reason")
+	}
+	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
+		t.Errorf("plain ask barred: %q", why)
+	}
+}
