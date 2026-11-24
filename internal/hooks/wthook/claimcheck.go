@@ -323,8 +323,10 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
-	slug, dir := laneTarget(live, hits[0], in.SessionID)
-	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir, "<slug>", slug).Replace(assets.HookClaimLaneHint())
+	slug, dir := laneTarget(live, hits[0], in.SessionID+in.AgentID)
+	hint := strings.NewReplacer("~/worktrees/<repo>/<slug>", dir,
+		"claude-code worktree create <slug>", "cd "+strconv.Quote(live)+" && claude-code worktree create "+slug,
+	).Replace(assets.HookClaimLaneHint())
 	return core.Result{Context: what + "; " + hint}
 }
 
@@ -357,7 +359,7 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
 			continue
 		}
-		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID)
+		slug, _ := laneTarget(root, slices.Sorted(slices.Values(hits))[0], in.SessionID+in.AgentID)
 		return core.Result{Context: fmt.Sprintf("lanes mode: %d tracked file(s) of %s change in its main checkout; "+
 			"a lane keeps it clean: claude-code worktree create %s", len(hits), root, slug)}
 	}
