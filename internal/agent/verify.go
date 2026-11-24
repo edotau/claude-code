@@ -75,28 +75,51 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 		}
 	}
 	_ = out.Close()
-	vr.Tail = verifyTail(tail.b)
+	vr.Tail = verifyTail(tail)
 	vr.Ms = time.Since(start).Milliseconds()
 	return vr
 }
 
-// verifyTail is the last verifyTailMax bytes of window, masked before the cut so a straddling secret leaves no suffix.
-func verifyTail(window []byte) string {
-	masked := maskShapes(strings.ToValidUTF8(string(window), ""))
+// verifyTail is the last verifyTailMax bytes of the window, masked before the cut so no secret leaves a suffix.
+func verifyTail(t *tailBuf) string {
+	s := strings.ToValidUTF8(string(t.b), "")
+	if t.cut { // the window starts mid-output: its first two words may be a secret's end and its marker
+		s = dropWords(s, 2)
+	}
+	masked := maskShapes(s)
 	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
+}
+
+// dropWords is s without its first n whitespace-delimited words, keeping the whitespace after them.
+func dropWords(s string, n int) string {
+	const space = " \t\r\n"
+	for ; n > 0; n-- {
+		s = strings.TrimLeft(s, space)
+		i := strings.IndexAny(s, space)
+		if i < 0 {
+			return ""
+		}
+		s = s[i:]
+	}
+	return s
 }
 
 // maskShapes masks credential-shaped runs, then vault values, in s.
 func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
 
-// tailBuf keeps a window of the last output; shapes are masked over the whole window before its front is dropped.
-type tailBuf struct{ b []byte }
+// verifyKeep is the raw window kept: more than the tail plus a 4096-bit PEM key (about 3.3 KiB).
+const verifyKeep = 4 * verifyTailMax
+
+// tailBuf keeps the last verifyKeep to 2*verifyKeep raw bytes; masking happens once, in verifyTail, over all of them.
+type tailBuf struct {
+	b   []byte
+	cut bool // the window's front was dropped
+}
 
 func (t *tailBuf) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
-	if len(t.b) > 4*verifyTailMax {
-		masked := textutil.RedactSecrets(string(t.b)) // an unfinished secret at the end stays whole for the next pass
-		t.b = []byte(masked[max(0, len(masked)-2*verifyTailMax):])
+	if len(t.b) > 2*verifyKeep {
+		t.b, t.cut = append(t.b[:0], t.b[len(t.b)-verifyKeep:]...), true
 	}
 	return len(p), nil
 }

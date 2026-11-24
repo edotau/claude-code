@@ -202,3 +202,10 @@ func TestBatchLineOverlayKeepsRunner(t *testing.T) {
 		t.Errorf("the batch base values were mutated: %v", base.Values)
 	}
 }
+
+func TestWithRunnerKeepsAProviderOnlyConfinement(t *testing.T) {
+	got, err := withRunner(proc.Values{route.OverlayVar: `{"provider":"anthropic"}`}, agentconfig.RunnerOwn)
+	if err != nil || got[route.OverlayVar] != `{"provider":"anthropic","runner":"own"}` {
+		t.Errorf("values %v, error %v", got, err)
+	}
+}

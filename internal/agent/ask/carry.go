@@ -247,7 +247,7 @@ func streamCarry(rec agent.Record, raw io.Writer, log wire.StreamLog) (io.Writer
 		if kind == wire.EventTakeover {
 			put(wire.Event{DispatchID: rec.ID, Type: kind, Text: text})
 		}
-	}, func(env wire.Envelope) { put(wire.ResultEvent(env)) } // the child's own result lines were dropped
+	}, func(env wire.Envelope) { put(wire.ResultEvent(maskEnvelope(env))) } // the child's own result lines were dropped
 }
 
 // viaLines feeds viaWriter whole lines, each stamped with its own dispatch id; the carrier's own lines get no via.

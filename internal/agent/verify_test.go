@@ -22,13 +22,13 @@ func TestRunVerifyRecordsExit(t *testing.T) {
 func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
 	secret := textutil.CredentialFamilies()[0] + strings.Repeat("aB3dE5gH7j", 4) // built at runtime: no literal
 	opaque := strings.Repeat("Zq9Xw2Lm7K", 6)
-	for _, after := range []int{300, 1900, 4200, 9000} { // the secrets land across the trim and the final cut
+	for _, after := range []int{300, 1900, 5000, 20000} { // the secrets land across the window trim and the final cut
 		var tb tailBuf
-		for _, chunk := range []string{strings.Repeat("x", 7000), `{"h":"Bearer ` + opaque[:25], opaque[25:] + `"} token `,
+		for _, chunk := range []string{strings.Repeat("noise\n", 2*verifyKeep/6-6), `{"h":"Bearer ` + opaque[:25], opaque[25:] + `"} token `,
 			secret[:20], secret[20:], strings.Repeat("y", after)} {
 			_, _ = tb.Write([]byte(chunk))
 		}
-		tail := verifyTail(tb.b)
+		tail := verifyTail(&tb)
 		for _, s := range []string{opaque, secret} {
 			for i := 0; i+12 <= len(s); i++ {
 				if strings.Contains(tail, s[i:i+12]) {

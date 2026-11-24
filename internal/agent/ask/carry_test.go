@@ -330,3 +330,11 @@ func TestTakeCarryVerifyLeavesEnvAndContext(t *testing.T) {
 		t.Errorf("ctx values = %v", values)
 	}
 }
+
+func TestTakeCarryVerifyReadsTheSnapshotWhenOneIsInstalled(t *testing.T) {
+	t.Setenv(carryVerifyEnv, "ambient")
+	_, got := takeCarryVerify(proc.WithValues(context.Background(), proc.Values{carryVerifyEnv: "snapshot"}))
+	if got != "snapshot" {
+		t.Errorf("take = %q, want the snapshot's value", got)
+	}
+}

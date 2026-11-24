@@ -387,7 +387,7 @@ func redactVerify(ev Event) Event {
 		return ev
 	}
 	env, v := *ev.Envelope, *ev.Envelope.Verify
-	v.Command, v.Tail = textutil.RedactSecrets(v.Command), textutil.RedactSecrets(v.Tail)
+	v.Command, v.Tail = maskText(v.Command), maskText(v.Tail)
 	env.Verify = &v
 	ev.Envelope = &env
 	return ev
