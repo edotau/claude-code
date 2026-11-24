@@ -116,7 +116,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	r.inflight.Add(1)
 	defer r.inflight.Add(-1)
-	if r.draining.Load() { // after the increment: a drain sees this request or this request sees the drain
+	if r.draining.Load() && !drainCleared(r) { // after the increment: a drain sees this request or it sees the drain
 		r.refuse(w, req, http.StatusServiceUnavailable, "proxy: draining")
 		return
 	}
@@ -221,6 +221,17 @@ func drainIfIdle(r *Router) bool {
 		return false
 	}
 	return true
+}
+
+// drainCleared waits a few ms for a failed drain attempt to lift its flag, so that request is served, not refused.
+func drainCleared(r *Router) bool {
+	for range 10 {
+		time.Sleep(2 * time.Millisecond)
+		if !r.draining.Load() {
+			return true
+		}
+	}
+	return false
 }
 
 // helloProbe reports a HEAD or GET of /p/<profile>/api/hello.

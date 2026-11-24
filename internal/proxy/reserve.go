@@ -139,7 +139,7 @@ func retireSlot(ctx context.Context, team, id string) error {
 		return fmt.Errorf("proxy %s@%s is held by a process that is not a detached proxy", team, id)
 	}
 	idle, answered := drainIfIdle(ctx, rec)
-	if err := ctx.Err(); err != nil { // an unfinished drain request proves nothing: never signal on a cancelled probe
+	if err := ctx.Err(); err != nil && !answered { // an unanswered, cancelled probe proves nothing: never signal on it
 		return err
 	}
 	if answered && !idle {
