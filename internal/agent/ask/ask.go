@@ -754,7 +754,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	if run != nil {
 		return run.run(ctx, cl, prepared, req)
 	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
+	return runAskDispatch(ctx, cl, prepared, req.WorkDir, jobRec != nil, format, save, out)
 }
 
 // takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.

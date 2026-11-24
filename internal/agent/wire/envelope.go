@@ -98,13 +98,22 @@ type Envelope struct {
 	Hops            []Hop           `json:"hops,omitempty"`       // every dispatch tried, in order
 	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
+	Verify          *VerifyResult   `json:"verify,omitempty"`     // --spec verify: what the harness ran after the answer
+}
+
+// VerifyResult is what the harness observed running a spec's verify steps; Exit is the first failing step's.
+type VerifyResult struct {
+	Command string `json:"command"`
+	Exit    int    `json:"exit"` // -1 when a step could not start
+	Ms      int64  `json:"ms"`
+	Tail    string `json:"tail,omitempty"` // the last bytes of the steps' combined output
 }
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
-		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
+		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify}
 	if res.Denials != nil {
 		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
 	}
@@ -326,6 +335,7 @@ type Result struct {
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
+	Verify          *VerifyResult   `json:"verify,omitempty"`          // the spec's verify run, set by ask after the answer
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
 }

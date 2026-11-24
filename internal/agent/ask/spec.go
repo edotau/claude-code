@@ -105,6 +105,7 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 	if prompt, err = specBrief(prompt, out, task); err != nil {
 		return nil, err
 	}
+	f.verify = task.Verify
 	if prompt != "" && len(pos) == 0 {
 		if _, term := walkArgs(args); term < 0 {
 			out = append(out, "--")
@@ -147,7 +148,7 @@ func reparseSpec(f *askFlags, verb string, args, pos []string) (*flag.FlagSet, *
 		retargetPage(fs, verb)
 	}
 	pos, code, done := parseAskArgs(fs, merged)
-	nf.spec = f.spec
+	nf.spec, nf.verify = f.spec, f.verify
 	return fs, nf, merged, pos, code, done
 }
 

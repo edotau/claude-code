@@ -45,7 +45,7 @@ type askFlags struct {
 	codemode                                                                                                                                                                           string
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
-	spec                                                                                                                                                                               string
+	spec, verify                                                                                                                                                                       string
 	dryRun                                                                                                                                                                             bool
 	loop                                                                                                                                                                               bool
 	waves                                                                                                                                                                              string

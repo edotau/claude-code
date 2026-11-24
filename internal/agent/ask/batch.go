@@ -40,6 +40,9 @@ type batchLine struct {
 	Workdir string          `json:"workdir"`
 	Tools   *bool           `json:"tools"`
 	Timeout string          `json:"timeout"` // a Go duration such as 5m
+	Own     []string        `json:"own"`     // the spec's own, report and verify keys wrap Prompt as a leaf brief
+	Report  string          `json:"report"`
+	Verify  string          `json:"verify"`
 
 	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
 }
@@ -209,7 +212,11 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 // lineRequest is base with the line's prompt, route, model and tools over it, plus the agent it selects.
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
-	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	prompt, err := lineBrief(tl, agentName, base.Tools)
+	if err != nil {
+		return req, "", fmt.Errorf("line %d: %w", l.N, err)
+	}
+	req.Prompt, req.Provider, req.Model = prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
 	auto := agent.IsAuto(tl.Model)
 	req.ModelTyped = (tl.Model != "" && !auto) || (tl.Model == "" && base.ModelTyped) // a line's model wins, auto too
 	if err := lineRoute(l, &req); err != nil {
@@ -219,9 +226,7 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	if err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
-	if tl.Tools != nil {
-		req.Tools = *tl.Tools
-	}
+	req.Tools = *cmp.Or(tl.Tools, &base.Tools)
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
@@ -229,6 +234,18 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 		return req, name, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return req, name, nil
+}
+
+// lineBrief is the line's prompt, wrapped as a leaf brief when it sets own, report or verify.
+func lineBrief(tl batchLine, agentName string, baseTools bool) (string, error) {
+	var argv []string
+	if agentName != "" {
+		argv = append(argv, "--agent", agentName)
+	}
+	if tools := cmp.Or(tl.Tools, &baseTools); *tools {
+		argv = append(argv, "--tools")
+	}
+	return specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
 }
 
 func lineRoute(l parsedLine, req *agent.RunOptions) error {
