@@ -35,6 +35,12 @@ func TestStampRunnerSurvivesWorkspaceRepick(t *testing.T) {
 	}
 }
 
+func TestRowLabelLegacyFallbackNamesTheAnswerer(t *testing.T) {
+	if got := RowLabel(Record{Agent: "claude", Fallback: "claude", RanAs: "codex"}); got != "codex" {
+		t.Fatalf("row label %q", got)
+	}
+}
+
 func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	own := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "claude", Model: "claude-sonnet-5-5"})
 	if own.Runner != "" || own.Type != "claude" {

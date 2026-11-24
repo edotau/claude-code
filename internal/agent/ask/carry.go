@@ -534,6 +534,7 @@ func finishCarry(ctx context.Context, rec, final agent.Record, found bool, code 
 		r.Status, r.Error, r.FailKind, r.Cutoff = final.Status, final.Error, final.FailKind, final.Cutoff
 		r.Wrote, r.PreDirtyTouched, r.TreeChanged = final.Wrote, final.PreDirtyTouched, final.TreeChanged
 		r.Provider, r.Model, r.Invoked, r.RanRoute = final.Provider, final.Model, final.Invoked, final.RanRoute
+		r.Type, r.Runner = final.Type, final.Runner
 		if who := cmp.Or(final.RanAs, final.Agent); who != r.Agent { // a child's fallback, or the Pi takeover, answered
 			r.Fallback, r.RanAs = r.Agent, who
 			r.FallbackReason = cmp.Or(final.FallbackReason, "pi takeover of "+final.TakeoverOf)

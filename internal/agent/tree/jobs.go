@@ -49,6 +49,7 @@ func foldInto(d, w Dispatch) Dispatch {
 		d.Agent = d.Agent + "→" + w.Agent
 	}
 	d.Model, d.Usage, d.Provider = cmp.Or(w.Model, d.Model), w.Usage, cmp.Or(w.Provider, d.Provider)
+	d.Runner, d.recType, d.codeMode, d.routeKind = w.Runner, w.recType, w.codeMode, cmp.Or(w.routeKind, d.routeKind)
 	d.LastSignal, d.SignalSource, d.Quiet, d.Live = w.LastSignal, w.SignalSource, w.Quiet, w.Live
 	d.launch, d.Route, d.Task = cmp.Or(w.launch, d.launch), cmp.Or(w.Route, d.Route), cmp.Or(d.Task, w.Task)
 	if w.queued != "" {
