@@ -132,6 +132,16 @@ func TestTaskTier(t *testing.T) {
 		{"Run go test ./internal/x and report the failures.", "haiku"},
 		{"Run go test ./internal/x and fix the failing test.", "sonnet"},
 		{"Count the exported funcs in x.go.", "haiku"},
+		{"Fix the review findings in x.go; the safety hook and permissions flag stay as is.", "sonnet"},
+		{"Fix these LOW findings: reword one comment in x.go.", "haiku"},
+		{"Owned: x.go\nMode: implementation\n\nTask:\nFix the review findings in the auth and security hooks.\n\n## Leaf rules\n- a\n\n## Reporting contract\nWrite the audit report.", "sonnet"},
+		{"Task:\n## Fix review findings\n\nHIGH: Correct auth, security and permissions handling.", "sonnet"},
+		{"Task:\n## Follow-up\n\nFix review findings in auth, security and permissions.", "sonnet"},
+		{"Fix the nil pointer.\nKeep security behavior unchanged.", "sonnet"},
+		{"Task: Fix the nil pointer. Keep security behavior unchanged.", "sonnet"},
+		{"# Fix the nil pointer. Keep security behavior unchanged.\n\nCorrect the missing guard.", "sonnet"},
+		{"Task:\n## Security audit\n\nCheck the token lifetime.", "opus"},
+		{"Fix the nil pointer.\n\n## Security considerations\nKeep existing behavior.", "sonnet"},
 		{"", ""},
 	} {
 		if got, sig := TaskTier(tc.brief); got != tc.want {

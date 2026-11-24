@@ -242,13 +242,22 @@ var tierAliases = map[string]string{"fast": models.Haiku, "standard": models.Son
 
 var (
 	tierLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[ \t]*Tier:[ \t]*(fast|standard|deep)\b`) })
-	// deepTaskRe: costly-mistake or large-judgment work (audit, security, auth, parsers, design, migrations, secrets).
+	// deepTaskRe: costly-mistake or large-judgment work; deep when in the task's head or 3+ distinct words.
 	deepTaskRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(audit\w*|security|safety|threat\w*|parser\w*|parsing|grammar|judg(?:e)?ment|` +
 			`planning|design|redesign|architect\w*|permissions?|auth[nz]?|authenticat\w*|authoriz\w*|migrat\w*|` +
 			`irreversible|credentials?|secrets?)\b`)
 	})
-	fastTaskRe = sync.OnceValue(func() *regexp.Regexp {
+	taskLineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[#\s]*Task:[ \t]*(.*)$`) })
+	fixFindingsRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?is)^(?:#+[^\n]*\n)*\W*(?:fix|repair)\b.{0,80}\bfindings?\b`)
+	})
+	anyFileRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\w./-]*\w\.[A-Za-z0-9]{1,6}\b`) })
+	sentenceEndRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[.!?]\s`) })
+	headingRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^#+ [^\n]*\n`) })
+	findingLowRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bLOW\b`) })
+	findingSevereRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(?:CRITICAL|HIGH|MEDIUM)\b`) })
+	fastTaskRe      = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(typos?|renames?|one[- ]line(?:r)?|reword|wording|commit message|message[- ]only|moves?|format(?:ting)?|counts?|summari[sz]e|lists?|labels?)\b`)
 	})
 	// gateRunRe/gateObjRe: a run-and-report of build, vet, test, lint or a gate; editRe keeps fix work on its tier.
@@ -288,8 +297,12 @@ func TaskTier(brief string) (alias, signal string) {
 	if text == "" {
 		return "", ""
 	}
-	if words := deepTaskRe().FindAllString(text, -1); len(words) > 0 {
-		return models.Opus, "deep:" + deepSignal(words)
+	head := taskHead(text)
+	if fixFindingsRe().MatchString(head) {
+		return fixFindingsTier(text)
+	}
+	if word := deepWord(head, text); word != "" {
+		return models.Opus, "deep:" + word
 	}
 	if rule := fastTask(text); rule != "" {
 		return models.Haiku, rule
@@ -311,6 +324,77 @@ func LookupTier(brief string, lookupOnly bool) (alias, signal string) {
 		return "", ""
 	}
 	return models.Haiku, "lookup"
+}
+
+// fixFindingsTier is haiku for a short fix of LOW wording findings, else sonnet, whatever words the findings quote.
+func fixFindingsTier(text string) (alias, signal string) {
+	if findingLowRe().MatchString(text) && !findingSevereRe().MatchString(text) && fastTask(text) != "" {
+		return models.Haiku, "fix-low"
+	}
+	return models.Sonnet, "standard"
+}
+
+// deepWord is the deep word naming the task (in its head) or, with 3+ distinct ones in text, the costliest; else "".
+func deepWord(head, text string) string {
+	head, text = anyFileRe().ReplaceAllString(head, ""), anyFileRe().ReplaceAllString(text, "") // audit.go names a file
+	if w := deepTaskRe().FindAllString(head, -1); len(w) > 0 {
+		return deepSignal(w)
+	}
+	if w := deepTaskRe().FindAllString(text, -1); distinctWords(w) >= 3 {
+		return deepSignal(w)
+	}
+	return ""
+}
+
+// taskHead is the brief's subject: its `Task:` line, else the first sentence after any headings.
+func taskHead(text string) string {
+	if m := taskLineRe().FindStringSubmatchIndex(text); m != nil {
+		if head := strings.TrimSpace(text[m[2]:m[3]]); head != "" {
+			return firstSentence(head)
+		}
+		return firstSentence(taskBody(text[m[1]:]))
+	}
+	title := ""
+	if loc := headingRe().FindStringIndex(text); loc != nil && loc[0] == 0 {
+		title = text[:loc[1]] // only an opening title names the task, not a later section
+	}
+	para, _, _ := strings.Cut(strings.TrimSpace(headingRe().ReplaceAllString(text, "")), "\n\n")
+	return strings.TrimSpace(firstSentence(title + "\n" + para))
+}
+
+// firstSentence cuts s at the first period followed by whitespace.
+func firstSentence(s string) string {
+	if loc := sentenceEndRe().FindStringIndex(s); loc != nil {
+		return s[:loc[0]]
+	}
+	return s
+}
+
+// taskBody is a bare `Task:`'s opening title plus its prose lines, up to a blank line or a later `#` header.
+func taskBody(rest string) string {
+	var lines []string
+	prose := false
+	for l := range strings.SplitSeq(rest, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "" && !prose:
+		case t == "", prose && strings.HasPrefix(t, "#"):
+			return strings.Join(lines, "\n")
+		default:
+			prose = prose || !strings.HasPrefix(t, "#")
+			lines = append(lines, t)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// distinctWords counts words ignoring case and a plural s.
+func distinctWords(words []string) int {
+	seen := map[string]bool{}
+	for _, w := range words {
+		seen[strings.TrimSuffix(strings.ToLower(w), "s")] = true
+	}
+	return len(seen)
 }
 
 // deepSignal is the deep word that names the cost of a mistake (safety, auth), else the first one.
