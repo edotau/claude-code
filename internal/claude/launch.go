@@ -236,7 +236,7 @@ func sessionProxyBase(ctx context.Context, raw string) bool {
 
 // inheritedBase: the shell base is this session's (proxy, /p/<profile>, direct route); a hop drops it, keeps its login.
 func inheritedBase(ctx context.Context, base, own string) bool {
-	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base)) {
+	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base) || scopedProxyBase(base)) {
 		return true
 	}
 	return sessionRouteBase(ctx, base)
@@ -259,6 +259,19 @@ func sessionRouteBase(ctx context.Context, raw string) bool {
 	route, ok := p.Route(providers.ProtocolAnthropic)
 	return ok && sameEndpoint(raw, route)
 }
+
+// scopedProxyBase reports raw is on a registered scoped-proxy port, so a nested launch keeps its credential.
+func scopedProxyBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scopes, _ := listScopes()
+	return slices.ContainsFunc(scopes, func(sc proxy.Scope) bool { return sc.Port != 0 && u.Port() == strconv.Itoa(sc.Port) })
+}
+
+// listScopes is the scope records; tests swap it so no real state is read.
+var listScopes = proxy.ListScopes
 
 // readProxyState is the live proxy's state; tests swap it so no real daemon is read.
 var readProxyState = proxy.ReadState

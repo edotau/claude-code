@@ -503,6 +503,19 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	}
 }
 
+// A nested claude whose shell base is a scoped proxy (not the shared port) keeps its credential.
+func TestKeepShellEndpointScopedProxyBaseKeepsCredential(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:19999/p/qa")
+	orig := listScopes
+	listScopes = func() ([]proxy.Scope, error) { return []proxy.Scope{{Port: 19999}}, nil }
+	t.Cleanup(func() { listScopes = orig })
+	plan := agent.Plan{Set: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok", "ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/qa"}}
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
+	if plan.ForeignBase || plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] != "tok" {
+		t.Errorf("scoped base dropped credential: foreign=%v set=%v", plan.ForeignBase, plan.Set)
+	}
+}
+
 // From a direct Databricks session (serving route, no proxy) an ultra launch drops that base and keeps its own login.
 func TestKeepShellEndpointSessionRouteBaseToFirstParty(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
