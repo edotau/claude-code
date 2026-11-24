@@ -122,15 +122,24 @@ func cmdAgentsStatus(args []string) int {
 	}
 	switch {
 	case *agentName != "":
-		empty := ""
-		if len(pos) == 0 {
-			empty = "no " + *agentName + " dispatches logged yet"
-		}
-		return ask.Status("agents status", *agentName, firstPositional(pos), *all, *format, empty)
+		return statusAgent(*agentName, pos, *all, *format)
 	case len(pos) == 0:
 		return agentsDispatchLog(*format)
 	}
 	return statusOne(pos[0], *format)
+}
+
+// statusAgent is one agent's jobs; a single id also gets its contract's terms in text form.
+func statusAgent(agentName string, pos []string, all bool, format string) int {
+	empty := ""
+	if len(pos) == 0 {
+		empty = "no " + agentName + " dispatches logged yet"
+	}
+	code := ask.Status("agents status", agentName, firstPositional(pos), all, format, empty)
+	if code == 0 && len(pos) == 1 && format != helptext.JSON {
+		printContractTerms(pos[0])
+	}
+	return code
 }
 
 // statusOne is one dispatch's status, then its contract's terms in text form.

@@ -120,11 +120,15 @@ func ProgressOf(r Record, now time.Time) Progress {
 func contractText(c contract.Contract, tokens int64) string {
 	passed := map[contract.Term]bool{}
 	for _, r := range c.Records {
-		if r.Verdict == contract.VerdictPass {
-			passed[r.Term] = true
+		passed[r.Term] = r.Verdict == contract.VerdictPass
+	}
+	met := 0
+	for _, ok := range passed {
+		if ok {
+			met++
 		}
 	}
-	s := fmt.Sprintf("terms %d/%d", len(passed), len(c.Terms))
+	s := fmt.Sprintf("terms %d/%d", met, len(c.Terms))
 	if c.Limits.Leaves > 0 {
 		s += fmt.Sprintf(" · leaves %d/%d", len(c.Children), c.Limits.Leaves)
 	}
@@ -333,7 +337,8 @@ func (p Progress) head(width int, sig string, noLive bool, lead []string) string
 
 // withContract appends the contract text when it fits whole, so it yields before the doing field.
 func (p Progress) withContract(head string, width int, noLive bool) string {
-	if p.Contract == "" || noLive || width-textutil.DisplayWidth(head)-3 < textutil.DisplayWidth(p.Contract) {
+	room := width - textutil.DisplayWidth(head) - 3 - textutil.DisplayWidth(p.Contract)
+	if p.Contract == "" || noLive || room < 0 || !p.fitsBeside(room-3) {
 		return head
 	}
 	return head + " · " + p.Contract
