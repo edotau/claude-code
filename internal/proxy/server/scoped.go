@@ -98,6 +98,10 @@ func acquireRefresh(ctx context.Context) (func(), error) {
 
 func releaseRefresh() {
 	refresh.Lock()
+	if refresh.n == 0 { // a second release of one holder must not drive the count negative
+		refresh.Unlock()
+		return
+	}
 	if refresh.n--; refresh.n > 0 {
 		refresh.Unlock()
 		return
