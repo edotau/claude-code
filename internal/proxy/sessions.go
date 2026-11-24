@@ -293,6 +293,11 @@ func SessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "se
 // RevokedFile holds the revoked session token hashes every daemon of this config shares.
 func RevokedFile() string { return filepath.Join(paths.StateDir(), "proxy", "revoked.json") }
 
+// LegacyRenewalsFile holds renewed expiries of previous-build tokens; only this build reads or writes it.
+func LegacyRenewalsFile() string {
+	return filepath.Join(paths.StateDir(), "proxy", "legacy-renewals.json")
+}
+
 // AuthenticClaims is tok's claims when its MAC verifies under this config's router secret, whatever its liveness.
 func AuthenticClaims(tok string) (SessionClaims, bool) {
 	secret, ok, err := vaultSecret()

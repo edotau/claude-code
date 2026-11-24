@@ -74,6 +74,7 @@ quota | derived | 0 | state/harness/quota.json | internal/router | keep
 remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/network/remote | keep
 route-auto | cache | 1 | state/harness/router/route-auto.json | internal/router | keep
 route-fit | record | 1 | state/harness/router/fit.json | internal/catalog | keep
+router-legacy-renewals | record | 1 | state/harness/proxy/legacy-renewals.json | internal/proxy | keep
 router-revoked | record | 1 | state/harness/proxy/revoked.json | internal/proxy | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 router-sessions | record | 2 | state/harness/proxy/sessions.json | internal/proxy | keep

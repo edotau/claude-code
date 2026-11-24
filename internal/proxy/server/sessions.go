@@ -56,6 +56,9 @@ type sessionStore struct {
 	legacyDead map[string]bool          // legacy hashes whose process was seen gone, refused from then on
 	legacyRead os.FileInfo              // the sessions.json version last folded in
 	legacyFile string                   // sessions.json, the previous build's file
+	renewed    map[string]legacyRenewal // token hash -> the renewal last read from or written to renewFile
+	renewRead  os.FileInfo              // the renewal file version last folded in
+	renewFile  string                   // legacy-renewals.json, this build's record of old-token slides
 	now        func() time.Time
 	procStart  func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
@@ -63,6 +66,7 @@ type sessionStore struct {
 func newSessionStore(secret string, now func() time.Time) *sessionStore {
 	s := &sessionStore{secret: secret, seen: map[string]*seenSession{}, revoked: map[string]time.Time{},
 		legacy: map[string]legacySession{}, legacyDead: map[string]bool{}, legacyFile: proxy.SessionsFile(),
+		renewed: map[string]legacyRenewal{}, renewFile: proxy.LegacyRenewalsFile(),
 		file: proxy.RevokedFile(), now: now, procStart: proc.StartTime}
 	s.mu.Lock()
 	s.reloadLocked()

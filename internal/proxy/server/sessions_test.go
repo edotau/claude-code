@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -424,6 +425,47 @@ func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
 	g.r.sessions.count()
 	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
 		t.Fatal("the bridge rewrote sessions.json, which the previous build still writes without a lock")
+	}
+}
+
+// A renewal one daemon made survives a takeover, never revives an idle token, and leaves with its dead holder.
+func TestLegacyRenewalPersistsAcrossDaemons(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now, start := time.Unix(1_700_000_000, 0), "100"
+	store := func() *sessionStore {
+		s := newSessionStore(secret, func() time.Time { return now })
+		s.procStart = func(int) (string, error) {
+			if start == "" {
+				return "", proc.ErrNoProcess
+			}
+			return start, nil
+		}
+		return s
+	}
+	tok := proxy.SessionTokenPrefix + strings.Repeat("cd", 32)
+	hash := textutil.SHA256Hex([]byte(tok))
+	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
+		`"expires":"`+now.Add(24*time.Hour).UTC().Format(time.RFC3339)+`"}]}`)
+	if why := store().check(tok, "dev"); why != "" { // daemon 1 accepts and renews to now+7d
+		t.Fatalf("daemon 1 refused a live old token: %s", why)
+	}
+	now = now.Add(6 * 24 * time.Hour) // past the saved expiry, inside the renewed one
+	if why := store().check(tok, "dev"); why != "" {
+		t.Fatalf("daemon 2 lost daemon 1's renewal: %s", why)
+	}
+	now = now.Add(legacyTTL) // idle past daemon 2's own renewal
+	if why := store().check(tok, "dev"); why == "" {
+		t.Fatal("a stale renewal revived an idle old token")
+	}
+	now = now.Add(-legacyTTL)
+	start = ""
+	s := store()
+	s.pruneLegacy()
+	if raw, err := os.ReadFile(proxy.LegacyRenewalsFile()); err != nil || strings.Contains(string(raw), hash) {
+		t.Fatalf("a dead holder's renewal stayed in the file (err %v)", err)
+	}
+	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
+		t.Fatal("the bridge rewrote sessions.json")
 	}
 }
 

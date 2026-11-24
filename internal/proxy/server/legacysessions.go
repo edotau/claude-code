@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -54,32 +57,62 @@ func (s *sessionStore) legacyClaims(tok string) (proxy.SessionClaims, string, bo
 	return proxy.SessionClaims{Profiles: e.Profiles, Failover: e.FailoverProvider, PID: e.PID, Start: e.Start}, hash, true
 }
 
-// slideLegacyLocked renews an accepted old-format entry in memory as the previous build did; a no-op for other hashes.
-func (s *sessionStore) slideLegacyLocked(hash string, now time.Time) {
-	if e, ok := s.legacy[hash]; ok {
-		e.Expires = now.Add(legacyTTL)
-		s.legacy[hash] = e
-	}
+// legacyRenewal is a slid expiry of an old-format token, bound to the holder its sessions.json entry names.
+type legacyRenewal struct {
+	Hash    string    `json:"hash"`
+	PID     int       `json:"pid"`
+	Start   string    `json:"start"`
+	Expires time.Time `json:"expires"`
 }
 
-// reloadLegacyLocked folds a changed sessions.json into memory, keeping any further slide this daemon made.
-func (s *sessionStore) reloadLegacyLocked() {
-	fi, err := os.Stat(s.legacyFile)
-	if err != nil || sameVersion(s.legacyRead, fi) {
+// renewalState is legacy-renewals.json: written by this build (merged under its lock), never by the previous one.
+type renewalState struct {
+	Schema   int             `json:"schema"`
+	Renewals []legacyRenewal `json:"renewals"`
+}
+
+// slideLegacyLocked renews an accepted old-format entry as the previous build did, persisting it hourly.
+func (s *sessionStore) slideLegacyLocked(hash string, now time.Time) {
+	e, ok := s.legacy[hash]
+	if !ok {
 		return
 	}
-	if onDisk, err := readLegacy(s.legacyFile); err == nil {
-		s.legacy, s.legacyRead = s.liveLegacyLocked(onDisk), fi
+	e.Expires = now.Add(legacyTTL)
+	s.legacy[hash] = e
+	if r, ok := s.renewed[hash]; ok && e.Expires.Sub(r.Expires) < legacyPersist {
+		return
 	}
+	_ = s.saveRenewalsLocked() // a failed write keeps the slide in memory; the next accepted use retries it
 }
 
-// liveLegacyLocked is onDisk's well-formed, unexpired entries, each at the later of its saved and in-memory expiry.
+// reloadLegacyLocked folds a changed sessions.json or renewal file into memory, keeping this daemon's own slides.
+func (s *sessionStore) reloadLegacyLocked() {
+	fi, err := os.Stat(s.legacyFile)
+	if err != nil {
+		return
+	}
+	rfi, rerr := os.Stat(s.renewFile)
+	if sameVersion(s.legacyRead, fi) && (rerr != nil || sameVersion(s.renewRead, rfi)) {
+		return
+	}
+	onDisk, err := readLegacy(s.legacyFile)
+	if err != nil {
+		return
+	}
+	if got, err := readRenewals(s.renewFile); err == nil && rerr == nil { // unreadable: saved expiries only
+		s.renewed, s.renewRead = got, rfi
+	}
+	s.legacy, s.legacyRead = s.liveLegacyLocked(onDisk), fi
+}
+
+// liveLegacyLocked is onDisk's well-formed, unexpired entries, each at its latest saved, renewed or memory expiry.
 func (s *sessionStore) liveLegacyLocked(onDisk []legacySession) map[string]legacySession {
 	now, out := s.now(), map[string]legacySession{}
 	for _, e := range onDisk {
 		if !validProfiles(e.Profiles) || e.PID <= 0 || e.Start == "" {
 			continue
 		}
+		e.Expires = s.renewedExpiryLocked(e, now)
 		if mem, ok := s.legacy[e.Hash]; ok && mem.Expires.After(e.Expires) {
 			e.Expires = mem.Expires
 		}
@@ -88,6 +121,63 @@ func (s *sessionStore) liveLegacyLocked(onDisk []legacySession) map[string]legac
 		}
 	}
 	return out
+}
+
+// renewedExpiryLocked is e's persisted renewal when it names e's holder and lies within one idle period, else e's own.
+func (s *sessionStore) renewedExpiryLocked(e legacySession, now time.Time) time.Time {
+	r, ok := s.renewed[e.Hash]
+	if !ok || r.PID != e.PID || r.Start != e.Start || !r.Expires.After(e.Expires) || r.Expires.After(now.Add(legacyTTL)) {
+		return e.Expires
+	}
+	return r.Expires
+}
+
+// readRenewals is the renewal file's records: none when absent, an error when present but unreadable.
+func readRenewals(file string) (map[string]legacyRenewal, error) {
+	out := map[string]legacyRenewal{}
+	raw, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	var st renewalState
+	if err == nil {
+		_, err = schemas.Decode(routerRenewalsFormat, raw, &st)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range st.Renewals {
+		out[r.Hash] = r
+	}
+	return out, nil
+}
+
+// saveRenewalsLocked merges this daemon's slides into the file under its lock, dropping expired and dead holders.
+func (s *sessionStore) saveRenewalsLocked() error {
+	return paths.WithFileLock(s.renewFile, func() error {
+		merged, err := readRenewals(s.renewFile)
+		if err != nil { // never overwrite renewals this daemon cannot read: another daemon may hold them
+			return err
+		}
+		for h, e := range s.legacy {
+			if r, ok := merged[h]; !ok || e.Expires.After(r.Expires) {
+				merged[h] = legacyRenewal{Hash: h, PID: e.PID, Start: e.Start, Expires: e.Expires}
+			}
+		}
+		now := s.now()
+		maps.DeleteFunc(merged, func(h string, r legacyRenewal) bool { return !now.Before(r.Expires) || s.legacyDead[h] })
+		st := renewalState{Schema: routerRenewalsFormat.Version, Renewals: slices.SortedFunc(maps.Values(merged),
+			func(a, b legacyRenewal) int { return strings.Compare(a.Hash, b.Hash) })}
+		raw, err := json.Marshal(st)
+		if err == nil {
+			err = paths.AtomicWrite(s.renewFile, raw, 0o600)
+		}
+		if err == nil {
+			s.renewed = merged
+			s.renewRead, _ = os.Stat(s.renewFile)
+		}
+		return err
+	})
 }
 
 // readLegacy is sessions.json's entries: none when absent, an error when present but unreadable.
@@ -115,6 +205,9 @@ func (s *sessionStore) pruneLegacy() {
 		if start, err := s.procStart(e.PID); errors.Is(err, proc.ErrNoProcess) || (err == nil && start != e.Start) {
 			s.mu.Lock()
 			s.legacyDead[e.Hash] = true
+			if _, ok := s.renewed[e.Hash]; ok { // a dead holder's renewal leaves the file
+				_ = s.saveRenewalsLocked()
+			}
 			s.mu.Unlock()
 		}
 	}
@@ -126,6 +219,14 @@ var routerSessionsFormat = schemas.Register(schemas.Format{
 	New:     func() any { return new(legacyState) },
 	Keep:    "the previous build's session token hashes, bridged until each process exits; read only, never written",
 	Migrate: migrateSessions,
+})
+
+var routerRenewalsFormat = schemas.Register(schemas.Format{
+	Name: "router-legacy-renewals", Owner: "internal/proxy", Kind: schemas.Record, Version: 1,
+	Glob:    proxy.LegacyRenewalsFile,
+	New:     func() any { return new(renewalState) },
+	Keep:    "renewed expiries of the previous build's tokens by hash, until each expires or its process exits",
+	Migrate: schemas.SameShape,
 })
 
 // migrateSessions steps v0 -> v1 (stamp) and v1 -> v2 (each record's one "profile" becomes its "profiles" set).

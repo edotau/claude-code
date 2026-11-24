@@ -48,7 +48,7 @@ paths:
   be verified), a headless run re-mints once, and neither marks the provider. Rotating `CLAUDE_CODE_ROUTER_SECRET`
   refuses every live token once (a passthrough session then needs a relaunch). A token the previous (stored-token)
   build minted keeps its old rules (7-day idle expiry, bound process) while `sessions.json` lists it; that file is
-  read, never written.
+  read, never written, and its renewed expiries persist in `legacy-renewals.json`, which only this build writes.
 
 ## Routing precedence
 
