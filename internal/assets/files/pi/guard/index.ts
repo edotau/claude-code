@@ -34,7 +34,7 @@ function judge(tool: string, input: any, cwd: string, sid: string, budgetMs: num
   const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
     const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
-      env: hookEnv(), timeout: budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+      env: hookEnv(), timeout: budgetMs, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["pipe", "pipe", "pipe"] })
     const v = JSON.parse(out)
     if (typeof v.block === "string" && v.block) return { block: v.block }
     if (typeof v.usage === "string" && v.usage && v.allow !== true) return { usage: v.usage }
@@ -196,10 +196,14 @@ function runStep(step: Step, unset: string[], cwd: string, ms: number): Promise<
     const clear = () => { clearTimeout(timer); clearTimeout(fallback); live.delete(child) }
     child.on("error", (err) => { clear(); reject(err) })
     child.on("exit", () => { if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ } })
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clear()
-      if (timedOut) resolve(timedRes())
-      else code === null ? reject(new Error("killed")) : resolve({ code, out, ms: Date.now() - start, cut })
+      if (timedOut) { resolve(timedRes()); return }
+      // reap any descendant left in the group
+      if (process.platform !== "win32") try { process.kill(-child.pid!, "SIGKILL") } catch { /* group gone */ }
+      // a signal-killed step is a failed check, not a launch error
+      if (code === null) resolve({ code: -1, out: out + "\n[killed by " + signal + "]", ms: Date.now() - start, cut })
+      else resolve({ code, out, ms: Date.now() - start, cut })
     })
   })
 }
