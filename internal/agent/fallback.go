@@ -282,11 +282,11 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			notify(plan.say(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err))))
 		}
 		first := err
-		lreq = repickTo(lreq, next, auto)
+		lreq = repickTo(lreq, next, plan.keepsCell(auto))
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
-		if auto && !res.NotStarted {
+		if plan.spends(auto) && !res.NotStarted {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
 		res.Invoked = invoked
@@ -592,19 +592,15 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 // movesOn: the previous dispatch was unavailable.
 func (s *fallbackState) movesOn(ctx context.Context, next Dispatch) bool {
 	return runnerRefused(s.prevDispatch, s.res, s.err) || !typedModelGone(s.req, s.err) &&
-		(dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err) || crossFamilyMove(ctx, s.prevDispatch, next, s.res, s.err))
+		(dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err) || barredMove(ctx, s.prevDispatch, next, s.res, s.err))
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && s.modelGone() {                                              // R8: a typed model unserved is never swapped
-		s.stopped = true
-		return true, nil
-	}
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx, disp))) {
-		s.stopped = true
-		return true, nil
+	if skip, end := s.gate(ctx, c, i, disp, midRun); skip || end {
+		s.stopped = end
+		return end, nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		return true, s.cancelled(i, disp, cerr)
@@ -767,7 +763,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 		trip()
 		return
 	}
-	if disp := c.Dispatches[i].Agent; dispatchUnavailableContext(ctx, disp, res, err) || cutOffMidRunContext(ctx, disp, err) {
+	if disp := c.Dispatches[i].Agent; dispatchUnavailableContext(ctx, disp, res, err) || cutOffMidRunContext(ctx, disp, err) || barredAhead(ctx, c, i, res, err) {
 		return
 	}
 	trip()

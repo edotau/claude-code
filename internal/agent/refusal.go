@@ -45,7 +45,7 @@ func planRepick(ctx context.Context, in refusedHop) repickPlan {
 		return repickPlan{overflowPlan: planOverflow(in.disp, in.req, in.res, ran, in.err)}
 	}
 	plan := repickPlan{policy: true, pran: ran, pfrom: models.FamilyName(ran)}
-	if policyRepicked(in.hops) {
+	if policyRepicked(in.hops) || in.req.Repicks > 0 { // the ask's re-pick budget spans its dispatches
 		return plan // refusedTwice names both refusals once the loop ends
 	}
 	ids := policyCandsFn(in.disp, in.req.Tools, ranAccount(in.disp.Account, in.res.Provider), ran)
@@ -196,8 +196,8 @@ func retryBarred(err error) bool {
 	return ok && e.ShouldRetry == retry.ShouldRetryNo && e.Kind == retry.KindTransient
 }
 
-// crossFamilyMove: a barred transient failure still moves to a next hop that runs another model family.
-func crossFamilyMove(ctx context.Context, prev, next Dispatch, res wire.Result, err error) bool {
+// sameFamilyHop reports next as known to run the model family res ran; an auto or unnamed hop is unknown.
+func sameFamilyHop(res wire.Result, next Dispatch) bool {
 	asRun := func(m string) string {
 		if c, ok := models.Alias(m); ok {
 			return c
@@ -205,7 +205,45 @@ func crossFamilyMove(ctx context.Context, prev, next Dispatch, res wire.Result, 
 		return m
 	}
 	from, to := asRun(res.Model), asRun(next.Model)
-	known := from != "" && to != "" && !IsAuto(from) && !IsAuto(to) // an auto hop's family is unknown until it picks
-	return retryBarred(err) && known && router.DifferentFamily(from, to) &&
-		!errors.Is(err, ErrPoolExhausted) && fallsThroughContext(ctx, prev.Agent) && hopFailed(res, err)
+	return from != "" && to != "" && !IsAuto(from) && !IsAuto(to) && !router.DifferentFamily(from, to)
+}
+
+// barredFall: a should-retry-no transient failure that would otherwise fall through to next.
+func barredFall(ctx context.Context, prev Dispatch, res wire.Result, err error) bool {
+	return retryBarred(err) && !errors.Is(err, ErrPoolExhausted) && fallsThroughContext(ctx, prev.Agent) && hopFailed(res, err)
+}
+
+// barredMove: a barred failure still moves to next unless next is known to run the same family.
+func barredMove(ctx context.Context, prev, next Dispatch, res wire.Result, err error) bool {
+	return barredFall(ctx, prev, res, err) && !sameFamilyHop(res, next)
+}
+
+// barredAhead: a later hop of c takes a barred failure of hop i.
+func barredAhead(ctx context.Context, c Chain, i int, res wire.Result, err error) bool {
+	return i+1 < len(c.Dispatches) && slices.ContainsFunc(c.Dispatches[i+1:], func(d Dispatch) bool {
+		return barredMove(ctx, c.Dispatches[i], d, res, err)
+	})
+}
+
+// keepsCell: an auto re-pick stays an auto cell; a policy pick is a concrete model.
+func (r repickPlan) keepsCell(auto bool) bool { return auto && r.pmodel == "" }
+
+// spends: the re-pick counts against the ask's budget (every auto re-pick, and a policy pick).
+func (r repickPlan) spends(auto bool) bool { return auto || r.pmodel != "" }
+
+// skipsSameFamily: the provider said a retry cannot help, so a hop of the same family is passed over for a later one.
+func (s *fallbackState) skipsSameFamily(ctx context.Context, next Dispatch) bool {
+	return barredFall(ctx, s.prevDispatch, s.res, s.err) && sameFamilyHop(s.res, next)
+}
+
+// gate decides hop i before it runs: skip it (same family after a barred failure) or end the chain here.
+func (s *fallbackState) gate(ctx context.Context, c Chain, i int, disp Dispatch, midRun bool) (skip, end bool) {
+	if i == 0 {
+		return false, false
+	}
+	if s.skipsSameFamily(ctx, disp) {
+		return true, false
+	}
+	// R8: a typed model unserved is never swapped
+	return false, s.modelGone() || c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx, disp))
 }

@@ -78,8 +78,14 @@ func TestHopFailedHonoursShouldRetryNo(t *testing.T) {
 	res := wire.Result{Model: "databricks-claude-sonnet-5-5"}
 	other := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: "databricks-gpt-6-1-terra"}
 	same := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: "databricks-claude-opus-5-5"}
-	if !crossFamilyMove(context.Background(), prev, other, res, err) || crossFamilyMove(context.Background(), prev, same, res, err) {
-		t.Fatal("cross-family move must be allowed to gpt and barred to the same family")
+	auto := Dispatch{Agent: &fakeRunner{name: "codex"}, Model: AutoModel}
+	ctx := context.Background()
+	if !barredMove(ctx, prev, other, res, err) || !barredMove(ctx, prev, auto, res, err) || barredMove(ctx, prev, same, res, err) {
+		t.Fatal("a barred move must reach gpt and an auto hop, never the same family")
+	}
+	c := Chain{Dispatches: []Dispatch{prev, same, other}}
+	if !barredAhead(ctx, c, 0, res, err) || barredAhead(ctx, Chain{Dispatches: []Dispatch{prev, same}}, 0, res, err) {
+		t.Fatal("barredAhead must find the later gpt hop and none behind only a same-family hop")
 	}
 	t.Logf("(d) 503 should-retry no (overloaded): HopFailed=false, same-family hop barred, cross-family hop allowed")
 }
