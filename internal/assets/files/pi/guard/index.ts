@@ -1,5 +1,6 @@
 // Pi guard extension (internal/pi/guard.go renders the __ constants): the only tools Pi has are these, each judged first.
-import { execFileSync } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
+import { promisify } from "node:util"
 import { existsSync, realpathSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import * as pkg from "@earendil-works/pi-coding-agent"
@@ -7,6 +8,8 @@ import * as pkg from "@earendil-works/pi-coding-agent"
 // Pi imports an -e file by its real path but reports the path as given, so both sides compare as real paths
 const SELF: string = realpathSync(fileURLToPath(import.meta.url))
 const BIN: string = __BIN__
+const execFileAsync = promisify(execFile)
+const ERR_CHARS = 2000 // the most of a failed action's stderr a tool error carries
 const VERIFIED_PI: string = __PI_VERSION__ // the Pi version whose tool code this guard was checked against
 const BUDGET_MS: number = __BUDGET_MS__
 const FACTORIES: Record<string, string> = { bash: "createBashToolDefinition", edit: "createEditToolDefinition",
@@ -67,15 +70,15 @@ const ACTIONS: Record<string, any> = {
 
 // action is a tool whose command, if any, is the argv Go returned after judging it; the extension builds none.
 function action(name: string) {
-  return { name, ...ACTIONS[name], async execute(_id: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+  return { name, ...ACTIONS[name], async execute(_id: string, params: any, signal: any, _onUpdate: any, ctx: any) {
     const cwd = String(ctx?.cwd || process.cwd())
     const v = judge(name, params, cwd, String(ctx?.sessionManager?.getSessionId?.() ?? ""))
     if (v.block) throw new Error(v.block)
     if (v.usage) throw new Error(name + ": " + v.usage)
     let text = "recorded"
-    if (v.run) {
-      try { text = execFileSync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20 }) }
-      catch (err: any) { text = String(err.stdout || "") + String(err.stderr || "") + "exit " + (err.status ?? err.code) } // a red gate is a result
+    if (v.run) { // async and abortable: a cancelled call kills the child; a failed launch or exit is a tool error
+      try { text = (await execFileAsync(BIN, v.run, { cwd, env: hookEnv(), encoding: "utf8", maxBuffer: 64 << 20, signal })).stdout }
+      catch (err: any) { throw new Error(name + " failed: " + String(err.stderr || err.message || err.code).slice(0, ERR_CHARS)) }
     }
     return { content: [{ type: "text", text }], details: {} }
   } }
