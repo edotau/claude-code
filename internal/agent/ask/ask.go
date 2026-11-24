@@ -136,7 +136,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
-	r := &askRun{ctx: withPlanTask(ctx, f.planTask), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
+	r := &askRun{ctx: withContract(withPlanTask(ctx, f.planTask), f.contract), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	defaultTools(fs, f)
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
@@ -757,7 +757,9 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		return failAsk(format, name, err)
 	}
 	finishRecover(ctx, prepared.Record.ID)
-	stampPlanTask(ctx, jobRec, &prepared.Record)
+	if err := startAsk(ctx, jobRec, &prepared.Record); err != nil {
+		return failAsk(format, name, err)
+	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		if saveErr != nil { // the --job child loads this record; without it the job never starts
@@ -765,10 +767,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 		}
 		return askSpawn(ctx, fs, prepared, native, format, name)
 	}
-	if run != nil {
-		return run.run(ctx, cl, prepared, req)
-	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
+	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
 }
 
 // takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.

@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
@@ -53,28 +54,39 @@ func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, e
 }
 
 // specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.
-func specBrief(prompt string, argv []string, t askspec.Task) (string, error) {
+func specBrief(prompt string, argv []string, t askspec.Task) (string, *contractOpen, error) {
 	if !t.Set() {
-		return prompt, nil
+		return prompt, nil, nil
 	}
 	if t.Verify != "" && plans.VerifyShape(t.Verify) != nil {
-		return "", errors.New("spec verify: want go build|vet|test on ./ packages, agents diff --check or doctor, " +
+		return "", nil, errors.New("spec verify: want go build|vet|test on ./ packages, agents diff --check or doctor, " +
 			"rtk forms, joined by &&")
 	}
 	if strings.ContainsAny(t.Report, "\r\n") {
-		return "", errors.New("spec report: want a one-line path")
+		return "", nil, errors.New("spec report: want a one-line path")
 	}
 	bf, err := briefTarget(argv)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: bf.name, Owned: t.Own, Report: t.Report,
+	var o *contractOpen
+	if t.Contract != nil {
+		if o, err = newContractOpen(t, bf); err != nil {
+			return "", nil, err
+		}
+	}
+	brief, err := agent.RenderBrief(agent.BriefInput{Task: prompt, Agent: bf.name, Owned: t.Own, Report: t.Report,
 		Verify: t.Verify, PlanTask: bf.planTask, Tier: bf.tier, CodeMode: &bf.codeMode})
+	if err == nil && o != nil {
+		brief += contractBlock(o)
+	}
+	return brief, o, err
 }
 
 // briefFlags is what the merged argv dispatches, as the brief renders it.
 type briefFlags struct {
 	name, planTask, tier string
+	workdir              string
 	codeMode             bool
 }
 
@@ -84,7 +96,7 @@ func briefTarget(argv []string) (briefFlags, error) {
 	fs.SetOutput(io.Discard)
 	_, _ = helptext.ParseArgs(fs, argv) // the real parse reports a bad flag
 	if f.batchSrc != "" || f.loop || f.live || f.waves != "" || f.retry != "" || f.job != "" {
-		return briefFlags{}, errors.New("spec own, report and verify are for one new dispatch: not with --batch, --loop, " +
+		return briefFlags{}, errors.New("spec own, report, verify and contract are for one new dispatch: not with --batch, --loop, " +
 			"--live, --waves, --retry or --job")
 	}
 	defaultTools(fs, f)
@@ -95,7 +107,7 @@ func briefTarget(argv []string) (briefFlags, error) {
 		}
 	}
 	mode, _ := validateCodemode(f.codemode, name, f.tools)
-	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, codeMode: mode != "" && mode != "off"}, nil
+	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, workdir: f.workdir, codeMode: mode != "" && mode != "off"}, nil
 }
 
 // withSpec puts the spec's argv first, so a typed scalar flag wins and a typed list adds to the spec's.
@@ -106,9 +118,9 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 	}
 	out := append(argv, dropSpec(args)...)
 	if task.Set() && (len(pos) > 0 || strings.TrimSpace(prompt) == "" || prompt == "-") {
-		return nil, errors.New("spec own, report and verify wrap the spec's own inline prompt: set prompt, no positional task")
+		return nil, errors.New("spec own, report, verify and contract wrap the spec's own inline prompt: set prompt, no positional task")
 	}
-	if prompt, err = specBrief(prompt, out, task); err != nil {
+	if prompt, f.contract, err = specBrief(prompt, out, task); err != nil {
 		return nil, err
 	}
 	f.verify = task.Verify
@@ -154,7 +166,7 @@ func reparseSpec(f *askFlags, verb string, args, pos []string) (*flag.FlagSet, *
 		retargetPage(fs, verb)
 	}
 	pos, code, done := parseAskArgs(fs, merged)
-	nf.spec, nf.verify = f.spec, f.verify
+	nf.spec, nf.verify, nf.contract = f.spec, f.verify, f.contract
 	return fs, nf, merged, pos, code, done
 }
 
@@ -295,7 +307,7 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	}
 	overlayArg := r.canonicalOverlayArg()
 	argv := canonicalArgv(r.fs, r.f.listValues(), prompt, taskFromStdin(r.pos), overlayArg)
-	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(argv)})
+	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(argv), Terms: r.f.contract.terms()})
 }
 
 func (r *askRun) canonicalOverlayArg() *string {
@@ -329,6 +341,7 @@ type dryDoc struct {
 	Argv      string              `json:"argv"`
 	Preflight []string            `json:"preflight,omitempty"`
 	Skipped   []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
+	Terms     []contract.Term     `json:"terms,omitempty"`
 }
 
 // dryRun fills base (overlay, argv) with what the run would do; it stops before any record, claim, spawn or model call.
@@ -388,6 +401,14 @@ func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, b
 	return r, true, nil
 }
 
+func joinTerms(ts []contract.Term) string {
+	s := make([]string, len(ts))
+	for i, t := range ts {
+		s[i] = string(t)
+	}
+	return strings.Join(s, ", ")
+}
+
 func (d dryDoc) print(format string, out io.Writer) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(out, d); err != nil {
@@ -404,6 +425,7 @@ func (d dryDoc) print(format string, out io.Writer) int {
 	row("model", d.Model)
 	row("route", d.Route)
 	row("hops", strings.Join(d.Hops, "; "))
+	row("terms", joinTerms(d.Terms))
 	row("skipped", strings.Join(d.Skipped, "; "))
 	if !d.Overlay.Empty() {
 		b, _ := json.Marshal(d.Overlay)

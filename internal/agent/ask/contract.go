@@ -1,16 +1,25 @@
 package ask
 
 import (
+	"cmp"
+	"context"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -106,12 +115,12 @@ func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Cont
 	if err != nil {
 		return c, err
 	}
-	if why, failed := failReason(c, r.End); failed {
+	if why, failed := failReason(c, r.End, r.Spent); failed {
 		return failWith(c, why, hb, r.Spent)
 	}
 	v, err := c.Verify(r.Children)
 	if err != nil {
-		return failWith(c, contract.ReasonTerm, hb, r.Spent)
+		return failWith(c, c.FailReason(r.Spent), hb, r.Spent)
 	}
 	res := result(v, hb, r.Spent)
 	if hasCloseTerms(v) {
@@ -198,7 +207,7 @@ func handbackMiss(h *wire.Handback) string {
 }
 
 // failReason is why c fails now: the run did not finish, or an open or return term it holds has no pass.
-func failReason(c contract.Contract, end runEnd) (contract.Reason, bool) {
+func failReason(c contract.Contract, end runEnd, spent contract.Spent) (contract.Reason, bool) {
 	switch end {
 	case endFinished:
 	case endCancelled:
@@ -208,7 +217,7 @@ func failReason(c contract.Contract, end runEnd) (contract.Reason, bool) {
 	}
 	for _, t := range c.Unmet() {
 		if s := contract.StageOf(t); s == contract.StageOpen || s == contract.StageReturn {
-			return contract.ReasonTerm, true
+			return c.FailReason(spent), true
 		}
 	}
 	return "", false
@@ -306,4 +315,238 @@ func fileIn(dir, p string) bool {
 	}
 	fi, err := os.Lstat(p)
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// contractKey carries the spec's checked contract on the run's ctx to askPrepare, which opens it per dispatch id.
+type contractKey struct{}
+
+func withContract(ctx context.Context, o *contractOpen) context.Context {
+	if o == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, contractKey{}, o)
+}
+
+func askContractOf(ctx context.Context) *contractOpen {
+	o, _ := ctx.Value(contractKey{}).(*contractOpen)
+	return o
+}
+
+// terms is the checklist TermsFor chose; nil without a contract.
+func (o *contractOpen) terms() []contract.Term {
+	if o == nil {
+		return nil
+	}
+	return contract.TermsFor(o.Facts)
+}
+
+// newContractOpen is the spec's contract key as a typed open; contract.Open's problems are returned as one error.
+func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
+	dir, err := filepath.Abs(cmp.Or(bf.workdir, "."))
+	if err != nil {
+		return nil, err
+	}
+	kind, lane, plan := contract.Kind(t.Contract.Kind), laneOf(dir), planOf(dir, bf.planTask)
+	if bf.planTask != "" && plan == "" {
+		fmt.Fprintf(os.Stderr, "ask: contract: plan task %q is in no single open plan of this repo: no tick term\n", bf.planTask)
+	}
+	lim := t.Contract.Limits
+	o := &contractOpen{
+		Scope: contract.Scope{Unit: t.Contract.Unit, Kind: kind, Own: t.Own, PlanTask: bf.planTask, Plan: plan,
+			Lane: lane, Verify: t.Verify},
+		Owner:  contract.Party{Role: contract.RoleOwner, Agent: bf.name, Tier: bf.tier},
+		Limits: contract.LimitsFor(kind, contract.RoleOwner, contract.Limits{Tokens: lim.Tokens, Leaves: lim.Leaves}),
+		// Fleet only when the spec asks for leaves: a solo owner owes no leaves term.
+		Facts: contract.Facts{Lane: lane != "", PlanTask: plan != "", Fleet: lim.Leaves > 0,
+			TestStep: strings.Contains(t.Verify, "go test"), TestRepair: kind == contract.KindTestRepair},
+		Dir: dir}
+	if _, ps := contract.Open(o.Scope, o.Owner, o.Limits, o.Facts); len(ps) > 0 {
+		return nil, problemsErr(ps)
+	}
+	return o, nil
+}
+
+// problemsErr is ps as one spec error; nil for none.
+func problemsErr(ps []contract.Problem) error {
+	if len(ps) == 0 {
+		return nil
+	}
+	s := make([]string, len(ps))
+	for i, p := range ps {
+		s[i] = p.String()
+	}
+	return fmt.Errorf("spec contract: %s", strings.Join(s, "; "))
+}
+
+// laneOf is the lane dir sits in: its first path element under the repo's worktree root, else "".
+func laneOf(dir string) string {
+	repo, err := worktree.ResolveRepo(dir)
+	if err != nil {
+		return ""
+	}
+	d := paths.Canon(dir)
+	for _, root := range []string{repo.Root, repo.Legacy} {
+		if root == "" {
+			continue
+		}
+		if rel, ok := paths.RelWithin(root, d); ok && rel != "." {
+			return strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
+		}
+	}
+	return ""
+}
+
+// planOf is the one dated plan of dir's repo holding id as an open task, else "".
+func planOf(dir, id string) string {
+	if id == "" {
+		return ""
+	}
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		return ""
+	}
+	found := plans.TaskPlans(plans.Home(top), plans.MirrorDests(), id, func(t plans.Task) bool { return !t.Dropped && !t.Done })
+	if len(found) != 1 {
+		return ""
+	}
+	return found[0]
+}
+
+// contractBlock is the owner's brief block: scope, the terms Go records, and the limits, all read from the contract.
+func contractBlock(o *contractOpen) string {
+	lines := []string{fmt.Sprintf("Unit: %s (%s)", o.Scope.Unit, o.Scope.Kind)}
+	if o.Scope.Plan != "" {
+		lines = append(lines, fmt.Sprintf("Plan task: %s (%s)", o.Scope.PlanTask, o.Scope.Plan))
+	}
+	if o.Scope.Lane != "" {
+		lines = append(lines, "Lane: "+o.Scope.Lane)
+	}
+	lines = append(lines, "Terms Go records: "+joinTerms(o.terms()),
+		fmt.Sprintf("Limits: tokens %d, leaves %d, depth %d", o.Limits.Tokens, o.Limits.Leaves, o.Limits.Depth),
+		"Go checks every term itself; hand back with the handback tool (status, tests, method).")
+	return "\n\n## Contract\n\n" + strings.Join(lines, "\n")
+}
+
+// startAsk stamps the plan task and opens the spec's contract on a new dispatch record before it is saved.
+func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
+	stampPlanTask(ctx, jobRec, rec)
+	o := askContractOf(ctx)
+	if o == nil || jobRec != nil { // a --job child's contract was opened by its parent
+		return nil
+	}
+	open := *o
+	open.Dispatch = rec.ID
+	_, ps, err := openContract(open)
+	if len(ps) > 0 || err != nil {
+		return fmt.Errorf("open contract: %w", errors.Join(problemsErr(ps), err))
+	}
+	return nil
+}
+
+// runSettled runs a prepared foreground dispatch or --job child, then settles the contract it holds.
+func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions, run *armRetry,
+	isJob bool, format, save string, out io.Writer) int {
+	if askContractOf(ctx) != nil || isJob {
+		defer settleAsk(ctx, p.Record.ID)
+	}
+	if run != nil {
+		return run.run(ctx, cl, p, req)
+	}
+	return runAskAndReport(ctx, cl, p, isJob, format, save, out)
+}
+
+// settleAsk settles id's working contract after its run; a panic or a cancelled ctx fails it instead.
+func settleAsk(ctx context.Context, id string) {
+	p := recover()
+	c, err := contract.Load(id)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: %v\n", id, err)
+	}
+	if err == nil && c.State() == contract.StateWorking {
+		var got contract.Contract
+		switch {
+		case p != nil:
+			got, err = abandonContract(id, contract.ReasonOwnerDead)
+		case ctx.Err() != nil:
+			got, err = abandonContract(id, contract.ReasonCancelled)
+		default:
+			got, err = settleContract(id, returnOf(ctx, c, id))
+		}
+		reportSettled(id, got, err)
+	}
+	if p != nil {
+		panic(p)
+	}
+}
+
+// settleScan is how many recent dispatch records the spend is summed over.
+const settleScan = 500
+
+// returnOf is what Go observed of id's run: the record's end and report, the envelope's verify and hand-back, the gate.
+func returnOf(ctx context.Context, c contract.Contract, id string) contractReturn {
+	rec, err := agent.LoadRecord(id)
+	if err != nil {
+		return contractReturn{End: endDied}
+	}
+	r := contractReturn{End: runEndOf(rec), Report: rec.Report}
+	for _, ch := range c.Children {
+		if cc, err := contract.Load(ch); err == nil {
+			r.Children = append(r.Children, cc)
+		}
+	}
+	if env, ok := rec.SavedEnvelope(); ok {
+		r.Verify, r.Handback = env.Verify, env.Handback
+		if env.Handback != nil {
+			r.Tests, r.Method = env.Handback.Tests, env.Handback.Method
+		}
+	}
+	r.Spent = contract.SpentOf(c, usesOf(agent.RecentRecords(settleScan)))
+	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
+		g, _ := worktree.RunScopedGate(ctx, dir, c.Scope.Own, false)
+		if g.Gate != "" { // no gate found is a no-result record
+			r.Gate = &g
+		}
+	}
+	return r
+}
+
+func usesOf(recs []agent.Record) []contract.Use {
+	out := make([]contract.Use, len(recs))
+	for i, r := range recs {
+		u := r.Usage
+		if u == nil && r.Activity != nil {
+			u = &r.Activity.Usage
+		}
+		n := 0
+		if u != nil {
+			n = u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
+		}
+		out[i] = contract.Use{ID: r.ID, Parent: r.Parent, Tokens: n}
+	}
+	return out
+}
+
+func runEndOf(rec agent.Record) runEnd {
+	switch {
+	case rec.Cutoff == "cancelled" || rec.FailKind == "cancelled":
+		return endCancelled
+	case rec.Status == wire.StatusOK:
+		return endFinished
+	}
+	return endDied
+}
+
+func reportSettled(id string, c contract.Contract, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: settle: %v\n", id, err)
+		return
+	}
+	line := fmt.Sprintf("ask: contract %s %s", id, c.State())
+	if c.Failed != "" {
+		line += fmt.Sprintf(" (%s)", c.Failed)
+	}
+	if u := c.Unmet(); len(u) > 0 {
+		line += " · unmet " + joinTerms(u)
+	}
+	fmt.Fprintln(os.Stderr, line)
 }

@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
@@ -53,6 +56,30 @@ func TestOpenContractObservesLaneAndProxy(t *testing.T) {
 	}
 	if a, err := abandonContract("d-1", contract.ReasonCancelled); err != nil || a.State() != contract.StateFailed {
 		t.Fatalf("abandon: state %s, %v; want failed", a.State(), err)
+	}
+}
+
+// TestStartAndSettleAsk: startAsk opens a working contract; settleAsk with no gate and no hand-back fails it on term.
+func TestStartAndSettleAsk(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	o := &contractOpen{
+		Scope:  contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner:  contract.Party{Role: contract.RoleOwner, Agent: "pi"},
+		Limits: contract.Limits{Depth: 1, Leaves: 1}}
+	ctx := withContract(context.Background(), o)
+	rec := agent.Record{ID: "d-9", Status: wire.StatusOK, Time: time.Now()}
+	if err := startAsk(ctx, nil, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := contract.Load("d-9"); err != nil || c.State() != contract.StateWorking {
+		t.Fatalf("after start: %v, %v; want working", c.State(), err)
+	}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	settleAsk(ctx, "d-9")
+	if c, err := contract.Load("d-9"); err != nil || c.State() != contract.StateFailed || c.Failed != contract.ReasonTerm {
+		t.Fatalf("after settle: %v %q, %v; want failed term", c.State(), c.Failed, err)
 	}
 }
 

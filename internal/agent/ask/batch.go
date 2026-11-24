@@ -246,7 +246,8 @@ func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, e
 		argv = append(argv, "--codemode", base.Codemode)
 	}
 	argv = append(argv, "--tools="+strconv.FormatBool(*cmp.Or(tl.Tools, &base.Tools)))
-	return specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
+	brief, _, err := specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
+	return brief, err
 }
 
 func lineRoute(l parsedLine, req *agent.RunOptions) error {

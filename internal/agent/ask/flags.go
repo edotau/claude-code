@@ -46,6 +46,7 @@ type askFlags struct {
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
 	spec, verify                                                                                                                                                                       string
+	contract                                                                                                                                                                           *contractOpen
 	planTask                                                                                                                                                                           string
 	dryRun                                                                                                                                                                             bool
 	loop                                                                                                                                                                               bool
