@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
@@ -63,7 +64,7 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 func commitLine(lane, id, planPath string, files []string) string {
 	cd := ""
 	if lane != "" {
-		cd = "cd '" + lane + "' && "
+		cd = "cd " + textutil.ShellQuote(lane) + " && "
 	}
 	return "commit+tick: " + cd + "claude-code worktree commit --task '" + id + "' --plan " + planPath +
 		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, files...), " ")
