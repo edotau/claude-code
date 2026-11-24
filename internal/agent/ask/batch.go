@@ -226,7 +226,7 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	if err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
-	req.Tools = *cmp.Or(tl.Tools, &base.Tools)
+	req.Tools, req.Verify = *cmp.Or(tl.Tools, &base.Tools), tl.Verify
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}

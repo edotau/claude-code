@@ -47,5 +47,5 @@ func (r *askRun) execute() int {
 	if run != nil {
 		req = run.probe(req)
 	}
-	return askPrepareAndRun(withVerify(r.dryCtx(ctx, prompt), f.verify), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
+	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }

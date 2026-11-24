@@ -106,8 +106,15 @@ type VerifyResult struct {
 	Command string `json:"command"`
 	Exit    int    `json:"exit"` // -1 when a step could not start
 	Ms      int64  `json:"ms"`
-	Tail    string `json:"tail,omitempty"` // the last bytes of the steps' combined output
+	Tail    string `json:"tail,omitempty"`   // the last bytes of the steps' combined output
+	Reason  string `json:"reason,omitempty"` // why the steps did not run: a VerifyNotRun* value
 }
+
+// The reasons a verify did not run; the run's own status and exit code are unaffected.
+const (
+	VerifyNotRunRemote = "remote_workdir"
+	VerifyNotRunShape  = "shape"
+)
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {

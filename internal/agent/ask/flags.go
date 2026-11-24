@@ -398,7 +398,7 @@ type askTarget struct {
 	Tools, NoTools, Autonomous, Fleet, EnableMemory, Direct   *bool
 	NoPersist, Native                                         *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
-	Host, Fallback, Coworker, Codemode                        *string
+	Host, Fallback, Coworker, Codemode, Verify                *string
 	Timeout                                                   *time.Duration
 	Persona                                                   **agent.Schema
 	Pack                                                      **pack.Spec
@@ -414,6 +414,9 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
+	if t.Verify != nil { // a retried or replayed run repeats its spec's verify
+		*t.Verify = rec.Request.Verify
+	}
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy

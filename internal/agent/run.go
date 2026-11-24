@@ -278,7 +278,8 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	}
 	res, err := runRecorded(ctx, &p.Record, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
-			return p.remote.Run(ctx, p.Opts, sink)
+			res, err := p.remote.Run(ctx, p.Opts, sink)
+			return p.verified(ctx, res, err), err
 		}
 		wrote := func() (*[]string, *[]string) { return nil, nil } // a toolless run observes nothing
 		if !p.Opts.NoTools {
@@ -288,7 +289,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
 		dropSharedWrites(&p.Record)
 		p.Record.Wrote = mergeWritten(p.Record.Wrote, res.Written, p.Opts.WorkDir)
-		return res, err
+		return p.verified(ctx, res, err), err
 	})
 	res.DispatchID = p.Record.ID
 	return res, err
@@ -613,6 +614,7 @@ type RunOptions struct {
 	Host                                                string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
+	Verify                                              string             `json:"verify,omitempty"`     // a spec's verify line, run in Go after an answered run
 	AutoArm                                             bool               `json:"auto_arm,omitempty"`   // the workspace was an auto pick: a --job child may move on a 429
 	Carry                                               bool               `json:"carry,omitempty"`      // ask --carry: runs CarryArgv as a plain child; the depth exemption keys on it
 	CarryArgv                                           []string           `json:"carry_argv,omitempty"` // the inner ask line --carry runs; the task rides stdin, never this argv
