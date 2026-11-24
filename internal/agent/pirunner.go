@@ -105,7 +105,7 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	if why != "" {
 		return nil, nil, why
 	}
-	if why := stampedPick(router.WithExpectedPick(ctx, *memo), reg, q, lead, model); why != "" { // stamped last: a refused hop stamps nothing
+	if why := stampedPick(ctx, reg, q, lead, *memo); why != "" { // stamped last: a refused hop stamps nothing
 		return nil, nil, why
 	}
 	hops := append([]Dispatch{headPiHop(reg, lead, profile, wire)}, sibs...)
@@ -237,18 +237,17 @@ func piWire(reg *providers.Registry, profile, model string) (wire, why string) {
 	return wire, why
 }
 
-// stampedPick stamps a rotating agent's pick once its Pi hops are all validated; why when the pick moved off model.
-func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, model string) string {
+// stampedPick stamps the rotating pick only if it is still the peeked one; why when it moved or none was validated.
+func stampedPick(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, peeked string) string {
 	if !IsAuto(lead.Model) || q.Preview || Peeking(ctx) {
 		return ""
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
-	stamped, why := agentModelOn(ctx, reg, q, AutoModel, profile)
-	if why != "" {
-		return "pi on " + profile + ": " + why
+	if peeked == "" {
+		return "pi on " + profile + ": no rotation pick was validated"
 	}
-	if !models.SameModel(stamped, model) {
-		return "pi on " + profile + ": the rotation pick moved off " + model
+	if _, why := agentModelOn(router.WithExpectedPick(ctx, peeked), reg, q, AutoModel, profile); why != "" {
+		return "pi on " + profile + ": " + why
 	}
 	return ""
 }
@@ -317,7 +316,7 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 		return c.noted("claude fallback hop skipped: " + why)
 	}
 	hop := Dispatch{Agent: cl, Model: alias, Route: rowRoute(reg, profile), Account: lead.Account, Billing: lead.Billing,
-		otherRoute: true}
+		otherRoute: true, fixedModel: true}
 	n := slices.IndexFunc(c.Dispatches, func(d Dispatch) bool { return d.Agent.Name() != agentid.Pi }) // off-arm hops stay last
 	if n < 0 {
 		n = len(c.Dispatches)

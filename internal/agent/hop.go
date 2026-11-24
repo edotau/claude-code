@@ -65,7 +65,7 @@ func refusedModel(d Dispatch, req RunOptions, res wire.Result) string {
 
 // autoBeatsCell: a typed or pinned auto replaces the cell's model on its row, never a pi runner hop's picked model.
 func autoBeatsCell(out, req RunOptions, disp Dispatch) bool {
-	if out.CellModel || disp.runFor != "" {
+	if out.CellModel || disp.runFor != "" || disp.fixedModel {
 		return false
 	}
 	return out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))

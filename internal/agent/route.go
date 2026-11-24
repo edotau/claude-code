@@ -37,6 +37,7 @@ type Dispatch struct {
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 	quotaOverflow                bool                       // the last hop: runs only after a quota-class failure
 	runFor                       string                     // the pi runner hop: the asked agent it executes for
+	fixedModel                   bool                       // a validated model no typed or pinned auto replaces
 }
 
 // agentName is the agent d stands for: the asked agent on a pi runner hop, else its engine.
