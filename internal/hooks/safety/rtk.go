@@ -181,7 +181,8 @@ func rtkMatchesBash(matcher string) bool {
 
 // rtkJudges are side-effect-free stand-ins for the Bash PreToolUse modules; a module missing here stops the rewrite.
 var rtkJudges = map[string]func(*core.Input) bool{
-	"safety-scan": func(in *core.Input) bool { return Verdict(in) == core.Allow },
+	"safety-scan":  func(in *core.Input) bool { return Verdict(in) == core.Allow },
+	"bash-timeout": func(*core.Input) bool { return true }, // only sets a timeout; never refuses
 	"docs-placement": func(in *core.Input) bool {
 		r := docs.Placement(in) // its Bash path only reads git state
 		return r.Decision == core.Allow && r.UpdatedInput == nil

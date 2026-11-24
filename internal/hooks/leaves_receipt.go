@@ -427,6 +427,20 @@ func BashTimeoutMs(cmd string) (ms int, ok bool) {
 	return int(total / time.Millisecond), ok
 }
 
+// BashTimeout raises a foreground ask, wait or result -f Bash call's timeout to what it needs; it never blocks.
+func BashTimeout(in *core.Input) core.Result {
+	ms, ok := BashTimeoutMs(in.ToolCommand())
+	updated := in.CloneToolInput()
+	if in.ToolName != "Bash" || !ok || updated == nil {
+		return core.Result{}
+	}
+	if have, _ := updated["timeout"].(float64); int(have) >= ms {
+		return core.Result{}
+	}
+	updated["timeout"] = ms
+	return core.Result{UpdatedInput: updated}
+}
+
 // timeoutFlag is the last parseable `--timeout D` or `--timeout=D` in words, 0 when none.
 func timeoutFlag(words []string) time.Duration {
 	var d time.Duration

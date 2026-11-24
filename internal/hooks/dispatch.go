@@ -406,6 +406,7 @@ func drain(wg *sync.WaitGroup, log io.Writer) {
 var native = map[string]core.Runner{
 	"safety-scan":          safety.Scan,
 	"rtk-rewrite":          safety.RTKRewrite,
+	"bash-timeout":         BashTimeout,
 	"docs-placement":       placementRun,
 	"memory-start":         WithDispatchLabels(memhook.Start),
 	"memory-recall":        WithDispatchLabels(memhook.Recall),
