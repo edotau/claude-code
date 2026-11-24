@@ -109,7 +109,7 @@ func TestPiVerifyFailureIsRedacted(t *testing.T) {
 		t.Errorf("withheld verdict = %+v", v)
 	}
 	tail := &piTail{} // a PEM block whose BEGIN the cut drops: none of its body may show
-	_, _ = tail.Write([]byte(pemBegin + "PRIVATE KEY-----\n" + strings.Repeat("QUJD\n", 2*piVerifyKeep/5) + "tail line\n"))
+	_, _ = tail.Write([]byte(redact.PEMBegin + "PRIVATE KEY-----\n" + strings.Repeat("QUJD\n", 2*piVerifyKeep/5) + "tail line\n"))
 	if got := piVerifyText("go vet ./p", 1, false, 0, tail, false); strings.Contains(got, "QUJD") {
 		t.Errorf("PEM body survived the cut: %q", got)
 	}

@@ -84,22 +84,10 @@ func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.
 func verifyTail(t *tailBuf) string {
 	s := strings.ToValidUTF8(string(t.b), "")
 	if t.cut { // the window starts mid-output
-		s = dropFirstLine(afterOrphanPEM(s))
+		s = dropFirstLine(redact.AfterOrphanPEM(s, t.openPEM))
 	}
 	masked := maskShapes(s)
 	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
-}
-
-// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut window lost.
-func afterOrphanPEM(s string) string {
-	end := strings.Index(s, "-----END ")
-	if end < 0 || strings.Contains(s[:end], "-----BEGIN ") {
-		return s
-	}
-	if nl := strings.IndexByte(s[end:], '\n'); nl >= 0 {
-		return s[end+nl:]
-	}
-	return ""
 }
 
 // dropFirstLine is s from the first line past the cut that is not key-shaped: a cut window may open inside a key.
@@ -133,12 +121,16 @@ const verifyKeep = 4 * verifyTailMax
 type tailBuf struct {
 	b   []byte
 	cut bool // the window's front was dropped
+	// the dropped front ends inside a PEM block, so the window starts in its body
+	openPEM bool
 }
 
 func (t *tailBuf) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > 2*verifyKeep {
-		t.b, t.cut = append(t.b[:0], t.b[len(t.b)-verifyKeep:]...), true
+		drop := len(t.b) - verifyKeep
+		t.openPEM = redact.PEMOpenAfterDrop(t.b, drop, t.openPEM)
+		t.b, t.cut = append(t.b[:0], t.b[drop:]...), true
 	}
 	return len(p), nil
 }

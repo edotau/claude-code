@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -128,7 +127,7 @@ func piVerifyText(line string, code int, timedOut bool, elapsed time.Duration, t
 	}
 	window := strings.ToValidUTF8(string(t.b), "")
 	if t.cut { // the window starts mid-output
-		window = dropFirstLine(afterOrphanPEM(window, t.openPEM))
+		window = dropFirstLine(redact.AfterOrphanPEM(window, t.openPEM))
 	}
 	if timedOut || code < 0 { // a kill mid-write can leave a value's prefix, which no needle matches
 		window = window[:strings.LastIndexByte(window, '\n')+1]
@@ -144,23 +143,6 @@ func piMask(s string) string {
 	}
 	return redact.Text(textutil.RedactSecrets(s))
 }
-
-// afterOrphanPEM is s past the END line of a PEM block whose BEGIN the cut lost; open: the dropped front left one open.
-func afterOrphanPEM(s string, open bool) string {
-	end := strings.Index(s, pemEnd)
-	if !open && (end < 0 || strings.Contains(s[:end], pemBegin)) {
-		return s
-	}
-	if end < 0 { // the open block's body runs to the end of the window: none of it is shown
-		return ""
-	}
-	if nl := strings.IndexByte(s[end:], '\n'); nl >= 0 {
-		return s[end+nl:]
-	}
-	return ""
-}
-
-const pemBegin, pemEnd = "-----BEGIN ", "-----END "
 
 // dropFirstLine is s past its first newline: the cut window's first line may be a secret's tail without its marker.
 func dropFirstLine(s string) string {
@@ -179,10 +161,7 @@ func (t *piTail) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > 2*piVerifyKeep {
 		drop := t.b[:len(t.b)-piVerifyKeep]
-		seen := t.b[:len(drop)+len(pemBegin)-1] // a marker split by the cut still counts
-		if b, e := bytes.LastIndex(seen, []byte(pemBegin)), bytes.LastIndex(seen, []byte(pemEnd)); b != e {
-			t.openPEM = b > e // neither marker in drop: the state from earlier drops stands
-		}
+		t.openPEM = redact.PEMOpenAfterDrop(t.b, len(drop), t.openPEM)
 		t.b, t.cut = append(t.b[:0], t.b[len(drop):]...), true
 	}
 	return len(p), nil
