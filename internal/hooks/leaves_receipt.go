@@ -174,7 +174,12 @@ func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRe
 }
 
 // handbackVerdict is the unfixed verdict of a typed hand-back.
-func handbackVerdict(h *wire.Handback) string { return laneVerdict(h.Footer()) }
+func handbackVerdict(h *wire.Handback) string {
+	if v := laneVerdict(h.Footer()); v != "none" || h.Status == "DONE" {
+		return v
+	}
+	return h.Status // a decorated "none." item never clears an unfinished run
+}
 
 // endedNote is a finished job's ran-on line and result.
 func endedNote(rec agent.Record, how, output string) receipt {
