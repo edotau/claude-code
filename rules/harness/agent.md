@@ -125,6 +125,8 @@ paths:
   owner's approval is the only control over what that code does. The content of a local-path package can change
   after approval and is not hashed: each launch re-reviews it (new code needs approval), but approved code that
   changes, or changes during a run (`/reload`), loads unchecked.
+- pi compaction and retries are typed `progress`/`retry` marks in the stream log (not in recorded events); the status
+  line reads `compacting 12s` or `retrying 4s` (the announced wait) instead of `quiet`, until the next log line.
 - The wave owned-files gate covers pi, and `doctor` has the rows
   `pi route`, `tool pi` and `pi packages`.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,

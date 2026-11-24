@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +35,43 @@ type Progress struct {
 	ToolMs              int64 // the last finished tool's duration; 0: unknown
 	Stream              bool  // the agent has a quiet/hung threshold; false: no live signal to judge by
 	Seen                bool  // a no-stream agent showed any sign of life
+	Phase               phase // what the log's last mark says the agent is busy with
+	RetryIn             time.Duration
 	quietAt, hungAt     time.Duration
+}
+
+// phase is a typed busy-state the stream log's last line can mark.
+type phase int
+
+const (
+	phaseNone phase = iota
+	phaseCompacting
+	phaseRetrying
+)
+
+var retryInRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`retry_in=(\d+)ms$`) })
+
+// phaseOf reads the last non-heartbeat log line: a `phase: compacting` or `retry:` mark, else none.
+func phaseOf(tail string) (phase, time.Duration) {
+	lines := strings.Split(strings.TrimRight(tail, "\n"), "\n")
+	for _, line := range slices.Backward(lines) {
+		l := strings.TrimSpace(line)
+		switch {
+		case !strings.HasPrefix(l, "▸ ") || strings.HasPrefix(l, "▸ heartbeat:"):
+			continue
+		case strings.HasPrefix(l, "▸ phase: compacting"):
+			return phaseCompacting, 0
+		case strings.HasPrefix(l, "▸ retry: "):
+			m := retryInRe().FindStringSubmatch(l)
+			if m == nil {
+				return phaseNone, 0
+			}
+			ms, _ := strconv.ParseInt(m[1], 10, 64)
+			return phaseRetrying, time.Duration(ms) * time.Millisecond
+		}
+		return phaseNone, 0
+	}
+	return phaseNone, 0
 }
 
 // progressLimits are the quiet and hung thresholds per agent, derived from the harness's own idle limits.
@@ -58,6 +95,7 @@ func ProgressOf(r Record, now time.Time) Progress {
 	}
 	if tail, err := tailBytes(r.LogPath()); err == nil {
 		p.Doing = doingOf(string(tail))
+		p.Phase, p.RetryIn = phaseOf(string(tail))
 	}
 	if p.Tools <= 0 && agent == "gemini" { // gemini's events carry no tool_use: its log's finished steps are the count
 		if n, ok := countFile(r.LogPath(), countDoneSteps); ok {
@@ -203,6 +241,14 @@ func (p Progress) toolDur() string {
 	return "tool " + progressDur(time.Duration(p.ToolMs)*time.Millisecond)
 }
 
+// phaseText is "compacting 12s" (time quiet) or "retrying 4s" (the exact wait Pi announced).
+func (p Progress) phaseText() string {
+	if p.Phase == phaseRetrying {
+		return "retrying " + progressDur(p.RetryIn)
+	}
+	return "compacting " + progressDur(p.Quiet)
+}
+
 // signal is the liveness field and whether the doing field is labelled "last:" (the run looks hung).
 func (p Progress) signal() (text string, hung bool) {
 	switch {
@@ -214,6 +260,8 @@ func (p Progress) signal() (text string, hung bool) {
 		return "last event " + progressDur(p.Quiet) + " ago", false
 	case p.Quiet >= p.hungAt:
 		return "⚠ no event " + progressDur(p.Quiet), true
+	case p.Phase != phaseNone:
+		return p.phaseText(), false
 	case p.Quiet >= p.quietAt:
 		return "quiet " + progressDur(p.Quiet), false
 	}
