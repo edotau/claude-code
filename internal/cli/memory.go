@@ -142,10 +142,16 @@ func cmdMemoryDream(args []string) int {
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
 	force := fs.Bool("force", false, "run even when not due")
 	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, archivable blocks; no writes")
+	trigger := fs.String("trigger", "manual", "what started the run: session-start|schedule|manual")
 	if code, done := memoryParseNoArgs(fs, "dream", args); done {
 		return code
 	}
-	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: ask.MemoryRunner(), Out: os.Stdout}); err != nil {
+	switch *trigger {
+	case memory.DreamTriggerManual, memory.DreamTriggerSessionStart, memory.DreamTriggerSchedule:
+	default:
+		return helptext.FailUsage("memory dream: --trigger must be session-start, schedule or manual")
+	}
+	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: ask.MemoryRunner(), Out: os.Stdout, Trigger: *trigger}); err != nil {
 		return helptext.Fail("memory dream: %v", err)
 	}
 	return 0
@@ -220,7 +226,7 @@ func memorySpec() *helptext.Node {
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
-		"dream":  {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
+		"dream":  {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run"), helptext.Plain("trigger")}},
 		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":   {},
 		"index":  {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},

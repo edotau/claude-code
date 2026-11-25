@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -404,9 +405,27 @@ type DreamRunOptions struct {
 	Force, DryRun bool
 	Run           AgentFunc
 	Out           io.Writer
+	Trigger       string
 }
 
-// RunDream previews (DryRun), skips when not due, or consolidates the bank.
+// Dream triggers: what started a run.
+const (
+	DreamTriggerManual       = "manual"
+	DreamTriggerSessionStart = "session-start"
+	DreamTriggerSchedule     = "schedule"
+)
+
+// dreamCatchup saves missed sessions before consolidating; a sweep already running (or this dream's parent) skips.
+func dreamCatchup(out io.Writer) {
+	_ = os.MkdirAll(paths.MemoryStateDir(), 0o700)
+	lock := filepath.Join(paths.MemoryStateDir(), "catchup.lock")
+	ran, err := paths.TryFileLock(lock, 0, func() error { runSweep("", time.Now(), out); return nil })
+	if err != nil || !ran {
+		fmt.Fprintln(out, "memory dream: catch-up skipped (a sweep holds the lock)")
+	}
+}
+
+// RunDream previews (DryRun), catches up, then consolidates (or records not-due).
 func RunDream(o DreamRunOptions) error {
 	root := o.CWD
 	if root == "" {
@@ -419,11 +438,10 @@ func RunDream(o DreamRunOptions) error {
 		fmt.Fprint(o.Out, previewDream().Report())
 		return nil
 	}
-	if !o.Force && !dreamDue(time.Now()) {
-		fmt.Fprintln(o.Out, "memory dream: not due")
-		return nil
+	if o.Force || dreamDue(time.Now()) {
+		dreamCatchup(o.Out)
 	}
-	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force})
+	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force, Trigger: cmp.Or(o.Trigger, DreamTriggerManual), Forced: o.Force})
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
