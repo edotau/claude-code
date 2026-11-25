@@ -33,13 +33,13 @@ type Launch struct {
 	CanServe          func(agent string, p *providers.Provider) bool
 }
 
-// ErrUnknownProfile marks a profile that is no registry row; ForContext still returns the Effective it resolved.
-var ErrUnknownProfile = errors.New("not in the registry")
+// errUnknownProfile marks a profile that is no registry row; ForContext still returns the Effective it resolved.
+var errUnknownProfile = errors.New("not in the registry")
 
 // checkProfile refuses a registry profile that does not exist; own logins skip the check.
 func checkProfile(reg *providers.Registry, agent, p string) error {
 	if p != "" && !ownsProfile(agent, p) && reg.Providers[p] == nil {
-		return fmt.Errorf("agent %s: profile %s is %w", agent, p, ErrUnknownProfile)
+		return fmt.Errorf("agent %s: profile %s is %w", agent, p, errUnknownProfile)
 	}
 	return nil
 }
@@ -48,9 +48,9 @@ func checkProfile(reg *providers.Registry, agent, p string) error {
 func unknownProfile(profile string) error {
 	if profile == route.AutoArm {
 		return fmt.Errorf(`profile auto is %w; auto is an overlay value: --overlay '{"provider":"databricks","profile":"auto"}'`,
-			ErrUnknownProfile)
+			errUnknownProfile)
 	}
-	return fmt.Errorf("profile %s is %w", profile, ErrUnknownProfile)
+	return fmt.Errorf("profile %s is %w", profile, errUnknownProfile)
 }
 
 // CheckTypedProfile refuses a typed --profile that is no row; auto is valid only in an overlay.
@@ -86,7 +86,7 @@ func leadForProvider(reg *providers.Registry, agent string, l Launch, profile st
 	}
 	if profile != "" && !fromSession {
 		if reg.Providers[profile] == nil && !ownsProfile(agent, profile) {
-			return "", fmt.Errorf("--profile %s is %w", profile, ErrUnknownProfile)
+			return "", fmt.Errorf("--profile %s is %w", profile, errUnknownProfile)
 		}
 		return "", fmt.Errorf("--profile %s is not a %s profile", profile, provider)
 	}

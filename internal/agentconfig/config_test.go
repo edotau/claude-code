@@ -75,10 +75,10 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 
 // TestOverlayCommentAcceptedUnknownKeyRefused: a top-level _comment loads; any other unknown key still errors.
 func TestOverlayCommentAcceptedUnknownKeyRefused(t *testing.T) {
-	if _, err := ParseConfig([]byte(`{"_comment":"note","agents":{}}`)); err != nil {
+	if _, err := parseConfig([]byte(`{"_comment":"note","agents":{}}`)); err != nil {
 		t.Errorf("_comment overlay: %v, want nil", err)
 	}
-	if _, err := ParseConfig([]byte(`{"bogus":1}`)); err == nil {
+	if _, err := parseConfig([]byte(`{"bogus":1}`)); err == nil {
 		t.Error("unknown top-level key: nil error, want refusal")
 	}
 }
@@ -116,7 +116,7 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaults, err := ParseConfig(nil)
+	defaults, err := parseConfig(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestDefaultGuardsFollowLiveSettings(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			cfg, err := ParseConfig([]byte(c.overlay))
+			cfg, err := parseConfig([]byte(c.overlay))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -172,7 +172,7 @@ func TestMalformedOverlayErrors(t *testing.T) {
 	writeOverlay(t, `{not json`)
 	for name, read := range map[string]func() (*Config, error){
 		"Load":  LoadConfig,
-		"Parse": func() (*Config, error) { return ParseConfig([]byte(`{not json`)) },
+		"Parse": func() (*Config, error) { return parseConfig([]byte(`{not json`)) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := read()

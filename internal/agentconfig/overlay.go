@@ -65,7 +65,7 @@ type routeKey struct {
 	msg        string              // the refusal after "<name>: "; never quotes the value
 }
 
-// routeKeys defines every routing key once: validation, Fold, Routed and RoutingKeys all read this table.
+// routeKeys defines every routing key once: validation, Fold and Routed all read this table.
 var routeKeys = []routeKey{
 	{"provider", "", func(o Overlay) string { return o.Provider }, in(providers.ProviderKeys()),
 		"unknown (" + strings.Join(providers.ProviderKeys(), "|") + ")"},
@@ -97,15 +97,6 @@ var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, pro
 
 func in(names []string) func(string) bool {
 	return func(v string) bool { return slices.Contains(names, v) }
-}
-
-// RoutingKeys lists the routing keys in document order.
-func RoutingKeys() []string {
-	var out []string
-	for _, k := range routeKeys {
-		out = append(out, k.name)
-	}
-	return out
 }
 
 // Fold sets each setting key (model, effort, fallback, host) on its flag in fs unless typed: flag > overlay > default.
@@ -663,6 +654,40 @@ func (o Overlay) validateBudgetValues() error {
 	}
 	if o.BudgetCredits != nil && *o.BudgetCredits < 30 {
 		return errors.New("budgetCredits: want an integer >= 30")
+	}
+	return nil
+}
+
+// routeUnit is route.Route embedded flat, so its keys keep their wire names and promote onto Overlay.
+type routeUnit = route.Route
+
+// Route is the overlay's route unit, taken whole by route.Pick.
+func (o Overlay) Route() route.Route { return o.routeUnit }
+
+// WithoutRoute is o with the route unit's provider, profile, identity and account cleared; host and remote stay.
+func (o Overlay) WithoutRoute() Overlay {
+	o.Provider, o.Profile, o.Identity, o.Account = "", "", "", ""
+	return o
+}
+
+// checkRouteUnit refuses a partial route: a profile, identity or account needs its provider, a provider its profile.
+func (o Overlay) checkRouteUnit() error {
+	switch {
+	case o.Provider == "" && (o.Profile != "" || o.Identity != "" || o.Account != ""):
+		return errors.New("provider: required with profile, identity or account")
+	case o.Provider != "" && o.Profile == "":
+		return errors.New("profile: required with provider (a registry row, or auto)")
+	}
+	return nil
+}
+
+// checkRouteScope refuses identity off Databricks and account off GitHub.
+func (o Overlay) checkRouteScope() error {
+	switch {
+	case o.Identity != "" && o.Provider != "databricks":
+		return errors.New("identity: databricks only")
+	case o.Account != "" && o.Provider != "github":
+		return errors.New("account: github only")
 	}
 	return nil
 }

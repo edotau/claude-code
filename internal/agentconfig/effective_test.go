@@ -121,13 +121,13 @@ func TestForRejectsBadProviderWithProfile(t *testing.T) {
 	}
 }
 
-// A non-routed unknown --profile with --provider wraps ErrUnknownProfile, like the same profile without --provider.
+// A non-routed unknown --profile with --provider wraps errUnknownProfile, like the same profile without --provider.
 func TestForUnknownProfileWithProviderWrapsSentinel(t *testing.T) {
 	setup(t)
 	for _, provider := range []string{"", "databricks"} {
 		_, err := ForContext(t.Context(), "codex", Launch{Profile: "nosuch", Provider: provider, CanServe: databricksOnly})
-		if !errors.Is(err, ErrUnknownProfile) {
-			t.Errorf("ForContext(profile nosuch, provider %q) err = %v, want ErrUnknownProfile", provider, err)
+		if !errors.Is(err, errUnknownProfile) {
+			t.Errorf("ForContext(profile nosuch, provider %q) err = %v, want errUnknownProfile", provider, err)
 		}
 	}
 }
@@ -155,7 +155,7 @@ func TestCheckTypedProfileMatchesLaunch(t *testing.T) {
 			}
 			continue
 		}
-		if got == nil || !strings.Contains(got.Error(), c.hint) || !errors.Is(got, ErrUnknownProfile) || launch == nil {
+		if got == nil || !strings.Contains(got.Error(), c.hint) || !errors.Is(got, errUnknownProfile) || launch == nil {
 			t.Errorf("%s: CheckTypedProfile = %v, launch = %v, want a refusal with %q", c.name, got, launch, c.hint)
 		}
 	}
