@@ -429,16 +429,20 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)
 	}
-	r, err = resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
+	r, choice, err := resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: hop.Agent}, false, false, err
 	}
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
-	return r, true, agentpkg.AutoRun(ctx, hop), nil
+	auto = agentpkg.AutoRun(ctx, hop)
+	if auto && choice != nil && choice.Fallback != "" {
+		r.Model = agentpkg.AutoModel // no peek names the pick: never the static pin
+	}
+	return r, true, auto, nil
 }
 
-// resolveModel and runQuery are seams: tests stub them so a label never reads the live vault or route table.
+// resolveModel (ExplainRun) and runQuery are seams: tests stub them so a label never reads the live vault.
 var (
-	resolveModel = agentpkg.ResolveRun
+	resolveModel = agentpkg.ExplainRun
 	runQuery     = agentpkg.RunQuery
 )

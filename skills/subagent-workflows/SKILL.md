@@ -210,7 +210,8 @@ limits are overlapping files, dependency order and an account's own rate limit.
 1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
 2. One sign-off gate: `claude-code worktree land <lane>`; a leaf runs no gate chain of its own.
 3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
-   rounds in a row each finding a new HIGH in one area stop the loop and go to the owner.
+   rounds in a row each finding a new HIGH in one area stop the loop and go to the owner. A review dispatch passes a
+   typed non-Claude `--model` (a GPT or Gemini id) when the reviewer's route is auto, so other-family holds.
 4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
 5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane; main merges.
 6. In a contract the Opus owner runs this fan-out; until then main.
