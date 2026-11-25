@@ -266,6 +266,7 @@ var wireSeams = sync.OnceFunc(func() {
 func Run(argv []string) int {
 	wireSeams()
 	paths.ExportConfigDir()
+	paths.ExportCA()
 	egress.Install()
 	if len(argv) < 2 {
 		return printUsage()
