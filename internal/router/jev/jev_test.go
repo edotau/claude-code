@@ -30,7 +30,9 @@ func TestJevGood(t *testing.T) {
 }
 
 func TestJevDown(t *testing.T) {
-	t.Setenv(urlEnv, "http://127.0.0.1:1")
+	s := httptest.NewServer(http.NotFoundHandler())
+	s.Close() // the test's own port, now closed: nothing else is ever dialed
+	t.Setenv(urlEnv, s.URL)
 	if _, err := Tier(context.Background(), "x"); Class(err) != ClassDown {
 		t.Fatalf("class %q, err %v", Class(err), err)
 	}

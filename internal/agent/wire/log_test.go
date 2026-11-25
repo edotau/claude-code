@@ -11,11 +11,15 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/redact"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// DispatchUses lists the dispatch dir; hosttest keeps it off the owner's tree.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // loggedRun runs fn under a WithLog (or, for a job run, WithLogEvents) ctx and returns the closed log's content.
 func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string {

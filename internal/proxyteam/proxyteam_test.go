@@ -7,7 +7,11 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+// Load writes the last-good cache under the state dir; hosttest keeps it off the owner's tree.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // good is a valid three-team config: shared (default), a phase team and a standing team.
 func good() Config {

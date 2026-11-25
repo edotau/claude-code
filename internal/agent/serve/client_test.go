@@ -13,7 +13,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+// A test that forgets its CLAUDE_CONFIG_DIR still lands in hosttest's dir, never the live daemon socket.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 func TestAdmitRunsDirectWithoutDaemon(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

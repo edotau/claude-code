@@ -110,7 +110,9 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 	old := http.DefaultClient.Transport
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
-	for name, host := range map[string]string{"dbx-down": "https://127.0.0.1:1", "dbx-up": srv.URL} {
+	down := httptest.NewTLSServer(http.NotFoundHandler())
+	down.Close() // the test's own port, now closed: the unreachable pin dials nothing else
+	for name, host := range map[string]string{"dbx-down": down.URL, "dbx-up": srv.URL} {
 		err := providers.SetProviderFields(name, map[string]any{
 			"protocol": "anthropic", "preset": "databricks", "host": host,
 			"auth": map[string]any{"type": "key", "env": "DBX_CLI_TOKEN"},
