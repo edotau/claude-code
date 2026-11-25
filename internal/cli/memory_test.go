@@ -724,7 +724,7 @@ func TestImportReplaceFile(t *testing.T) {
 	memMust(t, os.MkdirAll(filepath.Dir(note), 0o700))
 	memMust(t, os.WriteFile(note, []byte("local\n"), 0o600))
 	src := t.TempDir()
-	memMust(t, os.WriteFile(filepath.Join(src, ".layout"), []byte("flat 3\n"), 0o600))
+	memMust(t, os.WriteFile(filepath.Join(src, ".layout"), []byte("flat 4\n"), 0o600))
 	memMust(t, os.MkdirAll(filepath.Join(src, "notes"), 0o700))
 	memMust(t, os.WriteFile(filepath.Join(src, "notes", "local.md"), []byte("remote\n"), 0o600))
 	list := filepath.Join(t.TempDir(), "replace")

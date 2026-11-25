@@ -43,7 +43,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, path, report, fmt, watch,\n" +
-		"          import, sandbox (off menu)\n" +
+		"          import, sandbox, upgrade (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -64,6 +64,7 @@ var memoryPlumbing = map[string][2]string{
 	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
+	"upgrade": {"[--dry-run] [--to N]", "bring every memory file to the current store version, one commit per step"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -156,6 +157,25 @@ func cmdMemoryDream(args []string) int {
 	return 0
 }
 
+// cmdMemoryUpgrade exits 4 when a file was left untouched.
+func cmdMemoryUpgrade(args []string) int {
+	fs := memoryFlagSet("upgrade")
+	dryRun := fs.Bool("dry-run", false, "print the per-file summary; write nothing")
+	to := fs.Int("to", 0, "stop at this store version (default: the version this binary writes)")
+	if code, done := memoryParseNoArgs(fs, "upgrade", args); done {
+		return code
+	}
+	rep, err := memory.MemoryUpgrade(memory.UpgradeOptions{DryRun: *dryRun, To: *to})
+	if err != nil {
+		return helptext.Fail("memory upgrade: %v", err)
+	}
+	rep.Print(os.Stdout)
+	if rep.Partial() {
+		return 4
+	}
+	return 0
+}
+
 func cmdMemoryWatch(args []string) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
 		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
@@ -192,6 +212,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"watch":   cmdMemoryWatch,
 		"import":  cmdMemoryImport,
 		"sandbox": cmdMemorySandbox,
+		"upgrade": cmdMemoryUpgrade,
 	}
 }
 
@@ -234,6 +255,7 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
+		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},

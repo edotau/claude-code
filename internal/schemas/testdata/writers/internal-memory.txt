@@ -52,6 +52,9 @@ internal/memory/update.go:writeUpdateResult	unversioned: text: update result tex
 internal/memory/update_gate.go:writeCountState	unversioned: text: edit count stamp
 internal/memory/update_gate.go:writeSidecar	unversioned: text: update sidecar text
 internal/memory/update_gate.go:writeStampAttempts	unversioned: text: update stamp
+internal/memory/upgrade_run.go:commitStep	unversioned: text: memory store .layout stamp bumped by an upgrade step
+internal/memory/upgrade_run.go:saveUpgradeProgress	unversioned: cache: upgrade.json resume progress for memory upgrade
+internal/memory/upgrade_run.go:upgradeOne	unversioned: memory-bank: bank file rewritten by an upgrade step
 internal/memory/verbs.go:completeHandoff	unversioned: marker: steward handoff completion receipt
 internal/memory/verbs.go:markHandoff	unversioned: marker: steward handoff request holding the session handoff path and id
 internal/memory/watch.go:IdleUpdateWatch	unversioned: marker: idle watcher claim file, restamped with the watcher pid
