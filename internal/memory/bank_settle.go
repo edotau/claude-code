@@ -65,11 +65,25 @@ func rotateSessionHistory(now time.Time) (int, error) {
 
 // sessionOverflow counts sessionHistory entries past the cap, shared by rotateSessionHistory and `dream --dry-run`.
 func sessionOverflow(body string) (header string, keep, overflow []string) {
-	header, entries := splitHeadingBlocks(body)
+	d := ParseDoc("sessionHistory.md", []byte(body))
+	header, entries := docBlocks(d, false)
 	if len(entries) <= sessionHistoryMaxEntries {
 		return header, entries, nil
 	}
-	return header, entries[:sessionHistoryMaxEntries], entries[sessionHistoryMaxEntries:]
+	order := d.OldestFirst(0, len(entries))
+	// Keep the newest by Doc date/sequence, but render each group in source order.
+	move := make(map[int]bool, len(entries)-sessionHistoryMaxEntries)
+	for _, i := range order[:len(entries)-sessionHistoryMaxEntries] {
+		move[i] = true
+	}
+	for i, entry := range entries {
+		if move[i] {
+			overflow = append(overflow, entry)
+		} else {
+			keep = append(keep, entry)
+		}
+	}
+	return header, keep, overflow
 }
 
 // appendUnarchived appends the blocks archive does not already hold, so a retried rotation never duplicates them.

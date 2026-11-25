@@ -25,9 +25,6 @@ var archiveCaps = map[string]int{
 // sectionFiles are the replace-each-session files: every "## " section stays, each keeps its top (newest) bullets.
 var sectionFiles = map[string]bool{"activeContext.md": true, "progress.md": true}
 
-// bottomAppended marks files whose newest entries are at the BOTTOM, so the split runs on the reversed list.
-var bottomAppended = map[string]bool{"conventions.md": true}
-
 // archiveOverflow moves the oldest overflow blocks of root's durable files to its archive/ and returns the count.
 func archiveOverflow(now time.Time) (int, error) {
 	total := 0
@@ -39,19 +36,6 @@ func archiveOverflow(now time.Time) (int, error) {
 		total += n
 	}
 	return total, nil
-}
-
-// settledSplit splits blocks into (keep, overflow) at capLines, oldest into overflow; bottom-appended files reverse.
-func settledSplit(base, header string, blocks []string, capLines int) (keep, overflow []string) {
-	if bottomAppended[base] {
-		rev := slices.Clone(blocks)
-		slices.Reverse(rev)
-		keep, overflow = budgetSplit(header, rev, capLines)
-		slices.Reverse(keep)
-		slices.Reverse(overflow) // oldest-first, so archive/home appends stay chronological
-		return keep, overflow
-	}
-	return budgetSplit(header, blocks, capLines)
 }
 
 // archivePath is the archive/<name>-<yyyy-mm>.md destination of archiveFile.
@@ -77,11 +61,112 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 	if logicalLineCount(body) <= capLines {
 		return "", nil, nil
 	}
-	if sectionFiles[base] {
-		return sectionSplit(base, body, capLines)
+	return docOverflow(normaliseSections(ParseDoc(base, []byte(body))), capLines)
+}
+
+// normaliseSections folds repeated headings and their contents into the first section of the same file.
+func normaliseSections(d Doc) Doc {
+	if !sectionFiles[d.Name] {
+		return d
 	}
-	header, blocks := entryBlocks(base, body)
-	keep, overflow = settledSplit(base, header, blocks, capLines)
+	out := d
+	out.Entries = nil
+	first := map[string]int{}
+	at := -1
+	for _, e := range d.Entries {
+		if e.Kind == KindHeading {
+			e = canonicalSectionEntry(d.Name, e)
+			if i, ok := first[e.Lines[0]]; ok {
+				at = i
+				mergeSectionIntro(&out, i, e.Lines[1:])
+				continue
+			}
+			at = len(out.Entries)
+			first[e.Lines[0]] = at
+		}
+		if at >= 0 && at != len(out.Entries) && e.Kind == KindBullet {
+			end := sectionEnd(out.Entries, at)
+			out.Entries = slices.Insert(out.Entries, end, e)
+			for h, i := range first {
+				if i >= end {
+					first[h] = i + 1
+				}
+			}
+			continue
+		}
+		out.Entries = append(out.Entries, e)
+	}
+	return out
+}
+
+func canonicalSectionEntry(name string, e DocEntry) DocEntry {
+	for _, canonical := range sectionsOf[strings.TrimSuffix(name, ".md")] {
+		if strings.HasPrefix(e.Lines[0], "## "+canonical+" (") && strings.HasSuffix(e.Lines[0], ")") {
+			e.Lines = slices.Clone(e.Lines)
+			e.Lines[0] = "## " + canonical
+			break
+		}
+	}
+	return e
+}
+
+func sectionEnd(entries []DocEntry, at int) int {
+	end := at + 1
+	for end < len(entries) && entries[end].Kind != KindHeading {
+		end++
+	}
+	return end
+}
+
+func mergeSectionIntro(d *Doc, at int, lines []string) {
+	end := sectionEnd(d.Entries, at)
+	last := at
+	if end > at+1 {
+		last = end - 1
+	}
+	d.Entries[last].Lines = append(d.Entries[last].Lines, lines...)
+}
+
+// docBlocks projects a parsed Doc to the legacy split/rejoin block shape without parsing its bytes again.
+func docBlocks(d Doc, sections bool) (string, []string) {
+	prefix := slices.Clone(d.Front)
+	if d.Header != "" {
+		prefix = append(prefix, d.Header)
+	}
+	prefix = append(prefix, d.Hidden...)
+	header := strings.TrimRight(strings.Join(prefix, "\n"), "\n")
+	var blocks []string
+	for _, e := range d.Entries {
+		part := strings.TrimRight(strings.Join(e.Lines, "\n"), "\n")
+		if sections && e.Kind == KindBullet && len(blocks) > 0 {
+			blocks[len(blocks)-1] += "\n" + part
+		} else {
+			blocks = append(blocks, part)
+		}
+	}
+	return header, blocks
+}
+
+// docOverflow uses the Doc's age keys, not the physical position, for oldest-first eviction.
+func docOverflow(d Doc, capLines int) (header string, keep, overflow []string) {
+	if logicalLineCount(string(d.Render())) <= capLines {
+		return "", nil, nil
+	}
+	if sectionFiles[d.Name] {
+		return sectionSplit(d.Name, d, capLines)
+	}
+	header, blocks := docBlocks(d, false)
+	order := d.OldestFirst(0, len(d.Entries))
+	slices.Reverse(order) // budgetSplit consumes newest first
+	ordered := make([]string, 0, len(order))
+	for _, i := range order {
+		ordered = append(ordered, blocks[i])
+	}
+	keep, overflow = budgetSplit(header, ordered, capLines)
+	if d.Grammar == GrammarBullets {
+		slices.Reverse(keep)
+		slices.Reverse(overflow)
+	}
 	return header, keep, overflow
 }
 
@@ -89,26 +174,25 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 func archiveFile(name string, capLines int, now time.Time) (moved int, err error) {
 	path := Path(name)
 	err = withFlatLock(BankLockWait, func() error {
-		header, keep, overflow, err := splitOverflow(path, capLines)
-		if err != nil || len(overflow) == 0 {
-			return err
-		}
-		archive := archivePath(name, now)
-		existing, err := readFile(archive)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		_, held := archivedBlocks(name, string(existing))
-		heldSet := make(map[string]bool, len(held))
-		for _, b := range held {
-			heldSet[strings.TrimSpace(b)] = true
-		}
-		// a retry after a failed rewrite must not archive the same blocks twice
-		fresh := slices.DeleteFunc(slices.Clone(overflow), func(o string) bool { return heldSet[strings.TrimSpace(o)] })
-		if len(fresh) > 0 {
-			err = appendBlocks(archive, fresh)
+		data, err := readFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
 		}
 		if err != nil {
+			return err
+		}
+		doc := normaliseSections(ParseDoc(name, data))
+		header, keep, overflow := docOverflow(doc, capLines)
+		if len(overflow) == 0 {
+			if string(doc.Render()) != string(data) {
+				if err := paths.AtomicWrite(path, doc.Render(), 0o600); err != nil {
+					return err
+				}
+				moved = 1 // report a normalization-only bank change to dream's changed probe
+			}
+			return nil
+		}
+		if err := appendArchiveOverflow(name, now, overflow); err != nil {
 			return err
 		}
 		if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
@@ -118,6 +202,25 @@ func archiveFile(name string, capLines int, now time.Time) (moved int, err error
 		return nil
 	})
 	return moved, err
+}
+
+// appendArchiveOverflow appends only entries not already archived, including whitespace-variant retries.
+func appendArchiveOverflow(name string, now time.Time, overflow []string) error {
+	archive := archivePath(name, now)
+	existing, err := readFile(archive)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	_, held := archivedBlocks(name, string(existing))
+	heldSet := make(map[string]bool, len(held))
+	for _, b := range held {
+		heldSet[archiveKey(b)] = true
+	}
+	fresh := slices.DeleteFunc(slices.Clone(overflow), func(o string) bool { return heldSet[archiveKey(o)] })
+	if len(fresh) > 0 {
+		return appendBlocks(archive, fresh)
+	}
+	return nil
 }
 
 // PromoteTargets are the `memory promote --to` destinations.
@@ -219,6 +322,9 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 	return keep, overflow
 }
 
+// archiveKey ignores layout whitespace, but retains all words (including the overflow source).
+func archiveKey(block string) string { return string(appendFields(nil, block)) }
+
 // archivedBlocks parses an archive file: section overflow is stored as "## " blocks, the rest by its own grammar.
 func archivedBlocks(name, body string) (string, []string) {
 	if sectionFiles[name] {
@@ -227,18 +333,12 @@ func archivedBlocks(name, body string) (string, []string) {
 	return entryBlocks(name, body)
 }
 
-// sectionSplit keeps every section, sharing the cap evenly with rollover; a repeated heading is a stale copy.
-func sectionSplit(base, body string, capLines int) (header string, keep, overflow []string) {
-	header, sections := splitHeadingBlocks(body)
+// sectionSplit keeps every section, sharing the cap evenly with rollover; repeats are merged before splitting.
+func sectionSplit(base string, d Doc, capLines int) (header string, keep, overflow []string) {
+	header, sections := docBlocks(d, true)
 	left := capLines - logicalLineCount(header)
-	seen := map[string]bool{}
 	for i, sec := range sections {
 		head, rest, _ := strings.Cut(sec, "\n")
-		if seen[head] {
-			overflow = append(overflow, overflowBlock(base, head, strings.TrimSpace(rest)))
-			continue
-		}
-		seen[head] = true
 		intro, bullets := splitOn(rest, func(ln string) bool { return strings.HasPrefix(ln, "- ") })
 		fixed := 2 + logicalLineCount(intro) // heading + the blank line rejoin adds
 		kept, moved := sectionKeep(bullets, left/(len(sections)-i)-fixed)

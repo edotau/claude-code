@@ -125,7 +125,38 @@ func TestSectionSplitKeepsEverySection(t *testing.T) {
 			t.Fatalf("heading %q not kept exactly once:\n%s", h, heads)
 		}
 	}
-	if !strings.Contains(strings.Join(overflow, "\n"), "- Focus bullet 7") || len(overflow) < 4 {
-		t.Fatalf("overflow missing the duplicate section or trimmed bullets: %q", overflow)
+	all := rejoin(header, keep) + strings.Join(overflow, "\n")
+	if got := strings.Count(all, "- Focus bullet "); got != 16 {
+		t.Fatalf("merged section lost bullets: got %d of 16: %s", got, all)
+	}
+	if strings.Contains(strings.Join(overflow, "\n"), "## Focus\n") {
+		t.Fatalf("repeat was archived as a separate section: %q", overflow)
+	}
+}
+
+func TestArchiveNormalisedBlockOnce(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC)
+	path := Path("progress.md")
+	body := "# Progress\n\n## In Progress\n\n- first\n\n## Known Issues\n\n- issue\n\n## In Progress\n\n- second\n"
+	write(t, path, body)
+	if n, err := archiveFile("progress.md", 7, now); err != nil {
+		t.Fatal(err)
+	} else if n == 0 {
+		t.Fatal("expected overflow")
+	}
+	live := mustRead(t, path)
+	if strings.Count(live, "## In Progress") != 1 {
+		t.Fatalf("repeated heading not merged: %q", live)
+	}
+	archive := archivePath("progress.md", now)
+	before := mustRead(t, archive)
+	// Simulate a failed source rewrite: same content reappears with different whitespace.
+	write(t, path, strings.ReplaceAll(body, "- second", "-  second"))
+	if _, err := archiveFile("progress.md", 7, now); err != nil {
+		t.Fatal(err)
+	}
+	if after := mustRead(t, archive); after != before {
+		t.Fatalf("normalised archived block appended twice:\nbefore: %q\nafter: %q", before, after)
 	}
 }
