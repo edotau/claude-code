@@ -119,6 +119,8 @@ func TestTaskTier(t *testing.T) {
 		{"Add a --json flag to agents status in internal/cli/agents.go and internal/agent/status.go.", "sonnet"},
 		{"Audit the safety-scan rules for false blocks.", "opus"},
 		{"Write the parser for the Run: grammar.", "opus"},
+		{"Rename parseRow to parseLine in x.go", "haiku"},
+		{"Write a parser for the config format.", "opus"},
 		{"Tier: fast\nAudit the safety-scan rules.", "haiku"},
 		{"Tier: fast\nCheck x.go.\nCover the security audit, the auth flow and the credentials design.", "haiku"},
 		{"Fix the typo.\nTier: deep", "opus"},

@@ -672,9 +672,21 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, true, err
 	}
 	r.Source, c.Model, c.Criterion = base.Source, r.Model, "rotation"
+	if want := cmp.Or(tierAliases[need.tier], models.Sonnet); alias != want { // stepped: the tier alias note would mislead
+		step := fmt.Sprintf("%s pool empty for %s on %s, ran %s %s", rotationTiers[want], q.Agent, p.Name, rotationTiers[alias], r.Model)
+		r.Note = joinNotes(routeNote(stripAliasNote(base.Note, q.Agent)), step, note)
+		return r, true, nil
+	}
 	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
 	return r, true, nil
+}
+
+// stripAliasNote drops aliasNote's "<alias> is <agent>'s alias for <model> here" part from note.
+func stripAliasNote(note, agentName string) string {
+	return joinNotes(slices.DeleteFunc(strings.Split(note, "; "), func(s string) bool {
+		return strings.Contains(s, " is "+agentName+"'s alias for ")
+	})...)
 }
 
 // tierRotation is the pick at alias on p, stepping to standard when the row serves nothing in alias's tier.
