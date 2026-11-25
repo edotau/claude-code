@@ -284,7 +284,7 @@ func compactedText(r compactRecord) string {
 }
 
 func prunableSessionState(name string) bool {
-	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
+	for _, prefix := range []string{"count-", "stamp-", "watch-", "handoff-run-"} {
 		if strings.HasPrefix(name, prefix) && !strings.HasSuffix(name, ".lock") { // a live session's lock looks old
 			return true
 		}
@@ -297,7 +297,7 @@ func prunableSessionState(name string) bool {
 	return false
 }
 
-// staleSessionRoot reports a root-<id> or <prefix>-<id>.lock file whose session has no newer count/stamp/watch file.
+// staleSessionRoot reports a root-<id>, tags-<id>.* or <prefix>-<id>.lock file whose session has no newer file.
 func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 	base, isLock := strings.CutSuffix(name, ".lock")
 	id, ok := strings.CutPrefix(base, "root-")
@@ -306,11 +306,14 @@ func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 			id, ok = rest, true
 		}
 	}
+	if rest, found := strings.CutPrefix(name, "tags-"); found { // a session's tags files age out together
+		id, ok = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(rest, ".lock"), ".off"), ".jsonl"), true
+	}
 	if !ok {
 		return false
 	}
-	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
-		if fi, err := os.Stat(filepath.Join(dir, prefix+id)); err == nil && !fi.ModTime().Before(cutoff) {
+	for _, sibling := range []string{"count-" + id, "stamp-" + id, "watch-" + id, "tags-" + id + ".jsonl", "tags-" + id + ".jsonl.off"} {
+		if fi, err := os.Stat(filepath.Join(dir, sibling)); err == nil && !fi.ModTime().Before(cutoff) {
 			return false
 		}
 	}

@@ -408,7 +408,10 @@ const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a gua
 	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"
 
 // storeGitignore keeps runtime beacons out of history.
-const storeGitignore = "# harness runtime beacons beside memory files — never history\naccess.log\n*.tmp-*\n"
+const storeGitignore = gitignoreHeader + "\n.DS_Store\naccess.log\n*.tmp-*\n"
+
+// gitignoreHeader marks a harness-written .gitignore; a file without it is the user's own.
+const gitignoreHeader = "# harness runtime beacons beside memory files — never history"
 
 // Exists reports a real nested repo: <Dir>/.git is a directory (a gitdir: pointer file is a foreign worktree).
 func (r Repo) Exists() bool {
@@ -456,9 +459,39 @@ func (r Repo) Ensure() error {
 	if _, err := paths.WriteNoReplace(filepath.Join(gitDir, "hooks", "pre-push"), []byte(prePushHook), 0o755); err != nil {
 		return err
 	}
-	_, err := paths.WriteNoReplace(filepath.Join(r.Dir, ".gitignore"), []byte(storeGitignore), 0o644)
-	return err
+	return r.syncGitignore()
 }
+
+// syncGitignore seeds .gitignore, and refreshes a stale harness-written copy (header line present).
+func (r Repo) syncGitignore() error {
+	dest := filepath.Join(r.Dir, ".gitignore")
+	created, err := paths.WriteNoReplace(dest, []byte(storeGitignore), 0o644)
+	if err != nil || created {
+		return err
+	}
+	cur, err := os.ReadFile(dest)
+	if err != nil {
+		return err
+	}
+	first, _, _ := strings.Cut(string(cur), "\n")
+	if first != gitignoreHeader {
+		return nil
+	}
+	want := storeGitignore
+	for _, line := range strings.Split(string(cur), "\n") { // the user's own lines stay; retired harness ones go
+		if line != "" && line != gitignoreHeader && !slices.Contains(retiredGitignore, line) &&
+			!slices.Contains(strings.Split(storeGitignore, "\n"), line) {
+			want += line + "\n"
+		}
+	}
+	if string(cur) == want {
+		return nil
+	}
+	return paths.AtomicWrite(dest, []byte(want), 0o644)
+}
+
+// retiredGitignore lists lines older binaries wrote under the header; a refresh drops them.
+var retiredGitignore = []string{"*.lock", ".postharvest*", ".promote.lock", ".archive*"}
 
 func (r Repo) initIfAbsent(gitDir string) error {
 	if r.Exists() {

@@ -98,3 +98,14 @@ func TestProposalFenceNestedIsSkipped(t *testing.T) {
 		t.Fatalf("after a c++ fence with CRLF: %v, %v", got, err)
 	}
 }
+
+func TestAppendTestProposalsLeavesNoLockInStore(t *testing.T) {
+	isolatedConfig(t)
+	f := filepath.Join(t.TempDir(), "techdebt", "tests.jsonl")
+	if _, err := AppendTestProposals(f, []TestProposal{{Pkg: "a", Case: "c", Reason: "r"}}); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := filepath.Glob(filepath.Join(filepath.Dir(f), "*.lock")); len(m) != 0 {
+		t.Fatalf("lock files beside tests.jsonl: %v", m)
+	}
+}

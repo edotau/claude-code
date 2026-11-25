@@ -296,14 +296,14 @@ func commitLines(commits string) string {
 	return "  - " + strings.ReplaceAll(commits, "\n", "\n  - ") + "\n"
 }
 
-// withLedgerLock runs fn under the memory bank lock (so an update or dream cannot interleave) and the file lock.
+// withLedgerLock runs fn under the memory bank lock, which every ledger writer holds (no per-file lock in the store).
 func withLedgerLock(path string, fn func() error) error {
 	return withLedgerLockWithin(memory.BankLockWait, path, fn)
 }
 
 // withLedgerLockWithin is withLedgerLock with its own bank-lock wait, for best-effort callers inside a hook budget.
 func withLedgerLockWithin(wait time.Duration, path string, fn func() error) error {
-	return memory.WithBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
+	return memory.WithBankLock(wait, fn)
 }
 
 // openSection is the text of the latest "## Opened" section, or the whole ledger when it was never reopened.

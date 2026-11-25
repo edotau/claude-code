@@ -125,7 +125,8 @@ func AppendTestProposals(file string, add []TestProposal) (n int, err error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return 0, err
 	}
-	err = paths.WithFileLock(file, func() error {
+	// the lock lives in the state folder, never beside the file in the store
+	err = paths.WithFileLock(filepath.Join(paths.MemoryStateDir(), "tests.jsonl"), func() error {
 		n, err = appendLocked(file, add)
 		return err
 	})

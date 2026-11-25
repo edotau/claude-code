@@ -602,3 +602,32 @@ func TestSectionBodyHeadingEdges(t *testing.T) {
 		}
 	}
 }
+
+// Tags and handoff-run files age out after seenMaxAge; a fresh one stays, a live session's lock stays.
+func TestPruneSeenTagsAndHandoffRun(t *testing.T) {
+	isolatedConfig(t)
+	state := paths.MemoryStateDir()
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	const stale, live, busy = "stale-id", "live-id", "busy-id" // busy: old log, fresh offset
+	want := map[string]bool{
+		"tags-" + stale + ".jsonl": true, "tags-" + stale + ".jsonl.off": true, "tags-" + stale + ".jsonl.lock": true,
+		"handoff-run-" + stale: true, "handoff-run-" + live: false,
+		"tags-" + live + ".jsonl": false, "tags-" + live + ".jsonl.lock": false,
+		"tags-" + busy + ".jsonl": false, "tags-" + busy + ".jsonl.lock": false, "tags-" + busy + ".jsonl.off": false,
+	}
+	for name := range want {
+		write(t, filepath.Join(state, name), "x")
+		if strings.Contains(name, stale) || strings.HasSuffix(name, ".lock") || name == "tags-"+busy+".jsonl" {
+			if err := os.Chtimes(filepath.Join(state, name), old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pruneSeen(filepath.Join(state, "recall-seen"))
+	for name, wantGone := range want {
+		_, err := os.Stat(filepath.Join(state, name))
+		if gone := os.IsNotExist(err); gone != wantGone {
+			t.Errorf("%s gone=%v, want %v", name, gone, wantGone)
+		}
+	}
+}

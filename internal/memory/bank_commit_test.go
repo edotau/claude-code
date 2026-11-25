@@ -535,6 +535,22 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
+func TestEnsureRefreshesStaleHarnessGitignore(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	wsl := gitignoreHeader + "\n*.lock\n.postharvest*\n.promote.lock\n.archive*\nmine/\n" // mine/: a user line
+	write(t, filepath.Join(store, ".gitignore"), wsl)
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(store, ".gitignore")); string(data) != storeGitignore+"mine/\n" {
+		t.Fatalf(".gitignore not refreshed with the user line kept: %q", data)
+	}
+}
+
 // assertGitignoreSeeded checks Ensure wrote the store's .gitignore with access.log and without *.lock.
 func assertGitignoreSeeded(t *testing.T, store string) {
 	t.Helper()
