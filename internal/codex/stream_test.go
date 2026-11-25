@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -135,5 +136,49 @@ func TestParseCodexStreamCollectsFileChanges(t *testing.T) {
 	res, _ := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 	if len(res.Written) != 1 || res.Written[0] != "/m/r.md" {
 		t.Fatalf("Written = %v, want [/m/r.md]", res.Written)
+	}
+}
+
+func parseSample(stream string) (wire.Result, error) {
+	return parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+}
+
+// A failed turn is a typed error: a rate limit is retryable with its hint, a context overflow is not.
+func TestParseCodexStreamTypedTurnFailure(t *testing.T) {
+	cases := []struct {
+		name, event string
+		kind        retry.Kind
+		retryable   bool
+		window      bool
+		after       time.Duration
+	}{
+		{"rate limit", `{"type":"turn.failed","error":{"message":"429 Too Many Requests: rate limit exceeded, retry after 7s"}}`, retry.KindRateLimit, true, false, 7 * time.Second},
+		{"context", `{"type":"turn.failed","error":{"message":"Your input exceeds the context window of this model"}}`, retry.KindFatal, false, true, 0},
+		{"other", `{"type":"turn.failed","error":{"message":"bad request"}}`, retry.KindFatal, false, false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseSample(evThread + "\n" + `{"type":"turn.started"}` + "\n" + tc.event)
+			te, ok := errors.AsType[*TurnError](err)
+			if !ok || te.Kind != tc.kind || te.Retryable != tc.retryable || te.ContextWindow != tc.window || te.After != tc.after {
+				t.Fatalf("err = %#v; want kind=%v retryable=%v window=%v after=%v", err, tc.kind, tc.retryable, tc.window, tc.after)
+			}
+		})
+	}
+}
+
+// Only a completed agent_message of a finished turn is the answer; text before a failure is dropped.
+func TestParseCodexStreamAnswerNeedsCompletedTurn(t *testing.T) {
+	res, err := parseSample(evThread + "\n" + evMsg + "\n" + evDone)
+	if err != nil || res.Answer != "hi" {
+		t.Fatalf("completed: answer=%q err=%v; want hi", res.Answer, err)
+	}
+	partial := `{"type":"item.started","item":{"id":"m","type":"agent_message","text":"par"}}`
+	failed := `{"type":"turn.failed","error":{"message":"stream disconnected"}}`
+	for name, tail := range map[string]string{"failed": failed, "cut off": ""} {
+		res, err = parseSample(evThread + "\n" + `{"type":"turn.started"}` + "\n" + partial + "\n" + evMsg + "\n" + tail)
+		if err == nil || res.Answer != "" {
+			t.Fatalf("%s: answer=%q err=%v; want no answer and an error", name, res.Answer, err)
+		}
 	}
 }

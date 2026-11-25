@@ -7,10 +7,35 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
+
+// TurnError is a failed codex turn with the harness retry kind, so callers branch on type, not text.
+type TurnError struct {
+	Kind          retry.Kind
+	Retryable     bool // worth another attempt: rate limit, transient server fault, or codex's own will_retry
+	ContextWindow bool // the prompt overflowed the model's context; a retry on the same model cannot help
+	After         time.Duration
+	Message       string
+}
+
+func (e *TurnError) Error() string { return e.Message }
+
+// RetryAfter lets retry.Classify honor the hint codex put in the message.
+func (e *TurnError) RetryAfter() time.Duration { return e.After }
+
+func newTurnError(message string, willRetry bool) *TurnError {
+	c := retry.Classify("codex", errors.New(message), false)
+	low := strings.ToLower(message)
+	window := strings.Contains(low, "context window") || strings.Contains(low, "context length") ||
+		strings.Contains(low, "maximum context")
+	retryable := !window && (willRetry || c.Kind == retry.KindRateLimit || c.Kind == retry.KindTransient)
+	return &TurnError{Kind: c.Kind, Retryable: retryable, ContextWindow: window, After: c.RetryAfter, Message: message}
+}
 
 type fileChange struct {
 	Path string `json:"path"`
@@ -45,8 +70,8 @@ type codexEvent struct {
 type codexStreamState struct {
 	res          wire.Result
 	ans          wire.Answer
-	failure      string
-	retryError   string
+	failure      *TurnError
+	retryError   *TurnError
 	log          wire.StreamLog
 	sink         wire.Sink
 	onMeaningful func()
@@ -85,11 +110,17 @@ func (s *codexStreamState) parse(br *bufio.Reader) (res wire.Result, _ error) {
 	if err != nil {
 		return res, err
 	}
-	s.failure = cmp.Or(s.failure, s.retryError)
-	if s.failure != "" {
-		return res, errors.New(s.failure)
+	if s.failure == nil {
+		s.failure = s.retryError
+	}
+	if s.failure != nil {
+		if !s.turnDone { // an answer from a turn that failed or was cut off is not the result
+			res.Answer = ""
+		}
+		return res, s.failure
 	}
 	if !s.turnDone { // interim text without turn.completed is a cut-off run, not an answer
+		res.Answer = ""
 		return res, fmt.Errorf("codex: stream ended without turn.completed: %w", io.ErrUnexpectedEOF)
 	}
 	return res, nil
@@ -138,18 +169,18 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.turnDone = false
 	case "turn.completed":
 		s.turnDone = true
-		s.retryError = ""
+		s.retryError = nil
 		u := ev.Usage
 		s.res.Usage.InputTokens += max(0, u.InputTokens-u.CachedInputTokens)
 		s.res.Usage.CacheReadTokens += u.CachedInputTokens
 		s.res.Usage.OutputTokens += u.OutputTokens
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 	case "turn.failed":
-		s.failure = cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
-		return wire.EmitError(s.log, s.sink, s.failure)
+		s.failure = newTurnError(cmp.Or(ev.Message, ev.Error.Message, "codex turn failed"), ev.WillRetry)
+		return wire.EmitError(s.log, s.sink, s.failure.Message)
 	case "error":
 		message := cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
-		s.retryError = message
+		s.retryError = newTurnError(message, ev.WillRetry)
 		if !ev.WillRetry {
 			return wire.EmitError(s.log, s.sink, message)
 		}
