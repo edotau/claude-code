@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"maps"
 	"math/big"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
@@ -49,10 +52,53 @@ func Structured(answer, schema string) (raw json.RawMessage, unchecked []string,
 	}
 	skipped := map[string]bool{}
 	collectUnchecked(sch, skipped)
+	var dropped []string
+	if v = pruneExtras("answer", v, sch, &dropped); len(dropped) > 0 {
+		for _, d := range dropped {
+			skipped["dropped "+d] = true
+		}
+		if span, err = encodeExact(v); err != nil {
+			return nil, nil, fmt.Errorf("%w: %v", errSchema, err)
+		}
+	}
 	if err = checkSchema("answer", v, sch); err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", errSchema, err)
 	}
 	return json.RawMessage(span), slices.Sorted(maps.Keys(skipped)), nil
+}
+
+func encodeExact(v any) (string, error) {
+	b, err := json.Marshal(v)
+	return string(b), err
+}
+
+// pruneExtras returns v without the keys an additionalProperties:false object does not declare; dropped names them.
+func pruneExtras(path string, v, sch any, dropped *[]string) any {
+	m, _ := sch.(map[string]any)
+	switch x := v.(type) {
+	case map[string]any:
+		props, _ := m["properties"].(map[string]any)
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			if _, declared := props[k]; !declared && m["additionalProperties"] == false {
+				*dropped = append(*dropped, path+"."+k)
+				continue
+			}
+			out[k] = pruneExtras(path+"."+k, val, cmp.Or(props[k], m["additionalProperties"]), dropped)
+		}
+		return out
+	case []any:
+		item, isSchema := m["items"].(map[string]any)
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = e
+			if isSchema {
+				out[i] = pruneExtras(path+"[]", e, item, dropped)
+			}
+		}
+		return out
+	}
+	return v
 }
 
 // decodeExact decodes one JSON value with numbers kept as json.Number, so no integer loses precision.
@@ -92,7 +138,8 @@ func jsonEqual(a, b any) bool {
 
 // schemaKnown are the keywords checkSchema enforces; schemaNotes only annotate. Every other keyword is unchecked.
 var (
-	schemaKnown = map[string]bool{"type": true, "required": true, "properties": true, "items": true, "additionalItems": true, "enum": true}
+	schemaKnown = map[string]bool{"type": true, "required": true, "properties": true, "items": true, "additionalItems": true, "enum": true,
+		"additionalProperties": true}
 	schemaNotes = map[string]bool{"$schema": true, "$id": true, "title": true, "description": true, "default": true, "examples": true,
 		"$comment": true, "$defs": true, "definitions": true}
 )
@@ -166,6 +213,23 @@ func checkSchemaObject(path string, x, m map[string]any) error {
 			}
 		}
 	}
+	return checkExtras(path, x, props, m)
+}
+
+// checkExtras applies additionalProperties to the keys not declared in props: false forbids them, a schema checks each.
+func checkExtras(path string, x, props, m map[string]any) error {
+	ap, has := m["additionalProperties"]
+	if !has {
+		return nil
+	}
+	for _, k := range slices.Sorted(maps.Keys(x)) {
+		if _, declared := props[k]; declared {
+			continue
+		}
+		if err := checkSchema(path+"."+k, x[k], ap); err != nil {
+			return fmt.Errorf("%s: unexpected key %q: %w", path, k, err)
+		}
+	}
 	return nil
 }
 
@@ -188,6 +252,9 @@ func schemaShape(sch any) error {
 			}
 		}
 	} else if err := schemaShape(m["items"]); err != nil {
+		return err
+	}
+	if err := schemaShape(m["additionalProperties"]); err != nil {
 		return err
 	}
 	return schemaShape(m["additionalItems"])
@@ -255,6 +322,7 @@ func collectUnchecked(sch any, skipped map[string]bool) {
 		collectUnchecked(m["items"], skipped)
 	}
 	collectUnchecked(m["additionalItems"], skipped)
+	collectUnchecked(m["additionalProperties"], skipped)
 }
 
 // typeMatches checks val against a schema "type" given as a name or a list of names.
@@ -343,3 +411,102 @@ var (
 		New: func() any { return new(LiveRequest) },
 	})
 )
+
+// SchemaFor is the JSON Schema of T; API shape after github.com/zendev-sh/goai SchemaFrom (MIT), code written here.
+func SchemaFor[T any]() string {
+	b, err := json.Marshal(schemaOf(reflect.TypeFor[T](), map[reflect.Type]bool{}))
+	if err != nil {
+		panic("wire.SchemaFor: " + err.Error()) // only plain maps and strings are marshaled
+	}
+	return string(b)
+}
+
+var (
+	timeType = reflect.TypeFor[time.Time]()
+	rawType  = reflect.TypeFor[json.RawMessage]()
+)
+
+// schemaOf panics on a recursive type: callers are package-level vars, so it surfaces at init.
+func schemaOf(t reflect.Type, path map[reflect.Type]bool) map[string]any {
+	if t.Name() != "" {
+		if path[t] {
+			panic("wire.SchemaFor: recursive type " + t.String())
+		}
+		path[t] = true
+		defer delete(path, t)
+	}
+	if sc := scalarSchema(t); sc != nil {
+		return sc
+	}
+	switch t.Kind() {
+	case reflect.Pointer:
+		return schemaOf(t.Elem(), path)
+	case reflect.Slice, reflect.Array:
+		return map[string]any{"type": "array", "items": schemaOf(t.Elem(), path)}
+	case reflect.Map:
+		return map[string]any{"type": "object", "additionalProperties": schemaOf(t.Elem(), path)}
+	case reflect.Struct:
+		props, required := map[string]any{}, []string{}
+		structFields(t, path, props, &required)
+		return map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": props}
+	}
+	return map[string]any{}
+}
+
+// scalarSchema is the schema of a leaf type (time, bytes, raw JSON included), or nil for a composite.
+func scalarSchema(t reflect.Type) map[string]any {
+	switch {
+	case t == timeType:
+		return map[string]any{"type": "string", "format": "date-time"}
+	case t == rawType:
+		return map[string]any{}
+	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8:
+		return map[string]any{"type": "string"}
+	}
+	switch t.Kind() {
+	case reflect.Bool:
+		return map[string]any{"type": "boolean"}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return map[string]any{"type": "integer"}
+	case reflect.Float32, reflect.Float64:
+		return map[string]any{"type": "number"}
+	case reflect.String:
+		return map[string]any{"type": "string"}
+	}
+	return nil
+}
+
+// structFields follows encoding/json: an untagged embedded struct flattens, a tagged one nests, "-" drops.
+func structFields(t reflect.Type, path map[reflect.Type]bool, props map[string]any, required *[]string) {
+	for _, f := range reflect.VisibleFields(t) {
+		if len(f.Index) > 1 { // promoted fields come through their embedded struct below
+			continue
+		}
+		name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+		ft := f.Type
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		switch {
+		case f.Tag.Get("json") == "-":
+		case f.Anonymous && name == "" && ft.Kind() == reflect.Struct:
+			structFields(ft, path, props, required)
+		case f.IsExported():
+			props[cmp.Or(name, f.Name)] = fieldSchema(f, path)
+			if !strings.Contains(","+opts+",", ",omitempty,") {
+				*required = append(*required, cmp.Or(name, f.Name))
+			}
+		}
+	}
+}
+
+func fieldSchema(f reflect.StructField, path map[reflect.Type]bool) map[string]any {
+	p := schemaOf(f.Type, path)
+	for opt := range strings.SplitSeq(f.Tag.Get("jsonschema"), ",") {
+		if vals, ok := strings.CutPrefix(opt, "enum="); ok {
+			p["enum"] = strings.Split(vals, "|")
+		}
+	}
+	return p
+}

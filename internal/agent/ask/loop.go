@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,8 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-//go:embed loop-plan.schema.json
-var loopPlanSchema string
+var loopPlanSchema = wire.SchemaFor[loopPlan]()
 
 const (
 	loopStateVersion  = 1
@@ -566,7 +564,7 @@ func (r *askRun) loopDry(cfg loopCfg, goal string) int {
 	}
 	fmt.Fprintf(r.out, "loop dry-run: planner %s, parts on %s, <= %d rounds, <= %d parts, %d at once\n",
 		cfg.Planner, cmp.Or(r.ref, "claude"), cfg.Rounds, loopMaxParts, r.f.jobs)
-	fmt.Fprintf(r.out, "--- schema ---\n%s--- prompt, round 1 ---\n%s\n", loopPlanSchema, prompt)
+	fmt.Fprintf(r.out, "--- schema ---\n%s\n--- prompt, round 1 ---\n%s\n", loopPlanSchema, prompt)
 	return 0
 }
 

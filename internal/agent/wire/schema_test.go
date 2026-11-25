@@ -1,10 +1,13 @@
 package wire
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStructuredRejectsMalformedConstraints(t *testing.T) {
@@ -160,4 +163,103 @@ func TestStructuredArrayInProseKeepsArray(t *testing.T) {
 	if string(v) != `[{"name":"a"}]` {
 		t.Errorf("value = %s, want the array", v)
 	}
+}
+
+func TestStructuredAdditionalProperties(t *testing.T) {
+	const schema = `{"type":"object","additionalProperties":false,"required":["findings"],"properties":{"findings":{"type":"array"}}}`
+	if _, _, err := Structured(`{"findings":[]}`, schema); err != nil {
+		t.Errorf("valid document rejected: %v", err)
+	}
+	if raw, notes, err := Structured(`{"findings":[],"extra":1}`, schema); err != nil || string(raw) != `{"findings":[]}` || len(notes) != 1 {
+		t.Errorf("extra property not dropped and noted: %s %v %v", raw, notes, err)
+	}
+	const typed = `{"type":"object","additionalProperties":{"type":"integer"}}`
+	if _, _, err := Structured(`{"a":"x"}`, typed); err == nil {
+		t.Error("extra property of the wrong type accepted")
+	}
+}
+
+func TestSchemaForMatchesHandWritten(t *testing.T) {
+	type part struct {
+		ID    string   `json:"id"`
+		Sev   string   `json:"sev" jsonschema:"enum=A|B"`
+		Owns  []string `json:"owns,omitempty"`
+		Count *int     `json:"count,omitempty"`
+	}
+	const want = `{"type":"object","additionalProperties":false,"required":["id","sev"],"properties":{"id":{"type":"string"},` +
+		`"sev":{"type":"string","enum":["A","B"]},"owns":{"type":"array","items":{"type":"string"}},"count":{"type":"integer"}}}`
+	var a, b any
+	if err := json.Unmarshal([]byte(SchemaFor[part]()), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("got %s", SchemaFor[part]())
+	}
+}
+
+func TestStructuredDropsUndeclaredKeys(t *testing.T) {
+	const schema = `{"type":"object","additionalProperties":false,"required":["a"],"properties":{"a":{"type":"array","items":` +
+		`{"type":"object","additionalProperties":false,"properties":{"x":{"type":"integer"}}}}}}`
+	raw, notes, err := Structured(`{"a":[{"x":1,"y":2}],"extra":1}`, schema)
+	if err != nil || string(raw) != `{"a":[{"x":1}]}` {
+		t.Fatalf("raw=%s err=%v", raw, err)
+	}
+	if want := []string{"dropped answer.a[].y", "dropped answer.extra"}; !slices.Equal(notes, want) {
+		t.Errorf("notes = %v, want %v", notes, want)
+	}
+	if _, _, err := Structured(`{"a":[{"x":"s"}]}`, schema); err == nil {
+		t.Error("type violation accepted")
+	}
+	if _, _, err := Structured(`{"extra":1}`, schema); err == nil {
+		t.Error("missing required key accepted")
+	}
+}
+
+type genBase struct {
+	B string `json:"b"`
+}
+
+type GenTagged struct {
+	T string `json:"t"`
+}
+
+type GenHidden struct {
+	H string `json:"h"`
+}
+
+type genRec struct {
+	Next *genRec `json:"next"`
+}
+
+func TestSchemaForTypes(t *testing.T) {
+	type doc struct {
+		genBase
+		GenTagged `json:"tagged"`
+		GenHidden `json:"-"`
+		At        time.Time       `json:"at"`
+		Data      []byte          `json:"data"`
+		Any       json.RawMessage `json:"any"`
+	}
+	const want = `{"type":"object","additionalProperties":false,"required":["b","tagged","at","data","any"],"properties":{` +
+		`"b":{"type":"string"},"tagged":{"type":"object","additionalProperties":false,"required":["t"],"properties":{"t":{"type":"string"}}},` +
+		`"at":{"type":"string","format":"date-time"},"data":{"type":"string"},"any":{}}}`
+	var a, b any
+	if err := json.Unmarshal([]byte(SchemaFor[doc]()), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("got %s", SchemaFor[doc]())
+	}
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(r.(string), "genRec") {
+			t.Errorf("recursive type: recover = %v", r)
+		}
+	}()
+	SchemaFor[genRec]()
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -141,5 +142,33 @@ func TestSchemaInvalidFindingsAreUnjudged(t *testing.T) {
 	env.Answer = "SHIP\n"
 	if v := withVerdict(env).Computed; v != "unjudged" {
 		t.Fatalf("computed = %q", v)
+	}
+}
+
+func TestGeneratedSchemasMatchContract(t *testing.T) {
+	for name, tc := range map[string]struct{ got, want string }{
+		"review": {reviewFindingsSchema, `{"type":"object","additionalProperties":false,"required":["findings"],"properties":{"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["file","line","severity","claim"],"properties":{"file":{"type":"string"},"line":{"type":"integer"},"severity":{"type":"string","enum":["CRITICAL","HIGH","MEDIUM","LOW"]},"claim":{"type":"string"}}}}}}`},
+		"loop":   {loopPlanSchema, `{"type":"object","additionalProperties":false,"required":["done","summary","parts"],"properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"parts":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","prompt"],"properties":{"id":{"type":"string"},"prompt":{"type":"string"},"agent":{"type":"string"},"model":{"type":"string"},"owns":{"type":"array","items":{"type":"string"}},"timeout":{"type":"string"}}}}}}`},
+	} {
+		var a, b any
+		if json.Unmarshal([]byte(tc.got), &a) != nil || json.Unmarshal([]byte(tc.want), &b) != nil || !reflect.DeepEqual(a, b) {
+			t.Errorf("%s schema differs:\n%s", name, tc.got)
+		}
+	}
+	if raw, _, err := wire.Structured(`{"findings":[],"extra":1}`, reviewFindingsSchema); err != nil || string(raw) != `{"findings":[]}` {
+		t.Errorf("extra key not dropped: %s %v", raw, err)
+	}
+}
+
+func TestExtraKeysDroppedNotFatal(t *testing.T) {
+	raw, notes, err := wire.Structured(`{"done":true,"summary":"s","parts":[],"notes":"x"}`, loopPlanSchema)
+	var p loopPlan
+	if err != nil || json.Unmarshal(raw, &p) != nil || !p.Done || !slices.Contains(notes, "dropped answer.notes") {
+		t.Fatalf("plan=%+v notes=%v err=%v", p, notes, err)
+	}
+	row := `{"file":"a.go","line":3,"severity":"HIGH","claim":"c","why":"x"}`
+	env, err := reviewFindings(reviewEnvelope{Structured: json.RawMessage(`{"findings":[` + row + `],"notes":"x"}`)}, io.Discard)
+	if err != nil || env.Computed == "unjudged" || !strings.Contains(string(env.Findings), `"claim":"c"`) {
+		t.Fatalf("findings=%s computed=%q err=%v", env.Findings, env.Computed, err)
 	}
 }
