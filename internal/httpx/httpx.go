@@ -19,7 +19,12 @@ import (
 var ErrTooLarge = errors.New("response body too large")
 
 // Client is the default bounded client; callers may supply Call.Client for different policies.
-var Client = &http.Client{Timeout: 30 * time.Second, CheckRedirect: SameOriginRedirect}
+var Client = NewClient(30*time.Second, nil, SameOriginRedirect)
+
+// NewClient builds a client with explicit timeout, transport and redirect policies; nil uses net/http defaults.
+func NewClient(timeout time.Duration, transport http.RoundTripper, redirect func(*http.Request, []*http.Request) error) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: redirect}
+}
 
 // Call is one bounded request. Limit is required; a longer body is ErrTooLarge.
 type Call struct {

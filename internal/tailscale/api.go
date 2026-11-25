@@ -111,7 +111,7 @@ const apiTimeout = 30 * time.Second
 
 // newClient is a Client on apiBaseURL with the admin-API timeout; DefaultClient's transport stays the test seam.
 func newClient() *Client {
-	return &Client{BaseURL: apiBaseURL, HTTP: &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}}
+	return &Client{BaseURL: apiBaseURL, HTTP: httpx.NewClient(apiTimeout, http.DefaultClient.Transport, nil)}
 }
 
 // newOAuthClient is newClient authenticated by an OAuth client_credentials pair.

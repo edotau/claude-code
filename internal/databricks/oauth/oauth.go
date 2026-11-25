@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -143,10 +144,7 @@ type tokenRequest struct {
 }
 
 // tokenClient never follows a redirect: a 3xx would replay the grant form (refresh_token, code) to another host.
-var tokenClient = &http.Client{
-	Timeout:       30 * time.Second,
-	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-}
+var tokenClient = httpx.NewClient(30*time.Second, nil, func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse })
 
 // retryable: a one-shot grant (refresh token, code) retries only an unwritten request; any reply may have spent it.
 func (r tokenRequest) retryable(status int, written bool) bool {

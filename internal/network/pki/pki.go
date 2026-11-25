@@ -326,7 +326,7 @@ func (f *fetcher) get(ctx context.Context, rawURL string) ([]byte, error) {
 }
 
 func (f *fetcher) once(ctx context.Context, rawURL string) ([]byte, error) {
-	client := &http.Client{Timeout: fetchTimeout, CheckRedirect: httpx.SameOriginRedirect}
+	client := httpx.NewClient(fetchTimeout, nil, httpx.SameOriginRedirect)
 	if f.insecure {
 		t := http.DefaultTransport.(*http.Transport).Clone()      // keeps HTTPS_PROXY/NO_PROXY on the fallback
 		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // pinned

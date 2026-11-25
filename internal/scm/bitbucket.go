@@ -34,7 +34,7 @@ type BitbucketHost struct {
 // NewBitbucket binds a server root (a trailing /rest/api/... is tolerated) and a repository.
 func NewBitbucket(baseURL, project, repo, token string) *BitbucketHost {
 	root := regexp.MustCompile(`(?i)/rest(/api/[^/]+)?$`).ReplaceAllString(strings.TrimRight(baseURL, "/"), "")
-	return &BitbucketHost{Base: root, Project: project, Repo: repo, Token: token, HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: httpx.SameOriginRedirect}}
+	return &BitbucketHost{Base: root, Project: project, Repo: repo, Token: token, HTTP: httpx.NewClient(15*time.Second, nil, httpx.SameOriginRedirect)}
 }
 
 func (h *BitbucketHost) repoPath() string {
