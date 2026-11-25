@@ -24,11 +24,11 @@ var (
 	})
 	// reviseRef finds declarations at a line or sentence boundary.
 	reviseRef = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8}(?:-[0-9a-z]+)?)\\b`?\\)?)")
+		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?([0-9a-z]+(?:-[0-9a-z]+)?)\\b`?\\)?)")
 	})
-	// replacedPointer is the line settle writes under an old entry's title.
+	// replacedPointer is the line settle writes under an old entry's title; ParseRef checks its token.
 	replacedPointer = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8}(?:-[0-9a-z]+)?)(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+		return regexp.MustCompile(`^\s*Replaced by ([0-9a-z]+(?:-[0-9a-z]+)?)(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
 	})
 	// titlePrefix is what stays outside the strike: the heading or bullet mark and the date prefix.
 	titlePrefix = sync.OnceValue(func() *regexp.Regexp {
@@ -39,11 +39,7 @@ var (
 		return regexp.MustCompile(`~~.*?~~`)
 	})
 	seeNote = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\(see z?[0-9a-f]{8}(?:-[0-9a-z]+)?\)`)
-	})
-	// pointerLine is a whole line holding only the pointer settle writes.
-	pointerLine = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?:-[0-9a-z]+)?(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+		return regexp.MustCompile(`\(see ([0-9a-z]+(?:-[0-9a-z]+)?)\)`)
 	})
 )
 
@@ -98,7 +94,7 @@ func revisedIDs(block, self string) []string {
 	var out []string
 	for _, m := range reviseRef().FindAllStringSubmatchIndex(body, -1) {
 		id := body[m[4]:m[5]]
-		if declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
+		if _, ok := ParseRef(strings.ToLower(id)); ok && declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
 			out = append(out, id)
 		}
 	}
@@ -168,8 +164,8 @@ func replacedBy(block string) string {
 			pointer += " "
 		}
 		pointer += strings.TrimSpace(line)
-		if m := replacedPointer().FindStringSubmatch(pointer); m != nil {
-			return m[1]
+		if ref := pointerRef(pointer); ref != "" {
+			return ref
 		}
 		if !strings.HasPrefix("Replaced by ", pointer) && !strings.HasPrefix(pointer, "Replaced by ") {
 			break
@@ -179,6 +175,26 @@ func replacedBy(block string) string {
 		}
 	}
 	return ""
+}
+
+// pointerRef is the ref of a line holding only the pointer settle writes, "" when line is not one.
+func pointerRef(line string) string {
+	if m := replacedPointer().FindStringSubmatch(line); m != nil {
+		if _, ok := ParseRef(m[1]); ok {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// dropSeeNotes removes each "(see <ref>)" pointer from s.
+func dropSeeNotes(s string) string {
+	return seeNote().ReplaceAllStringFunc(s, func(note string) string {
+		if _, ok := ParseRef(seeNote().FindStringSubmatch(note)[1]); ok {
+			return ""
+		}
+		return note
+	})
 }
 
 // replacementBody skips the wrapped title of a conventions bullet, through its id marker.
@@ -209,7 +225,7 @@ func partlyStruck(first string) bool {
 	}
 	body := stripID(first)
 	body = body[len(titlePrefix().FindString(body)):]
-	rest := seeNote().ReplaceAllString(struckSpan().ReplaceAllString(body, ""), "")
+	rest := dropSeeNotes(struckSpan().ReplaceAllString(body, ""))
 	return strings.Trim(rest, " \t;,.:—–-") != ""
 }
 
@@ -221,7 +237,7 @@ func isSupersededBlock(block string) bool {
 // dropPointer is block without the lines that hold only a `Replaced by` pointer.
 func dropPointer(block string) string {
 	lines := strings.Split(block, "\n")
-	return strings.Join(slices.DeleteFunc(lines, pointerLine().MatchString), "\n")
+	return strings.Join(slices.DeleteFunc(lines, func(l string) bool { return pointerRef(l) != "" }), "\n")
 }
 
 // healPartial removes the pointer settle once wrote under a partly struck entry, so recall serves it again.
@@ -365,8 +381,14 @@ func statOK(path string) bool {
 
 // slugMarker is a title-line alias id such as "<!-- id:b5ad9e07-semorder -->" that entries may be superseded by.
 var slugMarker = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`<!-- id:([0-9a-f]{8}-[0-9a-z]+) -->`)
+	return regexp.MustCompile(`<!-- id:([0-9a-z]+-[0-9a-z]+) -->`)
 })
+
+// slugAlias reports whether tok is a persisted-form alias ref (<hex>-<slug>), not a content ref.
+func slugAlias(tok string) bool {
+	r, ok := ParseRef(tok)
+	return ok && !r.Derived && r.Alias != ""
+}
 
 // locateBlocks maps each persisted block id, and each title-line slug alias, to its first location.
 func locateBlocks(docs []*bankDoc) map[string]blockLoc {
@@ -377,7 +399,7 @@ func locateBlocks(docs []*bankDoc) map[string]blockLoc {
 				loc[id] = blockLoc{di, bi}
 			}
 			for _, m := range slugMarker().FindAllStringSubmatch(textutil.FirstLine(d.blocks[bi]), -1) {
-				if _, dup := loc[m[1]]; !dup {
+				if _, dup := loc[m[1]]; !dup && slugAlias(m[1]) {
 					loc[m[1]] = blockLoc{di, bi}
 				}
 			}

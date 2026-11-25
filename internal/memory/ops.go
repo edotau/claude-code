@@ -475,7 +475,7 @@ func opAdd(d Doc, o Op, env Env) (Doc, OpResult) {
 func pointerLines(lines []string) []string {
 	var keep []string
 	for _, ln := range lines {
-		if t := strings.TrimSpace(ln); strings.HasPrefix(t, "Supersedes ") && strings.HasSuffix(t, ".") || pointerLine().MatchString(ln) {
+		if t := strings.TrimSpace(ln); strings.HasPrefix(t, "Supersedes ") && strings.HasSuffix(t, ".") || pointerRef(ln) != "" {
 			keep = append(keep, ln)
 		}
 	}

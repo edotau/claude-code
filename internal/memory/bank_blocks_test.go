@@ -498,6 +498,25 @@ func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
 	})
 }
 
+// TestShowBlockRefForms pins which refs ShowBlock resolves: a persisted id or an exact contentRef, nothing looser.
+func TestShowBlockRefForms(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		initStore(t)
+		log := Path("decisionLog.md")
+		write(t, log, "# Decision Log\n\n## 2026-10-18 — Marked <!-- id:abcdef12 -->\nbody one\n\n## 2026-10-17 — Bare\nbody two\n")
+		_, blocks := entryBlocks("decisionLog.md", mustRead(t, log))
+		derived := contentRef(blocks[1])
+		for ref, want := range map[string]bool{
+			"abcdef12": true, derived: true, "abcdef12-foo": false, "abcdef1": false, "ABCDEF12": false,
+			derived + "-foo": false, derived + "0": false, derived[:5]: false, "Z" + derived[1:]: false,
+		} {
+			if _, _, err := ShowBlock(ref); (err == nil) != want {
+				t.Errorf("ShowBlock(%q) err = %v, want found %v", ref, err, want)
+			}
+		}
+	})
+}
+
 func assignIDsT(now time.Time) (int, error) {
 	n, _, err := assignIDTexts(now)
 	return n, err

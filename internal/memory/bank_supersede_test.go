@@ -336,3 +336,57 @@ func TestSortByScoreMatchesStableSort(t *testing.T) {
 		}
 	}
 }
+
+// pinPointerForms checks replacedBy and dropPointer take tok as a pointer ref exactly when want is non-empty.
+func pinPointerForms(t *testing.T, tok, want string) {
+	t.Helper()
+	for _, date := range []string{"", " (2026-11-25)"} {
+		if got := replacedBy("## T <!-- id:11111111 -->\nReplaced by " + tok + date + "."); got != want {
+			t.Errorf("replacedBy(%q%s) = %q, want %q", tok, date, got, want)
+		}
+	}
+	if dropped := dropPointer("a\n  Replaced by "+tok+".") == "a"; dropped != (want != "") {
+		t.Errorf("dropPointer(%q) dropped = %v, want %v", tok, dropped, want != "")
+	}
+}
+
+// TestRefTokenSitesPinned pins which id tokens each supersede matcher takes; the sites differ on purpose.
+func TestRefTokenSitesPinned(t *testing.T) {
+	const head = "## T <!-- id:11111111 -->\n"
+	for _, c := range []struct {
+		tok         string
+		revises     string // revisedIDs: Supersedes <tok>.
+		replaced    string // replacedBy: Replaced by <tok>.
+		slugKey     bool   // locateBlocks: <!-- id:<tok> --> on the title line
+		partlyKeeps bool   // partlyStruck: a (see <tok>) note is not live text
+	}{
+		{"abcdef12", "abcdef12", "abcdef12", false, true},
+		{"zabcdef12", "zabcdef12", "zabcdef12", false, true},
+		{"abcdef12-foo", "abcdef12-foo", "abcdef12-foo", true, true},
+		{"abcdef12-foo-bar", "abcdef12-foo", "", false, false},
+		{"zabcdef12-foo", "zabcdef12-foo", "zabcdef12-foo", false, true},
+		{"ABCDEF12", "ABCDEF12", "", false, false},
+		{"abcdef12-Foo", "abcdef12-Foo", "", false, false},
+		{"abcdef1", "", "", false, false},
+		{"abcdef123", "", "", false, false},
+		{"abcdef12_x", "", "", false, false},
+		{"abcdef12-", "abcdef12", "", false, false},
+		{"abcdef12-foo_bar", "abcdef12", "", false, false},
+	} {
+		got := revisedIDs(head+"Supersedes "+c.tok+".", "")
+		if want := c.revises; (want == "") != (len(got) == 0) || len(got) > 0 && got[0] != want {
+			t.Errorf("revisedIDs(%q) = %v, want %q", c.tok, got, want)
+		}
+		pinPointerForms(t, c.tok, c.replaced)
+		d := &bankDoc{blocks: []string{"## T <!-- id:" + c.tok + " -->\nbody"}, ids: []string{""}}
+		if _, ok := locateBlocks([]*bankDoc{d})[c.tok]; ok != c.slugKey {
+			t.Errorf("locateBlocks key %q = %v, want %v", c.tok, ok, c.slugKey)
+		}
+		if got := !partlyStruck("- ~~Old~~ (see " + c.tok + ") <!-- id:11111111 -->"); got != c.partlyKeeps {
+			t.Errorf("partlyStruck (see %q) live-only = %v, want %v", c.tok, got, c.partlyKeeps)
+		}
+	}
+	if got := replacedBy(head + "Replaced by abcdef12 now."); got != "" {
+		t.Errorf("replacedBy with trailing text = %q, want none", got)
+	}
+}

@@ -147,3 +147,23 @@ func TestBranchFacts(t *testing.T) {
 		}
 	}
 }
+
+// TestIDCommentPinned pins the trailing-id matcher: it takes any lowercase alphanumeric id, not only a Ref.
+func TestIDCommentPinned(t *testing.T) {
+	for in, want := range map[string]string{
+		"T <!-- id:9c2d7e41 -->":          "9c2d7e41",
+		"T <!--id:abc-->":                 "abc",
+		"T <!--  id:zabcdef12  -->  ":     "zabcdef12",
+		"T <!-- id:b5ad9e07-semorder -->": "",
+		"T <!-- id:ABCDEF12 -->":          "",
+		"T <!-- id:9c2d7e41 --> tail":     "",
+	} {
+		got := ""
+		if m := idComment().FindStringSubmatch(in); m != nil {
+			got = m[1]
+		}
+		if got != want {
+			t.Errorf("idComment(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

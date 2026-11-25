@@ -194,11 +194,6 @@ var idMarker = sync.OnceValue(func() *regexp.Regexp {
 // contentRefPrefix leads a derived block ref; 'z' is never hex, so it cannot collide with a real id marker.
 const contentRefPrefix = "z"
 
-// derivedRef matches a contentRef: the prefix and a non-empty run of lowercase hex digits.
-var derivedRef = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
-})
-
 // contentRef is the stable ref for an unmarked block: the prefix plus 4 bytes of sha256 of its normalized text.
 func contentRef(block string) string {
 	return contentRefPrefix + textutil.SHA256Hex(appendFields(nil, block))[:8]
@@ -428,7 +423,8 @@ var errNoBlock = errors.New("no memory block with that id")
 
 // ShowBlock finds the block for ref (an id marker or a contentRef) anywhere in the store, archives included.
 func ShowBlock(ref string) (string, string, error) {
-	derived := derivedRef().MatchString(ref)
+	r, _ := ParseRef(ref)
+	derived := r.Derived
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(paths.MemoryStoreDir(), func(p string, d fs.DirEntry, err error) error {
 		switch {
