@@ -106,9 +106,6 @@ type SandboxResult struct {
 
 // Sandbox creates a disposable config without writing to the source bank.
 func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
-	if err = checkFlat(); err != nil {
-		return res, err
-	}
 	res.Dir, err = os.MkdirTemp("", "claude-memory-sandbox-")
 	if err != nil {
 		return res, err

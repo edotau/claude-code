@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,14 +53,6 @@ func TestSandboxEmpty(t *testing.T) {
 		wantFile(t, filepath.Join(mem, name), body)
 	}
 	wantFile(t, filepath.Join(mem, "topic.md"), "")
-}
-
-func TestSandboxRefusesUnstampedStore(t *testing.T) {
-	tempConfig(t)
-	write(t, filepath.Join(paths.MemoryStoreDir(), "alpha", "progress.md"), "x\n")
-	if _, err := Sandbox(SandboxOptions{Empty: true}); !errors.Is(err, errStoreNotFlat) {
-		t.Fatalf("Sandbox on a per-repo store = %v, want errStoreNotFlat", err)
-	}
 }
 
 func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {

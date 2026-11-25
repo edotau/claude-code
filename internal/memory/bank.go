@@ -1,11 +1,9 @@
 package memory
 
 import (
-	"errors"
-	"io/fs"
+	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// layoutFile stamps the store root: layoutFlat is the one-bank layout; layoutFlat2 is older, layoutPerKey retired.
-const layoutFile, layoutFlat, layoutFlat2, layoutPerKey = ".layout", "flat 3", "flat 2", "flat 1"
+// layoutFile stamps the store root with layoutFlat, the one-bank layout.
+const layoutFile, layoutFlat = ".layout", "flat 3"
 
 // Path is one of the bank's top-level files.
 func Path(name string) string { return filepath.Join(paths.MemoryStoreDir(), name) }
@@ -39,14 +37,9 @@ func storeFlat() bool {
 	}
 	b, _ := os.ReadFile(filepath.Join(d, layoutFile))
 	stamp := strings.TrimSpace(string(b))
-	flat := stamp == layoutFlat || stamp == layoutFlat2
+	flat := stamp == layoutFlat
 	layoutCache.Store(d, flat)
 	return flat
-}
-
-func storePerKey() bool {
-	b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
-	return strings.TrimSpace(string(b)) == layoutPerKey
 }
 
 // forgetLayout drops the memoized stamp for the current store.
@@ -57,46 +50,21 @@ const homeDir = "home"
 // flatSubs derives the store folders from the asset roles so sandbox and import never miss one.
 var flatSubs = storeFolderNames()
 
-// errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.
-var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout; run `claude-code memory migrate`")
-
-// requireFlat is nil on a stamped store and stamps one with no per-repo dirs; any other gets errStoreNotFlat.
+// requireFlat stamps a store that has no layout stamp yet; any other stamp is refused, never overwritten.
 func requireFlat() error {
-	if err := checkFlat(); err != nil || storeFlat() {
-		return err
+	if storeFlat() {
+		return nil
 	}
-	err := paths.AtomicWrite(filepath.Join(paths.MemoryStoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
+	path := filepath.Join(paths.MemoryStoreDir(), layoutFile)
+	if b, _ := os.ReadFile(path); strings.TrimSpace(string(b)) != "" {
+		return fmt.Errorf("memory store layout %q is not %q: refusing to write", strings.TrimSpace(string(b)), layoutFlat)
+	}
+	err := paths.AtomicWrite(path, []byte(layoutFlat+"\n"), 0o644)
 	forgetLayout()
 	return err
 }
 
-// checkFlat is requireFlat without the stamp, for read-only paths: errStoreNotFlat only on a per-repo store.
-func checkFlat() error {
-	if storeFlat() {
-		return nil
-	}
-	if storePerKey() {
-		return errStoreNotFlat
-	}
-	ents, err := os.ReadDir(paths.MemoryStoreDir())
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err // an unreadable store must not look empty and get stamped
-	}
-	if slices.ContainsFunc(ents, legacyBankDir) {
-		return errStoreNotFlat
-	}
-	return nil
-}
-
-// legacyBankDir is a per-repo bank dir: any dir other than a leftover shared sub (kept until the one-off move).
-func legacyBankDir(e os.DirEntry) bool {
-	if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-		return false
-	}
-	return !slices.Contains(flatSubs, e.Name()) && e.Name() != "waves" // waves/ is retired run state, left alone
-}
-
-// withFlatLock is WithBankLock for writers: a store without the flat stamp is refused.
+// withFlatLock is WithBankLock for writers, stamping a fresh store first.
 func withFlatLock(wait time.Duration, fn func() error) error {
 	if err := requireFlat(); err != nil {
 		return err

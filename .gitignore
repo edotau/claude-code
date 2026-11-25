@@ -46,7 +46,6 @@
 /docs/handoffs/
 MEMORY.md
 !docs/templates/examples/memory/MEMORY.md
-SEARCHABLE.md
 /worktrees/
 # claude.ai account skills Claude Code downloads each sync round; the copy of record is claude.ai.
 /skills/synced/

@@ -576,11 +576,9 @@ var reservedNames = reservedNameSet()
 
 func reservedNameSet() map[string]bool {
 	out := map[string]bool{
-		nativeIndexFile:        true,
-		nativeSearchableFile:   true,
-		nativeArchiveIndexFile: true,
-		catalogFile:            true,
-		routerFile:             true,
+		nativeIndexFile: true,
+		catalogFile:     true,
+		routerFile:      true,
 	}
 	for _, name := range bankFiles {
 		out[name] = true
@@ -617,9 +615,7 @@ var readIfExists = func(path string) ([]byte, error) {
 
 // Native auto-memory file names recognised when classifying a bank directory's files.
 const (
-	nativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
-	nativeSearchableFile   = "SEARCHABLE.md" // legacy overflow file, classified only
-	nativeArchiveIndexFile = "INDEX.md"      // legacy archive index, classified only
+	nativeIndexFile = "MEMORY.md" // the injected index of `- [Title](topic.md) — hook` lines
 )
 
 // topicFrontmatter splits a topic into name, description and body; the closing fence must start its own line.

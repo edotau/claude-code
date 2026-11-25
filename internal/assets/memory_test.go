@@ -83,8 +83,6 @@ var memoryGolden = []struct {
 }{
 	{"update-opening.tmpl", func() string { return MemoryUpdateWorker("/b") }, "Background update of a finished session. The bank files are /b (the steps below name them by bare filename); write only there. "},
 	{"dream-opening.tmpl", func() string { return MemoryDreamWorker("/b") }, "Background daily consolidation of the memory bank. The memory bank is /b. "},
-	{"legacy-update-opening.tmpl", func() string { return MemoryLegacyUpdateWorker("/b", "/h") }, "Background update of a finished session. The bank files are /b and the shared home bank files are /h (the steps below name them by bare filename); write only there. "},
-	{"legacy-dream-opening.tmpl", func() string { return MemoryLegacyDreamWorker("/b", "/h") }, "Background daily consolidation of the memory bank. The local bank is /b; the memory root /h holds the home bank and every repo store. "},
 	{"update-worker.tmpl", func() string {
 		return MemoryUpdatePrompt(MemoryUpdateInput{Worker: "W", Procedure: "P", Historical: "H", Digest: "D", Git: "G", Tags: "T"})
 	}, "WFollow this procedure, the COMPLETE pass:\n\nP\n\nWrite in this order so a truncated run leaves the bank coherent: sessionHistory first, then activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else.HDGT"},

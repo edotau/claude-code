@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -625,69 +624,6 @@ func TestBrokenEmbedDBHeals(t *testing.T) {
 				t.Errorf("the damaged file was not set aside: %v", err)
 			}
 		})
-	}
-}
-
-// seedLegacy writes a v2 per-profile record (the pre-shared layout) with one row per id -> hash.
-func seedLegacy(t *testing.T, profile, model string, rows map[string]vectorRow) {
-	t.Helper()
-	rec := vectorRecord{Schema: 2, Model: model, MintedAt: time.Now().UnixNano(), Rows: rows}
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		legacy, err := tx.CreateBucketIfNotExists(embedLegacyBucket)
-		if err != nil {
-			return err
-		}
-		b, err := legacy.CreateBucket([]byte(profile))
-		if err != nil {
-			return err
-		}
-		if err := b.Put(embedMetadataKey, raw); err != nil {
-			return err
-		}
-		rb, err := b.CreateBucket(embedRowsBucket)
-		if err != nil {
-			return err
-		}
-		for id, row := range rows {
-			if err := rb.Put([]byte(id), []byte(row.Vec)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-// The v2 per-profile records fold once into the shared cache: same-model rows deduped by id, others dropped.
-func TestFoldLegacyMergesProfilesOfTheCurrentModel(t *testing.T) {
-	isolatedConfig1(t)
-	vec := encodeVec([]float32{1, 0, 0})
-	seedLegacy(t, "dev", "gte", map[string]vectorRow{"a1": {Hash: "h1", Vec: vec}, "a2": {Hash: "h2", Vec: vec}})
-	seedLegacy(t, "qa", "gte", map[string]vectorRow{"a2": {Hash: "h2", Vec: vec}, "a3": {Hash: "h3", Vec: vec}})
-	seedLegacy(t, "prod", "old-model", map[string]vectorRow{"a4": {Hash: "h4", Vec: vec}})
-	for _, name := range []string{"dev.refresh", "dev.refresh.lock", "qa.refresh"} {
-		write(t, filepath.Join(paths.MemoryStateDir(), embedCachePre+name), "")
-	}
-	write(t, filepath.Join(paths.MemoryStateDir(), embedCachePre+"dev.backoff"), "")
-	if err := vectorStore.FoldLegacy("gte"); err != nil {
-		t.Fatal(err)
-	}
-	got := loadEmbedCache()
-	if got.Model != "gte" || len(got.Rows) != 3 || got.Rows["a4"].Hash != "" || got.Rows["a3"].Vec != vec || got.MintedAt == 0 {
-		t.Fatalf("folded record: model=%q rows=%v minted=%d, want a1-a3 of gte with their vectors", got.Model, got.Rows, got.MintedAt)
-	}
-	if found, err := legacyPresent(); err != nil || found {
-		t.Fatalf("legacy buckets after the fold: found=%v err=%v", found, err)
-	}
-	left, _ := filepath.Glob(filepath.Join(paths.MemoryStateDir(), embedCachePre+"*"))
-	if len(left) != 1 || !strings.HasSuffix(left[0], "dev.backoff") {
-		t.Errorf("after the fold left %v, want only the per-endpoint backoff marker", left)
 	}
 }
 

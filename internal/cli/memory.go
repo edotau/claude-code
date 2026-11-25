@@ -34,7 +34,6 @@ var memorySubs = []memorySub{
 	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 	{"index", "", "settle the bank, regenerate MEMORY.md, append to index.md"},
-	{"migrate", "[--dry-run]", "merge old per-repo bank files into the one bank (--dry-run previews)"},
 }
 
 var memoryPage = helptext.Page{
@@ -193,7 +192,6 @@ func memorySubcommands() map[string]func([]string) int {
 		"watch":   cmdMemoryWatch,
 		"import":  cmdMemoryImport,
 		"sandbox": cmdMemorySandbox,
-		"migrate": cmdMemoryMigrate,
 	}
 }
 
@@ -236,7 +234,6 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
@@ -595,25 +592,6 @@ var memoryImportPage = helptext.Page{
 	About: "Merge another bank's logs (a memory root or one store) into this one; nothing\n" +
 		"local is overwritten, the source is never changed. --topics adds the other files.\n" +
 		"git -C <memory> log is the undo.",
-}
-
-// cmdMemoryMigrate is `memory migrate`: --dry-run lists the plan and blockers and writes nothing.
-func cmdMemoryMigrate(args []string) int {
-	fs := memoryFlagSet("migrate")
-	dryRun := fs.Bool("dry-run", false, "print the plan and blockers; write nothing")
-	if code, done := memoryParseNoArgs(fs, "migrate", args); done {
-		return code
-	}
-	if err := memory.Migrate(memory.MigrateOptions{DryRun: *dryRun, Out: os.Stdout}); err != nil {
-		return helptext.Fail("memory migrate: %v", err)
-	}
-	if *dryRun {
-		return 0
-	}
-	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{}); err != nil { // writes the layout into index.md
-		return helptext.Fail("memory migrate: index: %v", err)
-	}
-	return 0
 }
 
 // cmdMemoryImport is `memory import`: --dry-run prints the plan and writes nothing.

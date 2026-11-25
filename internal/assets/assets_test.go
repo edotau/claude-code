@@ -434,8 +434,6 @@ func memoryRenderCases() []renderCase {
 	return []renderCase{
 		{"MemoryUpdateWorker", "", func() string { return MemoryUpdateWorker("/bank") }},
 		{"MemoryDreamWorker", "", func() string { return MemoryDreamWorker("/bank") }},
-		{"MemoryLegacyUpdateWorker", "", func() string { return MemoryLegacyUpdateWorker("/bank", "/home") }},
-		{"MemoryLegacyDreamWorker", "", func() string { return MemoryLegacyDreamWorker("/bank", "/home") }},
 		{"MemoryUpdatePrompt", "", func() string { return MemoryUpdatePrompt(MemoryUpdateInput{"w", "proc", "hist", "dig", "git", "tags"}) }},
 		{"MemoryTranscriptPointer", "", func() string { return MemoryTranscriptPointer("/t") }},
 		{"MemorySessionDigest", "", func() string { return MemorySessionDigest("/t", two) }},

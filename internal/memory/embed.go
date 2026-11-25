@@ -29,7 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// embedCacheSchema is the embedding cache's schema version; v2 (per-profile buckets) is folded once by FoldLegacy.
+// embedCacheSchema is the embedding cache's schema version.
 const embedCacheSchema = 3
 
 const (
@@ -38,7 +38,7 @@ const (
 	embedTextRunes = 2000
 	embedMaxRows   = 4000
 	embedBodyLimit = 32 << 20
-	embedCachePre  = "embeddings-" // prefix of the per-profile .backoff markers and the retired per-profile stamps
+	embedCachePre  = "embeddings-" // prefix of the per-profile .backoff markers
 	embedBackoff   = time.Minute   // after a failed query, keyword-only for this long
 )
 
@@ -156,9 +156,6 @@ func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) 
 }
 
 func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) (embedded, total int, err error) {
-	if err := vectorStore.FoldLegacy(c.Model); err != nil { // before the first read: folded rows are not paid twice
-		return 0, 0, err
-	}
 	now := time.Now()
 	rec, err := embedBase(c, now, force)
 	if err != nil {

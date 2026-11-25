@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,24 +38,27 @@ func TestStoreFlatReadsStamp(t *testing.T) {
 	}
 }
 
-func TestWritersRefuseLegacyStoreAndStampFreshOne(t *testing.T) {
+func TestInitStampsFreshStore(t *testing.T) {
 	isolatedConfig(t)
-	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), layoutPerKey+"\n")
-	forgetLayout()
-	if err := EnsureBank(""); !errors.Is(err, errStoreNotFlat) {
-		t.Errorf("EnsureBank = %v, want errStoreNotFlat", err)
+	if _, err := Init(); err != nil || !storeFlat() {
+		t.Errorf("Init on a fresh store = %v, flat=%v, want it stamped", err, storeFlat())
 	}
-	if _, err := Init(); !errors.Is(err, errStoreNotFlat) {
-		t.Errorf("Init = %v, want errStoreNotFlat", err)
+}
+
+func TestRequireFlatRefusesAnOlderStamp(t *testing.T) {
+	isolatedConfig(t)
+	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
+	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := withFlatLock(BankLockWait, func() error { return nil }); !errors.Is(err, errStoreNotFlat) {
-		t.Errorf("withFlatLock = %v, want errStoreNotFlat", err)
-	}
-	if err := os.Remove(filepath.Join(paths.MemoryStoreDir(), layoutFile)); err != nil {
+	if err := os.WriteFile(stamp, []byte("flat 2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	forgetLayout()
-	if _, err := Init(); err != nil || !storeFlat() {
-		t.Errorf("Init on a fresh store = %v, flat=%v, want it stamped", err, storeFlat())
+	if err := requireFlat(); err == nil {
+		t.Fatal("requireFlat on a flat 2 store = nil, want a refusal")
+	}
+	if b, _ := os.ReadFile(stamp); string(b) != "flat 2\n" {
+		t.Errorf("stamp = %q, want it untouched", b)
 	}
 }

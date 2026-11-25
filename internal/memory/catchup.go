@@ -141,8 +141,6 @@ var memoryJobPatterns = sync.OnceValue(func() []*regexp.Regexp {
 	return []*regexp.Regexp{
 		workerPromptPattern(assets.MemoryUpdateWorker("%s")),
 		workerPromptPattern(assets.MemoryDreamWorker("%s")),
-		workerPromptPattern(assets.MemoryLegacyUpdateWorker("%s", "%s")),
-		workerPromptPattern(assets.MemoryLegacyDreamWorker("%s", "%s")),
 	}
 })
 

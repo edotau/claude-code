@@ -11,7 +11,7 @@ entries and the generated `catalog.md` router. Folders:
 `archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `feedback/`, `notes/`, `techdebt/` (no `<key>--`
 prefix; `handoffs/`, `reports/` and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new
 one). `techdebt/<area>.md` holds known debt, one file per area: searchable and in the catalog, never in prompt
-recall. `.layout` (`flat 3`) stamps the layout (`flat 2` stores still work until migrated), and every
+recall. `.layout` (`flat 3`) stamps the layout, and every
 `~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at SessionStart.
 The bank holds session STATE; durable facts belong
 in `rules/` or `CLAUDE.md` — point at them, never copy.
@@ -19,12 +19,6 @@ in `rules/` or `CLAUDE.md` — point at them, never copy.
 `claude-code memory path [handoffs|reports|knowledge|worktrees|techdebt] [NAME]` prints the path (no NAME = store
 root); NAME loses any `<key>--`, gains `.md` when it has no extension, and in the dated folders gains today's
 date when it has none.
-`claude-code memory migrate [--dry-run]` brings any store to `flat 3`: it merges per-repo `<key>--<typed>.md` files
-into the one bank (ids kept, a block whose id exists is skipped), strips every `<key>--` from folder entries (dated
-folders take the name's date, else the first date in the file, else git's first-add date, else mtime), merges archive
-collisions by id (by heading when the legacy file has no ids), and repoints store references. It refuses before
-any write on a dirty store, credential-shaped text or an unresolved collision, makes one store commit, and says
-"already migrated" on a `flat 3` store with nothing to rename.
 
 ## Precedence
 
@@ -46,10 +40,10 @@ update`; the rest print none.
   sessions), `report`, `fmt [--check|--own]`.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
   (consolidation; `--dry-run` is a deterministic audit, no model).
-- Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source not yet
-  migrated: run `claude-code memory migrate` on it), `import --sync [--host <peer>]` (off by default; only an
-  opted-in machine pulls from every reachable peer, then pushes to each; without `--host`, peers come from
-  `CLAUDE_REMOTE_HOST`), `migrate`, `sandbox [--empty]` (disposable config with a copied bank, origin-only vault).
+- Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source not
+  stamped flat 3), `import --sync [--host <peer>]` (off by default; only an opted-in machine pulls from every
+  reachable peer, then pushes to each; without `--host`, peers come from `CLAUDE_REMOTE_HOST`),
+  `sandbox [--empty]` (disposable config with a copied bank, origin-only vault).
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps
   and drains the job queue.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
@@ -121,7 +115,7 @@ hand.
 Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name>.md`, knowledge
 `knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
 per session per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first,
-the generated one second. `memory migrate` and `memory index` file loose top-level notes: `feedback*.md` into
+the generated one second. `memory index` files loose top-level notes: `feedback*.md` into
 `feedback/`, any other non-core `.md` into `notes/`.
 Typed files carry no frontmatter and no note is ever edited. `catalog.md` is the generated router (layout, knowledge,
 home rows, one line per note), rewritten whole. `index.md` keeps every entry the model writes to `MEMORY.md` and is
@@ -135,13 +129,9 @@ counts those blank lines. Identical bytes are one entry. Generated `MEMORY.md` t
 `<!-- end of generated text <hash> -->` (the hash covers that block only; an `index.md` record's end line has none);
 the rest is input. Once the hash fails, the lines between the longest head and tail the block shares with
 `memory-md.gen` (in the memory state folder, `state/harness/memory/`; the last text installed, proven by its own end
-line) are input; without that proof every line is. In an older `bank:begin`…`bank:end` region only the lines that
-writer emitted are dropped.
+line) are input; without that proof every line is.
 A refresh, under the bank lock, first refuses with nothing changed when `index.md`, `MEMORY.md`, `catalog.md` or the
-kept copy `memory-md.prev` (state folder) is a symlink, not a regular file, or one file under two names. Then it (0)
-adopts the store-root `.archive-MEMORY.md.prev`/`.gen` an older binary left (folds the copy with that proof, moves the
-proof to the state folder, deletes both; an older binary on another machine recreates them and the next refresh adopts
-them again); (1) folds the kept copy `memory-md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the
+kept copy `memory-md.prev` (state folder) is a symlink, not a regular file, or one file under two names. Then it (1) folds the kept copy `memory-md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the
 new text to a temp file and renames `MEMORY.md` to the kept copy (a rename across volumes fails: the refresh refuses,
 `MEMORY.md` unchanged); (3) appends the copy's input to `index.md`; (4) places the temp file as
 `MEMORY.md` only where none exists (`os.Link`, else an `O_EXCL` create where hard links fail), else leaves the writer's

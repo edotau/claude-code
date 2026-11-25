@@ -52,14 +52,6 @@ func MemoryDreamWorker(bank string) string {
 	return renderMemory("dream-opening.tmpl", tmplFields{"Bank": bank})
 }
 
-func MemoryLegacyUpdateWorker(bank, home string) string {
-	return renderMemory("legacy-update-opening.tmpl", tmplFields{"Bank": bank, "Home": home})
-}
-
-func MemoryLegacyDreamWorker(bank, home string) string {
-	return renderMemory("legacy-dream-opening.tmpl", tmplFields{"Bank": bank, "Home": home})
-}
-
 func MemoryHistoricalRule() string { return string(read("files/memory/prompts/historical.txt")) }
 
 func MemoryUpdatePrompt(in MemoryUpdateInput) string {

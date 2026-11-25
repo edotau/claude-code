@@ -770,10 +770,6 @@ Leaf rules:
 Background update of a finished session. The bank files are /bank (the steps below name them by bare filename); write only there. 
 == MemoryDreamWorker ==
 Background daily consolidation of the memory bank. The memory bank is /bank. 
-== MemoryLegacyUpdateWorker ==
-Background update of a finished session. The bank files are /bank and the shared home bank files are /home (the steps below name them by bare filename); write only there. 
-== MemoryLegacyDreamWorker ==
-Background daily consolidation of the memory bank. The local bank is /bank; the memory root /home holds the home bank and every repo store. 
 == MemoryUpdatePrompt ==
 wFollow this procedure, the COMPLETE pass:
 

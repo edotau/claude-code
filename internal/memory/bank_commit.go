@@ -407,8 +407,8 @@ func StoreRepo() Repo { return Repo{Dir: paths.MemoryStoreDir()} }
 const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a guard against accidents, not access control.\n" +
 	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"
 
-// storeGitignore keeps runtime beacons out of history; .archive* is for kept copies an older binary leaves in the root.
-const storeGitignore = "# harness runtime beacons beside memory files — never history\n.archive*\naccess.log\n*.tmp-*\n"
+// storeGitignore keeps runtime beacons out of history.
+const storeGitignore = "# harness runtime beacons beside memory files — never history\naccess.log\n*.tmp-*\n"
 
 // Exists reports a real nested repo: <Dir>/.git is a directory (a gitdir: pointer file is a foreign worktree).
 func (r Repo) Exists() bool {

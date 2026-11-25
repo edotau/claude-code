@@ -106,7 +106,6 @@ func TestTranscriptInteractiveSkipsMemoryJobs(t *testing.T) {
 	head := `{"type":"queue-operation"}` + "\n" + `{"type":"attachment","entrypoint":"claude-vscode"}` + "\n"
 	for prompt, want := range map[string]bool{
 		fmt.Sprintf(assets.MemoryUpdateWorker("%s"), "/b"): false, fmt.Sprintf(assets.MemoryDreamWorker("%s"), "/b"): false,
-		fmt.Sprintf(assets.MemoryLegacyUpdateWorker("%s", "%s"), "/b", "/h"): false, fmt.Sprintf(assets.MemoryLegacyDreamWorker("%s", "%s"), "/b", "/m"): false,
 		"fix the login bug": true,
 	} {
 		path := filepath.Join(dir, strings.ReplaceAll(prompt[:12], " ", "-")+".jsonl")

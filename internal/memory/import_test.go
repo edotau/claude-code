@@ -55,7 +55,7 @@ func wantFile(t *testing.T, path, want string) {
 }
 
 func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
-	for name, stamp := range map[string]string{"unstamped": "", "flat 2": layoutFlat2 + "\n"} {
+	for name, stamp := range map[string]string{"unstamped": "", "flat 2": "flat 2\n"} {
 		t.Run(name, func(t *testing.T) {
 			tempConfig(t)
 			from := t.TempDir()
@@ -71,13 +71,6 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 				t.Fatalf("import --dry-run stamped the store layout (stat err = %v); it must write nothing", err)
 			}
 		})
-	}
-	tempConfig(t)
-	from := t.TempDir()
-	write(t, filepath.Join(paths.MemoryStoreDir(), "alpha", "progress.md"), "x\n")
-	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
-	if _, err := ImportBank(ImportOptions{From: from, DryRun: true}); !errors.Is(err, errStoreNotFlat) {
-		t.Errorf("import into a per-repo store err = %v, want errStoreNotFlat", err)
 	}
 }
 

@@ -64,7 +64,6 @@ const (
 // The shared cache holds JSON metadata and binary vector rows; claims hold one mint key -> expiry+owner.
 var (
 	embedVectorBucket = []byte("vectors")
-	embedLegacyBucket = []byte("cache") // v2: one bucket per profile, folded into the shared one by FoldLegacy
 	embedClaimBucket  = []byte("claims")
 	embedClaimKey     = []byte("mint")
 	embedRowsBucket   = []byte("rows")
@@ -378,81 +377,6 @@ func quarantineEmbedDB() error {
 		fmt.Fprintln(os.Stderr, "memory: embeddings.db was damaged; set aside as embeddings.db.damaged, rebuilding empty")
 	}
 	return err
-}
-
-// legacyFormat is the v2 layout FoldLegacy reads.
-var legacyFormat = schemas.Format{Name: embedFormat.Name, Version: 2}
-
-// legacyPresent reports whether the file still holds the v2 per-profile buckets; a missing or damaged file has none.
-func legacyPresent() (found bool, err error) {
-	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
-	if errors.Is(err, os.ErrNotExist) || embedDBBroken(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
-	err = db.View(func(tx *bbolt.Tx) error {
-		found = tx.Bucket(embedLegacyBucket) != nil
-		return nil
-	})
-	return found, err
-}
-
-// FoldLegacy folds the v2 per-profile records embedded with model into the shared cache, once; the rest are dropped.
-func (s *boltVectorStore) FoldLegacy(model string) error {
-	if found, err := legacyPresent(); err != nil || !found {
-		return err
-	}
-	if err := updateEmbedDB(func(tx *bbolt.Tx) error { return foldLegacyTx(tx, model) }); err != nil {
-		return err
-	}
-	stamps, _ := filepath.Glob(filepath.Join(paths.MemoryStateDir(), embedCachePre+"*.refresh*"))
-	for _, stamp := range stamps {
-		_ = os.Remove(stamp)
-	}
-	return nil
-}
-
-func foldLegacyTx(tx *bbolt.Tx, model string) error {
-	old := tx.Bucket(embedLegacyBucket)
-	if old == nil { // another process folded first
-		return nil
-	}
-	shared := decodeEmbedRecord(tx)
-	if shared.Model != model || shared.Rows == nil {
-		shared = vectorRecord{Model: model, Rows: map[string]vectorRow{}}
-	}
-	_ = old.ForEachBucket(func(name []byte) error { // any profile's vector for a hash is as good as another's
-		foldLegacyRecord(&shared, decodeVectorBucket(old.Bucket(name), legacyFormat))
-		return nil
-	})
-	for _, name := range [][]byte{embedLegacyBucket, embedClaimBucket} { // the old buckets and the per-profile claims
-		if err := tx.DeleteBucket(name); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.CreateBucket(embedClaimBucket); err != nil {
-		return err
-	}
-	return putEmbedRecord(tx, shared)
-}
-
-// foldLegacyRecord adds rec's rows to shared unless rec is another model or the id is already held.
-func foldLegacyRecord(shared *vectorRecord, rec vectorRecord) {
-	if rec.Model != shared.Model {
-		return
-	}
-	if shared.Dim == 0 {
-		shared.Dim, shared.DimAt = rec.Dim, rec.DimAt
-	}
-	shared.MintedAt = max(shared.MintedAt, rec.MintedAt)
-	for id, row := range rec.Rows {
-		if _, held := shared.Rows[id]; !held {
-			shared.Rows[id] = row
-		}
-	}
 }
 
 // RefreshDue reads the mint lease and claim lock-free: due when the record is outside its lease and no claim is live.

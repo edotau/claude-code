@@ -209,11 +209,8 @@ func (p *importPlan) diverged(rels []string) {
 
 // Mixed layouts cannot share file attribution safely; read-only, as the apply path's withFlatLock already stamped.
 func checkImportLayout(from string) error {
-	if err := checkFlat(); err != nil {
-		return err
-	}
 	if stamp, _ := os.ReadFile(filepath.Join(from, layoutFile)); strings.TrimSpace(string(stamp)) != layoutFlat {
-		return importInput("--from %s uses an older store layout; run `claude-code memory migrate` on it", from)
+		return importInput("--from %s uses an older store layout", from)
 	}
 	return nil
 }
@@ -223,10 +220,9 @@ func (p *importPlan) flatImportFile(rel string) bool {
 	return rel != nativeIndexFile && !strings.HasPrefix(path.Base(rel), ".")
 }
 
-// readPointers collects the source's entries: its index.md records, then its moved-aside and live MEMORY.md input.
+// readPointers collects the source's entries: its index.md records, then its live MEMORY.md input.
 func (p *importPlan) readPointers(root *os.Root) {
-	gen, _ := readSource(root, legacyGen) // a source store's own dotfile, as older binaries left it; the source's own proof of which edited-block lines it generated
-	for i, rel := range []string{catalogFile, legacyAside, nativeIndexFile} {
+	for i, rel := range []string{catalogFile, nativeIndexFile} {
 		data, err := readSource(root, rel)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
@@ -235,7 +231,7 @@ func (p *importPlan) readPointers(root *os.Root) {
 		case i == 0:
 			p.pointers = append(p.pointers, slices.DeleteFunc(decodeCatalog(string(data)), generatedCounter)...)
 		default:
-			in, _ := inputEntries(string(data), string(gen))
+			in, _ := inputEntries(string(data), "")
 			p.pointers = append(p.pointers, in...)
 		}
 	}

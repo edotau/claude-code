@@ -70,8 +70,6 @@ var inventory = []struct {
 	{"files/memory/prompts/update.md", "md", "MemoryUpdateProcedure", func() []byte { return read("files/memory/prompts/update.md") }},
 	{"files/memory/prompts/update-opening.tmpl", "tmpl", "MemoryUpdateWorker", func() []byte { return read("files/memory/prompts/update-opening.tmpl") }},
 	{"files/memory/prompts/dream-opening.tmpl", "tmpl", "MemoryDreamWorker", func() []byte { return read("files/memory/prompts/dream-opening.tmpl") }},
-	{"files/memory/prompts/legacy-update-opening.tmpl", "tmpl", "MemoryLegacyUpdateWorker", func() []byte { return read("files/memory/prompts/legacy-update-opening.tmpl") }},
-	{"files/memory/prompts/legacy-dream-opening.tmpl", "tmpl", "MemoryLegacyDreamWorker", func() []byte { return read("files/memory/prompts/legacy-dream-opening.tmpl") }},
 	{"files/memory/prompts/historical.txt", "txt", "MemoryHistoricalRule", func() []byte { return read("files/memory/prompts/historical.txt") }},
 	{"files/memory/prompts/update-worker.tmpl", "tmpl", "MemoryUpdatePrompt", func() []byte { return read("files/memory/prompts/update-worker.tmpl") }},
 	{"files/memory/prompts/transcript.tmpl", "tmpl", "MemoryTranscriptPointer,TranscriptHandoff", func() []byte { return read("files/memory/prompts/transcript.tmpl") }},
