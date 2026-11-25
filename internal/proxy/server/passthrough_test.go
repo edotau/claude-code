@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1324,5 +1325,21 @@ func TestWithGoogleToolsRefusesUnparsableBody(t *testing.T) {
 	}
 	if _, err := decodeProxyBody([]byte(`{"tools":[]}`)).withGoogleTools("url", nil); err != nil {
 		t.Errorf("valid body refused: %v", err)
+	}
+}
+
+func TestWritePassthroughSendErrorClientGone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p := &providers.Provider{Name: "dev"}
+	rec := httptest.NewRecorder()
+	writePassthroughSendError(rec, httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx), p, errors.New("canceled"))
+	if rec.Code != statusClientClosed {
+		t.Fatalf("cancelled client got %d, want %d", rec.Code, statusClientClosed)
+	}
+	rec = httptest.NewRecorder()
+	writePassthroughSendError(rec, httptest.NewRequest(http.MethodPost, "/", nil), p, errors.New("dial"))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("live client got %d, want %d", rec.Code, http.StatusBadGateway)
 	}
 }

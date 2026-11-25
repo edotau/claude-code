@@ -276,7 +276,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 				cur = next
 				continue
 			}
-			writeSendError(sw, cur.p, err)
+			writePassthroughSendError(sw, in, cur.p, err)
 			return cur.model, "", cur.p.Name
 		}
 		cur.body = body
@@ -822,7 +822,8 @@ func passthroughDiag(resp *http.Response, reqBytes int, hint retry.ShouldRetry) 
 		b.WriteString(agentToken(v))
 	}
 	if hint != retry.ShouldRetryUnset {
-		b.WriteString(" should_retry=" + strconv.FormatBool(hint == retry.ShouldRetryYes))
+		b.WriteString(" should_retry=")
+		b.WriteString(strconv.FormatBool(hint == retry.ShouldRetryYes))
 	}
 	if reqBytes > 0 {
 		b.WriteString(" bytes=")
@@ -1087,6 +1088,17 @@ func signCalls(calls []map[string]json.RawMessage) bool {
 		}
 	}
 	return touched
+}
+
+const statusClientClosed = 499
+
+// writePassthroughSendError answers 499 when the client hung up (a cancelled hedge), else writeSendError.
+func writePassthroughSendError(w http.ResponseWriter, in *http.Request, p *providers.Provider, err error) {
+	if in.Context().Err() != nil {
+		writeError(w, statusClientClosed, "proxy: client closed request")
+		return
+	}
+	writeSendError(w, p, err)
 }
 
 var passthroughSafeRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
