@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -129,6 +130,16 @@ func withoutFieldsHeader(src []byte) []byte {
 	return rest
 }
 
+// readerBytesErr requires the exact embedded bytes; only a rendered workflow skeleton may lose its header.
+func readerBytesErr(path, kind, reader string, read func() []byte) error {
+	want, err := files.ReadFile(path)
+	if err == nil && (inventoryBytesMatch(read, kind, reader, want) ||
+		strings.HasSuffix(path, ".js.tmpl") && inventoryBytesMatch(read, kind, reader, withoutFieldsHeader(want))) {
+		return nil
+	}
+	return fmt.Errorf("%s: %s() does not return the embedded bytes (%v)", path, reader, err)
+}
+
 func TestInventoryOneReaderEach(t *testing.T) {
 	byPath := map[string][]string{}
 	for name, paths := range readers(t) {
@@ -142,15 +153,50 @@ func TestInventoryOneReaderEach(t *testing.T) {
 		if strings.Join(got, ",") != e.reader {
 			t.Errorf("%s: readers %v, want [%s]", e.path, got, e.reader)
 		}
-		want, err := files.ReadFile(e.path)
-		if err != nil || !inventoryBytesMatch(e.read, e.kind, e.reader, want) &&
-			!inventoryBytesMatch(e.read, e.kind, e.reader, withoutFieldsHeader(want)) {
-			t.Errorf("%s: %s() does not return the embedded bytes (%v)", e.path, e.reader, err)
+		if bad := badReaderList(e.reader); bad != "" {
+			t.Errorf("%s: reader list %q %s", e.path, e.reader, bad)
+		}
+		if err := readerBytesErr(e.path, e.kind, e.reader, e.read); err != nil {
+			t.Error(err)
 		}
 		delete(byPath, e.path)
 	}
 	for _, p := range slices.Sorted(maps.Keys(byPath)) {
 		t.Errorf("%v read %s, which is not in the inventory", byPath[p], p)
+	}
+}
+
+// badReaderList names what is wrong with a comma-separated accessor list: blank or repeated names.
+func badReaderList(list string) string {
+	names := strings.Split(list, ",")
+	for i, n := range names {
+		if strings.TrimSpace(n) == "" {
+			return "has a blank accessor name"
+		}
+		if slices.Contains(names[:i], n) {
+			return "repeats " + n
+		}
+	}
+	return ""
+}
+
+func TestInventoryReaderListsWellFormed(t *testing.T) {
+	for list, want := range map[string]string{"": "blank", "A,": "blank", "A,,B": "blank", "A,A": "repeats A", "A,B": ""} {
+		if got := badReaderList(list); !strings.Contains(got, want) || (want == "") != (got == "") {
+			t.Errorf("badReaderList(%q) = %q, want %q", list, got, want)
+		}
+	}
+	for _, row := range Inventory() {
+		if slices.Contains(row.Accessors, "") || len(row.Accessors) == 0 {
+			t.Errorf("%s: doctor accessors %q hold an empty element or none", row.Path, row.Accessors)
+		}
+	}
+	saved := inventory
+	defer func() { inventory = saved }()
+	inventory = append(saved[:0:0], saved[0])
+	inventory[0].reader = ""
+	if got := Inventory()[0].Accessors; got == nil || len(got) != 0 {
+		t.Errorf("empty reader column became %q, want []", got)
 	}
 }
 
@@ -481,53 +527,160 @@ func unrenderedKeys(rendered map[string]bool) []string {
 	return missing
 }
 
-// declaredFields reads a template's leading {{/* fields: A B */}} header; "-" declares none.
-func declaredFields(root *parse.ListNode) ([]string, bool) {
+// fieldsHeader is the one canonical header: single spaces, "-" for none, "." for the bare value.
+var fieldsHeader = regexp.MustCompile(`^/\* fields: (-|\.|[A-Za-z_]\w*(?: [A-Za-z_]\w*)*) \*/$`)
+
+// declaredFields reads a template's canonical header; found is false without one, bad says why one is malformed.
+func declaredFields(root *parse.ListNode) (names []string, found bool, bad string) {
 	if root == nil || len(root.Nodes) == 0 {
-		return nil, false
+		return nil, false, ""
 	}
 	c, ok := root.Nodes[0].(*parse.CommentNode)
-	if !ok {
-		return nil, false
+	if !ok || !strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(c.Text, "/*")), "fields:") {
+		return nil, false, ""
 	}
-	body, found := strings.CutPrefix(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(c.Text, "/*"), "*/")), "fields:")
-	if !found {
-		return nil, false
+	m := fieldsHeader.FindStringSubmatch(c.Text)
+	if m == nil {
+		return nil, true, "malformed fields header " + strconv.Quote(c.Text) + `, want "/* fields: A B */"`
 	}
-	names := strings.Fields(body)
-	if len(names) == 1 && names[0] == "-" {
-		names = nil
+	if m[1] == "-" {
+		return nil, true, ""
 	}
-	return names, true
-}
-
-// usedFields is what key reads of its dot, blocks handed the dot included; a range body (dot = item) is skipped.
-func usedFields(set map[string]*parse.ListNode, key string) map[string]bool {
-	used := map[string]bool{}
-	var walk func(n parse.Node)
-	walk = func(n parse.Node) {
-		switch n := n.(type) {
-		case *parse.FieldNode:
-			used[strings.Join(n.Ident, ".")] = true
-		case *parse.DotNode:
-			used["."] = true
-		case *parse.RangeNode:
-			walk(n.Pipe)
-			walk(n.ElseList)
-		case *parse.TemplateNode:
-			if name, bare := passesDot(n); bare {
-				maps.Copy(used, usedFields(set, calleeKey(set, key, name)))
-			} else if n.Pipe != nil {
-				walk(n.Pipe)
-			}
-		default:
-			for _, c := range templateChildren(n) {
-				walk(c)
-			}
+	names = strings.Split(m[1], " ")
+	for i, n := range names {
+		if slices.Contains(names[:i], n) {
+			return names, true, "declares " + n + " twice"
 		}
 	}
-	walk(set[key])
-	return used
+	return names, true, ""
+}
+
+// fieldWalk: top is the dot's fields (bare-dot blocks included); items maps a range scope to its item fields.
+type fieldWalk struct {
+	set      map[string]*parse.ListNode
+	lenient  bool
+	top      map[string]bool
+	items    map[string]map[string]bool
+	reached  map[string]bool
+	problems []string
+}
+
+// walkFields is scope-aware; lenient (text/template briefs) allows with and variables, the executor fails them.
+func walkFields(set map[string]*parse.ListNode, key string, lenient bool) *fieldWalk {
+	w := &fieldWalk{set: set, lenient: lenient, top: map[string]bool{}, items: map[string]map[string]bool{},
+		reached: map[string]bool{key: true}}
+	w.visit([]string{key}, set[key], "")
+	return w
+}
+
+func (w *fieldWalk) use(scope, name string) {
+	if scope != "" && name == "." {
+		return
+	}
+	if scope == "" {
+		w.top[name] = true
+		return
+	}
+	if w.items[scope] == nil {
+		w.items[scope] = map[string]bool{}
+	}
+	w.items[scope][name] = true
+}
+
+func (w *fieldWalk) bad(path []string, msg string) {
+	w.problems = append(w.problems, path[len(path)-1]+": "+msg)
+}
+
+// visit walks n for template path[len-1]; scope "" is the top dot, else the range or with scope whose dot is an item.
+func (w *fieldWalk) visit(path []string, n parse.Node, scope string) {
+	switch n := n.(type) {
+	case *parse.FieldNode:
+		w.use(scope, strings.Join(n.Ident, "."))
+	case *parse.DotNode:
+		w.use(scope, ".")
+	case *parse.VariableNode:
+		w.variable(path, n)
+	case *parse.PipeNode:
+		w.pipe(path, n, scope)
+	case *parse.WithNode:
+		if !w.lenient {
+			w.bad(path, "uses {{with "+n.Pipe.String()+"}}, which the executor does not support")
+		}
+		w.scoped(path, n.Pipe, n.List, n.ElseList, "~with "+n.Pipe.String(), scope)
+	case *parse.RangeNode:
+		w.scoped(path, n.Pipe, n.List, n.ElseList, rangeScope(n, scope), scope)
+	case *parse.TemplateNode:
+		w.call(path, n, scope)
+	default:
+		w.children(path, n, scope)
+	}
+}
+
+func (w *fieldWalk) pipe(path []string, n *parse.PipeNode, scope string) {
+	if len(n.Decl) != 0 && !w.lenient {
+		w.bad(path, "declares a variable in "+n.String()+", which the executor does not support")
+	}
+	w.children(path, n, scope)
+}
+
+// scoped visits a range or with: the pipe and else list in the outer scope, the body in the item scope.
+func (w *fieldWalk) scoped(path []string, pipe *parse.PipeNode, body, other *parse.ListNode, inner, outer string) {
+	w.visit(path, pipe, outer)
+	w.visit(path, body, inner)
+	w.visit(path, other, outer)
+}
+
+func (w *fieldWalk) children(path []string, n parse.Node, scope string) {
+	for _, c := range templateChildren(n) {
+		w.visit(path, c, scope)
+	}
+}
+
+// variable counts $.X as a top field; the parse-only executor fails every variable.
+func (w *fieldWalk) variable(path []string, n *parse.VariableNode) {
+	if !w.lenient {
+		w.bad(path, "uses variable "+n.String()+", which the executor does not support")
+	}
+	switch {
+	case n.Ident[0] != "$":
+	case len(n.Ident) == 1:
+		w.top["."] = true
+	default:
+		w.top[strings.Join(n.Ident[1:], ".")] = true
+	}
+}
+
+func rangeScope(n *parse.RangeNode, scope string) string {
+	if c := n.Pipe.Cmds; scope == "" && len(n.Pipe.Decl) == 0 && len(c) == 1 && len(c[0].Args) == 1 {
+		switch a := c[0].Args[0].(type) {
+		case *parse.FieldNode:
+			return strings.Join(a.Ident, ".")
+		case *parse.DotNode:
+			return "."
+		}
+	}
+	return "~range " + n.Pipe.String()
+}
+
+// call checks a {{template}} target exists and is not already on the path; a bare dot hands the scope to the block.
+func (w *fieldWalk) call(path []string, n *parse.TemplateNode, scope string) {
+	target := calleeKey(w.set, path[len(path)-1], n.Name)
+	if _, ok := w.set[target]; !ok {
+		w.bad(path, "calls unknown template "+strconv.Quote(n.Name))
+		return
+	}
+	if slices.Contains(path, target) {
+		w.bad(path, "recurses through "+strings.Join(append(slices.Clone(path), target), " -> "))
+		return
+	}
+	if _, bare := passesDot(n); !bare {
+		if n.Pipe != nil {
+			w.visit(path, n.Pipe, scope)
+		}
+		return
+	}
+	w.reached[target] = true
+	w.visit(append(slices.Clone(path), target), w.set[target], scope)
 }
 
 // passesDot reports a {{template "x" .}} call and the block name it targets.
@@ -548,20 +701,23 @@ func calleeKey(set map[string]*parse.ListNode, from, name string) string {
 }
 
 // declarationProblems lists how key's header, body fields and nothing else disagree.
-func declarationProblems(set map[string]*parse.ListNode, key string) []string {
-	declared, ok := declaredFields(set[key])
+func declarationProblems(set map[string]*parse.ListNode, key string, lenient bool) []string {
+	declared, ok, bad := declaredFields(set[key])
 	if !ok {
 		return []string{key + ": no {{/* fields: ... */}} header as the first node"}
 	}
-	var out []string
-	used := usedFields(set, key)
-	for name := range used {
+	if bad != "" {
+		return []string{key + ": " + bad}
+	}
+	w := walkFields(set, key, lenient)
+	out := slices.Clone(w.problems)
+	for name := range w.top {
 		if !slices.Contains(declared, name) {
 			out = append(out, key+": uses "+name+" but does not declare it")
 		}
 	}
 	for _, name := range declared {
-		if !used[name] {
+		if !w.top[name] {
 			out = append(out, key+": declares "+name+" but never uses it")
 		}
 	}
@@ -576,7 +732,7 @@ func TestTemplateFieldsDeclared(t *testing.T) {
 	for _, load := range templateSets() {
 		set := load()
 		for key := range set {
-			for _, p := range declarationProblems(set, key) {
+			for _, p := range declarationProblems(set, key, false) {
 				t.Error(p)
 			}
 		}
@@ -597,45 +753,152 @@ func TestReviewBriefFieldsDeclared(t *testing.T) {
 			t.Fatalf("%s: %v", path, err)
 		}
 		set := map[string]*parse.ListNode{path: trees["brief"].Root}
-		for _, p := range declarationProblems(set, path) {
+		for _, p := range declarationProblems(set, path, true) {
 			t.Error(p)
 		}
-		declared, _ := declaredFields(set[path])
+		declared, _, _ := declaredFields(set[path])
 		for _, name := range declared {
 			if _, ok := reflect.TypeOf(input).FieldByName(name); !ok {
 				t.Errorf("%s: declares %s, which %T lacks", path, name, input)
 			}
 		}
+		for _, p := range itemFieldProblems(path, reflect.TypeOf(input), walkFields(set, path, true).items) {
+			t.Error(p)
+		}
 	}
 }
 
+// itemFieldProblems checks each named range scope's item fields against the element type of that input field.
+func itemFieldProblems(path string, input reflect.Type, items map[string]map[string]bool) []string {
+	var out []string
+	for scope, names := range items {
+		if strings.HasPrefix(scope, "~") {
+			continue
+		}
+		f, ok := input.FieldByName(scope)
+		if !ok || f.Type.Kind() != reflect.Slice || f.Type.Elem().Kind() != reflect.Struct {
+			out = append(out, path+": ranges over "+scope+", which is not a slice of structs in "+input.String())
+			continue
+		}
+		for name := range names {
+			if _, ok := f.Type.Elem().FieldByName(name); !ok {
+				out = append(out, path+": item field "+name+" is not in "+f.Type.Elem().String())
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 func TestTemplateFieldsNegativeControl(t *testing.T) {
+	const blk = `{{define "x"}}{{/* fields: - */}}`
 	for _, c := range []struct{ name, src, want string }{
 		{"omitted", `{{/* fields: A */}}{{.A}}{{.B}}`, "neg.tmpl: uses B but does not declare it"},
 		{"unused", `{{/* fields: A B */}}{{.A}}`, "neg.tmpl: declares B but never uses it"},
 		{"headerless", `{{.A}}`, "neg.tmpl: no {{/* fields"},
 		{"unsorted", `{{/* fields: B A */}}{{.A}}{{.B}}`, "neg.tmpl: declared fields are not sorted"},
 		{"through-block", `{{/* fields: - */}}{{template "x" .}}{{define "x"}}{{/* fields: A */}}{{.A}}{{end}}`, "neg.tmpl: uses A but does not declare it"},
+		{"root-variable", `{{/* fields: - */}}{{if $.A}}x{{end}}`, "neg.tmpl: uses variable $.A"},
+		{"root-variable-field", `{{/* fields: - */}}{{if $.A}}x{{end}}`, "neg.tmpl: uses A but does not declare it"},
+		{"with", `{{/* fields: A */}}{{with .A}}x{{end}}`, "neg.tmpl: uses {{with .A}}"},
+		{"variable-decl", `{{/* fields: A */}}{{$x := .A}}`, "neg.tmpl: declares a variable"},
+		{"unknown-block", `{{/* fields: - */}}{{template "missing" .}}`, `neg.tmpl: calls unknown template "missing"`},
+		{"self-recursion", `{{/* fields: - */}}{{template "x" .}}` + blk + `{{template "x" .}}{{end}}`, "neg/x: recurses through neg/x -> neg/x"},
+		{"mutual-recursion", `{{define "a"}}{{/* fields: - */}}{{template "b" .}}{{end}}{{define "b"}}{{/* fields: - */}}{{template "a" .}}{{end}}`, "neg/b: recurses through neg/a -> neg/b -> neg/a"},
+		{"no-space", `{{/*fields: A*/}}{{.A}}`, "neg.tmpl: malformed fields header"},
+		{"double-space", `{{/* fields: A  B */}}{{.A}}{{.B}}`, "neg.tmpl: malformed fields header"},
+		{"tab", "{{/* fields: A\tB */}}{{.A}}{{.B}}", "neg.tmpl: malformed fields header"},
+		{"empty-declaration", `{{/* fields: */}}x`, "neg.tmpl: malformed fields header"},
+		{"dash-with-names", `{{/* fields: - A */}}{{.A}}`, "neg.tmpl: malformed fields header"},
+		{"duplicate", `{{/* fields: A A */}}{{.A}}`, "neg.tmpl: declares A twice"},
 	} {
-		got := declarationProblems(parseTemplates("neg.tmpl", []byte(c.src)), "neg.tmpl")
+		set := parseTemplates("neg.tmpl", []byte(c.src))
+		var got []string
+		for key := range set {
+			got = append(got, declarationProblems(set, key, false)...)
+		}
 		if !slices.ContainsFunc(got, func(p string) bool { return strings.HasPrefix(p, c.want) }) {
 			t.Errorf("%s: problems %q lack %q", c.name, got, c.want)
 		}
 	}
 }
 
-// checkCallerFields fails a render whose tmplFields carries a key the executed template does not declare.
-func checkCallerFields(t *testing.T, label, key string, dot any) {
-	fields, ok := dot.(tmplFields)
-	if !ok {
-		return
+func TestFieldWalkScopes(t *testing.T) {
+	w := walkFields(parseTemplates("s.tmpl", []byte(`{{/* fields: - */}}{{range .L}}{{.X}}{{$.T}}{{end}}`)), "s.tmpl", true)
+	if !w.top["L"] || !w.top["T"] || w.top["X"] || !w.items["L"]["X"] {
+		t.Errorf("top %v items %v: want L,T top and X an item field of L", w.top, w.items)
 	}
+	type row struct{ A string }
+	type in struct{ L []row }
+	got := itemFieldProblems("p", reflect.TypeFor[in](), map[string]map[string]bool{"L": {"A": true, "Zed": true}})
+	if len(got) != 1 || !strings.Contains(got[0], "item field Zed") {
+		t.Errorf("item problems = %q, want one for Zed", got)
+	}
+}
+
+func TestCallerFieldsBothDirections(t *testing.T) {
+	set := parseTemplates("c.tmpl", []byte(`{{/* fields: A B C */}}{{if .A}}{{.B}}{{else}}{{.C}}{{end}}`))
+	for name, c := range map[string]struct {
+		fields tmplFields
+		want   string
+	}{
+		"exact":   {tmplFields{"A": 1, "B": 1, "C": 1}, ""},
+		"extra":   {tmplFields{"A": 1, "B": 1, "C": 1, "D": 1}, "passes D to c.tmpl"},
+		"missing": {tmplFields{"A": 1, "B": 1}, "omits C for c.tmpl"},
+	} {
+		got := strings.Join(callerFieldProblems(set, "L", "c.tmpl", c.fields), "\n")
+		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("%s: problems %q, want %q", name, got, c.want)
+		}
+	}
+	blocks := parseTemplates("b.tmpl", []byte(`{{/* fields: A */}}{{.A}}{{template "x" .}}{{define "x"}}{{/* fields: A Z */}}{{.A}}{{.Z}}{{end}}`))
+	if got := callerFieldProblems(blocks, "L", "b.tmpl", tmplFields{"A": 1}); len(got) != 1 || !strings.Contains(got[0], "omits Z") {
+		t.Errorf("block fields: problems %q, want one omitting Z", got)
+	}
+}
+
+func TestTemplateReservedDefineName(t *testing.T) {
+	for _, src := range []string{`{{define "\x00file"}}owned{{end}}`, `x{{define "\x00file"}}owned{{end}}`} {
+		mustPanic(t, "reserved", func() { parseTemplates("r.tmpl", []byte(src)) })
+	}
+}
+
+// callerFieldProblems lists keys a tmplFields caller passes that key does not declare, and declared ones it omits.
+func callerFieldProblems(set map[string]*parse.ListNode, label, key string, dot any) []string {
+	fields, ok := dot.(tmplFields)
+	if _, found, _ := declaredFields(set[key]); !ok || !found {
+		return nil
+	}
+	want := map[string]bool{}
+	for k := range walkFields(set, key, false).reached {
+		names, _, _ := declaredFields(set[k])
+		for _, n := range names {
+			want[n] = true
+		}
+	}
+	var out []string
+	for name := range fields {
+		if !want[name] {
+			out = append(out, label+" passes "+name+" to "+key+", which does not declare it")
+		}
+	}
+	for name := range want {
+		if _, ok := fields[name]; !ok {
+			out = append(out, label+" omits "+name+" for "+key+", which declares it")
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func checkCallerFields(t *testing.T, label, key string, dot any) {
 	for _, load := range templateSets() {
-		declared, found := declaredFields(load()[key])
-		for name := range fields {
-			if found && !slices.Contains(declared, name) {
-				t.Errorf("%s passes %s to %s, which does not declare it", label, name, key)
-			}
+		set := load()
+		if _, ok := set[key]; !ok {
+			continue
+		}
+		for _, p := range callerFieldProblems(set, label, key, dot) {
+			t.Error(p)
 		}
 	}
 }

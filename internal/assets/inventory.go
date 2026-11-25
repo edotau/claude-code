@@ -182,7 +182,8 @@ func Inventory() []PromptRow {
 	rows := make([]PromptRow, 0, len(inventory))
 	for _, e := range inventory {
 		src := read(e.path)
-		row := PromptRow{Path: e.path, Family: strings.Split(e.path, "/")[1], Accessors: strings.Split(e.reader, ","), Fields: []string{}, Size: len(src)}
+		names := slices.DeleteFunc(strings.Split(e.reader, ","), func(n string) bool { return n == "" })
+		row := PromptRow{Path: e.path, Family: strings.Split(e.path, "/")[1], Accessors: names, Fields: []string{}, Size: len(src)}
 		if strings.HasSuffix(e.path, ".tmpl") {
 			row.Fields = append(row.Fields, templateFields(path.Base(e.path), src)...)
 		}

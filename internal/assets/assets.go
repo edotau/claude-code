@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"text/template/parse"
 )
@@ -24,9 +25,27 @@ func parseTrees(name string, src []byte) map[string]*parse.Tree {
 	root := parse.New(parseRoot)
 	root.Mode = parse.ParseComments
 	if _, err := root.Parse(string(src), "", "", trees); err != nil {
+		if strings.Contains(err.Error(), "multiple definition of template "+strconv.Quote(parseRoot)) {
+			panic(reservedDefine(name))
+		}
 		panic("assets: " + name + ": " + strings.ReplaceAll(err.Error(), parseRoot, name))
 	}
+	if !parse.IsEmptyTree(trees[parseRoot].Root) && strings.Contains(string(src), "define") && definesParseRoot(src) {
+		panic(reservedDefine(name))
+	}
 	return trees
+}
+
+func reservedDefine(name string) string {
+	return "assets: " + name + ": a define may not use the reserved name " + strconv.Quote(parseRoot)
+}
+
+// definesParseRoot reparses under another root name: a define-only file owning parseRoot then still holds the key.
+func definesParseRoot(src []byte) bool {
+	trees := map[string]*parse.Tree{}
+	_, err := parse.New(parseRoot+"probe").Parse(string(src), "", "", trees)
+	_, owned := trees[parseRoot]
+	return err == nil && owned
 }
 
 // parseTemplates keys a file's trees: the file by name (unless only defines), each define as "<stem>/<block>".
