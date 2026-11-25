@@ -34,7 +34,12 @@ type Finding struct {
 	Served  []string `json:"served,omitempty"` // READY ids of the model's family the workspace does list
 }
 
-func (f Finding) String() string { return f.Check + ": " + f.Detail }
+func (f Finding) String() string {
+	if len(f.Served) == 0 {
+		return f.Check + ": " + f.Detail
+	}
+	return f.Check + ": " + f.Detail + "; nearest: " + strings.Join(f.Served, ", ")
+}
 
 // Preflight is what a dispatch's preflight found and chose; the record and the preflight: lines carry it.
 type Preflight struct {
@@ -462,17 +467,18 @@ func servedAlternatives(p *providers.Provider, model string, now time.Time) []st
 	if !ok {
 		return nil
 	}
-	fam, chat := familyKey(model), chatServed(s)
-	var out []string
+	chat := chatServed(s)
+	var ready []string
 	for _, m := range s.Models {
-		if len(out) == maxAlternatives {
-			break
-		}
-		if m.IsReady() && chat(m) && familyKey(m.ID) == fam && m.ID != model {
-			out = append(out, m.ID)
+		if m.IsReady() && chat(m) && m.ID != model {
+			ready = append(ready, m.ID)
 		}
 	}
-	return out
+	same := slices.DeleteFunc(slices.Clone(ready), func(id string) bool { return familyKey(id) != familyKey(model) })
+	if len(same) == 0 {
+		same = ready // an unknown family still names what the workspace serves
+	}
+	return same[:min(len(same), maxAlternatives)]
 }
 
 // chatServed judges s's entries as chat endpoints; a listing that records no task judges none non-chat.
