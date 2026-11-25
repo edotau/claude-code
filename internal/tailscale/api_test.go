@@ -17,9 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// staticClient wires a Client at ts.URL with a fixed bearer, bypassing credential resolution.
-func staticClient(ts *httptest.Server, bearer string) *Client {
-	return &Client{
+// staticClient wires an apiClient at ts.URL with a fixed bearer, bypassing credential resolution.
+func staticClient(ts *httptest.Server, bearer string) *apiClient {
+	return &apiClient{
 		BaseURL: ts.URL, HTTP: ts.Client(),
 		token: func(context.Context) (string, error) { return bearer, nil },
 	}
@@ -36,7 +36,7 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	defer ts.Close()
 	c := staticClient(ts, "tok")
 
-	key, err := c.CreateAuthKey(context.Background(), keyOpts{
+	key, err := c.createAuthKey(context.Background(), keyOpts{
 		Ephemeral: true, Preauthorized: true, Reusable: false,
 		Tags: []string{"tag:ci", "tag:ephemeral"}, Expiry: 90 * 24 * time.Hour, Description: "ci runner",
 	})
@@ -87,7 +87,7 @@ func TestDevicesParsesList(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"devices": []device{d}})
 	}))
 	defer ts.Close()
-	devices, err := staticClient(ts, "tok").Devices(context.Background())
+	devices, err := staticClient(ts, "tok").devices(context.Background())
 	if err != nil {
 		t.Fatalf("Devices err = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestApproveExitNodeBody(t *testing.T) {
 		_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
 	}))
 	defer ts.Close()
-	if err := staticClient(ts, "tok").ApproveExitNode(context.Background(), "dev123"); err != nil {
+	if err := staticClient(ts, "tok").approveExitNode(context.Background(), "dev123"); err != nil {
 		t.Fatalf("ApproveExitNode err = %v", err)
 	}
 	if gotPath != "/device/dev123/routes" {
@@ -137,14 +137,14 @@ func TestRequestRemintsOnceOn401(t *testing.T) {
 	}))
 	defer ts.Close()
 	mints := 0
-	c := &Client{BaseURL: ts.URL, HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
+	c := &apiClient{BaseURL: ts.URL, HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
 		mints++
 		if force, _ := ctx.Value(forceRefreshKey{}).(bool); force {
 			return "fresh", nil
 		}
 		return "stale", nil
 	}}
-	if _, err := c.Devices(context.Background()); err != nil {
+	if _, err := c.devices(context.Background()); err != nil {
 		t.Fatalf("Devices err = %v", err)
 	}
 	if calls != 2 {
@@ -161,7 +161,7 @@ func TestRequestGivesUpAfterSecond401(t *testing.T) {
 	}))
 	defer ts.Close()
 	c := staticClient(ts, "stale")
-	if _, err := c.Devices(context.Background()); err == nil {
+	if _, err := c.devices(context.Background()); err == nil {
 		t.Error("Devices() err = nil, want an error after a persistent 401")
 	}
 }
@@ -172,11 +172,11 @@ func TestEnableRoutesKeepsEnabled(t *testing.T) {
 	ts := httptest.NewServer(enableRoutesHandler(t, &gotBody))
 	defer ts.Close()
 	c := staticClient(ts, "tok")
-	cur, err := c.Routes(context.Background(), "dev1")
+	cur, err := c.routes(context.Background(), "dev1")
 	if err != nil {
 		t.Fatalf("Routes err = %v", err)
 	}
-	enabled, err := c.EnableRoutes(context.Background(), "dev1", cur, []string{"192.168.1.0/24", "::/0"})
+	enabled, err := c.enableRoutes(context.Background(), "dev1", cur, []string{"192.168.1.0/24", "::/0"})
 	if err != nil {
 		t.Fatalf("EnableRoutes err = %v", err)
 	}
@@ -226,17 +226,17 @@ func hermeticSecrets(t *testing.T) {
 
 func TestNewClientErrNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, err := NewClient(); !errors.Is(err, errNoCredential) {
-		t.Errorf("NewClient() err = %v, want ErrNoCredential", err)
+	if _, err := clientFromVault(); !errors.Is(err, errNoCredential) {
+		t.Errorf("clientFromVault() err = %v, want ErrNoCredential", err)
 	}
 }
 
-// NewClient's OAuth branch is untested here: its token func would POST to the real defaultBaseURL.
+// clientFromVault's OAuth branch is untested here: its token func would POST to the real defaultBaseURL.
 
 func TestNewClientFallsBackToAPIKey(t *testing.T) {
 	hermeticSecrets(t)
 	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
-	c, err := NewClient()
+	c, err := clientFromVault()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestSetNames(t *testing.T) {
 	}
 }
 
-// EnableRoutes must not write into the caller's cur.Enabled backing array.
+// enableRoutes must not write into the caller's cur.Enabled backing array.
 func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"enabledRoutes":[]}`))
@@ -285,7 +285,7 @@ func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
 	backing := make([]string, 1, 4)
 	backing[0] = "::/0"
 	cur := deviceRoutes{Enabled: backing}
-	if _, err := staticClient(ts, "tok").EnableRoutes(context.Background(), "d", cur, []string{"10.0.0.0/8"}); err != nil {
+	if _, err := staticClient(ts, "tok").enableRoutes(context.Background(), "d", cur, []string{"10.0.0.0/8"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := backing[:2][1]; got != "" {
@@ -311,7 +311,7 @@ func TestApproveExitNodeKeepsConcurrentRoute(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(deviceRoutes{Enabled: enabled})
 	}))
 	defer ts.Close()
-	if err := staticClient(ts, "tok").ApproveExitNode(context.Background(), "d"); err != nil {
+	if err := staticClient(ts, "tok").approveExitNode(context.Background(), "d"); err != nil {
 		t.Fatalf("ApproveExitNode err = %v", err)
 	}
 	for _, want := range []string{"10.0.0.0/8", "192.168.1.0/24", "0.0.0.0/0", "::/0"} {

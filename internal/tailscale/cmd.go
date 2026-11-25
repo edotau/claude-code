@@ -66,9 +66,6 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	return fs, t
 }
 
-// Spec is the completion node for the tailscale verb.
-func Spec() *helptext.Node { return &helptext.Node{Flags: Flags()} }
-
 // Flags are the completion flags of `tailscale`, derived from its FlagSet.
 func Flags() []helptext.Flag {
 	fs, _ := tailscaleFlags()

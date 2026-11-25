@@ -1,16 +1,23 @@
 package tailscale
 
 import (
+	"bufio"
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/netip"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -59,7 +66,7 @@ func approveSelfExitNode(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := client.ApproveExitNode(ctx, id); err != nil {
+	if err := client.approveExitNode(ctx, id); err != nil {
 		return st.DNSName, err
 	}
 	return st.DNSName, nil
@@ -71,7 +78,7 @@ func approveSelfSubnets(ctx context.Context) (dns string, want, enabled []string
 	if err != nil {
 		return "", nil, nil, err
 	}
-	cur, err := client.Routes(ctx, id)
+	cur, err := client.routes(ctx, id)
 	if err != nil {
 		return st.DNSName, nil, nil, err
 	}
@@ -79,7 +86,7 @@ func approveSelfSubnets(ctx context.Context) (dns string, want, enabled []string
 	if len(want) == 0 {
 		return st.DNSName, nil, nil, errNoSubnetRoutes
 	}
-	en, err := client.EnableRoutes(ctx, id, cur, want)
+	en, err := client.enableRoutes(ctx, id, cur, want)
 	if err != nil {
 		return st.DNSName, want, nil, err
 	}
@@ -136,13 +143,13 @@ func MintKey(ctx context.Context, o KeyOptions) (AuthKey, error) {
 	if err != nil {
 		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
 	}
-	client, err := NewClient()
+	client, err := clientFromVault()
 	if err != nil {
 		return AuthKey{}, err
 	}
 	opts := keyOpts{Ephemeral: o.Ephemeral, Preauthorized: o.Preauthorized, Reusable: o.Reusable,
 		Tags: textutil.SplitCSV(o.Tags), Description: o.Description, Expiry: exp}
-	key, err := client.CreateAuthKey(ctx, opts)
+	key, err := client.createAuthKey(ctx, opts)
 	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
 		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
 		return AuthKey{}, fmt.Errorf("%w\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
@@ -239,4 +246,117 @@ func restoreCreds(done []priorCred) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// stepUpWait bounds the browser re-authentication.
+var stepUpWait = 5 * time.Minute
+
+// Seams: tests stub the terminal check and the re-auth.
+var (
+	stdioIsTTY = func() bool { return proc.IsTerminal(os.Stdin) && proc.IsTerminal(os.Stdout) }
+	reauthRun  = reauth
+	stepUpGate = stepUp
+)
+
+var tailnetNets = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
+
+// stepUp gates a key mint: an owner terminal, no Tailscale SSH session, then a browser re-auth by the same user.
+func stepUp(ctx context.Context, out io.Writer) error {
+	if proc.InDispatch(ctx) || !stdioIsTTY() {
+		return errors.New("minting a key needs your own terminal (stdin and stdout a TTY, not inside an agent " +
+			"dispatch): run `claude-code tailscale --token` there yourself")
+	}
+	if inTailscaleSSH(os.Getenv("SSH_CONNECTION")) {
+		return errors.New("this shell is a Tailscale SSH session to this machine and re-auth would drop it: " +
+			"run it from the machine's own terminal")
+	}
+	before, err := Status(ctx)
+	if err != nil || before.LoginName == "" {
+		return fmt.Errorf("cannot read the signed-in tailscale user before re-auth: %w",
+			cmp.Or(err, errors.New("status names no user")))
+	}
+	fmt.Fprintln(out, "tailscale: re-authenticating rotates this node's key and drops its connections for a few seconds")
+	if err := reauthRun(ctx, out); err != nil {
+		return fmt.Errorf("re-auth: %w", err)
+	}
+	after, err := Status(ctx)
+	if err != nil || after.LoginName != before.LoginName {
+		return errors.New("re-auth signed in a different user (or status is unreadable); no key minted")
+	}
+	return nil
+}
+
+// inTailscaleSSH is true when SSH_CONNECTION's client address is a tailnet address.
+func inTailscaleSSH(conn string) bool {
+	f := strings.Fields(conn)
+	if len(f) == 0 {
+		return false
+	}
+	ip, err := netip.ParseAddr(f[0])
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap()
+	for _, n := range tailnetNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// reauth forces a browser sign-in through the LocalAPI, else `tailscale login`, and waits for Running.
+func reauth(ctx context.Context, out io.Writer) error {
+	ctx, cancel := context.WithTimeout(ctx, stepUpWait)
+	defer cancel()
+	err := reauthLocal(ctx, out)
+	if !errors.Is(err, errNoLocalAPI) {
+		return err
+	}
+	bin, err := tailscaleBin()
+	if err != nil {
+		return err
+	}
+	cmd := execCommandContext(ctx, bin, cliArgs("login")...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, os.Stderr
+	return execErr(ctx, "login", cmd.Run())
+}
+
+func reauthLocal(ctx context.Context, out io.Writer) error {
+	bus, err := localAPIStream(ctx, "watch-ipn-bus?mask="+strconv.Itoa(notifyInitialState))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = bus.Close() }()
+	before, _ := Status(ctx) // unreadable: the key check stays off and only a Running notify ends the watch
+	if _, err := localAPI(ctx, http.MethodPost, "login-interactive", nil); err != nil {
+		return err
+	}
+	return awaitReauth(bus, out, func() bool {
+		st, err := Status(ctx)
+		return err == nil && before.NodeKey != "" && st.running() && st.NodeKey != "" && st.NodeKey != before.NodeKey
+	})
+}
+
+// awaitReauth prints the first fresh sign-in URL, then returns at Running or a rotated node key.
+func awaitReauth(bus io.Reader, out io.Writer, rotated func() bool) error {
+	sc := bufio.NewScanner(bus)
+	sc.Buffer(nil, maxNotify)
+	for first, shown := true, false; sc.Scan(); first = false {
+		var n notify
+		if err := json.Unmarshal(sc.Bytes(), &n); err != nil {
+			return fmt.Errorf("tailscale localapi watch-ipn-bus: %w", err)
+		}
+		if _, err := n.outcome(); err != nil {
+			return err
+		}
+		if u, ok := signInURL(n.BrowseToURL); ok && !first && !shown {
+			fmt.Fprintf(out, "\nTo re-authenticate, visit:\n\n\t%s\n\n", u)
+			shown = true
+		}
+		if done, _ := n.outcome(); shown && (done || rotated()) {
+			return nil
+		}
+	}
+	return fmt.Errorf("tailscale localapi watch-ipn-bus: %w", cmp.Or(sc.Err(), io.ErrUnexpectedEOF))
 }

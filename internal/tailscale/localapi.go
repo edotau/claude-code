@@ -47,8 +47,8 @@ var (
 // harnessSocket is where `install --tools` points a rootless Linux tailscaled (tools/install.go:596).
 func harnessSocket() string { return filepath.Join(paths.StateDir(), "tailscale", "tailscaled.sock") }
 
-// StubLocalAPI points discovery at sock alone ("" = no LocalAPI), for tests; restore undoes it.
-func StubLocalAPI(sock string) (restore func()) {
+// stubLocalAPI points discovery at sock alone ("" = no LocalAPI), for tests; restore undoes it.
+func stubLocalAPI(sock string) (restore func()) {
 	off, dir, socks := localAPIOff, macsysDir, unixSockets
 	localAPIOff, macsysDir = sock == "", ""
 	unixSockets = func() []string { return []string{sock} }

@@ -21,7 +21,7 @@ import (
 // defaultBaseURL is the Tailscale admin API.
 const defaultBaseURL = "https://api.tailscale.com/api/v2"
 
-// apiBaseURL is where NewClient and Doctor mint tokens; a var so tests can point it at an httptest server.
+// apiBaseURL is where clientFromVault and Doctor mint tokens; a var so tests can point it at an httptest server.
 var apiBaseURL = defaultBaseURL
 
 // errNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
@@ -84,8 +84,8 @@ func atLeastSecond(s string, d time.Duration) (time.Duration, error) {
 }
 
 // selfDevice resolves this box to its admin-API device; errNoCredential means no client could be built.
-func selfDevice(ctx context.Context) (*Client, Local, string, error) {
-	client, err := NewClient()
+func selfDevice(ctx context.Context) (*apiClient, Local, string, error) {
+	client, err := clientFromVault()
 	if err != nil {
 		return nil, Local{}, "", err
 	}
@@ -99,8 +99,8 @@ func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 	return client, st, st.ID, nil // the status node id is the admin API's device id: no device listing needed
 }
 
-// Client talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
-type Client struct {
+// apiClient talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
+type apiClient struct {
 	BaseURL string
 	HTTP    *http.Client
 	token   func(ctx context.Context) (string, error)
@@ -109,20 +109,20 @@ type Client struct {
 // apiTimeout bounds one admin-API round trip so a stalled server cannot hang a verb.
 const apiTimeout = 30 * time.Second
 
-// newClient is a Client on apiBaseURL with the admin-API timeout; DefaultClient's transport stays the test seam.
-func newClient() *Client {
-	return &Client{BaseURL: apiBaseURL, HTTP: httpx.NewClient(apiTimeout, http.DefaultClient.Transport, nil)}
+// newClient is an apiClient on apiBaseURL with the admin-API timeout; DefaultClient's transport stays the test seam.
+func newClient() *apiClient {
+	return &apiClient{BaseURL: apiBaseURL, HTTP: httpx.NewClient(apiTimeout, http.DefaultClient.Transport, nil)}
 }
 
 // newOAuthClient is newClient authenticated by an OAuth client_credentials pair.
-func newOAuthClient(clientID, clientSecret string) *Client {
+func newOAuthClient(clientID, clientSecret string) *apiClient {
 	c := newClient()
 	c.token = oauthToken(c.BaseURL, clientID, clientSecret, c.HTTP)
 	return c
 }
 
-// NewClient resolves credentials via vault.Get: TAILSCALE_OAUTH_CLIENT_ID/_SECRET, else TAILSCALE_API_KEY.
-func NewClient() (*Client, error) {
+// clientFromVault resolves credentials via vault.Get: TAILSCALE_OAUTH_CLIENT_ID/_SECRET, else TAILSCALE_API_KEY.
+func clientFromVault() (*apiClient, error) {
 	if id, _, ok := vault.Get(oauthIDName); ok {
 		if secret, _, ok2 := vault.Get(oauthSecretName); ok2 {
 			return newOAuthClient(id, secret), nil
@@ -138,17 +138,17 @@ func NewClient() (*Client, error) {
 
 // CheckAdmin proves the stored admin credential works by listing devices.
 func CheckAdmin(ctx context.Context) error {
-	c, err := NewClient()
+	c, err := clientFromVault()
 	if err != nil {
 		return err
 	}
-	_, err = c.Devices(ctx)
+	_, err = c.devices(ctx)
 	return err
 }
 
 // ValidateCreds proves an OAuth client id and secret work: it mints a token with them and lists devices.
 func ValidateCreds(ctx context.Context, clientID, clientSecret string) error {
-	_, err := newOAuthClient(clientID, clientSecret).Devices(ctx)
+	_, err := newOAuthClient(clientID, clientSecret).devices(ctx)
 	return err
 }
 
@@ -156,7 +156,7 @@ func ValidateCreds(ctx context.Context, clientID, clientSecret string) error {
 const apiBodyLimit = 8 << 20
 
 // request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints once on a 401.
-func (c *Client) request(ctx context.Context, method, path string, body, out any) error {
+func (c *apiClient) request(ctx context.Context, method, path string, body, out any) error {
 	call := httpx.Call{Client: c.HTTP, Method: method, URL: c.BaseURL + path, Limit: apiBodyLimit}
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -182,7 +182,7 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 }
 
 // send runs call with a bearer token (re-minted when forceRefresh).
-func (c *Client) send(ctx context.Context, call httpx.Call, out any, forceRefresh bool) (int, error) {
+func (c *apiClient) send(ctx context.Context, call httpx.Call, out any, forceRefresh bool) (int, error) {
 	if forceRefresh {
 		ctx = withForceRefresh(ctx)
 	}
@@ -213,8 +213,8 @@ type AuthKey struct {
 	Key string `json:"key"`
 }
 
-// CreateAuthKey mints a tskey-auth-… key via POST /tailnet/-/keys.
-func (c *Client) CreateAuthKey(ctx context.Context, opts keyOpts) (AuthKey, error) {
+// createAuthKey mints a tskey-auth-… key via POST /tailnet/-/keys.
+func (c *apiClient) createAuthKey(ctx context.Context, opts keyOpts) (AuthKey, error) {
 	type create struct {
 		Reusable      bool     `json:"reusable"`
 		Ephemeral     bool     `json:"ephemeral"`
@@ -256,8 +256,8 @@ type device struct {
 	EnabledRoutes []string  `json:"enabledRoutes,omitempty"`
 }
 
-// Devices lists every device on the tailnet; fields=all because the default listing omits enabledRoutes.
-func (c *Client) Devices(ctx context.Context) ([]device, error) {
+// devices lists every device on the tailnet; fields=all because the default listing omits enabledRoutes.
+func (c *apiClient) devices(ctx context.Context) ([]device, error) {
 	var out struct {
 		Devices []device `json:"devices"`
 	}
@@ -273,15 +273,15 @@ type deviceRoutes struct {
 	Enabled    []string `json:"enabledRoutes"`
 }
 
-// Routes reads device id's advertised and enabled routes.
-func (c *Client) Routes(ctx context.Context, deviceID string) (deviceRoutes, error) {
+// routes reads device id's advertised and enabled routes.
+func (c *apiClient) routes(ctx context.Context, deviceID string) (deviceRoutes, error) {
 	var out deviceRoutes
 	err := c.request(ctx, http.MethodGet, "/device/"+deviceID+"/routes", nil, &out)
 	return out, err
 }
 
-// EnableRoutes POSTs cur.Enabled plus routes (the endpoint replaces the set) and returns the new enabled set.
-func (c *Client) EnableRoutes(
+// enableRoutes POSTs cur.Enabled plus routes (the endpoint replaces the set) and returns the new enabled set.
+func (c *apiClient) enableRoutes(
 	ctx context.Context, deviceID string, cur deviceRoutes, routes []string,
 ) ([]string, error) {
 	want := slices.Clone(cur.Enabled)
@@ -300,22 +300,22 @@ func (c *Client) EnableRoutes(
 	return out.Enabled, nil
 }
 
-// ApproveExitNode approves the default routes, keeping enabled ones; no CAS, so it re-reads and retries (3x).
-func (c *Client) ApproveExitNode(ctx context.Context, deviceID string) error {
+// approveExitNode approves the default routes, keeping enabled ones; no CAS, so it re-reads and retries (3x).
+func (c *apiClient) approveExitNode(ctx context.Context, deviceID string) error {
 	var dropped []string
 	for range 3 {
-		cur, err := c.Routes(ctx, deviceID)
+		cur, err := c.routes(ctx, deviceID)
 		if err != nil {
 			return err
 		}
-		fresh, err := c.Routes(ctx, deviceID)
+		fresh, err := c.routes(ctx, deviceID)
 		if err != nil {
 			return err
 		}
 		if dropped = missingRoutes(fresh.Enabled, cur.Enabled); len(dropped) > 0 {
 			continue
 		}
-		got, err := c.EnableRoutes(ctx, deviceID, cur, defaultRoutes)
+		got, err := c.enableRoutes(ctx, deviceID, cur, defaultRoutes)
 		if err != nil {
 			return err
 		}

@@ -58,14 +58,14 @@ func TestStatusLocalAPI(t *testing.T) {
 	lookPathReal = func(string) (string, error) { return "", errors.New("not found") }
 	t.Cleanup(func() { lookPathReal = prev })
 	t.Cleanup(StubMacAppCLI(""))
-	t.Cleanup(StubLocalAPI(sock))
+	t.Cleanup(stubLocalAPI(sock))
 
 	got, err := Status(context.Background())
 	if err != nil || got.Via != "localapi" || !strings.HasPrefix(got.DNSName, "test-mac.tailxxxxx.ts.net") {
 		t.Fatalf("Status() = %q via %q, err %v", got.DNSName, got.Via, err)
 	}
 
-	t.Cleanup(StubLocalAPI(""))
+	t.Cleanup(stubLocalAPI(""))
 	if _, err := Status(context.Background()); !errors.Is(err, errNoCLI) {
 		t.Errorf("Status() without LocalAPI err = %v, want errNoCLI", err)
 	}
@@ -93,7 +93,7 @@ func TestAdvertiseExitNodeKeepsSubnets(t *testing.T) {
 			w.Write([]byte(`{}`))
 		}
 	}))
-	t.Cleanup(StubLocalAPI(sock))
+	t.Cleanup(stubLocalAPI(sock))
 
 	if err := advertiseExitNode(context.Background(), true); err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestLoginLocalShowsURLThenRunning(t *testing.T) {
 			w.(http.Flusher).Flush()
 		}
 	}))
-	t.Cleanup(StubLocalAPI(sock))
+	t.Cleanup(stubLocalAPI(sock))
 
 	var out strings.Builder
 	if err := loginLocal(context.Background(), func(context.Context) error { return nil }, &out); err != nil {
