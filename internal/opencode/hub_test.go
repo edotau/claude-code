@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -336,7 +337,8 @@ func TestHubRunIdleSteps(t *testing.T) {
 	}
 }
 
-const evSecret = "AK" + "IAIOSFODNN7EXAMPLE"
+// evSecret is a vault value the log must mask; gibberish, never a credential shape.
+const evSecret = "Zorbly-Quexmint-Pafflewod"
 
 // emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
 func emitScript(lines ...string) string {
@@ -372,6 +374,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("OPENCODE_API_KEY", "test-key")
+	redact.StubValues(t, []string{evSecret})
 	var out strings.Builder
 	log := loggedRun(t, false, func(ctx context.Context) {
 		pathstest.FakeVendor(t, "opencode", emitScript(
@@ -386,7 +389,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 	}
 	// step_finish may or may not log a result line; the assistant line is exact and any extra line is formatted.
 	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
-	if lines[0] != "▸ assistant: hello AWS_SECRET=REDACTED" || len(lines) > 2 {
+	if !strings.HasPrefix(lines[0], "▸ assistant: hello AWS_SECRET=[redacted]") || len(lines) > 2 {
 		t.Errorf("log lines = %q, want the assistant line first", lines)
 	}
 	if len(lines) == 2 && !strings.HasPrefix(lines[1], "▸ result:") {

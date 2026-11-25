@@ -30,11 +30,11 @@ func Scratch(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("PATH", t.TempDir()) // no real opencode: a 2.x CLI would report its own logins instead of auth.json
 	t.Setenv("HARNESS_PROVIDER", "")
-	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
-	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+	t.Setenv("GEMINI_API_KEY", "test-gemini")
+	t.Setenv("OPENROUTER_API_KEY", "test-openrouter")
 	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
+	t.Setenv("OPENAI_API_KEY", "test-openai")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "openai"}`)
 	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func LoadTarget(t testing.TB, provider, model string) providers.Target {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
-		t.Setenv(k, "sk-SECRET-123")
+		t.Setenv(k, "test-SECRET-123")
 	}
 	reg, err := providers.Load()
 	if err != nil {

@@ -101,6 +101,9 @@ func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target
 	return t, own, err
 }
 
+// CheckRouteHost is guardRouteHost's issuer check; a seam so tests stub a mismatch instead of building a JWT.
+var CheckRouteHost = providers.CheckRouteHost
+
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.
 func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if p.Preset == "" {
@@ -113,7 +116,7 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if err != nil {
 		return err // an unresolvable credential must not skip the host check
 	}
-	return providers.CheckRouteHost(p, cred)
+	return CheckRouteHost(p, cred)
 }
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned agent dispatch (own login).

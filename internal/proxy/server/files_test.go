@@ -195,7 +195,7 @@ func TestFilesCacheScopedToUpstreamCredential(t *testing.T) {
 		`","auth":{"type":"key","header":"x-api-key","env":"FILES_SCOPE_KEY"},"models":{"opus":"m"}}}}}`,
 		func(r *Router) { r.client = u.Client() })
 	data := bigB64(300 << 10)
-	for _, key := range []string{"sk-account-a", "sk-account-b"} {
+	for _, key := range []string{"test-account-a", "test-account-b"} {
 		t.Setenv("FILES_SCOPE_KEY", key)
 		post(t, srv.URL+"/p/sub/v1/messages", filesBody(data), map[string]string{proxy.ClientHeader: secret})
 	}

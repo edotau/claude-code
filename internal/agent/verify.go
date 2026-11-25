@@ -98,7 +98,7 @@ func dropFirstLine(s string) string {
 		line = strings.TrimSpace(line)
 		isHeader := strings.HasPrefix(line, "Proc-Type:") || strings.HasPrefix(line, "DEK-Info:")
 		blank := line == "" && header
-		if !isHeader && !blank && !base64Line(line) {
+		if !isHeader && !blank && !keyBodyLine(line) {
 			break
 		}
 		header, rest = isHeader || blank, next
@@ -110,6 +110,9 @@ const b64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 
 // base64Line reports a line of only base64 characters (no space or other punctuation).
 func base64Line(s string) bool { return s != "" && strings.Trim(s, b64Chars) == "" }
+
+// keyBodyLine is dropFirstLine's key-body check; a seam so tests never build a key-body-shaped line.
+var keyBodyLine = base64Line
 
 // maskShapes masks credential-shaped runs, then vault values, in s.
 func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }

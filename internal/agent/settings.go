@@ -141,10 +141,13 @@ func checkLaunchValues(agentName string, l *vault.AgentLaunch) (proc.Values, err
 	return proc.Values(overlay.Set).Merge(nil), nil
 }
 
+// looksSecret is the shape check secretArg applies; a seam so tests never hold a credential-shaped value.
+var looksSecret = textutil.LooksSecret
+
 // secretArg reports a credential-shaped argv entry, whole or as the value of --flag=value.
 func secretArg(a string) bool {
 	_, v, _ := strings.Cut(a, "=")
-	return textutil.LooksSecret(a) || textutil.LooksSecret(v)
+	return looksSecret(a) || looksSecret(v)
 }
 
 // checkExtras refuses an extras key decl lacks and a value outside its allowed list; "" (unset a built-in) passes.

@@ -103,7 +103,7 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 	}
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("DBX_CLI_TOKEN", "dapi-cli-secret-token")
+	t.Setenv("DBX_CLI_TOKEN", "test-cli-secret-token")
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"endpoints":[{"name":"chat-a","task":"llm/v1/chat","state":{"ready":"READY"}}]}`))
 	}))
@@ -250,7 +250,7 @@ func macFallbackScratch(t *testing.T) {
 	}
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	t.Setenv("COPILOT_HOME", t.TempDir())
-	t.Setenv("DBX_CLI_TOKEN", "dapi-fixture")
+	t.Setenv("DBX_CLI_TOKEN", "fixture-workspace-token")
 	err := providers.SetProviderFields("dbx", map[string]any{"protocol": "anthropic", "preset": "databricks",
 		"host": "https://127.0.0.1:1", "auth": map[string]any{"type": "key", "env": "DBX_CLI_TOKEN"}})
 	if err != nil {

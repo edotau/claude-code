@@ -466,10 +466,13 @@ func codexStrictChildren(x map[string]any) {
 	}
 }
 
+// looksSecret picks the headers that ride env; a seam so tests never hold a credential-shaped value.
+var looksSecret = textutil.LooksSecret
+
 func codexProviderHeaders(p *providers.Provider, env proc.Values, envHs, fields [][2]string) (proc.Values, [][2]string, [][2]string) {
 	var hs [][2]string
 	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-		if !textutil.LooksSecret(p.Headers[k]) {
+		if !looksSecret(p.Headers[k]) {
 			hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
 			continue
 		}

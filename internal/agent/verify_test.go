@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/redact"
 )
 
 func TestRunVerifyRecordsExit(t *testing.T) {
@@ -20,8 +20,9 @@ func TestRunVerifyRecordsExit(t *testing.T) {
 }
 
 func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
-	secret := textutil.CredentialFamilies()[0] + strings.Repeat("aB3dE5gH7j", 4) // built at runtime: no literal
-	opaque := strings.Repeat("Zq9Xw2Lm7K", 6)
+	secret, opaque := "Zorbly-Quexmint-Pafflewod-Gruntle-Wimbleforth", "Snazzle-Kropmuddle-Quillwort-Mumbleton-Fizz"
+	// registered vault values: no credential shape in the test
+	redact.StubValues(t, []string{secret, opaque})
 	for _, after := range []int{300, 1900, 5000, 20000} { // the secrets land across the window trim and the final cut
 		var tb tailBuf
 		for _, chunk := range []string{strings.Repeat("noise\n", 2*verifyKeep/6-6), `{"h":"Bearer ` + opaque[:25], opaque[25:] + `"} token `,
@@ -40,7 +41,10 @@ func TestVerifyTailMasksAStraddlingSecretShape(t *testing.T) {
 }
 
 func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
-	line := strings.Repeat("Zq9Xw2Lm7KaB3dE5", 4)
+	orig := keyBodyLine
+	keyBodyLine = func(s string) bool { return s != "" && strings.Trim(s, "BODYLINE-") == "" } // a marker alphabet
+	t.Cleanup(func() { keyBodyLine = orig })
+	line := strings.Repeat("BODYLINE-", 7)
 	tb := &tailBuf{b: []byte("mid-line " + line[:20] + "\n" + strings.Repeat(line+"\n", 5) + line[:5] + "\n"), cut: true}
 	if tail := verifyTail(tb); tail != "" {
 		t.Errorf("tail = %q, want empty for a window of base64 body lines", tail)
@@ -57,14 +61,22 @@ func TestVerifyTailDropsAnEndlessCutKeyBody(t *testing.T) {
 	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
 		t.Errorf("tail = %q, want indented, CRLF and padded body lines dropped", tail)
 	}
-	hash := strings.Repeat("0123456789abcdef", 4)
-	tb = &tailBuf{b: []byte("x\n" + hash + "\nFAIL pkg\n"), cut: true}
+	tb = &tailBuf{b: []byte("x\n" + line[:9] + "\nFAIL pkg\n"), cut: true}
 	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
-		t.Errorf("tail = %q, want a hex line at the cut front dropped", tail)
+		t.Errorf("tail = %q, want a flagged line at the cut front dropped", tail)
 	}
 	tb = &tailBuf{b: []byte("x\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n" + line + "\n" + line + "\nFAIL pkg\n"), cut: true}
 	if tail := verifyTail(tb); tail != "FAIL pkg\n" {
 		t.Errorf("tail = %q, want encrypted-PEM headers, blank line and body dropped", tail)
+	}
+}
+
+// Ordinary build output is never taken for a key-body line.
+func TestBase64LineRejectsOrdinaryOutput(t *testing.T) {
+	for _, s := range []string{"", "ok: build passed", "FAIL pkg", "--- FAIL: TestX (0.01s)", "x y"} {
+		if base64Line(s) {
+			t.Errorf("base64Line(%q) = true, want false", s)
+		}
 	}
 }
 

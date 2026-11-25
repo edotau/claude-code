@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotauth"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -457,20 +456,27 @@ func TestPreflightKeepaliveExtendsOnlyExpiringAuth(t *testing.T) {
 		t.Run(strconv.FormatBool(extend), func(t *testing.T) {
 			vaulttest.Use(t)
 			now := time.Now()
-			hits := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				hits++
 				if !extend {
 					w.WriteHeader(500)
 					return
 				}
-				tok := hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, now.Add(time.Hour).Unix()))
-				if err := json.NewEncoder(w).Encode(map[string]any{"access_token": tok, "expires_in": 3600}); err != nil {
+				if err := json.NewEncoder(w).Encode(map[string]any{"access_token": "fixture-access", "expires_in": 3600}); err != nil {
 					t.Error(err)
 				}
 			}))
 			defer srv.Close()
 			p := &providers.Provider{Name: "gate-refresh", Provider: "databricks", BaseURL: srv.URL + "/serving-endpoints/anthropic", Auth: providers.Auth{Type: providers.AuthOAuth}}
+			hits, orig := 0, keepalive
+			keepalive = func(context.Context, *providers.Provider) (bool, error) { // a renewal is its new expiry record
+				hits++
+				if !extend {
+					return false, errors.New("refresh refused")
+				}
+				writeExpiryRecord(t, p, time.Now().Add(time.Hour))
+				return true, nil
+			}
+			t.Cleanup(func() { keepalive = orig })
 			seedPreflightToken(t, p, now.Add(5*time.Minute))
 			f, _ := tokenFinding(p, now, DefaultToolsTimeout)
 			if (f == nil) != extend || hits != 1 {
@@ -489,16 +495,22 @@ func TestPreflightKeepaliveExtendsOnlyExpiringAuth(t *testing.T) {
 
 func seedPreflightToken(t *testing.T, p *providers.Provider, exp time.Time) {
 	t.Helper()
-	raw, err := json.Marshal(map[string]string{"refresh": "fixture-refresh", "access": hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, exp.Unix()))})
+	raw, err := json.Marshal(map[string]string{"refresh": "fixture-refresh", "access": "fixture-access"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(p), string(raw))
+	writeExpiryRecord(t, p, exp)
+}
+
+// writeExpiryRecord stores p's token-expiry record at exp, as a mint would.
+func writeExpiryRecord(t *testing.T, p *providers.Provider, exp time.Time) {
+	t.Helper()
 	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	raw = fmt.Appendf(nil, `{"schema":2,"exp":%d,"method":"u2m"}`, exp.Unix())
+	raw := fmt.Appendf(nil, `{"schema":2,"exp":%d,"method":"u2m"}`, exp.Unix())
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}

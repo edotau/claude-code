@@ -14,8 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/redact"
-
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // DispatchUses lists the dispatch dir; hosttest keeps it off the owner's tree.
@@ -82,23 +80,20 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 		t.Errorf("log mode = %o, want 600", mode)
 	}
 
-	token := "ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
-	line := "key=sk-" + token + "\n"
-	if textutil.RedactSecrets(line) == line {
-		t.Fatalf("textutil.RedactSecrets(%q) left it unchanged; test has no teeth", line)
-	}
+	token := "Zorbly-Quexmint-Pafflewod-Gruntle"
+	redact.StubValues(t, []string{token})
 	s2 := NewLogSink(path)
 	w := s2.Stream()
-	_, _ = w.Write([]byte("key=sk-"))
-	_, _ = w.Write([]byte(token))
+	_, _ = w.Write([]byte("key=" + token[:12]))
+	_, _ = w.Write([]byte(token[12:]))
 	_, _ = w.Write([]byte("\n"))
 	s2.Close()
 
 	got := pathstest.ReadFile(t, path)
-	if strings.Contains(got, token) {
+	if strings.Contains(got, token) || strings.Contains(got, token[:12]) {
 		t.Errorf("log leaks the raw token: %q", got)
 	}
-	if want := "first\n" + textutil.RedactSecrets(line); got != want {
+	if want := "first\nkey=[redacted]" + strings.Repeat("*", len(token)-10) + "\n"; got != want {
 		t.Errorf("log = %q, want %q", got, want)
 	}
 }

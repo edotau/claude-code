@@ -260,7 +260,7 @@ func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Regi
 	t.Helper()
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", strings.Replace(servedRow, "%s", on, 1))
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	menu := []providers.OpencodeModel{{ID: "m-a", Label: "A", Responses: true}, {ID: "m-b", Label: "B", Responses: true}}
 	if err := providers.SetOpencodeMenu(menu); err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func leadRegistry(t *testing.T) *providers.Registry {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	reg, err := providers.Load()
 	if err != nil {
@@ -699,7 +699,7 @@ func familyEnv(t *testing.T) (*providers.Registry, *int) {
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", familyRows)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	activateAgents(t, "codex")
 	vaulttest.SetRecord(t, "copilot", "profile", "octo")
 	for _, a := range []string{"codex", "copilot"} {

@@ -17,7 +17,7 @@ import (
 func TestResolveAccountNamesActualBackend(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.SetRecord(t, "claude", "profile", "openai")
-	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
+	t.Setenv("OPENAI_API_KEY", "test-not-real")
 	acct, billing := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
 	if acct != "openai·openai" || billing != router.BillCredits {
 		t.Fatalf("resolveAccount = (%q, %q), want openai·openai credits", acct, billing)
@@ -31,7 +31,7 @@ func TestResolveAccountNamesActualBackend(t *testing.T) {
 func TestResolveAccountFollowsSessionProfile(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
+	t.Setenv("OPENAI_API_KEY", "test-not-real")
 	t.Setenv(providers.EnvSessionProfile, "openai")
 	if acct, _ := resolveAccount("claude", router.Cell{Model: "claude-sonnet-5-5"}); acct != "openai·openai" {
 		t.Errorf("claude account = %q, want the session profile openai·openai", acct)

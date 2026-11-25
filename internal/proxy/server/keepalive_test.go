@@ -136,9 +136,9 @@ func TestKeepaliveLogsVerdictNeverErrorText(t *testing.T) {
 	g.fn = func(_ context.Context, p *providers.Provider) (bool, error) {
 		switch p.Name {
 		case "hot":
-			return false, errors.New("dapiSECRETTOKEN refused")
+			return false, errors.New("SECRETTOKEN refused")
 		case "idle":
-			panic("dapiSECRETTOKEN in a panic")
+			panic("SECRETTOKEN in a panic")
 		}
 		return false, nil
 	}

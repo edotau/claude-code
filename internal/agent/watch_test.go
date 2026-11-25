@@ -322,10 +322,14 @@ func TestOwnedJobsFollowResumes(t *testing.T) {
 }
 
 func TestLastLogLineDropsCredentials(t *testing.T) {
+	const fake = "Zorbly-Quexmint-Pafflewod"
+	orig := holdsCredential
+	holdsCredential = func(s string) bool { return strings.Contains(s, fake) }
+	t.Cleanup(func() { holdsCredential = orig })
 	p := filepath.Join(t.TempDir(), "x.log")
 	for body, want := range map[string]string{
-		"a\nediting watch.go\n\n":                       "editing watch.go",
-		"a\ntoken sk-" + strings.Repeat("A", 24) + "\n": "",
+		"a\nediting watch.go\n\n": "editing watch.go",
+		"a\ntoken " + fake + "\n": "",
 	} {
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

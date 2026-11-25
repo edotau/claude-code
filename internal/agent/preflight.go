@@ -244,6 +244,9 @@ func pairedSPFor(ctx context.Context, p *providers.Provider) bool {
 	return p.Identity != providers.IdentityUser && providers.IdentityFrom(ctx) != providers.IdentityUser && providers.SPPresent(p)
 }
 
+// keepalive is tokenFinding's refresh; a seam so tests renew a record instead of minting a JWT.
+var keepalive = providers.Keepalive
+
 // tokenFinding is the finding for a token too short for the run after a keepalive; refreshed says it was just renewed.
 func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) (f *Finding, refreshed bool) {
 	exp, _, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity)
@@ -252,7 +255,7 @@ func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) (f
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	refreshed, err := providers.Keepalive(ctx, p)
+	refreshed, err := keepalive(ctx, p)
 	exp, _, ok = providers.TokenExpiryMethodFor(p.Name, p.Identity)
 	if ok && time.Until(exp) >= budget+2*time.Minute {
 		return nil, false

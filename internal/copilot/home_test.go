@@ -215,7 +215,7 @@ func TestSeedCopilotHomeRefusesGitHubLogin(t *testing.T) {
 	logins := []string{
 		`{"lastLoggedInUser":{"host":"github.com","login":"octocat"}}`,
 		`{"loggedInUsers":[{"login":"octocat"}]}`,
-		`{"copilotTokens":{"github.com:octocat":"gho_x"}}`,
+		`{"copilotTokens":{"github.com:octocat":"fixture"}}`,
 	}
 	for _, body := range logins {
 		home, xdg := filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "xdg")

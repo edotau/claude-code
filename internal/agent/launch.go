@@ -153,7 +153,7 @@ func (s Schema) configureWire(ctx context.Context, e Driver, t providers.Target,
 			return nil, nil, err
 		}
 		routed = true
-	} else if cred, err = providers.Credential(ctx, p); err != nil {
+	} else if cred, err = credential(ctx, p); err != nil {
 		return nil, nil, err
 	}
 	return e.Wire(ctx, WireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)

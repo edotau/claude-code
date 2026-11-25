@@ -67,7 +67,7 @@ var (
 func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	t.Setenv("CLAUDE_PROFILE", "dev")
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{respA, respB}); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
 	tb := testTable(t)
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY"}))
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

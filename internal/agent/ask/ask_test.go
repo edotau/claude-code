@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -738,7 +739,7 @@ func assertEventsLogMirrors(t *testing.T, evs []wire.Event, dispatchID, secret s
 			t.Errorf("log event %d type %s, stdout %s", i, logged[i].Type, evs[i].Type)
 		}
 	}
-	if strings.Contains(string(logb), secret) || !strings.Contains(string(logb), "REDACTED") {
+	if strings.Contains(string(logb), secret) || !strings.Contains(string(logb), "[redacted]") {
 		t.Errorf("events log must redact the secret:\n%s", logb)
 	}
 }
@@ -749,7 +750,8 @@ func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	secret := "ghp_" + strings.Repeat("a", 36)
+	secret := "Zorbly-Quexmint-Pafflewod-Gruntle"
+	redact.StubValues(t, []string{secret})
 	pathstest.FakeNativeClaude(t, "cat > /dev/null\n"+
 		`printf '%s\n' '{"type":"assistant","session_id":"s1","message":{"model":"m","content":[{"type":"text","text":"hello "},{"type":"tool_use","id":"tu1","name":"Read"}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"assistant","parent_tool_use_id":"tu1","message":{"model":"m","content":[{"type":"text","text":"SUBAGENT"}]}}'`+"\n"+

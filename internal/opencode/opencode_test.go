@@ -66,13 +66,13 @@ func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) 
 func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
-	t.Setenv(opencodeAPIKeyEnv, "sk-test-key")
+	t.Setenv(opencodeAPIKeyEnv, "test-key")
 	env, err := opencodeCredential("opencode-go")
 	if err != nil {
 		t.Fatalf("err = %v, want the vault/env key to resolve it", err)
 	}
-	if len(env) != 1 || env[0] != opencodeAPIKeyEnv+"=sk-test-key" {
-		t.Errorf("env = %d, want [%s=sk-test-key]", len(env), opencodeAPIKeyEnv)
+	if len(env) != 1 || env[0] != opencodeAPIKeyEnv+"=test-key" {
+		t.Errorf("env = %d, want [%s=test-key]", len(env), opencodeAPIKeyEnv)
 	}
 }
 
@@ -190,10 +190,10 @@ func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
 func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
-	vaulttest.Secret(t, opencodeAPIKeyEnv, "sk-vault-only")
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "test-vault-only")
 	t.Setenv(opencodeAPIKeyEnv, "")
 	env := (opencodeEngine{}).LaunchEnv()
-	if !slices.Contains(env, opencodeAPIKeyEnv+"=sk-vault-only") {
+	if !slices.Contains(env, opencodeAPIKeyEnv+"=test-vault-only") {
 		t.Fatalf("LaunchEnv lacks the vault credential: %d", len(env))
 	}
 }

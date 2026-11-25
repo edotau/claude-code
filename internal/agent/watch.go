@@ -480,6 +480,9 @@ func tailBytes(path string) ([]byte, error) {
 // logTailBytes bounds the log read for the last line.
 const logTailBytes = 4096
 
+// holdsCredential is lastLogLine's shape check; a seam so tests never hold a credential-shaped value.
+var holdsCredential = func(s string) bool { return textutil.CredentialRE().MatchString(s) }
+
 // lastLogLine is the log's last non-empty line, dropped when it holds a credential shape.
 func lastLogLine(path string) string {
 	b, err := tailBytes(path)
@@ -492,7 +495,7 @@ func lastLogLine(path string) string {
 		}
 		return r
 	}, textutil.LastLine(string(b)))
-	if textutil.CredentialRE().MatchString(line) {
+	if holdsCredential(line) {
 		return ""
 	}
 	return line

@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -27,7 +28,8 @@ import (
 
 // A failed job's stderr tail may carry a key; result must not echo it raw.
 func TestResultExitRedactsError(t *testing.T) {
-	const key = "sk" + "-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
+	const key = "Zorbly-Quexmint-Pafflewod-Gruntle"
+	redact.StubValues(t, []string{key})
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +64,7 @@ func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"live-test":{"preset":"databricks","host":"https://test.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	vaulttest.Secret(t, "DATABRICKS_LIVE_TEST_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_LIVE_TEST_PAT", "test-pat")
 	code, out, stderr := runCLI(t, "ask", "--live", "--agent", "gemini", "--provider", "databricks", "--format", "json")
 	if code != 1 {
 		t.Fatalf("exit %d, want refused test-binary spawn\n%s\n%s", code, out, stderr)

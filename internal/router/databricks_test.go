@@ -23,7 +23,7 @@ func dbxCandidates(t *testing.T, profile string, menu []providers.OpencodeModel,
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", profile)
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	if err := providers.SetOpencodeMenu(menu); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func vendorPick(t *testing.T, want string, pinned bool, st State, lead string) P
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "dev")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	o := PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
 	if pinned {
 		o.Pins = map[string]PinSpec{"codex": {Profile: "dev"}, "copilot": {Profile: "dev"}}
@@ -173,7 +173,7 @@ func leadPick(t *testing.T, want, lead string) PickResult {
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
 		Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead})
 }
@@ -217,7 +217,7 @@ func TestGateLeadKeepsOtherAgentOnLeadAccount(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	reg, _ := providers.Load()
 	hop := Candidate{Agent: "copilot", Account: "databricks·dev", Model: "hop-marker"}
 	var res PickResult
@@ -268,7 +268,7 @@ func TestGateLeadKeepsDistinctBaseAndDropsRepeats(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	reg, _ := providers.Load()
 	base := []Candidate{{Agent: "codex", Account: "x·other"}, {Agent: "codex", Account: "openai·chatgpt", Model: "gpt-6.1-sol"}}
 	var res PickResult
@@ -317,7 +317,7 @@ func TestGateLeadBaseCandidateWinsDedup(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	reg, _ := providers.Load()
 	base := []Candidate{{Agent: "codex", Account: dbxChatgpt, Model: "gpt-6.1-sol", Billing: "base-marker"}}
 	var res PickResult
@@ -334,7 +334,7 @@ func TestPickLeadQuietLoginRowSkips(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	pick := func(deny string) PickResult {
 		return tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: allConfigured, Lead: "dev",
 			Now: func() time.Time { return now0 }, CanServe: func(_ string, p *providers.Provider) bool { return p.Name != deny }})
@@ -357,7 +357,7 @@ func TestPickPinnedGeminiOnDatabricksRowRuns(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	r := tb.Pick(context.Background(), "sonnet", "gemini", State{}, PickOpts{Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"gemini": {Profile: "dev"}}})
 	if !slices.ContainsFunc(r.Candidates, func(c Candidate) bool { return c.Agent == "gemini" && c.Profile == "dev" }) {
@@ -373,7 +373,7 @@ func TestPickPinnedVendorOffersEveryLoginRow(t *testing.T) {
 		`"auth":{"type":"pat"}}},"github":{"zz-second":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
 		`"auth":{"type":"cli","login":"copilot"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", rows)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"copilot": {Profile: "dev"}}})
 	got := accountsOf(r, "copilot")
@@ -394,7 +394,7 @@ func workspacePick(t *testing.T, want, lead, pin, fb string) []string {
 	t.Setenv("CLAUDE_PROFILE", "")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbx3Rows)
 	for _, n := range []string{"DEV", "QA", "PROD"} {
-		vaulttest.Secret(t, "DATABRICKS_"+n+"_PAT", "dapi-test")
+		vaulttest.Secret(t, "DATABRICKS_"+n+"_PAT", "test-pat")
 	}
 	r := tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
 		Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead, Policy: testPolicy(fb),
@@ -437,7 +437,7 @@ func TestPickRecordFallbackRunsWithoutPin(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", "")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbx3Rows)
-	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "test-pat")
 	noOwnLogin := func(agent string, c Cell) error {
 		if agent == "codex" && c.Account == "openai·chatgpt" {
 			return errors.New("not signed in")
@@ -455,7 +455,7 @@ func BenchmarkDatabricksPick(b *testing.B) {
 	tb := testTable(b)
 	vaulttest.Use(b)
 	vaulttest.Put(b, vault.Overlay, "providers", routeDbxRow)
-	vaulttest.Secret(b, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(b, "DATABRICKS_DEV_PAT", "test-pat")
 	vaulttest.SetRecord(b, "claude", "profile", "dev")
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{dbxClaudeNoResp, dbxGPT}); err != nil {
 		b.Fatal(err)

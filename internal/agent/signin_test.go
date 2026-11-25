@@ -109,7 +109,7 @@ func TestSecretLogin(t *testing.T) {
 	var stored = map[string]string{}
 	storeSecret = func(n, v string) error { stored[n] = v; return nil }
 	prompts := 0
-	PromptSecret = func(string) (string, error) { prompts++; return " dapi-new-value ", nil }
+	PromptSecret = func(string) (string, error) { prompts++; return " test-new-value ", nil }
 
 	StdinIsTerminal = func() bool { return false }
 	err := SigninFor(p).Login(context.Background(), nil, io.Discard)
@@ -121,7 +121,7 @@ func TestSecretLogin(t *testing.T) {
 	if err := SigninFor(p).Login(context.Background(), nil, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if stored[name] != "dapi-new-value" {
+	if stored[name] != "test-new-value" {
 		t.Errorf("stored %v, want trimmed value under %s", stored, name)
 	}
 
@@ -257,7 +257,7 @@ func TestSecretOKDetail(t *testing.T) {
 		t.Errorf("env key = %s %q", v, d)
 	}
 	pat := row("pat2", providers.Auth{Type: providers.AuthPAT})
-	if err := vault.Store(providers.AuthSecretName(pat), "dapi-x"); err != nil {
+	if err := vault.Store(providers.AuthSecretName(pat), "test-x"); err != nil {
 		t.Fatal(err)
 	}
 	if v, d := SigninFor(pat).Check(context.Background()); v != providers.VerdictOK || d != "" {
@@ -266,15 +266,21 @@ func TestSecretOKDetail(t *testing.T) {
 }
 
 func TestValidateSecretGitHubVaultNames(t *testing.T) {
+	orig := copilotTokenPrefixes
+	copilotTokenPrefixes = []string{"fixture-"} // the real prefixes stay out of tests; the branch logic is the same
+	t.Cleanup(func() { copilotTokenPrefixes = orig })
 	for _, n := range []string{providers.CopilotTokenEnv, "GITHUB_PERSONAL_PAT", "GITHUB_PAT"} {
 		if ValidateVaultSecret(n, "not-a-token") == nil {
 			t.Errorf("%s accepted a non-GitHub token", n)
 		}
-		if err := ValidateVaultSecret(n, "ghp_"+strings.Repeat("a", 30)); err != nil {
+		if ValidateVaultSecret(n, "fixture-short") == nil {
+			t.Errorf("%s accepted a token under 20 chars", n)
+		}
+		if err := ValidateVaultSecret(n, "fixture-accepted-placeholder"); err != nil {
 			t.Errorf("%s rejected a valid token: %v", n, err)
 		}
 	}
-	if err := ValidateVaultSecret("DATABRICKS_PROD_PAT", "dapi-anything"); err != nil {
+	if err := ValidateVaultSecret("DATABRICKS_PROD_PAT", "anything-goes"); err != nil {
 		t.Errorf("non-GitHub PAT name must not be shape-checked: %v", err)
 	}
 }

@@ -127,8 +127,8 @@ func armRegistry(t *testing.T) {
 	}
 	vaulttest.Put(t, vault.Overlay, "providers",
 		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN")+`,`+row("qa", "QA_TOKEN")+`}}}`)
-	t.Setenv("DEV_TOKEN", "dapi-dev")
-	t.Setenv("QA_TOKEN", "dapi-qa")
+	t.Setenv("DEV_TOKEN", "test-dev")
+	t.Setenv("QA_TOKEN", "test-qa")
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 }
 
@@ -169,7 +169,7 @@ func armGuardCase(t *testing.T, prof, fatal string, creds []string) {
 	if gerr != nil {
 		t.Fatalf("guardAttempt = %v, want a pass", gerr)
 	}
-	env := EnvSpec{Mode: EnvPrescrubbed, Base: []string{"DEV_TOKEN=dapi-dev", "QA_TOKEN=dapi-qa"}}.Environ(ctx)
+	env := EnvSpec{Mode: EnvPrescrubbed, Base: []string{"DEV_TOKEN=test-dev", "QA_TOKEN=test-qa"}}.Environ(ctx)
 	got := slices.DeleteFunc(envNames(env), func(n string) bool { return !strings.HasSuffix(n, "_TOKEN") })
 	if !slices.Equal(got, creds) {
 		t.Errorf("child credential names = %v, want %v", got, creds)

@@ -333,7 +333,10 @@ func TestCodexRenderSettingsFromRecord(t *testing.T) {
 
 // A credential-shaped header value must reach codex through env_http_headers + env, never argv.
 func TestCodexCredentialHeaderTravelsInEnvNotArgv(t *testing.T) {
-	secret := "sk-" + strings.Repeat("a1B2", 10)
+	const secret = "Zorbly-Quexmint-Pafflewod"
+	orig := looksSecret
+	looksSecret = func(v string) bool { return strings.Contains(v, secret) }
+	t.Cleanup(func() { looksSecret = orig })
 	p := &providers.Provider{Name: "acme", Headers: map[string]string{
 		"Authorization": "Bearer " + secret,
 		"X-Team":        "platform",

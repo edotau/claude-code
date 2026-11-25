@@ -83,7 +83,7 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 
 // A _TOKEN credential and the SDK token never land in the quota hand-off file, in prompt, partial text or session.
 func TestHandoffNeverWritesCredentials(t *testing.T) {
-	const sdkToken, envSecret = "gho_SDKTOKEN12345", "dbx_pat_ENVSECRET9"
+	const sdkToken, envSecret = "test-SDKTOKEN12345", "dbx_pat_ENVSECRET9"
 	dir := t.TempDir()
 	orig := handoffPath
 	handoffPath = func(_, name string) string { return filepath.Join(dir, name) }
@@ -474,7 +474,7 @@ func byokKeyState(child []string) (keyed, leaked bool) {
 	for _, kv := range child {
 		k, v, _ := strings.Cut(kv, "=")
 		keyed = keyed || (v != "" && (k == proc.EnvCopilotProviderBearerToken || k == proc.EnvCopilotProviderAPIKey))
-		leaked = leaked || v == "ghp-planted" || (strings.HasPrefix(k, proc.CopilotProviderPrefix) && v == "dapi-fixture")
+		leaked = leaked || v == "planted-gh-token" || (strings.HasPrefix(k, proc.CopilotProviderPrefix) && v == "fixture-workspace-token")
 	}
 	return keyed, leaked
 }
@@ -487,8 +487,8 @@ func runArmedBYOK(t *testing.T) (sdk.Options, []string) {
 	agent.MintSession = func(context.Context, []string, int) (string, error) { return "cct_ARM", nil }
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
-	t.Setenv("GH_TOKEN", "ghp-planted")
-	t.Setenv("COPILOT_GITHUB_TOKEN", "ghp-planted")
+	t.Setenv("GH_TOKEN", "planted-gh-token")
+	t.Setenv("COPILOT_GITHUB_TOKEN", "planted-gh-token")
 	var got sdk.Options
 	orig := copilotAsk
 	copilotAsk = func(_ context.Context, o sdk.Options, _ string, _ []string) (sdk.Result, error) {

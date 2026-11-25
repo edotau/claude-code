@@ -55,14 +55,14 @@ func TestRedactConfig(t *testing.T) {
 // provider.<name>.options.headers values are blanked even with no "mcp" section, as headless/BYOK configs have none.
 func TestRedactConfigProviderOptionsHeaders(t *testing.T) {
 	in := map[string]any{"provider": map[string]any{
-		"x": map[string]any{"options": map[string]any{"headers": map[string]any{"h": "sk-abc123"}}},
+		"x": map[string]any{"options": map[string]any{"headers": map[string]any{"h": "secretval-abc123"}}},
 	}}
 	b, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := redactConfig(string(b))
-	if strings.Contains(got, "sk-abc123") {
+	if strings.Contains(got, "secretval-abc123") {
 		t.Errorf("secret leaked into redacted config: %s", got)
 	}
 	var out map[string]any

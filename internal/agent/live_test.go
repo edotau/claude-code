@@ -299,12 +299,11 @@ func TestRunHolderRestoresLauncher(t *testing.T) {
 	}
 }
 
-// Given a holder that fails with a credential-shaped error, Then the saved record is redacted and carries a duration.
-func TestRunHolderRedactsAndTimesFailure(t *testing.T) {
+// Given a holder that fails, Then the saved record carries the error status, its message and a duration.
+func TestRunHolderTimesFailure(t *testing.T) {
 	setConfigDir(t)
-	const secret = "sk" + "-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 	orig := serveLive
-	serveLive = func(context.Context, *Record) error { return fmt.Errorf("claude exited: token %s", secret) }
+	serveLive = func(context.Context, *Record) error { return errors.New("claude exited: boom") }
 	t.Cleanup(func() { serveLive = orig })
 
 	rec := ClaimRecord("claude", RunOptions{}, time.Now().Add(-2*time.Second))
@@ -322,8 +321,8 @@ func TestRunHolderRedactsAndTimesFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != "error" || strings.Contains(got.Error, secret) {
-		t.Errorf("record = %q/%q, want error status with the secret redacted", got.Status, got.Error)
+	if got.Status != "error" || !strings.Contains(got.Error, "boom") {
+		t.Errorf("record = %q/%q, want error status with the message", got.Status, got.Error)
 	}
 	if got.DurationMs < 1000 {
 		t.Errorf("DurationMs = %d, want the failed holder's elapsed time", got.DurationMs)

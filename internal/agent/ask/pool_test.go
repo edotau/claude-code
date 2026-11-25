@@ -489,7 +489,16 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	cliEnv(t)
 	vaulttest.Use(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	t.Setenv("HM_BATCH_KEY", hosttest.UnsignedJWT(`{"iss":"https://adb-2.azuredatabricks.net"}`))
+	const wrongHost = "wrong-host-credential"
+	orig := agent.CheckRouteHost
+	agent.CheckRouteHost = func(p *providers.Provider, v string) error {
+		if v == wrongHost {
+			return fmt.Errorf("%s: credential issued for another host: %w", p.Name, &providers.HostMismatchError{})
+		}
+		return orig(p, v)
+	}
+	t.Cleanup(func() { agent.CheckRouteHost = orig })
+	t.Setenv("HM_BATCH_KEY", wrongHost)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"HM_BATCH_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
 	marker := cliMarker(t, "claude", `printf '%s\n' '{"type":"result","result":"hello"}'`)
@@ -504,7 +513,7 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("the child started although the credential's host does not match the route")
 	}
-	if strings.Contains(out+stderr, "adb-2") && strings.Contains(out+stderr, ".sig") {
+	if strings.Contains(out+stderr, wrongHost) {
 		t.Error("output carries the raw credential")
 	}
 }

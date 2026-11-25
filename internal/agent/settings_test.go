@@ -26,12 +26,15 @@ func errMatches(err error, want string) bool {
 	return err != nil && strings.Contains(err.Error(), want)
 }
 
-// fakeKey is credential-shaped by prefix and length only.
-var fakeKey = "sk-" + strings.Repeat("a", 24)
+// fakeKey is the one value the stubbed shape check calls a credential; it has no vendor shape.
+const fakeKey = "Zorbly-Quexmint-Pafflewod"
 
 // D2: every agent × valid effort, unknown effort, and a field only another agent can use.
 func TestValidateRecord(t *testing.T) {
 	vaulttest.Use(t)
+	orig := looksSecret
+	looksSecret = func(v string) bool { return v == fakeKey }
+	t.Cleanup(func() { looksSecret = orig })
 	cases := []struct {
 		agent   string
 		rec     vault.AgentRecord

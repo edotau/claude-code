@@ -29,9 +29,10 @@ func readEvents(t *testing.T, path string) []Event {
 	return evs
 }
 
-// A secret split across two text deltas must land redacted in the event file, never raw.
+// A vault value split across two text deltas must land redacted in the event file, never raw.
 func TestEventLogRedactsSecretSplitAcrossDeltas(t *testing.T) {
-	tok := "ghp_" + strings.Repeat("a", 36)
+	tok := "Zorbly-Quexmint-Pafflewod-Gruntle"
+	redact.StubValues(t, []string{tok})
 	path := filepath.Join(t.TempDir(), "x.events.jsonl")
 	l := NewEventLog(path, "id1")
 	_ = l.Emit(Event{Type: EventText, Text: "token " + tok[:20]})
@@ -124,9 +125,10 @@ func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
 	}
 }
 
-// A secret inside the result envelope's structured value lands redacted in the event file, nested values too.
+// A vault value inside the result envelope's structured value lands redacted in the event file, nested values too.
 func TestEventLogRedactsStructured(t *testing.T) {
-	tok := "ghp_" + strings.Repeat("b", 36)
+	tok := "Wimbleforth-Snazzle-Kropmuddle"
+	redact.StubValues(t, []string{tok})
 	path := filepath.Join(t.TempDir(), "x.events.jsonl")
 	l := NewEventLog(path, "id1")
 	env := Envelope{Answer: "ok", Structured: json.RawMessage(`{"a":{"list":["` + tok + `",9007199254740993]}}`)}
