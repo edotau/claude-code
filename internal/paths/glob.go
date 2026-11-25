@@ -37,18 +37,6 @@ func EscapeGlob(s string) string {
 	return strings.NewReplacer(e, e+e, "*", e+"*", "?", e+"?").Replace(s)
 }
 
-// UnescapeGlob is s with every EscapeGlob marker dropped, leaving the literal text a pattern prefix matches.
-func UnescapeGlob(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == globEscape && i+1 < len(s) {
-			i++
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
 func CleanGlob(s string) string {
 	s = strings.ReplaceAll(s, "**", "\x00")
 	s = path.Clean(strings.ReplaceAll(s, "\\", "/"))

@@ -1,8 +1,11 @@
 package paths
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -221,5 +224,43 @@ func TestMemoCapNeverEvictsRunInFlight(t *testing.T) {
 	close(release)
 	if a, b := <-got, <-joined; a != 1 || b != 1 || reruns.Load() != 0 {
 		t.Errorf("answers %d, %d with rerun %d; want 1, 1, 0 (the open run was evicted)", a, b, reruns.Load())
+	}
+}
+
+func TestCacheStatsCounts(t *testing.T) {
+	m := NewMemo[string, int]("test.stats.memo")
+	keep := func(int, error) time.Duration { return 0 }
+	fn := func() (int, error) { return 1, nil }
+	m.Do("a", keep, fn)
+	m.Do("a", keep, fn)
+	var got CacheStat
+	for _, s := range CacheStats() {
+		if s.Name == "test.stats.memo" {
+			got = s
+		}
+	}
+	if got.Hits != 1 || got.Misses != 1 {
+		t.Errorf("stats = %+v; want 1 hit, 1 miss", got)
+	}
+}
+
+func TestDiskTTLGet(t *testing.T) {
+	d := &DiskTTL[string]{
+		Name: "test.diskttl", Path: filepath.Join(t.TempDir(), "c.json"), TTL: time.Hour,
+		Decode: func(b []byte) (string, error) { return string(b), nil },
+		Encode: func(s string) ([]byte, error) { return []byte(s), nil },
+	}
+	var fetches atomic.Int32
+	fetch := func(context.Context) (string, error) { fetches.Add(1); return "v", nil }
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() { d.Get(context.Background(), fetch) })
+	}
+	wg.Wait()
+	if n := fetches.Load(); n != 1 {
+		t.Fatalf("concurrent Gets fetched %d times; want 1", n)
+	}
+	if v, err := d.Get(context.Background(), fetch); v != "v" || err != nil || fetches.Load() != 1 {
+		t.Errorf("fresh Get = %q, %v after %d fetches; want cached", v, err, fetches.Load())
 	}
 }

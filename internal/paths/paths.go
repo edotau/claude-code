@@ -769,3 +769,37 @@ func ExecutableRealPath(candidate string) string {
 	}
 	return real
 }
+
+// AnchorPath anchors a relative path to cwd; an empty path or cwd leaves it unchanged.
+func AnchorPath(path, cwd string) string {
+	if path != "" && !filepath.IsAbs(path) && cwd != "" {
+		return filepath.Join(cwd, path)
+	}
+	return path
+}
+
+// RelWithin is abs relative to root; false when abs escapes root.
+func RelWithin(root, abs string) (string, bool) {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// SessionIDEnv is the env var Claude Code sets in every live session's tools.
+const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
+
+// MemoryStoreDir is the memory store root and the work tree of the local memory repo.
+func MemoryStoreDir() string { return filepath.Join(ConfigDir(), "memory") }
+
+// MemoryStateDir holds update stamps, results, logs and the session chain.
+func MemoryStateDir() string { return filepath.Join(StateDir(), "memory") }
+
+// MemorySubDir is the store root: a named sub is a filename prefix, not a directory.
+func MemorySubDir(sub string) string { return filepath.Join(MemoryStoreDir(), sub) }
+
+// MemorySub is name inside the store folder sub (archive, handoffs, reports, …); sub "" is a top-level file.
+func MemorySub(sub, name string) string {
+	return filepath.Join(MemoryStoreDir(), sub, filepath.FromSlash(name))
+}

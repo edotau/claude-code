@@ -664,3 +664,31 @@ func TestMigrateCertsCopiesOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestMemoryStoreLayout(t *testing.T) {
+	store := MemoryStoreDir()
+	if want := filepath.Join(ConfigDir(), "memory"); store != want {
+		t.Fatalf("MemoryStoreDir = %q, want %q", store, want)
+	}
+	if got, want := MemoryStateDir(), filepath.Join(StateDir(), "memory"); got != want {
+		t.Fatalf("MemoryStateDir = %q, want %q", got, want)
+	}
+	if got, want := MemorySub("reports", "a/b.md"), filepath.Join(store, "reports", "a", "b.md"); got != want {
+		t.Fatalf("MemorySub = %q, want %q", got, want)
+	}
+	if MemorySubDir("x") != filepath.Join(store, "x") {
+		t.Fatal("MemorySubDir")
+	}
+}
+
+// Given a path glob, Then another letter case of the same path matches only where the filesystem folds case.
+func TestGlobMatchFoldsCase(t *testing.T) {
+	for _, fold := range []bool{true, false} {
+		old := foldGlobCase
+		foldGlobCase = fold
+		if got := GlobMatch("/repo/internal/agent/**", "/repo/Internal/Agent/x.go"); got != fold {
+			t.Errorf("fold=%v: got %v, want %v", fold, got, fold)
+		}
+		foldGlobCase = old
+	}
+}

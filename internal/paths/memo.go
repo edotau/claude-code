@@ -1,8 +1,14 @@
 package paths
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
+	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -148,4 +154,163 @@ func (m *Memo[K, V]) Drop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.m = nil
+}
+
+// CacheStat is one named cache's counters in this process.
+type CacheStat struct {
+	Name                               string
+	Hits, Misses, Refreshes, Evictions uint64
+}
+
+// cacheStats are a cache's atomic counters; a nil *cacheStats (an unnamed zero-value cache) counts nothing.
+type cacheStats struct {
+	name                               string
+	hits, misses, refreshes, evictions atomic.Uint64
+}
+
+var (
+	statsMu  sync.Mutex
+	statsReg = map[string]*cacheStats{}
+)
+
+// registerStats returns the counters for name; a repeated name shares one set.
+func registerStats(name string) *cacheStats {
+	statsMu.Lock()
+	defer statsMu.Unlock()
+	s := statsReg[name]
+	if s == nil {
+		s = &cacheStats{name: name}
+		statsReg[name] = s
+	}
+	return s
+}
+
+func (s *cacheStats) hit() {
+	if s != nil {
+		s.hits.Add(1)
+	}
+}
+
+func (s *cacheStats) miss() {
+	if s != nil {
+		s.misses.Add(1)
+	}
+}
+
+func (s *cacheStats) refresh() {
+	if s != nil {
+		s.refreshes.Add(1)
+	}
+}
+
+func (s *cacheStats) evict(n int) {
+	if s != nil && n > 0 {
+		s.evictions.Add(uint64(n))
+	}
+}
+
+// CacheStats returns the non-zero counters of every named cache in this process, sorted by name.
+func CacheStats() []CacheStat {
+	statsMu.Lock()
+	defer statsMu.Unlock()
+	var out []CacheStat
+	for _, s := range statsReg {
+		c := CacheStat{s.name, s.hits.Load(), s.misses.Load(), s.refreshes.Load(), s.evictions.Load()}
+		if c.Hits|c.Misses|c.Refreshes|c.Evictions != 0 {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// CacheSummary renders CacheStats as "name=hits/misses/refreshes/evictions ..."; empty when nothing counted.
+func CacheSummary() string {
+	var b strings.Builder
+	for _, c := range CacheStats() {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%s=%d/%d/%d/%d", c.Name, c.Hits, c.Misses, c.Refreshes, c.Evictions)
+	}
+	return b.String()
+}
+
+// DiskTTL caches one fetched value in Path for TTL (±Jitter), one process fetching while the others wait.
+type DiskTTL[T any] struct {
+	Name   string
+	Path   string
+	TTL    time.Duration
+	Jitter time.Duration
+	Decode func([]byte) (T, error)
+	Encode func(T) ([]byte, error)
+
+	once  sync.Once
+	stats *cacheStats
+}
+
+// Get returns the fresh file's value, else fetches under Path's lock; fetch errors are never written.
+func (d *DiskTTL[T]) Get(ctx context.Context, fetch func(context.Context) (T, error)) (T, error) {
+	d.once.Do(func() { d.stats = registerStats(d.Name) })
+	if v, ok, _ := d.read(); ok {
+		d.stats.hit()
+		return v, nil
+	}
+	var out T
+	var ferr error
+	fetched := false
+	lerr := WithFileLock(d.Path, func() error {
+		v, ok, existed := d.read()
+		if ok {
+			out = v
+			d.stats.hit()
+			return nil
+		}
+		d.stats.miss()
+		if existed {
+			d.stats.refresh()
+		}
+		fetched = true
+		if out, ferr = fetch(ctx); ferr == nil {
+			d.write(out)
+		}
+		return nil
+	})
+	if lerr != nil && !fetched { // lock failure never fails closed
+		d.stats.miss()
+		return fetch(ctx)
+	}
+	return out, ferr
+}
+
+// read decodes the file when it is fresh; existed reports a file that was there but stale or unreadable.
+func (d *DiskTTL[T]) read() (v T, fresh, existed bool) {
+	fi, err := os.Stat(d.Path)
+	if err != nil {
+		return v, false, false
+	}
+	if Stale(fi.ModTime(), d.ttlFor(fi.ModTime()), RacyWindow, stampNow()) {
+		return v, false, true
+	}
+	data, err := os.ReadFile(d.Path)
+	if err != nil {
+		return v, false, true
+	}
+	v, err = d.Decode(data)
+	return v, err == nil, true
+}
+
+// ttlFor is TTL shifted within ±Jitter by a hash of mtime, so concurrent readers agree on one expiry.
+func (d *DiskTTL[T]) ttlFor(mtime time.Time) time.Duration {
+	if d.Jitter <= 0 {
+		return d.TTL
+	}
+	h := uint64(mtime.UnixNano()) * 0x9E3779B97F4A7C15
+	return d.TTL + time.Duration((h>>11)%uint64(2*d.Jitter+1)) - d.Jitter
+}
+
+func (d *DiskTTL[T]) write(v T) {
+	if data, err := d.Encode(v); err == nil {
+		_ = AtomicWrite(d.Path, data, 0o600)
+	}
 }
