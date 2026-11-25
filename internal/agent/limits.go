@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,9 @@ func dispatchLimit(ctx context.Context, key string, fallback int) int {
 	return n
 }
 
+// ErrTreeBudget marks a nested dispatch refused because its tree spent its token budget.
+var ErrTreeBudget = errors.New("dispatch tree budget")
+
 func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, error) {
 	if rec.Parent == "" {
 		return claimRecord(rec), nil
@@ -46,7 +50,7 @@ func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, e
 		root, spent, unknown := dispatchTreeUsage(rec.Parent)
 		if spent >= max {
 			return Record{}, &retry.Error{Kind: retry.KindFatal, Terminal: true, Agent: name,
-				Err: fmt.Errorf("dispatch tree budget %d tokens spent under root %s (%d counted; %d records without usage); set %s (0 = no cap)", max, root, spent, unknown, maxTreeTokensEnv)}
+				Err: fmt.Errorf("%w %d tokens spent under root %s (%d counted; %d records without usage); set %s (0 = no cap)", ErrTreeBudget, max, root, spent, unknown, maxTreeTokensEnv)}
 		}
 	}
 	max := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren)

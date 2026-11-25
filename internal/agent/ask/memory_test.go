@@ -2,7 +2,9 @@ package ask
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,7 +15,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -94,5 +99,46 @@ func TestMemorySignalsCancelAndNameTheKill(t *testing.T) {
 	}
 	if _, stop := memorySignals(t.Context()); stop() != nil {
 		t.Error("stop() with no signal named one")
+	}
+}
+
+func TestMemoryHopsEndWithLocal(t *testing.T) {
+	ws := func(n string) *providers.Provider {
+		return &providers.Provider{Name: n, Provider: providers.GroupDatabricks}
+	}
+	srv := httptest.NewServer(nil)
+	url := srv.URL
+	srv.Close()
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"dev": ws("dev"), "qa": ws("qa"), "prod": ws("prod"),
+		"local": {Name: "local", Provider: "magnitude", BaseURL: url, Models: map[string]string{"sonnet": "q"}},
+	}}
+	got := memoryHops(reg, "dev")
+	if len(got) != 3 || got[2] != localRoute || got[0].Profile == "dev" || got[1].Profile == "dev" {
+		t.Fatalf("hops for dev = %v, want the other two workspaces then local", got)
+	}
+	if got := memoryHops(reg, "work"); len(got) != 1 || got[0] != (route.Route{Provider: "magnitude", Profile: "local"}) {
+		t.Fatalf("hops for a non-Databricks pin = %v, want [local]", got)
+	}
+	start := time.Now()
+	if localUp(context.Background(), reg) || time.Since(start) > localProbe+time.Second {
+		t.Fatalf("localUp against a closed port = true or slow (%s)", time.Since(start))
+	}
+	checkJobClasses(t, reg)
+}
+
+func checkJobClasses(t *testing.T, reg *providers.Registry) {
+	t.Helper()
+	for _, tc := range []struct {
+		err       error
+		class, fx string
+	}{
+		{providers.ErrNeedsLogin, memory.JobClassAuth, "claude-code databricks login --profile dev"},
+		{fmt.Errorf("x: %w", agent.ErrTreeBudget), memory.JobClassBudget, "claude-code memory update --catchup"},
+		{errors.New("boom"), memory.JobClassFailed, ""},
+	} {
+		if c, fix := jobClass(reg, "dev", tc.err); c != tc.class || fix != tc.fx {
+			t.Fatalf("jobClass(%v) = %q %q, want %q %q", tc.err, c, fix, tc.class, tc.fx)
+		}
 	}
 }
