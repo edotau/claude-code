@@ -261,7 +261,7 @@ func sizeViolations(path, text, base string, spans lineSpans, ends map[int]int) 
 }
 
 // baseRules is the set of file-level rules already firing on the base text.
-func baseRules(path, base string, th ComplexityThresholds) map[string]bool {
+func baseRules(path, base string, th thresholds) map[string]bool {
 	old := map[string]bool{}
 	if res, err := complexityContent(path, base, "go", th); err == nil && base != "" {
 		for _, f := range res.Findings {

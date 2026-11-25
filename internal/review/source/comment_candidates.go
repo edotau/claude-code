@@ -242,8 +242,8 @@ func enclosingFunc(file *ast.File, fset *token.FileSet, line int) string {
 	return ""
 }
 
-// RunCommentCandidates prints the TSV candidate list for the Go files under paths; it never needs git.
-func RunCommentCandidates(paths []string, stdout, stderr io.Writer) int {
+// runCommentCandidates prints the TSV candidate list for the Go files under paths; it never needs git.
+func runCommentCandidates(paths []string, stdout, stderr io.Writer) int {
 	var files []string
 	for _, p := range paths {
 		st, err := os.Stat(p)

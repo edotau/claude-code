@@ -5,7 +5,7 @@ import (
 )
 
 // analyzePython ports `analyze_python` as an ESTIMATE (no Python AST in Go): it scans indentation and keywords.
-func analyzePython(text string, lineCount int, th ComplexityThresholds) []Finding {
+func analyzePython(text string, lineCount int, th thresholds) []Finding {
 	masked := maskPythonSource(text)
 	lines := pythonLines(masked)
 	var findings []Finding
@@ -179,12 +179,12 @@ func pyOpensNesting(trimmed string) bool {
 }
 
 // pyFunctionFindings is check_function's estimate: length, cyclomatic complexity, nesting depth.
-func pyFunctionFindings(f pyFuncSpan, th ComplexityThresholds) []Finding {
+func pyFunctionFindings(f pyFuncSpan, th thresholds) []Finding {
 	return functionFindings(f.name, f.startLine, f.endLine-f.startLine+1, pyFuncCyclomatic(f.bodyLines), pyFuncNesting(f.bodyLines), th)
 }
 
 // pyModuleFindings is check_file_shape's estimate: import count, class density, premature abstraction.
-func pyModuleFindings(lines []pyLine, maskedText string, th ComplexityThresholds, lineCount int) []Finding {
+func pyModuleFindings(lines []pyLine, maskedText string, th thresholds, lineCount int) []Finding {
 	imports, classes := 0, 0
 	for _, l := range lines {
 		if skipLine(l) {

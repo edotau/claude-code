@@ -26,8 +26,8 @@ const (
 	CapNesting       = 4
 )
 
-// ComplexityThresholds mirrors complexity_checker.THRESHOLDS.
-type ComplexityThresholds struct {
+// thresholds mirrors complexity_checker.THRESHOLDS.
+type thresholds struct {
 	MaxCyclomatic         int
 	MaxNesting            int
 	MaxFunctionLines      int
@@ -36,7 +36,7 @@ type ComplexityThresholds struct {
 	MaxFileLines          int
 }
 
-var complexityThresholds = map[string]ComplexityThresholds{
+var complexityThresholds = map[string]thresholds{
 	"strict":  {8, 3, 40, 12, 2.0, 400},
 	"medium":  {10, CapNesting, CapFunctionLines, CapImports, 3.0, CapFileLines},
 	"relaxed": {15, 5, 80, 30, 5.0, CapTestFileLines},
@@ -50,8 +50,8 @@ type Finding struct {
 	Message  string `json:"message"`
 }
 
-// FileResult is complexity_checker.analyze_file's dict shape.
-type FileResult struct {
+// fileResult is complexity_checker.analyze_file's dict shape.
+type fileResult struct {
 	File     string    `json:"file"`
 	Language string    `json:"language"`
 	Lines    int       `json:"lines"`
@@ -59,15 +59,15 @@ type FileResult struct {
 	Findings []Finding `json:"findings"`
 }
 
-// ComplexitySummary is complexity_checker.build_summary's dict shape.
-type ComplexitySummary struct {
+// complexitySummary is complexity_checker.build_summary's dict shape.
+type complexitySummary struct {
 	Status        string       `json:"status"`
 	Threshold     string       `json:"threshold"`
 	FilesAnalyzed int          `json:"files_analyzed"`
 	TotalFindings int          `json:"total_findings"`
 	AverageScore  PyFloat      `json:"average_score"`
 	Verdict       string       `json:"verdict"`
-	Results       []FileResult `json:"results"`
+	Results       []fileResult `json:"results"`
 }
 
 // DetectComplexityLang mirrors complexity_checker.detect_lang.
@@ -92,7 +92,7 @@ var tsImportPattern = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // analyzeTypescript ports complexity_checker.analyze_typescript exactly (only file-wide checks; no per-function ones).
-func analyzeTypescript(text string, lineCount int, th ComplexityThresholds) []Finding {
+func analyzeTypescript(text string, lineCount int, th thresholds) []Finding {
 	var findings []Finding
 	findings = append(findings, importCountFinding(len(tsImportPattern().FindAllString(text, -1)), th)...)
 	findings = append(findings, classDensityFinding(len(tsClassPattern().FindAllString(text, -1)), lineCount, th)...)
@@ -143,7 +143,7 @@ func leadingWidth(s string) int {
 }
 
 // analyzeFileComplexity ports complexity_checker.analyze_file.
-func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
+func analyzeFileComplexity(path string, th thresholds) (*fileResult, error) {
 	lang := DetectComplexityLang(path)
 	if lang == "" {
 		return nil, nil
@@ -164,7 +164,7 @@ func testFileLines(path string) int {
 }
 
 // complexityContent is analyzeFileComplexity over already-read text.
-func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileResult, error) {
+func complexityContent(path, text, lang string, th thresholds) (*fileResult, error) {
 	lineCount := 0
 	if text != "" { // splitlines() gives 0 lines for "" and drops a trailing newline's empty tail
 		lineCount = len(strings.Split(strings.TrimSuffix(text, "\n"), "\n"))
@@ -199,11 +199,11 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileR
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}, nil
+	return &fileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}, nil
 }
 
 // importCountFinding is the shared import-coupling check.
-func importCountFinding(imports int, th ComplexityThresholds) []Finding {
+func importCountFinding(imports int, th thresholds) []Finding {
 	if imports <= th.MaxImports {
 		return nil
 	}
@@ -212,7 +212,7 @@ func importCountFinding(imports int, th ComplexityThresholds) []Finding {
 }
 
 // classDensityFinding is the shared classes-per-100-lines check.
-func classDensityFinding(classes, lineCount int, th ComplexityThresholds) []Finding {
+func classDensityFinding(classes, lineCount int, th thresholds) []Finding {
 	if lineCount <= 0 {
 		return nil
 	}
@@ -225,7 +225,7 @@ func classDensityFinding(classes, lineCount int, th ComplexityThresholds) []Find
 }
 
 // functionFindings is the shared length, cyclomatic and nesting check for one function.
-func functionFindings(name string, line, length, cyclo, nest int, th ComplexityThresholds) []Finding {
+func functionFindings(name string, line, length, cyclo, nest int, th thresholds) []Finding {
 	var out []Finding
 	if length > th.MaxFunctionLines {
 		out = append(out, Finding{Rule: "function-length", Severity: "warn", Line: line,
@@ -270,7 +270,7 @@ func walkComplexityFiles(target string, extensions []string, warn io.Writer) (fi
 }
 
 // buildComplexitySummary ports complexity_checker.build_summary.
-func buildComplexitySummary(results []FileResult, threshold string) ComplexitySummary {
+func buildComplexitySummary(results []fileResult, threshold string) complexitySummary {
 	total := 0
 	for _, r := range results {
 		total += len(r.Findings)
@@ -291,11 +291,11 @@ func buildComplexitySummary(results []FileResult, threshold string) ComplexitySu
 			verdict = "FAIL"
 		}
 	}
-	return ComplexitySummary{Status: "ok", Threshold: threshold, FilesAnalyzed: len(results),
+	return complexitySummary{Status: "ok", Threshold: threshold, FilesAnalyzed: len(results),
 		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: NonNil(results)}
 }
 
-func printComplexityReport(out io.Writer, s ComplexitySummary) error {
+func printComplexityReport(out io.Writer, s complexitySummary) error {
 	var w strings.Builder
 	fmt.Fprintf(&w, "Complexity Check — %d files, threshold %s\n", s.FilesAnalyzed, s.Threshold)
 	fmt.Fprintf(&w, "Average score: %.0f/100   Findings: %d\n\n", float64(s.AverageScore), s.TotalFindings)
@@ -442,7 +442,7 @@ func gatherComplexityFiles(targets, extensions []string, warn io.Writer) []strin
 }
 
 // analyzeComplexityFiles scores each file; failed counts files that could not be read or parsed.
-func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) (results []FileResult, failed int) {
+func analyzeComplexityFiles(files []string, th thresholds, stderr io.Writer) (results []fileResult, failed int) {
 	for _, f := range files {
 		r, err := analyzeFileComplexity(f, th)
 		if err != nil {
@@ -505,7 +505,7 @@ func hasComplexityExtension(path string, extensions []string) bool {
 var errGoSyntax = errors.New("go syntax error")
 
 // analyzeGo scores Go source with go/ast; source that does not parse is an error, never a clean score.
-func analyzeGo(path, text string, th ComplexityThresholds) ([]Finding, error) {
+func analyzeGo(path, text string, th thresholds) ([]Finding, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, text, parser.SkipObjectResolution)
 	if err != nil {
@@ -521,7 +521,7 @@ func analyzeGo(path, text string, th ComplexityThresholds) ([]Finding, error) {
 	return findings, nil
 }
 
-func goFunctionFindings(fset *token.FileSet, fn *ast.FuncDecl, th ComplexityThresholds) []Finding {
+func goFunctionFindings(fset *token.FileSet, fn *ast.FuncDecl, th thresholds) []Finding {
 	start, end := fset.Position(fn.Pos()), fset.Position(fn.End())
 	name, line := fn.Name.Name, start.Line
 	return functionFindings(name, line, end.Line-start.Line+1, goCyclomatic(fn.Body), goNesting(fn.Body, 0), th)

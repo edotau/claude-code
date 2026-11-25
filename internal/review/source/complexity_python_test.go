@@ -6,7 +6,7 @@ import (
 )
 
 func TestPythonPrematureAbstractionIgnoresCommentsAndStrings(t *testing.T) {
-	th := ComplexityThresholds{}
+	th := thresholds{}
 	src := "class A:\n    \"\"\"HTTP Protocol helper, ABC\"\"\"\n    # Protocol\n    pass\n"
 	for _, f := range analyzePython(src, strings.Count(src, "\n"), th) {
 		if f.Rule == "premature-abstraction" {
@@ -38,5 +38,17 @@ func TestPyFuncNestingInlineSuites(t *testing.T) {
 				t.Fatalf("nesting = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+// Bodies of else/except/finally/case keep the nesting level of their header.
+func TestPyFuncNestingCountsElseBody(t *testing.T) {
+	body := []pyLine{
+		{indent: 4, text: "    if a:"}, {indent: 8, text: "        x = 1"},
+		{indent: 4, text: "    else:"}, {indent: 8, text: "        if b:"}, {indent: 12, text: "            if c:"},
+		{indent: 16, text: "                y = 2"},
+	}
+	if got := pyFuncNesting(body); got != 3 {
+		t.Fatalf("nesting = %d, want 3 (else > if > if)", got)
 	}
 }

@@ -205,8 +205,8 @@ func nonSourceFile(p string) bool {
 }
 
 // analyzeSimplifyFile runs both checks on one file; an error means the file could not be analyzed.
-func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, error) {
-	q, err := Quality(path)
+func analyzeSimplifyFile(path string, th thresholds) (simplifyFile, error) {
+	q, err := qualityOf(path)
 	if err != nil {
 		return simplifyFile{}, err
 	}
@@ -223,7 +223,7 @@ func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, er
 }
 
 // analyzeSimplifyTargets runs both checks on each file; a file that cannot be analyzed lands in Failed.
-func analyzeSimplifyTargets(files []string, th ComplexityThresholds, stderr io.Writer) simplifyReport {
+func analyzeSimplifyTargets(files []string, th thresholds, stderr io.Writer) simplifyReport {
 	report := simplifyReport{Files: []simplifyFile{}}
 	for _, f := range files {
 		sf, err := analyzeSimplifyFile(f, th)
