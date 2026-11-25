@@ -38,8 +38,9 @@ Drive-by edits inflate the diff, bury the real change and hurt review and `git b
 
 - **A10. "Done" with no check** — `claude-code plan goals` → `none`. "Implemented the retry logic." **Fix:** "verify:
   kill the upstream mid-request; client retries 3× then surfaces a 503; `test_retry_exhausted` covers it."
-- **A11. Plan with no final verification** — `claude-code plan goals` → `has_final_verification: false`; units pass
-  while the integration is broken. **Fix:** a final step that runs the change on its real surface end-to-end.
+- **A11. Plan with no final verification** — `claude-code plan goals --json` →
+  `has_final_verification: false`; units pass while the integration is broken. **Fix:** a final step that runs the
+  change on its real surface end-to-end.
 - **A12. Metric claim without a number** — `claude-code plan goals` → `vague`. "Optimized the query."
   **Fix:** "p95 1.8s → 0.3s on the 10k-row fixture; `bench_query` asserts < 0.5s."
 

@@ -9,9 +9,9 @@ Any reviewer runs these; on codex via `claude-code codex ask "<the mode section 
 2. **Validate structure.** YAML frontmatter between `---`; required `name`, `description`; substantial body.
 3. **Apply criteria** — description triggering, content quality, progressive disclosure.
 4. **Review supporting files** for quality, relevance, correctness.
-5. **Categorize issues** critical/major/minor. Anti-patterns: vague trigger descriptions, too much in SKILL.md
-   (belongs in `references/`), second person in the description, missing key triggers, no examples/references
-   where they'd help.
+5. **Categorize issues** critical/major/minor (= CRITICAL / HIGH / MEDIUM+LOW in `completion-criteria.md`).
+   Anti-patterns: vague trigger descriptions, too much in SKILL.md (belongs in `references/`), second person in the
+   description, missing key triggers, no examples/references where they'd help.
 6. **Recommend** specific fixes (before/after when helpful), prioritized by impact.
 
 ### SKILL Output Format

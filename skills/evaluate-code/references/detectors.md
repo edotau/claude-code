@@ -1,8 +1,8 @@
 # Detectors — `claude-code review` reference
 
 Advisory by default (`simplify --fail` exits 1 on new comment or size violations); `gate` always exits 0. Structured
-output is `--json` (`gate` has none). Flags: `claude-code review <tool> -h`. Run the mechanical gate first
-(`rules/standards/quality.md` → Verification Order).
+output is `--json` (`scope`: `--format json`; `report`: `-f json`; `gate`: none). Flags: `claude-code review <tool>
+-h`. Run the mechanical gate first (`rules/standards/quality.md` → Verification Order).
 
 ## Detector index
 
@@ -16,6 +16,7 @@ output is `--json` (`gate` has none). Flags: `claude-code review <tool> -h`. Run
 | `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
 | `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
 | `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]`; `--fail` rejects `--threshold` and `--json` |
+| `bench` | performance (R22) | `[--bench RE] [--base] [--before F --after F]`; runs changed packages' benchmarks |
 | `gate` | staged-change summary | `[--repo DIR]` |
 | `scope` | files a change touches, sized | `(--range R \| --paths p1,p2) [--caps] [--importers] [--format text\|json] [--repo DIR]` |
 
@@ -67,9 +68,9 @@ The gate is opt-in and not in the seeded `settings.json`; higher levels catch mo
 | 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 
 - **Level 3, git:** `.git/hooks/pre-commit` = `#!/bin/sh` + `exec claude-code review gate`, then `chmod +x`.
-- **Level 3, PreToolUse:** add a hook per `rules/harness/change-protocol.md` (a hookspec.go entry plus a handler in
-  `internal/hooks/dispatch.go`) that runs `claude-code review gate`; the owner runs `claude-code configure --restore`
-  (or edits `settings.json`).
+- **Level 3, PreToolUse:** add a hook per `rules/harness/change-protocol.md` (an entry in
+  `internal/settings/hookspec.go` plus a handler in `internal/hooks/dispatch.go`) that runs
+  `claude-code review gate`; the owner runs `claude-code configure --restore` (or edits `settings.json`).
 - **Level 4:** parse the JSON verdict, e.g.
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`
   (exits 2 on an empty list or any non-source path: filter the list to supported extensions first and skip when it

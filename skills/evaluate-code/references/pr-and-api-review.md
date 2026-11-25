@@ -8,7 +8,7 @@ serializer, migration or shared table; scope first:
 ```bash
 BASE=$(git merge-base HEAD main)
 rtk git diff "$BASE"...HEAD --stat        # what moved, how much
-git diff "$BASE"...HEAD --name-only   # bare file list for the passes below
+git diff "$BASE"...HEAD --name-only       # bare file list for the passes below
 ```
 
 ## Pass 1 — Blast radius
@@ -16,11 +16,11 @@ git diff "$BASE"...HEAD --name-only   # bare file list for the passes below
 For each changed file ask who depends on it; a 5-line edit to a shared helper can break every importer.
 
 ```bash
-rtk grep -rn "from mypkg.pipelines import\|import mypkg.pipelines" --include="*.py" .   # Python importers
-rtk grep -rn '"example.com/mymod/internal/pipelines"' --include="*.go" .                # Go importers
-rtk grep -rn "MySerializer\|MyViewSet" --include="*.py" src/                            # DRF consumers
-rtk grep -rn "from ['\"].*useBindingData['\"]" --include="*.ts" --include="*.tsx" src/  # React/TS importers
-rtk grep -rn "schema.my_table\|/data/my_dataset" --include="*.py" --include="*.sql" .   # data readers
+git grep -nE 'from mypkg.pipelines import|import mypkg.pipelines' -- '*.py'     # Python importers
+git grep -n '"example.com/mymod/internal/pipelines"' -- '*.go'                  # Go importers
+git grep -nE 'MySerializer|MyViewSet' -- 'src/*.py'                              # DRF consumers
+git grep -nE "from ['\"].*useBindingData['\"]" -- 'src/*.ts' 'src/*.tsx'         # React/TS importers
+git grep -nE 'schema.my_table|/data/my_dataset' -- '*.py' '*.sql'                # data readers
 ```
 
 The most exposed file sets the review bar:
@@ -50,16 +50,20 @@ schema). Adding is usually safe; removing, renaming, tightening or retyping usua
 **DRF / REST** — grep the diff's removed lines:
 
 ```bash
-rtk grep "^-" "$DIFF" | grep -E "router\.register|path\(|re_path\("                       # removed/renamed routes
-rtk grep "^-" "$DIFF" | grep -E "= serializers\.|fields = |read_only|required="             # serializer field churn
-rtk grep -E "^[-+].*(HTTP_[0-9]{3}|status=[0-9]{3}|Response\(.*status)" "$DIFF"             # status-code changes
+git diff "$BASE"...HEAD | grep -E '^-[^-].*(router\.register|path\(|re_path\()'     # removed/renamed routes
+git diff "$BASE"...HEAD | grep -E '^-[^-].*(= serializers\.|fields = |read_only|required=)'  # serializer churn
+git diff "$BASE"...HEAD | grep -E '^[-+].*(HTTP_[0-9]{3}|status=[0-9]{3}|Response\(.*status)'  # status-code changes
 ```
 
 Keep the API's existing error envelope and status codes (`400` bad request, `401` unauthenticated, `403` forbidden,
 `404` missing, `409` conflict, `422` validation, `429` rate-limited). Paginate every list endpoint; an unbounded
 list is a latent breaking change.
 
-**Django migrations** — `rtk grep -nE "RemoveField|AlterField|DeleteModel|RunSQL|AddField.*null=False" "$DIFF"`:
+**Django migrations** — find the risky operations in the diff:
+
+```bash
+git diff "$BASE"...HEAD | grep -nE 'RemoveField|AlterField|DeleteModel|RunSQL|AddField.*null=False'
+```
 
 - Destructive ops (`RemoveField`, `DeleteModel`, type narrowing) need a two-phase plan: ship the additive change
   with dual-write/read first, drop the old shape in a later release.

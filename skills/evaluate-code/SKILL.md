@@ -4,8 +4,9 @@ description: >-
   Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or
   PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a
   skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors.
-  Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually
-  verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt".
+  Triggers "review my code", "review this PR", "review my diff", "review this skill", "audit this", "judge this",
+  "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow",
+  "N+1", "tech debt".
 metadata:
   version: 4.0.0
 ---
@@ -39,7 +40,7 @@ observed).
 Scope = a module path or the repo.
 
 ```bash
-git diff --name-only HEAD~10 -- <scope> 2>/dev/null || git ls-files <scope> | head -50
+rtk git diff --name-only HEAD~10 -- <scope> 2>/dev/null || git ls-files <scope> | head -50
 git grep -n -E 'TODO|FIXME|HACK|XXX|NOQA' -- <scope> | head -30
 ```
 
@@ -53,7 +54,8 @@ Adapted from anthropics/knowledge-work-plugins (engineering), Apache-2.0.
 
 ## Lenses
 
-Report only findings on changed code at >80% confidence; consolidate similar ones; skip style unless CRITICAL.
+Report findings on changed code at >80% confidence; consolidate similar ones; list every finding at once, style
+included (R28: the author fixes all of them).
 
 ### Discipline — the four principles
 
@@ -90,7 +92,7 @@ enforcement levels: `references/detectors.md`.
 This skill is what the built-in `/code-review`'s quality reviewer loads.
 
 ```bash
-BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
+rtk git diff "$(git merge-base HEAD main)"...HEAD --stat
 ```
 
 1. Mechanical gate first: `rules/standards/quality.md` → Verification Order.
@@ -101,8 +103,8 @@ BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
 
 ## Verdicts
 
-The verdict word comes first, alone, from a closed vocabulary; evidence follows. Claims that can't be re-run are
-UNVERIFIABLE. Never soften a failing verdict or inflate a caveat.
+The verdict word comes first, alone, from a closed vocabulary; evidence follows. A claim that can't be re-run is
+marked UNVERIFIABLE (a claim status, not a verdict). Never soften a failing verdict or inflate a caveat.
 
 | Mode | Vocabulary |
 |---|---|

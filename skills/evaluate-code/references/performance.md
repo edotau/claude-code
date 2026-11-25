@@ -1,7 +1,6 @@
 # Performance review lens
 
-Find the bottleneck the data points at. Run inline in a review, or proactively on a slow stage or SLA breach
-(absorbs the retired `performance-optimizer` agent).
+Find the bottleneck the data points at. Run inline in a review, or proactively on a slow stage or SLA breach.
 
 ## The one rule: measure before you optimize
 
@@ -10,7 +9,7 @@ re-measure → stop at the SLA. Never micro-optimize a cold path or trade readab
 
 ```bash
 python -m cProfile -s cumtime script.py | head -30   # where does wall-time actually go?
-rtk go test -bench . -cpuprofile cpu.out && go tool pprof cpu.out
+rtk go test -bench . -cpuprofile cpu.out && go tool pprof -top cpu.out
 # Web apps: a per-request SQL + timing profiler (django-silk, the debug toolbar)
 # Spark: the engine UI's stages/SQL tab — skew, shuffle and spill are the usual culprits
 ```
