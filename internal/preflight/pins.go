@@ -32,7 +32,7 @@ const (
 type Pin struct {
 	Agent         string
 	Profile       string
-	ProfileSource string // pin | own login | pool | none
+	ProfileSource string // pin | session[; pin <x>] | own login | pool | none
 	Model         string
 	Served        string // yes | no | unknown | n/a
 	Status        string
@@ -74,6 +74,7 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		if err != nil {
 			return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
 		}
+		row.ProfileSource = claudeSource(providers.SessionProfileContext(ctx), recs["claude"].EffectiveRoute().Profile)
 		out = append(out, row)
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
@@ -87,6 +88,17 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		}
 	}
 	return out
+}
+
+// claudeSource names where claude's profile came from: the launch env, the vault pin, or both when they differ.
+func claudeSource(env, pin string) string {
+	switch {
+	case env == "":
+		return "pin"
+	case pin != "" && pin != env:
+		return "session; pin " + pin
+	}
+	return "session"
 }
 
 // loginRow is the row of an agent on its own login or the pool pin; a rotation pin carries the rotation summary.

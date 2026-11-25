@@ -180,7 +180,8 @@ func listLive(p *providers.Provider, format string) int {
 
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
-	About: "Sets the profile on claude and every other agent that is on and can serve it; relaunch to apply. " +
+	About: "Sets the profile on claude and each other agent pinned to a fixed profile of the same provider; pool pins, " +
+		"own-login pins and other providers are kept. Relaunch to apply. " +
 		"One launch only: claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
@@ -200,7 +201,7 @@ func cmdSwitch(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if _, err := reg.Get(args[0]); err != nil {
+	if err := switchTarget(reg, args[0]); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if dryRun {
@@ -214,13 +215,23 @@ func cmdSwitch(args []string) int {
 	return 0
 }
 
+// switchTarget rejects the pool name with a hint, else an unknown profile.
+func switchTarget(reg *providers.Registry, name string) error {
+	if name == agent.PoolPin {
+		return fmt.Errorf("%q is the pool, not a profile: name one (%s); pool-pinned agents already rotate",
+			name, strings.Join(reg.ProfilesOf(providers.GroupDatabricks), ", "))
+	}
+	_, err := reg.Get(name)
+	return err
+}
+
 func previewSwitchProfile(reg *providers.Registry, profile string) int {
 	apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, profile) }
 	recs, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
 		return helptext.Fail("switch preview: %v", err)
 	}
-	return printRecordDiff(apply, keptOff(reg, recs, profile))
+	return printRecordDiff(apply, keptLines(reg, recs, profile))
 }
 
 // switchUsage prints switch's page; helptext.ExtractBool pulls its one flag out, so this FlagSet only renders it.
@@ -446,12 +457,15 @@ func scopedProxyToken(ctx context.Context, profile string, refresh bool, pid int
 	return resolveProxyToken(ctx, scope, pid)
 }
 
-// keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.
-func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
-	_, off := configure.SwitchTargets(reg, recs, profile)
-	lines := make([]string, len(off))
-	for i, n := range off {
-		lines[i] = n + ": off (kept)"
+// keptLines lists "agent: off (kept)" or "agent: <pin> (kept)" for each agent a switch to profile leaves alone.
+func keptLines(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
+	_, off, kept := configure.SwitchTargets(reg, recs, profile)
+	var lines []string
+	for _, n := range off {
+		lines = append(lines, n+": off (kept)")
+	}
+	for _, n := range kept {
+		lines = append(lines, n+": "+configure.PinLabel(recs[n])+" (kept)")
 	}
 	return lines
 }

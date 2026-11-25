@@ -538,6 +538,11 @@ func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	return p != nil && p.Auth.Login == agent
 }
 
+// OwnLogin reports agent's own sign-in profile in reg.
+func OwnLogin(reg *providers.Registry, agent, profile string) bool {
+	return ownLogin(func() *providers.Registry { return reg }, agent, profile)
+}
+
 // PoolPin is the record profile pinning an agent to the Databricks pool: the auto pick, no fixed workspace.
 const PoolPin = providers.GroupDatabricks
 

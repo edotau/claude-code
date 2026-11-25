@@ -353,15 +353,28 @@ func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 	}
 }
 
-// switch moves claude and each agent that is on, and leaves an off agent off (dry-run says so).
+// devQAProfiles is qaProfile plus a second databricks row, "dev", for a fixed-pin move.
+func devQAProfiles(t *testing.T, host string) {
+	t.Helper()
+	qaProfile(t, host, false)
+	row := `{"providers":{"databricks":{"qa":{"preset":"databricks","host":%q,"auth":{"type":"pat"}},` +
+		`"dev":{"preset":"databricks","host":%q,"auth":{"type":"pat"}}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, host, host))
+}
+
+// switch moves claude and a fixed same-provider pin, keeps pool/own-login pins, and leaves an off agent off.
 func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
-	qaProfile(t, srv.URL, false)
-	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "chatgpt"}}); err != nil {
+	devQAProfiles(t, srv.URL)
+	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Route: route.Route{Provider: "databricks", Profile: "auto"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Route: route.Route{Profile: "dev"}}); err != nil {
 		t.Fatal(err)
 	}
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) })
-	if !strings.Contains(out, "codex.route.profile: chatgpt → qa") || !strings.Contains(out, "copilot: off (kept)") {
+	if !strings.Contains(out, "codex.route.profile: dev → qa") || !strings.Contains(out, "copilot: off (kept)") ||
+		!strings.Contains(out, "opencode: databricks (kept)") {
 		t.Fatalf("dry-run = %q", out)
 	}
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
@@ -379,7 +392,7 @@ func assertSwitchDryRunWritesNothing(t *testing.T) {
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 {
 		t.Fatalf("dry-run exit %d stderr=%q", code, stderr)
 	}
-	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].EffectiveRoute().Profile != "chatgpt" || recs["claude"].EffectiveRoute().Profile == "qa" {
+	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].EffectiveRoute().Profile != "dev" || recs["claude"].EffectiveRoute().Profile == "qa" {
 		t.Fatalf("dry-run wrote records: %+v", recs)
 	}
 }
@@ -387,9 +400,9 @@ func assertSwitchDryRunWritesNothing(t *testing.T) {
 // switch skips an agent that cannot serve the profile; --dry-run writes no record.
 func TestSwitchSkipsUnservable(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
-	qaProfile(t, srv.URL, false)
+	devQAProfiles(t, srv.URL)
 	t.Chdir(t.TempDir())
-	for name, p := range map[string]string{"codex": "chatgpt", "gemini": "antigravity"} {
+	for name, p := range map[string]string{"codex": "dev", "gemini": "antigravity"} {
 		if err := vault.SetAgentRecord(name, vault.AgentRecord{Route: route.Route{Profile: p}}); err != nil {
 			t.Fatal(err)
 		}
@@ -401,6 +414,16 @@ func TestSwitchSkipsUnservable(t *testing.T) {
 	recs := vault.AgentRecords(agent.RosterNames())
 	if recs["codex"].EffectiveRoute().Profile != "qa" || recs["gemini"].EffectiveRoute().Profile != "antigravity" {
 		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].EffectiveRoute().Profile, recs["gemini"].EffectiveRoute().Profile)
+	}
+}
+
+// switch databricks names the profiles to run instead of the bare unknown-profile error.
+func TestSwitchPoolNameHint(t *testing.T) {
+	srv, _ := dbxCLIServer(t)
+	qaProfile(t, srv.URL, false)
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"databricks"}) })
+	if code == 0 || !strings.Contains(stderr, "pool-pinned agents already rotate") || !strings.Contains(stderr, "qa") {
+		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
 }
 

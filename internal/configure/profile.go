@@ -103,25 +103,53 @@ func ValidProfile(agents []string, profile string) error {
 	return nil
 }
 
-// SwitchTargets are the agents a profile switch moves; Serves, not CanServe, keeps gemini gateway rows explicit.
-func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off []string) {
+// SwitchTargets moves claude and fixed pins on profile's provider; off, pool, own-login and other pins stay.
+func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off, kept []string) {
+	target := reg.Providers[profile]
 	for _, spec := range agentpkg.Roster() {
-		ok, _ := agentpkg.Serves(spec.Name, reg.Providers[profile], "")
+		rt := recs[spec.Name].EffectiveRoute()
+		ok, _ := agentpkg.Serves(spec.Name, target, "")
 		switch {
 		case !spec.External():
 			move = append(move, spec.Name)
-		case ok && profileKey(recs[spec.Name].EffectiveRoute()) == "":
+		case !ok:
+		case rt.Account != "":
+			kept = append(kept, spec.Name)
+		case profileKey(rt) == "":
 			off = append(off, spec.Name)
-		case ok:
+		case movesOnSwitch(reg, spec.Name, rt, target):
 			move = append(move, spec.Name)
+		default:
+			kept = append(kept, spec.Name)
 		}
 	}
-	return move, off
+	return move, off, kept
+}
+
+// movesOnSwitch is true for a fixed (not pool, not own-login) profile on target's provider.
+func movesOnSwitch(reg *providers.Registry, name string, rt route.Route, target *providers.Provider) bool {
+	if target == nil || rt.Profile == "" || rt.Profile == route.AutoArm || agentpkg.OwnLogin(reg, name, rt.Profile) {
+		return false
+	}
+	cur := rt.Provider
+	if row := reg.Row(rt.Profile); cur == "" && row != nil {
+		cur = row.Provider
+	}
+	return cur == target.Provider
+}
+
+// PinLabel is the profile an agent's record is pinned as; an account route reads as its account.
+func PinLabel(rec vault.AgentRecord) string {
+	rt := rec.EffectiveRoute()
+	if k := profileKey(rt); k != "" {
+		return k
+	}
+	return rt.Account
 }
 
 // SwitchRecords sets profile on every SwitchTargets mover in m (the dry-run view of SwitchProfile).
 func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
-	move, _ := SwitchTargets(reg, m, profile)
+	move, _, _ := SwitchTargets(reg, m, profile)
 	for _, name := range move {
 		m[name] = WithProfile(m[name], RouteIn(reg, profile), profile)
 	}
@@ -133,7 +161,7 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 	if err != nil {
 		return fmt.Errorf("switch profile: %w", err)
 	}
-	move, _ := SwitchTargets(reg, recs, profile)
+	move, _, _ := SwitchTargets(reg, recs, profile)
 	if _, err := ApplyProfile(move, profile); err != nil {
 		return err
 	}

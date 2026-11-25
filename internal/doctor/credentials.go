@@ -39,7 +39,7 @@ func providerCredentialChecks(ctx context.Context, reg *providers.Registry, sel 
 func providerCredentialCheck(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, name string,
 	agents func() map[string]vault.AgentRecord, seals func() []audit.Event) check {
 	p := reg.Providers[name]
-	session := selectErr == nil && sel.Provider == p
+	session := isSessionProfile(ctx, sel, selectErr, p)
 	label := credentialBaseLabel(p, session)
 	present := providers.CredentialPresent(p)
 	if present {
@@ -60,6 +60,14 @@ func providerCredentialCheck(ctx context.Context, reg *providers.Registry, sel p
 	label += credentialSourceLabel(p)
 	// A dead user login is a soft warning (the row still works through the service principal): never a hard failure.
 	return check{Name: "credential " + name, OK: present && !loginDead, Hard: session && !loginDead, Detail: label}
+}
+
+// isSessionProfile reports whether p is the launched session's profile: the launch env first, else the record.
+func isSessionProfile(ctx context.Context, sel providers.Selection, selectErr error, p *providers.Provider) bool {
+	if env := providers.SessionProfileContext(ctx); env != "" {
+		return env == p.Name
+	}
+	return selectErr == nil && sel.Provider == p
 }
 
 // credentialBaseLabel is the row's auth method, its env var and the session-profile marker.
