@@ -84,44 +84,21 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Chain, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
-	o, err := c.withDefaults(o)
+	o, err := c.planOptions(ctx, o)
 	if err != nil {
 		return o, nil, Chain{}, err
 	}
-	if o.Host == "" { // a remote host resolves the word itself
-		if o.Model, err = resolveRunModel(ctx, o); err != nil {
-			return o, nil, Chain{}, clientUsageError{fmt.Errorf("%w: %w", ErrModelRoute, err)}
-		}
-	}
-	if err := refuseDirectContext(ctx, o.Direct); err != nil {
-		return o, nil, Chain{}, clientUsageError{err}
-	}
-	ctx, o, rotated, rerr := rotateRole(ctx, o)
-	r, err := Lookup(o.Agent)
-	if err = cmp.Or(rerr, err); err != nil {
+	ctx, o, rotated, r, err := planEngine(ctx, o)
+	if err != nil {
 		return o, nil, Chain{}, err
 	}
-	if o.Host != "" {
-		if r, err = hostEngine(o); err != nil {
-			return o, nil, Chain{}, err
-		}
-	}
-	plan, perr := PlanRoute(ctx, o, parentRoute(ctx))
-	if perr == nil {
-		ctx = withPlan(ctx, plan)
-	} else {
-		logDivergence(ctx, o.Agent, []string{perr.Error()})
-	}
-	ch, err := c.route(ctx, r, o)
+	ch, err := c.planChain(ctx, r, o)
 	ch = rotated.onto(ch)
-	if perr == nil {
-		ch.Plan = &plan
-		logDivergence(ctx, o.Agent, Divergence(plan, ch))
+	if err != nil {
+		return o, r, ch, err
 	}
-	if err == nil {
-		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
-			err = clientUsageError{perr}
-		}
+	if err := refusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
+		return o, r, ch, clientUsageError{err}
 	}
 	return o, r, ch, err
 }

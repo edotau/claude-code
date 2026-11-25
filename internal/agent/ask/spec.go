@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -412,13 +411,12 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	doc := base
 	doc.Agent, doc.Model, doc.Hops = o.Agent, o.Model, ch.Hops()
 	doc.Skipped = ch.Skipped
-	plan, err := agent.PlanRoute(ctx, req, agent.ParentRoute{Fence: route.Fence{Open: true}})
-	if err != nil {
-		return failAskCode(format, req.Agent, err, prepareExitCode(err))
+	if ch.Plan != nil {
+		plan := *ch.Plan
+		doc.Plan = dryPlan{RoutePlan: plan, Fallback: dryFallback{Kind: policyKind(plan.Fallback.Kind), Source: policySource(plan.Fallback.Source)}}
+		doc.Divergence = agent.Divergence(plan, ch)
 	}
-	doc.Plan = dryPlan{RoutePlan: plan, Fallback: dryFallback{Kind: policyKind(plan.Fallback.Kind), Source: policySource(plan.Fallback.Source)}}
-	doc.Divergence = agent.Divergence(plan, ch)
-	r, ok, err := dryRoute(ctx, o, req)
+	r, ok, err := dryRoute(ctx, o, req, ch)
 	if err != nil {
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))
 	}
@@ -451,11 +449,11 @@ func firstHopOnRoute(ch agent.Chain, r agent.ModelRoute) []string {
 
 // resolvedModel reports m as a concrete id, not empty, auto or a family alias.
 func resolvedModel(m string) bool {
-	return m != "" && !agent.IsAuto(m) && !slices.Contains(models.AliasNames, m)
+	return m != "" && !agent.IsAuto(m) && !slices.Contains(models.AliasNames, m) && !providers.IsFamily(m)
 }
 
 // dryRoute is the first hop's route, from the calls `gateway resolve` makes; ok is false when it cannot resolve.
-func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, bool, error) {
+func dryRoute(ctx context.Context, o, req agent.RunOptions, ch agent.Chain) (agent.ModelRoute, bool, error) {
 	ctx = agent.PeekContext(ctx)
 	reg, err := providers.Load()
 	if err != nil {
@@ -465,6 +463,7 @@ func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, b
 	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: cmp.Or(req.Model, o.Model), Profile: cmp.Or(req.Provider, req.Lead, o.Provider, o.Lead), Account: req.Account,
 		Effort: req.Effort, Fallback: o.Fallback, Task: o.Prompt, Tools: o.Tools,
 		Held: req.Background || req.SessionID != "" || req.Host != ""})
+	q = queryOnFirstHop(reg, q, ch)
 	hop, note, err := agent.RunQuery(ctx, reg, q, agent.HopAlias(o.Prompt, router.RuleClassifier{}.Alias))
 	if err != nil {
 		return agent.ModelRoute{}, false, err
@@ -512,4 +511,19 @@ func (d dryDoc) print(format string, out io.Writer) int {
 		row("preflight", l)
 	}
 	return 0
+}
+
+// queryOnFirstHop explains the admitted account/model rather than independently choosing the agent's pin again.
+func queryOnFirstHop(reg *providers.Registry, q agent.ModelQuery, ch agent.Chain) agent.ModelQuery {
+	if len(ch.Dispatches) == 0 {
+		return q
+	}
+	d := ch.Dispatches[0]
+	for _, name := range reg.Names() {
+		if reg.Row(name).Account() == d.Account {
+			q.Profile, q.Account = name, ""
+			break
+		}
+	}
+	return q
 }

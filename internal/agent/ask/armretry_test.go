@@ -16,7 +16,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -615,5 +617,21 @@ func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
 	want := []string{"claude via pi (databricks·dev, databricks-claude-sonnet-5-5)", "claude (databricks·dev, databricks-claude-sonnet-5-5)"}
 	if !slices.Equal(doc.Hops, want) {
 		t.Fatalf("hops = %v, want %v", doc.Hops, want)
+	}
+}
+
+func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
+	cliEnv(t)
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","fallback":"all","runner":"own"}`})
+	values, err := armRetryValues(ctx, nil, "qa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ov agentconfig.Overlay
+	if err := json.Unmarshal([]byte(values[route.OverlayVar]), &ov); err != nil {
+		t.Fatal(err)
+	}
+	if ov.Profile != "qa" || ov.Fallback != "all" || ov.Runner != "own" {
+		t.Fatalf("workspace retry erased routing provenance: %+v", ov)
 	}
 }

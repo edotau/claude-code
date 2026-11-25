@@ -74,14 +74,16 @@ type ParentRoute struct {
 
 // RoutePlan is the one routing decision of a dispatch; every reader takes it, none re-derives it.
 type RoutePlan struct {
-	Agent    string        `json:"agent"`
-	Runners  []Runner      `json:"runners"`
-	Pool     []Workspace   `json:"pool"`
-	Tier     Tier          `json:"tier"`
-	Fence    route.Fence   `json:"fence"`
-	Fallback router.Policy `json:"fallback"`
-	Barred   string        `json:"barred,omitempty"` // why Runners lacks pi, said once
-	Agents   []PlanHop     `json:"agents,omitempty"` // the other-account and other-agent hops an agents or all policy adds
+	Agent       string        `json:"agent"`
+	Runners     []Runner      `json:"runners"`
+	Pool        []Workspace   `json:"pool"`
+	Tier        Tier          `json:"tier"`
+	Fence       route.Fence   `json:"fence"`
+	Fallback    router.Policy `json:"fallback"`
+	Barred      string        `json:"barred,omitempty"`      // why Runners lacks pi, said once
+	Constraints []string      `json:"constraints,omitempty"` // independent intent violations captured before admission
+	Admitted    []PlanHop     `json:"admitted,omitempty"`    // validated execution steps; nil before the single routing pass
+	Agents      []PlanHop     `json:"agents,omitempty"`      // the other-account and other-agent hops an agents or all policy adds
 }
 
 type planKey struct{}
@@ -103,7 +105,7 @@ type PlanHop struct {
 	Workspace Workspace
 }
 
-// PlanRoute builds o's route plan from inputs only: it peeks, so no rotation pick is stamped.
+// PlanRoute builds from resolved inputs only; Client.Plan owns the single role rotation.
 func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan, error) {
 	ctx = PeekContext(ctx)
 	p := RoutePlan{Agent: cmp.Or(o.Agent, agentid.Claude)}
@@ -121,41 +123,10 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if p.Fallback, err = planPolicy(ctx, o, ov.Fallback); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
-	rctx, ro, _, err := rotateRole(ctx, o) // peeked: the pick the chain leads with, nothing stamped
-	if err != nil {
-		return p, fmt.Errorf("route plan: %w", err)
-	}
-	p.Pool = planPool(rctx, reg, ro, p) // before tier and runners: both read Pool[0]
+	p.Pool = planPool(ctx, reg, o, p) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
-	if p.Agents, err = planAgentHops(rctx, ro, p); err != nil {
-		return p, fmt.Errorf("route plan: %w", err)
-	}
 	return p, nil
-}
-
-// planAgentHops is the chain's own ladder tail under an agents or all policy: hops off the pool's accounts.
-func planAgentHops(ctx context.Context, o RunOptions, p RoutePlan) ([]PlanHop, error) {
-	if !p.Fallback.Agents || o.Host != "" {
-		return nil, nil
-	}
-	eng, err := Lookup(o.Agent)
-	if err != nil {
-		return nil, err
-	}
-	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: HopAlias(o.Prompt, router.RuleClassifier{}.Alias),
-		Task: o.Prompt, Profile: o.Provider, Lead: o.Lead, Fallback: p.Fallback.Mode(), WorkDir: o.WorkDir, Native: o.Native,
-		Pinned: true, AutoModel: o.AutoModel, Tools: o.Tools, Engine: eng, Resumed: o.SessionID != "", Opts: o})
-	if err != nil {
-		return nil, err
-	}
-	var out []PlanHop
-	for _, d := range chain.Dispatches {
-		if d.runFor == "" && !slices.ContainsFunc(p.Pool, func(w Workspace) bool { return w.Account == d.Account }) {
-			out = append(out, PlanHop{Runner: Runner{Kind: RunnerOwn, Agent: d.Agent.Name()}, Workspace: Workspace{Account: d.Account}})
-		}
-	}
-	return out, nil
 }
 
 // planFence is the overlay's confinement held to the parent's fence.
@@ -183,7 +154,7 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 	if err != nil {
 		return pol, err
 	}
-	if pol.Kind != router.PolicyNone && (router.ArmProfileContext(ctx) != "" || typedProfile(o) != "") {
+	if pol.Kind != router.PolicyNone && (cmp.Or(router.ArmProfileContext(ctx), typedProfile(o)) != "") {
 		pol.Kind = router.PolicySameWorkspace
 	}
 	return pol, nil
@@ -317,6 +288,9 @@ func piAskRunners(o RunOptions, p RoutePlan, onDatabricks bool) []Runner {
 
 // Hops is p runner-major (D3): pi on every pool workspace, each own CLI on Pool[0], then the agent hops.
 func (p RoutePlan) Hops() []PlanHop {
+	if p.Admitted != nil {
+		return p.Admitted
+	}
 	var out []PlanHop
 	for _, r := range p.Runners {
 		ws := p.Pool[:min(1, len(p.Pool))]
@@ -341,7 +315,7 @@ func (h PlanHop) engineName() string {
 // Divergence is one line per hop where p and ch differ in agent or account; nil when they agree.
 func Divergence(p RoutePlan, ch Chain) []string {
 	hops := p.Hops()
-	var out []string
+	out := slices.Clone(p.Constraints)
 	for i := range max(len(hops), len(ch.Dispatches)) {
 		plan, chain := "none", "none"
 		if i < len(hops) {
@@ -355,11 +329,21 @@ func Divergence(p RoutePlan, ch Chain) []string {
 		}
 		out = append(out, fmt.Sprintf("hop %d: plan %s, chain %s", i+1, plan, chain))
 	}
-	return out
+	return appendNewLines(out, planConstraints(p, ch))
 }
 
 // sameHop compares agent and account; an own-login workspace with no row compares by agent only.
 func sameHop(h PlanHop, d Dispatch) bool {
 	acct := h.Workspace.Account
 	return h.engineName() == d.Agent.Name() && (acct == "" || acct == d.Account)
+}
+
+// appendNewLines preserves hop order while avoiding repeated captured/current intent violations.
+func appendNewLines(lines, more []string) []string {
+	for _, line := range more {
+		if !slices.Contains(lines, line) {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }

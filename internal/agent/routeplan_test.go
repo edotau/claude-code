@@ -55,7 +55,11 @@ func TestPlanRoute(t *testing.T) {
 			}
 			session := cmp.Or(r.session, "dev")
 			ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: session, route.OverlayVar: r.overlay})
-			p, err := PlanRoute(ctx, r.o, ParentRoute{Fence: route.Fence{Open: true}})
+			ctx, o, _, err := rotateRole(PeekContext(ctx), r.o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := PlanRoute(ctx, o, ParentRoute{Fence: route.Fence{Open: true}})
 			if err != nil {
 				t.Fatal(err)
 			}

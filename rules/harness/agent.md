@@ -79,9 +79,11 @@ paths:
   overlay opts a dispatch out. A plain `--agent pi` ask with no fallback mode set (overlay, env, vault) follows
   `agents`: pi on the workspace, pi on the other workspaces (same model; not under a rotation's drop or a
   confinement), then claude on that Databricks workspace (`withPiClaudeHop`, `withPiSiblings`).
-  First-party Anthropic, Copilot and Google routes are unchanged, and an auto pick,
-  `--fallback none`, a resumed session and `--native` stay on the own CLI, and an explicit profile pin keeps the Pi
-  hops on that workspace (`internal/agent/route.go` `withPiRunner`, `piRunnerBarred`, `staysOnWorkspace`).
+  First-party Anthropic, Copilot and Google routes are unchanged. Workspace auto picks and `--fallback none`
+  keep Pi first; model auto picks, a resumed session, `--native` or `--runner own` keep the own CLI.
+  A profile pin keeps Pi on that workspace (`internal/agent/pirunner.go` `withPiRunner`, `staysOnWorkspace`).
+  Planning is fail-closed: invalid policy, overlay or fence inputs stop dispatch instead of bypassing the plan;
+  I/O planning failures remain runtime errors, not usage errors.
   A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
   budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens through Pi against 61k
   on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles, then the agent's own CLI;
@@ -232,7 +234,8 @@ paths:
   Refused auto picks share at most 3 re-picks per ask, including a move after an exhausted pool (a 429 move is
   free); no re-pick follows streamed text or tool execution. Under `--fallback none` an auto-picked workspace
   whose pool is exhausted moves to another workspace of the same provider, never past an inherited `--profile`. A
-  typed `--profile <workspace>` is a start, not a lock: a 429 moves it to the next workspace unless `--fallback none`.
+  typed `--profile <workspace>` is a start, not a lock: a 429 moves it to the next workspace unless
+  `--fallback none`.
   Vault agent records store `route`/`fallbackRoute` objects (`configure agents <a> profile=qa` is sugar,
   `route='{…}'` takes the object; legacy profile/account/fallback are read; a copilot record is route
   `{github, account}` plus `fallbackRoute`). Dispatch records write `route`/`ran_route` as objects.

@@ -333,11 +333,11 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 	}
 	req = req.ApplyOverlay(r.ctx, ov)
 	ctx = providers.WithIdentity(r.ctx, cmp.Or(f.as, providers.IdentityHeadless))
-	o, _, _, err := newClient().Plan(ctx, req)
+	o, _, ch, err := newClient().Plan(ctx, req)
 	if err != nil {
 		return agent.ModelRoute{}, err
 	}
-	route, _, err := dryRoute(ctx, o, req)
+	route, _, err := dryRoute(ctx, o, req, ch)
 	return route, err
 }
 
