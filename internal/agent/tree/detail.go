@@ -438,9 +438,9 @@ func transcriptEvents(raw []byte, names map[string]string) []wire.Event {
 func blockEvent(b transcriptBlock, names map[string]string, home string) (wire.Event, bool) {
 	switch b.Type {
 	case "text":
-		return wire.Event{Type: wire.EventText, Text: firstLine(b.Text) + "\n"}, true
+		return wire.Event{Type: wire.EventText, Text: textutil.FirstNonBlank(b.Text) + "\n"}, true
 	case "thinking":
-		line := firstLine(b.Thinking)
+		line := textutil.FirstNonBlank(b.Thinking)
 		return wire.Event{Type: eventThinking, Text: line}, line != ""
 	case "tool_use":
 		names[b.ID] = b.Name
@@ -449,7 +449,7 @@ func blockEvent(b transcriptBlock, names map[string]string, home string) (wire.E
 			Text: stripPaths(arg, home, "")}, true
 	case "tool_result":
 		ev := wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: names[b.ToolUseID], ID: b.ToolUseID},
-			Text: firstLine(blockText(b.Content))}
+			Text: textutil.FirstNonBlank(blockText(b.Content))}
 		delete(names, b.ToolUseID)
 		if b.IsError {
 			ev.Status = "error"
@@ -481,16 +481,6 @@ func blockText(raw json.RawMessage) string {
 		b.WriteString(p.Text + "\n")
 	}
 	return b.String()
-}
-
-// firstLine is the first non-blank line of s, trimmed.
-func firstLine(s string) string {
-	for line := range strings.SplitSeq(s, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
-		}
-	}
-	return ""
 }
 
 // Oversized event lines are dropped whole so an unfinished tool dump cannot grow the reader without bound.

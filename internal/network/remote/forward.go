@@ -155,10 +155,8 @@ func forwardOnce(ctx context.Context, host string, port, local int) (func(), err
 
 // firstLine is the first non-empty line of s, clipped, for a one-line error.
 func firstLine(s string) string {
-	for l := range strings.SplitSeq(s, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			return textutil.CapRunes(l, 160, "…")
-		}
+	if l := textutil.FirstNonBlank(s); l != "" {
+		return textutil.CapRunes(l, 160, "…")
 	}
 	return "connection closed"
 }
