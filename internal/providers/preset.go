@@ -315,6 +315,8 @@ type Options struct {
 	Wire        string           `json:"wire,omitempty"`
 	WarehouseID string           `json:"warehouse_id,omitempty"`
 	Prices      map[string]Price `json:"prices,omitempty"`
+	// GoogleTools are the Gemini built-in tools this row serves, from a probe; nil = unprobed.
+	GoogleTools []string `json:"google_tools,omitempty"`
 }
 
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.

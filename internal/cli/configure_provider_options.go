@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -54,8 +55,10 @@ func providerOptionPairs(opts providers.Options, pairs []string) (providers.Opti
 				return opts, fmt.Errorf("options.prices: %w", err)
 			}
 			opts.Prices = prices
+		case "options.google_tools":
+			opts.GoogleTools = textutil.SplitCSV(value)
 		default:
-			return opts, fmt.Errorf("unknown key %q; use options.warehouse_id or options.prices", key)
+			return opts, fmt.Errorf("unknown key %q; use options.warehouse_id, options.prices or options.google_tools", key)
 		}
 	}
 	return opts, opts.Validate()

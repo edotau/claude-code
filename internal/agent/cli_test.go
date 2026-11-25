@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -153,6 +154,15 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})
 	if time.Since(start) >= 30*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
 		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
+	}
+	pgid := cmd.Process.Pid
+	for end := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatalf("process group %d still has a member after Wait: a grandchild escaped the kill", pgid)
+		}
 	}
 }
 

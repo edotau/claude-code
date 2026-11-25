@@ -115,6 +115,9 @@ func ProfileDetail(p *Provider, source, note string) []string {
 	if p.Options.WarehouseID != "" {
 		lines = append(lines, "options.warehouse_id  "+p.Options.WarehouseID)
 	}
+	if len(p.Options.GoogleTools) > 0 {
+		lines = append(lines, "options.google_tools  "+strings.Join(p.Options.GoogleTools, ","))
+	}
 	for _, id := range slices.Sorted(maps.Keys(p.Options.Prices)) {
 		price := p.Options.Prices[id]
 		line := fmt.Sprintf("options.prices.%s  input=%g output=%g cache_read=%g cache_write=%g", id, price.Input,

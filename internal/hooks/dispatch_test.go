@@ -260,7 +260,7 @@ func contextBindingProbes() map[string]bindingProbe {
 var pointerBound = map[string]core.Runner{
 	"format-stop": quality.StopFormat, "codex-agent-route": CodexAgentRoute, "codex-routing-start": CodexRoutingStart,
 	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
-	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
+	"dispatch-failure": Release, "review-grep-exit": GrepExit, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": reminderWatched,
 	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
 	"worktree-clean-end": wthook.CleanEnd, "lane-land": LaneLand, "lane-land-queue": LaneLandQueue,
