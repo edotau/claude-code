@@ -24,8 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 
-	// Each vendor CLI registers its roster row and driver from its package init; this package links them all.
-	// claude links from review.go's import; pi from vendors.go.
+	// Vendor CLIs register their roster rows from package init; claude links via review.go, pi via vendors.go.
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"
