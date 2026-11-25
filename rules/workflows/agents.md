@@ -40,10 +40,12 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   `/pi` (same flags) runs the same ask plain, without `--carry` (which refuses pi). There is no `/claude`: the name
   could collide.
-- The Databricks arm with requests sent through the other machine is an ask under the overlay
-  `{"provider":"databricks","profile":"auto","remote":"auto"}`. The route travels whole (provider, profile, host,
-  remote); workflow steps take it from one source and pass `--overlay`. Overlay keys and precedence:
-  `rules/harness/agent.md`; what `auto` resolves to: `rules/harness/network.md`.
+- `/coworker --agent <codex|copilot|gemini|opencode|claude|pi> [--overlay <json|file>] [--model <m>] <task>` — the
+  same direct ask (claude and pi plain), run here on the Databricks arm with its requests sent through
+  the other machine (default overlay `{"provider":"databricks","profile":"auto","remote":"auto"}`;
+  `--overlay` replaces it). Not a new agent type. The route travels whole (provider, profile, host, remote);
+  workflow steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;
+  what `auto` resolves to: `rules/harness/network.md`.
 - `--model auto` (or overlay `model: auto`, a record pin `auto`; model strings carry no profile: `providers.md`)
   ranks the models that one profile serves by the brief's tier from `internal/assets/files/catalog/ranks.json`, over a
   pinned model; the label shows the pick.
