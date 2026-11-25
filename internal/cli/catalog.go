@@ -593,8 +593,6 @@ func runOpencodeMenu(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if verb == "list" || verb == "check" {
-	}
 	return m.run(pos)
 }
 
