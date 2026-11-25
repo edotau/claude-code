@@ -1,6 +1,8 @@
 package worktree
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,14 +17,14 @@ func gvPkg(rel string, imports ...string) goPkg {
 	return goPkg{ImportPath: gvMod + rel, Dir: "/r/" + rel, Imports: imports}
 }
 
-// gvList: lane <- a <- w, a -> b -> c, e -> lane (added by the case), emb embeds x.txt (and imports lane), d alone.
+// gvList: lane <- a <- w, cli -> lane, a -> b -> c, e -> lane (case-added), emb embeds x.txt, imports lane; d alone.
 func gvList() []goPkg {
 	emb := gvPkg("emb", "lane")
 	emb.EmbedFiles = []string{"x.txt"}
 	emb.TestEmbedFiles = []string{"testembed.txt"}
 	return []goPkg{
 		gvPkg("lane"), gvPkg("a", "lane", "b"), gvPkg("b", "c"), gvPkg("c"), gvPkg("d"),
-		gvPkg("w", "a"), emb,
+		gvPkg("w", "a"), emb, gvPkg("cli", "lane"), gvPkg("schemas"),
 	}
 }
 
@@ -34,7 +36,7 @@ func gvScope() gateScope {
 		}
 		return m
 	}
-	return gateScope{Changed: set("lane"), Tested: set("lane", "a", "emb"), Scoped: true}
+	return gateScope{Changed: set("lane"), Tested: set("lane", "a", "emb", "cli"), Scoped: true}
 }
 
 func nul(files ...string) string { return strings.Join(files, "\x00") + "\x00" }
@@ -49,10 +51,16 @@ type gvCase struct {
 	retest []string
 }
 
+var gvAll = []string{"a", "cli", "emb", "lane"}
+
 var gvCases = []gvCase{
 	{name: "empty move reuses", kind: revalReuse},
 	{name: "disjoint change reuses", moved: nul("d/d.go"), kind: revalReuse},
-	{name: "unowned markdown reuses", moved: nul("docs/readme.md"), kind: revalReuse},
+	{name: "docs markdown reuses", moved: nul("docs/readme.md"), kind: revalReuse},
+	{name: "plans markdown reuses", moved: nul("plans/x/p.md"), kind: revalReuse},
+	{name: "unowned markdown outside the allow-list", moved: nul("rules/standards/x.md"), kind: revalFull, why: whyUnowned},
+	{name: "root markdown", moved: nul("README.md"), kind: revalFull, why: whyUnowned},
+	{name: "non-markdown under docs", moved: nul("docs/images/x.svg"), kind: revalFull, why: whyUnowned},
 	{name: "change in tested package", moved: nul("a/a.go"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
 	{name: "change in transitive dependency", moved: nul("c/c.go"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
 	{name: "breaking commit in closure never reuses", moved: nul("b/b.go", "d/d.go"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
@@ -63,13 +71,16 @@ var gvCases = []gvCase{
 	{name: "embedded file retests embedder", moved: nul("emb/x.txt"), kind: revalRetest, why: whyTouched, retest: []string{"emb"}},
 	{name: "test embed file retests its package", moved: nul("emb/testembed.txt"), kind: revalRetest, why: whyTouched, retest: []string{"emb"}},
 	{name: "deleted embedded file retests embedder", moved: nul("emb/gone.txt"), kind: revalRetest, why: whyTouched, retest: []string{"emb"}},
-	{name: "testdata invalidates its package", moved: nul("a/testdata/f.json"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
-	{name: "nested testdata invalidates owner", moved: nul("a/sub/testdata/f.json"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
+	{name: "testdata retests every tested package", moved: nul("a/testdata/f.json"), kind: revalRetest, why: whyTouched, retest: gvAll},
+	{name: "nested testdata retests every tested package", moved: nul("a/sub/testdata/f.json"), kind: revalRetest, why: whyTouched, retest: gvAll},
+	{name: "testdata read across packages retests cli", moved: nul("schemas/testdata/x"), kind: revalRetest, why: whyTouched, retest: gvAll},
+	{name: "file added under embedded directory", moved: nul("emb/files/sub/new.txt"), kind: revalRetest, why: whyTouched, retest: []string{"emb"}},
+	{name: "file added under an embedder tree credits the embedder", moved: nul("emb/x/y.bin"), kind: revalRetest, why: whyTouched, retest: []string{"emb"}},
 	{name: "cgo C file", moved: nul("a/a.c"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
 	{name: "build-constrained file", moved: nul("a/a_windows.go"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
 	{name: "generated file", moved: nul("a/zz_generated.go"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
-	{name: "non-Go file in package dir", moved: nul("a/notes.txt"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
-	{name: "non-Go file in unlisted subdir", moved: nul("a/fixtures/in.json"), kind: revalRetest, why: whyTouched, retest: []string{"a"}},
+	{name: "non-Go data file in package dir", moved: nul("a/notes.txt"), kind: revalFull, why: whyUnowned},
+	{name: "non-Go data file in unlisted subdir", moved: nul("a/fixtures/in.json"), kind: revalFull, why: whyUnowned},
 	{name: "go.mod", moved: nul("go.mod"), kind: revalFull, why: whyModFile},
 	{name: "go.sum", moved: nul("d/d.go", "go.sum"), kind: revalFull, why: whyModFile},
 	{name: "go.work", moved: nul("go.work"), kind: revalFull, why: whyModFile},
@@ -134,5 +145,51 @@ func TestClosure(t *testing.T) {
 	}
 	if !closure(list, "/r", []string{"lane"})["d"] {
 		t.Error("closure(lane) must follow the root's own test imports")
+	}
+}
+
+// gvDisk writes one Go file per package under a temp dir and points the list at it.
+func gvDisk(t *testing.T) ([]goPkg, string) {
+	t.Helper()
+	abs, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := gvList()
+	for i := range list {
+		rel := strings.TrimPrefix(list[i].Dir, "/r/")
+		list[i].Dir = filepath.Join(abs, rel)
+		if err := os.MkdirAll(list[i].Dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(list[i].Dir, rel+".go"), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return list, abs
+}
+
+// scope must agree with scopedGoGate: lane packages plus direct importers, via changedPackages and reverseDeps.
+func TestRevalidateScopeMatchesGate(t *testing.T) {
+	list, abs := gvDisk(t)
+	changed, full := changedPackages(list, abs, nul("lane/lane.go"))
+	if full {
+		t.Fatal("changedPackages demanded a full gate")
+	}
+	scope := reverseDeps(list, abs, changed)
+	run := func(skip string) reval {
+		tested := map[string]bool{}
+		for q := range scope {
+			tested[q] = q != skip
+		}
+		return revalidate(list, abs, gateScope{Changed: changed, Tested: tested, Scoped: true}, nul("lane/lane.go"), nul("d/d.go"))
+	}
+	if got := run(""); got.Kind != revalReuse {
+		t.Fatalf("scope %v: revalidate = %+v, want reuse", scope, got)
+	}
+	for p := range scope {
+		if got := run(p); !slices.Equal(got.Retest, []string{p}) {
+			t.Errorf("revalidate scope misses %s: %+v", p, got)
+		}
 	}
 }

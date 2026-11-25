@@ -53,6 +53,8 @@ type graph struct {
 	byDir  map[string]goPkg
 	byPath map[string]string
 	embed  map[string][]embedOwner
+	// embedDir maps a package dir with embeds to whether any are non-test (deep).
+	embedDir map[string]bool
 }
 
 type embedOwner struct {
@@ -60,11 +62,14 @@ type embedOwner struct {
 	test bool
 }
 
-// hits are the packages a file set touches: deep ones affect every importer, self ones only their own tests.
-type hits struct{ deep, self map[string]bool }
+// hits: deep packages affect every importer, self ones their own tests; all (testdata) retests every package in scope.
+type hits struct {
+	deep, self map[string]bool
+	all        bool
+}
 
 func newGraph(list []goPkg, abs string) graph {
-	g := graph{map[string]goPkg{}, map[string]string{}, map[string][]embedOwner{}}
+	g := graph{map[string]goPkg{}, map[string]string{}, map[string][]embedOwner{}, map[string]bool{}}
 	for _, p := range list {
 		r, err := filepath.Rel(abs, p.Dir)
 		if err != nil || r == ".." || strings.HasPrefix(r, "../") {
@@ -80,6 +85,7 @@ func newGraph(list []goPkg, abs string) graph {
 
 func (g graph) addEmbeds(dir string, files []string, test bool) {
 	for _, e := range files {
+		g.embedDir[dir] = g.embedDir[dir] || !test
 		k := path.Join(dir, filepath.ToSlash(e))
 		g.embed[k] = append(g.embed[k], embedOwner{dir, test})
 	}
@@ -131,13 +137,13 @@ func (g graph) owner(dir string, testdata bool) (string, bool) {
 
 // classify maps NUL-separated changed files to hits; a non-empty why demands a full re-gate.
 func (g graph) classify(names string) (hits, revalWhy) {
-	h := hits{map[string]bool{}, map[string]bool{}}
+	h := &hits{deep: map[string]bool{}, self: map[string]bool{}}
 	for _, f := range textutil.SplitNUL(names) {
 		if why := g.classifyFile(f, h); why != whyNone {
 			return hits{}, why
 		}
 	}
-	return h, whyNone
+	return *h, whyNone
 }
 
 func modFile(f string) bool {
@@ -148,7 +154,7 @@ func modFile(f string) bool {
 	return strings.HasPrefix(f, "vendor/") || strings.Contains(f, "/vendor/")
 }
 
-func (g graph) classifyFile(f string, h hits) revalWhy {
+func (g graph) classifyFile(f string, h *hits) revalWhy {
 	if modFile(f) {
 		return whyModFile
 	}
@@ -164,25 +170,61 @@ func (g graph) classifyFile(f string, h hits) revalWhy {
 	return g.classifyOther(f, dir, h)
 }
 
-func (g graph) classifyOther(f, dir string, h hits) revalWhy {
+func (g graph) classifyOther(f, dir string, h *hits) revalWhy {
+	if strings.Contains("/"+f, "/testdata/") {
+		h.all = true
+		if d, ok := g.owner(dir, true); ok {
+			mark(h, d, false)
+		}
+		return whyNone
+	}
 	if owners := g.embed[f]; len(owners) > 0 {
 		for _, o := range owners {
 			mark(h, o.dir, !o.test)
 		}
 		return whyNone
 	}
-	testdata := strings.Contains("/"+f, "/testdata/")
-	if d, ok := g.owner(dir, testdata); ok {
-		mark(h, d, !testdata)
+	if g.markEmbedDirs(f, h) {
 		return whyNone
 	}
-	if strings.HasSuffix(f, ".md") {
+	if buildSource(f) {
+		if d, ok := g.owner(dir, false); ok {
+			mark(h, d, true)
+			return whyNone
+		}
+	} else if pureDoc(f) {
 		return whyNone
 	}
 	return whyUnowned
 }
 
-func mark(h hits, dir string, deep bool) {
+// markEmbedDirs credits f to every package whose directory tree holds it and has embeds (a pattern may add f).
+func (g graph) markEmbedDirs(f string, h *hits) bool {
+	found := false
+	for d, deep := range g.embedDir {
+		if d == "." || strings.HasPrefix(f, d+"/") {
+			mark(h, d, deep)
+			found = true
+		}
+	}
+	return found
+}
+
+// buildSource reports a non-Go file extension the go tool compiles into its package.
+func buildSource(f string) bool {
+	switch path.Ext(f) {
+	case ".c", ".h", ".s", ".S", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".m", ".f", ".syso", ".swig", ".swigcxx":
+		return true
+	}
+	return false
+}
+
+// pureDoc reports a .md file under a location no test reads (docs/, plans/, memory/).
+func pureDoc(f string) bool {
+	return strings.HasSuffix(f, ".md") && (strings.HasPrefix(f, "docs/") || strings.HasPrefix(f, "plans/") || strings.HasPrefix(f, "memory/"))
+}
+
+func mark(h *hits, dir string, deep bool) {
 	if deep {
 		h.deep[dir] = true
 		return
@@ -214,6 +256,7 @@ func revalidate(list []goPkg, abs string, first gateScope, laneFiles, movedFiles
 			lpk[d] = true
 		}
 	}
+	// scope must match scopedGoGate in gate.go: lane packages plus their direct importers (TestRevalidateScopeMatchesGate)
 	return g.retestSet(first, reverseDeps(list, abs, lpk), moved)
 }
 
@@ -226,7 +269,7 @@ func (g graph) retestSet(first gateScope, scope map[string]bool, moved hits) rev
 			if out.Why == whyNone {
 				out.Why = whyNewImporter
 			}
-		case moved.self[p] || anyIn(g.closure([]string{p}), moved.deep):
+		case moved.all || moved.self[p] || anyIn(g.closure([]string{p}), moved.deep):
 			out.Retest = append(out.Retest, p)
 			out.Why = whyTouched
 		}
