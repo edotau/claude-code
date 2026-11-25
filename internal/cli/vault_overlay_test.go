@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -33,5 +35,22 @@ func TestVaultOverlayUnset(t *testing.T) {
 			t.Errorf("vault overlay %v: exit %d left %v output %q; want exit %d left %v containing %q",
 				c.args, code, left, stdout+stderr, c.code, c.left, c.out)
 		}
+	}
+}
+
+// vault overlay set: an over-cap proxy-teams document is refused and nothing is written.
+func TestVaultOverlaySetRefusesOverCap(t *testing.T) {
+	vaulttest.Use(t)
+	doc := filepath.Join(t.TempDir(), "teams.json")
+	bad := `{"schema":1,"teams":[{"name":"phase","kinds":["group"],"host":"phase","lifetime":"phase",` +
+		`"reserved":1024,"borrow":"never","fallback":["shared"]}]}`
+	if err := os.WriteFile(doc, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay([]string{"set", "proxy-teams", "--file", doc}) })
+	var stored bool
+	_ = vault.View(func(tx *vault.Tx) error { _, stored = tx.Get(vault.Overlay, "proxy-teams"); return nil })
+	if code == 0 || stored || !strings.Contains(stderr, "nothing written") {
+		t.Errorf("exit %d stored %v stderr %q; want refusal with nothing stored", code, stored, stderr)
 	}
 }

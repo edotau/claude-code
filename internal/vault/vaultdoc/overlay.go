@@ -8,7 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// OverlayKeys are the overlay entries `vault overlay unset` may remove: documents that only override a default.
+// OverlayKeys are the overlay entries `vault overlay set|unset` accept: documents that only override a default.
 var OverlayKeys = []string{"proxy-teams"}
 
 func checkOverlayKey(key string) error {
@@ -39,6 +39,20 @@ func UnsetOverlay(key, seen string) error {
 		}
 		return t.Put(vault.Overlay, key, "")
 	})
+}
+
+// SetOverlay stores doc under a known overlay key and returns the previous size in bytes.
+func SetOverlay(key, doc string) (int, error) {
+	if err := checkOverlayKey(key); err != nil {
+		return 0, err
+	}
+	var old int
+	err := vault.Update(func(t *vault.Tx) error {
+		cur, _ := t.Get(vault.Overlay, key)
+		old = len(cur)
+		return t.Put(vault.Overlay, key, doc)
+	})
+	return old, err
 }
 
 // OverlayStored lists each overlay key with its stored size in bytes, sorted by key.
