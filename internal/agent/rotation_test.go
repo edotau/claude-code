@@ -13,11 +13,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Asked auto peeks without recording, stamps and advances on a real pick.
@@ -402,5 +404,53 @@ func TestPlaceRotationStayPinsProvider(t *testing.T) {
 	_, o := placeRotation(context.Background(), reg, RunOptions{Lead: "old"}, "ultra", modeScope{stay: true, off: []string{"anthropic"}})
 	if o.Lead != "" || o.Provider != "ultra" || !o.Rotated {
 		t.Fatalf("lead %q provider %q rotated %v, want empty, ultra, true", o.Lead, o.Provider, o.Rotated)
+	}
+}
+
+func TestRotationCandidatesLastResort(t *testing.T) {
+	vaulttest.Use(t)
+	copilotauth.StubRead(t, func(string) []string {
+		return []string{"auto", "gpt-6.2-sol", "claude-sonnet-5.5"}
+	}, nil)
+	local := &providers.Provider{
+		Name: "local", Provider: "magnitude", Options: providers.Options{LastResort: true},
+		Models: map[string]string{
+			"haiku": "qwen3.8-27b:gguf:q6", "sonnet": "qwen3.8-27b:gguf:q6", "opus": "qwen3.8-35b",
+		},
+	}
+	copilot := &providers.Provider{
+		Name: "copilot", Provider: "github", Models: map[string]string{"sonnet": "not-in-catalog"},
+	}
+	for _, tt := range []struct {
+		name string
+		row  *providers.Provider
+		want []catalog.Candidate
+	}{
+		{"local", local, []catalog.Candidate{{Model: "qwen3.8-27b:gguf:q6"}, {Model: "qwen3.8-35b"}}},
+		{"copilot", copilot, []catalog.Candidate{{Model: "gpt-6.2-sol"}, {Model: "claude-sonnet-5.5"}}},
+		{"empty local", &providers.Provider{Options: providers.Options{LastResort: true}}, nil},
+		{"last-resort first", &providers.Provider{
+			Preset: providers.PresetDatabricks, Options: providers.Options{LastResort: true}, Models: local.Models,
+		}, []catalog.Candidate{{Model: "qwen3.8-27b:gguf:q6"}, {Model: "qwen3.8-35b"}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if !router.RotationRow(tt.row) {
+				t.Fatal("row not admitted to rotation")
+			}
+			for _, tools := range []bool{false, true} {
+				if got := rotationCandidates(nil, "pi", tt.row, tools, time.Time{}); !reflect.DeepEqual(got, tt.want) {
+					t.Fatalf("tools=%v candidates = %v, want %v", tools, got, tt.want)
+				}
+			}
+		})
+	}
+	for _, a := range []string{"copilot", "opencode", "codex"} {
+		if got := rotationCandidates(nil, a, local, false, time.Time{}); got != nil {
+			t.Fatalf("%s on the local row = %v, want none", a, got)
+		}
+	}
+	local.Options.LastResort = false
+	if router.RotationRow(local) || router.RotationRow(nil) {
+		t.Fatal("ordinary or nil row admitted to rotation")
 	}
 }

@@ -153,18 +153,23 @@ func TestMemoryHopsEndWithLocal(t *testing.T) {
 	srv.Close()
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
 		"dev": ws("dev"), "qa": ws("qa"), "prod": ws("prod"),
-		"local": {Name: "local", Provider: "magnitude", BaseURL: url, Models: map[string]string{"sonnet": "q"}},
+		"local": {Name: "local", Provider: "magnitude", BaseURL: url, Models: map[string]string{"sonnet": "q"},
+			Options: providers.Options{LastResort: true}},
 	}}
+	local := route.Route{Provider: "magnitude", Profile: "local"}
 	got := memoryHops(reg, "dev")
-	if len(got) != 3 || got[2] != localRoute || got[0].Profile == "dev" || got[1].Profile == "dev" {
+	if len(got) != 3 || got[2] != local || got[0].Profile == "dev" || got[1].Profile == "dev" {
 		t.Fatalf("hops for dev = %v, want the other two workspaces then local", got)
 	}
-	if got := memoryHops(reg, "work"); len(got) != 1 || got[0] != (route.Route{Provider: "magnitude", Profile: "local"}) {
+	if got := memoryHops(reg, "work"); len(got) != 1 || got[0] != local {
 		t.Fatalf("hops for a non-Databricks pin = %v, want [local]", got)
 	}
-	start := time.Now()
-	if localUp(context.Background(), reg) || time.Since(start) > localProbe+time.Second {
-		t.Fatalf("localUp against a closed port = true or slow (%s)", time.Since(start))
+	if _, ok := admitLocal(context.Background(), reg, true); ok {
+		t.Fatal("admitLocal against a closed port admitted the hop")
+	}
+	reg.Providers["local"].Options.LastResort = false
+	if got := memoryHops(reg, "work"); len(got) != 0 {
+		t.Fatalf("hops with options.last_resort=false = %v, want none", got)
 	}
 	checkJobClasses(t, reg)
 }

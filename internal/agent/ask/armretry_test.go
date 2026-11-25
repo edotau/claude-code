@@ -635,3 +635,12 @@ func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
 		t.Fatalf("workspace retry erased routing provenance: %+v", ov)
 	}
 }
+
+func TestRanOnLocalFallback(t *testing.T) {
+	res := wire.Result{Agent: "pi", Status: wire.StatusOK, Answer: "ok", Model: "qwen", Provider: "local",
+		Fallback: "pi", FallbackReason: "pi (magnitude·deadq): transient failure", FallbackKind: "transient failure",
+		Hops: []wire.Hop{{Agent: "pi", Account: "magnitude·local", Profile: "local", Model: "qwen"}}}
+	if got := ranOn(res); !strings.Contains(got, " · fallback local(transient failure)") || strings.Contains(got, "from ") {
+		t.Errorf("ranOn = %q, want the fallback segment local(transient failure)", got)
+	}
+}

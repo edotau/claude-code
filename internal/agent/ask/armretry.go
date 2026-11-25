@@ -329,9 +329,15 @@ func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunO
 	}
 }
 
-// ranOn is wire.RanOn plus " · tried a → b" when a run moved across Databricks workspaces.
+// ranOn is wire.RanOn, its fallback local(<kind>) when the local hop answered, plus " · tried a → b" across workspaces.
 func ranOn(res wire.Result) string {
+	if res.FallbackKind != "" {
+		res.Fallback = "" // the line then reads "fallback none", which the local segment replaces
+	}
 	line := wire.RanOn(res)
+	if res.FallbackKind != "" {
+		line = strings.Replace(line, " · fallback none", " · fallback local("+res.FallbackKind+")", 1)
+	}
 	var tried []string
 	for _, h := range res.Hops {
 		if strings.HasPrefix(h.Account, "databricks·") && !slices.Contains(tried, h.Profile) {

@@ -72,6 +72,7 @@ type Record struct {
 	Proxy          string      `json:"proxy,omitempty"`          // the proxy route label the final attempt ran through
 	Fallback       string      `json:"fallback,omitempty"`       // the original agent's name, when it ran instead
 	FallbackReason string      `json:"fallback_reason,omitempty"`
+	FallbackKind   string      `json:"fallback_kind,omitempty"`   // the failure the local hop took over (retry.Kind.String())
 	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string      `json:"repo,omitempty"`            // main checkout root the job belongs to
 	RanRoute       route.Route `json:"ran_route,omitzero"`        // the row that answered, as the ran-on line names it
@@ -663,7 +664,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	if len(res.Hops) > 1 {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
 	}
-	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
+	r.Fallback, r.FallbackReason, r.FallbackKind = res.Fallback, textutil.RedactSecrets(res.FallbackReason), res.FallbackKind
 	r.Type, r.Runner = res.Type, res.Runner
 	if res.Fallback != "" || res.Agent != "" && res.Agent != r.Agent { // a fallback, or a runner executed the ask
 		r.RanAs = res.Agent
@@ -1126,7 +1127,7 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	var runErr error
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
 		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason,
-		Type: rec.Type, Runner: rec.Runner, Asked: rec.Agent}
+		FallbackKind: rec.FallbackKind, Type: rec.Type, Runner: rec.Runner, Asked: rec.Agent}
 	if rec.Failed() {
 		runErr, res.Status = fmt.Errorf("%s", rec.Error), rec.Status
 	}

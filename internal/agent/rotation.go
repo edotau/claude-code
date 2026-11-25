@@ -92,8 +92,18 @@ func withoutDeprecated(p *providers.Provider, cands []catalog.Candidate) []catal
 	return slices.DeleteFunc(cands, func(c catalog.Candidate) bool { return dropped[catalog.ID(c.Model)] })
 }
 
-// rotationCandidates is p's served chat models agent runs: a Databricks listing, else the Copilot catalog snapshot.
+// rotationCandidates is p's served chat models: last-resort aliases (pi only), a Databricks listing, else Copilot's.
 func rotationCandidates(reg *providers.Registry, agentName string, p *providers.Provider, tools bool, now time.Time) []catalog.Candidate {
+	if p.Options.LastResort {
+		if agentName != agentid.Pi { // only pi runs on the last-resort local row
+			return nil
+		}
+		var out []catalog.Candidate
+		for _, id := range slices.Compact(slices.Sorted(maps.Values(p.Models))) {
+			out = append(out, catalog.Candidate{Model: id})
+		}
+		return out
+	}
 	if p.Preset == providers.PresetDatabricks {
 		menu := providers.OpencodeMenu()
 		cands, _ := autoCandidates(reg, ModelQuery{Agent: agentName, Tools: tools, menu: &menu}, p, now)

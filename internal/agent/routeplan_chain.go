@@ -22,6 +22,7 @@ func (c *Client) planChain(ctx context.Context, r Engine, o RunOptions) (Chain, 
 		ch.Plan = &p // the plan was built before the route failed: Prepare hands it back through PrepareError
 		return ch, err
 	}
+	ch = withLocal(ch, p, o)
 	p.Fallback = executablePolicy(p.Fallback)
 	p.Constraints = planConstraints(p, ch)
 	logDivergence(ctx, o.Agent, p.Constraints) // expected validation drops and ladder tails are not divergences
@@ -109,6 +110,9 @@ func planEngine(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 func planConstraints(p RoutePlan, ch Chain) []string {
 	var out []string
 	for i, d := range ch.Dispatches {
+		if p.Local.carries(d) {
+			continue // the local hop is planned as pi on its own row, outside the pool
+		}
 		if d.Agent.Name() == agentid.Pi && !slices.ContainsFunc(p.Runners, func(r Runner) bool { return r.Kind == RunnerPi }) {
 			out = append(out, fmt.Sprintf("hop %d: pi is not a planned runner", i+1))
 		}

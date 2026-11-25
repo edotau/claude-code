@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"slices"
@@ -124,12 +123,19 @@ func memoryReceipt(pid int, id string, took time.Duration, sig os.Signal, err er
 	return fmt.Sprintf("memory job: pid %d dispatch %s ended after %s: %s", pid, cmp.Or(id, "-"), took.Round(time.Millisecond), outcome)
 }
 
-// localRoute is the always-on final hop: Qwen on Magnitude, reached through the proxy's translation.
-var localRoute = route.Route{Provider: "magnitude", Profile: "local"}
+// memoryLocalWait bounds how long a memory job waits for the one local slot.
+const memoryLocalWait = 10 * time.Minute
 
-const localProbe = 2 * time.Second
+// lastResortRoute is the last-resort row as a hop; false with none (options.last_resort=false turns it off).
+func lastResortRoute(reg *providers.Registry) (route.Route, bool) {
+	row := providers.LastResort(reg)
+	if row == nil {
+		return route.Route{}, false
+	}
+	return route.Route{Provider: row.Provider, Profile: row.Name}, true
+}
 
-// memoryHops is the ordered list after the pin: the other Databricks workspaces, then the local model.
+// memoryHops is the ordered list after the pin: the other Databricks workspaces, then the last-resort row.
 func memoryHops(reg *providers.Registry, ran string) []route.Route {
 	var out []route.Route
 	if slices.Contains(providers.DatabricksProfiles(reg), ran) {
@@ -137,28 +143,28 @@ func memoryHops(reg *providers.Registry, ran string) []route.Route {
 			out = append(out, route.Route{Provider: providers.GroupDatabricks, Profile: ws})
 		}
 	}
-	return append(out, localRoute)
+	if lr, ok := lastResortRoute(reg); ok {
+		out = append(out, lr)
+	}
+	return out
 }
 
-// localUp asks the local row's /models within localProbe and wants its sonnet model listed.
-func localUp(ctx context.Context, reg *providers.Registry) bool {
-	row := reg.Row(localRoute.Profile)
-	if row == nil {
-		return false
+// admitLocal probes the last-resort row and takes its slot for a local hop; false, reason printed, skips the hop.
+func admitLocal(ctx context.Context, reg *providers.Registry, local bool) (func(), bool) {
+	if !local {
+		return func() {}, true
 	}
-	ctx, cancel := context.WithTimeout(ctx, localProbe)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(row.BaseURL, "/")+"/models", nil)
+	out := memory.JobOutput(ctx, os.Stderr)
+	if up, why := router.LocalUp(ctx, reg); !up {
+		fmt.Fprintf(out, "memory job: local model down (%s); skipped\n", why)
+		return nil, false
+	}
+	release, err := router.LocalAdmit(ctx, memoryLocalWait)
 	if err != nil {
-		return false
+		fmt.Fprintf(out, "memory job: %v; skipped\n", err)
+		return nil, false
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return resp.StatusCode == http.StatusOK && strings.Contains(string(body), row.Models["sonnet"])
+	return release, true
 }
 
 // jobClass maps the terminal hop's failure to a typed class and the command that fixes it.
@@ -269,13 +275,15 @@ func reportFailure(ctx context.Context, reg *providers.Registry, a attempt) {
 // memoryWalk tries each later hop after the pin failed before answering; the first answer or non-hop failure ends it.
 func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts agent.RunOptions, pin attempt) (string, error) {
 	last, who, errs := pin, memoryWho(pin.res, false), []error{pin.err}
+	lr, _ := lastResortRoute(reg)
 	for _, hop := range memoryHops(reg, pin.profile) {
-		local := hop == localRoute
-		if local && !localUp(ctx, reg) {
-			fmt.Fprintln(memory.JobOutput(ctx, os.Stderr), "memory job: local model down; skipped")
+		local := hop == lr
+		release, ok := admitLocal(ctx, reg, local)
+		if !ok {
 			break
 		}
 		res, err := run(ctx, hopOptions(opts, hop))
+		release()
 		who = memoryWho(res, local)
 		if err == nil {
 			memory.AnswerJob(ctx, answerText(res))

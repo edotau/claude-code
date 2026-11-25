@@ -84,6 +84,7 @@ type RoutePlan struct {
 	Constraints []string      `json:"constraints,omitempty"` // independent intent violations captured before admission
 	Admitted    []PlanHop     `json:"admitted,omitempty"`    // validated execution steps; nil before the single routing pass
 	Agents      []PlanHop     `json:"agents,omitempty"`      // the other-account and other-agent hops an agents or all policy adds
+	Local       *LocalHop     `json:"local,omitempty"`       // the last-resort row, run after every other hop at stage last
 }
 
 type planKey struct{}
@@ -145,6 +146,7 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if rp := parent.Replay; rp != nil && len(rp.Runners) > 0 && rp.Agent == p.Agent && o.SessionID == "" {
 		p.Runners, p.Barred = slices.Clone(rp.Runners), rp.Barred // a retry replays its runners; a session stays on its CLI
 	}
+	p.Local = planLocal(ctx, reg, o, p)
 	return p, nil
 }
 
@@ -390,7 +392,7 @@ func piAskRunners(o RunOptions, p RoutePlan, onDatabricks bool) []Runner {
 	return append(rs, Runner{Kind: RunnerOwn, Agent: agentid.Claude})
 }
 
-// Hops is p runner-major (D3): pi on every pool workspace, each own CLI on Pool[0], then the agent hops.
+// Hops is p runner-major (D3): pi on every pool workspace, each own CLI on Pool[0], the agent hops, then local.
 func (p RoutePlan) Hops() []PlanHop {
 	if p.Admitted != nil {
 		return p.Admitted
@@ -405,7 +407,11 @@ func (p RoutePlan) Hops() []PlanHop {
 			out = append(out, PlanHop{Runner: r, Workspace: w})
 		}
 	}
-	return append(out, p.Agents...)
+	out = append(out, p.Agents...)
+	if h, ok := p.Local.hop(p.Agent); ok {
+		out = append(out, h)
+	}
+	return out
 }
 
 // engineName is the CLI h launches, as a Dispatch's Agent.Name() spells it.

@@ -131,9 +131,9 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 	return m
 }
 
-// RotationRow reports a row a rotation pin runs on: a Databricks workspace or a GitHub Copilot login.
+// RotationRow reports a row a rotation pin runs on: Databricks, GitHub Copilot, or last-resort aliases.
 func RotationRow(p *providers.Provider) bool {
-	return p != nil && (p.Preset == providers.PresetDatabricks || p.Provider == "github")
+	return p != nil && (p.Preset == providers.PresetDatabricks || p.Provider == "github" || p.Options.LastResort)
 }
 
 // PoolOverlay is the vault's discovery-models list when set and valid: the rotation's allowlist.

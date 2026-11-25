@@ -240,3 +240,14 @@ func TestFinishPrepareRecordsAdmittedPlan(t *testing.T) {
 		t.Fatalf("a claimed record got plan=%p policy=%q, want the admitted plan and its own policy none", p.Record.RoutePlan, p.Record.FallbackPolicy)
 	}
 }
+
+func TestHopsLocalLast(t *testing.T) {
+	local := &LocalHop{Workspace: Workspace{Profile: "local", Account: "magnitude·local"}}
+	p := RoutePlan{Agent: "claude", Runners: []Runner{{RunnerOwn, "claude"}}, Pool: []Workspace{{Profile: "dev"}}, Local: local}
+	for stage, want := range map[string]int{"shadow": 1, "last": 2} {
+		setLocalStage(t, stage)
+		if hops := p.Hops(); len(hops) != want || want == 2 && hops[1].Workspace.Profile != "local" {
+			t.Errorf("stage %s: hops = %+v, want %d with local last", stage, hops, want)
+		}
+	}
+}

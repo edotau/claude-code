@@ -40,6 +40,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	}
 	c.Dispatches = slices.Clone(c.Dispatches)
 	ctx = withAsk(context.WithValue(ctx, triedCarryKey{}, new([]string)), req)
+	c, ctx = splitLocal(ctx, c)
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -55,8 +56,11 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if err := s.walk(ctx, c, sink, notify); err != nil {
 		return s.attach(s.res), err
 	}
+	if err := s.runLocal(ctx, c, sink, notify); err != nil {
+		return s.attach(s.res), err
+	}
 	res, err := chainOutcome(ctx, c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
-	return s.attach(res), err
+	return s.attach(s.localAnswered(res, err)), err
 }
 
 // walk runs c's dispatches until one stops the chain; the overflow hop alone is reached past a stop.
@@ -153,19 +157,9 @@ func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, 
 	return nil
 }
 
-// admit takes the account's permit under req.Timeout and leaves req.Timeout as what the attempt has left.
-func admit(ctx context.Context, key string, req *RunOptions) (func(), error) {
-	started := time.Now()
-	release, err := retry.AcquireDispatch(retry.WithAdmissionTimeout(ctx, req.Timeout), key)
-	if req.Timeout > 0 {
-		req.Timeout = max(time.Millisecond, req.Timeout-time.Since(started))
-	}
-	return release, err
-}
-
 // runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
 func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, replacement bool, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
-	release, aerr := admit(ctx, key, &lreq)
+	release, aerr := admitHop(ctx, i >= len(c.Dispatches), key, &lreq, notify)
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
 		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: invokedModel(lreq), NotStarted: true}, ce
@@ -580,8 +574,9 @@ type fallbackState struct {
 	stopped      bool
 	handoff      string
 	hops         []wire.Hop
-	startHead    string   // HEAD before the first dispatch, for the successor's reconcile log; "" when unknown
-	skips        []string // the wanted agent's skips, noted once the chain falls back
+	startHead    string     // HEAD before the first dispatch, for the successor's reconcile log; "" when unknown
+	skips        []string   // the wanted agent's skips, noted once the chain falls back
+	fell         retry.Kind // the failure the local hop took over; KindNone when it did not run
 }
 
 // nextPrompt prefixes the cut-off note after a mid-run cut; read-only with no partial answer keeps the bare task.
@@ -768,7 +763,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	if c.yieldsFallback(req, res, err) {
 		return
 	}
-	if overflowFollows(c, i, req, err) {
+	if overflowFollows(c, i, req, err) || localFollows(ctx, c, i, res, err) {
 		return
 	}
 	if lastHop(c, i, req) {
