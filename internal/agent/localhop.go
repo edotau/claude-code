@@ -167,6 +167,12 @@ func splitLocal(ctx context.Context, c Chain) (Chain, context.Context) {
 	return c, context.WithValue(ctx, localHop{}, d)
 }
 
+// isLocalHop reports disp as the local hop ctx carries.
+func isLocalHop(ctx context.Context, disp Dispatch) bool {
+	d, ok := ctx.Value(localHop{}).(Dispatch)
+	return ok && d.Account == disp.Account
+}
+
 // localKind is the failure's Kind and whether the local hop takes it over: pre-answer, not the task's fault.
 func localKind(res wire.Result, err error) (retry.Kind, bool) {
 	e, ok := errors.AsType[*retry.Error](err)

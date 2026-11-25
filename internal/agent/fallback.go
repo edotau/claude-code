@@ -720,7 +720,7 @@ func rateLimitOnly(err error) bool {
 func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) bool {
 	s.req.Repicks = repickSpent(ctx, s.req.Repicks)
 	replacement := i > 0 && s.req.Repicks > 0 && !rateLimitOnly(s.err)
-	if replacement && s.req.Repicks >= MaxAutoRepicks {
+	if replacement && s.req.Repicks >= MaxAutoRepicks && !isLocalHop(ctx, disp) { // the local hop's model is fixed, not a re-pick
 		return true
 	}
 	lreq := dispatchRequest(ctx, s.req, disp, c.leads(i) && disp.Agent.Name() == c.Want)

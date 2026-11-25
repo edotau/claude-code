@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -96,6 +97,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		name   string
 		refuse bool
 		wait   time.Duration // the slot wait the local run's timeout is debited for
+		herr   string        // the hosted hop's error, 429 when empty
 		o      RunOptions
 		want   bool // the local hop ran
 	}{
@@ -103,6 +105,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		{name: "slot wait debited", wait: 300 * time.Millisecond, o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
 		{name: "down", o: RunOptions{Prompt: "p"}, refuse: true},
 		{name: "pinned backend", o: RunOptions{Prompt: "p", Provider: "databricks:dev"}},
+		{name: "repicks spent", herr: "503 Service Unavailable", o: RunOptions{Prompt: "p", Timeout: time.Minute, Repicks: MaxAutoRepicks}, want: true},
 		{name: "wrapped prompt over the cap", o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)}},
 	}
 	for _, r := range rows {
@@ -117,7 +120,8 @@ func TestLocalHopTakesOver(t *testing.T) {
 			}
 			return func() {}, nil
 		}
-		hosted := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{errors.New("429 Too Many Requests"), errors.New("429 Too Many Requests"), errors.New("429 Too Many Requests"), errors.New("429 Too Many Requests")}}
+		herr := errors.New(cmp.Or(r.herr, "429 Too Many Requests"))
+		hosted := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{herr, herr, herr, herr}}
 		local := &fakeRunner{name: "pi", errs: []error{nil}}
 		c := chainOf([]Engine{hosted})
 		c.Dispatches = append(c.Dispatches, Dispatch{Agent: local, Account: "magnitude·local"})
@@ -127,7 +131,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		if r.want != (err == nil) || r.want != (len(local.seen) == 1) || announced != r.want {
 			t.Errorf("%s: err=%v local runs=%d announced=%v lines=%q", r.name, err, len(local.seen), announced, lines)
 		}
-		checkLocalRun(t, r.name, r.want, r.wait, r.o.Timeout, local.seen, res, noted, bounded)
+		checkLocalRun(t, r.name, r.want && r.herr == "", r.wait, r.o.Timeout, local.seen, res, noted, bounded)
 	}
 }
 
