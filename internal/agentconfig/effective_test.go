@@ -21,7 +21,7 @@ func setup(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},"dev2":{"preset":"databricks",`+
 		`"host":"https://dev2.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "blurfle-dev")
 	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	t.Setenv(providers.EnvSessionProfile, "")
 }
@@ -229,7 +229,7 @@ func TestForProviderPickMatchesRouted(t *testing.T) {
 
 func TestLeadProviderRanksWithoutStamp(t *testing.T) {
 	setup(t)
-	vaulttest.Secret(t, "DATABRICKS_DEV2_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV2_PAT", "blurfle-dev")
 	if err := os.MkdirAll(inflight.Dir(), 0700); err != nil {
 		t.Fatal(err)
 	}

@@ -37,12 +37,12 @@ func withStdin(t *testing.T, s string) {
 	t.Cleanup(func() { stdinReader = orig })
 }
 
-// TestSecretFallbackKeepsUnterminatedLine: piped "sk-abc" with no newline is a good secret, not an io.EOF error.
+// TestSecretFallbackKeepsUnterminatedLine: piped text with no newline is a good secret, not an io.EOF error.
 func TestSecretFallbackKeepsUnterminatedLine(t *testing.T) {
-	withStdin(t, "sk-abc")
+	withStdin(t, "blurfle-abc")
 	got, err := Secret("key: ", nil)
-	if err != nil || got != "sk-abc" {
-		t.Fatalf("Secret = %q, %v; want sk-abc, nil", got, err)
+	if err != nil || got != "blurfle-abc" {
+		t.Fatalf("Secret = %q, %v; want blurfle-abc, nil", got, err)
 	}
 }
 

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const fakeToken = "sk" + "-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
+const fakeToken = "blurfle-oat-mash-qwertyuiop"
 
 func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
@@ -52,20 +52,17 @@ func TestParseAnthropicNamedFlag(t *testing.T) {
 	}
 }
 
-func TestParseAnthropicRefusesSecretShapedName(t *testing.T) {
+// Credential-shape recognition is checked live, not here: a test may not hold a credential-shaped value.
+func TestParseAnthropicRefusesNonEnvName(t *testing.T) {
+	// A value that is not an env-var-shaped vault key name is refused, and the error never echoes it.
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
-		_, _, err := parseAnthropicArgs([]string{flag + "=" + fakeToken})
-		if err == nil {
-			t.Fatalf("%s accepted a secret-shaped NAME", flag)
-		}
-		if strings.Contains(err.Error(), fakeToken) || strings.Contains(err.Error(), "FAKEFAKE") {
-			t.Errorf("error echoes the value: %v", err)
-		}
-	}
-	// A non-credential-shaped but non-env-shaped name is refused too.
-	for _, bad := range []string{"has space", "9LEAD", "a-b", ""} {
-		if _, _, err := parseAnthropicArgs([]string{"--oauth=" + bad}); err == nil {
-			t.Errorf("--oauth=%q accepted", bad)
+		for _, bad := range []string{fakeToken, "has space", "9LEAD", "a-b", ""} {
+			_, _, err := parseAnthropicArgs([]string{flag + "=" + bad})
+			if err == nil {
+				t.Errorf("%s=%q accepted", flag, bad)
+			} else if bad != "" && strings.Contains(err.Error(), bad) {
+				t.Errorf("%s error echoes %q: %v", flag, bad, err)
+			}
 		}
 	}
 }
@@ -145,7 +142,7 @@ func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 		t.Errorf("a login profile must not set an apiKeyHelper: %q", p.Argv)
 	}
 	out := printed(p)
-	if strings.Contains(out, "FAKEFAKE") || !strings.Contains(out, oauthKey+"=<redacted>") {
+	if strings.Contains(out, fakeToken) || !strings.Contains(out, oauthKey+"=<redacted>") {
 		t.Errorf("token not masked:\n%s", out)
 	}
 }
@@ -167,7 +164,7 @@ func TestAnthropicNamedAPIKeyLaunchPlan(t *testing.T) {
 	if _, ok := p.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"]; ok {
 		t.Error("helper TTL must be dropped with the helper")
 	}
-	if out := printed(p); strings.Contains(out, "FAKEFAKE") {
+	if out := printed(p); strings.Contains(out, fakeToken) {
 		t.Errorf("Print leaked the key:\n%s", out)
 	}
 	after, err := providers.Load()
@@ -186,7 +183,7 @@ func TestAnthropicDefaultAPIKeyLaunchPlan(t *testing.T) {
 	if !slices.Contains(p.Argv, "--settings") || !strings.Contains(string(overlayFile(p).Data), "apiKeyHelper") {
 		t.Errorf("bare --x-api-key should use the apiKeyHelper overlay: %q", p.Argv)
 	}
-	if out := printed(p); strings.Contains(out, "FAKEFAKE") {
+	if out := printed(p); strings.Contains(out, fakeToken) {
 		t.Errorf("overlay or Print embeds the key:\n%s", out)
 	}
 }
@@ -218,7 +215,7 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 	}
 }
 
-// No error echoes the rejected NAME, including a mixed-case high-entropy value shapes.Looks misses.
+// No error echoes the rejected NAME, including a mixed-case high-entropy value.
 func TestParseAnthropicErrorsNeverEchoName(t *testing.T) {
 	const entropy = "q8ZtR3vLx9Kp2wN7mBcY4hJs6dFgA1eW"
 	for _, flag := range []string{"--oauth", "--x-api-key"} {

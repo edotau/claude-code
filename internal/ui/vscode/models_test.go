@@ -24,8 +24,8 @@ const testBase = "http://127.0.0.1:1"
 func seedDatabricks(t *testing.T) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	t.Setenv("DEV_TOKEN", "dapi-dev-workspace-secret")
-	t.Setenv("PROD_TOKEN", "dapi-prod-workspace-secret")
+	t.Setenv("DEV_TOKEN", "blurfle-dev-workspace-mash")
+	t.Setenv("PROD_TOKEN", "blurfle-prod-workspace-mash")
 	row := func(name, env string) string {
 		return `"` + name + `":{"preset":"databricks","host":"https://` + name + `.cloud.databricks.com",` +
 			`"auth":{"type":"key","env":"` + env + `"}}`

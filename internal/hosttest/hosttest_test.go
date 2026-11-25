@@ -122,7 +122,7 @@ func snapshot() map[string]string {
 
 func TestHermeticEnvGivesIndependentDirsAndClearsOverrides(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "outer")
-	t.Setenv("ANTHROPIC_API_KEY", "sk-outer")
+	t.Setenv("ANTHROPIC_API_KEY", "blurfle-outer")
 	var envs []map[string]string
 	for _, name := range []string{"first", "second"} {
 		t.Run(name, func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestHermeticEnvGivesIndependentDirsAndClearsOverrides(t *testing.T) {
 
 func TestHermeticEnvRestoresOnCleanup(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "outer")
-	t.Setenv("ANTHROPIC_API_KEY", "sk-outer")
+	t.Setenv("ANTHROPIC_API_KEY", "blurfle-outer")
 	before := snapshot()
 	t.Run("inner", func(t *testing.T) { HermeticEnv(t) })
 	for k, v := range snapshot() {

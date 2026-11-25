@@ -32,7 +32,7 @@ func fixtureNukeDir(t *testing.T) string {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{}}`)
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
 	vaulttest.Secret(t, "Z_API_KEY", "other-test-value")
-	vaulttest.Secret(t, "API_KEY", "sk-super-secret")
+	vaulttest.Secret(t, "API_KEY", "blurfle-super-mash")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
 	mustWrite(t, filepath.Join(dir, "memory", "repo", "progress.md"), "bank\n")
 	return dir
@@ -138,7 +138,7 @@ func assertPlanOutputNamesOnly(t *testing.T, plan nukePlan) {
 	t.Helper()
 	var out bytes.Buffer
 	printPlan(&out, plan)
-	if strings.Contains(out.String(), "sk-super-secret") || strings.Contains(out.String(), "other-test-value") {
+	if strings.Contains(out.String(), "blurfle-super-mash") || strings.Contains(out.String(), "other-test-value") {
 		t.Fatal("plan output must never contain the secret value")
 	}
 	if !strings.Contains(out.String(), "API_KEY") || !strings.Contains(out.String(), "Z_API_KEY") {
@@ -248,7 +248,7 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 		if strings.Contains(name, "secrets.env") {
 			t.Fatalf("tarball must never contain secrets.env, got %q", name)
 		}
-		if bytes.Contains(data, []byte("sk-super-secret")) || bytes.Contains(data, []byte("other-test-value")) {
+		if bytes.Contains(data, []byte("blurfle-super-mash")) || bytes.Contains(data, []byte("other-test-value")) {
 			t.Fatalf("tarball entry %q must not contain plaintext secret values", name)
 		}
 	}
@@ -256,29 +256,32 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 	assertArchivedVault(t, entries["state/vault.db"], secretNames, id, kid)
 }
 
-// A credential-shaped untracked file is never archived and survives the nuke; its siblings are still removed.
-func TestNukeLeavesCredentialShapedUntrackedInPlace(t *testing.T) {
+// A credential-named untracked file survives the nuke unarchived; a plain sibling is archived.
+func TestNukeLeavesCredentialNamedUntrackedInPlace(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	secret := "sk-" + strings.Repeat("a", 24)
 	mustWrite(t, filepath.Join(dir, ".env"), "TOKEN=x\n")
-	mustWrite(t, filepath.Join(dir, "skills", "mine", "notes.txt"), "key "+secret+"\n")
+	mustWrite(t, filepath.Join(dir, "skills", "mine", "notes.txt"), "plain notes\n")
 	var out bytes.Buffer
 	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	entries := tarEntries(t, findTarball(t, home))
-	for _, rel := range []string{".env", "skills/mine/notes.txt"} {
-		if _, ok := entries[rel]; ok {
-			t.Errorf("tarball archived credential-shaped %s", rel)
-		}
-		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
-			t.Errorf("%s must be left in place: %v", rel, err)
-		}
-		if !strings.Contains(out.String(), "  "+rel+"\n") {
-			t.Errorf("plan must name %s as left in place:\n%s", rel, out.String())
-		}
+	if _, ok := entries[".env"]; ok {
+		t.Error("tarball archived the credential-named .env")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
+		t.Errorf(".env must be left in place: %v", err)
+	}
+	if !strings.Contains(out.String(), "  .env\n") {
+		t.Errorf("plan must name .env as left in place:\n%s", out.String())
+	}
+	if _, ok := entries["skills/mine/notes.txt"]; !ok {
+		t.Errorf("tarball dropped the plain sibling notes.txt: %v", tarNames(entries))
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "skills", "mine", "notes.txt")); !os.IsNotExist(err) {
+		t.Errorf("plain sibling notes.txt should be removed, err=%v", err)
 	}
 	if _, ok := entries["skills/mine/SKILL.md"]; !ok {
 		t.Errorf("tarball missing skills/mine/SKILL.md: %v", tarNames(entries))
@@ -321,7 +324,7 @@ func TestNukeLeavesCredentialShapedIgnoredInPlace(t *testing.T) {
 func assertManifest(t *testing.T, raw []byte, id, kid string) (secretNames []string) {
 	t.Helper()
 	manifest := string(raw)
-	if strings.Contains(manifest, "sk-super-secret") || strings.Contains(manifest, "other-test-value") {
+	if strings.Contains(manifest, "blurfle-super-mash") || strings.Contains(manifest, "other-test-value") {
 		t.Fatal("manifest must never contain the secret value")
 	}
 	if !strings.Contains(manifest, "API_KEY") {

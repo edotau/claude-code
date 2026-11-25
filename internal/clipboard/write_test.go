@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-const secret = "dapi-SeCrEt-value-123"
+const secret = "blurfle-qwxm-value-123"
 
 type call struct {
 	name  string

@@ -23,7 +23,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"dev":{"preset":"databricks",` +
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on))
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "blurfle-dev")
 	t.Setenv(providers.EnvSessionProfile, "dev")
 	if !fetched.IsZero() {
 		if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: fetched}); err != nil {

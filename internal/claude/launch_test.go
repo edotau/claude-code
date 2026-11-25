@@ -164,11 +164,12 @@ func TestClaudeRoutedLaunchCarriesIdentity(t *testing.T) {
 	}
 }
 
-// Print masks credential-named env values and quoted credential-shaped strings in argv, and keeps the rest readable.
+// Print masks credential-named env values and leaves a plain quoted argv value readable.
 func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
 	hermetic(t, gwProviders)
 	t.Setenv("TEST_GW_KEY", fakeToken)
-	args := []string{"-p", `{"x-key" = "` + fakeToken + `"}`}
+	const quoted = "blurfle-quoted-argv-mash"
+	args := []string{"-p", `{"x-key" = "` + quoted + `"}`}
 	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
 	if err != nil {
 		t.Fatal(err)
@@ -176,10 +177,12 @@ func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
 	var buf bytes.Buffer
 	p.Print(&buf)
 	out := buf.String()
-	if strings.Contains(out, fakeToken) || strings.Contains(out, "FAKEFAKE") {
-		t.Errorf("Print leaked a secret:\n%s", out)
+	if strings.Contains(out, fakeToken) {
+		t.Errorf("Print leaked the credential-named value:\n%s", out)
 	}
-	for _, w := range []string{`"<redacted>"`, "set      ANTHROPIC_CUSTOM_HEADERS=<redacted>", "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-6"} {
+	for _, w := range []string{
+		`"` + quoted + `"`, "set      ANTHROPIC_CUSTOM_HEADERS=<redacted>", "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-6",
+	} {
 		if !strings.Contains(out, w) {
 			t.Errorf("Print missing %q:\n%s", w, out)
 		}
@@ -213,7 +216,7 @@ func TestClaudePassthrough(t *testing.T) {
 	if !slices.Contains(p.Unset, oauthKey) || p.Set[oauthKey] != "" {
 		t.Error("interactive passthrough must withhold CLAUDE_CODE_OAUTH_TOKEN")
 	}
-	t.Setenv(oauthKey, "sk-ant-oat-test")
+	t.Setenv(oauthKey, "blurfle-oat-test")
 	h, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
