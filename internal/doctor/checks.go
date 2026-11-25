@@ -192,6 +192,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(hookOK, false, "hook binary", hookDetail)
 	tsOK, tsDetail := tailscale.Doctor(ctx)
 	check(tsOK, false, "tailscale", tsDetail)
+	ca := caBundleRow(time.Now())
+	check(ca.OK, false, ca.Name, ca.Detail)
 	for _, r := range upstreamRows(ctx) {
 		check(r.OK, false, r.Name, r.Detail)
 	}
