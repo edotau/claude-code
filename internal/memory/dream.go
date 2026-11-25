@@ -158,6 +158,9 @@ type dreamOptions struct {
 	Run   AgentFunc
 	Out   io.Writer
 	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
+
+	Trigger string // session-start | schedule | manual, for the result record
+	Forced  bool
 }
 
 // dreamChanged lists the top-level and feedback/ and notes/ store .md files modified after since (all when zero).
@@ -183,28 +186,71 @@ func agentDreamPrompt(changed []string) (string, error) {
 	return assets.MemoryDreamPrompt(assets.MemoryDreamWorker(paths.MemoryStoreDir()), list, ref), nil
 }
 
-// dream archives durable-file overflow, consolidates the bank on the agent, settles, and stamps.
+// dream runs one consolidation and records it, whatever the outcome, in dream-results.jsonl.
 func dream(o dreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
-	var runErr, archiveErr error
+	begin := time.Now()
+	log, _ := openDreamLog() // a log that cannot open loses only the copy; the run goes on
+	if log != nil {
+		o.Out = io.MultiWriter(o.Out, log)
+	}
+	res := DreamResult{At: begin, Trigger: o.Trigger, Forced: o.Forced}
+	err := dreamRun(o, &res)
+	res.DurationMs = time.Since(begin).Milliseconds()
+	finishDreamResult(&res, err, log)
+	return errors.Join(err, appendDreamResult(res))
+}
+
+// finishDreamResult sets the outcome and the log name, and drops the log of a not-due run.
+func finishDreamResult(res *DreamResult, err error, log *os.File) {
+	switch {
+	case err != nil:
+		res.Outcome = DreamFailed
+		res.Reason, _, _ = strings.Cut(err.Error(), "\n")
+	case res.Reason == dreamNotDue:
+		res.Outcome = DreamNoop
+	case len(res.Changed) == 0 && res.Archived == 0:
+		res.Outcome, res.Reason = DreamNoop, "no bank change"
+	default:
+		res.Outcome = DreamOK
+	}
+	if log == nil {
+		return
+	}
+	name := log.Name()
+	_ = log.Close()
+	if res.Reason == dreamNotDue && err == nil {
+		_ = os.Remove(name)
+		return
+	}
+	res.Log = name
+}
+
+const dreamNotDue = "not due"
+
+// dreamRun archives durable-file overflow, consolidates the bank on the agent, settles, and stamps.
+func dreamRun(o dreamOptions, res *DreamResult) error {
+	var run dreamRan
 	notDue, failures := false, dreamFailures() // read before the in-lock stamp resets the count
 	lockErr := paths.WithFileLock(lockPathOf(), func() error {
 		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
-			fmt.Fprintln(o.Out, "memory dream: not due")
+			fmt.Fprintln(o.Out, "memory dream: "+dreamNotDue)
 			return nil
 		}
-		runErr, archiveErr = dreamLocked(o)
+		run = dreamLocked(o)
 		// An interrupted settlement must remain retryable, even when the agent succeeded.
 		n := failures + 1
 		return stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n)
 	})
 	if notDue && lockErr == nil {
+		res.Reason = dreamNotDue
 		return nil
 	}
+	run.fill(res)
 	flags := dreamPerformance(o.Out)
-	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o, flags)); err != nil { // settle after unlocking
+	if err := errors.Join(lockErr, run.runErr, run.archiveErr, dreamSettle(o, flags)); err != nil { // settle after unlocking
 		// backdated, so dreamDue retries after the backoff for this many consecutive failures
 		n := failures + 1
 		return errors.Join(err, stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n))
@@ -229,24 +275,49 @@ func dreamSettle(o dreamOptions, flags []string) error {
 	return nil
 }
 
-// dreamLocked archives overflow and runs the agent, the bank lock held; it returns the agent and archive errors.
-func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
+// dreamRan is what the locked part of a dream did: its errors, the archive count and the agent's report.
+type dreamRan struct {
+	runErr, archiveErr error
+	archived           int
+	changed            []string // bank files the agent modified, store-relative
+	job                *JobResult
+}
+
+// fill copies the run's facts into the result record.
+func (r dreamRan) fill(res *DreamResult) {
+	res.Archived, res.Changed = r.archived, r.changed
+	if r.job != nil {
+		res.Agent, res.Profile, res.Model, res.Local = r.job.Agent, r.job.Profile, r.job.Model, r.job.Local
+	}
+}
+
+// dreamLocked archives overflow and runs the agent, the bank lock held.
+func dreamLocked(o dreamOptions) dreamRan {
+	var r dreamRan
 	n, err := archiveOverflow(time.Now())
+	r.archived = n
 	if err != nil {
-		archiveErr = fmt.Errorf("archive: %w", err)
-		fmt.Fprintln(o.Out, "memory dream:", archiveErr)
+		r.archiveErr = fmt.Errorf("archive: %w", err)
+		fmt.Fprintln(o.Out, "memory dream:", r.archiveErr)
 	}
 	fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
 	if o.Run == nil {
-		return nil, archiveErr
+		return r
 	}
 	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
-	archiveErr = errors.Join(archiveErr, dreamIngest(o.Out))
+	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
 	prompt, err := agentDreamPrompt(changed)
 	if err != nil {
-		return err, archiveErr
+		r.runErr = err
+		return r
 	}
+	r.runAgent(o, prompt, len(changed))
+	return r
+}
+
+// runAgent runs the agent on prompt, prints its receipt and fills r; the plan phase brackets the run.
+func (r *dreamRan) runAgent(o dreamOptions, prompt string, nChanged int) {
 	plan := startPlanPhase(o.CWD)
 	prompt += plan.promptBlock()
 	misses, rtkErr := readDreamRtk()
@@ -255,14 +326,24 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	defer plan.finish(o.Out)
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
+	ctx, r.job = WithJobReport(ctx)
 	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
 	start := time.Now()
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
-	fmt.Fprintln(o.Out, dreamRunLine(who, err))
-	if err == nil && len(changed) > 0 && len(dreamChanged(start)) == 0 {
-		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
+	fmt.Fprintln(o.Out, dreamRunLine(who, err, r.job.Local))
+	after := dreamChanged(start)
+	for _, f := range after {
+		rel, relErr := filepath.Rel(paths.MemoryStoreDir(), f)
+		if relErr != nil {
+			rel = f
+		}
+		r.changed = append(r.changed, rel)
 	}
-	return err, errors.Join(archiveErr, dreamIngest(o.Out)) // again: a report may land during the run
+	if err == nil && nChanged > 0 && len(after) == 0 {
+		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", nChanged)
+	}
+	r.runErr = err
+	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out)) // again: a report may land during the run
 }
 
 // dreamIngest keeps new reports' proposed tests and reports a failure on out as well as returning it.
@@ -275,13 +356,17 @@ func dreamIngest(out io.Writer) error {
 	return err
 }
 
-// dreamRunLine is the receipt: "ran on" only for a run that succeeded, else the failure's first line.
-func dreamRunLine(who string, err error) string {
-	if err == nil {
-		return "memory dream: ran on " + who
+// dreamRunLine is the receipt: "ran on" only for a success, else the failure's first line; local runs say so.
+func dreamRunLine(who string, err error, local bool) string {
+	line := "memory dream: ran on " + who
+	if err != nil {
+		first, _, _ := strings.Cut(err.Error(), "\n")
+		line = "memory dream: failed on " + who + ": " + first
 	}
-	first, _, _ := strings.Cut(err.Error(), "\n")
-	return "memory dream: failed on " + who + ": " + first
+	if local {
+		line += " (local model: lower trust)"
+	}
+	return line
 }
 
 // dreamPlans is the plan phase: the session checkout and its plans and citable evidence from before the run.
@@ -360,4 +445,86 @@ func stampDream(at time.Time, fails int) error {
 		body += "failed " + strconv.Itoa(fails) + "\n"
 	}
 	return paths.AtomicWrite(dreamStampPath(), []byte(body), 0o600)
+}
+
+// Dream outcomes in a result record.
+const (
+	DreamOK     = "ok"
+	DreamNoop   = "noop" // not due, or the run changed no bank file
+	DreamFailed = "failed"
+)
+
+// DreamResult is one line of state/harness/memory/dream-results.jsonl, written for every dream run.
+type DreamResult struct {
+	At         time.Time `json:"at"`
+	Trigger    string    `json:"trigger"` // session-start | schedule | manual
+	Forced     bool      `json:"forced,omitempty"`
+	Outcome    string    `json:"outcome"`
+	Reason     string    `json:"reason,omitempty"` // "not due", "no bank change", or the failure's first line
+	Agent      string    `json:"agent,omitempty"`
+	Profile    string    `json:"profile,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Local      bool      `json:"local,omitempty"`
+	DurationMs int64     `json:"duration_ms"`
+	Archived   int       `json:"archived"`
+	Changed    []string  `json:"changed,omitempty"` // bank files the run modified, store-relative
+	Log        string    `json:"log,omitempty"`
+}
+
+const dreamResultsKeep = 200 // newest lines kept; one line per run
+
+func dreamResultsPath() string { return filepath.Join(paths.MemoryStateDir(), "dream-results.jsonl") }
+
+// appendDreamResult adds r and keeps the newest dreamResultsKeep lines.
+func appendDreamResult(r DreamResult) error {
+	line, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	p := dreamResultsPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	return paths.WithFileLock(p+".lock", func() error {
+		old, err := os.ReadFile(p)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		lines := append(strings.Split(strings.TrimSpace(string(old)), "\n"), string(line))
+		if len(lines) > 1 && lines[0] == "" {
+			lines = lines[1:]
+		}
+		if len(lines) > dreamResultsKeep {
+			lines = lines[len(lines)-dreamResultsKeep:]
+		}
+		return paths.AtomicWrite(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	})
+}
+
+// LastDreamResults returns the newest n records, newest first; a missing file is none.
+func LastDreamResults(n int) ([]DreamResult, error) {
+	data, err := os.ReadFile(dreamResultsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var out []DreamResult
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		var r DreamResult
+		if json.Unmarshal([]byte(lines[i]), &r) == nil {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// openDreamLog creates the run's log in the state dir, named by logStampLayout.
+func openDreamLog() (*os.File, error) {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(paths.MemoryStateDir(), "dream-"+time.Now().Format(logStampLayout)+".log"), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 }

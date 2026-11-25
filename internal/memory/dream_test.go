@@ -183,11 +183,41 @@ func TestDreamRetryBackoff(t *testing.T) {
 }
 
 func TestDreamRunLineIsTruthfulForAFailedRun(t *testing.T) {
-	if got := dreamRunLine("claude", nil); got != "memory dream: ran on claude" {
+	if got := dreamRunLine("claude", nil, false); got != "memory dream: ran on claude" {
 		t.Errorf("ok line = %q", got)
 	}
-	got := dreamRunLine("claude", errors.New("Not logged in\nexit 3"))
+	got := dreamRunLine("claude", errors.New("Not logged in\nexit 3"), false)
 	if strings.Contains(got, "ran on") || got != "memory dream: failed on claude: Not logged in" {
 		t.Errorf("failed line = %q", got)
+	}
+}
+
+// Every dream run leaves one record: a failed run, then a not-due run, read back newest first.
+func TestDreamRecordsEveryRun(t *testing.T) {
+	isolatedConfig(t)
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	fail := func(context.Context, string, string) (string, error) { return "stub", errors.New("boom\nsecond line") }
+	idle := func(context.Context, string, string) (string, error) { return "stub", nil }
+	runs := []dreamOptions{
+		{CWD: root, Run: fail, Trigger: "manual", Forced: true},
+		{CWD: root, Run: idle, IfDue: true, Trigger: "schedule"},
+	}
+	for _, o := range runs {
+		_ = dream(o)
+	}
+	got, err := LastDreamResults(10)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("LastDreamResults = %v, %v; want 2 records", got, err)
+	}
+	brief := func(r DreamResult) string {
+		return fmt.Sprintf("%s|%s|%s|forced=%t|log=%t", r.Trigger, r.Outcome, r.Reason, r.Forced, r.Log != "")
+	}
+	if g := brief(got[0]) + " / " + brief(got[1]); g != "schedule|noop|not due|forced=false|log=false / manual|failed|boom|forced=true|log=true" {
+		t.Errorf("records = %s", g)
 	}
 }
