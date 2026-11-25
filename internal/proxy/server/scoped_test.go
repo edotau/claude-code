@@ -83,3 +83,15 @@ func TestOpenLeavesNoProxyJSON(t *testing.T) {
 		t.Errorf("proxy.json exists after Close: %v", err)
 	}
 }
+
+func BenchmarkOpen(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv("HARNESS_VAULT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	for i := 0; i < b.N; i++ {
+		s, err := Open(context.Background(), proxy.Scope{Team: "t", ID: "i"})
+		if err != nil {
+			b.Fatal(err)
+		}
+		s.Close()
+	}
+}
