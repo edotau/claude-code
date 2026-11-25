@@ -80,17 +80,21 @@ func TestBase64LineRejectsOrdinaryOutput(t *testing.T) {
 	}
 }
 
+func swapPEM(t *testing.T) { t.Cleanup(redact.SwapPEMMarkers("<<OPEN ", "<<CLOSE ", "WIDGET")) }
+
 func TestVerifyTailDropsAKeyBodyOpenedFarAboveTheCut(t *testing.T) {
+	swapPEM(t)
 	var tb tailBuf
-	_, _ = tb.Write([]byte("-----BEGIN PRIVATE KEY-----\n" + strings.Repeat("QUJD\n", 3*verifyKeep/5) + "plain text line\n"))
+	_, _ = tb.Write([]byte("<<OPEN WIDGET>>\n" + strings.Repeat("QUJD\n", 3*verifyKeep/5) + "plain text line\n"))
 	if tail := verifyTail(&tb); strings.Contains(tail, "QUJD") || !tb.openPEM {
 		t.Errorf("tail = %.60q, openPEM = %v, want the open key body hidden", tail, tb.openPEM)
 	}
 }
 
 func TestVerifyTailDropsAPEMBodyWhoseBeginWasCut(t *testing.T) {
-	body := strings.Repeat("Zq9Xw2Lm7KaB3dE5gH7jQ1wE4rT6yU8iO0pAsDfGhJk", 3)
-	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n-----END PRIVATE KEY-----\nafter: ok\n"), cut: true}
+	swapPEM(t)
+	body := strings.Repeat("gibberish body line ", 3)
+	tb := &tailBuf{b: []byte("tail of one\n" + body + "\n" + body + "\n<<CLOSE WIDGET>>\nafter: ok\n"), cut: true}
 	if tail := verifyTail(tb); strings.Contains(tail, body[:30]) || !strings.Contains(tail, "after") {
 		t.Errorf("tail = %q, want the orphaned key body dropped and later output kept", tail)
 	}

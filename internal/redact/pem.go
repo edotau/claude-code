@@ -11,10 +11,25 @@ const (
 	PEMEnd   = "-----END "
 )
 
+const pemKeyLabel = "PRIVATE KEY"
+
+var pemBegin, pemEnd, pemKeyBegin = PEMBegin, PEMEnd, newPEMKeyBegin(PEMBegin, pemKeyLabel)
+
+func newPEMKeyBegin(begin, label string) *regexp.Regexp {
+	return regexp.MustCompile(regexp.QuoteMeta(begin) + `[A-Z ]*` + regexp.QuoteMeta(label))
+}
+
+// SwapPEMMarkers sets the BEGIN prefix, END prefix and key label the PEM helpers match, so a test holds no key marker.
+func SwapPEMMarkers(begin, end, label string) (restore func()) {
+	ob, oe, ok := pemBegin, pemEnd, pemKeyBegin
+	pemBegin, pemEnd, pemKeyBegin = begin, end, newPEMKeyBegin(begin, label)
+	return func() { pemBegin, pemEnd, pemKeyBegin = ob, oe, ok }
+}
+
 // AfterOrphanPEM is s past the END line of a PEM block whose BEGIN a cut lost; open: the dropped front left one open.
 func AfterOrphanPEM(s string, open bool) string {
-	end := strings.Index(s, PEMEnd)
-	if !open && (end < 0 || strings.Contains(s[:end], PEMBegin)) {
+	end := strings.Index(s, pemEnd)
+	if !open && (end < 0 || strings.Contains(s[:end], pemBegin)) {
 		return s
 	}
 	if end < 0 { // the open block's body runs to the end of the window: none of it is shown
@@ -25,8 +40,6 @@ func AfterOrphanPEM(s string, open bool) string {
 	}
 	return ""
 }
-
-var pemKeyBegin = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY`)
 
 // pemLook is how far past a cut a marker may reach and still count: the longest key BEGIN label.
 const pemLook = 40
@@ -40,7 +53,7 @@ func PEMOpenAfterDrop(b []byte, drop int, open bool) bool {
 			begin = m[0]
 		}
 	}
-	if end := bytes.LastIndex(b[:min(len(b), drop+len(PEMEnd)-1)], []byte(PEMEnd)); begin != end {
+	if end := bytes.LastIndex(b[:min(len(b), drop+len(pemEnd)-1)], []byte(pemEnd)); begin != end {
 		return begin > end // neither marker in drop: the state from earlier drops stands
 	}
 	return open
