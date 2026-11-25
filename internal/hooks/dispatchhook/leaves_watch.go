@@ -294,7 +294,7 @@ func resumeOnce(s agent.StaleJob, mode string) string {
 		}
 		return fmt.Sprintf("the one resume failed (%v); not retried. Resume by hand: %s", err, cmd)
 	}
-	if werr := writeWatch(marker, []byte(id+"\n"), os.O_TRUNC); werr != nil {
+	if werr := paths.AtomicWriteNoSync(marker, []byte(id+"\n"), 0o600); werr != nil { // readers never see a torn id
 		return fmt.Sprintf("resumed once as %s (marker not saved: %v); next: claude-code agents result -f %s", id, werr, id)
 	}
 	return fmt.Sprintf("resumed once as %s; next: claude-code agents result -f %s", id, id)
