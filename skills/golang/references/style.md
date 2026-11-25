@@ -134,7 +134,7 @@ b.WriteString("\n")
 - **Structure and behavior never share a commit**; move and optimize are two commits too.
 - Untested code gets a characterization test pinning current output before the first edit.
 - **Tools over hand edits**: `gopls rename` refuses shadowing and broken interface satisfaction; `gofmt -r`, `eg` or
-  a `go/analysis` fixer for repeated rewrites. Call hierarchy first: [tooling.md](tooling.md).
+  a `go/analysis` fixer for repeated rewrites. Call hierarchy first: [tools.md](tools.md).
 - **Then grep for what the compiler can't see**: struct tags, `text/template` fields, `reflect` lookups, JSON string
   names, docs and help text.
 - Verify each step: `rtk go build ./... && rtk go vet ./...`, touched packages' tests, `-race` for concurrency,

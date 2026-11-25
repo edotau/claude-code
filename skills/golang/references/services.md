@@ -1,6 +1,6 @@
 # Go Services: HTTP, SQL, gRPC
 
-Related: [concurrency.md](concurrency.md), [errors.md](errors.md), [testing.md](testing.md) (`httptest`).
+Related: [performance.md](performance.md), [errors-testing.md](errors-testing.md) (`httptest`).
 
 ## net/http servers
 

@@ -23,11 +23,12 @@ Goroutines, channels, `sync`, `context`, then profiling, allocation, layout and 
 
 - Every `go` has a known exit (closed input, cancelled `ctx`, finished job) and a waiter in the starting function.
 - No goroutines in library constructors or `init`; expose a blocking `Run(ctx)` and let the caller choose `go`.
-- A panic in a spawned goroutine kills the process; recovery: [errors.md](errors.md) → Panics.
+- A panic in a spawned goroutine kills the process; recovery: [errors-testing.md](errors-testing.md) → Panics.
 - `go 1.22`+ loop variables are per-iteration: drop `v := v` and `tt := tt`.
 - Classic leak: a goroutine blocks on a send nobody receives after the caller timed out. Buffer of 1 for a single
   result, or `select` on `ctx.Done()` alongside the send.
-- Leak detection: [testing.md](testing.md); live: `runtime.NumGoroutine()` and `/debug/pprof/goroutine?debug=2`.
+- Leak detection: [errors-testing.md](errors-testing.md); live: `runtime.NumGoroutine()`,
+  `/debug/pprof/goroutine?debug=2`.
 
 ```go
 func first(ctx context.Context, q string) (Result, error) {
@@ -74,7 +75,7 @@ func first(ctx context.Context, q string) (Result, error) {
 - `sync.Map`: write-once/read-many or disjoint keys only; no `Len`, `Range` is not a snapshot; for either, or
   overlapping writes, use `map` + `RWMutex`.
 - `sync.OnceFunc`/`OnceValue` re-panic on every call if `f` panicked, where `sync.Once` swallows the retry.
-- `-race` mechanics: [testing.md](testing.md).
+- `-race` mechanics: [errors-testing.md](errors-testing.md).
 
 ## Pipelines and worker pools
 
@@ -96,7 +97,7 @@ func first(ctx context.Context, q string) (Result, error) {
 - A derived context can only shorten the parent's deadline; to outlive the parent, detach.
 - Check cancellation where work loops or blocks (`select` on `ctx.Done()`, or `ctx.Err()` per CPU-loop iteration);
   functions calling only ctx-aware APIs need none.
-- Don't log a cancellation as a failure. Matching: [errors.md](errors.md).
+- Don't log a cancellation as a failure. Matching: [errors-testing.md](errors-testing.md).
 
 ### Cancellation tools (1.21+)
 
@@ -132,7 +133,7 @@ func first(ctx context.Context, q string) (Result, error) {
 - Rule out external waits first: many goroutines blocked in `net.(*conn).Read` or `database/sql`, or a trace span
   dominated by an upstream, means fix the query, pool or cache.
 - Pick one metric (p99, throughput, RSS, CPU) and a target; one change per measurement; compare with `benchstat`
-  over `-count` ≥ 6. Benchmarks: [testing.md](testing.md).
+  over `-count` ≥ 6. Benchmarks: [errors-testing.md](errors-testing.md).
 - Put the trimmed `benchstat` delta (with the `goos/goarch/cpu` header) in the `perf(scope):` commit body and a
   one-line comment on the optimized code.
 
