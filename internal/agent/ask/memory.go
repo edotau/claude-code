@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -65,10 +66,10 @@ func (r *askRun) startRecall(prompt string) func() string {
 	}
 }
 
-// memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
+// memoryRunOptions pins the memory job to claude's own CLI: it holds write tools, so Pi never leads.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: memory.JobTools(memory.JobKind(ctx)), WorkDir: workdir,
-		Fallback: router.FallbackNone}
+		Fallback: router.FallbackNone, Runner: agentconfig.RunnerOwn}
 }
 
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.
@@ -148,7 +149,7 @@ func localUp(ctx context.Context, reg *providers.Registry) bool {
 	return resp.StatusCode == http.StatusOK && strings.Contains(string(body), row.Models["sonnet"])
 }
 
-// jobClass maps the pin hop's failure to a typed class and the command that fixes it.
+// jobClass maps the terminal hop's failure to a typed class and the command that fixes it.
 func jobClass(reg *providers.Registry, profile string, err error) (class, fix string) {
 	e, _ := errors.AsType[*retry.Error](err)
 	switch {
@@ -158,7 +159,7 @@ func jobClass(reg *providers.Registry, profile string, err error) (class, fix st
 		}
 		return memory.JobClassAuth, "claude-code doctor"
 	case errors.Is(err, agent.ErrTreeBudget):
-		return memory.JobClassBudget, "claude-code memory update --catchup"
+		return memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot + " (outside the spent dispatch tree, or after raising the cap)"
 	case e != nil && (e.Kind == retry.KindQuota || e.Kind == retry.KindRateLimit):
 		return memory.JobClassQuota, ""
 	}
@@ -186,51 +187,80 @@ func memoryWho(res wire.Result, local bool) string {
 	return who
 }
 
+// hopRun runs one dispatch hop; the real one is memoryHop, tests pass a fake.
+type hopRun func(ctx context.Context, opts agent.RunOptions) (wire.Result, error)
+
+// attempt is one hop's outcome with the profile it ran on, kept so the terminal failure is classified, not the pin's.
+type attempt struct {
+	res     wire.Result
+	profile string
+	local   bool
+	err     error
+}
+
 // MemoryRunner runs background memory jobs on Claude on their pin, then the other workspaces, then the local model.
 func MemoryRunner() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		c := newClient()
 		c.Refresh = nil
 		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		run := func(ctx context.Context, o agent.RunOptions) (wire.Result, error) { return memoryHop(ctx, c, o) }
 		opts := memoryRunOptions(ctx, prompt, workdir)
 		opts.Env = memory.ChildEnv(ctx)
-		res, err := memoryHop(ctx, c, opts)
-		if err == nil || !agent.HopFailed(res, err) {
-			if err == nil {
-				memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model})
-			}
+		reg, rerr := providers.Load()
+		if rerr != nil {
+			reg = &providers.Registry{}
+		}
+		res, err := run(ctx, opts)
+		first := attempt{res: res, profile: cmp.Or(res.Provider, providers.SessionLeadContext(ctx, reg, true)), err: err}
+		if err == nil {
+			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model})
+			return memoryWho(res, false), nil
+		}
+		if rerr != nil || !agent.HopFailed(res, err) {
+			reportFailure(ctx, reg, first)
 			return memoryWho(res, false), err
 		}
-		return memoryWalk(ctx, c, opts, res, err)
+		return memoryWalk(ctx, run, reg, opts, first)
 	}
 }
 
+// hopOptions aims opts at one hop: route and legacy provider agree, and no lead or account from the pin survives.
+func hopOptions(opts agent.RunOptions, hop route.Route) agent.RunOptions {
+	opts.Route = hop
+	opts.Provider = hop.Provider + ":" + hop.Profile
+	opts.Lead, opts.Account, opts.CellRoute = hop.Profile, "", route.Route{}
+	return opts
+}
+
+// reportFailure files the terminal attempt's class, route and trust; an earlier hop's failure is history only.
+func reportFailure(ctx context.Context, reg *providers.Registry, a attempt) {
+	class, fix := jobClass(reg, a.profile, a.err)
+	memory.ReportJob(ctx, memory.JobResult{Agent: cmp.Or(a.res.Agent, "claude"), Profile: a.profile, Model: a.res.Model,
+		Local: a.local, Class: class, Fix: fix})
+}
+
 // memoryWalk tries each later hop after the pin failed before answering; the first answer or non-hop failure ends it.
-func memoryWalk(ctx context.Context, c *agent.Client, opts agent.RunOptions, pin wire.Result, pinErr error) (string, error) {
-	reg, rerr := providers.Load()
-	if rerr != nil {
-		return memoryWho(pin, false), pinErr
-	}
-	lastErr, who := pinErr, memoryWho(pin, false)
-	for _, hop := range memoryHops(reg, pin.Provider) {
+func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts agent.RunOptions, pin attempt) (string, error) {
+	last, who, errs := pin, memoryWho(pin.res, false), []error{pin.err}
+	for _, hop := range memoryHops(reg, pin.profile) {
 		local := hop == localRoute
 		if local && !localUp(ctx, reg) {
 			fmt.Fprintln(os.Stderr, "memory job: local model down; skipped")
 			break
 		}
-		opts.Route = hop
-		res, err := memoryHop(ctx, c, opts)
+		res, err := run(ctx, hopOptions(opts, hop))
 		who = memoryWho(res, local)
 		if err == nil {
-			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model, Local: local})
+			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: hop.Profile, Model: res.Model, Local: local})
 			return who, nil
 		}
-		lastErr = err
+		last = attempt{res: res, profile: hop.Profile, local: local, err: err}
+		errs = append(errs, err)
 		if !agent.HopFailed(res, err) {
 			break
 		}
 	}
-	class, fix := jobClass(reg, pin.Provider, pinErr)
-	memory.ReportJob(ctx, memory.JobResult{Agent: pin.Agent, Profile: pin.Provider, Class: class, Fix: fix})
-	return who, errors.Join(pinErr, lastErr)
+	reportFailure(ctx, reg, last)
+	return who, errors.Join(errs...)
 }

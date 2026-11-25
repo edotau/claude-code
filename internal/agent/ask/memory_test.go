@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -26,6 +29,42 @@ func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
 	o := memoryRunOptions(context.Background(), "p", "/w")
 	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
 		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
+	}
+	if o.Runner != agentconfig.RunnerOwn {
+		t.Fatalf("Runner = %q, want own so Pi never leads a memory job", o.Runner)
+	}
+}
+
+func TestMemoryHopOptionsAgreeOnTarget(t *testing.T) {
+	base := memoryRunOptions(context.Background(), "p", "/w")
+	base.Lead, base.Account = "dev", "acct"
+	o := hopOptions(base, route.Route{Provider: "databricks", Profile: "qa"})
+	if o.Provider != "databricks:qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != agentconfig.RunnerOwn {
+		t.Fatalf("hopOptions = %+v, want one qa target with the own runner", o)
+	}
+}
+
+// A pin auth failure followed by a progressed, non-auth failure on a later hop is that later failure's receipt.
+func TestMemoryWalkClassifiesTerminalAttempt(t *testing.T) {
+	ws := func(n string) *providers.Provider {
+		return &providers.Provider{Name: n, Provider: providers.GroupDatabricks}
+	}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": ws("dev"), "qa": ws("qa"), "prod": ws("prod")}}
+	ctx, rep := memory.WithJobReport(context.Background())
+	var ran []string
+	run := func(_ context.Context, o agent.RunOptions) (wire.Result, error) {
+		ran = append(ran, o.Provider)
+		return wire.Result{Agent: "claude"}, &retry.Error{Kind: retry.KindTransient, Progressed: true}
+	}
+	pin := attempt{res: wire.Result{Agent: "claude"}, profile: "dev", err: providers.ErrNeedsLogin}
+	if _, err := memoryWalk(ctx, run, reg, memoryRunOptions(ctx, "p", "/w"), pin); err == nil {
+		t.Fatal("walk error = nil, want the joined failures")
+	}
+	if len(ran) != 1 || ran[0] != "databricks:prod" && ran[0] != "databricks:qa" {
+		t.Fatalf("hops run = %v, want one sibling then stop on progress", ran)
+	}
+	if rep.Class != memory.JobClassFailed || rep.Fix != "" || rep.Profile != strings.TrimPrefix(ran[0], "databricks:") {
+		t.Fatalf("report = %+v, want a retryable failed receipt on the terminal hop", *rep)
 	}
 }
 
@@ -134,7 +173,7 @@ func checkJobClasses(t *testing.T, reg *providers.Registry) {
 		class, fx string
 	}{
 		{providers.ErrNeedsLogin, memory.JobClassAuth, "claude-code databricks login --profile dev"},
-		{fmt.Errorf("x: %w", agent.ErrTreeBudget), memory.JobClassBudget, "claude-code memory update --catchup"},
+		{fmt.Errorf("x: %w", agent.ErrTreeBudget), memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot + " (outside the spent dispatch tree, or after raising the cap)"},
 		{errors.New("boom"), memory.JobClassFailed, ""},
 	} {
 		if c, fix := jobClass(reg, "dev", tc.err); c != tc.class || fix != tc.fx {

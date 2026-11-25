@@ -532,6 +532,9 @@ func auditUpdatePlans(o updateOptions) {
 	}
 }
 
+// FixSessionSlot in a runner's fix command is replaced with the session id when the receipt is written.
+const FixSessionSlot = "<session-id>"
+
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
 func recordUpdateResult(session, log, status string, updated bool, rep JobResult) error {
 	ran := strings.Join([]string{rep.Agent, rep.Profile, rep.Model}, "·")
@@ -539,7 +542,7 @@ func recordUpdateResult(session, log, status string, updated bool, rep JobResult
 		ran = ""
 	}
 	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log,
-		Class: rep.Class, Fix: rep.Fix, Ran: ran, Local: rep.Local})
+		Class: rep.Class, Fix: strings.ReplaceAll(rep.Fix, FixSessionSlot, session), Ran: ran, Local: rep.Local})
 	if err != nil {
 		return fmt.Errorf("record update result: %w", err)
 	}
