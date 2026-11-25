@@ -453,10 +453,11 @@ func (r Repo) Ensure() error {
 	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755); err != nil {
 		return err
 	}
-	if err := createExcl(filepath.Join(gitDir, "hooks", "pre-push"), prePushHook, 0o755); err != nil {
+	if _, err := paths.WriteNoReplace(filepath.Join(gitDir, "hooks", "pre-push"), []byte(prePushHook), 0o755); err != nil {
 		return err
 	}
-	return createExcl(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
+	_, err := paths.WriteNoReplace(filepath.Join(r.Dir, ".gitignore"), []byte(storeGitignore), 0o644)
+	return err
 }
 
 func (r Repo) initIfAbsent(gitDir string) error {

@@ -71,7 +71,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 	}
 }
 
-// createExcl's write failing midway (disk full, file-size limit) removes the partial file, so a retry lands the body.
+// WriteNoReplace failing midway (disk full, file-size limit) removes the partial file, so a retry lands the body.
 func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "projectContext.md")
 	orig := paths.NoReplaceWrite
@@ -80,14 +80,14 @@ func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 		_, _ = f.Write(body[:len(body)/2])
 		return errors.New("file too large")
 	}
-	if err := createExcl(path, "partial scaffold\n", 0o600); err == nil {
+	if _, err := paths.WriteNoReplace(path, []byte("partial scaffold\n"), 0o600); err == nil {
 		t.Fatal("expected a partial-write error")
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("failed fallback left a partial file: %v", err)
 	}
 	paths.NoReplaceWrite = orig
-	if err := createExcl(path, "retry\n", 0o600); err != nil {
+	if _, err := paths.WriteNoReplace(path, []byte("retry\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := aliasRead(t, path); got != "retry\n" {

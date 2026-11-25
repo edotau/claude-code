@@ -245,31 +245,26 @@ func AddGithubAccount(login string) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	return UpdateProviderRows(true, false, func(provs map[string]map[string]json.RawMessage) error {
-		entry := provs[name]
-		if entry == nil {
-			var err error
-			if entry, err = builtinEntry(name); err != nil {
+	_, _, err := UpdateOverlayDocForce(true, false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		return EditProviderRows(top, "vault overlay/providers: providers", func(provs map[string]map[string]json.RawMessage) error {
+			entry := provs[name]
+			if entry == nil {
+				var err error
+				if entry, err = builtinEntry(name); err != nil {
+					return err
+				}
+			}
+			if err := update(entry); err != nil {
 				return err
 			}
-		}
-		if err := update(entry); err != nil {
-			return err
-		}
-		provs[name] = entry
-		return nil
-	})
-}
-
-// UpdateProviderRows runs fn on the overlay's providers rows (a missing key is empty) and writes them back.
-func UpdateProviderRows(apply, force bool, fn func(rows map[string]map[string]json.RawMessage) error) error {
-	_, _, err := UpdateOverlayDocForce(apply, force, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		return EditProviderRows(top, "vault overlay/providers: providers", fn)
+			provs[name] = entry
+			return nil
+		})
 	})
 	return err
 }
 
-// EditProviderRows is UpdateProviderRows over an already-open doc top; prefix, when set, labels a decode error.
+// EditProviderRows runs fn on an open overlay doc's providers rows (a missing key is empty); prefix labels errors.
 func EditProviderRows(top map[string]json.RawMessage, prefix string, fn func(rows map[string]map[string]json.RawMessage) error) error {
 	provs := map[string]map[string]json.RawMessage{}
 	if b, ok := top["providers"]; ok {

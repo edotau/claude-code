@@ -47,17 +47,11 @@ func Init() (string, error) {
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
-		if err := createExcl(p, body, 0o600); err != nil {
+		if _, err := paths.WriteNoReplace(p, []byte(body), 0o600); err != nil {
 			return "", err
 		}
 	}
 	return paths.MemorySubDir(""), nil
-}
-
-// createExcl writes body to a new p, never replacing an existing or racing writer's file.
-func createExcl(p, body string, mode os.FileMode) error {
-	_, err := paths.WriteNoReplace(p, []byte(body), mode)
-	return err
 }
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
