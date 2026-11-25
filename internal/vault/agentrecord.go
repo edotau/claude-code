@@ -164,11 +164,9 @@ func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
 		r.Route.Profile = cmp.Or(renames[r.Route.Profile], r.Route.Profile)
 		r.FallbackRoute.Profile = cmp.Or(renames[r.FallbackRoute.Profile], r.FallbackRoute.Profile)
 		r.Model = spec(r.Model)
-		if r.Aliases != nil {
-			r.Aliases = maps.Clone(r.Aliases)
-			for a, v := range r.Aliases {
-				r.Aliases[a] = spec(v)
-			}
+		r.Aliases = maps.Clone(r.Aliases)
+		for a, v := range r.Aliases {
+			r.Aliases[a] = spec(v)
 		}
 		recs[n] = r
 	}

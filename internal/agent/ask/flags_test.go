@@ -68,7 +68,7 @@ func TestAskPackFlagCombos(t *testing.T) {
 // Ties the --effort help to the harness scale.
 func TestEffortFlagHelpListsTheScale(t *testing.T) {
 	fs, _ := askFlagSet()
-	if got := fs.Lookup("effort").Usage; got != "reasoning effort: low|medium|high|xhigh|max" {
+	if got := fs.Lookup("effort").Usage; got != "reasoning effort: minimal|low|medium|high|xhigh|max" {
 		t.Errorf("--effort usage = %q", got)
 	}
 }

@@ -2,7 +2,6 @@ package agentid
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	_ "github.com/edotau/claude-code/internal/nonet" // tests refuse real DNS: mock API calls
@@ -46,58 +45,38 @@ func TestBinary(t *testing.T) {
 }
 
 func TestNativeEffort(t *testing.T) {
-	const pass, clamp, refuse = "same", "clamp", "refuse"
-	// Rows are low, medium, high, xhigh, max, minimal, bogus; cells are the outcome per the plan's table.
+	// Rows are minimal, low, medium, high, xhigh, max, bogus; cells are the native value ("" = refused).
 	table := map[string][7]string{
-		Claude:   {pass, pass, pass, pass, pass, refuse, refuse},
-		Codex:    {pass, pass, pass, pass, clamp, pass, refuse},
-		Copilot:  {pass, pass, pass, pass, pass, refuse, refuse},
-		Gemini:   {pass, pass, pass, pass, pass, refuse, refuse},
-		OpenCode: {pass, pass, pass, pass, pass, refuse, refuse},
-		Pi:       {pass, pass, pass, pass, pass, pass, refuse},
-		"agy":    {refuse, refuse, refuse, refuse, refuse, refuse, refuse},
+		Claude:   {"low", "low", "medium", "high", "xhigh", "max", ""},
+		Codex:    {"minimal", "low", "medium", "high", "xhigh", "xhigh", ""},
+		Copilot:  {"minimal", "low", "medium", "high", "xhigh", "max", ""},
+		Gemini:   {"low", "low", "medium", "high", "xhigh", "max", ""},
+		OpenCode: {"minimal", "low", "medium", "high", "xhigh", "max", ""},
+		Pi:       {"minimal", "low", "medium", "high", "xhigh", "max", ""},
+		"agy":    {},
 	}
-	levels := append(efforts(), "minimal", "bogus")
 	for agent, row := range table {
-		for i, e := range levels {
+		for i, e := range append(slices.Clone(efforts), "bogus") {
 			native, clamped := NativeEffort(agent, e)
-			want, wantClamped := string(e), false
-			switch row[i] {
-			case clamp:
-				want, wantClamped = string(EffortXHigh), true
-			case refuse:
-				want = ""
-			}
-			if native != want || clamped != wantClamped {
-				t.Errorf("NativeEffort(%s, %s) = (%q, %v), want (%q, %v)", agent, e, native, clamped, want, wantClamped)
+			if native != row[i] || clamped != (native != "" && native != string(e)) {
+				t.Errorf("NativeEffort(%s, %s) = (%q, %v), want %q", agent, e, native, clamped, row[i])
 			}
 		}
 	}
 }
 
-func TestValidEffort(t *testing.T) {
-	if got := EffortNames(); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
+func TestEffortNames(t *testing.T) {
+	if got := EffortNames(); !slices.Equal(got, []string{"minimal", "low", "medium", "high", "xhigh", "max"}) {
 		t.Fatalf("EffortNames() = %v", got)
-	}
-	for _, ok := range [][2]string{{Codex, ""}, {Codex, "max"}, {Codex, "minimal"}, {Copilot, "xhigh"}} {
-		if err := ValidEffort(ok[0], ok[1]); err != nil {
-			t.Errorf("ValidEffort(%s, %q) = %v, want nil", ok[0], ok[1], err)
-		}
-	}
-	for _, bad := range [][2]string{{Claude, "minimal"}, {Gemini, "bogus"}, {Codex, "High"}, {Codex, " high"}} {
-		err := ValidEffort(bad[0], bad[1])
-		if err == nil || !strings.Contains(err.Error(), "low, medium, high, xhigh, max") {
-			t.Errorf("ValidEffort(%s, %q) = %v, want an error naming the accepted values", bad[0], bad[1], err)
-		}
 	}
 }
 
 func TestNativeEfforts(t *testing.T) {
 	want := map[string][]string{
-		Claude:   EffortNames(),
+		Claude:   EffortNames()[1:],
 		Codex:    {"minimal", "low", "medium", "high", "xhigh"},
 		Copilot:  nil,
-		Gemini:   EffortNames(),
+		Gemini:   EffortNames()[1:],
 		OpenCode: nil,
 		Pi:       {"minimal", "low", "medium", "high", "xhigh", "max"},
 	}
@@ -133,21 +112,6 @@ func TestSplitNativeEffort(t *testing.T) {
 		if base != c.base || effort != c.effort || ok != c.ok {
 			t.Errorf("SplitNativeEffort(%q) = (%q, %q, %v), want (%q, %q, %v)",
 				c.model, base, effort, ok, c.base, c.effort, c.ok)
-		}
-	}
-}
-
-func TestClampEffort(t *testing.T) {
-	for _, c := range []struct {
-		supported []string
-		e         Effort
-		want      string
-		clamped   bool
-	}{
-		{[]string{"low", "high"}, EffortMedium, "low", true},
-	} {
-		if got, clamped := ClampEffort(c.supported, c.e); got != c.want || clamped != c.clamped {
-			t.Errorf("ClampEffort(%v, %s) = %q, %v; want %q, %v", c.supported, c.e, got, clamped, c.want, c.clamped)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,9 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -75,7 +81,8 @@ func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	if rec.Effort != "max" || rec.Route.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
 		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high moved in", rec)
 	}
-	if ov, err := readCodexOverlay(); err != nil || len(ov) != 0 {
+	var ov map[string]string
+	if err := vault.View(func(tx *vault.Tx) (e error) { ov, e = loadCodexOverlay(tx); return e }); err != nil || len(ov) != 0 {
 		t.Errorf("legacy overlay after save = %v (%v), want empty", ov, err)
 	}
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string {
@@ -310,13 +317,39 @@ trusted_hash = "last"
 	}
 }
 
-func TestOverlayEffortAcceptsMinimalAndRejectsMax(t *testing.T) {
-	if err := validateCodexOverlay(map[string]string{"model_reasoning_effort": "minimal"}); err != nil {
-		t.Errorf("minimal rejected: %v", err)
+// One effort vocabulary: every surface takes the canonical names and refuses anything else alike; render spells native.
+func TestEffortOneVocabulary(t *testing.T) {
+	want := "want one of " + strings.Join(agentid.EffortNames(), ", ")
+	for _, name := range agentid.All() {
+		for _, e := range append(agentid.EffortNames(), "turbo") {
+			canonical := slices.Contains(agentid.EffortNames(), e)
+			for surface, err := range surfaces(name, e) {
+				if canonical != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
+					t.Errorf("%s %s: %q = %v, want accepted=%v with %q", name, surface, e, err, canonical, want)
+				}
+			}
+		}
 	}
-	if err := validateCodexOverlay(map[string]string{"model_reasoning_effort": "max"}); err == nil {
-		t.Error("max accepted")
+	for e, native := range map[string]string{"minimal": "minimal", "low": "low", "xhigh": "xhigh", "max": "xhigh"} {
+		out, err := patchCodexSettings("", map[string]string{codexEffortKey: e})
+		if want := codexEffortKey + " = " + strconv.Quote(native); err != nil || !strings.Contains(out, want) {
+			t.Errorf("render %s = %q (%v), want %s", e, out, err, want)
+		}
 	}
+}
+
+// surfaces runs effort e through the record, overlay, ValidEffort and codex page checks.
+func surfaces(name, e string) map[string]error {
+	_, overlayErr := agentconfig.LoadOverlayContext(context.Background(), `{"effort":"`+e+`"}`, nil)
+	out := map[string]error{
+		"ValidEffort": agentid.ValidEffort(name, e),
+		"record":      agent.ValidateRecord(name, vault.AgentRecord{Effort: e}),
+		"overlay":     overlayErr,
+	}
+	if name == agentid.Codex {
+		out["page"] = validateCodexOverlay(map[string]string{codexEffortKey: e})
+	}
+	return out
 }
 
 func TestConfigRoutePreferenceRoundTrip(t *testing.T) {

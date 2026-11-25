@@ -273,7 +273,7 @@ type apiRequest struct {
 	BaseURL   string
 	Model     string
 	Prompt    string
-	Effort    string // low|medium|high|xhigh|max; "" = model default
+	Effort    string // minimal|low|medium|high|xhigh|max; "" = model default
 	MaxTokens int64
 	Authorize func(context.Context, http.Header) error
 }

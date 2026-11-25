@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 
@@ -372,7 +373,7 @@ func applyCodexPreferences(entry map[string]any, prefs map[string]string) {
 	if v := prefs[extraVerbosity]; v != "" && entry["support_verbosity"] != false {
 		entry["default_verbosity"] = v
 	}
-	effort := prefs[codexEffortKey]
+	effort, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(prefs[codexEffortKey]))
 	levels, _ := entry["supported_reasoning_levels"].([]any)
 	for _, level := range levels {
 		if row, _ := level.(map[string]any); effort != "" && row["effort"] == effort {

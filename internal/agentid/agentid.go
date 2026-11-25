@@ -67,20 +67,21 @@ type Effort string
 
 // The harness effort scale, weakest first.
 const (
-	EffortLow    Effort = "low"
-	EffortMedium Effort = "medium"
-	EffortHigh   Effort = "high"
-	EffortXHigh  Effort = "xhigh"
-	EffortMax    Effort = "max"
+	EffortMinimal Effort = "minimal"
+	EffortLow     Effort = "low"
+	EffortMedium  Effort = "medium"
+	EffortHigh    Effort = "high"
+	EffortXHigh   Effort = "xhigh"
+	EffortMax     Effort = "max"
 )
 
-// efforts is the harness scale, weakest first.
-func efforts() []Effort { return []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax} }
+// efforts is the harness scale, weakest first; never mutated.
+var efforts = []Effort{EffortMinimal, EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax}
 
 // EffortNames is the harness efforts as strings, for flag help and enum checks.
 func EffortNames() []string {
-	names := make([]string, 0, len(efforts()))
-	for _, e := range efforts() {
+	names := make([]string, 0, len(efforts))
+	for _, e := range efforts {
 		names = append(names, string(e))
 	}
 	return names
@@ -139,11 +140,11 @@ var roster = []struct {
 	name string
 	RouteFacts
 }{
-	{Claude, RouteFacts{AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames(),
+	{Claude, RouteFacts{AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()[1:],
 		CodeMode: CodeModeRow{Var: "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", ViaSettings: true, DirectOnly: true}}},
 	{Codex, RouteFacts{ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}}},
 	{Copilot, RouteFacts{FreezeTarget: true, Discovery: true}},
-	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()}},
+	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()[1:]}},
 	{OpenCode, RouteFacts{SubLadder: true, Discovery: true, CodeMode: CodeModeRow{Var: "OPENCODE_EXPERIMENTAL_CODE_MODE"}}},
 	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, CodeMode: CodeModeRow{Extension: true, Only: true, TypedByMode: true},
 		nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
@@ -172,42 +173,35 @@ func SplitNativeEffort(model string) (base, effort string, ok bool) {
 
 // NativeEffort spells e for agent's CLI; clamped reports a move to the nearest value the CLI has; "" means refused.
 func NativeEffort(agent string, e Effort) (native string, clamped bool) {
-	if !Known(agent) {
+	natives := NativeEfforts(agent)
+	i := slices.Index(efforts, e)
+	switch {
+	case !Known(agent):
 		return "", false
-	}
-	return ClampEffort(NativeEfforts(agent), e)
-}
-
-// ClampEffort spells e against supported values, weakest first; nil passes known levels through.
-func ClampEffort(natives []string, e Effort) (native string, clamped bool) {
-	if slices.Contains(natives, string(e)) {
+	case slices.Contains(natives, string(e)):
 		return string(e), false
-	}
-	i := slices.Index(efforts(), e)
-	if i < 0 {
+	case i < 0:
 		return "", false
+	case natives == nil:
+		return string(e), false // model-specific: any harness level passes through
 	}
-	if natives == nil {
-		return string(e), false
-	}
-	for _, weaker := range slices.Backward(efforts()[:i]) {
+	for _, weaker := range slices.Backward(efforts[:i]) {
 		if slices.Contains(natives, string(weaker)) {
 			return string(weaker), true
+		}
+	}
+	for _, stronger := range efforts[i+1:] { // minimal on a CLI with no level that low rises to its lowest
+		if slices.Contains(natives, string(stronger)) {
+			return string(stronger), true
 		}
 	}
 	return "", false
 }
 
-// ValidEffort accepts "" and any value on the harness scale or in agent's native list.
+// ValidEffort accepts "" and the harness scale; a native spelling is derived at render, never stored.
 func ValidEffort(agent, s string) error {
-	accepted := EffortNames()
-	for _, n := range NativeEfforts(agent) {
-		if !slices.Contains(accepted, n) {
-			accepted = append(accepted, n)
-		}
-	}
-	if s == "" || slices.Contains(accepted, s) {
+	if s == "" || slices.Contains(EffortNames(), s) {
 		return nil
 	}
-	return fmt.Errorf("effort %q for %s: want one of %s", s, agent, strings.Join(accepted, ", "))
+	return fmt.Errorf("effort %q for %s: want one of %s", s, agent, strings.Join(EffortNames(), ", "))
 }

@@ -16,7 +16,7 @@ allowed-tools: Bash(claude-code agents label copilot *), Bash(claude-code agents
   --provider <p>     lead on this provider's signed-in profile (databricks picks the least busy workspace)
   --profile <p>      the profile to lead on (dev, qa, prod, a login); omitted: the agent's pin
   --model <m>        alias, version, wire id or auto; omitted: the pin, else the tier pick
-  --effort <e>       low|medium|high|xhigh|max
+  --effort <e>       minimal|low|medium|high|xhigh|max
   --fallback <mode>  none|pin|agents|all; none keeps a typed model and route fixed
 ```
 

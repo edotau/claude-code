@@ -369,7 +369,7 @@ func TestFieldProblemListsRosterAndScale(t *testing.T) {
 	if got, want := fieldProblem("agent", "x"), " must be claude|codex|copilot|gemini|opencode|pi"; got != want {
 		t.Errorf("agent problem %q, want %q", got, want)
 	}
-	if got, want := fieldProblem("effort", "x"), " must be low|medium|high|xhigh|max"; got != want {
+	if got, want := fieldProblem("effort", "x"), " must be minimal|low|medium|high|xhigh|max"; got != want {
 		t.Errorf("effort problem %q, want %q", got, want)
 	}
 }
@@ -790,7 +790,7 @@ func noNode(t *testing.T) {
 // The effort pin allow-list keeps its pinned contents; an agentid rename fails here.
 func TestPinAllowListTiesToAgentid(t *testing.T) {
 	t.Parallel()
-	wantEffort := map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	wantEffort := map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 	if !maps.Equal(pinAllowed["effort"], wantEffort) {
 		t.Errorf("pinAllowed[effort] = %v, want %v", pinAllowed["effort"], wantEffort)
 	}

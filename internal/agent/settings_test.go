@@ -46,7 +46,6 @@ func TestValidateRecord(t *testing.T) {
 		{"copilot", vault.AgentRecord{Effort: "high", Context: "1m", Route: route.Route{Provider: "github", Account: "octo"}}, ""},
 		{"gemini", vault.AgentRecord{Effort: "xhigh"}, ""},
 		{"opencode", vault.AgentRecord{Effort: "low"}, ""},
-		{"claude", vault.AgentRecord{Effort: "minimal"}, `effort "minimal" for claude`},
 		{"codex", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for codex`},
 		{"copilot", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for copilot`},
 		{"gemini", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for gemini`},

@@ -82,6 +82,9 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 	textutil.WriteStrings(&section, codexSettingsBegin, "\n")
 	for _, field := range nativeFields() {
 		if value, ok := overlay[field.Key]; ok {
+			if field.Key == codexEffortKey {
+				value, _ = agentid.NativeEffort(agentid.Codex, agentid.Effort(value))
+			}
 			fmt.Fprintf(&section, "%s = %q\n", field.Key, value)
 		}
 	}
@@ -207,11 +210,7 @@ func codexPreferences(rec vault.AgentRecord, overlay map[string]string) (map[str
 		prefs = map[string]string{}
 	}
 	if rec.Effort != "" {
-		native, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort))
-		if native == "" {
-			return nil, fmt.Errorf("codex: record %w", agentid.ValidEffort(agentid.Codex, rec.Effort))
-		}
-		prefs[codexEffortKey] = native
+		prefs[codexEffortKey] = rec.Effort
 	}
 	if v := rec.Extras[extraVerbosity]; v != "" {
 		prefs[extraVerbosity] = v
@@ -254,8 +253,8 @@ func LoadCodexPreferences() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	overlay, err := readCodexOverlay()
-	if err != nil {
+	var overlay map[string]string
+	if err = vault.View(func(tx *vault.Tx) (e error) { overlay, e = loadCodexOverlay(tx); return e }); err != nil {
 		return nil, err
 	}
 	return codexPreferences(rec, overlay)
@@ -289,9 +288,7 @@ func UpdateCodexPreferences(edit func(map[string]string) map[string]string) erro
 		if err := validateCodexNext(reg, regErr, next); err != nil {
 			return err
 		}
-		if recEffort, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort)); next[codexEffortKey] != recEffort {
-			rec.Effort = next[codexEffortKey]
-		}
+		rec.Effort = next[codexEffortKey]
 		rec.Extras = withExtra(rec.Extras, extraVerbosity, next[extraVerbosity])
 		rec.Extras = withExtra(rec.Extras, extraConfigRoute, next[extraConfigRoute])
 		recs[agentid.Codex] = rec
@@ -559,7 +556,7 @@ func CodexFields() []CodexField {
 // nativeFields are the preferences config.toml carries; no registry read, so a vault transaction may call it.
 func nativeFields() []CodexField {
 	return []CodexField{
-		{Key: "model_reasoning_effort", Values: agentid.NativeEfforts(agentid.Codex)},
+		{Key: "model_reasoning_effort", Values: agentid.EffortNames()},
 		{Key: extraVerbosity, Values: codexVerbosities},
 	}
 }
@@ -580,7 +577,7 @@ func validateCodexOverlay(ov map[string]string) error {
 			if f.Key == key {
 				found = true
 				if !slices.Contains(f.Values, value) {
-					return fmt.Errorf("codex: invalid value for %s; choose one of: %s", key, strings.Join(f.Values, ", "))
+					return fmt.Errorf("codex: invalid value for %s; want one of %s", key, strings.Join(f.Values, ", "))
 				}
 				break
 			}
@@ -603,11 +600,6 @@ func loadCodexOverlay(tx *vault.Tx) (map[string]string, error) {
 		ov = map[string]string{}
 	}
 	return ov, validateCodexOverlay(ov)
-}
-
-func readCodexOverlay() (ov map[string]string, err error) {
-	err = vault.View(func(tx *vault.Tx) error { ov, err = loadCodexOverlay(tx); return err })
-	return
 }
 
 type codexConfigBackup struct {
