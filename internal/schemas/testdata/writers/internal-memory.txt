@@ -31,6 +31,10 @@ internal/memory/dream_audit.go:queueDreamBench	unversioned: log: dream benchmark
 internal/memory/dream_audit.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
 internal/memory/embed.go:embedQuery	unversioned: marker: semantic-recall backoff stamp
 internal/memory/embed_store.go:refreshEmbeddings	unversioned: marker: embedding refresh spawn stamp
+internal/memory/extract_run.go:extractClaimIndex	unversioned: git-index: exclusive purge index lock
+internal/memory/extract_run.go:extractIndexFile	unversioned: git-index: temporary purge index
+internal/memory/extract_run.go:extractInstallPurge	unversioned: git-index: restore the original index if purge fails before committing
+internal/memory/extract_run.go:writeExtractOutput	unversioned: report: extract.json typed classification rows, explicit caller output outside the store
 internal/memory/promote.go:archiveFile	unversioned: memory-bank: bank overflow archive
 internal/memory/queue.go:queueAdd	unversioned: marker: memory worker job queue file, one JSON job per kind and key
 internal/memory/queue.go:spawnSelf	unversioned: log: detached worker log, humans only

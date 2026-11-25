@@ -43,7 +43,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, path, report, fmt, watch,\n" +
-		"          import, sandbox, upgrade (off menu)\n" +
+		"          import, sandbox, upgrade, extract (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -65,6 +65,7 @@ var memoryPlumbing = map[string][2]string{
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
 	"upgrade": {"[--dry-run] [--to N]", "bring every memory file to the current store version, one commit per step"},
+	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -213,6 +214,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"import":  cmdMemoryImport,
 		"sandbox": cmdMemorySandbox,
 		"upgrade": cmdMemoryUpgrade,
+		"extract": cmdMemoryExtract,
 	}
 }
 
@@ -256,6 +258,7 @@ func memorySpec() *helptext.Node {
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to")}},
+		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
