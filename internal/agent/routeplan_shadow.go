@@ -13,9 +13,16 @@ import (
 	"github.com/edotau/claude-code/internal/route"
 )
 
-// parentRoute is what Stage 1 inherits: an open fence and whether this ask is a carried child.
+// parentRoute is what a dispatch inherits: an open fence, or a --retry plan's, and whether it is a carried child.
 func parentRoute(ctx context.Context) ParentRoute {
-	return ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")}
+	pr := ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")}
+	if r, ok := RetriedOf(ctx); ok && r.Plan != nil {
+		pr.Replay = r.Plan
+		if f := r.Plan.Fence; f.Open || len(f.Profiles) > 0 { // a zero fence is a plan that lacked one
+			pr.Fence = f
+		}
+	}
+	return pr
 }
 
 // logDivergence appends one JSON line to the shadow log when lines is non-empty; a write error never fails the run.

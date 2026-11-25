@@ -85,6 +85,33 @@ func TestStartAndSettleAsk(t *testing.T) {
 	}
 }
 
+// TestRetryTakesOverContract: a plain --retry of a dead holder takes its working contract instead of opening one.
+func TestRetryTakesOverContract(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	openSaved(t, contract.Facts{}, "", "")
+	old := agent.Record{ID: "d-1", Status: wire.StatusStalled, Time: time.Now()}
+	if err := old.Save(); err != nil {
+		t.Fatal(err)
+	}
+	o := &contractOpen{Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner: contract.Party{Role: contract.RoleOwner, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1}}
+	ctx := agent.WithRetried(withContract(t.Context(), o), agent.Retried{ID: "d-1"})
+	rec := agent.Record{ID: "d-2", Time: time.Now()}
+	if err := startAsk(ctx, nil, &rec); err != nil {
+		t.Fatal(err)
+	}
+	c, err := contract.Load("d-1")
+	if err != nil || !reflect.DeepEqual(c.Holders, []string{"d-1", "d-2"}) || c.State() != contract.StateWorking {
+		t.Fatalf("contract d-1: holders %v state %s, %v; want [d-1 d-2] working", c.Holders, c.State(), err)
+	}
+	if _, err := contract.Load("d-2"); err == nil {
+		t.Fatal("retry opened a second contract d-2")
+	}
+	if got := heldID(rec); got != "d-1" {
+		t.Fatalf("heldID(d-2) = %q, want d-1", got)
+	}
+}
+
 // TestSettleContractFailsOnRedGate: a red gate fails the saved contract (reason term); the rest pass.
 func TestSettleContractFailsOnRedGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

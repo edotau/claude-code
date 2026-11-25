@@ -587,14 +587,15 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	return &r, 0, false
 }
 
-// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(_ context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
+// loadAskRetry loads a --retry record, re-applies flags typed here, and marks ctx with the retried id and plan.
+func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState,
+	prompt *string) (_ context.Context, rc int, done bool) {
 	if retry == "" {
-		return 0, false
+		return ctx, 0, false
 	}
 	rec, err := agent.LoadRecord(retry)
 	if err != nil {
-		return failAsk(format, *s.Name, err), true
+		return ctx, failAsk(format, *s.Name, err), true
 	}
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
@@ -602,15 +603,40 @@ func loadAskRetry(_ context.Context, fs *flag.FlagSet, args []string, retry, for
 	*s.lead, *s.replayed = rec.Request.Lead, rec.Request // the routed lead is not a flag: the replay leads with it
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
-		return failAskCode(format, *s.Name, err, 2), true
+		return ctx, failAskCode(format, *s.Name, err, 2), true
 	}
 	if err := retryWorkdir(fs, s.Workdir, *s.Host, rec); err != nil {
-		return failAskCode(format, *s.Name, err, 2), true
+		return ctx, failAskCode(format, *s.Name, err, 2), true
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
-	moveOffCutoff(fs, s, rec, os.Stderr, "")
-	return 0, false
+	moved := moveOffCutoff(fs, s, rec, os.Stderr, "")
+	return agent.WithRetried(ctx, agent.Retried{ID: rec.ID, Plan: replayPlan(fs, rec, moved)}), 0, false
+}
+
+// replayPlan is rec's plan for its retry: a cut-off workspace never leads, a claude move is its runner (D5).
+func replayPlan(fs *flag.FlagSet, rec agent.Record, moved bool) *agent.RoutePlan {
+	if rec.RoutePlan == nil {
+		return nil // a record from before route_plan replays as today
+	}
+	p := *rec.RoutePlan // PlanRoute reads only the replayed fields; slices are replaced, never mutated
+	if rec.CutOff() {
+		p.Pool, p.Admitted = nil, nil
+	}
+	if moved {
+		p.Agent, p.Barred = agentid.Claude, "a cut-off retry runs claude's own CLI"
+		p.Runners = []agent.Runner{{Kind: agent.RunnerOwn, Agent: agentid.Claude}}
+	}
+	if helptext.Explicit(fs, "runner") {
+		p.Runners = nil
+	}
+	if helptext.Explicit(fs, "fallback") {
+		p.Fallback = router.Policy{}
+	}
+	if helptext.Explicit(fs, "profile") || helptext.Explicit(fs, "provider") {
+		p.Pool, p.Admitted, p.Fence = nil, nil, route.Fence{}
+	}
+	return &p
 }
 
 // retryWorkdir pins a retry to the directory the run used (its cwd, tree, else repo) and checks it exists.
@@ -643,17 +669,17 @@ func keepReason(typedModel, noFallback bool, ran string) string {
 }
 
 // moveOffCutoff sends a cut-off run's retry to claude when nothing typed pins the route, else says how to move.
-func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) {
+func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) (moved bool) {
 	ran := cmp.Or(rec.RanAs, rec.Agent)
 	if !rec.CutOff() || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent
-		return
+		return false
 	}
 	auto := agent.IsAuto(*s.Model) // typed auto asks for rotation, not a pin
 	typed, none := *s.modelTyped || helptext.Explicit(fs, "model") && !auto, *s.Fallback == router.FallbackNone
 	id := rec.ID + ago
 	if why := keepReason(typed, none, ran); why != "" {
 		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)
-		return
+		return false
 	}
 	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", ""
 	force := "--agent " + ran + " forces the original"
@@ -661,6 +687,7 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 		force = "--model or --fallback none keeps the original"
 	}
 	fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; retrying on claude (%s)\n", id, rec.Cutoff, ran, force)
+	return true
 }
 
 // guardResubmit reads a plain ask's task early (stdin once) so a resubmit of a recent cutoff can leave its route.

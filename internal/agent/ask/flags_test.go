@@ -292,7 +292,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+			if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
 			if got, _ := r.request(r.prompt); got.Lead != tc.wantLead {
@@ -379,7 +379,7 @@ func TestAskRetryWorkdir(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt)
+			_, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt)
 			if tc.fail != (done && code == 2) {
 				t.Fatalf("loadAskRetry = %d, %v, fail want %v", code, done, tc.fail)
 			}
@@ -411,7 +411,7 @@ func TestAskRetryFallbackFromEnv(t *testing.T) {
 			mode, _ := router.FallbackSetting(t.Context(), "")
 			f.fallback = router.ParseFallback(mode) // runTo does this before the phases when --fallback is not typed
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+			if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
 			if f.fallback != tc.want {
@@ -803,5 +803,46 @@ func TestFinalGoogleToolsDropsRecordOnly(t *testing.T) {
 	req := agent.RunOptions{GoogleTools: []string{"url"}}
 	if err := lineCapable("codex", &req); err != nil || req.GoogleTools != nil {
 		t.Fatalf("batch line: err=%v tools=%v", err, req.GoogleTools)
+	}
+}
+
+// A cut-off retry moved to claude replays its fence and policy with claude's own CLI and no leading workspace (D5).
+func TestRetryReplayPlanCutoff(t *testing.T) {
+	ran := agent.RoutePlan{Agent: "codex", Runners: []agent.Runner{{Kind: agent.RunnerPi, Agent: "codex"}},
+		Pool: []agent.Workspace{{Profile: "qa"}}, Fence: route.Fence{Open: true},
+		Fallback: router.Policy{Kind: router.PolicyAnyInFence, Source: router.PolicyTyped}}
+	rec := agent.Record{ID: "d-1", Agent: "codex", Cutoff: agent.CutoffDeadline, RoutePlan: &ran}
+	fs, _ := askFlagSet()
+	got := replayPlan(fs, rec, true)
+	want := []agent.Runner{{Kind: agent.RunnerOwn, Agent: agentid.Claude}}
+	if got.Agent != agentid.Claude || !slices.Equal(got.Runners, want) || got.Pool != nil || got.Fallback != ran.Fallback || !got.Fence.Open {
+		t.Fatalf("replay = %+v; want claude own CLI, no pool, the recorded fence and policy", got)
+	}
+	if ran.Agent != "codex" || len(ran.Pool) != 1 {
+		t.Fatalf("replayPlan mutated the record's plan: %+v", ran)
+	}
+}
+
+// A background retry's --job child replays the plan its parent took from the retried run.
+func TestRetryJobChildReplaysPlan(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	plan := &agent.RoutePlan{Agent: "codex", Fence: route.Fence{Open: true}}
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "say ok"}, time.Now())
+	rec.RoutePlan, rec.RetryOf = plan, "d-1"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	fs, f := askFlagSet()
+	if err := fs.Parse([]string{"--job", rec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r := &askRun{ctx: t.Context(), fs: fs, f: f, args: []string{"--job", rec.ID}}
+	r.state = r.askState()
+	if rc, done := r.applyRecord(); done || rc != 0 {
+		t.Fatalf("applyRecord = %d, %v", rc, done)
+	}
+	got, ok := agent.RetriedOf(r.ctx)
+	if !ok || got.ID != "d-1" || got.Plan == nil || got.Plan.Agent != "codex" || !got.Plan.Fence.Open {
+		t.Fatalf("job child retried = %+v, %v; want d-1 with the record's plan", got, ok)
 	}
 }

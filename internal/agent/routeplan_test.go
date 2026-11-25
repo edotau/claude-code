@@ -236,7 +236,7 @@ func TestFinishPrepareRecordsAdmittedPlan(t *testing.T) {
 	if err := c.finishPrepare(context.Background(), p, RunOptions{Agent: "codex", Prompt: "Reply ok"}, claim); err != nil {
 		t.Fatal(err)
 	}
-	if p.Record.RoutePlan != nil || p.Record.FallbackPolicy != router.FallbackNone {
-		t.Fatalf("a claimed record kept plan=%p policy=%q, want its own (nil, none)", p.Record.RoutePlan, p.Record.FallbackPolicy)
+	if p.Record.RoutePlan != plan || p.Record.FallbackPolicy != router.FallbackNone {
+		t.Fatalf("a claimed record got plan=%p policy=%q, want the admitted plan and its own policy none", p.Record.RoutePlan, p.Record.FallbackPolicy)
 	}
 }

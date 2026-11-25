@@ -710,9 +710,10 @@ func (r *askRun) applyRecord() (int, bool) {
 		return rc, true
 	}
 	if r.jobRec != nil {
+		r.ctx = jobRetried(r.ctx, *r.jobRec)
 		return 0, false // a --job record already holds the fold
 	}
-	if rc, done := loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
+	if r.ctx, rc, done = loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
 		return rc, true
 	}
 	if f.recover {
@@ -825,6 +826,7 @@ func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, job
 	if err := startAsk(ctx, jobRec, &prepared.Record); err != nil {
 		return failAsk(format, name, err)
 	}
+	markRetryOf(ctx, &prepared.Record, background)
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
@@ -845,6 +847,21 @@ func takeClaim(jobRec *agent.Record, id string) error {
 		return nil
 	}
 	return agent.ClaimDispatchID(claim, id)
+}
+
+// markRetryOf names the retried run on a background retry's record, for its --job child.
+func markRetryOf(ctx context.Context, rec *agent.Record, background bool) {
+	if r, ok := agent.RetriedOf(ctx); ok && background {
+		rec.RetryOf = r.ID
+	}
+}
+
+// jobRetried makes a background retry's child replay the plan its parent took from the retried run.
+func jobRetried(ctx context.Context, rec agent.Record) context.Context {
+	if rec.RetryOf == "" {
+		return ctx
+	}
+	return agent.WithRetried(ctx, agent.Retried{ID: rec.RetryOf, Plan: rec.RoutePlan})
 }
 
 // startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.

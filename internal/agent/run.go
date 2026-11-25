@@ -103,6 +103,18 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	return o, r, ch, err
 }
 
+// stampPlan records the admitted plan; a claimed (job) record keeps its own policy and only gains a missing plan.
+func stampPlan(rec *Record, plan *RoutePlan, claimed bool) {
+	switch {
+	case plan == nil:
+	case !claimed:
+		rec.RoutePlan, rec.FallbackPolicy = plan, plan.Fallback.Mode()
+		rec.Request.FallbackDefaulted = !plan.Fallback.Typed()
+	case rec.RoutePlan == nil:
+		rec.RoutePlan = plan
+	}
+}
+
 // finishPrepare sets p's options and dispatch record, then packs o's workspace context into the prompt.
 func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, claim *Record) error {
 	if o.Pack != nil && p.remote != nil {
@@ -113,10 +125,7 @@ func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, c
 	if p.Record, err = c.record(ctx, o, claim); err != nil {
 		return err
 	}
-	if plan := p.Chain.Plan; plan != nil && claim == nil {
-		p.Record.RoutePlan, p.Record.FallbackPolicy = plan, plan.Fallback.Mode()
-		p.Record.Request.FallbackDefaulted = !plan.Fallback.Typed()
-	}
+	stampPlan(&p.Record, p.Chain.Plan, claim != nil)
 	p.Record.Preflight = p.Chain.Preflight
 	if len(p.Chain.Dispatches) > 0 {
 		p.Record.Account = p.Chain.Dispatches[0].Account

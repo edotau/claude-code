@@ -549,8 +549,14 @@ func contractBlock(o *contractOpen) string {
 // startAsk stamps the plan task and opens the spec's contract on a new dispatch record before it is saved.
 func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	stampPlanTask(ctx, jobRec, rec)
+	if jobRec != nil { // a --job child's contract was opened by its parent
+		return nil
+	}
+	if took, err := retryTakeOver(ctx, rec.ID); took || err != nil { // its fleet slot and spent budget stay
+		return err
+	}
 	o := askContractOf(ctx)
-	if o == nil || jobRec != nil { // a --job child's contract was opened by its parent
+	if o == nil {
 		return nil
 	}
 	open := *o
@@ -560,6 +566,51 @@ func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 		return fmt.Errorf("open contract: %w", errors.Join(problemsErr(ps), err))
 	}
 	return joinFleet(open.Parent, rec.ID)
+}
+
+// retryTakeOver hands a plain --retry its retried run's working contract; --recover takes over in heldID instead.
+func retryTakeOver(ctx context.Context, id string) (bool, error) {
+	r, ok := agent.RetriedOf(ctx)
+	if !ok || recoverOf(ctx) != nil || !holdsContract(r.ID) {
+		return false, nil
+	}
+	if from, err := agent.LoadRecord(r.ID); err != nil || from.Alive() { // never take a live run's contract
+		return false, nil
+	}
+	m, err := linkResumed(r.ID, id)
+	if m == "" || err != nil {
+		return false, err
+	}
+	if !takeOver(r.ID, id, []string{r.ID}) {
+		_ = os.Remove(m)
+		return false, nil
+	}
+	fmt.Fprintf(os.Stderr, "ask: %s takes over contract %s\n", id, r.ID)
+	return true, nil
+}
+
+// linkResumed claims from's resumed marker for id, so heldID finds the contract here and in a --job child.
+func linkResumed(from, id string) (string, error) {
+	m := agent.WatchMarker("resumed", from)
+	if m == "" {
+		return "", nil
+	}
+	if err := os.MkdirAll(filepath.Dir(m), 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(m, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, fs.ErrExist) { // a recovery claimed it first: this retry opens its own
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.WriteString(id + "\n")
+	if err := errors.Join(werr, f.Close()); err != nil {
+		_ = os.Remove(m)
+		return "", err
+	}
+	return m, nil
 }
 
 // joinFleet reserves a leaf of the owner contract parent for child under its lock, before the child spawns.

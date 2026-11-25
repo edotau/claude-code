@@ -88,6 +88,25 @@ type RoutePlan struct {
 
 type planKey struct{}
 
+type retryOfKey struct{}
+
+// Retried is the run a --retry replays: its dispatch id and the route plan to replay (nil for an old record).
+type Retried struct {
+	ID   string
+	Plan *RoutePlan
+}
+
+// WithRetried marks ctx's ask as a --retry of r; parentRoute replays r.Plan.
+func WithRetried(ctx context.Context, r Retried) context.Context {
+	return context.WithValue(ctx, retryOfKey{}, r)
+}
+
+// RetriedOf is the run ctx's ask retries; false for a fresh ask.
+func RetriedOf(ctx context.Context) (Retried, bool) {
+	r, ok := ctx.Value(retryOfKey{}).(Retried)
+	return r, ok
+}
+
 // withPlan carries p to every reader below Client.Plan.
 func withPlan(ctx context.Context, p RoutePlan) context.Context {
 	return context.WithValue(ctx, planKey{}, p)
@@ -120,10 +139,36 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parent, ov.Fallback); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
-	p.Pool = planPool(ctx, reg, o, p) // before tier and runners: both read Pool[0]
+	p.Pool = leadWith(planPool(ctx, reg, o, p), replayLead(parent.Replay)) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
+	if rp := parent.Replay; rp != nil && len(rp.Runners) > 0 && rp.Agent == p.Agent && o.SessionID == "" {
+		p.Runners, p.Barred = slices.Clone(rp.Runners), rp.Barred // a retry replays its runners; a session stays on its CLI
+	}
 	return p, nil
+}
+
+// replayLead is the workspace a replayed plan ran first: its first admitted hop's, else its pool head.
+func replayLead(rp *RoutePlan) string {
+	switch {
+	case rp == nil:
+		return ""
+	case len(rp.Admitted) > 0:
+		return rp.Admitted[0].Workspace.Profile
+	case len(rp.Pool) > 0:
+		return rp.Pool[0].Profile
+	}
+	return ""
+}
+
+// leadWith moves profile to the head of pool when pool holds it; it never adds a workspace the plan barred.
+func leadWith(pool []Workspace, profile string) []Workspace {
+	i := slices.IndexFunc(pool, func(w Workspace) bool { return w.Profile == profile })
+	if i <= 0 {
+		return pool
+	}
+	out := append([]Workspace{pool[i]}, pool[:i]...)
+	return append(out, pool[i+1:]...)
 }
 
 // planDecisions is the one fence and policy decision, read by the rotation's pre-pass and by PlanRoute alike.
@@ -133,6 +178,9 @@ func planDecisions(ctx context.Context, o RunOptions, parent ParentRoute, overla
 		return f, router.Policy{}, err
 	}
 	pol, err := planPolicy(ctx, o, overlayMode)
+	if rp := parent.Replay; err == nil && rp != nil && rp.Fallback.Kind != 0 && o.SessionID == "" {
+		pol = rp.Fallback // a retry keeps the policy it ran under; a resumed session stays put
+	}
 	return f, pol, err
 }
 
