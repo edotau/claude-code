@@ -2,12 +2,9 @@ package assets
 
 import (
 	"encoding/json"
-	"io/fs"
-	"path"
 	"slices"
 	"strings"
 	"sync"
-	"text/template/parse"
 )
 
 type MemoryUpdateInput struct{ Worker, Procedure, Historical, Digest, Git, Tags string }
@@ -220,25 +217,9 @@ func TranscriptHandoff(cwd, transcript, note string) string {
 	return renderMemory("transcript-handoff.tmpl", tmplFields{"CWD": cwd, "Transcript": transcript, "Note": note})
 }
 
-var memoryTemplates = sync.OnceValue(func() map[string]*parse.ListNode {
-	names, err := fs.Glob(files, "files/memory/prompts/*.tmpl")
-	if err != nil {
-		panic("assets: memory templates: " + err.Error())
-	}
-	roots := make(map[string]*parse.ListNode, len(names))
-	for _, name := range names {
-		roots[path.Base(name)] = parseTemplate(path.Base(name), read(name))
-	}
-	return roots
-})
+var memoryTemplates = loadTemplates("files/memory/prompts/*.tmpl")
 
-func renderMemory(name string, input any) string {
-	root, ok := memoryTemplates()[name]
-	if !ok {
-		panic("assets: no memory template " + name)
-	}
-	return renderTemplate(name, root, input)
-}
+func renderMemory(name string, input any) string { return renderFrom(memoryTemplates(), name, input) }
 
 func memoryProcedure(body []byte) string {
 	text := strings.TrimSpace(string(body))

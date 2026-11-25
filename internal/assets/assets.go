@@ -4,6 +4,7 @@ package assets
 import (
 	"embed"
 	"fmt"
+	"path"
 	"strings"
 	"text/template/parse"
 )
@@ -16,21 +17,49 @@ type tmplFields map[string]any
 
 // Parse-only on purpose: executing text/template links MethodByName, keeping all methods (+11 MB hookd).
 func parseTemplate(name string, src []byte) *parse.ListNode {
+	return parseTrees(name, src)[name].Root
+}
+
+func parseTrees(name string, src []byte) map[string]*parse.Tree {
 	trees, err := parse.Parse(name, string(src), "", "")
 	if err != nil {
 		panic("assets: " + name + ": " + err.Error())
 	}
-	return trees[name].Root
+	return trees
+}
+
+// parseTemplates keys a file's trees: the file by name (unless only defines), each define as "<stem>/<block>".
+func parseTemplates(name string, src []byte) map[string]*parse.ListNode {
+	trees := parseTrees(name, src)
+	stem := templateStem(name)
+	roots := make(map[string]*parse.ListNode, len(trees))
+	for key, tree := range trees {
+		switch {
+		case key != name:
+			roots[stem+"/"+key] = tree.Root
+		case len(trees) == 1 || !parse.IsEmptyTree(tree.Root):
+			roots[name] = tree.Root
+		}
+	}
+	return roots
+}
+
+// templateStem is the file part of a set key: "lane" for both "lane.tmpl" and "lane/block".
+func templateStem(name string) string {
+	if stem, _, ok := strings.Cut(name, "/"); ok {
+		return stem
+	}
+	return strings.TrimSuffix(name, path.Ext(name))
 }
 
 func renderTemplate(name string, root *parse.ListNode, dot any) string {
 	var out strings.Builder
-	execTemplate(&out, name, root, dot)
+	execTemplate(&out, nil, name, root, dot)
 	return out.String()
 }
 
-// execTemplate covers the subset the embedded templates use: text, {{.}}, {{.Field}}, if/else and range.
-func execTemplate(out *strings.Builder, name string, list *parse.ListNode, dot any) {
+// execTemplate covers the subset the embedded templates use: text, {{.}}, {{.Field}}, if/else, range and template.
+func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, list *parse.ListNode, dot any) {
 	if list == nil {
 		return
 	}
@@ -42,28 +71,48 @@ func execTemplate(out *strings.Builder, name string, list *parse.ListNode, dot a
 			fmt.Fprint(out, templateValue(name, n.Pipe, dot))
 		case *parse.IfNode:
 			if templateTruth(name, templateValue(name, n.Pipe, dot)) {
-				execTemplate(out, name, n.List, dot)
+				execTemplate(out, set, name, n.List, dot)
 			} else {
-				execTemplate(out, name, n.ElseList, dot)
+				execTemplate(out, set, name, n.ElseList, dot)
 			}
 		case *parse.RangeNode:
-			rangeTemplate(out, name, n, dot)
+			rangeTemplate(out, set, name, n, dot)
+		case *parse.TemplateNode:
+			callTemplate(out, set, name, n, dot)
 		default:
 			panic("assets: " + name + ": unsupported template node " + node.String())
 		}
 	}
 }
 
-func rangeTemplate(out *strings.Builder, name string, n *parse.RangeNode, dot any) {
+// callTemplate resolves a bare block name against the caller's file first, then as a full set key.
+func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.TemplateNode, dot any) {
+	key := templateStem(name) + "/" + n.Name
+	root, ok := set[key]
+	if !ok {
+		key = n.Name
+		root, ok = set[key]
+	}
+	if !ok {
+		panic("assets: " + name + ": no template " + n.Name)
+	}
+	var arg any
+	if n.Pipe != nil {
+		arg = templateValue(name, n.Pipe, dot)
+	}
+	execTemplate(out, set, key, root, arg)
+}
+
+func rangeTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.RangeNode, dot any) {
 	items, ok := templateValue(name, n.Pipe, dot).([]string)
 	if !ok {
 		panic("assets: " + name + ": range needs []string")
 	}
 	for _, item := range items {
-		execTemplate(out, name, n.List, item)
+		execTemplate(out, set, name, n.List, item)
 	}
 	if len(items) == 0 {
-		execTemplate(out, name, n.ElseList, dot)
+		execTemplate(out, set, name, n.ElseList, dot)
 	}
 }
 

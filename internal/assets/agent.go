@@ -28,7 +28,12 @@ func loadTemplates(glob string) func() map[string]*parse.ListNode {
 		}
 		roots := make(map[string]*parse.ListNode, len(names))
 		for _, name := range names {
-			roots[path.Base(name)] = parseTemplate(path.Base(name), read(name))
+			for key, root := range parseTemplates(path.Base(name), read(name)) {
+				if _, dup := roots[key]; dup {
+					panic("assets: duplicate template " + key + " in " + glob)
+				}
+				roots[key] = root
+			}
 		}
 		return roots
 	})
@@ -48,7 +53,9 @@ func renderFrom(set map[string]*parse.ListNode, name string, input any) string {
 	if !ok {
 		panic("assets: no template " + name)
 	}
-	return renderTemplate(name, root, input)
+	var out strings.Builder
+	execTemplate(&out, set, name, root, input)
+	return out.String()
 }
 
 func AgentPreamble(text string) string { return renderAgent("preamble.tmpl", text) }
