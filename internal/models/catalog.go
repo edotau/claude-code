@@ -169,6 +169,14 @@ func Alias(name string) (canonical string, ok bool) {
 	return canonical, ok
 }
 
+// IsKnownSpelling is an exact, case-insensitive match of s against a catalog id, alias or wire spelling; no parsing.
+func IsKnownSpelling(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	_, wire := load().byWire[s]
+	_, alias := load().Aliases[s]
+	return wire || alias
+}
+
 // AliasOf returns the alias a canonical id currently backs, or "" when none.
 func AliasOf(canonical string) string { return load().aliasOf[canonical] }
 

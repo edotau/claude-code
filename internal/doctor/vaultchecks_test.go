@@ -285,3 +285,19 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 		t.Fatalf("DoctorChecks missing typo advisory, flagged a far name, or lost key source: %s", detail)
 	}
 }
+
+func TestCheckMisfiled(t *testing.T) {
+	doctorTestVault(t)
+	noKeyring(t)
+	if err := vault.Store("PIN_NAME", "databricks-claude-sonnet-5-5"); err != nil {
+		t.Fatal(err)
+	}
+	rows := checkMisfiled()
+	if len(rows) != 1 || !strings.Contains(rows[0].Name, "PIN_NAME") || strings.Contains(rows[0].Detail, "databricks-claude") {
+		t.Fatalf("rows = %+v", rows)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if rows := checkMisfiled(); len(rows) != 0 {
+		t.Fatalf("locked vault gave rows: %+v", rows)
+	}
+}
