@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -62,8 +63,9 @@ var telemetryDir = func() string {
 
 // DirForTest redirects the telemetry directory until the returned restore runs.
 func DirForTest(dir string) (restore func()) {
+	inflight.Wait() // a writer an earlier test stalled still holds telemetryBusy and would drop this test's rows
 	prev, prevWait := telemetryDir, telemetryWait
-	telemetryDir, telemetryWait = func() string { return dir }, 2*time.Second // tests count rows: never drop them
+	telemetryDir, telemetryWait = func() string { return dir }, time.Minute // tests count rows: Record waits for the write
 	return func() { telemetryDir, telemetryWait = prev, prevWait }
 }
 
@@ -86,6 +88,9 @@ var telemetryWait = 50 * time.Millisecond
 
 var telemetryBusy atomic.Bool
 
+// inflight counts writer goroutines, so a test can wait out one that outlived its Record.
+var inflight sync.WaitGroup
+
 // Record bounds best-effort disk work; a stalled filesystem never holds up a verdict.
 func Record(rows []Row) {
 	dir := telemetryDir()
@@ -94,8 +99,10 @@ func Record(rows []Row) {
 	}
 	rows = append([]Row(nil), rows...)
 	done := make(chan struct{})
+	inflight.Add(1)
 	deadline := time.Now().Add(telemetryWait)
 	go func() {
+		defer inflight.Done()
 		defer close(done)
 		defer telemetryBusy.Store(false)
 		recordTelemetry(dir, rows, time.Now(), deadline)
