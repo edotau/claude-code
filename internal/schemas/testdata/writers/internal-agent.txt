@@ -9,5 +9,6 @@ internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file
 internal/agent/record.go:ClaimDispatchID	unversioned: marker: exclusive hook-launch claim containing the dispatch ID
 internal/agent/record.go:Save	dispatch-record
 internal/agent/record.go:claimRecord	unversioned: claim: the running record, linked in whole
+internal/agent/routeplan_shadow.go:appendShadow	unversioned: log: the shadow route plan's divergence lines, one JSON object per line
 internal/agent/run.go:write	unversioned: foreign: the packed context file an agy run reads, removed after the run
 internal/agent/watch.go:ownerRecords	unversioned: cache: owner-<pid> watchdog bound, owner start token and its first record id

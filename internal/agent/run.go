@@ -48,6 +48,7 @@ type Prepared struct {
 	Opts   RunOptions
 	Record Record
 	Chain  Chain
+	Route  RoutePlan // the shadow route plan; zero when it failed to build
 	remote Engine
 	pack   *packFile // the staged context pack; written by Exec, removed after the run
 }
@@ -64,6 +65,9 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	ctx, _ = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
 	p := &Prepared{Chain: ch}
+	if ch.Plan != nil {
+		p.Route = *ch.Plan
+	}
 	if o.Host != "" {
 		p.remote = r
 	}
@@ -105,6 +109,7 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 	ch, err := c.route(ctx, r, o)
 	ch = rotated.onto(ch)
 	if err == nil {
+		ch = shadowPlan(ctx, o, ch)
 		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
 			err = clientUsageError{perr}
 		}
