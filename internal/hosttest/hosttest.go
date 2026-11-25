@@ -121,9 +121,8 @@ func keepGo() {
 	if os.Getenv("GOMODCACHE") == "" {
 		_ = os.Setenv("GOMODCACHE", filepath.Join(strings.Split(os.Getenv("GOPATH"), string(os.PathListSeparator))[0], "pkg", "mod"))
 	}
-	if cache, err := os.UserCacheDir(); err == nil && os.Getenv("GOCACHE") == "" {
-		_ = os.Setenv("GOCACHE", filepath.Join(cache, "go-build"))
-	}
+	// A test-owned build cache, shared by every test run so it stays warm; never the user's real one.
+	_ = os.Setenv("GOCACHE", filepath.Join(os.TempDir(), "claude-code-test-gocache"))
 	if os.Getenv("GOROOT") == "" {
 		if out, err := exec.CommandContext(context.Background(), "go", "env", "GOROOT").Output(); err == nil {
 			_ = os.Setenv("GOROOT", strings.TrimSpace(string(out)))
