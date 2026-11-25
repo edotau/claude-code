@@ -14,11 +14,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
@@ -129,11 +129,10 @@ func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 
 // runGateSet runs every gate at once; a failed build leaves the other gates' own results standing.
 func runGateSet(ctx context.Context, defs []gateDef, in gateInput, res []GateResult) {
-	var wg sync.WaitGroup
-	for i, d := range defs {
-		wg.Go(func() { res[i] = runGate(ctx, d, in) })
-	}
-	wg.Wait()
+	parallel.Rethrow(parallel.All(len(defs), func(i int) error {
+		res[i] = runGate(ctx, defs[i], in)
+		return nil
+	})...)
 }
 
 // appendDocs adds the docs gate after the others, only when the change set holds Markdown.
