@@ -2,6 +2,7 @@ package waves
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -31,7 +32,7 @@ func Background(ctx context.Context, o Options, args []string) int {
 		fmt.Fprintln(o.Err, err)
 		return 1
 	}
-	if err := agent.WriteJSONLine(o.Out, struct {
+	if err := json.NewEncoder(o.Out).Encode(struct {
 		ID  string `json:"id"`
 		Log string `json:"log"`
 	}{rec.ID, rec.Log}); err != nil {

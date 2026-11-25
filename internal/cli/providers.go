@@ -147,10 +147,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 		return listLive(sel.Provider, format)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()}); err != nil {
-			return helptext.Fail("models: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("models", map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()})
 	}
 	if err := printLines(providers.SelectionLines(reg, sel)); err != nil {
 		return helptext.Fail("models: %v", err)
@@ -559,9 +556,6 @@ func modelsDiscover(args []string) int {
 	if *apply && *dry {
 		return helptext.FailUsage("models discover: --apply and --dry-run conflict; drop one")
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("models discover", err)
-	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("models discover: cannot load provider registry: %v", err)
@@ -600,11 +594,11 @@ func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, 
 		code = 1
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		if c := helptext.WriteJSONOrFail("models discover: cannot write JSON", struct {
 			Apply   bool                 `json:"apply"`
 			Results []catalog.DropResult `json:"results"`
-		}{apply, results}); err != nil {
-			return helptext.Fail("models discover: cannot write JSON: %v", err)
+		}{apply, results}); c != 0 {
+			return c
 		}
 		return code
 	}
@@ -659,11 +653,11 @@ func discoverNames(reg *providers.Registry, profile string) ([]string, int) {
 
 func printDiscoverResults(results []catalog.DiscoverResult, apply bool, format string, code int) int {
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		if c := helptext.WriteJSONOrFail("models discover: cannot write JSON", struct {
 			Apply   bool                     `json:"apply"`
 			Results []catalog.DiscoverResult `json:"results"`
-		}{apply, results}); err != nil {
-			return helptext.Fail("models discover: cannot write JSON: %v", err)
+		}{apply, results}); c != 0 {
+			return c
 		}
 		return code
 	}

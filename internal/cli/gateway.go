@@ -102,7 +102,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
 	fs.StringVar(&o.scope, "scope", "", "with --serve: serve one scoped proxy for <team>@<id> on a free port (no --port)")
-	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
+	o.format = helptext.FormatFlagWithUsage(fs, "output: text|json (json: --status only)")
 	fs.StringVar(&o.clientToken, "client-token", "", "with --secret: mint a named editor token; print it once")
 	fs.StringVar(&o.revokeClientToken, "revoke-client-token", "", "delete the named editor token")
 	o.secret = helptext.SecretFlag(fs)
@@ -113,9 +113,6 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	if fs.NArg() > 0 {
 		return helptext.Fail("gateway proxy: unexpected argument %q", fs.Arg(0)), false
-	}
-	if err := helptext.CheckFormat(*o.format); err != nil {
-		return helptext.BadFormat("gateway proxy", err), false
 	}
 	if o.scope != "" && (!o.serve || flagSet(fs, "port")) {
 		return helptext.Fail("gateway proxy: --scope needs --serve and takes no --port"), false
@@ -278,8 +275,8 @@ func proxyStatus(ctx context.Context, format string) int {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, ps); err != nil {
-			return helptext.Fail("gateway proxy: %v", err)
+		if code := helptext.WriteJSONOrFail("gateway proxy", ps); code != 0 {
+			return code
 		}
 	} else if err := printProxyState(ps); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)

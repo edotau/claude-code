@@ -3,7 +3,6 @@ package agent
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -308,15 +307,6 @@ func (s Schema) Live() (LiveCapable, bool) {
 func (s Schema) HasLive() bool {
 	_, ok := s.Live()
 	return ok
-}
-
-func WriteJSONLine(w io.Writer, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(append(b, '\n'))
-	return err
 }
 
 // The helpers below are the vendor packages' reach into the dispatch internals.

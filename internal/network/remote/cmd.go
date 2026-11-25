@@ -45,7 +45,8 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	fs.BoolVar(&f.status, "status", false, "with --list, classify each pane's state")
 	fs.DurationVar(&f.interval, "interval", 0, "with --status, sample every interval (0 = once)")
 	fs.BoolVar(&f.attach, "attach", false, "attach to a session on --host (positional: session name)")
-	fs.StringVar(&f.format, "format", helptext.Text, "--list output format: text|json")
+	f.format = helptext.Text
+	fs.Var(helptext.NewFormatValue(&f.format), "format", `--list output format: text|json (default "text")`)
 	return f
 }
 

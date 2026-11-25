@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -286,12 +287,19 @@ func newMemoryQuery(sub string, k int) *memoryQuery {
 
 // parse reads args into q; done means the verb returns code (help, a usage error or no query).
 func (q *memoryQuery) parse(args []string) (code int, done bool) {
+	var output bytes.Buffer
+	oldOutput := q.fs.Output()
+	q.fs.SetOutput(&output)
 	terms, err := helptext.ParseArgs(q.fs, args)
+	q.fs.SetOutput(oldOutput)
+	if err != nil {
+		if _, msg, ok := strings.Cut(err.Error(), "for flag -format: "); ok {
+			return helptext.BadFormat("memory "+q.sub, errors.New(msg)), true
+		}
+	}
+	_, _ = oldOutput.Write(output.Bytes())
 	if err != nil {
 		return helptext.ExitCode(err), true
-	}
-	if err := helptext.CheckFormat(*q.format); err != nil {
-		return helptext.BadFormat("memory "+q.sub, err), true
 	}
 	if len(terms) == 0 {
 		return helptext.Fail("memory %s: no query (usage: %s)", q.sub, memorySubPage(q.sub).Usage), true
@@ -420,9 +428,6 @@ func cmdMemoryReport(args []string) int {
 	format := helptext.FormatFlag(fs)
 	if code, done := memoryParseNoArgs(fs, "report", args); done {
 		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("memory report", err)
 	}
 	if *job != "" {
 		return cmdMemoryJobReport(*job, *kind, *file, *stdin, *format)
@@ -746,7 +751,7 @@ func memoryRecallEmit(hits []memory.SearchHit, format string, load int) int {
 func cmdMemorySandbox(args []string) int {
 	fs := memoryFlagSet("sandbox")
 	empty := fs.Bool("empty", false, "seed empty stores instead of copying content")
-	format := fs.String("format", "text", "output format: text|json")
+	format := helptext.FormatFlag(fs)
 	if code, done := memoryParseNoArgs(fs, "sandbox", args); done {
 		return code
 	}

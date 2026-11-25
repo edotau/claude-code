@@ -340,8 +340,8 @@ func emitResult(prefix string, rec agent.Record, log, format string) int {
 			wire.Envelope
 			Observed *agent.Observed `json:"observed,omitempty"`
 		}{maskEnvelope(rec.ResultEnvelope(os.Stderr)), agent.ObservedOf(rec)}
-		if err := helptext.WriteJSON(os.Stdout, env); err != nil {
-			return helptext.Fail("%s: %v", prefix, err)
+		if code := helptext.WriteJSONOrFail(prefix, env); code != 0 {
+			return code
 		}
 		return resultExit(rec)
 	}
@@ -565,7 +565,7 @@ func startLive(ctx context.Context, s *askState, name, as, format string) int {
 // printLiveStarted reports a ready live holder as one JSON line or the follow-up commands.
 func printLiveStarted(name, format string, rec agent.Record, req agent.RunOptions) int {
 	if format == helptext.JSON {
-		if err := agent.WriteJSONLine(os.Stdout, struct {
+		if err := json.NewEncoder(os.Stdout).Encode(struct {
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`

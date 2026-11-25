@@ -21,8 +21,8 @@ func proxyRestartReport(o *proxyOpts, format string) int {
 		rows = append(rows, stopTunnels(o.dry)...)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": rows}); err != nil {
-			return helptext.Fail("gateway proxy: %v", err)
+		if code := helptext.WriteJSONOrFail("gateway proxy", map[string]any{"daemons": rows}); code != 0 {
+			return code
 		}
 	}
 	code := 0

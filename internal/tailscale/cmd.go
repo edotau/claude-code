@@ -190,10 +190,7 @@ func tailscaleStatus(ctx context.Context, format string) int {
 		return helptext.Fail("tailscale status: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, st); err != nil {
-			return helptext.Fail("tailscale status: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("tailscale status", st)
 	}
 	fmt.Printf("backend   %s\n", st.BackendState)
 	fmt.Printf("node      %s\n", st.DNSName)
@@ -217,10 +214,7 @@ func tailscaleMachines(ctx context.Context, format string) int {
 		return helptext.Fail("tailscale machines: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, machines); err != nil {
-			return helptext.Fail("tailscale machines: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("tailscale machines", machines)
 	}
 	for _, m := range machines {
 		fmt.Printf("%-40s %-10s online=%-5v source=%s\n", m.Name, m.OS, m.Online, m.Source)

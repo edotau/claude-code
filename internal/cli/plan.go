@@ -63,9 +63,6 @@ func cmdPlanStatus(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("", err)
-	}
 	summaries, err := plans.Status(plans.Dirs(*all)...)
 	if err != nil {
 		return helptext.Fail("plan status: %v", err)
@@ -74,10 +71,7 @@ func cmdPlanStatus(args []string) int {
 		if summaries == nil {
 			summaries = []plans.Summary{}
 		}
-		if err := helptext.WriteJSON(os.Stdout, summaries); err != nil {
-			return helptext.Fail("plan status: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("plan status", summaries)
 	}
 	printPlanSummaries(summaries)
 	return 0
@@ -134,9 +128,6 @@ func cmdPlanTick(args []string) int {
 	}
 	if *rng == "" && !*audit {
 		return helptext.Fail("plan tick: --range <a>..<b> is required")
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -307,7 +298,7 @@ func cmdPlanAudit(top string, opts plans.AuditOpts, archive bool, format string)
 		}
 	}
 	if err == nil && format == helptext.JSON {
-		err = helptext.WriteJSON(os.Stdout, rep)
+		return helptext.WriteJSONOrFail("plan tick", rep)
 	} else if err == nil {
 		err = rep.WriteText(os.Stdout)
 	}

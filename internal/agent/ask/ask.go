@@ -3,6 +3,7 @@ package ask
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -1017,7 +1018,7 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 // reportBackgroundStart tells the caller how to track a detached job.
 func reportBackgroundStart(format string, rec agent.Record) error {
 	if format == helptext.JSON {
-		return agent.WriteJSONLine(os.Stdout, struct {
+		return json.NewEncoder(os.Stdout).Encode(struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
 		}{rec.ID, rec.Log})
