@@ -495,7 +495,7 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 		return out
 	}
 	if !agentid.Routing(q.Agent).NoWorkspaceFallback {
-		for _, ws := range workspaceRows(reg, q.Profile) {
+		for _, ws := range WorkspaceRows(reg, q.Profile) {
 			out = append(out, hop(q.Agent, ws, q.Model, false))
 		}
 	}

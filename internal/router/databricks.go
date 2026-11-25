@@ -244,8 +244,8 @@ func ownRows(reg *providers.Registry, agent string) []string {
 	return rows
 }
 
-// workspaceRows lists the Databricks workspaces in declared order, minus skip.
-func workspaceRows(reg *providers.Registry, skip string) []string {
+// WorkspaceRows lists the Databricks workspaces in declared order, minus skip.
+func WorkspaceRows(reg *providers.Registry, skip string) []string {
 	return slices.DeleteFunc(slices.Clone(providers.DatabricksProfiles(reg)), func(n string) bool { return n == skip })
 }
 
@@ -259,7 +259,7 @@ func (t *RouteTable) gateWorkspaces(
 		return nil
 	}
 	var rows []Candidate
-	for _, ws := range workspaceRows(pg.reg, spec.Profile) {
+	for _, ws := range WorkspaceRows(pg.reg, spec.Profile) {
 		rows = append(rows, t.gateRow(ctx, pg, alias, agent, ws, spec.Model, true, st, o, now, configured, res)...)
 	}
 	return rows
@@ -417,7 +417,7 @@ func (t *RouteTable) gateRecordFallback(
 func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {
 	rows := []string{o.Lead}
 	if !agentid.Routing(agent).NoWorkspaceFallback && !o.oneHop() && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
-		rows = append(rows, workspaceRows(reg, o.Lead)...)
+		rows = append(rows, WorkspaceRows(reg, o.Lead)...)
 	}
 	rows = append(rows, loginProfiles(reg, agent)...)
 	return rows
