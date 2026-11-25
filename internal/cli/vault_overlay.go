@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
@@ -122,13 +124,24 @@ func confirmOverlayUnset(key string, size int, yes bool) (code int, stop bool) {
 	return 0, false
 }
 
+// validateAgentRecords parses the document and runs the configure-path validator on every record.
+func validateAgentRecords(doc []byte) error {
+	recs, err := vault.ParseAgentRecords(doc)
+	if err != nil { // a decode error would echo the document's keys
+		return errors.New("not a JSON object of agent records")
+	}
+	for _, n := range slices.Sorted(maps.Keys(recs)) {
+		if err = agentpkg.ValidateRecord(n, recs[n]); err != nil {
+			break
+		}
+	}
+	return err
+}
+
 // overlayValidators hold each settable key's own parser; a key with none is refused.
 var overlayValidators = map[string]func(doc []byte) error{
-	"providers": providers.Validate,
-	"agent-records": func(doc []byte) error {
-		_, err := vault.ParseAgentRecords(doc)
-		return err
-	},
+	"providers":     providers.Validate,
+	"agent-records": validateAgentRecords,
 	"opencode-models": func(doc []byte) error {
 		_, err := providers.ParseOpencodeMenu(doc)
 		return err
@@ -170,7 +183,11 @@ func vaultOverlaySet(args []string) int {
 		return helptext.Fail("vault overlay set: %v", err)
 	}
 	if err := validate(raw); err != nil {
-		return helptext.Fail("vault overlay set: %s refused, nothing written (invalid document)", key)
+		why := "invalid document"
+		if key == vault.AgentRecordsKey { // validateAgentRecords errors never echo a value
+			why = err.Error()
+		}
+		return helptext.Fail("vault overlay set: %s refused, nothing written (%s)", key, why)
 	}
 	old, err := vaultdoc.SetOverlay(key, string(raw))
 	if err != nil {

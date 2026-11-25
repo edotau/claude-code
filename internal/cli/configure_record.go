@@ -139,14 +139,12 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 
 // validateRecordModel judges the set's model on the route being written; a refusal is a usage error (exit 2).
 func validateRecordModel(agent string, set map[string]string) error {
-	if v, ok := set["MODEL"]; ok {
-		if err := refuseModelPrefix(v); err != nil {
-			return err
-		}
-	}
 	val, ok := set["MODEL"]
 	if !ok {
 		return nil
+	}
+	if err := refuseModelPrefix(val); err != nil {
+		return err
 	}
 	return configure.ValidateAgentModel(agent, recordProfile(agent, set), val)
 }

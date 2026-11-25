@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
@@ -91,11 +92,30 @@ func TestVaultOverlaySetRefusesMalformed(t *testing.T) {
 	}
 }
 
+// agent-records: overlay set gives a bad record the configure path's message, and a valid record passes both.
+func TestVaultOverlaySetAgentRecordsShareValidator(t *testing.T) {
+	vaulttest.Use(t)
+	want := configure.ValidateAgentField("claude", "EFFORT", "turbo")
+	if want == nil || configure.ValidateAgentField("claude", "EFFORT", "high") != nil {
+		t.Fatalf("configure path: turbo = %v, want an error; high must pass", want)
+	}
+	for doc, wantErr := range map[string]bool{`{"claude":{"effort":"turbo"}}`: true, `{"claude":{"effort":"high"}}`: false} {
+		f := filepath.Join(t.TempDir(), "records")
+		if err := os.WriteFile(f, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay([]string{"set", "agent-records", "--file", f}) })
+		if refused := code != 0; refused != wantErr || wantErr && !strings.Contains(stderr, want.Error()) {
+			t.Errorf("%s: exit %d stderr %q; want refused=%v naming %q", doc, code, stderr, wantErr, want)
+		}
+	}
+}
+
 func TestVaultOverlaySetStoresAndAudits(t *testing.T) {
 	for _, c := range []struct{ key, doc string }{
 		{"proxy-teams", `{"schema":1}`},
 		{"providers", `{"providers":{"openai":{"scratch":{"protocol":"openai","base_url":"https://example.invalid","auth":{"type":"none"},"headers":{"X-Private":"private-value"},"models":{"opus":"model-x"}}}}}`},
-		{"agent-records", `{"claude":{"route":{"provider":"openai","profile":"scratch"},"model":"model-x","launch":{"env":["KEY=private-value"]}}}`},
+		{"agent-records", `{"claude":{"route":{"provider":"openai","profile":"scratch"},"model":"model-x","launch":{"env":["MODE=private-value"]}}}`},
 		{"opencode-models", `[{"id":"model-x","label":"private-value","responses":true}]`},
 		{"github-auth", "private-value\n"},
 	} {
