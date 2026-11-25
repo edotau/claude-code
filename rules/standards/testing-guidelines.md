@@ -107,6 +107,11 @@ only this one):
 3. Run the whole suite once, on the last worktree, right before it lands on local
    (`claude-code worktree land --verify 'go test ./...' <lane>`), then land.
 
+A test or benchmark that needs more computing than a normal run (a maximum-CPU capacity benchmark, a long soak, a
+timing gate that must not share cores) gets its own compute, preferably on another computer: a podman pod, a
+Kubernetes job, a Databricks cluster (`skills/dbx-expert`) or another machine over ssh. It never runs on the machine
+the sessions are working on, where it slows every other gate and its own numbers mean nothing (owner, 2026-11-25).
+
 A single finished worktree with no finished sibling lands at once, as before (`worktree-git.md` → Worktrees).
 
 ## When a test fails
