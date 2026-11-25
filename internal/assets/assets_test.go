@@ -272,6 +272,16 @@ func agentRenderCases() []renderCase {
 		{"PackPrompt", "", func() string { return PackPrompt("task", "inv", two) }},
 		{"PackIndex", "", func() string { return PackIndex(two) }},
 		{"PackCoverageWarning", "", func() string { return PackCoverageWarning(PackCoverage{3, 9, 12, 6, "big"}) }},
+		{"InspectNoScope", "", func() string { return InspectNoScope(3) }},
+		{"InspectAdvisory", "", func() string { return InspectAdvisory(2) }},
+		{"InspectOutsideModified", "", func() string { return InspectOutsideModified("p.go", "d9") }},
+		{"InspectNewDecls", "", func() string { return InspectNewDecls(2) }},
+		{"ToolsDryRun", "", func() string { return ToolsDryRun("download and install x") }},
+		{"LoopReportHeader", "", func() string { return LoopReportHeader(LoopHeader{"L1", "planner done", "5s", 2, 70}) }},
+		{"LoopReportSummary", "", func() string { return LoopReportSummary("all good") }},
+		{"LoopReportResume", "", func() string { return LoopReportResume("L1") }},
+		{"PackInventory", "all", func() string { return PackInventory([]string{"- a\n", "- b\n"}, []string{"- c (x)\n"}, 4) }},
+		{"PackInventory", "none", func() string { return PackInventory(nil, nil, 0) }},
 	}
 }
 

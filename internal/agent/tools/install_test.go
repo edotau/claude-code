@@ -810,3 +810,15 @@ func TestInstallPiRefusesOldNode(t *testing.T) {
 		t.Fatalf("installPi with Node 20 = %v, want an older-than-22.19 refusal", err)
 	}
 }
+
+// Given a dry run of the script installer, When it runs, Then it prints the script line and the pinned note.
+func TestRunInstallScriptDryRunPinned(t *testing.T) {
+	var out bytes.Buffer
+	if err := runInstallScript(t.Context(), &out, true, "http://x/i.sh", []string{"--a"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "  script   http://x/i.sh [--a]\n  (dry-run: would download and run the installer)\n"
+	if out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}

@@ -414,16 +414,16 @@ func promptHead(s string) string {
 
 func (d *loopDriver) printText(why string, nm []loopResult, code int) {
 	w := d.cfg.Out
-	fmt.Fprintf(w, "loop %s: %s after %d round(s), %d tokens, %s\n", d.st.ID, why, len(d.st.Rounds), d.st.Tokens,
-		time.Since(d.start).Round(time.Second))
+	fmt.Fprintln(w, assets.LoopReportHeader(assets.LoopHeader{ID: d.st.ID, Why: why, Took: time.Since(d.start).Round(time.Second).String(),
+		Rounds: len(d.st.Rounds), Tokens: d.st.Tokens}))
 	if d.st.Summary != "" {
-		fmt.Fprintf(w, "summary: %s\n", d.st.Summary)
+		fmt.Fprintln(w, assets.LoopReportSummary(d.st.Summary))
 	}
 	for _, r := range nm {
 		fmt.Fprintf(w, "needs main: %s\t%s\t%s\n", r.Part.ID, strings.Join(r.Dispatches, ","), promptHead(r.Part.Prompt))
 	}
 	if code == loopCodes[loopCap] {
-		fmt.Fprintf(w, "resume: claude-code agents ask --loop-resume %s\n", d.st.ID)
+		fmt.Fprintln(w, assets.LoopReportResume(d.st.ID))
 	}
 }
 

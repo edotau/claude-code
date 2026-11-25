@@ -240,3 +240,26 @@ func TestBuildHugeDirTrimsInventory(t *testing.T) {
 		}
 	}
 }
+
+// Given empty, mixed and overflowing contexts, When the inventory renders, Then the bytes match the pinned text.
+func TestInventoryTextPinned(t *testing.T) {
+	inc := []IncludedFile{{Path: "a.go", MediaType: "text/x-go", Bytes: 10}, {Path: "b.md", MediaType: "text/markdown", Bytes: 3, Truncated: true}}
+	skip := []SkippedFile{{Path: "c.bin", Reason: "binary"}, {Path: "d.go", Reason: "too large"}}
+	for _, c := range []struct {
+		name string
+		ctx  Context
+		want string
+	}{
+		{"empty", Context{}, "Included files: none\n"},
+		{"included", Context{Included: inc}, "Included files:\n- a.go | text/x-go | 10 bytes | truncated=false\n" +
+			"- b.md | text/markdown | 3 bytes | truncated=true\n"},
+		{"all", Context{Included: inc[:1], Skipped: skip, Omitted: 4}, "Included files:\n- a.go | text/x-go | 10 bytes | truncated=false\n" +
+			"Skipped files:\n- c.bin (binary)\n- d.go (too large)\n" +
+			"4 more skipped paths are not listed; ask for a narrower path to see them.\n"},
+		{"omitted only", Context{Omitted: 1}, "Included files: none\n1 more skipped paths are not listed; ask for a narrower path to see them.\n"},
+	} {
+		if got := inventoryText(c.ctx); got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

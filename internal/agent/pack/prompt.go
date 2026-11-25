@@ -218,25 +218,14 @@ func blocksSize(ctx Context) (n int) {
 
 // inventoryText lists the included and skipped files, one line each.
 func inventoryText(ctx Context) string {
-	var inv strings.Builder
-	if len(ctx.Included) > 0 {
-		inv.WriteString("Included files:\n")
-		for _, f := range ctx.Included {
-			inv.WriteString(inventoryLine(f))
-		}
-	} else {
-		inv.WriteString("Included files: none\n")
+	var included, skipped []string
+	for _, f := range ctx.Included {
+		included = append(included, inventoryLine(f))
 	}
-	if len(ctx.Skipped) > 0 {
-		inv.WriteString("Skipped files:\n")
-		for _, s := range ctx.Skipped {
-			fmt.Fprintf(&inv, "- %s (%s)\n", s.Path, s.Reason)
-		}
+	for _, s := range ctx.Skipped {
+		skipped = append(skipped, fmt.Sprintf("- %s (%s)\n", s.Path, s.Reason))
 	}
-	if ctx.Omitted > 0 {
-		fmt.Fprintf(&inv, "%d more skipped paths are not listed; ask for a narrower path to see them.\n", ctx.Omitted)
-	}
-	return inv.String()
+	return assets.PackInventory(included, skipped, ctx.Omitted)
 }
 
 // writeBlocks joins the included files' payload blocks.

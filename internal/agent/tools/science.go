@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -47,7 +48,7 @@ func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun b
 	}
 	fmt.Fprintf(w, "  download %s\n", url)
 	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would download and install claude-science)")
+		fmt.Fprintln(w, assets.ToolsDryRun("download and install claude-science"))
 		return nil
 	}
 	data, err := fetchScienceBinary(ctx, url, asset)
@@ -119,7 +120,7 @@ func installScienceApp(ctx context.Context, w io.Writer, dir, url string, dryRun
 	fmt.Fprintf(w, "  app      %s -> %s\n", strings.Join(scienceAppRoots(), " or "), scienceAppName)
 	if dryRun {
 		fmt.Fprintf(w, "  link     %s -> %s/Contents/Resources/bin/claude-science\n", filepath.Join(dir, "claude-science"), scienceAppName)
-		fmt.Fprintln(w, "  (dry-run: would download and install claude-science)")
+		fmt.Fprintln(w, assets.ToolsDryRun("download and install claude-science"))
 		return nil
 	}
 	if !filepath.IsAbs(dir) {

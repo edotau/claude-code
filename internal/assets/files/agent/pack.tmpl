@@ -1,0 +1,5 @@
+{{define "inventory"}}{{/* fields: Included Omitted Skipped */}}{{if .Included}}Included files:
+{{range .Included}}{{.}}{{end}}{{else}}Included files: none
+{{end}}{{if .Skipped}}Skipped files:
+{{range .Skipped}}{{.}}{{end}}{{end}}{{if .Omitted}}{{.Omitted}} more skipped paths are not listed; ask for a narrower path to see them.
+{{end}}{{end}}

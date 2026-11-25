@@ -124,6 +124,45 @@ func PackCoverageWarning(in PackCoverage) string {
 	})
 }
 
+func InspectNoScope(files int) string {
+	return renderAgent("inspect/no-scope", tmplFields{"Count": files})
+}
+
+func InspectAdvisory(files int) string {
+	return renderAgent("inspect/advisory", tmplFields{"Count": files})
+}
+
+func InspectOutsideModified(path, dispatch string) string {
+	return renderAgent("inspect/outside-modified", tmplFields{"Path": path, "Dispatch": dispatch})
+}
+
+func InspectNewDecls(count int) string {
+	return renderAgent("inspect/new-decls", tmplFields{"Count": count})
+}
+
+// ToolsDryRun is the dry-run notice; what finishes "would …" without a closing period.
+func ToolsDryRun(what string) string { return renderAgent("tools/dry-run", tmplFields{"What": what}) }
+
+type LoopHeader struct {
+	ID, Why, Took  string
+	Rounds, Tokens int
+}
+
+func LoopReportHeader(in LoopHeader) string {
+	return renderAgent("loop/header", tmplFields{
+		"ID": in.ID, "Why": in.Why, "Took": in.Took, "Rounds": in.Rounds, "Tokens": in.Tokens,
+	})
+}
+
+func LoopReportSummary(summary string) string { return renderAgent("loop/summary", summary) }
+
+func LoopReportResume(id string) string { return renderAgent("loop/resume", id) }
+
+// PackInventory lists the included and skipped file lines (each ends in a newline) and the omitted count.
+func PackInventory(included, skipped []string, omitted int) string {
+	return renderAgent("pack/inventory", tmplFields{"Included": included, "Skipped": skipped, "Omitted": omitted})
+}
+
 func PackNoFiles() string { return string(read("files/agent/pack-no-files.txt")) }
 
 func HookSimplicityHeader(n int, rel string) string {

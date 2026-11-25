@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -359,5 +360,27 @@ func TestLoopPlannerPromptAndRuneClip(t *testing.T) {
 	r := resultOf(loopPart{ID: "a"}, wire.Envelope{Answer: strings.Repeat("é", loopDigestChars+5)})
 	if !utf8.ValidString(r.Answer) || utf8.RuneCountInString(r.Answer) > loopDigestChars {
 		t.Fatalf("answer not cut on a rune boundary: %d runes", utf8.RuneCountInString(r.Answer))
+	}
+}
+
+// Given a finished loop with and without a summary, When printText runs, Then the bytes match the pinned text.
+func TestLoopPrintTextPinned(t *testing.T) {
+	nm := []loopResult{{Part: loopPart{ID: "p1", Prompt: "do it\nmore"}, Dispatches: []string{"d1", "d2"}}}
+	for _, c := range []struct {
+		name    string
+		summary string
+		code    int
+		want    string
+	}{
+		{"plain", "", 0, "loop L1: planner done after 0 round(s), 7 tokens, 0s\nneeds main: p1\td1,d2\tdo it\n"},
+		{"cap", "all good", loopCodes[loopCap], "loop L1: planner done after 0 round(s), 7 tokens, 0s\nsummary: all good\n" +
+			"needs main: p1\td1,d2\tdo it\nresume: claude-code agents ask --loop-resume L1\n"},
+	} {
+		var out bytes.Buffer
+		d := &loopDriver{cfg: loopCfg{Out: &out}, st: loopFile{ID: "L1", Tokens: 7, Summary: c.summary}, start: time.Now()}
+		d.printText(loopDone, nm, c.code)
+		if out.String() != c.want {
+			t.Errorf("%s = %q, want %q", c.name, out.String(), c.want)
+		}
 	}
 }

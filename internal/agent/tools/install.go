@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -78,7 +79,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string, args, env []string) error {
 	fmt.Fprintf(w, "  script   %s %v\n", url, args)
 	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would download and run the installer)")
+		fmt.Fprintln(w, assets.ToolsDryRun("download and run the installer"))
 		return nil
 	}
 	data, err := httpGet(ctx, url)
@@ -231,8 +232,8 @@ func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dr
 		return restoreOpencodeAside(src, aside, err)
 	}
 	if dryRun {
-		fmt.Fprintf(w, "  (dry-run: would copy ~/.opencode/bin/opencode into %s, refusing major > %d unless %s is set)\n",
-			dir, maxMajor, opencodeAllowMajorEnv)
+		fmt.Fprintln(w, assets.ToolsDryRun(fmt.Sprintf("copy ~/.opencode/bin/opencode into %s, refusing major > %d unless %s is set",
+			dir, maxMajor, opencodeAllowMajorEnv)))
 		return nil
 	}
 	if err := refuseOpencodeMajor(ctx, w, src, maxMajor); err != nil {
@@ -403,7 +404,7 @@ func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) err
 	}
 	fmt.Fprintf(w, "  release  %s %s\n", rel.TagName, assetName)
 	if dryRun {
-		fmt.Fprintln(w, "  (dry-run: would download and extract codex + "+strings.Join(codexCompanions, ", ")+")")
+		fmt.Fprintln(w, assets.ToolsDryRun("download and extract codex + "+strings.Join(codexCompanions, ", ")))
 		return nil
 	}
 	all, err := stageCodex(ctx, rel, assetName, dlURL)
@@ -647,7 +648,7 @@ func installTailscaleStatic(ctx context.Context, w io.Writer, dryRun bool, reaso
 	}
 	fmt.Fprintf(w, "  static   %s (no root: %s)\n", url, reason)
 	if dryRun {
-		fmt.Fprintf(w, "  (dry-run: would verify the sha256 and write %s into %s)\n", strings.Join(tailscaleStaticBins, ", "), local)
+		fmt.Fprintln(w, assets.ToolsDryRun("verify the sha256 and write "+strings.Join(tailscaleStaticBins, ", ")+" into "+local))
 		return nil
 	}
 	bins, err := fetchTailscaleStatic(ctx, url)

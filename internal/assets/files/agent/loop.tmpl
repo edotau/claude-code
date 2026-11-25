@@ -1,0 +1,5 @@
+{{define "header"}}{{/* fields: ID Rounds Tokens Took Why */}}loop {{.ID}}: {{.Why}} after {{.Rounds}} round(s), {{.Tokens}} tokens, {{.Took}}{{end}}
+
+{{define "summary"}}{{/* fields: . */}}summary: {{.}}{{end}}
+
+{{define "resume"}}{{/* fields: . */}}resume: claude-code agents ask --loop-resume {{.}}{{end}}

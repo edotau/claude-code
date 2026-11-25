@@ -1,0 +1,7 @@
+{{define "no-scope"}}{{/* fields: Count */}}scope not checked: the brief names no owned files and no --path was given; {{.Count}} files changed (details: --format json or --path){{end}}
+
+{{define "advisory"}}{{/* fields: Count */}}  ADVISORY: {{.Count}} file(s) had uncommitted changes before the run and differ now; if they were not yours to edit, check them:{{end}}
+
+{{define "outside-modified"}}{{/* fields: Dispatch Path */}}  {{.Path}}: was already modified before dispatch {{.Dispatch}} started and is outside --path{{end}}
+
+{{define "new-decls"}}{{/* fields: Count */}}new tests and helpers ({{.Count}}, approve or cut):{{end}}

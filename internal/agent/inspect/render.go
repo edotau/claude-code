@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -21,8 +22,7 @@ func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
 	}
 	if rep.noScope {
 		renderVerify(o.Out, rep.Verify)
-		fmt.Fprintf(o.Out, "scope not checked: the brief names no owned files and no --path was given; %d files changed"+
-			" (details: --format json or --path)\n", len(rep.Files))
+		fmt.Fprintln(o.Out, assets.InspectNoScope(len(rep.Files)))
 		fmt.Fprintln(o.Out, diffSummary(rep, scoped))
 		return
 	}
@@ -57,7 +57,7 @@ func renderNewDecls(w io.Writer, rows []string) {
 	if len(rows) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "new tests and helpers (%d, approve or cut):\n", len(rows))
+	fmt.Fprintln(w, assets.InspectNewDecls(len(rows)))
 	for _, r := range rows {
 		fmt.Fprintf(w, "  %s\n", r)
 	}
@@ -88,7 +88,7 @@ func renderOutside(w io.Writer, rep DiffReport) {
 
 func renderOutsidePath(w io.Writer, rep DiffReport, p string) {
 	if slices.Contains(rep.PreDirtyOutside, p) {
-		fmt.Fprintf(w, "  %s: was already modified before dispatch %s started and is outside --path\n", p, rep.dispatch)
+		fmt.Fprintln(w, assets.InspectOutsideModified(p, rep.dispatch))
 		return
 	}
 	fmt.Fprintf(w, "  %s\n", p)
@@ -131,8 +131,7 @@ func renderVerify(w io.Writer, v *VerifyReport) {
 		fmt.Fprintf(w, "  wrote: %d files%s\n", countFiles(*v.Wrote), truncatedNote(*v.Wrote))
 	}
 	if v.PreDirty != nil && len(*v.PreDirty) > 0 {
-		fmt.Fprintf(w, "  ADVISORY: %d file(s) had uncommitted changes before the run and differ now;"+
-			" if they were not yours to edit, check them:\n", countFiles(*v.PreDirty))
+		fmt.Fprintln(w, assets.InspectAdvisory(countFiles(*v.PreDirty)))
 		for _, f := range *v.PreDirty {
 			if f != agent.WroteTruncated {
 				fmt.Fprintf(w, "    %s\n", f)

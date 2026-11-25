@@ -101,6 +101,33 @@ line two
 
 == PackCoverageWarning ==
 pack: inlined 3 of 9 files (12 KB); skipped 6: big
+== InspectNoScope ==
+scope not checked: the brief names no owned files and no --path was given; 3 files changed (details: --format json or --path)
+== InspectAdvisory ==
+  ADVISORY: 2 file(s) had uncommitted changes before the run and differ now; if they were not yours to edit, check them:
+== InspectOutsideModified ==
+  p.go: was already modified before dispatch d9 started and is outside --path
+== InspectNewDecls ==
+new tests and helpers (2, approve or cut):
+== ToolsDryRun ==
+  (dry-run: would download and install x)
+== LoopReportHeader ==
+loop L1: planner done after 2 round(s), 70 tokens, 5s
+== LoopReportSummary ==
+summary: all good
+== LoopReportResume ==
+resume: claude-code agents ask --loop-resume L1
+== PackInventory (all) ==
+Included files:
+- a
+- b
+Skipped files:
+- c (x)
+4 more skipped paths are not listed; ask for a narrower path to see them.
+
+== PackInventory (none) ==
+Included files: none
+
 == HookSimplicityHeader ==
 review-simplicity: 4 new finding(s) in a.go:
 == HookSimplicityMore ==
