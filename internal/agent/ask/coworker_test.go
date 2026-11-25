@@ -202,7 +202,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"openai:chatgpt", "--profile dev: outside overlay openai", []string{"--profile", "dev"}},
 		{"anthropic:ultra", "codex has no anthropic account", nil},
 		{"", "overlay profile: not a profile of openai", []string{"--overlay", `{"provider":"openai","profile":"dev"}`}},
-		{"", "provider: unknown (anthropic|databricks|github|google|openai)", []string{"--overlay", `{"provider":"first-party"}`}},
+		{"", "provider: unknown (anthropic|databricks|github|google|magnitude|openai)", []string{"--overlay", `{"provider":"first-party"}`}},
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
 	}
 	for _, tc := range cases {

@@ -126,6 +126,7 @@
         "databricks",
         "github",
         "google",
+        "magnitude",
         "openai"
       ]
     },

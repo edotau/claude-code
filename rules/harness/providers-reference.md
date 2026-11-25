@@ -167,7 +167,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Term | Means | Values |
 | --- | --- | --- |
 | agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
-| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` |
+| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` `magnitude` |
 | profile | an account on a provider; carries billing | unique across all providers, `[A-Za-z0-9_-]`, opaque to code |
 | auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
@@ -199,6 +199,7 @@ parses a profile name.
 | github | `copilot` (own login), one row per GitHub username | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
 | openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
 | google | `antigravity` | `cli` | none |
+| magnitude | `local` (127.0.0.1:10100, chat only) | `key` (`echo local`) | none |
 
 opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 

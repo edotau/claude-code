@@ -407,7 +407,7 @@ func checkAuthTypeChange(oldDoc, newDoc []byte) error {
 }
 
 // providerKeys are the registry's provider keys, the parents of every profile.
-var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google"}
+var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google", "magnitude"}
 
 // ProviderKeys is providerKeys sorted: the names an overlay's provider accepts.
 func ProviderKeys() []string { return slices.Sorted(slices.Values(providerKeys)) }
