@@ -126,15 +126,26 @@ func (r AgentRecord) WithAlias(alias, val string) AgentRecord {
 	return r
 }
 
+// ParseAgentRecords decodes records without reading the vault or resolving profile names.
+func ParseAgentRecords(doc []byte) (map[string]AgentRecord, error) {
+	out := map[string]AgentRecord{}
+	if err := json.Unmarshal(doc, &out); err != nil {
+		return nil, fmt.Errorf("vault: %s is corrupt: %w", AgentRecordsKey, err)
+	}
+	if out == nil { // a stored JSON null must remain writable
+		out = map[string]AgentRecord{}
+	}
+	return out, nil
+}
+
 // AgentRecords decodes the stored records; absent is empty.
 func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 	out := map[string]AgentRecord{}
 	if raw, ok := t.Get(Overlay, AgentRecordsKey); ok && raw != "" {
-		if err := json.Unmarshal([]byte(raw), &out); err != nil {
-			return nil, fmt.Errorf("vault: %s is corrupt: %w", AgentRecordsKey, err)
-		}
-		if out == nil { // a stored JSON null decodes the map to nil; writes into it would panic
-			out = map[string]AgentRecord{}
+		var err error
+		out, err = ParseAgentRecords([]byte(raw))
+		if err != nil {
+			return nil, err
 		}
 		t.nameGithubProfiles(out)
 	}

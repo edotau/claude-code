@@ -34,7 +34,7 @@ func vaultSpec() *helptext.Node {
 		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("secret")}},
 		"delete":        {Args: []func() []string{secretNames}},
 		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
-		"overlay":       {Sub: map[string]*helptext.Node{"ls": {}, "set": {Args: []func() []string{func() []string { return vaultdoc.OverlayKeys }}, Flags: []helptext.Flag{{Name: "file"}}}, "unset": {Args: []func() []string{func() []string { return vaultdoc.OverlayKeys }}, Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
+		"overlay":       {Sub: map[string]*helptext.Node{"ls": {}, "set": {Args: []func() []string{func() []string { return vaultdoc.SettableOverlayKeys }}, Flags: []helptext.Flag{{Name: "file"}}}, "unset": {Args: []func() []string{func() []string { return vaultdoc.OverlayKeys }}, Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},

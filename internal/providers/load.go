@@ -229,12 +229,20 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
-// Validate checks an overlay merged with the embedded defaults; unlike Load it refuses an unknown routing key.
+// Validate checks an overlay quietly, including unknown routing keys.
 func Validate(overlay []byte) error {
-	if _, err := Parse(providerDefaults(), overlay); err != nil {
+	if _, err := parse(providerDefaults(), overlay, false); err != nil {
 		return err
 	}
 	return checkRoutingKeys(overlay)
+}
+
+// ValidateOverlayChange also applies the existing sealed-auth change guard.
+func ValidateOverlayChange(oldDoc, newDoc []byte) error {
+	if len(oldDoc) == 0 {
+		oldDoc = []byte("{}")
+	}
+	return checkOverlayDoc(oldDoc, newDoc, false)
 }
 
 // checkRoutingKeys refuses an overlay whose routing object carries a key Routing does not define (a typo).
@@ -290,13 +298,17 @@ func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
 
 // Parse merges base with an optional overlay; the Registry is never nil, even on an error, so callers can fall back.
 func Parse(base, overlay []byte) (*Registry, error) {
+	return parse(base, overlay, true)
+}
+
+func parse(base, overlay []byte, warn bool) (*Registry, error) {
 	reg, err := decodeRegistry(base, nil)
 	if err != nil {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
 	mergeErr := mergeOverlay(reg, overlay)
 	order := declaredOrder(reg, base, overlay)
-	order = renameAll(order, nameGithubRows(reg))
+	order = renameAll(order, nameGithubRows(reg, warn))
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
@@ -440,7 +452,7 @@ func ProfileNames() []string {
 	return reg.Names()
 }
 
-func nameGithubRows(reg *Registry) map[string]string {
+func nameGithubRows(reg *Registry, warn bool) map[string]string {
 	logins, names := map[string]string{}, []string{}
 	for n, p := range reg.Providers {
 		if p == nil {
@@ -451,7 +463,7 @@ func nameGithubRows(reg *Registry) map[string]string {
 			logins[n] = p.Login
 		}
 	}
-	renames := loginRenames(logins, names)
+	renames := githubRenames(logins, names, warn)
 	rows := map[string]*Provider{}
 	for old, name := range renames {
 		rows[name] = reg.Providers[old]
@@ -480,7 +492,14 @@ var warnedRenames sync.Map
 
 // loginRenames is vault.LoginRenames with each collision warning printed once per process.
 func loginRenames(logins map[string]string, names []string) map[string]string {
+	return githubRenames(logins, names, true)
+}
+
+func githubRenames(logins map[string]string, names []string, warn bool) map[string]string {
 	renames, warns := vault.LoginRenames(logins, names)
+	if !warn {
+		return renames
+	}
 	for _, w := range warns {
 		if _, dup := warnedRenames.LoadOrStore(w, true); !dup {
 			fmt.Fprintln(os.Stderr, "warning: "+w)

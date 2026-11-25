@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,22 +10,29 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
 var vaultOverlayPage = helptext.Page{
 	Usage: "claude-code vault overlay <ls|set|unset> [KEY] [flags]",
 	About: "List the vault's overlay keys, validate and store one, or remove one.\n" +
-		"Settable keys: " + strings.Join(vaultdoc.OverlayKeys, ", ") + ".",
+		vaultOverlaySetAbout,
 	Commands: [][2]string{
 		{"ls", "every overlay key with its stored size"},
 		{"set", "KEY --file PATH|-: validate, store, audit"},
 		{"unset", "KEY: remove that overlay document"},
 	},
 }
+
+const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models,\n" +
+	"github-auth. providers.prev is a backup and cannot be set.\n" +
+	"github-auth is a plain-text profile name; other keys are JSON.\n" +
+	"Set prints byte sizes only, never document values."
 
 // cmdVaultOverlay is `vault overlay ls`, `set KEY --file PATH|-` and `unset KEY`.
 func cmdVaultOverlay(args []string) int {
@@ -116,21 +124,33 @@ func confirmOverlayUnset(key string, size int, yes bool) (code int, stop bool) {
 
 // overlayValidators hold each settable key's own parser; a key with none is refused.
 var overlayValidators = map[string]func(doc []byte) error{
+	"providers": providers.Validate,
+	"agent-records": func(doc []byte) error {
+		_, err := vault.ParseAgentRecords(doc)
+		return err
+	},
+	"opencode-models": func(doc []byte) error {
+		_, err := providers.ParseOpencodeMenu(doc)
+		return err
+	},
+	"github-auth": func(doc []byte) error {
+		_, err := vault.ParseGitHubAuth(doc)
+		return err
+	},
 	"proxy-teams": func(doc []byte) error {
 		_, ps := proxyteam.Parse(assets.ProxyTeams(), doc)
-		msgs := make([]string, len(ps))
-		for i, p := range ps {
-			msgs[i] = p.String()
-		}
-		if len(msgs) > 0 {
-			return fmt.Errorf("%s", strings.Join(msgs, "; "))
+		if len(ps) > 0 {
+			return errors.New("invalid proxy-teams document")
 		}
 		return nil
 	},
 }
 
 func vaultOverlaySet(args []string) int {
-	fs := helptext.NewFlagSet("vault overlay set", helptext.Page{Usage: "claude-code vault overlay set KEY --file PATH|-"})
+	fs := helptext.NewFlagSet("vault overlay set", helptext.Page{
+		Usage: "claude-code vault overlay set KEY --file PATH|-",
+		About: vaultOverlaySetAbout,
+	})
 	file := fs.String("file", "", "document to store: a path, or - for stdin")
 	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -143,14 +163,14 @@ func vaultOverlaySet(args []string) int {
 	key := words[0]
 	validate, ok := overlayValidators[key]
 	if !ok {
-		return helptext.Fail("vault overlay set: %q has no validator; settable keys: %s", key, strings.Join(vaultdoc.OverlayKeys, ", "))
+		return helptext.Fail("vault overlay set: key has no validator; settable keys: %s", strings.Join(vaultdoc.SettableOverlayKeys, ", "))
 	}
 	raw, err := readOverlayDoc(*file)
 	if err != nil {
 		return helptext.Fail("vault overlay set: %v", err)
 	}
 	if err := validate(raw); err != nil {
-		return helptext.Fail("vault overlay set: %s refused, nothing written: %v", key, err)
+		return helptext.Fail("vault overlay set: %s refused, nothing written (invalid document)", key)
 	}
 	old, err := vaultdoc.SetOverlay(key, string(raw))
 	if err != nil {
