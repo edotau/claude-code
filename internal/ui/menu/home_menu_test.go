@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -630,7 +631,17 @@ func TestEnvFallbackRowsFitEightyColumns(t *testing.T) {
 	if len(rows) != 4 || rows[3][0] != "all" {
 		t.Fatalf("mode rows = %q, want none, pin, agents, all", rows)
 	}
-	assertFitsEighty(t, "fallback modes", append(rows, fallbackEnvRow("agents")))
+	assertFitsEighty(t, "fallback modes", append(rows, customEnvRows(map[string]string{fallbackEnv: "agents"})...))
+}
+
+// The environment page's data rows are exactly the `vault ls env` rows for the same env.
+func TestEnvPageRowsMatchVaultRows(t *testing.T) {
+	env := map[string]string{"PLAIN_NAME": "plain-value", "SEALED_NAME": providers.SecretRef, fallbackEnv: "agents"}
+	want := vaultdoc.EnvRows(env)
+	got := customEnvRows(env)
+	if len(got) != len(want)+2 || !slices.Equal(got[:len(want)], want) {
+		t.Fatalf("page rows = %q, want %q then two action rows", got, want)
+	}
 }
 
 func TestAgentAccountPrefersWorkspaceAndPinnedGitHubIdentity(t *testing.T) {

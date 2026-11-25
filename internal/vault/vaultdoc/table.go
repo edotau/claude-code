@@ -38,7 +38,7 @@ func Text(doc Doc, stored []vault.Stored, sel []string, width int, color bool) s
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSecretsText(stored, width) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
-		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
+		"env":       func() string { return vaultSection("ENV", EnvRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
 		"agents":    func() string { return vaultAgentsText(doc.Agents, width, color) },
@@ -77,6 +77,15 @@ func vaultMapRows(m map[string]string) [][2]string {
 	rows := make([][2]string, len(keys))
 	for i, k := range keys {
 		rows[i] = [2]string{k, m[k]}
+	}
+	return rows
+}
+
+// EnvRows is the env bucket as sorted, clipped name/value rows, shared by `vault ls env` and the configure page.
+func EnvRows(env map[string]string) [][2]string {
+	rows := vaultMapRows(env)
+	for i, r := range rows {
+		rows[i] = [2]string{table.TruncateMiddle(r[0], kvKeyMax), table.Truncate(r[1], kvValueMax)}
 	}
 	return rows
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
@@ -166,21 +167,20 @@ func runCustomEnv(d *dialog) {
 	for {
 		env := stagedCustomEnv(edits)
 		names := slices.Sorted(maps.Keys(env))
-		names = slices.DeleteFunc(names, func(n string) bool { return n == fallbackEnv })
-		rows := append([][2]string{fallbackEnvRow(env[fallbackEnv])}, customEnvRows(env, names)...)
+		rows := customEnvRows(env)
 		idx, err := d.shell().pickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
 		}
-		if idx == 0 {
+		name := ""
+		if idx < len(names) {
+			name = names[idx]
+		}
+		if name == fallbackEnv {
 			if e, ok := pickFallbackMode(d, env[fallbackEnv]); ok {
 				stageEnvEdit(edits, fallbackEnv, e)
 			}
 			continue
-		}
-		name := ""
-		if idx-1 < len(names) {
-			name = names[idx-1]
 		}
 		if n, e, ok := editCustomEnv(d, name, env); ok {
 			stageEnvEdit(edits, n, e)
@@ -220,11 +220,6 @@ var fallbackModes = func() [][2]string {
 // fallbackMode is the shown mode of a stored value, parsed as the router reads it.
 func fallbackMode(raw string) string { return router.ParseFallback(raw) }
 
-// fallbackEnvRow is the environment page's first row: the current mode of AGENT_ERROR_FALLBACK.
-func fallbackEnvRow(raw string) [2]string {
-	return [2]string{fallbackEnv, fallbackMode(raw)}
-}
-
 // pickFallbackMode asks for a mode; ok is false when dismissed or it is already the shown one.
 func pickFallbackMode(d *dialog, raw string) (envEdit, bool) {
 	cur := fallbackMode(raw)
@@ -257,17 +252,9 @@ func stagedCustomEnv(edits map[string]envEdit) map[string]string {
 	return env
 }
 
-// customEnvRows is one row per name (plain value redacted, secret hidden) plus the "+ New" and save rows.
-func customEnvRows(env map[string]string, names []string) [][2]string {
-	rows := make([][2]string, 0, len(names)+2)
-	for _, n := range names {
-		kind, shown := "plain", vault.Redact(env[n])
-		if env[n] == providers.SecretRef {
-			kind, shown = "secret", ""
-		}
-		rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
-	}
-	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
+// customEnvRows is the `vault ls env` rows for env, then the "+ New" and save rows.
+func customEnvRows(env map[string]string) [][2]string {
+	return append(vaultdoc.EnvRows(env), [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
 }
 
 // editCustomEnv reads one change to name; env is the staged bucket the page shows.
