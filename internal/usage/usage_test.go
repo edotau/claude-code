@@ -2,7 +2,9 @@ package usage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,10 +15,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 )
+
+func runUsage(args []string, claudeDir string, out, errw io.Writer) int {
+	return RunWithBudgets(args, claudeDir, out, errw, nil)
+}
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -61,7 +68,7 @@ func TestUsageCmdDaysScope(t *testing.T) {
 		usageRecordLine("claude-opus-4-8", 9000, 900, "2026-06-01T00:00:00.000Z"))
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
 	}
 	got := out.String()
@@ -81,7 +88,7 @@ func TestUsageCmdSessionScope(t *testing.T) {
 		usageRecordLine("claude-opus-4-8", 999, 99, "2026-07-19T06:36:00.000Z"))
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--session", "target-session", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--session", "target-session", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
 	}
 
@@ -116,7 +123,7 @@ func TestUsageFilesForSessionLiteralID(t *testing.T) {
 func TestUsageCmdNoMatches(t *testing.T) {
 	claudeDir := t.TempDir()
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run on empty dir = %d, want 0", code)
 	}
 }
@@ -125,7 +132,7 @@ func TestUsageCmdNoMatches(t *testing.T) {
 func TestUsageShowBogusExitsTwo(t *testing.T) {
 	claudeDir := t.TempDir()
 	var out, errw bytes.Buffer
-	code := Run([]string{"--show", "bogus"}, claudeDir, &out, &errw)
+	code := runUsage([]string{"--show", "bogus"}, claudeDir, &out, &errw)
 	if code != 2 {
 		t.Fatalf("Run --show bogus = %d, want 2; stderr:\n%s", code, errw.String())
 	}
@@ -154,7 +161,7 @@ func TestUsageShowModesRendering(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out, errw bytes.Buffer
-		if code := Run([]string{"--show", c.show}, claudeDir, &out, &errw); code != 0 {
+		if code := runUsage([]string{"--show", c.show}, claudeDir, &out, &errw); code != 0 {
 			t.Fatalf("Run --show %s = %d, want 0; stderr:\n%s", c.show, code, errw.String())
 		}
 		got := out.String()
@@ -182,7 +189,7 @@ func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
 	t.Cleanup(func() { fetchQuotas = orig })
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--show", "total"}, t.TempDir(), &out, &errw); code != 0 {
+	if code := runUsage([]string{"--show", "total"}, t.TempDir(), &out, &errw); code != 0 {
 		t.Fatalf("Run --show total = %d; stderr:\n%s", code, errw.String())
 	}
 	if called {
@@ -207,7 +214,7 @@ func TestUsageLedgerAggregationWindows(t *testing.T) {
 	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--format", "json"}, t.TempDir(), &out, &errw); code != 0 {
+	if code := runUsage([]string{"--format", "json"}, t.TempDir(), &out, &errw); code != 0 {
 		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
 	}
 	var doc struct {
@@ -239,7 +246,7 @@ func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
 
 	var out, errw bytes.Buffer
-	if code := Run(nil, t.TempDir(), &out, &errw); code != 0 {
+	if code := runUsage(nil, t.TempDir(), &out, &errw); code != 0 {
 		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
 	}
 	if !strings.Contains(out.String(), "no per-token calls recorded yet") {
@@ -383,7 +390,7 @@ func TestUsageStreamsSectionsInOrder(t *testing.T) {
 
 	var out, errw syncBuf
 	done := make(chan int, 1)
-	go func() { done <- Run([]string{"--days", "1"}, claudeDir, &out, &errw) }()
+	go func() { done <- runUsage([]string{"--days", "1"}, claudeDir, &out, &errw) }()
 
 	waitUntil(t, 2*time.Second, func() bool { return strings.Contains(out.String(), "MODEL") })
 	if strings.Contains(out.String(), "PROVIDER QUOTAS") {
@@ -444,7 +451,7 @@ func TestUsageJSONFixtureRegression(t *testing.T) {
 	t.Cleanup(func() { fetchQuotas = origQ })
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, errw.String())
 	}
 
@@ -524,7 +531,7 @@ func TestUsageAgentsClaudeRowMatchesModelTotals(t *testing.T) {
 	t.Cleanup(func() { fetchQuotas = origQ })
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("exit %d; stderr:\n%s", code, errw.String())
 	}
 	s := out.String()
@@ -588,7 +595,7 @@ func TestUsageContextFlag(t *testing.T) {
 		`{"type":"user","message":{"content":"hello world"}}`+"\n"+
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"reply"}]}}`+"\n")
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--context", "--session", "sess1"}, dir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--context", "--session", "sess1"}, dir, &out, &errw); code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
 	for _, want := range []string{"session sess1", "bytes / 4", "user text", "assistant text", "LARGEST ENTRIES"} {
@@ -600,7 +607,7 @@ func TestUsageContextFlag(t *testing.T) {
 		t.Error("transcript text leaked into the table")
 	}
 	out.Reset()
-	if code := Run([]string{"--context", "--session", "sess1", "--format", "json"}, dir, &out, &errw); code != 0 || !strings.Contains(out.String(), `"total_bytes": 16`) {
+	if code := runUsage([]string{"--context", "--session", "sess1", "--format", "json"}, dir, &out, &errw); code != 0 || !strings.Contains(out.String(), `"total_bytes": 16`) {
 		t.Errorf("json: exit %d, out %s", code, out.String())
 	}
 }
@@ -620,7 +627,7 @@ func BenchmarkUsageOffline(b *testing.B) {
 		b.Fatal(err)
 	}
 	for b.Loop() {
-		if code := Run([]string{"--providers=false"}, dir, io.Discard, io.Discard); code != 0 {
+		if code := runUsage([]string{"--providers=false"}, dir, io.Discard, io.Discard); code != 0 {
 			b.Fatal(code)
 		}
 	}
@@ -660,10 +667,10 @@ func TestUsageCostFlagOffUnchanged(t *testing.T) {
 	now := time.Now()
 	stubCost(t, []tokenledger.Entry{{Ts: now, Profile: "qa", Model: "m", Input: 1000, Output: 100}}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
 	var off, on bytes.Buffer
-	if code := Run([]string{"--providers=false", "--days", "7"}, t.TempDir(), &off, io.Discard); code != 0 {
+	if code := runUsage([]string{"--providers=false", "--days", "7"}, t.TempDir(), &off, io.Discard); code != 0 {
 		t.Fatalf("off = %d", code)
 	}
-	if code := Run([]string{"--providers=false", "--days", "7"}, t.TempDir(), &on, io.Discard); code != 0 {
+	if code := runUsage([]string{"--providers=false", "--days", "7"}, t.TempDir(), &on, io.Discard); code != 0 {
 		t.Fatalf("again = %d", code)
 	}
 	if off.String() != on.String() {
@@ -681,7 +688,7 @@ func TestUsageCostWithPrices(t *testing.T) {
 		{Ts: now.Add(-40 * 24 * time.Hour), Profile: "qa", Model: "m", Input: 9_000_000}, // outside the window
 	}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
 	var out bytes.Buffer
-	if code := Run([]string{"--cost", "--providers=false", "--days", "7"}, t.TempDir(), &out, io.Discard); code != 0 {
+	if code := runUsage([]string{"--cost", "--providers=false", "--days", "7"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
 	got := out.String()
@@ -698,7 +705,7 @@ func TestUsageCostWithPrices(t *testing.T) {
 func TestUsageCostNoPricesHints(t *testing.T) {
 	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 5, CacheRead: 5}}, costReg(nil))
 	var out bytes.Buffer
-	if code := Run([]string{"--cost", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+	if code := runUsage([]string{"--cost", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
 	if !strings.Contains(out.String(), costPriceHint) || !strings.Contains(out.String(), "50%") {
@@ -710,7 +717,7 @@ func TestUsageCostJSONUnpricedNull(t *testing.T) {
 	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "unpriced", Input: 7, Output: 3}},
 		costReg(map[string]providers.Price{"other": {Input: 1}}))
 	var out bytes.Buffer
-	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
 	var doc struct {
@@ -739,7 +746,7 @@ func TestUsageCostSessionIgnoresWindow(t *testing.T) {
 		{Ts: time.Now(), Profile: "qa", Model: "m", Session: "s2", Input: 5_000_000},
 	}, costReg(map[string]providers.Price{"m": {Input: 3}}))
 	var out bytes.Buffer
-	Run([]string{"--cost", "--providers=false", "--session", "s1"}, t.TempDir(), &out, io.Discard)
+	runUsage([]string{"--cost", "--providers=false", "--session", "s1"}, t.TempDir(), &out, io.Discard)
 	got := out.String()
 	if !strings.Contains(got, "COST, session s1 (est.)") || !strings.Contains(got, "$3.00") || strings.Contains(got, "$15.00") {
 		t.Errorf("want only session s1's old entry priced:\n%s", got)
@@ -750,7 +757,7 @@ func TestUsageCostJSONPartialTotal(t *testing.T) {
 	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000},
 		{Ts: time.Now(), Profile: "qa", Model: "free", Input: 7}}, costReg(map[string]providers.Price{"m": {Input: 3}}))
 	var out bytes.Buffer
-	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
 	var doc struct {
@@ -768,7 +775,7 @@ func TestUsageCostJSONTotalCacheHit(t *testing.T) {
 	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000, CacheRead: 3_000_000}},
 		costReg(map[string]providers.Price{"m": {Input: 3}}))
 	var out bytes.Buffer
-	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
 		t.Fatalf("code = %d", code)
 	}
 	var doc struct {
@@ -812,7 +819,7 @@ func TestUsageRunShowsSwapsOnlyWhenPresent(t *testing.T) {
 	run := func(entries []tokenledger.Entry, args ...string) string {
 		readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
 		var out, errw bytes.Buffer
-		if code := Run(args, t.TempDir(), &out, &errw); code != 0 {
+		if code := runUsage(args, t.TempDir(), &out, &errw); code != 0 {
 			t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
 		}
 		return out.String()
@@ -826,5 +833,133 @@ func TestUsageRunShowsSwapsOnlyWhenPresent(t *testing.T) {
 	}
 	if js := run([]tokenledger.Entry{swapped}, "--format", "json"); !strings.Contains(js, `"swaps"`) || !strings.Contains(js, `"requested": "m-asked"`) && !strings.Contains(js, `"requested":"m-asked"`) {
 		t.Errorf("json lacks swaps:\n%s", js)
+	}
+}
+
+func TestPrintGoogleLimitsLines(t *testing.T) {
+	reset := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC)
+	var buf bytes.Buffer
+	printGoogleLimits(&buf, googleResult{rows: []gemini.QuotaRow{
+		{Pool: "Gemini Models", Limit: "Weekly Limit Remaining", Remaining: 96, Reset: reset},
+		{Pool: "Gemini 4 Argon", Limit: "Gemini 4 Argon Weekly Limit", Remaining: 0, Reset: reset},
+	}})
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "GOOGLE LIMITS") {
+		t.Fatalf("output = %q, want a heading and one line per row", buf.String())
+	}
+	want := reset.Local().Format("2006-01-02 15:04")
+	for _, l := range lines[1:] {
+		if len([]rune(l)) > 80 || !strings.Contains(l, want) {
+			t.Errorf("line %q: want at most 80 characters and the local reset %s", l, want)
+		}
+	}
+	if !strings.Contains(lines[2], "Gemini 4 Argon · Weekly Limit") || !strings.Contains(lines[2], "0% left") {
+		t.Errorf("per-model line = %q", lines[2])
+	}
+}
+
+func TestPrintGoogleLimitsFailureIsOneLine(t *testing.T) {
+	var buf bytes.Buffer
+	printGoogleLimits(&buf, googleResult{err: errors.New("agy usage unavailable: not found")})
+	if got := strings.Count(strings.TrimSpace(buf.String()), "\n"); got != 1 {
+		t.Errorf("output = %q, want a heading and one error line", buf.String())
+	}
+	buf.Reset()
+	printGoogleLimits(&buf, googleResult{})
+	if buf.Len() != 0 {
+		t.Errorf("an empty result printed %q, want nothing", buf.String())
+	}
+}
+
+func TestRunPrintsGoogleLimitsOnlyWithQuotas(t *testing.T) {
+	isolateAgentStores(t)
+	orig := googleLimits
+	googleLimits = func(context.Context) ([]gemini.QuotaRow, error) {
+		return []gemini.QuotaRow{{Pool: "Gemini Models", Limit: "Weekly Limit Remaining", Remaining: 96}}, nil
+	}
+	t.Cleanup(func() { googleLimits = orig })
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{{nil, true}, {[]string{"--providers=false"}, false}, {[]string{"--show", "total"}, false}} {
+		var out, errw bytes.Buffer
+		if code := runUsage(c.args, t.TempDir(), &out, &errw); code != 0 {
+			t.Fatalf("Run %v = %d; stderr:\n%s", c.args, code, errw.String())
+		}
+		if got := strings.Contains(out.String(), "GOOGLE LIMITS"); got != c.want {
+			t.Errorf("Run %v: Google section printed = %v, want %v:\n%s", c.args, got, c.want, out.String())
+		}
+	}
+}
+
+func TestNewestModTimePropagatesInfoError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "transcript.jsonl"), "{}")
+	if err := os.Chmod(dir, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("fixture must allow ReadDir before Info fails: %v", err)
+	}
+	if _, err := entries[0].Info(); !errors.Is(err, os.ErrPermission) {
+		t.Skipf("filesystem does not enforce directory search permissions: %v", err)
+	}
+	newest, err := newestModTime(dir)
+	if !errors.Is(err, os.ErrPermission) || !strings.Contains(err.Error(), "walk "+dir) {
+		t.Fatalf("DirEntry.Info error was swallowed: newest=%v err=%v", newest, err)
+	}
+}
+
+type partialReportWriter struct {
+	writes int
+	err    error
+}
+
+func (w *partialReportWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == 1 {
+		return len(p), nil
+	}
+	return 0, w.err
+}
+
+func isolatedUsageDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, env := range []string{"CLAUDE_CONFIG_DIR", "HOME", "CODEX_HOME", "COPILOT_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(env, dir)
+	}
+	t.Setenv("OPENCODE_DB", ":memory:")
+	return dir
+}
+
+func TestUsageTextReportsWriteFailure(t *testing.T) {
+	dir := isolatedUsageDir(t)
+	writeUsageFixture(t, dir, "project", "session", time.Minute,
+		usageRecordLine("model", 7, 3, recentTS(time.Minute)))
+	w := &partialReportWriter{err: errors.New("report destination closed")}
+	var errw bytes.Buffer
+	code := runUsage([]string{"--session", "session", "--providers=false"}, dir, w, &errw)
+	if code != 1 || !strings.Contains(errw.String(), "usage: write output: report destination closed") {
+		t.Fatalf("partial report exited successfully or hid write error: exit=%d stderr=%s", code, &errw)
+	}
+}
+
+// TestPrintUsageTableFoldsWireSpellings: one model's plain and databricks- spellings share one row.
+func TestPrintUsageTableFoldsWireSpellings(t *testing.T) {
+	agg := &transcript.UsageAggregate{Models: map[string]*transcript.ModelUsage{
+		"claude-sonnet-5-5":            {InputTokens: 4},
+		"databricks-claude-sonnet-5-5": {InputTokens: 6},
+	}}
+	var out bytes.Buffer
+	printUsageTable(&out, agg, 1)
+	if n := strings.Count(out.String(), "sonnet-5-5"); n != 1 || !strings.Contains(out.String(), "          10") {
+		t.Fatalf("want one row totalling 10 input:\n%s", &out)
 	}
 }

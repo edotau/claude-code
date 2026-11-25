@@ -109,7 +109,7 @@ func zeroRowUsageFixture(t *testing.T) string {
 func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
 	claudeDir := zeroRowUsageFixture(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
 	s := out.String()
@@ -129,7 +129,7 @@ func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
 func TestUsageZeroRowsJSON(t *testing.T) {
 	claudeDir := zeroRowUsageFixture(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("json exit %d", code)
 	}
 	var doc struct {
@@ -149,7 +149,7 @@ func TestUsageZeroRowsJSON(t *testing.T) {
 func TestUsageZeroRowsOffline(t *testing.T) {
 	claudeDir := zeroRowUsageFixture(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--days", "1", "--providers=false"}, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage([]string{"--days", "1", "--providers=false"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("offline exit %d", code)
 	}
 	if strings.Contains(out.String(), "PROVIDER QUOTAS") {
@@ -257,7 +257,7 @@ func TestUsageRunWarnsOnExceededState(t *testing.T) {
 	t.Cleanup(func() { fetchQuotas = orig })
 
 	var out, errw bytes.Buffer
-	if code := Run(nil, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
+	if code := runUsage(nil, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
 	if !strings.Contains(out.String(), "exceeded") {
@@ -269,7 +269,7 @@ func TestUsageRunWarnsOnExceededState(t *testing.T) {
 
 	out.Reset()
 	errw.Reset()
-	if code := Run([]string{"--format", "json"}, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
+	if code := runUsage([]string{"--format", "json"}, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
 		t.Fatalf("json exit %d", code)
 	}
 	var doc struct {
@@ -291,7 +291,7 @@ func TestUsageQuotasWithoutTranscripts(t *testing.T) {
 	}
 	t.Cleanup(func() { fetchQuotas = orig })
 	var out, errw bytes.Buffer
-	if code := Run(nil, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
+	if code := runUsage(nil, filepath.Join(t.TempDir(), "empty"), &out, &errw); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if !strings.Contains(out.String(), "PROVIDER QUOTAS") {
@@ -314,7 +314,7 @@ func TestQuotaDefaultShowIsUsageHeader(t *testing.T) {
 	}
 	t.Cleanup(func() { fetchQuotas = orig })
 	var out, errw bytes.Buffer
-	if code := Run(nil, claudeDir, &out, &errw); code != 0 {
+	if code := runUsage(nil, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("exit %d: %s", code, errw.String())
 	}
 	s := out.String()

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
@@ -227,12 +228,7 @@ func checkDays(days int) error {
 	return nil
 }
 
-// Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
-func Run(args []string, claudeDir string, out, errw io.Writer) int {
-	return RunWithBudgets(args, claudeDir, out, errw, nil)
-}
-
-// RunWithBudgets is Run plus a reader of budget lines that `--cost` prints first; nil prints none.
+// RunWithBudgets is `claude-code usage`; claudeDir is injectable, budgets feeds `--cost` lines (nil: none).
 func RunWithBudgets(args []string, claudeDir string, out, errw io.Writer, budgets func() []Budget) int {
 	o, code, done := parseUsageArgs(args, errw)
 	if done {
@@ -681,4 +677,44 @@ func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcri
 		}
 	}
 	return kept
+}
+
+// googleLimits is the agy /usage seam; tests stub it so no run reaches the binary.
+var googleLimits = gemini.Quotas
+
+// agyUsageCmd reads agy's /usage JSON through the same cached reader, so `usage` runs agy once; tests replace it.
+var agyUsageCmd = gemini.UsageOutput
+
+type googleResult struct {
+	rows []gemini.QuotaRow
+	err  error
+}
+
+// startGoogleFetch reads agy's limits beside the local scan; empty at once when quotas are off.
+func startGoogleFetch(enabled bool) <-chan googleResult {
+	ch := make(chan googleResult, 1)
+	if !enabled {
+		ch <- googleResult{}
+		return ch
+	}
+	parallel.Go(func() {
+		rows, err := googleLimits(context.Background())
+		ch <- googleResult{rows, err}
+	}, func(err error) { ch <- googleResult{err: err} })
+	return ch
+}
+
+// printGoogleLimits prints one line per Antigravity pool and per-model limit, or one line saying why none.
+func printGoogleLimits(out io.Writer, g googleResult) {
+	if g.err == nil && len(g.rows) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "\nGOOGLE LIMITS (agy /usage, local time)\n")
+	if g.err != nil {
+		fmt.Fprintln(out, g.err)
+		return
+	}
+	for _, r := range g.rows {
+		fmt.Fprintln(out, r.Line())
+	}
 }
