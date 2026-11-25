@@ -283,11 +283,83 @@ type onlyKeep struct {
 
 func (o onlyKeep) Runnable(_ *providers.Provider, m string) bool { return m == o.id }
 
-// Only a typed `Tier: deep` makes an owner; an exclusive provider keeps its own starts and takes no one else's.
-func TestRoleRotationModes(t *testing.T) {
-	if dispatchRole("Tier: deep\ndo it") != router.RoleOwner || dispatchRole("design the security audit") != router.RoleFleet {
-		t.Fatal("role must come from the Tier line only")
+// Wording supplies an absent tier; explicit tiers override it and restrict every ready model.
+func TestDispatchRoleTierModels(t *testing.T) {
+	for _, tc := range []struct {
+		name, prompt string
+		role         router.Role
+		model        string
+	}{
+		{"untiered audit is deep opus", "audit the security of the auth parser", router.RoleOwner, models.Opus},
+		{"standard is sonnet despite audit wording", "Tier: standard\naudit security", router.RoleFleet, models.Sonnet},
+		{"fast is haiku despite audit wording", "Tier: fast\naudit security", router.RoleFleet, models.Haiku},
+		{"explicit deep is opus", "Tier: deep\ndo it", router.RoleOwner, models.Opus},
+		{"untiered standard is sonnet", "Implement a settings panel", router.RoleFleet, models.Sonnet},
+		{"untiered fast is haiku", "Fix a typo in README.md", router.RoleFleet, models.Haiku},
+		{"empty defaults to sonnet", "", router.RoleFleet, models.Sonnet},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dispatchRole(tc.prompt); got != tc.role {
+				t.Errorf("dispatchRole(%q) = %s, want %s", tc.prompt, got, tc.role)
+			}
+			for _, mode := range []struct {
+				name, session string
+				exclusive     bool
+				missingTier   bool
+				providers     []string
+			}{
+				{"rotating", "dev", false, false, []string{"anthropic", "databricks-dev", "databricks-qa"}},
+				{"exclusive elsewhere", "dev", true, false, []string{"databricks-dev", "databricks-qa"}},
+				{"exclusive start", "ultra", true, false, []string{"anthropic"}},
+				{"exclusive start lacks tier", "ultra", true, true, nil},
+			} {
+				t.Run(mode.name, func(t *testing.T) {
+					checkDispatchTierCells(t, tc.prompt, tc.model, mode.session, mode.exclusive, mode.missingTier, mode.providers)
+				})
+			}
+		})
 	}
+}
+
+func checkDispatchTierCells(t *testing.T, prompt, model, session string, exclusive, missingTier bool, want []string) {
+	t.Helper()
+	tiers := func() map[string]string {
+		return map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}
+	}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"ultra": {Name: "ultra", Provider: "anthropic", Models: tiers()},
+		"dev":   {Name: "dev", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers()},
+		"qa":    {Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks, Models: tiers()},
+	}}
+	if missingTier {
+		delete(reg.Providers["ultra"].Models, model)
+	}
+	modes := map[string]string{}
+	if exclusive {
+		modes["anthropic"] = "exclusive"
+	}
+	cells, scope := dispatchCells(reg, modes, prompt, session)
+	var got []string
+	for _, c := range cells {
+		if c.Model != model {
+			t.Errorf("model = %s, want %s", c.Model, model)
+		}
+		got = append(got, c.Provider)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("providers = %v, want %v", got, want)
+	}
+	if missingTier {
+		o, err := noReadyCell(reg, RunOptions{}, session, scope)
+		if err != nil || o.Provider != session {
+			t.Errorf("empty exclusive tier: provider %q, err %v; want %s", o.Provider, err, session)
+		}
+	}
+}
+
+// An exclusive provider keeps its own starts and takes no one else's.
+func TestRoleRotationModes(t *testing.T) {
 	tiers := func(prefix string) map[string]string {
 		return map[string]string{"opus": prefix + "claude-opus-5-5", "sonnet": prefix + "claude-sonnet-5-5", "haiku": prefix + "claude-haiku-5-5"}
 	}
