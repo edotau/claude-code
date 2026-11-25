@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -472,7 +472,7 @@ func TestParseAskArgsFlagPositions(t *testing.T) {
 		if code != r.code || !slices.Equal(pos, r.pos) || f.tools != r.tools || f.profile != r.profile {
 			t.Errorf("%s: got pos %q code %d tools %v profile %q, want %q %d %v %q", r.name, pos, code, f.tools, f.profile, r.pos, r.code, r.tools, r.profile)
 		}
-		w, ok := hooks.ParseAskWords(r.args)
+		w, ok := dispatchhook.ParseAskWords(r.args)
 		if ok != (r.code == 0) || ok && (!slices.Equal(w.Pos, r.pos) || w.Has("tools") != r.tools || w.Value("profile") != r.profile) {
 			t.Errorf("%s: hook predicts pos %q ok %v tools %v profile %q, ask ran %q %d %v %q",
 				r.name, w.Pos, ok, w.Has("tools"), w.Value("profile"), r.pos, r.code, r.tools, r.profile)
@@ -488,7 +488,7 @@ func TestHookGrammarCoversEveryAskFlag(t *testing.T) {
 		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
 			args = []string{"--" + f.Name, "task"}
 		}
-		w, ok := hooks.ParseAskWords(args)
+		w, ok := dispatchhook.ParseAskWords(args)
 		if !ok || !w.Has(f.Name) || !slices.Equal(w.Pos, []string{"task"}) {
 			t.Errorf("--%s: hooks parse %q ok %v pos %q", f.Name, args, ok, w.Pos)
 		}

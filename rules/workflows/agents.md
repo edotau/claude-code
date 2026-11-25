@@ -93,7 +93,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - **Prose instructs, hooks guarantee.** A CLI agent is one row in the `agentid` roster table
   (`internal/agentid/agentid.go`) plus its vendor package's `agent.Register` row,
   subagent types in `agents/`; external agents run via carried asks (direct, or baked into the agent's own type)
-  and `internal/hooks/leaves.go` holds any leaf whose own background job is still running. Shapes and enforcers:
-  `skills/subagent-workflows/references/patterns.md`.
+  and `internal/hooks/dispatchhook/leaves.go` holds any leaf whose own background job is still running. Shapes and
+  enforcers: `skills/subagent-workflows/references/patterns.md`.
 - Thinking is adaptive: never hand-roll a thinking budget. Mark stable large prefixes with `cache_control`; keep
   per-call content outside the cached block.

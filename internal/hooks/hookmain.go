@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -21,7 +22,7 @@ func Main(args []string) int {
 		rest = rest[1:] // the older `.hookd hook <Event>` form
 	}
 	isHook := len(rest) >= 1 && slices.Contains(settings.HookEvents(), rest[0])
-	if full, ok := mainSibling(); ok && (!isHook || !stampMatches(filepath.Dir(full))) {
+	if full, ok := core.MainSibling(); ok && (!isHook || !stampMatches(filepath.Dir(full))) {
 		fwd := args[1:]
 		if isHook {
 			fwd = append([]string{"hook"}, rest...)
@@ -41,20 +42,6 @@ func Main(args []string) int {
 	code := RunArgs(rest[0], rest[1:], os.Stdin, os.Stdout, os.Stderr)
 	providers.FinishExchanges()
 	return code
-}
-
-var mainSibling = findMainSibling
-
-func findMainSibling() (string, bool) {
-	self, err := os.Executable()
-	if err != nil {
-		return "", false
-	}
-	if real, err := filepath.EvalSymlinks(self); err == nil { // a symlink elsewhere still finds its own siblings
-		self = real
-	}
-	full := filepath.Join(filepath.Dir(self), "claude-code")
-	return full, paths.IsFile(full)
 }
 
 func stampMatches(dir string) bool {

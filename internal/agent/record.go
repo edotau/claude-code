@@ -1030,7 +1030,7 @@ func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunR
 	return err
 }
 
-// LaneLandJobArg starts the lane-land worker (internal/hooks/laneland.go) for a finished job's id.
+// LaneLandJobArg starts the lane-land worker (internal/hooks/lane/laneland.go) for a finished job's id.
 const LaneLandJobArg = "--internal-lane-land-job"
 
 // startLaneLand hands a background job that changed files to the lane-land worker; it judges the lane itself.

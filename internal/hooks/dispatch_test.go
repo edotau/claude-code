@@ -3,7 +3,6 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"maps"
 	"os"
@@ -18,15 +17,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/quality"
+	"github.com/edotau/claude-code/internal/hooks/secrets"
+	"github.com/edotau/claude-code/internal/hooks/web"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 func bound(group, matcher string, budget time.Duration, run core.Runner) Bound {
@@ -186,7 +186,7 @@ func guardBindingProbes() map[string]bindingProbe {
 		"bash-timeout": func(*testing.T, string) (string, func(core.Result) bool) {
 			return hosttest.RTKBashIn("claude-code agents result -f j1"),
 				func(r core.Result) bool {
-					return r.Decision == core.Allow && r.UpdatedInput["timeout"] == int(maxBashTimeout.Milliseconds())
+					return r.Decision == core.Allow && r.UpdatedInput["timeout"] == int(dispatchhook.MaxBashTimeout.Milliseconds())
 				}
 		},
 		"docs-placement": func(t *testing.T, _ string) (string, func(core.Result) bool) {
@@ -258,14 +258,14 @@ func contextBindingProbes() map[string]bindingProbe {
 
 // pointerBound are the hooks with no cheap hermetic probe, checked by runner identity instead.
 var pointerBound = map[string]core.Runner{
-	"format-stop": quality.StopFormat, "codex-agent-route": CodexAgentRoute, "codex-routing-start": CodexRoutingStart,
-	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
-	"dispatch-failure": Release, "review-grep-exit": GrepExit, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
-	"dispatch-handback": Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": reminderWatched,
-	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
-	"worktree-clean-end": wthook.CleanEnd, "lane-land": LaneLand, "lane-land-queue": LaneLandQueue,
-	"secrets-out": SecretsOut, "secrets-end": SecretsEnd, "web-tavily": WebTavily,
-	"review-handback": ReviewHandback, "review-notified": ReviewHandback, "review-decide": ReviewDecide,
+	"format-stop": quality.StopFormat, "codex-agent-route": dispatchhook.CodexAgentRoute, "codex-routing-start": dispatchhook.CodexRoutingStart,
+	"codex-routing-result": dispatchhook.CodexRoutingResult, "codex-subagent-start": dispatchhook.CodexSubagentStart,
+	"dispatch-failure": dispatchhook.Release, "review-grep-exit": quality.GrepExit, "dispatch-workflow": dispatchhook.AfterTool, "dispatch-stop": dispatchhook.Stop,
+	"dispatch-handback": dispatchhook.Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": dispatchhook.ReminderWatched,
+	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
+	"worktree-clean-end": wthook.CleanEnd, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
+	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": web.Tavily,
+	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,
 }
 
 // Bind routes every hook name to its own handler: a probe only it reacts to, else its runner's identity.
@@ -642,41 +642,6 @@ func wantVendorPromptDoc(t *testing.T, vendor string, doc map[string]any) {
 	}
 }
 
-// The review-simplicity module renders its advisory as PostToolUse JSON on stdout through the registry.
-func TestReviewSimplicityModuleEmitsPostToolUse(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	p := filepath.Join(t.TempDir(), "a.go")
-	if err := os.WriteFile(p, []byte("package fx\n\n// one\n// two\nfunc Z() {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	payload := fmt.Sprintf(`{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":%q,"tool_input":{"file_path":%q}}`,
-		filepath.Dir(p), p)
-	var out bytes.Buffer
-	if code := RunArgs("PostToolUse", []string{"--review-simplicity"}, strings.NewReader(payload), &out, &bytes.Buffer{}); code != core.ExitProceed {
-		t.Fatalf("exit %d", code)
-	}
-	if !strings.Contains(out.String(), `"hookEventName":"PostToolUse"`) || !strings.Contains(out.String(), "long_comment") {
-		t.Errorf("stdout = %q, want PostToolUse JSON naming long_comment", out.String())
-	}
-}
-
-// TestMain stubs the live-process scans and detached spawns so no hook test reads the machine or spawns.
-func TestMain(m *testing.M) {
-	cleanup := hosttest.Setup()
-	scan := worktree.ProcessScan
-	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
-	tb := &hosttest.MainTB{}
-	memtest.StubSpawn(tb, true)
-	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
-	code := m.Run()
-	for _, f := range tb.Cleanups {
-		f()
-	}
-	hosttest.Cleanup()
-	cleanup()
-	os.Exit(code)
-}
-
 func TestDispatchHookSkip(t *testing.T) {
 	var mu sync.Mutex
 	ran := map[string]bool{}
@@ -908,5 +873,49 @@ func BenchmarkDispatch(b *testing.B) {
 				dispatch(chain(all, core.AgentClaude, settings.AllFlag), event, in, io.Discard)
 			}
 		})
+	}
+}
+
+func TestPiGuardIgnoresHookSkipEnv(t *testing.T) {
+	t.Setenv("HARNESS_HOOK_SKIP", "safety-scan,all")
+	t.Setenv("harness_hook_agent", "codex")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	cmd := `git commit -m x -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
+	in, _ := json.Marshal(map[string]any{"tool": "bash", "input": map[string]any{"command": cmd}, "cwd": t.TempDir()})
+	var out bytes.Buffer
+	if code := RunArgs("PreToolUse", []string{"--pi-guard"}, bytes.NewReader(in), &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if strings.Contains(out.String(), `"allow"`) {
+		t.Errorf("an inherited HARNESS_HOOK_SKIP disabled the guard: %s", out.String())
+	}
+	if os.Getenv("HARNESS_HOOK_SKIP") != "" {
+		t.Error("the guard left the skip variable set")
+	}
+}
+
+func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
+	if got := piModulesBlock(nil, "Write", []byte("{}")); !strings.Contains(got, "no guard module matched") {
+		t.Errorf("empty module list: %q, want a block", got)
+	}
+}
+
+func TestBashTimeoutComposesWithRewrite(t *testing.T) {
+	m := &dispatchMerge{timeoutInput: map[string]any{"command": "old", "timeout": 40000}}
+	m.merged.UpdatedInput = map[string]any{"command": "rtk new"}
+	m.applyTimeout()
+	if got := m.merged.UpdatedInput; got["command"] != "rtk new" || got["timeout"] != 40000 {
+		t.Errorf("composed input = %v", got)
+	}
+	for cmd, want := range map[string]int{
+		"claude-code agents ask --agent pi -- --timeout=1s": 600000,
+		"claude-code agents ask --timeout 30s -":            40000,
+		"claude-code agents ask --background=false -":       600000,
+		"claude-code agents wait j --timeout 2562047h":      600000,
+	} {
+		if got, _ := dispatchhook.BashTimeoutMs(cmd); got != want {
+			t.Errorf("%q: got %d want %d", cmd, got, want)
+		}
 	}
 }

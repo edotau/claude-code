@@ -101,9 +101,9 @@ pin, else the model of the brief's task tier: a `Tier:` line, else the classifie
 ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a note; print it with
 `claude-code agents label <type> [--profile p] [--model m] --task FILE`. Every fix (type, label, pin) rides one
 `updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
-Implementation: `internal/hooks/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In auto mode a
-rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a hook-modified input
-once)
+Implementation: `internal/hooks/dispatchhook/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In
+auto mode a rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a
+hook-modified input once)
 
 ## dispatch-failure · dispatch-workflow · dispatch-stop · dispatch-handback
 

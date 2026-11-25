@@ -10,7 +10,7 @@ ownership: `../SKILL.md` → Who holds the plan.
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
 (`code-workers` `slice`). The dispatch cap (`rules/harness/hooks.md` → dispatch cap) claims one slot per `agent()`
-site in a script (`internal/hooks/leaves.go` `Effort`).
+site in a script (`internal/hooks/dispatchhook/leaves.go` `Effort`).
 
 ## Patterns we run
 

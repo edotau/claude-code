@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/gateway/resolve"
-	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
@@ -381,7 +381,7 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	row, err := labelRowFor(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task,
+	row, err := labelRowFor(dispatchhook.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task,
 		SessionModel: *sessionModel})
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
@@ -393,16 +393,16 @@ func cmdAgentsLabel(args []string) int {
 }
 
 // labelRowFor is the hook's label row for in.
-func labelRowFor(in hooks.LabelInput) (hooks.LabelRow, error) {
+func labelRowFor(in dispatchhook.LabelInput) (dispatchhook.LabelRow, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return hooks.LabelRow{}, err
+		return dispatchhook.LabelRow{}, err
 	}
-	return hooks.Label(in, cwd, os.Getenv(paths.SessionIDEnv)), nil
+	return dispatchhook.Label(in, cwd, os.Getenv(paths.SessionIDEnv)), nil
 }
 
 // emitLabel prints the label after the hook's refusal and notes.
-func emitLabel(row hooks.LabelRow, model, profile, task string) int {
+func emitLabel(row dispatchhook.LabelRow, model, profile, task string) int {
 	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
 	}
