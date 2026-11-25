@@ -508,11 +508,14 @@ func stopFailure(reason, errMsg string) string {
 	return fmt.Sprintf("pi ended on unfinished stop reason %q", reason)
 }
 
+// errNoAnswer is the failure of a run whose stream held no assistant message.
+var errNoAnswer = errors.New("pi ended without an answer")
+
 // failure is why the run did not finish well, or "" when the last message stopped cleanly and nothing is left open.
 func (t *piTurn) failure() string {
 	switch {
 	case !t.assistant:
-		return "pi ended without an answer"
+		return errNoAnswer.Error()
 	case t.aborted:
 		return "pi run aborted"
 	case len(t.open) > 0:
@@ -538,5 +541,9 @@ func (t *piTurn) finish(settled bool) error {
 	if err := wire.EmitError(t.lg, t.sink, msg); err != nil {
 		return err
 	}
-	return retry.Classify("pi", errors.New(msg), t.progressed)
+	cause := errors.New(msg)
+	if msg == errNoAnswer.Error() {
+		cause = errNoAnswer
+	}
+	return retry.Classify("pi", cause, t.progressed)
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -27,6 +28,7 @@ func testRoute(t *testing.T, model string, routed bool) agent.WireRoute {
 }
 
 func TestWireArgvAndEnv(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	env, argv, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Effort: "high", Tools: true})
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +159,7 @@ func TestWireToolsRunWritesGuard(t *testing.T) {
 
 // A tools run saves its session: Pi writes one only without --no-session, so a later --session can resume it.
 func TestToolsRunSavesSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, argv, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Tools: true})
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +171,7 @@ func TestToolsRunSavesSession(t *testing.T) {
 
 // Resuming a session Pi has no file for fails before the run, naming the --retry alternative.
 func TestSessionMissing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, _, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Tools: true, SessionID: "ses-missing"})
 	if err == nil || !strings.Contains(err.Error(), "--retry") {
 		t.Fatalf("err = %v, want a refusal naming --retry", err)
@@ -483,16 +487,17 @@ func TestWebHint(t *testing.T) {
 	}
 }
 
-func TestSessionCwd(t *testing.T) {
-	dir, work := t.TempDir(), t.TempDir()
-	hdr := `{"type":"session","id":"ses-9","cwd":"` + work + `"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "2026-11-25T10-00-00_ses-9.jsonl"), []byte(hdr), 0o600); err != nil {
-		t.Fatal(err)
+// A no-answer failure keeps Pi's redacted stderr, found by its sentinel and not by its wording.
+func TestWithPiOutputQuotesStderr(t *testing.T) {
+	fakeKey := "da" + "pi" + strings.Repeat("0123456789abcdef", 2) // built at runtime: no token-shaped literal in source
+	tail := &retry.TailBuffer{}
+	_, _ = tail.Write([]byte("fatal: model refused token=" + fakeKey + "\n"))
+	got := withPiOutput(t.Context(), "pi", retry.Classify("pi", errNoAnswer, false), tail)
+	if got == nil || !strings.Contains(got.Error(), "fatal: model refused") || strings.Contains(got.Error(), fakeKey) {
+		t.Fatalf("err = %v, want the stderr tail with the credential redacted", got)
 	}
-	if got := sessionCwd(dir, "ses-9"); got != work {
-		t.Fatalf("sessionCwd = %q, want %q (Pi prompts to fork from any other directory)", got, work)
-	}
-	if got := sessionCwd(dir, "other"); got != "" {
-		t.Fatalf("sessionCwd of an unknown id = %q, want empty", got)
+	other := errors.New("pi run aborted")
+	if withPiOutput(t.Context(), "pi", other, tail) != other {
+		t.Fatal("an error that is not the no-answer sentinel must pass through")
 	}
 }

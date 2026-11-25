@@ -101,24 +101,35 @@ func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 	}
 	argv = append(append([]string{"--mode", "json"}, lockdownArgv...), "--model", model)
 	argv = append(argv, thinking...)
-	return env, append(argv, sessionArgv(h)...), nil
+	sess, err := sessionArgv(h)
+	if err != nil {
+		remove()
+		return nil, nil, err
+	}
+	return env, append(argv, sess...), nil
 }
 
 // sessionArgv resumes a named session; a tools run saves its session, any other run keeps none.
-func sessionArgv(h *agent.Headless) []string {
-	switch {
-	case h.SessionID != "":
-		return []string{"--session", h.SessionID, "--session-dir", sessionDir()}
-	case h.Tools:
-		return []string{"--session-dir", sessionDir()}
+func sessionArgv(h *agent.Headless) ([]string, error) {
+	if h.SessionID == "" && !h.Tools {
+		return []string{"--no-session"}, nil
 	}
-	return []string{"--no-session"}
+	if err := ensureSessionDir(); err != nil {
+		return nil, err
+	}
+	if h.SessionID != "" {
+		return []string{"--session", h.SessionID, "--session-dir", sessionDir()}, nil
+	}
+	return []string{"--session-dir", sessionDir()}, nil
 }
 
 // resumeErr refuses a --session id Pi never saved, since Pi would end the run with no answer.
 func resumeErr(id string) error {
-	if id == "" || sessionSaved(sessionDir(), id) {
+	if id == "" {
 		return nil
+	}
+	if file, err := sessionFile(sessionDir(), id); err != nil || file != "" {
+		return err
 	}
 	return fmt.Errorf("pi session %s was not saved, so it cannot resume; start it again with claude-code agents ask --retry <dispatch id>", id)
 }
@@ -403,7 +414,12 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	if err != nil {
 		return p.Result, err
 	}
-	req.WorkDir = cmp.Or(sessionCwd(sessionDir(), req.SessionID), req.WorkDir)
+	if req.WorkDir, err = resumeDir(sessionDir(), req.SessionID, req.WorkDir); err != nil {
+		return p.Result, retry.Fatal(e.Name(), err)
+	}
+	if req.SessionID != "" {
+		fmt.Fprintf(os.Stderr, "pi: resuming session %s in %s\n", req.SessionID, cmp.Or(req.WorkDir, "the current directory"))
+	}
 	cmd, tail := childCmd(ctx, bin, p, req)
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
@@ -562,7 +578,7 @@ func (piEngine) RouteDetail(ctx context.Context) (string, bool) {
 
 // withPiOutput adds Pi's own stderr to a no-answer failure, which otherwise hides why Pi stopped.
 func withPiOutput(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
-	if err == nil || !strings.Contains(err.Error(), "pi ended without an answer") || strings.TrimSpace(tail.String()) == "" {
+	if err == nil || !errors.Is(err, errNoAnswer) || strings.TrimSpace(tail.String()) == "" {
 		return err
 	}
 	return agent.ChildErr(ctx, name, err, tail)
