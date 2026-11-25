@@ -33,7 +33,7 @@ func SweepScopes() []string {
 			removed = append(removed, file)
 		}
 	}
-	return removed
+	return append(removed, sweepOrphanLocks()...)
 }
 
 // DetachedScopes returns the live standing proxies, after sweeping the dead records.

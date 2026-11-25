@@ -62,11 +62,19 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 	in = in.WithContext(context.WithValue(context.WithValue(in.Context(), attemptsKey{}, &attempts), metaKey{}, sw.meta))
 	defer func() {
 		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
-			attempts, time.Since(start).Round(time.Millisecond), sw.meta.diag(provider), viaDiag(in), dispatchDiag(in), extra)
+			attempts, time.Since(start).Round(time.Millisecond), sw.meta.diag(provider)+otherPathDiag(sw.meta, rest), viaDiag(in), dispatchDiag(in), extra)
 	}()
 	model, extra, provider = r.forwardPassthrough(sw, in, provider, dialect, rest)
 	extra = addBroken(extra, brokenDiag(sw))
 	sw.abortIfBroken() // the deferred log line still runs
+}
+
+// otherPathDiag names the path of a request no known call kind covers, so its failures trace to a client.
+func otherPathDiag(m *reqMeta, rest string) string {
+	if m.callKind() != callOther {
+		return ""
+	}
+	return " path=" + modelToken(rest)
 }
 
 // addBroken puts the stream=broken token before the line's msg= token, which must stay last.
