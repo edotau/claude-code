@@ -716,6 +716,7 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	if err := checkIssuer(p, tok.Access); err != nil {
 		return tok, err
 	}
+	audit.Log(audit.SPMint, name, p.Name) // one row per mint: the contained-proxy sweep counts mints per expiry
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)

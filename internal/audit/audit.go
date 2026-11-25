@@ -42,12 +42,13 @@ const (
 	KeyReveal         Action = "key_reveal"
 	PlanSaved         Action = "plan_saved"
 	SealFailed        Action = "seal_failed"
+	SPMint            Action = "sp_mint"
 )
 
 // Actions lists every valid action in report order.
 var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
 	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, TailscaleSubnet, SetupAdopt, SetupWorkspace, CopilotAuth,
-	KeyRotate, KeyReveal, PlanSaved, SealFailed}
+	KeyRotate, KeyReveal, PlanSaved, SealFailed, SPMint}
 
 func (a Action) Valid() bool {
 	return slices.Contains(Actions, a)
