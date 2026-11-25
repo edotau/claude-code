@@ -1,8 +1,8 @@
 internal/plans/audit.go:appendAuditLog	unversioned: jsonl: plans audit undo log, newest 1000 lines
-internal/plans/born.go:appendBorn	unversioned: tsv: plan path to first-write unix time, first line wins
+internal/plans/plans.go:appendBorn	unversioned: tsv: plan path to first-write unix time, first line wins
 internal/plans/plans.go:writeNames	unversioned: claim: plans folder name to owning repo key, first claim wins
 internal/plans/tick.go:ClaimLanding	unversioned: text: plan landing keys already handled, in the candidate memo
 internal/plans/tick.go:RecordDest	unversioned: text: plan draft destination pointer
 internal/plans/tick.go:writeMemo	unversioned: text: plan task ids already announced as candidates
 internal/plans/tick.go:writePlan	unversioned: foreign: plan markdown in plans/
-internal/plans/verify.go:spawnVerify	unversioned: text: pending verify-then-tick marker, one per task and commit
+internal/plans/waves.go:spawnVerify	unversioned: text: pending verify-then-tick marker, one per task and commit

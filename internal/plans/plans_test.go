@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // hermetic points the harness config dir (plans.lock lives under StateDir) at a temp dir.
@@ -869,5 +871,163 @@ func TestDecisionItemIsAnOwnerTask(t *testing.T) {
 	}
 	if err := MarkDone(p, "D2", ""); err != nil || !strings.Contains(readFile(t, p), "- [x] D2 — Pick") {
 		t.Fatalf("MarkDone D2: %v", err)
+	}
+}
+
+// archiveFixture writes a closed, an open and a claimed plan and returns the root, those paths and the archive dest.
+func archiveFixture(t *testing.T) (root, closed, open, claimed, dest string) {
+	t.Helper()
+	hermetic(t)
+	root = t.TempDir()
+	home := Home(root)
+	closed = filepath.Join(home, "2026-10-05-closed.md")
+	open = filepath.Join(home, "2026-10-05-open.md")
+	claimed = filepath.Join(home, "2026-10-05-claimed.md")
+	writeFile(t, closed, "- [x] 1.1 Done\n")
+	writeFile(t, open, "- [ ] 1.1 Pending\n")
+	writeFile(t, claimed, "- [x] 1.1 Done <!-- working: alice -->\n")
+	return root, closed, open, claimed, filepath.Join(archiveDir(root), filepath.Base(closed))
+}
+
+func TestArchiveDryRun(t *testing.T) {
+	root, closed, open, claimed, dest := archiveFixture(t)
+	dry, findings, err := Archive(context.Background(), root, true)
+	if err != nil || len(findings) != 0 || len(dry) != 1 || dry[0].Plan != closed || dry[0].Action != "archive" {
+		t.Fatalf("dry run: changes=%+v findings=%+v err=%v", dry, findings, err)
+	}
+	wantFiles(t, "dry run", []string{closed, open, claimed}, []string{dest, auditLogFile()})
+}
+
+func TestArchiveEligibility(t *testing.T) {
+	root, closed, open, claimed, dest := archiveFixture(t)
+	changes, findings, err := Archive(context.Background(), root, false)
+	if err != nil || len(findings) != 0 || len(changes) != 1 || changes[0].Plan != closed {
+		t.Fatalf("archive: changes=%+v findings=%+v err=%v", changes, findings, err)
+	}
+	wantFiles(t, "archive", []string{open, claimed, dest}, []string{closed})
+	if got := readFile(t, dest); got != "- [x] 1.1 Done\n" {
+		t.Fatalf("archived plan = %q", got)
+	}
+	if log := readFile(t, auditLogFile()); !strings.Contains(log, changes[0].Reopen) {
+		t.Fatalf("archive missing reopen record: %s", log)
+	}
+}
+
+// Rule 6: the archive folder is the plans folder's name, @home included; no hard-coded harness name.
+func TestArchiveDirIsThePlansName(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	hosttest.In(t, repo, "remote", "add", "origin", "https://example.invalid/acme/widget.git")
+	for root, want := range map[string]string{"": "@home", repo: "widget"} {
+		if got := archiveDir(root); got != filepath.Join(paths.MemoryStoreDir(), "archive", "plans", want) {
+			t.Errorf("archiveDir(%q) = %s, want archive/plans/%s", root, got, want)
+		}
+	}
+}
+
+// wantFiles fails unless every present path exists and every absent one does not.
+func wantFiles(t *testing.T, step string, present, absent []string) {
+	t.Helper()
+	for _, path := range present {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s: %s should exist: %v", step, path, err)
+		}
+	}
+	for _, path := range absent {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s: %s should not exist: %v", step, path, err)
+		}
+	}
+}
+
+func TestMovePlanArchiveCrossDevice(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := rename
+	rename = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.EXDEV} }
+	t.Cleanup(func() { rename = orig })
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "2026-01-01-x.md"), filepath.Join(dir, "archive", "2026-01-01-x.md")
+	if err := os.WriteFile(from, []byte("# x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(from, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	if err := movePlan(Change{Plan: from, Action: "archive"}, to); err != nil {
+		t.Fatalf("movePlan: %v", err)
+	}
+	if _, err := os.Stat(from); !os.IsNotExist(err) {
+		t.Fatalf("source still present: %v", err)
+	}
+	info, err := os.Stat(to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(to); string(b) != "# x\n" || !info.ModTime().Equal(mtime) {
+		t.Fatalf("copy = %q mtime %v, want %q %v", b, info.ModTime(), "# x\n", mtime)
+	}
+}
+
+func localTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	at, err := time.ParseInLocation(time.DateTime, s, time.Local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+func touch(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	writeFile(t, path, "- [ ] 1.1 One\n")
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPlanBornRecordsFirstWriteAndClampsToTheDay(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	plan, early := filepath.Join(dir, "2026-10-05-a.md"), filepath.Join(dir, "2026-10-05-b.md")
+	first := localTime(t, "2026-10-05 09:00:00")
+	touch(t, plan, first)
+	touch(t, early, localTime(t, "2026-10-01 00:00:00"))
+	if got := planBorn(plan, false); !got.Equal(first) {
+		t.Fatalf("mtime fallback = %v, want %v", got, first)
+	}
+	if _, ok := recordedBorn(paths.CanonDeep(plan)); ok {
+		t.Fatal("a non-recording read must not write a record")
+	}
+	planBorn(plan, true)
+	touch(t, plan, first.Add(48*time.Hour))
+	if got := planBorn(plan, true); !got.Equal(first) {
+		t.Fatalf("recorded born = %v, want %v after a rewrite", got, first)
+	}
+	if got, day := planBorn(early, false), localTime(t, "2026-10-05 00:00:00"); !got.Equal(day) {
+		t.Fatalf("born before the plan's day = %v, want %v", got, day)
+	}
+}
+
+func TestWritePlanPinsBornOnlyAfterTheWriteLands(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	plan := filepath.Join(t.TempDir(), "2026-10-05-a.md")
+	if err := os.Mkdir(plan, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePlan(plan, []byte("x"), 0o600); err == nil {
+		t.Fatal("replacing a directory should fail")
+	}
+	if _, ok := recordedBorn(paths.CanonDeep(plan)); ok {
+		t.Fatal("a failed write must not pin a born time")
+	}
+	if err := os.Remove(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePlan(plan, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := recordedBorn(paths.CanonDeep(plan)); !ok {
+		t.Fatal("a landed write pins a born time")
 	}
 }
