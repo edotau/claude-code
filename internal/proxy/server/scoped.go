@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -153,11 +152,7 @@ func (s *Scoped) Done() <-chan struct{} { return s.done }
 // Close stops the proxy, drains streams and removes the scope file; it is idempotent and concurrency-safe.
 func (s *Scoped) Close() {
 	s.once.Do(func() {
-		dctx, cancel := context.WithTimeout(context.Background(), proxy.ShutdownDrain)
-		defer cancel()
-		if err := s.srv.Shutdown(dctx); errors.Is(err, context.DeadlineExceeded) {
-			_ = s.srv.Close()
-		}
+		_ = shutdownIdle(s.srv, s.r)
 		<-s.done
 		drainStateWrites(s.r)
 		s.stopRefresh()

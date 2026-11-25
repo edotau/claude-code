@@ -28,8 +28,8 @@ func EnsureTeam(ctx context.Context, t proxyteam.Team, dispatchID string) (Scope
 	if err := checkScopeParts(t.Name, id); err != nil {
 		return Scope{}, err
 	}
-	if sc, inflight, ok := liveScope(ctx, t.Name, id); ok && (!ScopeStale(sc) || inflight > 0) {
-		return sc, nil
+	if sc, ok := liveScope(ctx, t.Name, id); ok {
+		return sc, nil // a healthy slot serves as it is, even on an older binary: install and the status line replace it
 	}
 	var out Scope
 	err := paths.WithFileLock(scopeFile(t.Name, id)+".spawn", func() error {
@@ -48,16 +48,16 @@ func slotID(dispatchID string, reserved int) string {
 }
 
 // liveScope returns the slot's record when its process is alive and answers /healthz as that pid.
-func liveScope(ctx context.Context, team, id string) (Scope, int64, bool) {
+func liveScope(ctx context.Context, team, id string) (Scope, bool) {
 	sc, err := ReadScope(team, id)
 	if err != nil || sc.Host != HostDetached || !scopeLive(sc) {
-		return Scope{}, 0, false
+		return Scope{}, false
 	}
 	h, ok := Holder(ctx, sc.Port)
 	if !ok || h.PID != sc.PID {
-		return Scope{}, 0, false
+		return Scope{}, false
 	}
-	return sc, h.Inflight, true
+	return sc, true
 }
 
 // SelfExeHash is the hash a scoped proxy records in its Scope; "" when the binary cannot be read.
@@ -69,14 +69,14 @@ func ScopeStale(sc Scope) bool {
 	return self != "" && sc.Exe != self
 }
 
-// startSlot runs under the slot lock: it re-checks, replaces an idle stale proxy, then spawns and waits for a live one.
+// startSlot runs under the slot lock: it re-checks, replaces an unhealthy proxy, then spawns and waits for a live one.
 func startSlot(ctx context.Context, team, id string) (Scope, error) {
-	sc, inflight, ok := liveScope(ctx, team, id)
+	sc, ok := liveScope(ctx, team, id)
 	if !ok {
-		sc, inflight, ok = liveScope(ctx, team, id) // one more probe: a busy proxy may miss a single 1s one
+		sc, ok = liveScope(ctx, team, id) // one more probe: a busy proxy may miss a single 1s one
 	}
-	if ok && (!ScopeStale(sc) || inflight > 0) {
-		return sc, nil // fresh or busy: use it as it is
+	if ok {
+		return sc, nil // healthy: use it as it is, whatever binary it runs
 	}
 	if held() {
 		return Scope{}, heldErr()
@@ -129,7 +129,7 @@ func heldErr() error {
 // errSlotBusy means the slot's proxy answered the drain request busy, so it is not retired.
 var errSlotBusy = errors.New("proxy: slot is busy")
 
-// retireSlot stops a stale idle or wedged (alive, not answering) proxy; an asker's scope is never signalled.
+// retireSlot stops a wedged (alive, not answering) proxy; an asker's scope is never signalled.
 func retireSlot(ctx context.Context, team, id string) error {
 	rec, err := ReadScope(team, id)
 	if err != nil || !scopeLive(rec) {
@@ -189,7 +189,7 @@ func stopScope(sc Scope) error {
 
 func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 	for deadline := time.Now().Add(scopeStartWait); time.Now().Before(deadline); {
-		if sc, _, ok := liveScope(ctx, team, id); ok {
+		if sc, ok := liveScope(ctx, team, id); ok {
 			return sc, nil
 		}
 		select {
@@ -211,7 +211,7 @@ func awaitScope(ctx context.Context, team, id string) (Scope, error) {
 func lastProbe(ctx context.Context, team, id string) (Scope, bool) {
 	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	sc, _, ok := liveScope(pctx, team, id)
+	sc, ok := liveScope(pctx, team, id)
 	return sc, ok
 }
 
