@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -121,3 +123,64 @@ func TestRepickOverflowRunsLargerWindow(t *testing.T) {
 		t.Fatalf("hops %+v notes %v, want the reason and both windows", hops, notes)
 	}
 }
+
+// A context overflow on the last-resort (local) row is terminal: no re-pick, a refusal naming the row.
+func TestPlanOverflowLastResortIsTerminal(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	local := providers.LastResort(reg)
+	if local == nil {
+		t.Fatal("fixture: the defaults carry no last_resort row")
+	}
+	disp := Dispatch{Agent: &fakeRunner{name: "pi"}, Account: local.Account()}
+	ran := "qwen3.8-27b:gguf:q6"
+	for _, err := range []error{errors.New(overflowMsg), &retry.Error{Kind: retry.KindContext, Agent: "pi", Err: errors.New("overflow")}} {
+		plan := planOverflow(disp, overflowCell, wire.Result{}, ran, err)
+		if plan.model != "" || !strings.Contains(plan.refusal, "last-resort row "+local.Name) {
+			t.Fatalf("%v: plan = %+v, want the terminal last-resort refusal", err, plan)
+		}
+	}
+	typed := &retry.Error{Kind: retry.KindContext, Agent: "pi", Err: errors.New("too many tokens")}
+	if got := planOverflow(overflowDisp("pi"), overflowCell, wire.Result{}, overflowCell.Model, typed); got.model == "" {
+		t.Fatalf("a typed KindContext on a hosted row must re-pick, past the per-minute veto: %+v", got)
+	}
+}
+
+// A cancelled or 499 request never re-picks, whatever overflow wording it carries.
+func TestPlanOverflowNeverAfterClientCancel(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
+	for name, err := range map[string]error{
+		"cancel": fmt.Errorf("%s: %w", overflowMsg, context.Canceled),
+		"499":    &retry.Error{Kind: retry.KindFatal, Agent: "pi", Status: retry.StatusClientClosed, Err: errors.New(overflowMsg)},
+	} {
+		if got := planOverflow(overflowDisp("pi"), overflowCell, wire.Result{}, overflowCell.Model, err); got != (overflowPlan{}) {
+			t.Errorf("%s: planned %+v, want no overflow plan", name, got)
+		}
+		disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account()}
+		if got := retryModel(context.Background(), disp, RunOptions{Model: AutoModel}, ran, err); got != "" {
+			t.Errorf("%s: auto retry = %q, want none", name, got)
+		}
+	}
+}
+
+// An auto ask re-picks past a typed KindContext with no vendor wording (a stream-error code): its Error() reads back.
+func TestRetryModelAutoRepicksTypedContext(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
+	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account()}
+	coded := retry.Classify("opencode", codedOverflow{}, false)
+	if coded.Kind != retry.KindContext {
+		t.Fatalf("fixture: %v classified %v", coded, coded.Kind)
+	}
+	if got := retryModel(context.Background(), disp, RunOptions{Model: AutoModel}, ran, coded); got != AutoModel {
+		t.Fatalf("auto retry = %q, want the auto re-pick", got)
+	}
+}
+
+// codedOverflow is a stream error whose only overflow evidence is its typed code.
+type codedOverflow struct{}
+
+func (codedOverflow) Error() string     { return "stream error" }
+func (codedOverflow) ErrorCode() string { return "context_length_exceeded" }

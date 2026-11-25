@@ -33,10 +33,62 @@ const (
 	KindTransient      // network, 5xx, overload, per-attempt timeout
 	KindFatal          // everything else: bad request, missing binary, the agent's own verdict
 	KindQuota          // an exhausted account (402, monthly/plan quota): never retried, the router marks it
+	KindContext        // the prompt overflowed the model's window: never retried, a re-pick answers; envelopes say fatal
 )
 
 func (k Kind) String() string {
-	return [...]string{"ok", "auth rejected", "rate limited", "transient failure", "failed", "quota exhausted"}[k]
+	return [...]string{"ok", "auth rejected", "rate limited", "transient failure", "failed", "quota exhausted", "context overflow"}[k]
+}
+
+// overflowRE is each vendor's context-overflow wording or code at any status: goai's errors.go list plus the harness's.
+var overflowRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`prompt is too long|` + // Anthropic
+		`exceed context limit|input length|context length|maximum context|` + // Anthropic, OpenAI, vLLM, Databricks
+		`context window|context[_ ]length[_ ]exceeded|context_window_exceeded|` + // OpenAI, codex, MiniMax; stream codes
+		`input is too long for requested model|input token count.*exceeds the maximum|` + // Bedrock, Gemini
+		`maximum prompt length is \d+|reduce the length of the messages|exceeded model token limit|` + // xAI, Groq, Kimi
+		`(?:available|max) context size|context size (?:has been )?exceeded|exceed_context_size_error|` + // llama.cpp
+		`greater than the context length|context overflow`) // LM Studio; KindContext's own name, so its Error() reads back
+})
+
+// overflowLooseRE is wording too vague to trust without a 400/413 status: Copilot's, and Cerebras/Mistral's bare reply.
+var overflowLooseRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`exceeds the limit of \d+|(?:^|: )4(?:00|13)\s*(?:status code)?\s*\(no body\)`)
+})
+
+// IsContextOverflow is true when body (error text, reply or stream-error code) names an overflow; 400/413 widen it.
+func IsContextOverflow(status int, body string) bool {
+	low := strings.ToLower(body)
+	return overflowRE().MatchString(low) || overflowStatus(status) && overflowLooseRE().MatchString(low)
+}
+
+// overflowStatus is true for the statuses a vendor answers a context overflow with: 400 and 413.
+func overflowStatus(status int) bool {
+	return status == http.StatusBadRequest || status == http.StatusRequestEntityTooLarge
+}
+
+// codedKind is KindContext for a fatal or unset kind whose typed stream-error code names an overflow.
+func codedKind(kind Kind, err error) Kind {
+	var coded interface{ ErrorCode() string }
+	if (kind != KindFatal && kind != KindNone) || !errors.As(err, &coded) {
+		return kind
+	}
+	if code := coded.ErrorCode(); code != "" && IsContextOverflow(0, code) {
+		return KindContext
+	}
+	return kind
+}
+
+// statusKind is KindForStatus refined by err's text: a plan-quota 429 is KindQuota, a 400/413 overflow KindContext.
+func statusKind(status int, err error) Kind {
+	kind := KindForStatus(status)
+	switch {
+	case kind == KindRateLimit && providers.IsQuota(err.Error()):
+		return KindQuota
+	case overflowStatus(status) && IsContextOverflow(status, err.Error()):
+		return KindContext
+	}
+	return kind
 }
 
 // Error is a classified agent failure.
@@ -170,11 +222,16 @@ func (e *Error) retryable() bool {
 	return !e.Progressed && !e.Terminal && !e.PolicyRefusal && e.ShouldRetry != ShouldRetryNo && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
-// kindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
-func kindForStatus(status int) Kind {
+// StatusClientClosed is the proxy's 499: the client cancelled; Fatal, never retried, no account cooldown.
+const StatusClientClosed = 499
+
+// KindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
+func KindForStatus(status int) Kind {
 	switch {
 	case status >= 200 && status < 300:
 		return KindNone
+	case status == StatusClientClosed:
+		return KindFatal
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		return KindAuth
 	case status == http.StatusPaymentRequired:
@@ -192,9 +249,10 @@ var (
 	rateRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted|usage limit reached|individual quota reached`)
 	})
-	authRE = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key|unauthenticated|token (has )?expired|expired token|invalid_grant`)
+	authRE = sync.OnceValue(func() *regexp.Regexp { // the wording; a bare code is weaker than an overflow phrase
+		return regexp.MustCompile(`unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key|unauthenticated|token (has )?expired|expired token|invalid_grant`)
 	})
+	authCodeRE  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b40[13]\b`) })
 	transientRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
 	})
@@ -213,25 +271,45 @@ func Classify(agent string, err error, progressed bool) *Error {
 	}
 	if done, ok := errors.AsType[*Error](err); ok {
 		done.Progressed = done.Progressed || progressed
-		return done
+		return done.clientCancel(err)
 	}
 	e := &Error{Kind: KindFatal, Agent: agent, Progressed: progressed, Err: err}
 	var st interface{ StatusCode() int }
 	if errors.As(err, &st) {
 		e.Status = st.StatusCode()
-		e.Kind = kindForStatus(e.Status)
-		if e.Kind == KindRateLimit && providers.IsQuota(err.Error()) {
-			e.Kind = KindQuota
-		}
+		e.Kind = statusKind(e.Status, err)
 	} else {
 		e.Kind, e.RetryAfter = classifyText(err)
 		e.Connect = preResponseConnect(e.Kind, err)
 	}
+	e.Kind = codedKind(e.Kind, err)
 	var ra interface{ RetryAfter() time.Duration }
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		e.RetryAfter = ra.RetryAfter()
 	}
-	return e.typedHints(err)
+	return e.typedHints(err).clientCancel(err)
+}
+
+// IsClientCancel is true when err is a client cancel: context.Canceled anywhere in it, or a 499 on any nested *Error.
+func IsClientCancel(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	for e, ok := errors.AsType[*Error](err); ok; e, ok = errors.AsType[*Error](e.Err) {
+		if e.Status == StatusClientClosed {
+			return true
+		}
+	}
+	return false
+}
+
+// clientCancel makes e Fatal with no retry, reroute, proxy hop, account mark or policy verdict on a client cancel.
+func (e *Error) clientCancel(err error) *Error {
+	if IsClientCancel(err) || e.Status == StatusClientClosed {
+		e.Kind, e.RetryAfter, e.RetryNow, e.Connect, e.ProxyDown = KindFatal, 0, false, false, false
+		e.AuthReason, e.PolicyRefusal = "", false
+	}
+	return e
 }
 
 // typedHints sets the upstream's x-should-retry verdict and the policy-refusal class, which is never an account fault.
@@ -310,6 +388,10 @@ func classifyText(err error) (Kind, time.Duration) {
 	case rateRE().MatchString(low):
 		kind = KindRateLimit
 	case authRE().MatchString(low):
+		kind = KindAuth
+	case IsContextOverflow(0, low): // before a bare code: "input length of 403 tokens" is no 403
+		kind = KindContext
+	case authCodeRE().MatchString(low):
 		kind = KindAuth
 	case transientRE().MatchString(low):
 		kind = KindTransient
@@ -457,7 +539,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
 	var earlier []*Error
-	fn = p.reroute(proxyHop(fn), &earlier)
+	fn = p.reroute(proxyHop(cancelFatal(fn)), &earlier)
 	start := time.Now()
 	fail := func() *Error { // every attempt before the last rides on the error returned
 		last.Earlier = earlier
@@ -495,6 +577,16 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		}
 	}
 	return fail()
+}
+
+// cancelFatal makes fn's client cancel or 499 Fatal before a hop or a retry reads it: no retry, reroute or cooldown.
+func cancelFatal(fn func(context.Context, int) *Error) func(context.Context, int) *Error {
+	return func(ctx context.Context, attempt int) *Error {
+		if e := fn(ctx, attempt); e != nil {
+			return e.clientCancel(e)
+		}
+		return nil
+	}
 }
 
 // proxyHop gives a dead loopback proxy one immediate retry (the relaunch re-walks the route list), then it is terminal.

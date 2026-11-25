@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// overflowTokens reads N from the proxy's "prompt is too long: N tokens > M maximum" (a text pattern: no typed class).
+// overflowTokens reads N from "prompt is too long: N tokens > M maximum"; retry.IsContextOverflow classifies.
 var overflowTokens = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(\d{1,9}) tokens > \d+ maximum`) })
 
 // overflowFit is the headroom a re-pick keeps over the refused prompt, in tenths (11 = 1.1 x).
@@ -32,16 +32,37 @@ type overflowPlan struct {
 	refusal    string
 }
 
-// overflowRefusal is err as a context overflow a re-pick answers: not a rate limit, not text already streamed.
+// overflowRefusal is err as a context overflow a re-pick answers: not a rate limit, a cancel, or text already streamed.
 func overflowRefusal(err error) string {
-	if err == nil || retry.Progressed(err) || rateLimitOnly(err) {
+	if err == nil || retry.Progressed(err) || rateLimitOnly(err) || retry.IsClientCancel(err) {
 		return ""
 	}
 	low := strings.ToLower(err.Error())
-	if strings.Contains(low, "too many tokens") || !requestSizeErr().MatchString(low) {
+	e, typed := errors.AsType[*retry.Error](err)
+	if typed && e.Kind == retry.KindContext {
+		return low
+	}
+	if strings.Contains(low, "too many tokens") || !retry.IsContextOverflow(statusOf(e), low) { // a per-minute cap
 		return ""
 	}
 	return low
+}
+
+// statusOf is e's HTTP status, 0 for nil.
+func statusOf(e *retry.Error) int {
+	if e == nil {
+		return 0
+	}
+	return e.Status
+}
+
+// lastResortRow is account's row when last_resort (local): its overflow is terminal, no re-pick runs on that row.
+func lastResortRow(account string) *providers.Provider {
+	_, row, _ := strings.Cut(account, "·")
+	if p := loadRegistryWarn().Row(row); p != nil && p.Options.LastResort {
+		return p
+	}
+	return nil
 }
 
 // overflowCands is the windows larger than ran's on disp's profile that fit the refused prompt, and ran's own window.
@@ -75,7 +96,12 @@ func planOverflow(disp Dispatch, lreq RunOptions, res wire.Result, ran string, e
 	if ran == "" || IsAuto(lreq.Model) || low == "" {
 		return overflowPlan{}
 	}
-	cands, from := overflowCands(disp, lreq.Tools, ranAccount(disp.Account, res.Provider), ran, low)
+	account := ranAccount(disp.Account, res.Provider)
+	if p := lastResortRow(account); p != nil {
+		from := providers.Window(p, ran)
+		return overflowPlan{ran: ran, from: from, refusal: fmt.Sprintf("%s (%d tokens) is on the last-resort row %s; no overflow re-pick runs there", ran, from, p.Name)}
+	}
+	cands, from := overflowCands(disp, lreq.Tools, account, ran, low)
 	plan := overflowPlan{ran: ran, from: from}
 	switch {
 	case len(cands) == 0:

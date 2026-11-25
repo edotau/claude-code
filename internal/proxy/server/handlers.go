@@ -12,12 +12,11 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -189,10 +188,29 @@ func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
 	})
 }
 
-// promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".
-var promptTooLong = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`prompt is too long(: \d+ tokens > \d+ maximum)?`)
-})
+// promptTooLong is b's first "prompt is too long" with any ": N tokens > M maximum" tail, else nil; it only extracts.
+func promptTooLong(b []byte) []byte {
+	const head = "prompt is too long"
+	i := bytes.Index(b, []byte(head))
+	if i < 0 {
+		return nil
+	}
+	end := i + len(head)
+	j := end
+	for _, part := range []string{": ", "", " tokens > ", "", " maximum"} { // "" is a run of digits
+		n := len(part)
+		if part == "" {
+			for j+n < len(b) && b[j+n] >= '0' && b[j+n] <= '9' {
+				n++
+			}
+		}
+		if n == 0 || !bytes.HasPrefix(b[j:], []byte(part)) {
+			return b[i:end]
+		}
+		j += n
+	}
+	return b[i:j]
+}
 
 // tooLong rewrites a 400 "prompt is too long" into the router's invalid_request_error, quoting only the limit text.
 func tooLong(resp *http.Response) bool {
@@ -200,7 +218,10 @@ func tooLong(resp *http.Response) bool {
 		return false
 	}
 	peek := peekBody(resp, 512)
-	m := promptTooLong().Find(peek)
+	if !retry.IsContextOverflow(resp.StatusCode, string(peek)) {
+		return false
+	}
+	m := promptTooLong(peek)
 	if m == nil {
 		return false
 	}
@@ -212,21 +233,13 @@ func tooLong(resp *http.Response) bool {
 	return true
 }
 
-// overflowWording matches upstream open-model context-overflow texts (Databricks relay patterns plus OpenAI/vLLM).
-var overflowWording = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)input exceeds the model's maximum context length|` +
-		`the input \(\d+ tokens\) is longer than the model's context length|` +
-		`input length of \d+ tokens exceeds model context length|` + // gpt-oss on Databricks
-		`maximum context length is \d+ tokens|context_length_exceeded`)
-})
-
 // overflowRewrite turns a 4xx context-overflow reply into the OpenAI-form error Copilot compacts on, keeping the text.
 func overflowRewrite(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusRequestEntityTooLarge {
 		return false
 	}
 	peek := peekBody(resp, 8<<10)
-	if !overflowWording().Match(peek) || promptTooLong().Match(peek) {
+	if !retry.IsContextOverflow(resp.StatusCode, string(peek)) || promptTooLong(peek) != nil {
 		return false
 	}
 	msg := upstreamMessage(peek)

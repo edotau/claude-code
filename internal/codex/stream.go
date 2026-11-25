@@ -30,9 +30,7 @@ func (e *TurnError) RetryAfter() time.Duration { return e.After }
 
 func newTurnError(message string, willRetry bool) *TurnError {
 	c := retry.Classify("codex", errors.New(message), false)
-	low := strings.ToLower(message)
-	window := strings.Contains(low, "context window") || strings.Contains(low, "context length") ||
-		strings.Contains(low, "maximum context")
+	window := retry.IsContextOverflow(0, message) // codex's events carry no status or code: the text alone
 	retryable := !window && (willRetry || c.Kind == retry.KindRateLimit || c.Kind == retry.KindTransient)
 	return &TurnError{Kind: c.Kind, Retryable: retryable, ContextWindow: window, After: c.RetryAfter, Message: message}
 }

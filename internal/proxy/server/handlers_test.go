@@ -813,3 +813,60 @@ func setupAutoFailoverRig(t *testing.T) (*httptest.Server, string, *atomic.Int32
 	}
 	return srv, tok, &devStatus, qaUp, antUp
 }
+
+// The proxy's overflow rewrite reads the one shared phrase list: local and vendor wording, loose text on 400/413 only.
+func TestOverflowRewriteSharedPhrases(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+		want   bool
+	}{
+		"llama.cpp":        {400, `{"error":{"code":400,"message":"the request exceeds the available context size, try increasing it","type":"exceed_context_size_error"}}`, true},
+		"lm studio":        {400, `{"error":"The number of tokens to keep from the initial prompt is greater than the context length"}`, true},
+		"openai":           {400, `{"error":{"message":"Your input exceeds the context window of this model","code":"context_length_exceeded"}}`, true},
+		"copilot 413":      {413, `{"error":{"message":"prompt token count of 140001 exceeds the limit of 128000"}}`, true},
+		"databricks":       {400, `{"message":"Input length of 140001 tokens exceeds model context length (131072)"}`, true},
+		"copilot 500":      {500, `{"error":{"message":"prompt token count of 140001 exceeds the limit of 128000"}}`, false},
+		"unrelated 400":    {400, `{"message":"bad field x"}`, false},
+		"nginx 413":        {413, `<html><head><title>413 Request Entity Too Large</title></head></html>`, false},
+		"bad input value":  {400, `{"error":{"message":"Invalid value for 'input': expected a string"}}`, false},
+		"prompt too long":  {400, `{"error":{"message":"prompt is too long: 9 tokens > 5 maximum"}}`, false}, // tooLong's
+		"wording on a 200": {200, `{"message":"maximum context length is 5 tokens"}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: tc.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(tc.body))}
+			if got := overflowRewrite(resp); got != tc.want {
+				t.Fatalf("overflowRewrite = %v, want %v", got, tc.want)
+			}
+			got, _ := io.ReadAll(resp.Body)
+			if tc.want && (!strings.Contains(string(got), `"context_length_exceeded"`) || !strings.Contains(string(got), "prompt is too long: ")) {
+				t.Fatalf("not the compact form: %s", got)
+			}
+			if !tc.want && string(got) != tc.body {
+				t.Fatalf("altered: %s", got)
+			}
+		})
+	}
+	resp := &http.Response{StatusCode: 400, Header: http.Header{},
+		Body: io.NopCloser(strings.NewReader(`{"message":"prompt is too long: 9 tokens > 5 maximum"}`))}
+	if !tooLong(resp) {
+		t.Fatal("tooLong must still classify the Anthropic wording")
+	}
+}
+
+// promptTooLong quotes the limit text, its tail only when complete, as the regex it replaced did.
+func TestPromptTooLongExtracts(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"message":"prompt is too long: 1177204 tokens > 1000000 maximum"}`: "prompt is too long: 1177204 tokens > 1000000 maximum",
+		`{"message":"prompt is too long: 12 tokens > x maximum"}`:            "prompt is too long",
+		`{"message":"prompt is too long"}`:                                   "prompt is too long",
+		"x prompt is too long: 12 tokens > 9 maximum":                        "prompt is too long: 12 tokens > 9 maximum",
+		"prompt is too long: 12 tokens > 9":                                  "prompt is too long",
+		"prompt is too long: ":                                               "prompt is too long",
+		`{"message":"Prompt is too long"}`:                                   "",
+	} {
+		if got := string(promptTooLong([]byte(in))); got != want {
+			t.Errorf("promptTooLong(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

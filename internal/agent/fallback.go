@@ -972,11 +972,6 @@ var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|Invalid JSON payload received\. Unknown name|available only via Unity Gateway|(?i)endpoint\b[^\n]*\bis deprecated`)
 })
 
-// requestSizeErr is a prompt over a model's context: this ask re-picks, nothing is held; checked before capabilityErr.
-var requestSizeErr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)context length|maximum context|exceed context limit|prompt is too long|input length`)
-})
-
 // NoResponse opens an agent error for a model that answered nothing before any text or tool: an auto ask re-picks.
 const NoResponse = "model returned no response"
 
@@ -990,8 +985,8 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	if err == nil {
 		return ""
 	}
-	if retry.Progressed(err) {
-		return "" // text or tools already ran: a re-run on the next model would repeat them
+	if retry.Progressed(err) || retry.IsClientCancel(err) {
+		return "" // text or tools already ran (a re-run would repeat them), or the client cancelled
 	}
 	auto := IsAuto(lreq.Model)
 	msg := err.Error()
@@ -1004,10 +999,11 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	return ""
 }
 
-// autoRefusal is a refusal an auto ask re-picks past: size or no response holds nothing, a model one skips ran 7 days.
+// autoRefusal: an auto ask re-picks past size (not on last_resort) or no response, holding nothing; a skip lasts 7d.
 func autoRefusal(ctx context.Context, disp Dispatch, requested, ran, msg string) bool {
-	if requestSizeErr().MatchString(msg) || strings.Contains(msg, NoResponse) {
-		return autoRetryable(disp, requested, ran) != nil
+	if size := retry.IsContextOverflow(0, msg); size || strings.Contains(msg, NoResponse) { // size before capabilityErr
+		p := autoRetryable(disp, requested, ran)
+		return p != nil && (!size || !p.Options.LastResort)
 	}
 	return (capabilityErr().MatchString(msg) || pickGoneErr().MatchString(msg)) && skipAutoModel(ctx, disp, requested, ran)
 }

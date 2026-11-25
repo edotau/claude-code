@@ -153,7 +153,9 @@ func TestParseCodexStreamTypedTurnFailure(t *testing.T) {
 		after       time.Duration
 	}{
 		{"rate limit", `{"type":"turn.failed","error":{"message":"429 Too Many Requests: rate limit exceeded, retry after 7s"}}`, retry.KindRateLimit, true, false, 7 * time.Second},
-		{"context", `{"type":"turn.failed","error":{"message":"Your input exceeds the context window of this model"}}`, retry.KindFatal, false, true, 0},
+		{"context", `{"type":"turn.failed","error":{"message":"Your input exceeds the context window of this model"}}`, retry.KindContext, false, true, 0},
+		{"llama.cpp", `{"type":"turn.failed","error":{"message":"the request exceeds the available context size, try increasing it"}}`, retry.KindContext, false, true, 0},
+		{"rate limit and context", `{"type":"turn.failed","error":{"message":"rate limit: maximum context reached"}}`, retry.KindRateLimit, false, true, 0},
 		{"other", `{"type":"turn.failed","error":{"message":"bad request"}}`, retry.KindFatal, false, false, 0},
 	}
 	for _, tc := range cases {

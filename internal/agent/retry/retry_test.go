@@ -646,3 +646,145 @@ func TestDoRetriesOnceWhenALoopbackProxyDies(t *testing.T) {
 		t.Fatalf("a second dead route must stop after one hop: err=%v calls=%d", err, calls)
 	}
 }
+
+// One phrase list classifies every vendor's context overflow; the loose phrases need a 400/413.
+func TestIsContextOverflow(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{0, "prompt is too long: 230000 tokens > 200000 maximum", true},                                                                                    // Anthropic
+		{0, "input length and `max_tokens` exceed context limit: 197000 + 8192 > 200000", true},                                                            // Anthropic
+		{0, "Input is too long for requested model.", true},                                                                                                // Bedrock
+		{0, "Your input exceeds the context window of this model", true},                                                                                   // OpenAI, codex
+		{0, "The input token count (1200000) exceeds the maximum number of tokens allowed (1048576)", true},                                                // Gemini
+		{0, "This model's maximum prompt length is 131072 but the request contains 140001 tokens", true},                                                   // xAI
+		{0, "Please reduce the length of the messages or completion.", true},                                                                               // Groq
+		{0, "This model's maximum context length is 131072 tokens. However, you requested 140001", true},                                                   // OpenRouter, vLLM
+		{0, "the request exceeds the available context size, try increasing it", true},                                                                     // llama.cpp
+		{0, `{"error":{"type":"exceed_context_size_error","n_ctx":4096}}`, true},                                                                           // llama.cpp type
+		{0, "The number of tokens to keep from the initial prompt is greater than the context length", true},                                               // LM Studio
+		{0, "Trying to keep the first 9000 tokens when context the overflows. However, the model is loaded with context length of only 4096 tokens", true}, // LM Studio
+		{0, "invalid params, context window exceeds limit (2013)", true},                                                                                   // MiniMax
+		{0, "Invalid request: Your request exceeded model token limit: 262144", true},                                                                      // Kimi
+		{0, `{"error":{"code":"context_length_exceeded"}}`, true},                                                                                          // stream-error code
+		{0, "Input length of 140001 tokens exceeds model context length (131072)", true},                                                                   // Databricks
+		{0, "The input (140001 tokens) is longer than the model's context length (131072 tokens).", true},                                                  // Databricks
+		{0, "Input exceeds the model's maximum context length of 131072 tokens", true},                                                                     // Databricks
+		{400, "prompt token count of 140001 exceeds the limit of 128000", true},                                                                            // Copilot, 400 only
+		{0, "prompt token count of 140001 exceeds the limit of 128000", false},
+		{500, "prompt token count of 140001 exceeds the limit of 128000", false},
+		{413, "413 status code (no body)", true}, // Cerebras, Mistral
+		{400, "x: 400 (no body)", true},
+		{0, "400 (no body)", false},
+		{400, "bad field x", false},
+		{0, "429 too many tokens per minute", false},
+		{0, "", false},
+	} {
+		if got := IsContextOverflow(c.status, c.body); got != c.want {
+			t.Errorf("IsContextOverflow(%d, %q) = %v, want %v", c.status, c.body, got, c.want)
+		}
+	}
+}
+
+// statusWrap is a status error wrapping a cause, e.g. a cancelled request that still carried a status.
+type statusWrap struct {
+	code  int
+	cause error
+}
+
+func (e statusWrap) Error() string   { return fmt.Sprintf("HTTP %d: %v", e.code, e.cause) }
+func (e statusWrap) StatusCode() int { return e.code }
+func (e statusWrap) Unwrap() error   { return e.cause }
+
+// codedErr is an error with a typed stream-error code and no status.
+type codedErr struct{ code string }
+
+func (e codedErr) Error() string     { return "stream error" }
+func (e codedErr) ErrorCode() string { return e.code }
+
+// Overflow classifies KindContext (status-gated, text or code); a client cancel or a 499 is Fatal and nothing cools.
+func TestClassifyContextAndCancel(t *testing.T) {
+	overflow := stubErr{code: 400, body: "This model's maximum context length is 4096 tokens"}
+	for _, c := range []struct {
+		name string
+		err  error
+		kind Kind
+	}{
+		{"400 overflow", overflow, KindContext},
+		{"413 loose", stubErr{code: 413, body: "413 status code (no body)"}, KindContext},
+		{"500 with wording", stubErr{code: 500, body: "maximum context length is 4096 tokens"}, KindTransient},
+		{"429 with wording", stubErr{code: 429, body: "maximum context length is 4096 tokens"}, KindRateLimit},
+		{"text", errors.New("pi: prompt is too long: 230000 tokens > 200000 maximum"), KindContext},
+		{"input length of 403", errors.New("input length of 403 tokens exceeds model context length"), KindContext},
+		{"rate limit first", errors.New("rate limit: maximum context"), KindRateLimit},
+		{"stream code", codedErr{"context_length_exceeded"}, KindContext},
+		{"other code", codedErr{"invalid_prompt"}, KindFatal},
+		{"cancel", fmt.Errorf("codex: %w", context.Canceled), KindFatal},
+		{"cancel over transient text", fmt.Errorf("connection reset, timed out: %w", context.Canceled), KindFatal},
+		{"cancel over code", fmt.Errorf("%w: %w", codedErr{"context_length_exceeded"}, context.Canceled), KindFatal},
+		{"cancelled dial", &net.OpError{Op: "dial", Net: "tcp", Err: context.Canceled}, KindFatal},
+		{"499", statusErr{StatusClientClosed}, KindFatal},
+		{"499 with overflow code", stubErr{code: StatusClientClosed, vend: "context_length_exceeded"}, KindFatal},
+		{"503 wrapping a cancel", statusWrap{503, context.Canceled}, KindFatal},
+		{"429 wrapping a cancel", statusWrap{429, context.Canceled}, KindFatal},
+		{"auth wording beats overflow", errors.New("invalid x-api-key; input length unknown"), KindAuth},
+		{"own kind name", errors.New("pi: context overflow: stream error"), KindContext},
+	} {
+		e := Classify("x", c.err, false)
+		if e.Kind != c.kind {
+			t.Errorf("%s: Classify(%v) = %v, want %v", c.name, c.err, e.Kind, c.kind)
+		}
+		if (c.kind == KindContext || c.kind == KindFatal) && (e.retryable() || e.Connect || e.ProxyDown) {
+			t.Errorf("%s: %+v must never retry, reroute or reach a proxy hop", c.name, e)
+		}
+	}
+}
+
+// KindForStatus is exported for the proxy's kind header: a 499 and a bare 413 are Fatal; KindContext names itself.
+func TestKindForStatusClientClosed(t *testing.T) {
+	if KindForStatus(StatusClientClosed) != KindFatal || KindForStatus(http.StatusRequestEntityTooLarge) != KindFatal {
+		t.Error("KindForStatus: a 499 and a bare 413 are Fatal")
+	}
+	if KindContext.String() != "context overflow" {
+		t.Errorf("KindContext = %q", KindContext)
+	}
+}
+
+// Do runs a client cancel, a 499 and a context overflow once, and never cools the account.
+func TestDoNeverRetriesCancelOrOverflow(t *testing.T) {
+	overflow := stubErr{code: 400, body: "This model's maximum context length is 4096 tokens"}
+	ResetCooldowns()
+	t.Cleanup(ResetCooldowns)
+	rateCancel := func() *Error {
+		return &Error{Kind: KindRateLimit, Agent: "x", RetryAfter: time.Second, Err: context.Canceled}
+	}
+	for name, attempt := range map[string]func() *Error{
+		"499":      func() *Error { return Classify("x", statusErr{StatusClientClosed}, false) },
+		"cancel":   func() *Error { return Classify("x", context.Canceled, false) },
+		"overflow": func() *Error { return Classify("x", overflow, false) },
+		"classified rate limit wrapping a cancel": rateCancel,
+		"cancel around a classified rate limit": func() *Error {
+			return Classify("x", fmt.Errorf("%w: %w", &Error{Kind: KindRateLimit, Agent: "x"}, context.Canceled), false)
+		},
+		"classified 499": func() *Error { return &Error{Kind: KindTransient, Agent: "x", Status: StatusClientClosed} },
+		"rate limit around a nested 499": func() *Error {
+			return &Error{Kind: KindRateLimit, Agent: "x", Err: &Error{Kind: KindFatal, Agent: "x", Status: StatusClientClosed}}
+		},
+		"cancel with an auth verdict": func() *Error {
+			e := &Error{Kind: KindAuth, Agent: "x", AuthReason: "rejected", PolicyRefusal: true, Err: context.Canceled}
+			if e = e.clientCancel(e); e.AuthReason != "" || e.PolicyRefusal {
+				t.Errorf("a cancel kept its account or policy verdict: %+v", e)
+			}
+			return e
+		},
+	} {
+		calls := 0
+		got := Do(context.Background(), Policy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond, Key: "acct"},
+			func(context.Context, int) *Error { calls++; return attempt() })
+		if got == nil || got.Kind == KindRateLimit || got.Kind == KindTransient || calls != 1 || cooling("acct") {
+			t.Errorf("%s: %+v after %d calls, cooling %v, want one call, no retry kind, no cooldown", name, got, calls, cooling("acct"))
+		}
+	}
+}
