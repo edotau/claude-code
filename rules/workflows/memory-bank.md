@@ -187,7 +187,8 @@ chain returns the original flagged unavailable. `memory search` still lists it a
 | Pinned lines | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*` |
 | Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code loader |
 
-The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow.
+The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow;
+`activeContext.md` and `progress.md` split per section into `archive/<file>-<yyyy-mm>.md`.
 
 ## Who writes what
 
@@ -221,6 +222,12 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
   If `safety-scan` refused writes and no bank file changed it reruns once; a second miss records status
   `blocked` (no retry, no Stop block) with one quiet line.
+- `memory dream [--trigger session-start|schedule|manual]` — runs the catch-up sweep first; every run (a not-due one
+  too, reason `not due`) appends a record to `state/harness/memory/dream-results.jsonl` and logs `dream-<stamp>.log`;
+  `doctor` shows the `memory dream` row. macOS launch agent `com.edotau.claude-code.dream` runs it every 6 h
+  (`internal/setup/install_dream.go`). A failed receipt carries `class` (`auth|budget|quota|failed`) and a `fix`
+  command; `auth` and `budget` are not retried until new edits. A dispatched leaf's session is not saved by its own
+  hooks (`update_gate.go`).
 - `memory dream` — consolidates (on Claude, the logged-in user): baseline → audit → recent sessions → prune native
   memory → refresh bank → plans audit → cross-pollinate → report; archives durable-file overflow. The plans audit
   ticks or strikes at most 10 open tasks of week-old plans through `plan task`; Go re-checks each after the run

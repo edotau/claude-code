@@ -374,6 +374,8 @@ vendor CLI untouched.
   and the AI-attribution block) judges calls. `--workdir` is no write boundary for any agent.
 - **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools for a known job kind
   (`memory.JobTools`) and no fallback to another vendor.
+  Each hop runs at `--fallback none`: the pin, the other Databricks workspaces,
+  then `magnitude`/`local` when its `/models` answers within 2 s; a local run is marked lower trust.
 
 ## Codex child routing
 
