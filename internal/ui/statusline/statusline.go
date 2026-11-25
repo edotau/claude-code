@@ -84,7 +84,7 @@ type values struct {
 	contextPct   int
 	adds         int
 	dels         int
-	baseKind     string  // "pin", "fork", "up" or "" for the default base
+	baseKind     string  // "pin", "fork" or "" for the default base or upstream
 	two          twoData // payload facts only the twoline style reads
 }
 
