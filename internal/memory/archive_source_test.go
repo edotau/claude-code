@@ -14,6 +14,10 @@ func TestArchiveSource(t *testing.T) {
 		{"trim", "progress-2026-11-20-trim.md", "progress", true},
 		{"focus", "activeContext-2026-11-20-focus.md", "activeContext", true},
 		{"repo slug", "decisionLog-2026-11-19-sample-repo.md", "decisionLog", true},
+		{"month repo slug", "sessionHistory-2026-08-digitalbtd-rapid.md", "sessionHistory", true},
+		{"month one word", "sessionHistory-2026-08-digitalbtd.md", "sessionHistory", true},
+		{"src archive", "conventions-archive.md", "conventions", true},
+		{"merged no source", "merged-claude-code-progress.md", "", false},
 		{"overflow", "2026-11-18-decisionLog-overflow.md", "decisionLog", true},
 		{"overflow repo slug", "2026-11-18-sessionHistory-overflow-sample-repo.md", "sessionHistory", true},
 		{"unplaceable gemini", "2026-10-21-gemini-history-snapshot.md", "", false},
@@ -37,6 +41,7 @@ func TestGrammarOfArchiveUsesSource(t *testing.T) {
 		"archive/2026-11-01-decisionLog-overflow.md": GrammarDated,
 		"archive/conventions-2026-11-20-trim.md":     GrammarBullets,
 		"archive/progress-2026-11.md":                GrammarSections,
+		"archive/conventions-archive.md":             GrammarBullets,
 		"archive/2026-10-21-gemini-snapshot.md":      GrammarSections,
 	} {
 		if got := GrammarOf(name); got != want {

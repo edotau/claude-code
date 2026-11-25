@@ -59,7 +59,7 @@ func planDate(d Doc) []Op {
 			continue
 		}
 		if date := nearestDate(d.Entries, i); date != "" {
-			ops = append(ops, Op{Op: "date", ID: contentRef(e.block()), Text: date})
+			ops = append(ops, Op{Op: "date", ID: e.refOf(), Text: date})
 		}
 	}
 	return dedupOps(ops)
@@ -88,7 +88,7 @@ func planIdentify(d Doc) []Op {
 	var ops []Op
 	for _, e := range d.Entries {
 		if e.ID == "" && strings.HasPrefix(e.Lines[0], prefix) {
-			ops = append(ops, Op{Op: "identify", ID: contentRef(e.block())})
+			ops = append(ops, Op{Op: "identify", ID: e.refOf()})
 		}
 	}
 	return dedupOps(ops)
@@ -120,13 +120,13 @@ func upgradeOp(d Doc, o Op, env Env) (Doc, []OpResult) {
 		ents = mergeHeading(ents, o.Title)
 	case "date":
 		for i, e := range ents {
-			if e.ID == "" && contentRef(e.block()) == o.ID {
+			if e.refOf() == o.ID {
 				ents[i] = withLines(e, i, dateHeading(e.Lines, o.Text))
 			}
 		}
 	case "identify":
 		for i, e := range ents {
-			if e.ID == "" && contentRef(e.block()) == o.ID {
+			if e.refOf() == o.ID {
 				ents[i] = withLines(e, i, identified(d.Name, i, e.Lines, env))
 			}
 		}
@@ -148,7 +148,7 @@ func dateHeading(lines []string, date string) []string {
 }
 
 func identified(name string, idx int, lines []string, env Env) []string {
-	if env.NewID == nil {
+	if _, _, total := lastMarker(lines, fencedLines(lines)); env.NewID == nil || total > 0 {
 		out, _ := settleBlockID(name, idx, lines, env.Now)
 		return out
 	}

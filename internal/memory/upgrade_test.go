@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,5 +54,31 @@ func TestUpgradeStepsContiguous(t *testing.T) {
 	}
 	if last := upgradeSteps[len(upgradeSteps)-1]; last.From+1 != storeVersion {
 		t.Errorf("last step ends at %d, storeVersion %d", last.From+1, storeVersion)
+	}
+}
+
+func TestUpgradeStepsDateParenthetical(t *testing.T) {
+	src := "# Log\n\n## 2026-10-14 (night) — late <!-- id:cccccccc -->\nbody\n\n## undated <!-- id:dddddddd -->\nbody\n"
+	d := ParseDoc("decisionLog.md", []byte(src))
+	ops := planDate(d)
+	if len(ops) != 1 {
+		t.Fatalf("want one date op, got %+v", ops)
+	}
+	out, _ := applyUpgrade(d, Batch{Ops: ops}, Env{})
+	want := "## 2026-10-14 — undated <!-- id:dddddddd -->"
+	if got := out.Entries[len(out.Entries)-1].Lines[0]; got != want {
+		t.Errorf("dated heading %q, want %q", got, want)
+	}
+	if again := planDate(out); len(again) != 0 {
+		t.Errorf("second plan not empty: %+v", again)
+	}
+}
+
+func TestUpgradeStepsOneMarker(t *testing.T) {
+	lines := []string{"## 2026-11-01 — entry", "body", "tail <!-- id:eeeeeeee -->"}
+	env := Env{NewID: func(int, string) string { return "ffffffff" }}
+	got := identified("decisionLog.md", 0, lines, env)
+	if n := strings.Count(strings.Join(got, "\n"), "<!-- id:"); n != 1 {
+		t.Errorf("want one marker, got %d: %q", n, got)
 	}
 }
