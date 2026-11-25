@@ -408,6 +408,9 @@ func ResetCooldowns() {
 	clear(cooldowns.until)
 }
 
+// CooldownPoll bounds each sleep in WaitCooldown so a hold cleared meanwhile is noticed; tests shrink it.
+var CooldownPoll = time.Second
+
 // WaitCooldown blocks until key's cooldown ends, for at most maxWait (0 returns at once), or until ctx is done.
 func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	if key == "" {
@@ -422,6 +425,7 @@ func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 		if wait <= 0 {
 			return
 		}
+		wait = min(wait, CooldownPoll)
 		Settle(ctx) // a cooling task holds no slot, so a task on another account can start
 		t := time.NewTimer(wait)
 		select {

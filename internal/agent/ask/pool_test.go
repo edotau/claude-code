@@ -988,11 +988,13 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 // A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an auth-dead account is not attempted.
 func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	coolOnFirstLoad(t, "late·A", 200*time.Millisecond)
+	defer func(d time.Duration) { retry.CooldownPoll = d }(retry.CooldownPoll)
+	retry.CooldownPoll = 5 * time.Millisecond
+	coolOnFirstLoad(t, "late·A", time.Minute) // the marker ends the hold after marking, so no clock decides the order
 	var runs atomic.Int32
 	runPool(t, poolOptions{Jobs: 1},
 		acctTask(t, "late", "late·A", countRunner("late", &runs)),
-		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("late·A"))))
+		acctTask(t, "marker", "free·B", markRunner("marker", func() { markAuth("late·A")(); retry.ResetCooldowns() })))
 	if runs.Load() != 0 {
 		t.Errorf("the first attempt ran %d times on an account marked auth-dead during its cooldown wait", runs.Load())
 	}
