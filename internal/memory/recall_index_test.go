@@ -60,6 +60,14 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 	}
 }
 
+// readIndex decodes the index mapped and releases the mapping when the test ends.
+func readIndex(t testing.TB, path string, key uint64, want map[fileKey]bool) map[fileKey]indexed {
+	t.Helper()
+	m, release := readRecallIndex(path, key, want)
+	t.Cleanup(release)
+	return m
+}
+
 func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 	t.Helper()
 	return searchBanks(query, 0)
@@ -67,7 +75,7 @@ func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 	t.Helper()
-	index := readRecallIndex(filepath.Join(paths.MemoryStateDir(), recallIndexFile), f.key, nil)
+	index := readIndex(t, filepath.Join(paths.MemoryStateDir(), recallIndexFile), f.key, nil)
 	if len(index) == 0 {
 		t.Fatal("no persisted index entries for the current encoder key")
 	}
@@ -187,15 +195,15 @@ func TestRecallIndexKeyMismatchIgnored(t *testing.T) {
 	if err := writeRecallIndex(path, wrong, index); err != nil {
 		t.Fatal(err)
 	}
-	if len(readRecallIndex(path, wrong, nil)) != len(index) {
+	if len(readIndex(t, path, wrong, nil)) != len(index) {
 		t.Fatal("fixture did not persist the mismatched encoder key")
 	}
-	if len(readRecallIndex(path, f.key, nil)) != 0 {
+	if len(readIndex(t, path, f.key, nil)) != 0 {
 		t.Fatal("index with mismatched encoder key was accepted")
 	}
 	f.search(t, "router retry")
 	f.persisted(t)
-	if len(readRecallIndex(path, wrong, nil)) != 0 {
+	if len(readIndex(t, path, wrong, nil)) != 0 {
 		t.Fatal("rewritten index still carries the wrong encoder key")
 	}
 }
@@ -219,7 +227,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			write(t, path, string(tt.data))
-			if len(readRecallIndex(path, f.key, nil)) != 0 {
+			if len(readIndex(t, path, f.key, nil)) != 0 {
 				t.Fatal("corrupt index was accepted")
 			}
 			f.search(t, "router retry")
@@ -235,10 +243,10 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 		if err := writeRecallIndex(path, f.key, index); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := readRecallIndex(path, f.key, map[fileKey]bool{bad: true, good: true})[bad]; ok {
+		if _, ok := readIndex(t, path, f.key, map[fileKey]bool{bad: true, good: true})[bad]; ok {
 			t.Fatal("corrupt wanted entry was accepted")
 		}
-		got := readRecallIndex(path, f.key, map[fileKey]bool{good: true})
+		got := readIndex(t, path, f.key, map[fileKey]bool{good: true})
 		if len(got) != 1 || !got[good].seg.Valid() {
 			t.Fatalf("unrelated corrupt entry changed the wanted read: %d entries", len(got))
 		}
@@ -259,7 +267,7 @@ func TestRecallIndexTornWriteIsAMiss(t *testing.T) {
 	}
 	data[len(data)/2] ^= 0xff
 	write(t, path, string(data))
-	if len(readRecallIndex(path, f.key, nil)) != 0 {
+	if len(readIndex(t, path, f.key, nil)) != 0 {
 		t.Fatal("index with a flipped byte and a stale CRC was accepted")
 	}
 }
@@ -333,17 +341,66 @@ func BenchmarkReadRecallIndex30MB(b *testing.B) {
 		b.Fatalf("unexpected fixture size: %d", info.Size())
 	}
 	want := len(index)
-	if got := readRecallIndex(path, key, nil); len(got) != want {
+	if got := readIndex(b, path, key, nil); len(got) != want {
 		b.Fatalf("fixture read returned %d entries, want %d", len(got), want)
 	}
 	b.SetBytes(info.Size())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if got := readRecallIndex(path, key, nil); len(got) != want {
+		got, release := readRecallIndex(path, key, nil)
+		if len(got) != want {
 			b.Fatalf("read returned %d entries, want %d", len(got), want)
 		}
+		release()
 	}
 	b.ReportMetric(float64(info.Size()), "index-bytes")
 	b.ReportMetric(float64(want), "entries")
+}
+
+// Segments stay valid and unchanged after the index file is replaced, the only way a writer changes it.
+func TestRecallIndexMappedSurvivesRename(t *testing.T) {
+	f := newRecallIndexFixture(t)
+	f.search(t, "router retry")
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
+	m, release := readRecallIndex(path, f.key, nil)
+	defer release()
+	before := map[fileKey]string{}
+	for k, e := range m {
+		before[k] = string(e.seg)
+	}
+	if len(before) == 0 {
+		t.Fatal("no entries mapped")
+	}
+	if err := writeRecallIndex(path, f.key, map[fileKey]indexed{}); err != nil {
+		t.Fatal(err)
+	}
+	for k, e := range m {
+		if !e.seg.Valid() || string(e.seg) != before[k] {
+			t.Fatalf("segment for %s changed after the index was replaced", k.path)
+		}
+	}
+	if len(readIndex(t, path, f.key, nil)) != 0 {
+		t.Fatal("replaced index was not read")
+	}
+}
+
+// The process-retained mapping follows the file: a rewritten index is re-mapped, never served stale.
+func TestRecallIndexRetainedFollowsRewrite(t *testing.T) {
+	f := newRecallIndexFixture(t)
+	f.search(t, "router retry")
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
+	first := retainedIndexData(path)
+	if len(first) == 0 || &retainedIndexData(path)[0] != &first[0] {
+		t.Fatal("unchanged index was not served from the retained mapping")
+	}
+	if err := writeRecallIndex(path, f.key, map[fileKey]indexed{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(decodeRecallIndex(retainedIndexData(path), f.key, nil)) != 0 {
+		t.Fatal("retained mapping served the replaced index")
+	}
+	if !decodeRecallIndex(first, f.key, nil)[fileKey{f.source, segEntries}].seg.Valid() {
+		t.Fatal("old mapping was invalidated by the rewrite")
+	}
 }

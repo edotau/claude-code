@@ -56,10 +56,18 @@ type indexed struct {
 	seg           segView
 }
 
-// readRecallIndex decodes the entries in want, or every entry when want is nil; invalid entries are left out.
-func readRecallIndex(path string, key uint64, want map[fileKey]bool) map[fileKey]indexed {
-	data, err := os.ReadFile(path)
-	if err != nil || len(data) < indexHeaderLen+indexTrailerLen {
+// readRecallIndex maps and decodes the entries in want (all when nil); segments alias it, so release comes last.
+func readRecallIndex(path string, key uint64, want map[fileKey]bool) (map[fileKey]indexed, func()) {
+	data, release, err := paths.ReadMapped(path)
+	if err != nil {
+		return make(map[fileKey]indexed), func() {}
+	}
+	return decodeRecallIndex(data, key, want), release
+}
+
+// decodeRecallIndex validates data (magic, version, key, CRC, segments) and decodes it; invalid entries are left out.
+func decodeRecallIndex(data []byte, key uint64, want map[fileKey]bool) map[fileKey]indexed {
+	if len(data) < indexHeaderLen+indexTrailerLen {
 		return make(map[fileKey]indexed)
 	}
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
@@ -70,10 +78,39 @@ func readRecallIndex(path string, key uint64, want map[fileKey]bool) map[fileKey
 	sumOK := make(chan bool, 1) // the checksum runs beside segment validation; its verdict gates the result
 	go func() { sumOK <- crc32.Checksum(body, indexCRC) == u32(trailer) }()
 	m, ok := readIndexEntries(body[indexHeaderLen:], u32(body[16:]), want)
-	if !ok || !<-sumOK {
+	sumGood := <-sumOK // always joined: the goroutine reads the mapping, which may be released once this returns
+	if !ok || !sumGood {
 		return make(map[fileKey]indexed)
 	}
 	return m
+}
+
+// retained is the one mapping loadSegments keeps for the process, because the segments it hands out alias it.
+var retained struct {
+	sync.Mutex
+	path string
+	info os.FileInfo
+	data []byte
+}
+
+// retainedIndexData maps path once per file version; a replaced index leaves the old mapping alive for live segments.
+func retainedIndexData(path string) []byte {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	retained.Lock()
+	defer retained.Unlock()
+	if retained.path == path && retained.info != nil && os.SameFile(retained.info, info) &&
+		retained.info.Size() == info.Size() && retained.info.ModTime().Equal(info.ModTime()) {
+		return retained.data
+	}
+	data, _, err := paths.ReadMapped(path)
+	if err != nil {
+		return nil
+	}
+	retained.path, retained.info, retained.data = path, info, data
+	return data
 }
 
 // readIndexEntries decodes count entries; false on mis-framing or trailing bytes, and a bad wanted segment is a miss.
@@ -251,7 +288,7 @@ func readFilesIndex(path string, key uint64, files []corpusFile) map[fileKey]ind
 	for _, f := range files {
 		want[fileKey{f.Path, f.Mode}] = true
 	}
-	return readRecallIndex(path, key, want)
+	return decodeRecallIndex(retainedIndexData(path), key, want)
 }
 
 // persistIndex merges added into the on-disk index and drops files that no longer exist.
@@ -260,7 +297,8 @@ func persistIndex(path string, key uint64, added map[fileKey]indexed, stats map[
 		return
 	}
 	_, _ = paths.TryFileLock(path+".lock", time.Second, func() error { // re-read under the lock: keep peers' entries
-		cur := readRecallIndex(path, key, nil)
+		cur, release := readRecallIndex(path, key, nil)
+		defer release() // writeRecallIndex copies every segment into its buffer before this runs
 		maps.Copy(cur, added)
 		pruneMissing(cur, stats)
 		return writeRecallIndex(path, key, cur)
