@@ -22,6 +22,10 @@ This repo's Go conventions (module `github.com/edotau/claude-code`). They win ov
 - A verb's package path mirrors the verb path: `internal/<verb>/<command>` exists only when `claude-code <verb>
   <command>` does (`internal/network/remote`). A helper other areas import is top-level, never under a verb's package
   (`internal/httpx`, `internal/egress`).
+- **The layout is the memory (owner, 2026-11-25):** one name per concept on every surface, so each gives the others:
+  command path ↔ package path, settings section ↔ Go type ↔ table ↔ `vault ls` section ↔ `configure` page, package ↔
+  its `memory/techdebt/<area>.md` ↔ the `area` of memory entries about it. Code goes where its name says; when name and
+  place disagree, fix one of them, never record the mismatch in memory. Mirroring is a guide, not absolute.
 - A new scratch or temp writer targets `state/harness/<area>/` (or the git dir), never a repo root; a `.gitignore`
   entry is not the fix.
 - No DI container, cobra or viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
