@@ -872,7 +872,8 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	childScript := filepath.Join(dir, "child.sh")
 	leaderScript := filepath.Join(dir, "leader.sh")
 
-	childBody := "#!/bin/sh\ntrap 'touch \"" + marker + "\"; exit 0' INT\n: > \"" + ready + "\"\nsleep 30 &\nwait\n"
+	// A foreground 0.1 s sleep loop bounds trap latency: bash defers a trap landing just before `wait` until its job ends.
+	childBody := "#!/bin/sh\ntrap 'touch \"" + marker + "\"; exit 0' INT\n: > \"" + ready + "\"\nwhile :; do sleep 0.1; done\n"
 	if err := os.WriteFile(childScript, []byte(childBody), 0o700); err != nil {
 		t.Fatal(err)
 	}
