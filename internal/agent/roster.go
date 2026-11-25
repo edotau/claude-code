@@ -390,6 +390,8 @@ type Headless struct {
 	Attach     []string // opencode: one -f per path
 	WorkDir    string   // opencode: --dir; cmd.Dir alone doesn't move opencode's own cwd resolution
 	NoPersist  bool     // codex: --ephemeral
+
+	GoogleTools []string // gemini: --google-tools
 }
 
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
