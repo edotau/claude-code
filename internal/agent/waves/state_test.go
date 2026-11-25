@@ -10,8 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // statefp is a fake fingerprinter over an in-memory file map; a missing key is absent.
 func statefp(files map[string]string) FingerprintFunc {

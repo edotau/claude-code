@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 type fakeGates struct {
 	mu      sync.Mutex

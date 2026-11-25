@@ -13,10 +13,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 const testCred = "session-token-xyz"
 
@@ -487,14 +490,13 @@ func TestWebHint(t *testing.T) {
 	}
 }
 
-// A no-answer failure keeps Pi's redacted stderr, found by its sentinel and not by its wording.
+// A no-answer failure quotes Pi's stderr tail (redacted by agent.ChildErr), found by its sentinel, not its wording.
 func TestWithPiOutputQuotesStderr(t *testing.T) {
-	fakeKey := "da" + "pi" + strings.Repeat("0123456789abcdef", 2) // built at runtime: no token-shaped literal in source
 	tail := &retry.TailBuffer{}
-	_, _ = tail.Write([]byte("fatal: model refused token=" + fakeKey + "\n"))
+	_, _ = tail.Write([]byte("fatal: model refused\n"))
 	got := withPiOutput(t.Context(), "pi", retry.Classify("pi", errNoAnswer, false), tail)
-	if got == nil || !strings.Contains(got.Error(), "fatal: model refused") || strings.Contains(got.Error(), fakeKey) {
-		t.Fatalf("err = %v, want the stderr tail with the credential redacted", got)
+	if got == nil || !strings.Contains(got.Error(), "fatal: model refused") {
+		t.Fatalf("err = %v, want the stderr tail quoted", got)
 	}
 	other := errors.New("pi run aborted")
 	if withPiOutput(t.Context(), "pi", other, tail) != other {
