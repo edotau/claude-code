@@ -78,6 +78,7 @@ type Envelope struct {
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
+	FallbackKind    string          `json:"fallback_kind,omitempty"`   // the failure kind of the fallen hop (retry.Kind.String())
 	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered
 	RequestedWhy    string          `json:"requested_why,omitempty"`   // why the requested target did not answer
 	Route           *route.Route    `json:"route,omitempty"`           // the route that answered, as an object
@@ -170,6 +171,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify, Handback: res.Handback}
 	env.Type, env.Runner = res.Type, res.Runner
+	env.FallbackKind = res.FallbackKind
 	if res.Runner != "" {
 		env.Agent = cmp.Or(res.Asked, res.Agent)
 	}
@@ -403,6 +405,7 @@ type Result struct {
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
 	Fallback        string          `json:"fallback,omitempty"`        // the requested agent when another agent or route answered; Agent is the answerer
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
+	FallbackKind    string          `json:"fallback_kind,omitempty"`   // retry.Kind.String() of the fallen hop; a string, not the enum, so the wire stays text
 	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered
 	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route Requested was asked on
 	RequestedWhy    string          `json:"-"`                         // why the requested target did not answer

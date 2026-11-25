@@ -100,6 +100,35 @@ func TestEnvelopeNewFieldsOmitEmpty(t *testing.T) {
 	}
 }
 
+// The envelope carries the fallen hop's kind when set, omits it otherwise, and an envelope without it round-trips.
+func TestEnvelopeFallbackKind(t *testing.T) {
+	b, err := json.Marshal(NewEnvelope(Result{Agent: "pi", Status: StatusOK, FallbackKind: "transient failure"}, nil, "d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); !strings.Contains(s, `"fallback_kind":"transient failure"`) {
+		t.Errorf("envelope = %s, want fallback_kind", s)
+	}
+	old, err := json.Marshal(NewEnvelope(Result{Agent: "pi", Status: StatusOK}, nil, "d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(old), "fallback_kind") {
+		t.Fatalf("envelope = %s, want fallback_kind absent when unset", old)
+	}
+	var env Envelope
+	if err := json.Unmarshal(old, &env); err != nil {
+		t.Fatal(err)
+	}
+	again, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(old) {
+		t.Errorf("re-encoded = %s, want %s", again, old)
+	}
+}
+
 func TestEnvelopeDenialsOptional(t *testing.T) {
 	for _, d := range []*Denials{nil, {Count: 1, Commands: []string{"go test"}}} {
 		raw, err := json.Marshal(NewEnvelope(Result{Denials: d}, nil, "d"))
