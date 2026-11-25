@@ -1,3 +1,4 @@
 internal/router/arm.go:writeArmPicks	route-auto
+internal/router/local.go:writeLocalNote	route-local
 internal/router/state.go:backupCorruptState	unversioned: backup: the corrupt quota.json copied aside before it is replaced
 internal/router/state.go:writeState	quota
