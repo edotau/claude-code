@@ -571,7 +571,11 @@ func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 // retryTakeOver hands a plain --retry its retried run's working contract; --recover takes over in heldID instead.
 func retryTakeOver(ctx context.Context, id string) (bool, error) {
 	r, ok := agent.RetriedOf(ctx)
-	if !ok || recoverOf(ctx) != nil || !holdsContract(r.ID) {
+	if !ok || recoverOf(ctx) != nil {
+		return false, nil
+	}
+	cid := retriedContract(r.ID)
+	if cid == "" {
 		return false, nil
 	}
 	if from, err := agent.LoadRecord(r.ID); err != nil || from.Alive() { // never take a live run's contract
@@ -581,12 +585,61 @@ func retryTakeOver(ctx context.Context, id string) (bool, error) {
 	if m == "" || err != nil {
 		return false, err
 	}
-	if !takeOver(r.ID, id, []string{r.ID}) {
+	if !takeOver(cid, id, []string{r.ID}) {
 		_ = os.Remove(m)
 		return false, nil
 	}
-	fmt.Fprintf(os.Stderr, "ask: %s takes over contract %s\n", id, r.ID)
+	fmt.Fprintf(os.Stderr, "ask: %s takes over contract %s\n", id, cid)
 	return true, nil
+}
+
+// rollbackRetry undoes retryTakeOver for id after its spawn failed: the marker goes, the retried holder comes back.
+func rollbackRetry(ctx context.Context, id string) {
+	r, ok := agent.RetriedOf(ctx)
+	if !ok {
+		return
+	}
+	m := agent.WatchMarker("resumed", r.ID)
+	if b, err := os.ReadFile(m); m == "" || err != nil || strings.TrimSpace(string(b)) != id {
+		return
+	}
+	cid := retriedContract(id)
+	if cid == "" {
+		return
+	}
+	_, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
+		return unhold(c, id, r.ID), nil
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: roll back takeover: %v\n", r.ID, err)
+		return
+	}
+	_ = os.Remove(m)
+}
+
+// unhold gives c's second holder id back to prev (the retried run), or to the contract's own id when prev is it.
+func unhold(c contract.Contract, id, prev string) contract.Contract {
+	if len(c.Holders) < 2 || c.Holders[len(c.Holders)-1] != id {
+		return c
+	}
+	c.Holders = slices.Clone(c.Holders[:1])
+	if prev != c.Holders[0] {
+		c.Holders = append(c.Holders, prev)
+	}
+	return c
+}
+
+// retriedContract is the id of the working contract holder holds, its own or one it was resumed from.
+func retriedContract(holder string) string {
+	if holdsContract(holder) {
+		return holder
+	}
+	for _, cid := range agent.ResumeChain(holder) {
+		if c, err := contract.Load(cid); err == nil && currentHolder(c, holder) {
+			return cid
+		}
+	}
+	return ""
 }
 
 // linkResumed claims from's resumed marker for id, so heldID finds the contract here and in a --job child.
@@ -647,8 +700,9 @@ func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native 
 	} else {
 		code = askSpawn(ctx, fs, p, native, format, name)
 	}
-	if code != 0 && askContractOf(ctx) != nil {
-		if rec, err := agent.LoadRecord(p.Record.ID); err != nil || !rec.Alive() { // a started job settles its own
+	if rec, err := agent.LoadRecord(p.Record.ID); code != 0 && (err != nil || !rec.Alive()) { // a started job settles its own
+		rollbackRetry(ctx, p.Record.ID)
+		if askContractOf(ctx) != nil {
 			got, err := abandonContract(p.Record.ID, p.Record.ID, contract.ReasonOwnerDead)
 			reportSettled(p.Record.ID, got, err)
 		}
@@ -717,6 +771,10 @@ func takeOver(cid, id string, chain []string) bool {
 	c, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
 		last := c.Holders[len(c.Holders)-1]
 		if c.State() != contract.StateWorking || last == id || (last != cid && !slices.Contains(chain, last)) {
+			return c, nil
+		}
+		if len(c.Holders) > 1 && !slices.Contains(c.Holders, id) { // a dead second holder is replaced: still one re-assign
+			c.Holders = append(slices.Clone(c.Holders[:len(c.Holders)-1]), id)
 			return c, nil
 		}
 		return c.Reassign(id)

@@ -112,6 +112,40 @@ func TestRetryTakesOverContract(t *testing.T) {
 	}
 }
 
+// TestRetryRollbackAndCrashRecovery: a failed spawn rolls the takeover back; a crash is retaken by the next retry.
+func TestRetryRollbackAndCrashRecovery(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	openSaved(t, contract.Facts{}, "", "")
+	for _, id := range []string{"d-1", "d-2", "d-3"} {
+		if err := (&agent.Record{ID: id, Status: wire.StatusStalled, Time: time.Now()}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o := &contractOpen{Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner: contract.Party{Role: contract.RoleOwner, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1}}
+	retry := func(from string) context.Context {
+		return agent.WithRetried(withContract(t.Context(), o), agent.Retried{ID: from})
+	}
+	step := func(ctx context.Context, id string, rollback bool, want ...string) {
+		t.Helper()
+		if rollback {
+			rollbackRetry(ctx, id)
+		} else if err := startAsk(ctx, nil, &agent.Record{ID: id}); err != nil {
+			t.Fatal(err)
+		}
+		if c, err := contract.Load("d-1"); err != nil || !reflect.DeepEqual(c.Holders, want) {
+			t.Fatalf("%s rollback=%v: holders %v, %v; want %v", id, rollback, c.Holders, err, want)
+		}
+	}
+	step(retry("d-1"), "d-2", false, "d-1", "d-2")
+	step(retry("d-1"), "d-2", true, "d-1")
+	if _, err := os.Stat(agent.WatchMarker("resumed", "d-1")); err == nil {
+		t.Fatal("resumed marker survived the rollback")
+	}
+	step(retry("d-1"), "d-2", false, "d-1", "d-2") // d-2 then crashes: no rollback
+	step(retry("d-2"), "d-3", false, "d-1", "d-3")
+}
+
 // TestSettleContractFailsOnRedGate: a red gate fails the saved contract (reason term); the rest pass.
 func TestSettleContractFailsOnRedGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
