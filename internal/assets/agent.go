@@ -57,7 +57,7 @@ func renderFrom(set map[string]*parse.ListNode, name string, input any) string {
 		renderedKey(name)
 	}
 	var out strings.Builder
-	execTemplate(&out, set, name, root, input, 0)
+	tmplExec{&out, set}.execTemplate(name, root, input, 0)
 	return out.String()
 }
 

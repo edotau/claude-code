@@ -57,27 +57,33 @@ const maxTemplateDepth = 16
 // renderedKey, set only by tests, sees every template key executed.
 var renderedKey func(key string)
 
+// tmplExec is one render's invariant state: the output builder and the file set being executed.
+type tmplExec struct {
+	out *strings.Builder
+	set map[string]*parse.ListNode
+}
+
 // execTemplate covers the subset the embedded templates use: text, {{.}}, {{.Field}}, if/else, range and template.
-func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, list *parse.ListNode, dot any, depth int) {
+func (t tmplExec) execTemplate(name string, list *parse.ListNode, dot any, depth int) {
 	if list == nil {
 		return
 	}
 	for _, node := range list.Nodes {
 		switch n := node.(type) {
 		case *parse.TextNode:
-			out.Write(n.Text)
+			t.out.Write(n.Text)
 		case *parse.ActionNode:
-			fmt.Fprint(out, templateValue(name, n.Pipe, dot))
+			fmt.Fprint(t.out, templateValue(name, n.Pipe, dot))
 		case *parse.IfNode:
 			if templateTruth(name, templateValue(name, n.Pipe, dot)) {
-				execTemplate(out, set, name, n.List, dot, depth)
+				t.execTemplate(name, n.List, dot, depth)
 			} else {
-				execTemplate(out, set, name, n.ElseList, dot, depth)
+				t.execTemplate(name, n.ElseList, dot, depth)
 			}
 		case *parse.RangeNode:
-			rangeTemplate(out, set, name, n, dot, depth)
+			t.rangeTemplate(name, n, dot, depth)
 		case *parse.TemplateNode:
-			callTemplate(out, set, name, n, dot, depth)
+			t.callTemplate(name, n, dot, depth)
 		default:
 			panic("assets: " + name + ": unsupported template node " + node.String())
 		}
@@ -85,12 +91,12 @@ func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name str
 }
 
 // callTemplate resolves a bare block name against the caller's file first, then as a full set key.
-func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.TemplateNode, dot any, depth int) {
+func (t tmplExec) callTemplate(name string, n *parse.TemplateNode, dot any, depth int) {
 	key := templateStem(name) + "/" + n.Name
-	root, ok := set[key]
+	root, ok := t.set[key]
 	if !ok {
 		key = n.Name
-		root, ok = set[key]
+		root, ok = t.set[key]
 	}
 	if !ok {
 		panic("assets: " + name + ": no template " + n.Name)
@@ -105,19 +111,19 @@ func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name str
 	if n.Pipe != nil {
 		arg = templateValue(name, n.Pipe, dot)
 	}
-	execTemplate(out, set, key, root, arg, depth+1)
+	t.execTemplate(key, root, arg, depth+1)
 }
 
-func rangeTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.RangeNode, dot any, depth int) {
+func (t tmplExec) rangeTemplate(name string, n *parse.RangeNode, dot any, depth int) {
 	items, ok := templateValue(name, n.Pipe, dot).([]string)
 	if !ok {
 		panic("assets: " + name + ": range needs []string")
 	}
 	for _, item := range items {
-		execTemplate(out, set, name, n.List, item, depth)
+		t.execTemplate(name, n.List, item, depth)
 	}
 	if len(items) == 0 {
-		execTemplate(out, set, name, n.ElseList, dot, depth)
+		t.execTemplate(name, n.ElseList, dot, depth)
 	}
 }
 
