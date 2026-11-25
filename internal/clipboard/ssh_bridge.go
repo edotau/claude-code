@@ -5,14 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"image/png"
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -22,6 +20,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/edotau/claude-code/internal/launchd"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -477,12 +476,9 @@ func servePNG(w io.Writer) error {
 
 const launchLabel = "com.edotau.claude-code.clip"
 
-// launchctlTimeout bounds each launchctl call so a wedged launchd cannot hang install.
-const launchctlTimeout = 30 * time.Second
-
 // plistTmpl is the socket-activated agent: launchd accepts each connection and hands it over as stdin/stdout.
 var plistTmpl = sync.OnceValue(func() *template.Template {
-	return template.Must(template.New("plist").Funcs(template.FuncMap{"xml": xmlText}).Parse(`<?xml version="1.0" encoding="UTF-8"?>
+	return template.Must(template.New("plist").Funcs(template.FuncMap{"xml": launchd.XMLText}).Parse(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -513,13 +509,6 @@ var plistTmpl = sync.OnceValue(func() *template.Template {
 </plist>
 `))
 })
-
-// xmlText escapes s for a plist <string> body, so a path with & or < stays well-formed.
-func xmlText(s string) (string, error) {
-	var b bytes.Buffer
-	err := xml.EscapeText(&b, []byte(s))
-	return b.String(), err
-}
 
 // launchSocket is the Unix socket launchd listens on, the target of the client's RemoteForward.
 func launchSocket(home string) string { return filepath.Join(home, ".claude", "run", "clip.sock") }
@@ -559,63 +548,19 @@ func printSSHHint(w io.Writer, home string) {
 	fmt.Fprintln(w, "      (replace <remote-user> with your login on the remote)")
 }
 
-// installLaunchAgentAt is InstallLaunchAgent without the darwin gate; an unchanged plist skips the reload.
+// installLaunchAgentAt renders the clip agent's plist and installs it through the shared launchd installer.
 func installLaunchAgentAt(w io.Writer, home, bin string, uid int, dryRun bool) error {
 	want, err := renderPlist(bin, home)
 	if err != nil {
 		return err
 	}
-	plist := launchPlistPath(home)
-	domain := "gui/" + strconv.Itoa(uid)
-	if have, err := os.ReadFile(plist); err == nil && bytes.Equal(have, want) {
-		if launchctl("print", domain+"/"+launchLabel) == nil {
-			fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "current: "+plist)
-			return nil
-		}
-		return bootstrapAgent(w, home, domain, plist, dryRun) // plist current but not loaded
-	}
-	if dryRun {
-		fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "would write "+plist+" (skipped: --dry-run)")
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(launchSocket(home)), 0o755); err != nil {
-		return err
-	}
-	if err := paths.AtomicWrite(plist, want, 0o644); err != nil {
-		return err
-	}
-	_ = launchctl("bootout", domain+"/"+launchLabel) // not loaded yet is fine
-	if err := launchctl("bootstrap", domain, plist); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w", err)
-	}
-	fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "wrote "+plist)
-	return nil
-}
-
-// bootstrapAgent loads an already-current plist that launchd does not have (booted out, failed bootstrap).
-func bootstrapAgent(w io.Writer, home, domain, plist string, dryRun bool) error {
-	if dryRun {
-		fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "would load "+plist+" (skipped: --dry-run)")
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(launchSocket(home)), 0o755); err != nil {
-		return err
-	}
-	if err := launchctl("bootstrap", domain, plist); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w", err)
-	}
-	fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "loaded "+plist)
-	return nil
-}
-
-func launchctl(args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), launchctlTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
-	}
-	return nil
+	return launchd.Install(w, launchd.Agent{
+		Label:  launchLabel,
+		Plist:  launchPlistPath(home),
+		Domain: "gui/" + strconv.Itoa(uid),
+		Body:   want,
+		Prep:   func() error { return os.MkdirAll(filepath.Dir(launchSocket(home)), 0o755) },
+	}, dryRun)
 }
 
 // launchDoctorDetail reports the macOS bridge agent: plist present and the listening socket path exists.

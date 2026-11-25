@@ -8,11 +8,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/launchd"
 )
 
 // serveOnce answers one connection on sock with payload, then closes (the bridge protocol).
@@ -110,40 +112,55 @@ func TestReadSSHRefusesForeignPath(t *testing.T) {
 	}
 }
 
-// The plist lands under a temp HOME, launchctl (mocked) boots out then bootstraps once, and a rerun is idempotent.
-func TestLaunchAgentInstall(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	home := t.TempDir()
-	bindir := t.TempDir()
-	log := filepath.Join(home, "launchctl.log")
-	loaded := filepath.Join(home, "loaded") // present = launchd has the agent; print fails without it
-	fake := "#!/bin/sh\nif [ \"$1\" = print ]; then [ -e " + loaded + " ]; exit $?; fi\necho \"$@\" >> " + log + "\n"
-	if err := os.WriteFile(filepath.Join(bindir, "launchctl"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bindir+":/usr/bin:/bin")
-	bin := "/opt/cc/claude-code"
-
-	var calls, reloaded []byte
-	if !t.Run("install", func(t *testing.T) {
-		calls = checkLaunchAgentInstall(t, home, bin, log)
-	}) {
-		return
-	}
-	if !t.Run("unloaded", func(t *testing.T) {
-		reloaded = checkLaunchAgentReload(t, home, bin, log, calls)
-	}) {
-		return
-	}
-	t.Run("current", func(t *testing.T) {
-		if err := os.WriteFile(loaded, nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		checkLaunchAgentCurrent(t, home, bin, log, reloaded)
-	})
+// ctlStub records launchctl calls; a print fails until loaded, like launchd's "Could not find service".
+type ctlStub struct {
+	calls  []string
+	loaded bool
 }
 
-func checkLaunchAgentInstall(t *testing.T, home, bin, log string) []byte {
+func (s *ctlStub) run(args ...string) error {
+	s.calls = append(s.calls, strings.Join(args, " "))
+	if args[0] == "print" && !s.loaded {
+		return errors.New("exit status 113: Could not find service")
+	}
+	return nil
+}
+
+// stubLaunchCtl swaps launchd.Ctl for a recorder, so a test never touches the real launchd domain.
+func stubLaunchCtl(t *testing.T, s *ctlStub) {
+	t.Helper()
+	prev := launchd.Ctl
+	launchd.Ctl = s.run
+	t.Cleanup(func() { launchd.Ctl = prev })
+}
+
+// requireDarwin skips off macOS, where launchd.Install is a no-op (launchd's own tests cover that logic).
+func requireDarwin(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchd.Install installs on macOS only")
+	}
+}
+
+// The plist lands under a temp HOME, launchctl (stubbed) boots out then bootstraps once, and a rerun is idempotent.
+func TestLaunchAgentInstall(t *testing.T) {
+	requireDarwin(t)
+	home := t.TempDir()
+	stub := &ctlStub{}
+	stubLaunchCtl(t, stub)
+	bin := "/opt/cc/claude-code"
+
+	if !t.Run("install", func(t *testing.T) { checkLaunchAgentInstall(t, home, bin, stub) }) {
+		return
+	}
+	if !t.Run("unloaded", func(t *testing.T) { checkLaunchAgentReload(t, home, bin, stub) }) {
+		return
+	}
+	stub.loaded = true
+	t.Run("current", func(t *testing.T) { checkLaunchAgentCurrent(t, home, bin, stub) })
+}
+
+func checkLaunchAgentInstall(t *testing.T, home, bin string, stub *ctlStub) {
 	t.Helper()
 	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
@@ -161,36 +178,35 @@ func checkLaunchAgentInstall(t *testing.T, home, bin, log string) []byte {
 	if _, err := os.Stat(filepath.Dir(launchSocket(home))); err != nil {
 		t.Errorf("run dir not created: %v", err)
 	}
-	calls, _ := os.ReadFile(log)
-	if got := string(calls); got != "bootout gui/501/"+launchLabel+"\nbootstrap gui/501 "+launchPlistPath(home)+"\n" {
+	want := "bootout gui/501/" + launchLabel + "\nbootstrap gui/501 " + launchPlistPath(home)
+	if got := strings.Join(stub.calls, "\n"); got != want {
 		t.Fatalf("launchctl calls = %q", got)
 	}
-
-	return calls
 }
 
 // Current plist, agent not loaded (booted out): rerun bootstraps it instead of reporting current.
-func checkLaunchAgentReload(t *testing.T, home, bin, log string, calls []byte) []byte {
+func checkLaunchAgentReload(t *testing.T, home, bin string, stub *ctlStub) {
 	t.Helper()
+	prev := len(stub.calls)
 	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, _ := os.ReadFile(log)
-	if want := string(calls) + "bootstrap gui/501 " + launchPlistPath(home) + "\n"; string(reloaded) != want {
-		t.Fatalf("unloaded agent: launchctl calls = %q, want a bootstrap", reloaded)
+	want := "print gui/501/" + launchLabel + "\nbootstrap gui/501 " + launchPlistPath(home)
+	if got := strings.Join(stub.calls[prev:], "\n"); got != want {
+		t.Fatalf("unloaded agent: launchctl calls = %q, want a print then bootstrap", got)
 	}
-	return reloaded
 }
 
-func checkLaunchAgentCurrent(t *testing.T, home, bin, log string, reloaded []byte) {
+func checkLaunchAgentCurrent(t *testing.T, home, bin string, stub *ctlStub) {
 	t.Helper()
+	prev := len(stub.calls)
 	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := os.ReadFile(log); !bytes.Equal(again, reloaded) {
-		t.Fatalf("unchanged loaded plist reloaded: %q", again)
+	if got := stub.calls[prev:]; len(got) != 1 || got[0] != "print gui/501/"+launchLabel {
+		t.Fatalf("unchanged loaded plist reloaded: %q", got)
 	}
 	if !strings.Contains(out.String(), "current") {
 		t.Errorf("rerun output = %q", out.String())
@@ -198,6 +214,8 @@ func checkLaunchAgentCurrent(t *testing.T, home, bin, log string, reloaded []byt
 }
 
 func TestLaunchAgentDryRunWritesNothing(t *testing.T) {
+	stub := &ctlStub{}
+	stubLaunchCtl(t, stub)
 	home := t.TempDir()
 	var out bytes.Buffer
 	if err := installLaunchAgentAt(&out, home, "/x/claude-code", 501, true); err != nil {
@@ -205,6 +223,27 @@ func TestLaunchAgentDryRunWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(launchPlistPath(home)); err == nil {
 		t.Fatal("dry run wrote the plist")
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("dry run called launchctl: %q", stub.calls)
+	}
+}
+
+// The rendered plist keeps the bridge wiring on every OS, and a path with & or < is XML-escaped.
+func TestRenderPlistBridgeWiring(t *testing.T) {
+	home := t.TempDir()
+	plist, err := renderPlist("/opt/cc/claude-code", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/opt/cc/claude-code", "<string>--serve</string>", launchSocket(home), "inetdCompatibility", launchLabel} {
+		if !strings.Contains(string(plist), want) {
+			t.Errorf("plist lacks %q", want)
+		}
+	}
+	esc, err := renderPlist("/opt/c&c/claude<code>", home)
+	if err != nil || !strings.Contains(string(esc), "/opt/c&amp;c/claude&lt;code&gt;") {
+		t.Errorf("plist not XML-escaped: %q %v", esc, err)
 	}
 }
 
