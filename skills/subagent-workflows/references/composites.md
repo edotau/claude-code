@@ -3,11 +3,11 @@
 Fill-in templates for the harness's composites. Shapes: [patterns.md](patterns.md); args and exits:
 [saved-workflows.md](saved-workflows.md). Run one only when the owner asks; with no specific fit, run (A).
 
-Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-workers estimate is
-`6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
-24 per account; the hook claims one slot per `agent(` call site in the script text (code-workers 5, code-engineer 11,
-code-evaluator 4, code-analyzer 2, code-looper 1), clamped to the 24 per-account cap and the machine total, so a run
-is claimed at its script's call-site count, not its real agent count.
+Cost rule of thumb: about 78k tokens per agent (26 agents / 2.0M, 60 / 4.8M, 114 / 8.8M); the code-workers estimate is
+`6 x packages + 3 x fixed packages` (the script logs it at launch), plus 2 (size, record) and polish (+2-3, and +3 per
+package with review findings). The dispatch cap claims one slot per `agent(` call site in the script text (code-workers
+5, code-engineer 11, code-evaluator 4, code-analyzer 2, code-looper 1), clamped to the per-account cap (24) and the
+machine total, not the real agent count.
 
 ## A. code-engineer: size, route, stream, record
 
@@ -27,7 +27,6 @@ is claimed at its script's call-site count, not its real agent count.
 
 - **Args**: [saved-workflows.md](saved-workflows.md) → `code-engineer` row. Exits `green|red|review|plan|error`, or a
   child's `blocked|stalled|incomplete|capped`.
-- **Cost**: HIGH over N packages is code-workers's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
 - **Failure modes and guards**: sizer returns nothing, so pass `tier`; owner messages reach running agents (open);
   classifier outage blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
 - **Resume and results**: relaunch with the Workflow tool's `resumeFromRunId` and the same `scriptPath`; unchanged
@@ -52,8 +51,6 @@ is claimed at its script's call-site count, not its real agent count.
 - **Foreign re-route**: a finding citing a file outside its finder's package is fixed after the stream by the owning
   directory (`d51420fb`); a live re-route run is still owed.
 - **Args**: [saved-workflows.md](saved-workflows.md) → `code-workers` row; `slice` (first N packages) for a first run.
-- **Cost**: `6 x P + 3 x fixed`, plus polish once over the merged diff: +2-3 agents
-  and +3 per package with review findings; yield 7.0 to 7.5 confirmed findings per 1M tokens.
 - **Failure modes**: scoped gate misses cross-package breakage (`16d36662`): full suite before push; fixer blocked
   but gate green is red (`07f86477`); an out-of-scope hunk in a fix is reverted by the supervisor.
 - **Results**: returns `{exit, route, packages, merged, confirmed, dropped, unverified, fixed [{pkg, findings,
@@ -74,7 +71,6 @@ is claimed at its script's call-site count, not its real agent count.
 | Harden | code-workers on the files | paths | composite B result | test repair, gate | child decisions |
 
 - **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
-- **Cost**: 2 + code-workers on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
 - **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job.
 - **Resume**: re-run with `paths` set to the files the implementer touched and `kind: 'fix'`, which skips it.
 
@@ -82,33 +78,25 @@ is claimed at its script's call-site count, not its real agent count.
 
 - **Use when**: multi-session or architectural work, or an audit of the whole tree. R7 to R11 ran this way.
 
-| Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
-| --- | --- | --- | --- | --- | --- |
-| Draft | `Plan` or code-engineer EPIC route | task, `docs/templates/plan.md` | plan markdown | **owner approval** | `plans/DATE-<slug>.md` |
-| Group | main session | plan | package groups G1..Gn | group fits one run (6 to 15 packages) | group list |
-| Round | composite A or B per group | group packages | confirmed, fixed, red | full suite before push | report + decisions |
-| Fix leftovers | `claude` leaf | red or foreign findings | verified diff and scoped gate results | per-package gate | decision row |
-
+- **Stages**: Draft (`Plan` or the code-engineer EPIC route, `docs/templates/plan.md`; **owner approval**, filed under
+  `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md`) → Group (main session: package groups G1..Gn, each fitting one run of
+  6 to 15 packages) → Round (composite A or B per group; full suite before push; report + decisions) → Fix leftovers
+  (a `claude` leaf on red or foreign findings; per-package gate).
 - **Policy**: fix every finding, LOW included, in the round, no per-round ask; only owner-judgment items go to a report.
-- **Cost**: R7 37 agents, R8 74, R9 26, R10 60, R11 114 (5 rounds, about 21M tokens).
 - **Failure modes**: leaving mediums unfixed before the next round left earlier gaps.
 - **Resume**: continue at the first unticked plan line or the next group; one report per round
   (`reports/DATE-r<n>-g<m>.md`).
 
 ## E. Main-session supervisor loop around a workflow
 
-```text
-launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -> full suite
-  -> commit named files -> push
-```
+`launch (A|B) → wait (never poll) → read result → verify diffs → scoped gate → commit → land → release checks`
 
-| Step | Check | Source |
-| --- | --- | --- |
-| Verify diff | `rtk git diff --stat`; only the run's packages; revert out-of-scope hunks | `../SKILL.md` → Fan-in |
-| Re-run red gates | a red package or `fixed` with status not done is re-dispatched by hand | `07f86477` |
-| Full suite | `CLAUDE.md` hard rule 5 at the authorized release boundary | `16d36662` |
-| Commit | `git commit -- <paths>`, named files, no AI footer; merge, `make install` from a clean tree, push | CLAUDE.md rules 3, 5 |
-| Log | decisions and reverts to `reports/DATE-decisions.md` | `claude-code memory report` |
+- Verify the diff (`rtk git diff --stat`, only the run's packages, out-of-scope hunks reverted; `../SKILL.md` →
+  Fan-in); re-dispatch by hand a red package or a `fixed` entry whose status is not done.
+- Commit named files with `claude-code worktree commit --task <id> -m <msg> <files>` (no AI footer) and land a lane per
+  `../SKILL.md` → Landing. The full suite, `make install` from a clean tree and push follow `CLAUDE.md` hard rule 5 at
+  the authorized release boundary.
+- Log decisions and reverts in `reports/DATE-decisions.md` (`claude-code memory report`).
 
 ## F. code-analyzer partition: scan, plan, waves
 
@@ -120,8 +108,9 @@ graph (shared file, or an exported change imported by the other package), colour
 parallel; each fixer owns only its listed files.
 `fix:false, partition:true` returns `partition {waves, hotspotTask, edges}` and a `## Tasks` plan block, no fixes.
 
-Waves, not `isolation: 'worktree'`: no worktree without the owner's yes (`rules/standards/worktree-git.md`), and waves
-give the same disjointness with no per-writer setup or merge.
+Waves, not a worktree per writer: no worktree without the owner's yes (`HARNESS_WORKTREE=lanes` asks nothing; lanes are
+per task, `rules/standards/worktree-git.md` → Worktrees), and waves give the same disjointness with no per-writer setup
+or merge.
 
 ## New composite: template
 
@@ -139,15 +128,10 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
 
 ### Checklist: adding it as a saved workflow
 
-- Script in `~/.claude/workflows/<name>.js`; `meta` is a pure literal with `name`, `description`,
-  `whenToUse` (USE / CALL / OPTIONAL / RETURNS) and `phases`.
-- A row in the table of [saved-workflows.md](saved-workflows.md); `claude-code workflow lint` fails on a script
-  missing from it or a row naming no script.
-- Copy the `stepOf` block (`// ── stepOf:` to `// ── end stepOf ──`) from `~/.claude/workflows/code-looper.js`, the
-  canonical file; after editing it run `claude-code workflow sync ~/.claude/workflows/code-looper.js`; every stage
-  reads its pin through it.
-- Every `agent()` call pins `model:` (an `agentType:` alone does not count) and `effort:`; external-stage overrides
-  follow `saved-workflows.md`.
-- Return the shared result shape above; `ERR(...)` for bad args; no shell state outside agents; plain JavaScript.
-- A log line with the agent estimate at launch, and a `slice` arg for the first run.
+- `meta` is a pure literal with `name`, `description`, `whenToUse` (USE / CALL / OPTIONAL / RETURNS) and `phases`; plain
+  JavaScript, `ERR(...)` for bad args, no shell state outside agents; `agent()` pins and the table row:
+  [saved-workflows.md](saved-workflows.md) → Authoring.
+- Mark the `stepOf` block (`// <block:stepOf>` to `// </block:stepOf>`) and run `claude-code workflow sync`: it writes
+  the embedded blocks (`internal/assets/files/workflows/blocks/`, the source) into every marked script.
+- Return the shared result shape above; log the agent estimate at launch and take a `slice` arg for the first run.
 - Run once on a small slice, then update the table and `whenToUse`.

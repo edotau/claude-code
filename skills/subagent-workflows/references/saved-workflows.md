@@ -70,17 +70,14 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 ## Authoring
 
 - Scripts stay in `workflows/` (the only place by-name runs resolve; the documented call is `scriptPath`);
-  `claude-code workflow lint` fails when a script is missing from the table above or a row names no script.
-- `workflow lint` compiles every script with node and fails one that does not parse; no node prints
-  `parse check skipped`.
+  `claude-code workflow lint` fails when a script is missing from the table above or a row names no script, or does not
+  compile with node (no node prints `parse check skipped`).
 - Every `agent()` call pins `model:` (an `agentType:` alone does not count) and `effort:`; `meta` is a pure literal and
   no top-level `throw`; plain JavaScript only.
 
 ## Run from a leaf
 
-A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it.
-Off Anthropic that child's gated tool set has no `Workflow` tool (`internal/claude/claude.go` `gateTools`) and the
-launch refuses a task that asks for one ("use the native Agent tool"), so run it on Anthropic or from the main session:
+A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it:
 
 ```bash
 claude-code agents ask --agent claude --tools --timeout 20m \

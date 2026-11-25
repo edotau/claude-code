@@ -59,8 +59,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   `agents ask --agent <type> --provider databricks` its file bakes, waits and checks the result; the vendor verbs
   (`claude-code codex …`) and overlay `{"runner":"own"}` keep each CLI on its own login;
   an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
-  runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer's schema exists, its
-  dispatch wiring does not (`skills/subagent-workflows/SKILL.md` → Owner layer);
+  runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer opens through `agents ask
+  --spec` (`skills/subagent-workflows/SKILL.md` → Owner layer);
   `dispatch-effort` rewrites a missing or wrong `<model>:` description prefix on Agent leaves, never denies it.
 
 ## Agent and command files

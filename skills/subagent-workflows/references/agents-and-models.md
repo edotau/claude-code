@@ -8,7 +8,9 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - `claude-code agents list --format json` prints registered CLI agents and capabilities; it is not the Agent roster.
 - `claude-code <agent> profile` shows that machine's current pin; never copy it to another machine.
 - `claude-code gateway --agent <agent>` previews routing. `claude-code <agent> catalog` lists the current menu;
-  OpenCode uses `catalog list` and can query a requested profile. Do not infer availability from an old benchmark.
+  OpenCode uses `catalog list` and can query a requested profile. Do not infer availability, pins or performance from
+  an old benchmark (the 2026-11-01 system-prompt audit under `memory/reports/` is one machine and date): verify a
+  representative task.
 - OpenCode catalog changes use `catalog add|remove|import|reset|check` or `catalog sync --profile <p> [--apply]`;
   a dispatch uses the current pin unless the task names `--model` or `--profile`. A model outside the menu is refused.
 
@@ -62,7 +64,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 | `copilot` | Copilot SDK for headless ask | rendered instructions plus SDK context |
 | `gemini` | Antigravity (`agy`) | `~/.gemini/GEMINI.md`, rendered by sync |
 | `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
-| `pi` | Pi (`pi`), Databricks only, behind the guard extension; the default leaf route | none in a dispatch (`--no-context-files`) |
+| `pi` | Pi (`pi`), Databricks by default (local: `cost-routing.md`), behind the guard extension; the default leaf route | none in a dispatch (`--no-context-files`) |
 
 Projection, per-agent behavior and Pi's packages and their risk: `rules/harness/agent.md`.
 Hook applicability: `rules/harness/hooks.md`.
@@ -71,13 +73,7 @@ package when a task depends on a boundary.
 
 ## Per-call routes
 
-`--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin;
-`auto`, `--remote` and `--host`: `rules/harness/network.md`. Report the actual run receipt, not a planned model.
-
-## Measurements
-
-The audit's historical runs are preserved in the source handoff at
-`memory/handoffs/2026-11-01-system-prompt-e2e-audit.md` and
-`memory/reports/2026-11-01-system-prompt-e2e-audit.md`. Measurements describe a particular machine, date
-and configuration; they do not establish current pins, workspace availability, model accuracy or a required default
-agent. Verify a representative task before making a performance claim.
+`--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin
+(`auto`, `--remote`, `--host`: `rules/harness/network.md`); `--provider databricks` is the same with the profile
+picked ([cost-routing.md](cost-routing.md) → Databricks and local routes). Report the actual run receipt, not a
+planned model.

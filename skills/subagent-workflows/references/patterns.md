@@ -1,7 +1,7 @@
 # Agent Design Patterns (this harness)
 
 Every row maps to code this repo runs. Serves `../SKILL.md` Phase 0: pick the shape here, fill each node with a leaf
-type, then wire stages into a template from [composites.md](composites.md). Commit hashes below are the evidence.
+type, then wire stages into a template from [composites.md](composites.md).
 
 ## Execution mode: subagents, plus scripts that hold the plan
 
@@ -30,9 +30,8 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 ```
 
 - Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped:
-  `rtk go build ./... && rtk go vet <pkg> && rtk go test <pkg>` from `claude-code worktree gate --scope`, or
-  `args.gate`.
-- Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
+  `go build ./... && go vet './<pkg>/...' && go test './<pkg>/...'` from `claude-code worktree gate --scope <pkg>`
+  (prints it; `--run` executes it), or `args.gate`.
 
 ### Fan-out / fan-in
 
@@ -45,8 +44,8 @@ packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged 
   refute step.
 - Manual form: `Agent` calls in one message with `Owns:` files; fan-in reads every diff and the seam between leaves
   (`../SKILL.md` Phase 3).
-- Failure: wording-based dedupe produced duplicate findings (`code-analyzer` yield 2.8 and 4.0); code-workers merges by
-  file +-10 lines or same symbol. Loop-until-dry never converged (119 agents / 10M, yield 2.2): retired.
+- Failure: wording-based dedupe produced duplicate findings; code-workers merges by file +-10 lines or same symbol.
+  Loop-until-dry never converged: retired.
 
 ### Expert pool
 
@@ -97,26 +96,23 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 
 ### Not used
 
-- Agent teams / `TeamCreate`: experimental, one per session, no nesting.
-- Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only.
-- External workflow stages and supported overrides: [saved-workflows.md](saved-workflows.md).
-- Peer-to-peer agent debate: no harness component; refute/rederive is one-way and blind.
+Agent teams / `TeamCreate` (experimental, one per session, no nesting); loop-until-dry and the modal sweep (retired or
+pre-pass only); peer-to-peer agent debate (refute/rederive is one-way and blind). External workflow stages and
+overrides: [saved-workflows.md](saved-workflows.md).
 
 ## Split vs merge; skill vs agent vs brief
 
-Agent file vs skill vs brief, and when to split or merge a role: `rules/workflows/agents.md` → Authoring: file, skill
-or brief; the file skeleton and frontmatter are in its Agent and command files section. CLI registry and workflow
-receipt gates: same file → Prose instructs, hooks guarantee.
+`rules/workflows/agents.md` → Authoring: file, skill or brief (when to split or merge a role), Agent and command files
+(skeleton, frontmatter) and Prose instructs, hooks guarantee (CLI registry, workflow receipt gates).
 
 ## Lessons from the trial
 
-- Stream per package, no barrier between review and fix (`06ac070e`).
-- Record in-run, not in a hook: PostToolUse(Workflow) fires at launch (`2e9a90ff`).
-- Re-derive blind, and treat a failed re-derivation as unverified, never refuted (`222ae2b9`).
-- A fixer that is not `done` is red even when the gate passes (`07f86477`).
-- Route findings to the package that owns the file (`d51420fb`).
-- Scoped gates can miss integration failures (`16d36662` broke `internal/ui/menu`); release checks: `CLAUDE.md`
-  hard rule 5.
+- Stream per package, no barrier between review and fix.
+- Record in-run, not in a hook: PostToolUse(Workflow) fires at launch.
+- Re-derive blind, and treat a failed re-derivation as unverified, never refuted.
+- A fixer that is not `done` is red even when the gate passes.
+- Route findings to the package that owns the file.
+- Scoped gates can miss integration failures; release checks: `CLAUDE.md` hard rule 5.
 - Revert a leaf's out-of-scope hunk; a leaf never "fixes" files outside its list.
-- Pin `model` and `effort` on every stage with one verbatim `stepOf` (`222ae2b9`).
+- Pin `model` and `effort` on every stage with one verbatim `stepOf`.
 - Fix every finding, LOW included, in the round; only owner-judgment items go to a report.

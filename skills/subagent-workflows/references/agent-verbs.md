@@ -9,18 +9,17 @@ CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the leaf/script 
 | --- | --- | --- |
 | `claude-code <agent> [flags] [args…]` · `<agent> -- <args…>` | launch the CLI, unknown words pass through · force passthrough (shadowed names, e.g. `-- review`) | agent CLI |
 | `claude-code <agent> ask [flags] <task>` | one-shot run (`--tools` edits, `--background` detaches; `--session <id>` continues a session) | answer |
-| `claude-code <agent> review [--base b\|--commit c\|--pr\|--uncommitted] [--adversarial] [--background] [focus…]` | diff review (default: uncommitted) | verdict + findings |
-| `claude-code <codex-or-copilot> explore [--no-web] [--background] <question>` | code scan + web research | Codebase Context Brief (file:line, URLs) |
+| `claude-code <agent> review [--base b\|--commit c\|--pr\|--uncommitted] [--adversarial] [--background] [focus…]` | diff review (default: uncommitted); codex, copilot, gemini, opencode, pi | verdict + findings |
+| `claude-code <agent> explore [--no-web] [--background] <question>` | code scan + web research; the same five | Codebase Context Brief (file:line, URLs) |
 | `claude-code <agent> transfer [--source f] [--wait] [note]` | hand this Claude session to the agent | job id, or answer |
 | `claude-code agents status [<id>] [--agent A] [--all]` | dispatch state: no id, no agent = the 20 most recent; `--agent` = that agent's jobs in this repo (`--all`: every repo) | rows (id, status, elapsed) |
 | `claude-code agents result [<id>] [--agent A] [-f] [--events] [--save F] [--verdict]` | a dispatch's answer; `-f` follows a running job with a stall heartbeat, `--events` streams its events | answer + session id + resume cmd · log lines |
 | `claude-code agents cancel (<id> \| --lost) [--agent A] [--dry-run]` | interrupt a running job · `--lost` marks dead-but-running records as error | `cancelled <id>` |
 | `claude-code agents brief --task F --own P... [--report P]` | print a leaf brief: `Owned:` line, the task, the leaf rules and reporting contract (`internal/assets/files/brief/brief.tmpl`, the one copy); pipe it to `agents ask -`; `agents diff --verify <id>` reads `Owned:` back | the brief; exit 2 usage |
-| `claude-code agents wait <id>... [--timeout 10m]` | block until the dispatches finish | final status rows |
+| `claude-code agents wait <id>... [--timeout 9m30s] [--progress]` | block until the dispatches finish (`--progress`: a stderr line per activity change); exit 0 all done, 1 any error or lost, 2 usage, 4 timed out with jobs still running | final status rows |
 | `claude-code agents serve [--start\|--stop\|--restart\|--status] [--cap N]` | opt-in daemon: each `ask --background` job waits for its `(provider, profile)` pool (account cap, or `--cap`; 429 cool-down) before its agent starts; no daemon or a refusal runs the job at once; `--restart` drains (waiters re-queue) | `--status`: pid and per-pool `running/cap`, cooling end, waiting ids; exit 1 not running |
-| `claude-code <agent> profile [<p>\|--clear\|--off]` | show or set the agent's profile; `--clear` = own login, `--off` = stop routing | the profile |
-| `claude-code <agent> setup [--format json]` · `catalog` | binary, login, route, projection checks · the agent's model catalog | 4 rows, exit on failure · list |
-| `claude-code agents ask --waves <plan.md\|manifest.jsonl> [--wave N[-M]] [--dry-run] [--status] [--fresh] [--gate CMD] [--format text\|json] [--timeout D]` | run a plan's waves (`Phase W.k` lines, `docs/templates/plan.md` → Tasks), one leaf per package, a `Blocked by:` task after its blockers (`--dry-run` shows the waits); `--timeout` is per leaf; `--overlay`, `--fallback`, `--profiles`, `--provider` pass to every leaf; never commits; a failed wave reruns whole and skips packages already verified; long-running: launch in the background, `agents wait <id> --timeout 10m` | per-wave package and verifier rows; exit 0 every requested wave passed, 1 leaf, gate or verifier failed or a leaf ran off its asked route, 2 usage or invalid plan, 3 changed file outside every owned set or unattributed, 4 interrupted or timed out with leaves running (run again) |
+| `claude-code <agent> profile [<p>\|--clear\|--off]` · `setup [--format json]` · `catalog` | show or set the profile (`--clear` = own login, `--off` = stop routing) · binary, login, route and projection checks (4 rows, exit on failure) · the model catalog | the profile · rows · list |
+| `claude-code agents ask --waves <plan.md\|manifest.jsonl> [--wave N[-M]] [--dry-run] [--status] [--fresh] [--gate CMD] [--format text\|json] [--timeout D]` | run a plan's waves (`Phase W.k` lines, `docs/templates/plan.md` → Tasks), one leaf per package, a `Blocked by:` task after its blockers (`--dry-run` shows the waits); `--timeout` is per leaf; `--overlay`, `--fallback`, `--profiles`, `--provider` pass to every leaf; never commits; a failed wave reruns whole and skips packages already verified; long-running: launch in the background, `agents wait <id> --timeout 9m30s` | per-wave package and verifier rows; exit 0 every requested wave passed, 1 leaf, gate or verifier failed or a leaf ran off its asked route, 2 usage or invalid plan, 3 changed file outside every owned set or unattributed, 4 interrupted or timed out with leaves running (run again) |
 | `claude-code agents diff [--base b] [--path p]... [--check [--gates g] [--all]] [--verify id] [--format json]` | changed files with +/- counts, files outside `--path` (repeat per path), with `--check` gofmt, build, vet, golangci-lint, complexity (only findings the change introduced), test on the touched packages, quality (`make lint-quality`'s comment and size checks), plus docs (`bin/mdsmith check` on the changed `.md` files, plus `memory fmt --check` when a memory-store file changed), findings as `path:line: tool/rule: message` rows (`--format json`: objects), `--gates lint\|test\|<names>` picks gates (lint = gofmt, vet, golangci-lint with `make lint`'s flags, docs, yaml, shell, quality; a missing tool then fails), `--all` checks the whole tree, never writes, with `--verify` a dispatch's routing proof (workspace, model, fallback, proxy requests matched by `dispatch=<id>`, by time window only for untagged log lines) | file rows, `FAIL\|skip` gate rows, verify section, summary including pass count (`--format json` keeps all gates); exit 1 gate failed or MISMATCH, 2 usage or unknown id, 3 outside `--path` |
 | `claude-code agents fix --path p... [--dry-run]` | the formatter fixers (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on the tracked files under each `--path` only; refuses no `--path`, untracked or symlinked files and files a live peer holds; `--dry-run` lists what would change | `path: tool` rows, summary; exit 1 skipped file, missing tool or failed fixer, 2 usage |
 | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path p]... [--max 200] [--format json]` | content, paths or Go AST search over tracked and new unignored files; callers are name-based; same path prefixes/globs as diff | sorted path:line:text or JSON matches/more; more is a lower bound; exit 0 matches, 1 none, 2 error |
@@ -29,18 +28,9 @@ CLI verbs. Manager dispatch is `CLAUDE.md` guideline 3; this is the leaf/script 
   `--background` on `ask`/`review`/`transfer` prints `job <id> started`.
 - `claude-code agents ask --agent <agent>` is the one-shot form saved Workflows use; inline definitions:
   `--agents <json|file>` (`rules/harness/agent.md` → Dispatch behavior).
-- `agents ask --retry <id> --recover` reruns a dead or cut-off job: it starts a fresh session (not `--session`) seeded
-  from that job's event log and claims the record once; a second recover names the winner's id and fails.
-
-  ```sh
-  claude-code agents ask --retry <id> --recover
-  ```
-
-- `agents result --events --after <seq>` resumes an event stream after sequence `<seq>`, skipping lines at or below it.
-
-  ```sh
-  claude-code agents result <id> --events --after 120
-  ```
+- `agents ask --retry <id> --recover` reruns a dead or cut-off job in a fresh session (not `--session`) seeded from that
+  job's event log and claims the record once; a second recover names the winner's id and fails.
+  `agents result <id> --events --after <seq>` resumes an event stream after sequence `<seq>`.
 
 ## Headless `ask` flags
 
@@ -49,10 +39,10 @@ Agent files list only what differs; the full list is `claude-code agents ask -h`
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` (tools are on by default; `--tools=false` or `--no-tools` turns them off) |
-| Guard the run | no agent policy: `safety-scan` (`settings.json` deny rules, the AI-footer block) applies to every agent; `--autonomous` never enables tools by itself |
+| Edit files / run shell | `--tools` · `--workdir <repo>` (tools are on by default; `--tools=false` turns them off, `--no-tools` too for claude only). No agent policy: `safety-scan` (deny rules, the AI-footer block) applies to every agent; `--autonomous` never enables tools |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
-| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--provider databricks` (R20) |
+| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--tier fast\|standard\|deep` (heads the brief with `Tier:`) · `--profile <p>` · `--provider databricks` (R20; picks a profile and the tier's model) |
+| Run | `--timeout <d>` (per attempt, default 9m30s, under the 10m Bash cap) · `--runner pi\|own` · `--codemode off\|on\|only` (`on`/`only` need `--tools`; `only` is pi's) · `--plan-task <id>` · `--spec <json>` (the whole ask as one object) |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
 | Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
 | Also | `--session <id>` (continues that session) · `--env` · `--fallback none\|pin\|agents\|all` · `--host <ssh>` · `--direct` · `--overlay <file\|json\|->` (the dispatch config) · `agents status` (the log) · `agents ask --retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` (compare models: one `model` per line) · `--fleet --tools` (copilot fleet) |
@@ -61,17 +51,10 @@ Interactive launch takes `--model` · `--profile <p>` · `--direct` (skip the pr
 (`set`/`unset`/`keep` only; routing keys refused) · `--print-env` (resolved binary, argv, env; no launch); `--docs`
 prints the CLI's help.
 
-## Procedure skeleton
+## Procedure
 
-1. **Choose once.** Follow `../SKILL.md` → Carried dispatch / External relay contract. Run `claude-code agents ask
-   --carry --agent <a> …` (plain ask for Pi, the default leaf route) or select the requested verb; check
-   `claude-code <agent> -h` when uncertain. Run `setup` only to diagnose a route/login failure.
-2. **Run once, observe, report.** Backgrounding, `result -f`, no-verify and verbatim `## Result` rules: the same
-   contract.
-
-Dispatch choice and fallback: `cost-routing.md` → Fallback. A saved Workflow named in the brief (`Workflow:`) runs per
-`saved-workflows.md` → Run from a leaf.
-
-## Don't
-
-- Invent a verb: the table above is the relay surface; `claude-code agents -h` and `<agent> -h` list the rest.
+Choose once (`../SKILL.md` → Carried dispatch / External relay contract; plain ask for Pi, `<agent> -h` when unsure;
+`setup` only to diagnose a route or login failure), run once, observe, report: backgrounding, `result -f`, no-verify
+and the verbatim `## Result` are that contract's. Dispatch choice and fallback: `cost-routing.md` → Fallback; a brief's
+`Workflow:` runs per `saved-workflows.md` → Run from a leaf. Never invent a verb: the table above is the relay
+surface; `claude-code agents -h` and `<agent> -h` list the rest.
