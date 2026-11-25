@@ -21,3 +21,6 @@ where a reference disagrees.
 1. Read the reference for the task (two at most); skip the rest.
 2. Check `go.mod`'s `go` line before using a version-gated API the reference names.
 3. Verify with `rtk go build ./... && rtk go vet ./...`, then the touched package's tests.
+4. An API, release note or issue the module cache and `go doc` cannot answer: search through the web-explorer skill
+   (`claude-code network websearch --query "<q>"`, `--extract https://pkg.go.dev/<pkg>`); a Gemini leaf can add
+   `--google-tools search,url,code` where its route serves them.
