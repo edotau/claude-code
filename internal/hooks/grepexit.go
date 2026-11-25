@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -11,7 +10,12 @@ import (
 )
 
 // GrepExit (PostToolUseFailure Bash) notes that exit 1 from a last-stage grep means no match; it never blocks.
-func GrepExit(in *core.Input) core.Result {
+func GrepExit(in *core.Input) (res core.Result) {
+	defer func() {
+		if recover() != nil {
+			res = core.Result{} // fail open: a parser panic gives no note
+		}
+	}()
 	if in.ToolName != "Bash" || !exitedOne(in.Nested("error")) {
 		return core.Result{}
 	}
@@ -33,10 +37,7 @@ func exitedOne(errText string) bool {
 func lastStageGrep(cmd, cwd string) string {
 	segs := shell.Segments(dropHeredocBodies(cmd))
 	for _, seg := range slices.Backward(segs) {
-		toks := shell.DropRtk(shell.Tokens(seg))
-		for len(toks) > 0 && strings.Contains(toks[0], "=") && !strings.HasPrefix(toks[0], "-") {
-			toks = toks[1:] // leading VAR=value assignments
-		}
+		toks := dropAssigns(shell.DropRtk(dropAssigns(shell.Tokens(seg))))
 		if len(toks) > 0 {
 			return grepName(toks, cwd)
 		}
@@ -45,6 +46,14 @@ func lastStageGrep(cmd, cwd string) string {
 		}
 	}
 	return ""
+}
+
+// dropAssigns removes leading VAR=value assignments.
+func dropAssigns(toks []string) []string {
+	for len(toks) > 0 && strings.Contains(toks[0], "=") && !strings.HasPrefix(toks[0], "-") {
+		toks = toks[1:]
+	}
+	return toks
 }
 
 func grepName(toks []string, cwd string) string {
@@ -59,23 +68,94 @@ func grepName(toks []string, cwd string) string {
 	return ""
 }
 
-var heredocOpen = regexp.MustCompile(`<<-?\s*['"]?(\w+)`)
-
-// dropHeredocBodies removes each heredoc body and its terminator line so the body never reads as commands.
+// dropHeredocBodies removes each heredoc body and its terminator line, and each comment, so neither reads as commands.
 func dropHeredocBodies(cmd string) string {
 	var out []string
-	end := ""
+	var pending []heredocWant
 	for line := range strings.SplitSeq(cmd, "\n") {
-		if end != "" {
-			if strings.TrimSpace(line) == end {
-				end = ""
+		if len(pending) > 0 {
+			if pending[0].closes(line) {
+				pending = pending[1:]
 			}
 			continue
 		}
-		if m := heredocOpen.FindStringSubmatch(line); m != nil && !strings.Contains(line, "<<<") {
-			end = m[1]
-		}
+		line = shell.DropComments(line)
+		pending = heredocOpeners(line)
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+type heredocWant struct {
+	delim string
+	dash  bool
+}
+
+// closes: bash strips leading tabs only for `<<-`.
+func (h heredocWant) closes(line string) bool {
+	if h.dash {
+		line = strings.TrimLeft(line, "\t")
+	}
+	return line == h.delim
+}
+
+// heredocOpeners lists the `<<[-]WORD` operators on one line, skipping quoted text, `<<<` and `((…))` shifts.
+func heredocOpeners(line string) []heredocWant {
+	var out []heredocWant
+	at := shell.QuoteAt(line)
+	arith := 0
+	for i := 0; i < len(line); i++ {
+		rest := line[i:]
+		switch {
+		case at[i] != 0:
+		case strings.HasPrefix(rest, "(("), strings.HasPrefix(rest, "))") && arith > 0:
+			arith, i = arith+arithStep(rest[0]), i+1
+		case strings.HasPrefix(rest, "<<<"):
+			i += 2
+		case strings.HasPrefix(rest, "<<") && arith == 0:
+			w, n := heredocOperand(rest[2:])
+			if w.delim != "" {
+				out = append(out, w)
+			}
+			i += 1 + n
+		}
+	}
+	return out
+}
+
+// arithStep is +1 for an opening paren and -1 for a closing one.
+func arithStep(c byte) int { return 1 - 2*int(c-'(') }
+
+// heredocOperand parses what follows `<<` (optional `-`, blanks, a word) and the bytes it spans.
+func heredocOperand(s string) (heredocWant, int) {
+	w := heredocWant{dash: strings.HasPrefix(s, "-")}
+	body := strings.TrimPrefix(s, "-")
+	word := strings.TrimLeft(body, " \t")
+	delim, n := heredocWord(word)
+	w.delim = delim
+	return w, len(s) - len(word) + n
+}
+
+// heredocWord reads one shell word with quotes and backslashes removed, and the bytes it spans.
+func heredocWord(s string) (string, int) {
+	var b strings.Builder
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+			b.WriteByte(c)
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '\\' && i+1 < len(s):
+			i++
+			b.WriteByte(s[i])
+		case strings.IndexByte(" \t;&|()<>", c) >= 0:
+			return b.String(), i
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String(), len(s)
 }
