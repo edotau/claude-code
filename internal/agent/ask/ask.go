@@ -118,7 +118,8 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		return code
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		f.fallback = router.DefaultFallback()
+		mode, _ := router.FallbackSetting(ctx, "")
+		f.fallback = router.ParseFallback(mode) // unset reads as none
 		if !slices.Contains(router.FallbackModes, f.fallback) {
 			err := fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(router.FallbackModes, "|"))
 			return failAskCode(f.format, f.name, err, 2)
@@ -389,12 +390,8 @@ func (r *askRun) checkArm() (int, bool) {
 	agentName, batchLines := confineAgent(r.ov, f, r.ag)
 	picks := armAutoPick(r.ctx, value)
 	fallback := f.fallback
-	if picks && !r.swap { // an env default never licenses swapping a typed model
-		// This is a no-swap clamp, not a runner choice: autoPickKeepsPi keeps Pi on the picked workspace.
-		fallback = router.FallbackNone
-		if typedModel(f.model) { // chain and 429 retry both keep the typed model
-			f.fallback = fallback
-		}
+	if picks && !r.swap && typedModel(f.model) { // an env default never moves a typed model off the picked arm (R8)
+		fallback, f.fallback = router.FallbackNone, router.FallbackNone
 	}
 	moves := r.typedStart(value, fallback)
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
@@ -615,7 +612,7 @@ func (r *askRun) batchBase() (agent.RunOptions, error) {
 	}
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: f.runner, GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: cmp.Or(f.runner, r.ov.Runner), GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}, nil
 }
