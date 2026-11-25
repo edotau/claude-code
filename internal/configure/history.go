@@ -29,8 +29,8 @@ import (
 // through proc.RunGit's sanitized environment, so a snapshot taken inside a session never touches that
 // session's OWN repo.
 
-// HistoryFile is one watched file: Label names it in the store's config directory (unique), Path is its disk location.
-type HistoryFile struct {
+// historyFile is one watched file: Label names it in the store's config directory (unique), Path is its disk location.
+type historyFile struct {
 	Label, Path string
 	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
 }
@@ -38,15 +38,15 @@ type HistoryFile struct {
 // HistoryStore is the shadow history repo. Dir is created and `git init`-ed on first use.
 type HistoryStore struct{ Dir string }
 
-// HistorySkip records a file held back from a snapshot, with the reason a reader needs to act on it.
-type HistorySkip struct{ Label, Reason string }
+// historySkip records a file held back from a snapshot, with the reason a reader needs to act on it.
+type historySkip struct{ Label, Reason string }
 
 // SnapshotResult reports one Snapshot call; Commit is "" when nothing changed — the caller must not report a snapshot.
 type SnapshotResult struct {
 	Commit  string
 	Changed []string
 	Absent  []string
-	Skipped []HistorySkip
+	Skipped []historySkip
 }
 
 // HistoryDir is the shadow repo's home under the gitignored state dir, so its commits never reach the tracked tree.
@@ -59,9 +59,9 @@ const plane = "config"
 const historyGCAuto = "200"
 
 // configFiles are the contested config files; the vault's secrets bucket is never read here.
-func configFiles() []HistoryFile {
+func configFiles() []historyFile {
 	cfg := paths.ConfigDir()
-	files := []HistoryFile{
+	files := []historyFile{
 		{Label: "settings.json", Path: filepath.Join(cfg, "settings.json")},
 		{Label: "settings.local.json", Path: filepath.Join(cfg, "settings.local.json")},
 		{Label: "providers.json", Read: providers.OverlayDoc},
@@ -72,26 +72,26 @@ func configFiles() []HistoryFile {
 }
 
 // agentConfigs are the agent CLIs' own on-disk configs, which the user or the agent's own `login` can rewrite.
-func agentConfigs() []HistoryFile {
-	var out []HistoryFile
+func agentConfigs() []historyFile {
+	var out []historyFile
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return out
 	}
 	if codexCfg, err := paths.CodexConfigPath(""); err == nil {
-		out = append(out, HistoryFile{Label: "codex-config.toml", Path: codexCfg})
+		out = append(out, historyFile{Label: "codex-config.toml", Path: codexCfg})
 	}
 	// opencode reads $XDG_CONFIG_HOME or ~/.config on every OS; os.UserConfigDir is ~/Library/... on macOS.
 	cfgHome := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
-	out = append(out, HistoryFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
+	out = append(out, historyFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
 	// The renderer writes gemini files under the user home, never GEMINI_CLI_HOME.
 	return append(out,
-		HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")},
-		HistoryFile{Label: "gemini-hooks.json", Path: filepath.Join(home, ".gemini", "config", "hooks.json")})
+		historyFile{Label: "gemini-settings.json", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")},
+		historyFile{Label: "gemini-hooks.json", Path: filepath.Join(home, ".gemini", "config", "hooks.json")})
 }
 
 // Snapshot copies files into the store and commits only on change; an absent file is a recorded fact, not an error.
-func (s *HistoryStore) Snapshot(files []HistoryFile, note string) (SnapshotResult, error) {
+func (s *HistoryStore) Snapshot(files []historyFile, note string) (SnapshotResult, error) {
 	var res SnapshotResult
 	// The lock file sits beside Dir, not inside it, so `add -A` never stages it.
 	err := paths.WithFileLock(s.Dir+".snapshot", func() error {
@@ -119,7 +119,7 @@ func (s *HistoryStore) Snapshot(files []HistoryFile, note string) (SnapshotResul
 }
 
 // stageFile copies one watched file into the store (or removes it when absent), recording the outcome in res.
-func (s *HistoryStore) stageFile(f HistoryFile, res *SnapshotResult) error {
+func (s *HistoryStore) stageFile(f historyFile, res *SnapshotResult) error {
 	data, err := readFile(f)
 	dest := filepath.Join(s.Dir, plane, f.Label)
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *HistoryStore) stageFile(f HistoryFile, res *SnapshotResult) error {
 	}
 	// Hold the whole file back, never redact: a silent redaction teaches nobody to fix the leak.
 	if loc := textutil.CredentialRE().FindIndex(data); loc != nil {
-		res.Skipped = append(res.Skipped, HistorySkip{f.Label,
+		res.Skipped = append(res.Skipped, historySkip{f.Label,
 			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
 		return dropStale(f, dest, res)
 	}
@@ -145,7 +145,7 @@ func (s *HistoryStore) stageFile(f HistoryFile, res *SnapshotResult) error {
 }
 
 // dropStale removes a held-back file's old store copy so the log never shows it as current.
-func dropStale(f HistoryFile, dest string, res *SnapshotResult) error {
+func dropStale(f historyFile, dest string, res *SnapshotResult) error {
 	err := os.Remove(dest)
 	if err == nil {
 		res.Changed = append(res.Changed, f.Label)
@@ -158,9 +158,9 @@ func dropStale(f HistoryFile, dest string, res *SnapshotResult) error {
 }
 
 // stageUnreadable records a watched file that could not be read: absent or skipped, either way removed from the store.
-func stageUnreadable(f HistoryFile, dest string, readErr error, res *SnapshotResult) error {
+func stageUnreadable(f historyFile, dest string, readErr error, res *SnapshotResult) error {
 	if !errors.Is(readErr, fs.ErrNotExist) {
-		res.Skipped = append(res.Skipped, HistorySkip{f.Label, readErr.Error()})
+		res.Skipped = append(res.Skipped, historySkip{f.Label, readErr.Error()})
 		return dropStale(f, dest, res)
 	}
 	res.Absent = append(res.Absent, f.Label)
@@ -172,7 +172,7 @@ func stageUnreadable(f HistoryFile, dest string, readErr error, res *SnapshotRes
 }
 
 // readFile reads f through its Read func when set, else from its Path.
-func readFile(f HistoryFile) ([]byte, error) {
+func readFile(f historyFile) ([]byte, error) {
 	if f.Read != nil {
 		return f.Read()
 	}

@@ -34,15 +34,15 @@ type RoutingField struct {
 	IsSet func(providers.Routing) bool
 }
 
-// Module is one agent's routing fields.
-type Module interface {
+// module is one agent's routing fields.
+type module interface {
 	Name() string
 	Fields() []RoutingField
 }
 
 // Modules lists every registered module in display/merge order, core routing knobs first.
-func Modules() []Module {
-	return []Module{routingModule{}, opencodeModule{}}
+func Modules() []module {
+	return []module{routingModule{}, opencodeModule{}}
 }
 
 // routingModule is the core module: the composite-score weight and the served-model switch.
