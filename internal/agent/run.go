@@ -113,6 +113,10 @@ func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, c
 	if p.Record, err = c.record(ctx, o, claim); err != nil {
 		return err
 	}
+	if plan := p.Chain.Plan; plan != nil && claim == nil {
+		p.Record.RoutePlan, p.Record.FallbackPolicy = plan, plan.Fallback.Mode()
+		p.Record.Request.FallbackDefaulted = !plan.Fallback.Typed()
+	}
 	p.Record.Preflight = p.Chain.Preflight
 	if len(p.Chain.Dispatches) > 0 {
 		p.Record.Account = p.Chain.Dispatches[0].Account

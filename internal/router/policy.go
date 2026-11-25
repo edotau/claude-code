@@ -28,12 +28,48 @@ const (
 	PolicyTyped                       // --fallback, or a replayed typed record.
 )
 
+var (
+	kindNames   = [...]string{PolicyNone: "none", PolicySameWorkspace: "same-workspace", PolicyAnyInFence: "any-in-fence"}
+	sourceNames = [...]string{PolicyDefault: "default", PolicyEnv: "env", PolicyOverlay: "overlay", PolicyTyped: "typed"}
+)
+
+func (k PolicyKind) MarshalText() ([]byte, error) {
+	if int(k) >= len(kindNames) || kindNames[k] == "" {
+		return nil, nil // the zero kind: Resolved fills it on read
+	}
+	return []byte(kindNames[k]), nil
+}
+
+func (k *PolicyKind) UnmarshalText(b []byte) error {
+	*k = 0
+	for i, n := range kindNames {
+		if n != "" && n == string(b) {
+			*k = PolicyKind(i)
+		}
+	}
+	return nil
+}
+
+func (s PolicySource) MarshalText() ([]byte, error) {
+	return []byte(sourceNames[min(int(s), len(sourceNames)-1)]), nil
+}
+
+func (s *PolicySource) UnmarshalText(b []byte) error {
+	*s = PolicyDefault
+	for i, n := range sourceNames {
+		if n == string(b) {
+			*s = PolicySource(i)
+		}
+	}
+	return nil
+}
+
 // Policy is the typed fallback rule; Agents admits other agents' hops.
 type Policy struct {
-	Kind   PolicyKind
-	Agents bool
-	OffArm bool // Mode all: own-login hops leaving the arm, only when the fence is open.
-	Source PolicySource
+	Kind   PolicyKind   `json:"kind,omitempty"`
+	Agents bool         `json:"agents,omitempty"`
+	OffArm bool         `json:"off_arm,omitempty"` // Mode all: own-login hops leaving the arm, only when the fence is open.
+	Source PolicySource `json:"source,omitempty"`
 }
 
 // Resolved is p, or today's default mode when p is the zero value (a plan or record that lacked a fallback).

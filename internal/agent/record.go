@@ -91,6 +91,7 @@ type Record struct {
 	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
 	FallbackPolicy string      `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
+	RoutePlan      *RoutePlan  `json:"route_plan,omitempty"`      // the dispatch's one routing decision; nil on an old record
 	Live           bool        `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 	TaskID         string      `json:"task_id,omitempty"`         // ask --batch: the task line's id
 	BatchID        string      `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run

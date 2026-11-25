@@ -215,3 +215,28 @@ func TestExecutablePolicyPinnedAll(t *testing.T) {
 		t.Errorf("executablePolicy = %+v, want any-in-fence with off-arm", got)
 	}
 }
+
+func TestFinishPrepareRecordsAdmittedPlan(t *testing.T) {
+	pol, err := router.PolicyOf(router.FallbackAgents, router.PolicyTyped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &RoutePlan{Agent: "codex", Runners: []Runner{{RunnerPi, "codex"}, {RunnerOwn, "codex"}}, Fallback: pol}
+	c := &Client{}
+	p := &Prepared{Chain: Chain{Plan: plan}}
+	if err := c.finishPrepare(context.Background(), p, RunOptions{Agent: "codex", Prompt: "Reply ok"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p.Record.RoutePlan != plan || p.Record.FallbackPolicy != router.FallbackAgents || p.Record.Request.FallbackDefaulted {
+		t.Fatalf("record plan=%p policy=%q defaulted=%v, want the admitted plan, %q, typed",
+			p.Record.RoutePlan, p.Record.FallbackPolicy, p.Record.Request.FallbackDefaulted, router.FallbackAgents)
+	}
+	claim := &Record{ID: "claimed", FallbackPolicy: router.FallbackNone}
+	p = &Prepared{Chain: Chain{Plan: plan}}
+	if err := c.finishPrepare(context.Background(), p, RunOptions{Agent: "codex", Prompt: "Reply ok"}, claim); err != nil {
+		t.Fatal(err)
+	}
+	if p.Record.RoutePlan != nil || p.Record.FallbackPolicy != router.FallbackNone {
+		t.Fatalf("a claimed record kept plan=%p policy=%q, want its own (nil, none)", p.Record.RoutePlan, p.Record.FallbackPolicy)
+	}
+}
