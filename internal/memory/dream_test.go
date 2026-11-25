@@ -221,3 +221,32 @@ func TestDreamRecordsEveryRun(t *testing.T) {
 		t.Errorf("records = %s", g)
 	}
 }
+
+func TestDreamLogsAreUniqueAndPruned(t *testing.T) {
+	isolatedConfig(t)
+	dir := paths.MemoryStateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range dreamLogKeep + 5 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("dream-20200101-000000.%03d-old.log", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := openDreamLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := openDreamLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	defer b.Close()
+	if a.Name() == b.Name() {
+		t.Errorf("same log name %s", a.Name())
+	}
+	if logs, _ := filepath.Glob(filepath.Join(dir, "dream-[0-9]*.log")); len(logs) != dreamLogKeep {
+		t.Errorf("%d logs kept, want %d", len(logs), dreamLogKeep)
+	}
+}

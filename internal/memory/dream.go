@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -331,6 +332,9 @@ func (r *dreamRan) runAgent(o dreamOptions, prompt string, nChanged int) {
 	start := time.Now()
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
 	fmt.Fprintln(o.Out, dreamRunLine(who, err, r.job.Local))
+	if err != nil && strings.Contains(err.Error(), "\n") {
+		fmt.Fprintln(o.Out, "memory dream: error detail:", err) // the run line keeps only the first line
+	}
 	after := dreamChanged(start)
 	for _, f := range after {
 		rel, relErr := filepath.Rel(paths.MemoryStoreDir(), f)
@@ -521,10 +525,24 @@ func LastDreamResults(n int) ([]DreamResult, error) {
 	return out, nil
 }
 
-// openDreamLog creates the run's log in the state dir, named by logStampLayout.
+// dreamLogKeep is how many per-run dream logs stay in the state dir, the new one included.
+const dreamLogKeep = 50
+
+// openDreamLog creates the run's uniquely named log in the state dir after pruning the oldest ones.
 func openDreamLog() (*os.File, error) {
-	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
+	dir := paths.MemoryStateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(filepath.Join(paths.MemoryStateDir(), "dream-"+time.Now().Format(logStampLayout)+".log"), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+	pruneDreamLogs(dir, dreamLogKeep-1)
+	return os.CreateTemp(dir, "dream-"+time.Now().Format(logStampLayout)+"-*.log")
+}
+
+// pruneDreamLogs keeps the newest keep stamped dream logs (never dream-launchd.log); names sort oldest first.
+func pruneDreamLogs(dir string, keep int) {
+	logs, _ := filepath.Glob(filepath.Join(dir, "dream-[0-9]*.log"))
+	sort.Strings(logs)
+	for i := 0; i < len(logs)-keep; i++ {
+		_ = os.Remove(logs[i])
+	}
 }
