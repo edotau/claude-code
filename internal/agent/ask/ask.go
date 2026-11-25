@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -331,6 +332,13 @@ func jobAncestry(ctx context.Context, job string) (context.Context, error) {
 	return ancestorContext(ctx), nil
 }
 
+// codeModeType turns code mode on for the code-mode type, through the flag set so the canonical argv carries it.
+func codeModeType(fs *flag.FlagSet, ref string, f *askFlags) {
+	if ref == agentid.CodeModeType && f.codemode == "" {
+		_ = fs.Set("codemode", "on")
+	}
+}
+
 // selectAgent resolves the --agent selector and checks the flag combinations it enables.
 func (r *askRun) selectAgent() (int, bool) {
 	f := r.f
@@ -343,6 +351,7 @@ func (r *askRun) selectAgent() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.name = r.ag
+	codeModeType(r.fs, r.ref, f)
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
