@@ -242,7 +242,7 @@ func TestScanMemoSharesEmptyScanAndResets(t *testing.T) {
 		calls++
 		return nil, nil
 	}
-	end := BeginScanMemo()
+	end := beginScanMemo()
 	t.Cleanup(end)
 	for range 2 {
 		if got, err := liveLister()(t.TempDir()); err != nil || len(got) != 0 {
@@ -256,7 +256,7 @@ func TestScanMemoSharesEmptyScanAndResets(t *testing.T) {
 	if _, err := liveLister()(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	end = BeginScanMemo()
+	end = beginScanMemo()
 	defer end()
 	if _, err := liveLister()(t.TempDir()); err != nil || calls != 3 {
 		t.Fatalf("after end and restart: calls=%d err=%v, want 3 scans", calls, err)
@@ -281,7 +281,7 @@ func TestScanMemoRetriesErrorsAndRechecksBusyDir(t *testing.T) {
 			return nil, nil
 		}
 	}
-	defer BeginScanMemo()()
+	defer beginScanMemo()()
 	if _, err := liveLister()(dir); !errors.Is(err, wantErr) {
 		t.Fatalf("scan error = %v, want %v", err, wantErr)
 	}
@@ -295,7 +295,7 @@ func TestScanMemoRetriesErrorsAndRechecksBusyDir(t *testing.T) {
 	}
 }
 
-// PeerAgents ignores agents in a linked worktree, the caller's own agent ancestor and that agent's descendants.
+// peerAgents ignores agents in a linked worktree, the caller's own agent ancestor and that agent's descendants.
 func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 	co, linked := "/co", "/co/wt"
 	self := os.Getpid()
@@ -325,13 +325,13 @@ func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 		return ""
 	}
 	t.Cleanup(func() { commName = origName })
-	got, err := PeerAgents(co, []string{linked})
+	got, err := peerAgents(co, []string{linked})
 	if err != nil || len(got) != 1 || got[0].PID != 400 {
-		t.Fatalf("PeerAgents = %v, %v; want only pid 400", got, err)
+		t.Fatalf("peerAgents = %v, %v; want only pid 400", got, err)
 	}
 }
 
-// PeerAgents walks the process table once however many linked worktrees there are, and still partitions them.
+// peerAgents walks the process table once however many linked worktrees there are, and still partitions them.
 func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	co := "/co"
 	linkedDirs := []string{"/co/wt1", "/co/wt2", "/co/wt3"}
@@ -347,7 +347,7 @@ func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
 	commName = func(int) string { return "" }
 	t.Cleanup(func() { scanProcs, argvOf, commName = origScan, origArgs, origName })
-	got, err := PeerAgents(co, linkedDirs)
+	got, err := peerAgents(co, linkedDirs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,9 +376,9 @@ func TestPeerAgentsFallsBackWhenAgentScanFails(t *testing.T) {
 	argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
 	commName = func(int) string { return "" }
 	t.Cleanup(func() { scanProcs, scanAgentProcs, argvOf, commName = origScan, origAgents, origArgs, origName })
-	got, err := PeerAgents(co, nil)
+	got, err := peerAgents(co, nil)
 	if err != nil || len(got) != 2 || got[0].PID != 101 || got[1].PID != 102 {
-		t.Fatalf("PeerAgents = %v, %v; want pids 101 and 102 from the full scan", got, err)
+		t.Fatalf("peerAgents = %v, %v; want pids 101 and 102 from the full scan", got, err)
 	}
 }
 
@@ -417,7 +417,7 @@ func BenchmarkPeerAgents(b *testing.B) {
 	var got []Proc
 	var err error
 	for b.Loop() {
-		got, err = PeerAgents(checkout, linked)
+		got, err = peerAgents(checkout, linked)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -501,7 +501,7 @@ func TestInUseByRefusalNamesProcessAndNextStep(t *testing.T) {
 	}
 }
 
-// PeerAgents skips agents under this session's detached background jobs, and only those (hookperm-22).
+// peerAgents skips agents under this session's detached background jobs, and only those (hookperm-22).
 func TestPeerAgentsSkipsOwnBackgroundJobs(t *testing.T) {
 	co, linked := "/co", "/co/wt"
 	self := os.Getpid()
@@ -540,9 +540,9 @@ func TestPeerAgentsSkipsOwnBackgroundJobs(t *testing.T) {
 				}
 				return nil
 			}
-			got, err := PeerAgents(co, []string{linked})
+			got, err := peerAgents(co, []string{linked})
 			if err != nil || (len(got) == 1) != c.want {
-				t.Fatalf("PeerAgents = %v, %v; want reported=%v", got, err, c.want)
+				t.Fatalf("peerAgents = %v, %v; want reported=%v", got, err, c.want)
 			}
 		})
 	}
@@ -619,10 +619,10 @@ func TestPeerAgentsNamesVersionedClaude(t *testing.T) {
 		}
 		exeOf = func(pid int) string { return exes[pid] }
 		ownJobs = func(map[int]bool) map[int]bool { return nil }
-		got, err := PeerAgents(co, nil)
+		got, err := peerAgents(co, nil)
 		want := []Proc{{810, "claude"}, {820, "claude"}}
 		if err != nil || !slices.Equal(got, want) {
-			t.Errorf("fallback=%v: PeerAgents = %v, %v; want %v", fallback, got, err, want)
+			t.Errorf("fallback=%v: peerAgents = %v, %v; want %v", fallback, got, err, want)
 		}
 	}
 }

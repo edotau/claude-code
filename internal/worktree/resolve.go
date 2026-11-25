@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,11 +21,12 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// WithWorktreeLease runs fn under the lease serializing resolve, land and clean per worktree (before the land lock).
-func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
+// withWorktreeLease runs fn under the lease serializing resolve, land and clean per worktree (before the land lock).
+func withWorktreeLease(repo *Repo, name string, fn func() error) error {
 	leasePath := operationLeasePath(repo.Main, name)
 	// TryFileLock does not create the lease dir, which may not exist yet on a first resolve.
 	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
@@ -69,7 +71,7 @@ func closedByLand(text string) bool {
 	return ledgerField(text[i:], "Via") == "land"
 }
 
-// WithLandLease is WithWorktreeLease that waits (maxLandWait or ctx); fn gets the holder it waited on, "" if none.
+// WithLandLease is withWorktreeLease that waits (maxLandWait or ctx); fn gets the holder it waited on, "" if none.
 func WithLandLease(ctx context.Context, repo *Repo, name string, log io.Writer, fn func(waitedOn string) error) error {
 	leasePath := operationLeasePath(repo.Main, name)
 	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
@@ -629,3 +631,103 @@ func ResolveAgents() []string {
 }
 
 func ValidResolveAgent(a string) bool { return a == "" || slices.Contains(ResolveAgents(), a) }
+
+// Operation is the durable record of one agent resolution; OIDs are pinned before the agent runs so resume revalidates.
+type Operation struct {
+	Schema   int `json:"schema"`
+	ID       string
+	Repo     string
+	Worktree string
+	// the target branch pinned at resolve start; resume must match both this and TargetOID
+	TargetRef         string
+	TargetOID         string
+	OriginalSourceOID string
+	// paths the agent was handed; finalizeAgentResolution never stages/commits outside these
+	ConflictPaths []string
+	// "resolving" | "resolved" | "failed" | "timeout" | "cancelled"
+	Phase     string
+	StartedAt time.Time
+	Deadline  time.Time
+	Agent     string
+	// true only once the agent process itself returned success with no fallback
+	AgentExitOK bool
+}
+
+// operationsDir holds one JSON file per repo+worktree under the harness's existing runtime state dir.
+func operationsDir() string {
+	return paths.MoveLegacy(filepath.Join(paths.StateDir(), "worktree-merge-ops"), filepath.Join(paths.StateDir(), "worktree-land-ops"))
+}
+
+// operationPath is deterministic from repo+name, so --resume needs no id lookup.
+func operationPath(repoMain, name string) string {
+	slug := paths.Slug(filepath.Base(filepath.Clean(repoMain))+"-"+name, "._-", 0, "op")
+	// the slug alone collides across repos/case
+	sum := sha256.Sum256([]byte(filepath.Clean(repoMain) + "\x00" + name))
+	return filepath.Join(operationsDir(), slug+"-"+hex.EncodeToString(sum[:4])+".json")
+}
+
+// operationLeasePath is the lock withWorktreeLease holds; not ".lock", the suffix paths.WithFileLock owns.
+func operationLeasePath(repoMain, name string) string {
+	return operationPath(repoMain, name) + ".lease"
+}
+
+// SaveOperation atomically writes op, overwriting any prior state saved for the same repo+worktree.
+func SaveOperation(op *Operation) error {
+	op.Schema = operationSchema
+	data, err := json.MarshalIndent(op, "", "  ")
+	if err != nil {
+		return fmt.Errorf("save operation: %w", err)
+	}
+	return paths.AtomicWrite(operationPath(op.Repo, op.Worktree), data, 0o600)
+}
+
+// loadOperation reads the saved operation; a missing file surfaces as the plain *os.PathError for --resume to report.
+func loadOperation(repo *Repo, name string) (*Operation, error) {
+	data, err := os.ReadFile(operationPath(repo.Main, name))
+	if err != nil {
+		return nil, err
+	}
+	var op Operation
+	if _, err := schemas.Decode(operationFormat, data, &op); err != nil {
+		return nil, fmt.Errorf("load operation: %w", err)
+	}
+	return &op, nil
+}
+
+// operationSchema versions worktree-land-op.
+const operationSchema = 1
+
+var operationFormat = schemas.Register(schemas.Format{
+	Name: "worktree-land-op", Owner: "internal/worktree", Kind: schemas.Record, Version: operationSchema,
+	Glob:    func() string { return filepath.Join(operationsDir(), "*.json") },
+	New:     func() any { return new(Operation) },
+	Keep:    "resume record for an interrupted agent resolve",
+	Migrate: schemas.SameShape,
+})
+
+// CheckResumable mirrors the pre-agent checks of the real --resume so a dry run fails where that would.
+func CheckResumable(repo *Repo, name string) error {
+	_, _, err := loadResumable(repo, name)
+	return err
+}
+
+// loadResumable loads name's saved operation and its worktree path, failing if either is missing or foreign to repo.
+func loadResumable(repo *Repo, name string) (op *Operation, worktreePath string, err error) {
+	op, err = loadOperation(repo, name)
+	if err != nil {
+		return nil, "", fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
+	}
+	if op.Repo != repo.Main {
+		return nil, "", fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
+	}
+	if op.Worktree != name {
+		return nil, "", fmt.Errorf("operation %s records worktree %q, not %q", op.ID, op.Worktree, name)
+	}
+	if worktreePath, err = checkWorktreeName(repo, name); err != nil {
+		return nil, "", err
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		return nil, "", fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
+	}
+	return op, worktreePath, nil
+}

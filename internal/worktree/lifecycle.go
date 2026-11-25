@@ -317,7 +317,7 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 // cleanWithLog is Clean with ledger warnings written to log (nil discards them).
 func cleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	var result CleanResult
-	err := WithWorktreeLease(repo, name, func() error {
+	err := withWorktreeLease(repo, name, func() error {
 		dest, err := resolveWorktreeBounded(repo, name)
 		if err != nil {
 			return err
@@ -472,7 +472,7 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 	if !apply {
 		// a preview removes nothing, so one shared process scan is safe; apply keeps a fresh scan per lane
-		defer BeginScanMemo()()
+		defer beginScanMemo()()
 	}
 	registered, err := listPorcelain(repo)
 	if err != nil {
@@ -545,7 +545,7 @@ type DiscardSummary struct {
 // CleanForce removes name even when dirty or unmerged and force-deletes its branch; still refuses in-use, locked, main.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
 	var result CleanResult
-	err := WithWorktreeLease(repo, name, func() (err error) {
+	err := withWorktreeLease(repo, name, func() (err error) {
 		result, err = cleanForceInLease(repo, name, dryRun, report, os.Stderr)
 		return err
 	})

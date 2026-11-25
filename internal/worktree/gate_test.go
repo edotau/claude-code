@@ -424,7 +424,7 @@ func TestParseGateFailures(t *testing.T) {
 	if len(got) != 1 || got[0].DiagnosticID == "" {
 		t.Fatalf("located failure: got %+v", got)
 	}
-	if got[0].DiagnosticID = ""; got[0] != (GateFailure{File: "a.go", Line: 2, Text: "undefined: x"}) {
+	if got[0].DiagnosticID = ""; got[0] != (gateFailure{File: "a.go", Line: 2, Text: "undefined: x"}) {
 		t.Fatalf("located failure: got %+v", got)
 	}
 	if got = parseGateFailures("my dir/a b.go:7: bad\n"); len(got) != 1 || got[0].File != "my dir/a b.go" || got[0].Line != 7 {
@@ -539,5 +539,48 @@ func TestIsPytestStep(t *testing.T) {
 		if got := isPytestStep(step); got != want {
 			t.Errorf("isPytestStep(%q) = %v, want %v", step, got, want)
 		}
+	}
+}
+
+func TestScopedVerifyGatePythonOptionLikePath(t *testing.T) {
+	for _, c := range []struct {
+		name, files, want string
+	}{
+		{"pytest", "pyproject.toml", "(pytest './--collect-only')"},
+		{"ruff and pytest", "pyproject.toml,ruff.toml", "ruff check './--collect-only' && (pytest './--collect-only')"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGateFiles(t, dir, c.files)
+			gate, source := ScopedVerifyGate(dir, []string{"./--collect-only"}, false)
+			if gate != c.want || source != "pyproject" {
+				t.Fatalf("option-like scope must stay a path: gate=%q source=%q, want %q from pyproject", gate, source, c.want)
+			}
+		})
+	}
+}
+
+func TestScopedVerifyGateNpmAndCargoScope(t *testing.T) {
+	for _, c := range []struct {
+		name, marker, body string
+		scope              []string
+		want, source       string
+	}{
+		{"npm whole suite", "package.json", `{"scripts":{"test":"vitest"}}`, nil, "npm test", "package.json"},
+		{"npm scoped", "package.json", `{"scripts":{"test":"vitest"}}`, []string{"./tests/my pkg/", "other"},
+			"npm test -- 'tests/my pkg' 'other'", "package.json"},
+		{"cargo whole suite", "Cargo.toml", "[package]\nname = 'example'\n", nil, "cargo build && cargo test", "Cargo.toml"},
+		{"cargo scoped refuses", "Cargo.toml", "[package]\nname = 'example'\n", []string{"src"}, "", "none"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, c.marker), []byte(c.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gate, source := ScopedVerifyGate(dir, c.scope, false)
+			if gate != c.want || source != c.source {
+				t.Fatalf("scope=%q: gate=%q source=%q, want %q from %q", c.scope, gate, source, c.want, c.source)
+			}
+		})
 	}
 }

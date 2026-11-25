@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -518,7 +519,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	}
 }
 
-// Regression: WithWorktreeLease refuses a second concurrent op on the same worktree and never runs its fn.
+// Regression: withWorktreeLease refuses a second concurrent op on the same worktree and never runs its fn.
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
@@ -541,13 +542,13 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	defer close(release)
 
 	resolveWasCalled := false
-	err := WithWorktreeLease(repo, filepath.Base(wt), func() error {
+	err := withWorktreeLease(repo, filepath.Base(wt), func() error {
 		resolveWasCalled = true
 		_, _, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 		return err
 	})
 	if err == nil {
-		t.Fatal("WithWorktreeLease: want an error while another operation holds the lease")
+		t.Fatal("withWorktreeLease: want an error while another operation holds the lease")
 	}
 	if !strings.Contains(err.Error(), "already active") {
 		t.Fatalf("err = %q, want it to report the lease conflict", err)
@@ -750,5 +751,168 @@ func TestClosedByLandIgnoresHistoricalClose(t *testing.T) {
 		if got := closedByLand(text); got != want {
 			t.Errorf("closedByLand(%q) = %v, want %v", text, got, want)
 		}
+	}
+}
+
+func TestResumeRejectsCommittedOutOfScopeEdits(t *testing.T) {
+	repo, _, wt, plan := resolveFixtureConflictSetup(t)
+	resolveFixtureFakeAgent(t, func(context.Context, string, string, string, time.Duration) (askEnvelope, error) {
+		regressionWriteFile(t, filepath.Join(wt, "f.txt"), "resolved\n")
+		regressionWriteFile(t, filepath.Join(wt, "outside.txt"), "unauthorized\n")
+		landFixtureRun(t, wt, "add", "f.txt", "outside.txt")
+		landFixtureRun(t, wt, "commit", "--no-edit")
+		return askEnvelope{}, nil
+	})
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	if err == nil || result != nil || !strings.Contains(err.Error(), "outside the conflicted paths") {
+		t.Fatalf("fresh resolution must reject committed scope violation: result=%+v err=%v", result, err)
+	}
+	if !op.AgentExitOK {
+		t.Fatal("fixture must preserve the successful agent exit for resume")
+	}
+	resolveFixtureFakeAgent(t, func(context.Context, string, string, string, time.Duration) (askEnvelope, error) {
+		t.Fatal("resume must not invoke the agent")
+		return askEnvelope{}, nil
+	})
+	_, result, err = resolveWithAgent(context.Background(), repo, plan, "claude", op)
+	if err == nil || result != nil || !strings.Contains(err.Error(), "outside the conflicted paths") {
+		t.Fatalf("resume accepted the same committed scope violation: result=%+v err=%v", result, err)
+	}
+}
+
+func TestCheckResolutionRejectsCommittedConflictMarkers(t *testing.T) {
+	repo, _, wt, plan := resolveFixtureConflictSetup(t)
+	op := crashedOperation(t, repo, wt, plan)
+	landFixtureRun(t, wt, "add", "f.txt")
+	landFixtureRun(t, wt, "commit", "--no-edit")
+	state, reason, err := checkResolution(context.Background(), op, wt)
+	if err != nil || state != resolutionInvalid || !strings.Contains(reason, "conflict markers") {
+		t.Fatalf("committed markers accepted: state=%v reason=%q err=%v", state, reason, err)
+	}
+}
+
+func TestResolutionAllowsTrailingWhitespace(t *testing.T) {
+	repo, _, wt, plan := resolveFixtureConflictSetup(t)
+	resolveFixtureFakeAgent(t, func(context.Context, string, string, string, time.Duration) (askEnvelope, error) {
+		regressionWriteFile(t, filepath.Join(wt, "f.txt"), "resolved with trailing space \n")
+		if out, err := runGit(context.Background(), wt, nil, "diff", "--check"); err == nil {
+			t.Fatalf("fixture must trigger git's whitespace warning: %q", out)
+		}
+		return askEnvelope{}, nil
+	})
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	if err != nil {
+		t.Fatalf("whitespace without conflict markers must resolve: %v", err)
+	}
+	requirePhase(t, "operation", op.Phase, "resolved")
+	requireIntegrate(t, result, headOf(wt))
+	requireFileText(t, filepath.Join(wt, "f.txt"), "resolved with trailing space \n")
+}
+
+func regressionWriteFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// a directory at the op path makes every save fail
+
+// resolveFixtureOpEnv isolates paths.StateDir() (and so operationsDir) per test, like landFixtureLockEnv.
+func resolveFixtureOpEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+}
+
+func TestSaveOperationThenLoadOperationRoundTrip(t *testing.T) {
+	resolveFixtureOpEnv(t)
+	started := time.Now().UTC().Truncate(time.Second)
+	op := &Operation{
+		ID:                "op-abc123",
+		Repo:              "/repo/main",
+		Worktree:          "feature",
+		TargetRef:         "main",
+		TargetOID:         "deadbeef",
+		OriginalSourceOID: "cafef00d",
+		ConflictPaths:     []string{"f.txt"},
+		Phase:             "resolving",
+		StartedAt:         started,
+		Deadline:          started.Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := SaveOperation(op); err != nil {
+		t.Fatalf("SaveOperation: %v", err)
+	}
+	repo := &Repo{Main: "/repo/main"}
+	got, err := loadOperation(repo, "feature")
+	if err != nil {
+		t.Fatalf("loadOperation: %v", err)
+	}
+	if !reflect.DeepEqual(got, op) {
+		t.Fatalf("round trip mismatch: got %+v, want %+v", got, op)
+	}
+}
+
+func TestSaveOperationOverwritesPriorStateForSameRepoWorktree(t *testing.T) {
+	resolveFixtureOpEnv(t)
+	repo := &Repo{Main: "/repo/main"}
+	first := &Operation{Repo: "/repo/main", Worktree: "feature", Phase: "resolving", Agent: "claude"}
+	if err := SaveOperation(first); err != nil {
+		t.Fatalf("SaveOperation (first): %v", err)
+	}
+	second := &Operation{Repo: "/repo/main", Worktree: "feature", Phase: "resolved", Agent: "claude"}
+	if err := SaveOperation(second); err != nil {
+		t.Fatalf("SaveOperation (second): %v", err)
+	}
+	got, err := loadOperation(repo, "feature")
+	if err != nil {
+		t.Fatalf("loadOperation: %v", err)
+	}
+	if got.Phase != "resolved" {
+		t.Fatalf("Phase = %q, want the overwritten %q (same repo+worktree key)", got.Phase, "resolved")
+	}
+}
+
+// A missing operation file surfaces the plain os.ReadFile error so callers can use os.IsNotExist.
+func TestLoadOperationMissingFileSurfacesNotExist(t *testing.T) {
+	resolveFixtureOpEnv(t)
+	repo := &Repo{Main: "/repo/main"}
+	_, err := loadOperation(repo, "never-started")
+	if err == nil {
+		t.Fatal("loadOperation: want an error for a never-saved operation")
+	}
+	if !os.IsNotExist(err) {
+		t.Fatalf("loadOperation err = %v (%T), want os.IsNotExist true", err, err)
+	}
+}
+
+// Garbage JSON at the operation path must yield an error, never a panic or a zero-value Operation.
+func TestLoadOperationCorruptFileReturnsError(t *testing.T) {
+	resolveFixtureOpEnv(t)
+	repo := &Repo{Main: "/repo/main"}
+	path := operationPath(repo.Main, "feature")
+	if err := os.MkdirAll(operationsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadOperation(repo, "feature")
+	if err == nil {
+		t.Fatal("loadOperation: want an error for corrupt JSON")
+	}
+	if os.IsNotExist(err) {
+		t.Fatalf("loadOperation err = %v, want a decode error, not not-exist", err)
+	}
+	if !strings.Contains(err.Error(), "load operation") {
+		t.Fatalf("err = %q, want it to name the failing step", err)
+	}
+}
+
+func TestOperationPathDistinguishesCollidingSlugs(t *testing.T) {
+	a, b := operationPath("/r/x", "a-b"), operationPath("/r/x-a", "b")
+	if a == b || operationPath("/r/x", "Fix") == operationPath("/r/x", "fix") {
+		t.Errorf("operation paths collide: %s %s", a, b)
 	}
 }

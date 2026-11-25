@@ -35,10 +35,10 @@ func TestAuditStartsOnceAndReportsOnce(t *testing.T) {
 	auditCommand = "echo ok"
 	t.Cleanup(func() { auditCommand = old })
 	main, sha := auditFixtureRepo(t)
-	if line := StartAudit(main, sha); !strings.HasPrefix(line, "audit: started on "+ShortOID(sha)) {
+	if line := startAudit(main, sha); !strings.HasPrefix(line, "audit: started on "+ShortOID(sha)) {
 		t.Fatalf("start = %q", line)
 	}
-	if line := StartAudit(main, sha); !strings.HasPrefix(line, "audit: already running") {
+	if line := startAudit(main, sha); !strings.HasPrefix(line, "audit: already running") {
 		t.Fatalf("second start = %q", line)
 	}
 	for deadline := time.Now().Add(10 * time.Second); !paths.FileExists(auditBase(sha)+".exit") && time.Now().Before(deadline); {
@@ -66,7 +66,7 @@ func TestAuditSnapshotLinksVenv(t *testing.T) {
 	if err := os.WriteFile(marker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	StartAudit(main, sha)
+	startAudit(main, sha)
 	for deadline := time.Now().Add(10 * time.Second); !paths.FileExists(auditBase(sha)+".exit") && time.Now().Before(deadline); {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -88,7 +88,7 @@ func TestAuditSkipsRepoWithoutTarget(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(main, "Makefile"), []byte("build:\n\ttrue\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if line := StartAudit(main, sha); line != "audit: skipped, no audit target in "+main {
+	if line := startAudit(main, sha); line != "audit: skipped, no audit target in "+main {
 		t.Fatalf("skip = %q", line)
 	}
 	if paths.FileExists(auditBase(sha) + ".json") {

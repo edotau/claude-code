@@ -60,8 +60,8 @@ const auditScript = `s=$(date +%s); t=$(mktemp -d) || exit 1; rc=1; ` +
 	`git -C "$1" worktree remove --force "$t/src" >&2; fi; rm -rf "$t"; ` +
 	`echo "$rc $(( $(date +%s) - s ))" >"$3.tmp" && mv "$3.tmp" "$3"`
 
-// StartAudit starts the detached audit of a clean snapshot of sha (taken at main); returns the line to print.
-func StartAudit(main, sha string) string {
+// startAudit starts the detached audit of a clean snapshot of sha (taken at main); returns the line to print.
+func startAudit(main, sha string) string {
 	if auditCommand == "" {
 		return ""
 	}

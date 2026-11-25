@@ -34,7 +34,7 @@ var inUseSettle = time.Second
 // inUsePoll is the pause between settle re-checks of a busy worktree.
 var inUsePoll = 100 * time.Millisecond
 
-// parentOf returns pid's parent pid; ancestry walks it for InUseBy's exclusion and PeerAgents.
+// parentOf returns pid's parent pid; ancestry walks it for InUseBy's exclusion and peerAgents.
 var parentOf func(pid int) (int, error)
 
 // ProcessScan exposes callback pointers so test helpers can replace process scans without importing this package.
@@ -133,8 +133,8 @@ var scanMemoOn atomic.Bool
 // scanMemoTTL bounds how stale a shared scan may be, so a long gate between two checks forces a fresh one.
 const scanMemoTTL = 5 * time.Second
 
-// BeginScanMemo starts sharing process scans until the returned func is called; one verb at a time.
-func BeginScanMemo() (end func()) {
+// beginScanMemo starts sharing process scans until the returned func is called; one verb at a time.
+func beginScanMemo() (end func()) {
 	scanMemo.Drop()
 	scanMemoOn.Store(true)
 	return func() {
@@ -194,7 +194,7 @@ func ancestry(pid int) map[int]bool {
 	return seen
 }
 
-// agentComms are the process names that count as a live agent session in PeerAgents.
+// agentComms are the process names that count as a live agent session in peerAgents.
 var agentComms = func() map[string]bool {
 	set := map[string]bool{}
 	for _, a := range agentid.All() {
@@ -213,7 +213,7 @@ type procCwd struct {
 // scanProcs lists every inspectable process with its cwd in one pass; each platform's init() assigns it.
 var scanProcs func() ([]procCwd, error)
 
-// scanAgentProcs is scanProcs limited to agent-named processes; nil means PeerAgents uses scanProcs.
+// scanAgentProcs is scanProcs limited to agent-named processes; nil means peerAgents uses scanProcs.
 var scanAgentProcs func() ([]procCwd, error)
 
 // filterProcs keeps the scanned processes whose cwd is dir or under it, reading a missing comm only for those.
@@ -240,8 +240,8 @@ func scanIn(dir string) ([]Proc, error) {
 	return filterProcs(all, dir), nil
 }
 
-// PeerAgents lists agent processes in checkout (not .git, linked worktrees, the caller's ancestry or its descendants).
-func PeerAgents(checkout string, linked []string) ([]Proc, error) {
+// peerAgents lists agent processes in checkout (not .git, linked worktrees, the caller's ancestry or its descendants).
+func peerAgents(checkout string, linked []string) ([]Proc, error) {
 	scan := scanProcs
 	if scanAgentProcs != nil {
 		scan = scanAgentProcs

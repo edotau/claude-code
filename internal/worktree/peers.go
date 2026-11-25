@@ -17,7 +17,7 @@ import (
 )
 
 // PeerScan is the process scan; a var seam so tests never see the host's live sessions.
-var PeerScan = PeerAgents
+var PeerScan = peerAgents
 
 // CheckoutPeersInfo returns the checkout root, branch and nested worktrees; an empty root means no repo.
 func CheckoutPeersInfo(ctx context.Context, cwd string) (top, branch string, nested []string) {
@@ -166,7 +166,7 @@ func checkoutGit(ctx context.Context, cwd, top string) (string, string, []string
 	return top, branch, nestedIn(top, others)
 }
 
-// PeersOf runs the PeerAgents scan for top under ctx's deadline; a scan past it is abandoned as an error.
+// PeersOf runs the peerAgents scan for top under ctx's deadline; a scan past it is abandoned as an error.
 func PeersOf(ctx context.Context, top string, nested []string) ([]Proc, error) {
 	type scan struct {
 		procs []Proc

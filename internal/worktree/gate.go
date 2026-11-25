@@ -574,8 +574,8 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 	return first
 }
 
-// GateFailure is one failing location parsed from gate output; file is empty when the line names none.
-type GateFailure struct {
+// gateFailure is one failing location parsed from gate output; file is empty when the line names none.
+type gateFailure struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
 	Text string `json:"text"`
@@ -591,7 +591,7 @@ type GateRun struct {
 	Changed []string `json:"changed"`
 	// ChangeIDs[i] is the short hash of Changed[i], so it moves when the file's content does.
 	ChangeIDs []string      `json:"change_ids"`
-	Failures  []GateFailure `json:"failures"`
+	Failures  []gateFailure `json:"failures"`
 }
 
 const gateRunTimeout = 20 * time.Minute
@@ -608,7 +608,7 @@ func RunScopedGate(ctx context.Context, dir string, scope []string, lintCheck bo
 	defer cancel()
 	var out bytes.Buffer
 	err := runVerify(ctx, dir, gate, "", &out, &out)
-	r := GateRun{Gate: gate, Source: source, Failures: []GateFailure{}}
+	r := GateRun{Gate: gate, Source: source, Failures: []gateFailure{}}
 	var ee *exec.ExitError
 	switch {
 	case ctx.Err() != nil:
@@ -639,7 +639,7 @@ func shortID(parts ...string) string {
 var gateNoiseRe = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ms|s)\b|(?:/private)?/(?:tmp|var/folders)/[^ :]+(?::\d+){0,2}`)
 
 // assignDiagnosticIDs stamps each failure; repeats of one file and text mix in their occurrence number (run-local).
-func assignDiagnosticIDs(fails []GateFailure) {
+func assignDiagnosticIDs(fails []gateFailure) {
 	seen := map[string]int{}
 	for i := range fails {
 		first, _, _ := strings.Cut(fails[i].Text, "\n")
@@ -651,13 +651,13 @@ func assignDiagnosticIDs(fails []GateFailure) {
 }
 
 // parseGateFailures reads file:line: text lines; red output with none keeps its first FAIL (else last) line.
-func parseGateFailures(out string) []GateFailure {
-	fails := []GateFailure{}
+func parseGateFailures(out string) []gateFailure {
+	fails := []gateFailure{}
 	var last, firstFail string
 	for line := range strings.SplitSeq(out, "\n") {
 		if m := gateLocRe.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[2])
-			fails = append(fails, GateFailure{File: strings.TrimPrefix(m[1], "./"), Line: n, Text: strings.TrimSpace(m[3])})
+			fails = append(fails, gateFailure{File: strings.TrimPrefix(m[1], "./"), Line: n, Text: strings.TrimSpace(m[3])})
 		} else if t := strings.TrimSpace(line); t != "" {
 			if last = t; firstFail == "" && strings.Contains(t, "FAIL") {
 				firstFail = t
@@ -665,7 +665,7 @@ func parseGateFailures(out string) []GateFailure {
 		}
 	}
 	if len(fails) == 0 && last != "" {
-		fails = append(fails, GateFailure{Text: cmp.Or(firstFail, last)})
+		fails = append(fails, gateFailure{Text: cmp.Or(firstFail, last)})
 	}
 	assignDiagnosticIDs(fails)
 	return fails
