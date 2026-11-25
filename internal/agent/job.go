@@ -486,7 +486,7 @@ func (r Record) QueueLine(now time.Time) string {
 	if pool == "" {
 		return ""
 	}
-	return "queued on " + textutil.PreviewRedacted(pool, 60) + ", waiting " + progressDur(now.Sub(since))
+	return "queued on " + textutil.PreviewRedacted(pool, 60) + ", waiting " + ShortDur(now.Sub(since))
 }
 
 // Observed is what the harness itself recorded about a dispatch, apart from the agent's own account.
@@ -679,7 +679,7 @@ func toRow(r Record) Row {
 	if status == "running" {
 		if pool != "" {
 			status, live = "queued", r.QueueLine(time.Now())
-			wait = progressDur(time.Since(since))
+			wait = ShortDur(time.Since(since))
 			r.Progress = ""
 		} else {
 			live = ProgressOf(r, time.Now()).Line(progressWidth)

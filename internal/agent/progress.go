@@ -226,18 +226,6 @@ func doingOf(tail string) string {
 	return ""
 }
 
-// progressDur spells d as 8s, 2m31s or 1h02m.
-func progressDur(d time.Duration) string {
-	s := int(max(d, 0).Round(time.Second).Seconds())
-	switch {
-	case s < 60:
-		return fmt.Sprintf("%ds", s)
-	case time.Duration(s)*time.Second < time.Hour:
-		return fmt.Sprintf("%dm%02ds", s/60, s%60)
-	}
-	return fmt.Sprintf("%dh%02dm", s/3600, s%3600/60)
-}
-
 // toolsText is "21 tools"; empty when the count is unknown.
 func (p Progress) toolsText() string {
 	if p.Tools < 0 {
@@ -267,7 +255,7 @@ func (p Progress) toolDur() string {
 	case p.ToolMs < 1000:
 		return fmt.Sprintf("tool %dms", p.ToolMs)
 	}
-	return "tool " + progressDur(time.Duration(p.ToolMs)*time.Millisecond)
+	return "tool " + ShortDur(time.Duration(p.ToolMs)*time.Millisecond)
 }
 
 // inPhase is true while a compaction runs (up to the tools timeout), or a retry's announced wait has not passed.
@@ -278,33 +266,33 @@ func (p Progress) inPhase() bool {
 // phaseText is "compacting 12s" (time quiet) or "retrying 4s" (the exact wait Pi announced).
 func (p Progress) phaseText() string {
 	if p.Phase == phaseRetrying {
-		return "retrying " + progressDur(p.RetryIn)
+		return "retrying " + ShortDur(p.RetryIn)
 	}
-	return "compacting " + progressDur(p.Quiet)
+	return "compacting " + ShortDur(p.Quiet)
 }
 
 // signal is the liveness field and whether the doing field is labelled "last:" (the run looks hung).
 func (p Progress) signal() (text string, hung bool) {
 	switch {
 	case !p.Stream && !p.Seen && p.Elapsed > noSignalPast:
-		return "⚠ no live signal past " + progressDur(noSignalPast), true
+		return "⚠ no live signal past " + ShortDur(noSignalPast), true
 	case !p.Stream && !p.Seen:
 		return "no live signal from " + p.Agent, false
 	case !p.Stream:
-		return "last event " + progressDur(p.Quiet) + " ago", false
+		return "last event " + ShortDur(p.Quiet) + " ago", false
 	case p.inPhase():
 		return p.phaseText(), false
 	case p.Quiet >= p.hungAt:
-		return "⚠ no event " + progressDur(p.Quiet), true
+		return "⚠ no event " + ShortDur(p.Quiet), true
 	case p.Quiet >= p.quietAt:
-		return "quiet " + progressDur(p.Quiet), false
+		return "quiet " + ShortDur(p.Quiet), false
 	}
-	return "last event " + progressDur(p.Quiet) + " ago", false
+	return "last event " + ShortDur(p.Quiet) + " ago", false
 }
 
 // Line is the one-line label, at most width columns; the doing field is clipped first, unknown fields dropped.
 func (p Progress) Line(width int) string {
-	return p.render(width, cmp.Or(p.Label, p.Agent), p.Model, progressDur(p.Elapsed))
+	return p.render(width, cmp.Or(p.Label, p.Agent), p.Model, ShortDur(p.Elapsed))
 }
 
 // Fragment is Line without agent, model and elapsed, for a row that already shows them.

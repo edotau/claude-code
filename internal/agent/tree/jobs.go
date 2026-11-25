@@ -142,7 +142,7 @@ func (d Dispatch) since(now time.Time) string {
 	if d.LastSignal.IsZero() {
 		return ""
 	}
-	age := shortDuration(now.Sub(d.LastSignal))
+	age := agent.ShortDur(now.Sub(d.LastSignal))
 	if d.Quiet {
 		return "⚠" + age
 	}
@@ -174,7 +174,7 @@ func queueText(d Dispatch, now time.Time, pools map[string]serve.PoolRow) string
 	if p, ok := pools[d.queued]; ok && p.Cap > 0 {
 		pool = fmt.Sprintf("%s %d/%d", pool, p.Running, p.Cap)
 	}
-	return "queued " + shortDuration(now.Sub(d.queuedAt)) + " (pool " + pool + ")"
+	return "queued " + agent.ShortDur(now.Sub(d.queuedAt)) + " (pool " + pool + ")"
 }
 
 // jobMarker is "○" for a job waiting on admission, else the status glyph.

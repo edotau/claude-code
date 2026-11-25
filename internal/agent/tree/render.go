@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -185,24 +186,7 @@ func idleSince(sub Subagent, now time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return shortDuration(now.Sub(t))
-}
-
-// shortDuration renders d as "49s", "7m49s" or "1h45m": whole seconds under an hour, whole minutes above.
-func shortDuration(d time.Duration) string {
-	d = max(d, 0).Round(time.Second)
-	h, m, s := int(d/time.Hour), int(d%time.Hour/time.Minute), int(d%time.Minute/time.Second)
-	switch {
-	case h > 0 && m > 0:
-		return fmt.Sprintf("%dh%dm", h, m)
-	case h > 0:
-		return fmt.Sprintf("%dh", h)
-	case m > 0 && s > 0:
-		return fmt.Sprintf("%dm%ds", m, s)
-	case m > 0:
-		return fmt.Sprintf("%dm", m)
-	}
-	return fmt.Sprintf("%ds", s)
+	return agent.ShortDur(now.Sub(t))
 }
 
 // durationText shortens a record's Go duration string ("15m30.472s"); text that does not parse is kept as is.
@@ -211,7 +195,7 @@ func durationText(s string) string {
 	if err != nil {
 		return s
 	}
-	return shortDuration(d)
+	return agent.ShortDur(d)
 }
 
 // addSubagent adds subagent node n's row, then a row per dispatch; deeper spawns indent inside the marker cell.

@@ -161,7 +161,7 @@ func TestDbxDur(t *testing.T) {
 		want string
 	}{
 		{59*time.Minute + 20*time.Second, "59m"}, {30 * time.Second, "1m"}, {119 * time.Minute, "119m"},
-		{120 * time.Minute, "2h00m"}, {5*time.Hour + 7*time.Minute, "5h07m"},
+		{120 * time.Minute, "2h"}, {5*time.Hour + 7*time.Minute, "5h7m"},
 	} {
 		if got := dbxDur(c.d); got != c.want {
 			t.Errorf("dbxDur(%v) = %q, want %q", c.d, got, c.want)

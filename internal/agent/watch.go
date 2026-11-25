@@ -670,14 +670,19 @@ func wrapCommand(argv []string, width int) []string {
 	return append(lines, line)
 }
 
-// ShortDur spells d as 45s, 12m or 1h5m.
+// ShortDur spells d as 45s, 3m10s, 12m or 1h2m: whole seconds under an hour, whole minutes above.
 func ShortDur(d time.Duration) string {
-	switch d = max(d, 0); {
-	case d < time.Minute:
-		return strconv.Itoa(int(d.Seconds())) + "s"
-	case d < time.Hour:
-		return strconv.Itoa(int(d.Minutes())) + "m"
+	d = max(d, 0).Round(time.Second)
+	h, m, s := int(d/time.Hour), int(d%time.Hour/time.Minute), int(d%time.Minute/time.Second)
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("%dh%dm", h, m)
+	case h > 0:
+		return fmt.Sprintf("%dh", h)
+	case m > 0 && s > 0:
+		return fmt.Sprintf("%dm%ds", m, s)
+	case m > 0:
+		return fmt.Sprintf("%dm", m)
 	}
-	h := int(d.Hours())
-	return strconv.Itoa(h) + "h" + strconv.Itoa(int(d.Minutes())-60*h) + "m"
+	return fmt.Sprintf("%ds", s)
 }

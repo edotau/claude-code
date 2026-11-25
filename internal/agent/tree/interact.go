@@ -341,7 +341,7 @@ func subagentHeader(sub Subagent, start, now time.Time) []string {
 		"about  " + paneText(sub.Description),
 	}
 	if !start.IsZero() {
-		head = append(head, "time   "+shortDuration(end.Sub(start))+" · "+sub.Status)
+		head = append(head, "time   "+agent.ShortDur(end.Sub(start))+" · "+sub.Status)
 	}
 	return append(head, "tokens ↑ "+textutil.CompactCount(sub.Tokens.In)+" · ↓ "+textutil.CompactCount(sub.Tokens.Out))
 }

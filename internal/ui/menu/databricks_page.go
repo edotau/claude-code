@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
@@ -112,13 +113,13 @@ func dbxIdentityBadge(reg *providers.Registry, env string) string {
 	return checked(ok && text != dbxExpired, label)
 }
 
-// dbxDur renders a remaining lifetime as Nm, or NhMMm from two hours up.
+// dbxDur renders a remaining lifetime as Nm, or NhMm from two hours up.
 func dbxDur(d time.Duration) string {
 	m := int(d.Round(time.Minute) / time.Minute)
 	if m < 120 {
 		return fmt.Sprintf("%dm", max(m, 1))
 	}
-	return fmt.Sprintf("%dh%02dm", m/60, m%60)
+	return agent.ShortDur(time.Duration(m) * time.Minute)
 }
 
 // databricksRow is the settings row.

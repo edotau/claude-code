@@ -28,11 +28,11 @@ func TestProgressLine(t *testing.T) {
 		{"quiet", "opencode", "databricks-gpt-6-1-sol", "▸ tool: read\n", 220 * time.Second, 151 * time.Second, 17, 80,
 			"opencode · databricks-gpt-6-1-sol · 3m40s · quiet 2m31s · 17 tools · read"},
 		{"hung", "codex", "gpt-6.1-sol", "▸ tool: go test\n", 580 * time.Second, 362 * time.Second, 23, 80,
-			"codex · gpt-6.1-sol · 9m40s · ⚠ no event 6m02s · 23 tools · last: go test"},
+			"codex · gpt-6.1-sol · 9m40s · ⚠ no event 6m2s · 23 tools · last: go test"},
 		{"cannot tell", "mystery", "gemini-4-argon", "", 550 * time.Second, 550 * time.Second, 0, 80,
 			"mystery · gemini-4-argon · 9m10s · no live signal from mystery · 0 tools"},
 		{"no signal past", "mystery", "gemini-4-argon", "", 662 * time.Second, 662 * time.Second, 0, 80,
-			"mystery · gemini-4-argon · 11m02s · ⚠ no live signal past 10m15s"},
+			"mystery · gemini-4-argon · 11m2s · ⚠ no live signal past 10m15s"},
 		{"no events file", "claude", "sonnet", "▸ tool: Read\n", 30 * time.Second, 5 * time.Second, -1, 80,
 			"claude · sonnet · 30s · last event 5s ago · Read"},
 		{"compacting", "pi", "m", "▸ phase: compacting: overflow\n", 90 * time.Second, 12 * time.Second, 3, 80,
@@ -68,7 +68,7 @@ func TestProgressLine(t *testing.T) {
 func TestProgressLineTokens(t *testing.T) {
 	p := Progress{Agent: "pi", Elapsed: time.Minute, Tools: 21, Stream: true, quietAt: time.Hour, hungAt: 2 * time.Hour,
 		Doing: "go test", In: 12400, Out: 350, ToolMs: 1500}
-	want := "pi · 1m00s · last event 0s ago · 21 tools · ↑12.4k ↓350 · tool 2s · go test"
+	want := "pi · 1m · last event 0s ago · 21 tools · ↑12.4k ↓350 · tool 2s · go test"
 	if got := p.Line(80); got != want {
 		t.Errorf("line = %q, want %q", got, want)
 	}

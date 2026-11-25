@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -115,8 +116,8 @@ func TestShortDuration(t *testing.T) {
 		-time.Second: "0s", 49*time.Second + 400*time.Millisecond: "49s", 7*time.Minute + 49*time.Second: "7m49s",
 		15 * time.Minute: "15m", time.Hour + 45*time.Minute + 30*time.Second: "1h45m", 2 * time.Hour: "2h",
 	} {
-		if got := shortDuration(in); got != want {
-			t.Errorf("shortDuration(%v) = %q, want %q", in, got, want)
+		if got := agent.ShortDur(in); got != want {
+			t.Errorf("ShortDur(%v) = %q, want %q", in, got, want)
 		}
 	}
 	if got := durationText("15m30.472s"); got != "15m30s" {
