@@ -200,6 +200,14 @@ func memoryWho(res wire.Result, local bool) string {
 	return who
 }
 
+// planLeadProfile is the workspace a failed Prepare's plan admitted first; empty without one.
+func planLeadProfile(plan *agent.RoutePlan) string {
+	if plan == nil || len(plan.Admitted) == 0 {
+		return ""
+	}
+	return plan.Admitted[0].Workspace.Profile
+}
+
 // hopRun runs one dispatch hop; the real one is memoryHop, tests pass a fake.
 type hopRun func(ctx context.Context, opts agent.RunOptions) (wire.Result, error)
 
@@ -225,7 +233,8 @@ func MemoryRunner() memory.AgentFunc {
 			reg = &providers.Registry{}
 		}
 		res, err := run(ctx, opts)
-		first := attempt{res: res, profile: cmp.Or(res.Provider, providers.SessionLeadContext(ctx, reg, true)), err: err}
+		plan, _ := agent.PlanOfError(err)
+		first := attempt{res: res, profile: cmp.Or(res.Provider, planLeadProfile(plan), providers.SessionLeadContext(ctx, reg, true)), err: err}
 		if err == nil {
 			memory.AnswerJob(ctx, answerText(res))
 			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model})
