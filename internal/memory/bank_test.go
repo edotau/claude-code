@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,20 +46,29 @@ func TestInitStampsFreshStore(t *testing.T) {
 	}
 }
 
-func TestRequireFlatRefusesAnOlderStamp(t *testing.T) {
+func TestRequireFlatNewerRefusesOlderNotes(t *testing.T) {
 	isolatedConfig(t)
 	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
 	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(stamp, []byte("flat 2\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		stamp   string
+		wantErr string
+	}{{"flat 9", "store is flat 9, this binary writes flat 4: install a newer claude-code"}, {"flat 3", ""}, {"flat 4", ""}} {
+		if err := os.WriteFile(stamp, []byte(tc.stamp+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		forgetLayout()
+		err := requireFlat()
+		if got := fmt.Sprint(err); (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && got != tc.wantErr) {
+			t.Errorf("requireFlat on %q = %v, want %q", tc.stamp, err, tc.wantErr)
+		}
+		if b, _ := os.ReadFile(stamp); string(b) != tc.stamp+"\n" {
+			t.Errorf("stamp = %q, want %q untouched", b, tc.stamp)
+		}
 	}
-	forgetLayout()
-	if err := requireFlat(); err == nil {
-		t.Fatal("requireFlat on a flat 2 store = nil, want a refusal")
-	}
-	if b, _ := os.ReadFile(stamp); string(b) != "flat 2\n" {
-		t.Errorf("stamp = %q, want it untouched", b)
+	if store, code, err := StoreVersions(); err != nil || store != 4 || code != storeVersion {
+		t.Errorf("StoreVersions = %d, %d, %v", store, code, err)
 	}
 }

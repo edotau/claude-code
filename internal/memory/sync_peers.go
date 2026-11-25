@@ -219,7 +219,7 @@ func (s *syncPass) probe(name string, p *PeerSync) (string, bool) {
 	layout, tok := strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1])+" "+strings.TrimSpace(lines[2])
 	if layout != s.layout {
 		s.failed++
-		s.refuse(&p.Pull, "probe", name, fmt.Sprintf("layout %q differs from local %q", layout, s.layout), tok)
+		s.refuse(&p.Pull, "probe", name, fmt.Sprintf("layout %q differs from local %q: install the same claude-code and run `claude-code memory upgrade` on both", layout, s.layout), tok)
 		return "", false
 	}
 	clearProbeRefusal(p)

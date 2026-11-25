@@ -59,7 +59,7 @@ func stubSyncSeams(t *testing.T, st *syncStub) {
 	fetchRoot = func(host string) (string, error) {
 		st.calls = append(st.calls, "pull "+host)
 		dir := t.TempDir()
-		syncMust(t, os.WriteFile(filepath.Join(dir, ".layout"), []byte("flat 3\n"), 0o600))
+		syncMust(t, os.WriteFile(filepath.Join(dir, ".layout"), []byte(layoutFlat+"\n"), 0o600))
 		return dir, nil
 	}
 }
@@ -97,14 +97,14 @@ type syncCase struct {
 func TestSyncPassOrder(t *testing.T) {
 	probe, tok := "probe peer.example", syncTestHead+" 0"
 	cases := []syncCase{
-		{name: "one peer unreachable", hosts: "peer.example,down.peer.example", layout: "flat 3", down: "down.peer.example",
+		{name: "one peer unreachable", hosts: "peer.example,down.peer.example", layout: layoutFlat, down: "down.peer.example",
 			calls: []string{probe, "probe down.peer.example", "pull peer.example", "push peer.example"}},
-		{name: "held refusal", layout: "flat 3", code: 1, calls: []string{probe}, state: func() *PeerSync {
+		{name: "held refusal", layout: layoutFlat, code: 1, calls: []string{probe}, state: func() *PeerSync {
 			return &PeerSync{Pull: SyncDir{Refusal: "credential-shaped content: x.md", Since: time.Now(), Token: tok},
 				Push: SyncDir{Refusal: "exit 1: credential-shaped content: y.md", Since: time.Now(), Token: LocalToken()}}
 		}},
 		{name: "unequal layout", layout: "flat 2", code: 1, calls: []string{probe}},
-		{name: "replace refused by an older peer", layout: "flat 3", calls: []string{probe, "push peer.example --replace", "push peer.example"},
+		{name: "replace refused by an older peer", layout: layoutFlat, calls: []string{probe, "push peer.example --replace", "push peer.example"},
 			state: func() *PeerSync {
 				return &PeerSync{Pulled: tok, Seen: map[string]string{"notes/local.md": strings.Repeat("a", 64)}}
 			},
@@ -264,7 +264,7 @@ func (ts *twoStores) asPeer(fn func()) {
 // ssh answers the probe and the push for peer.example; any other host answers its probe, then is cut off.
 func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
 	if host != "peer.example" {
-		_, _ = io.WriteString(out, map[bool]string{true: "flat 3\n" + syncTestHead + "\nother\n"}[script == syncProbeScript()])
+		_, _ = io.WriteString(out, map[bool]string{true: layoutFlat + "\n" + syncTestHead + "\nother\n"}[script == syncProbeScript()])
 		return "", map[bool]int{false: sshFailExit}[script == syncProbeScript()], nil
 	}
 	code := 0
@@ -434,7 +434,7 @@ func TestSyncDryRunWritesNoState(t *testing.T) {
 
 func TestSyncBusyIsRetriedNotHeld(t *testing.T) {
 	syncStore(t)
-	st := &syncStub{probe: map[string]string{"peer.example": probeOut("flat 3")}, pushExit: func(string) int { return ImportBusyExit }}
+	st := &syncStub{probe: map[string]string{"peer.example": probeOut(layoutFlat)}, pushExit: func(string) int { return ImportBusyExit }}
 	stubSyncSeams(t, st)
 	for range 2 {
 		_, _ = RunSync([]string{"peer.example"}, false, io.Discard)
