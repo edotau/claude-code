@@ -64,6 +64,49 @@ func TestCleanStalePartialLocksOnly(t *testing.T) {
 	}
 }
 
+// seedEmpty writes each path as an empty file; aged ones are backdated 40 days.
+func seedEmpty(t *testing.T, files []string, aged bool) {
+	t.Helper()
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	for _, path := range files {
+		write(t, path, "")
+		if !aged {
+			continue
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCleanBenchStraysAndSpawnMarkers(t *testing.T) {
+	useTempGoCache(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	aged := []string{statePath("bench", "proc", "claude-code"), statePath("bench", "proc", "x.test"),
+		statePath("hooks", "spawn-mod-ready", "sess-old")}
+	fresh := []string{statePath("bench", "proc2", "claude-code"), statePath("hooks", "spawn-mod-ready", "sess-live")}
+	keepFile := statePath("bench", "proc", "results.json")
+	seedEmpty(t, append(aged, keepFile), true)
+	seedEmpty(t, fresh, false)
+	sel, err := selectTargets(targets(), "bench-strays,hook-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var globs []string
+	for _, tg := range sel {
+		globs = append(globs, tg.globs()...)
+	}
+	hits, _, failed := pruneAgedTo(io.Discard, globs, time.Now().Add(-30*24*time.Hour), false, nil)
+	if failed != 0 || len(hits) != len(aged) {
+		t.Fatalf("hits = %v, failures %d; want %v", hits, failed, aged)
+	}
+	for _, path := range append(fresh, keepFile) {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("swept %s: %v", path, err)
+		}
+	}
+}
+
 // agedDebris are the seeded entries, one or more per target, that a default sweep must remove.
 var agedDebris = []string{
 	"state/harness/memory/update-20260101-000000.log",

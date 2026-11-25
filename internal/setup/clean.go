@@ -67,7 +67,7 @@ func statePath(parts ...string) string {
 // targets are the harness's own debris plus Claude Code's per-session state; the repo .gitignore is the inventory.
 func targets() []target {
 	var all []target
-	for _, group := range []func() []target{stateTargets, daemonTargets, cliSessionTargets, cliCacheTargets} {
+	for _, group := range []func() []target{stateTargets, benchTargets, daemonTargets, cliSessionTargets, cliCacheTargets} {
 		all = append(all, group()...)
 	}
 	return all
@@ -112,7 +112,7 @@ func stateTargets() []target {
 			globs: func() []string {
 				return []string{
 					s("checkpoint", "*"), s("plans-scratch", "*.dest"), s("stop-format", "*.json"), s("agents-inflight", "*"),
-					s("plans-scratch", "*.partial"), s("plans-scratch", "*.partial.lock"),
+					s("plans-scratch", "*.partial"), s("plans-scratch", "*.partial.lock"), s("hooks", "spawn-mod-ready", "*"),
 				}
 			},
 		},
@@ -120,6 +120,18 @@ func stateTargets() []target {
 		{
 			name: "memory-sandboxes", doc: "leftover `memory sandbox` dirs in the temp dir (seed-commit verified)",
 			globs: sandboxGlobs, keep: keepNonSandbox, note: sandboxNote,
+		},
+	}
+}
+
+// benchTargets are the bench build outputs under state/harness/bench.
+func benchTargets() []target {
+	return []target{
+		{
+			name: "bench-strays", doc: "bench build outputs (worktrees stay: a live bench owns them)",
+			globs: func() []string {
+				return []string{statePath("bench", "*", "claude-code"), statePath("bench", "*", "*.test")}
+			},
 		},
 	}
 }
