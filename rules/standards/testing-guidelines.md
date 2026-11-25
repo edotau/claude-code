@@ -66,6 +66,11 @@ See `rules/standards/quality.md` for size caps.
 - **Mock only real boundaries** (network, model calls, clock, external CLIs, process scans), at the consumer; run
   everything else against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two mocks is a missing
   seam; in Go the seam is a package var, swapped and restored with `t.Cleanup`.
+- **Never a real file we use** — a test reads and writes only what it made: a fixture under `testdata/`, a file it
+  wrote in `t.TempDir()`, or a mock struct defined in the test. It never opens, lists, stats or deletes the live
+  memory store, vault, `state/`, settings, plans, a user cache (`GOCACHE`, `Library/Caches`) or any other path the
+  harness or the owner uses, not even read-only: the result then depends on the machine and a slip deletes real data
+  (owner, 2026-11-25). A check that must run over real data is a verb's preflight or a `doctor` row, not a test.
 - **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
   after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
   `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
