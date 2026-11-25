@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -268,30 +267,9 @@ func awaitExit(pid int) bool {
 	return false
 }
 
-// awaitPortFree waits up to 5s for 127.0.0.1:port to stop accepting connections (the daemon closes it on SIGTERM).
-func awaitPortFree(ctx context.Context, port int) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		d := net.Dialer{Timeout: 200 * time.Millisecond}
-		c, err := d.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			return ctx.Err() // a cancelled ctx is not a free port
-		}
-		_ = c.Close()
-	}
-	return fmt.Errorf("proxy still accepting on :%d after SIGTERM", port)
-}
-
-// restart replaces the running router old with one from the current binary (gap: the respawn).
+// restart replaces the running router old: the new daemon binds the port beside it, then retires it (no closed port).
 func restart(ctx context.Context, old State) (State, error) {
-	if err := terminate(old.PID); err != nil {
-		return State{}, err
-	}
-	if err := awaitPortFree(ctx, old.Port); err != nil {
-		return State{}, err
-	}
-	// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
-	if _, err := ensure(ctx, old.Port); err != nil {
+	if err := spawnReplacement(ctx, old); err != nil {
 		return State{}, err
 	}
 	cur, ok := Running(ctx)
@@ -299,6 +277,37 @@ func restart(ctx context.Context, old State) (State, error) {
 		return State{}, fmt.Errorf("proxy did not come back healthy (see %s)", logFile())
 	}
 	return cur, nil
+}
+
+// spawnReplacement starts a daemon on old's port and waits until proxy.json names a new, healthy pid.
+func spawnReplacement(ctx context.Context, old State) error {
+	return paths.WithFileLock(filepath.Join(paths.StateDir(), "router.spawn"), func() error {
+		if err := spawnDaemon(old.Port); err != nil {
+			return err
+		}
+		// An older daemon without SO_REUSEPORT is reclaimed by the new one, which waits for its exit: allow the drain.
+		for deadline := time.Now().Add(ShutdownDrain + 10*time.Second); time.Now().Before(deadline); {
+			if st, ok := Running(ctx); ok && st.PID != old.PID {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		return fmt.Errorf("proxy replacement did not start within %s (see %s)", ShutdownDrain, logFile())
+	})
+}
+
+// RetireOlder SIGTERMs the previous daemon prev once this one is bound on port; it drains in flight and exits.
+func RetireOlder(prev State, port int) {
+	if prev.PID <= 0 || prev.PID == os.Getpid() || prev.Port != port || !alive(prev.PID) || HolderComm(prev.PID) != "claude-code" {
+		return
+	}
+	if err := terminate(prev.PID); err == nil {
+		fmt.Fprintf(os.Stderr, "proxy: retiring older proxy pid %d on :%d\n", prev.PID, port)
+	}
 }
 
 // PIDHeader is the /healthz response header carrying the proxy's pid.

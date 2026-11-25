@@ -231,9 +231,20 @@ func proxyRevokeClientToken(name string) int {
 
 // proxyServe runs the proxy in the foreground until SIGINT/SIGTERM.
 func proxyServe(ctx context.Context, port int) int {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := server.Serve(ctx, port); err != nil {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go func() {
+		if s, ok := <-sig; ok {
+			cancel(fmt.Errorf("signal %v", s))
+		}
+	}()
+	err := server.Serve(ctx, port)
+	// proxy.log has no other exit line; a SIGKILL still cannot log (doctor reads the stale proxy.json)
+	fmt.Fprintf(os.Stderr, "proxy: exiting (pid %d): %v\n", os.Getpid(), cmp.Or(context.Cause(ctx), err, errors.New("serve returned")))
+	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	return 0

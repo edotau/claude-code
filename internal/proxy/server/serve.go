@@ -35,6 +35,7 @@ func Serve(ctx context.Context, port int) error {
 		return err
 	}
 
+	prev, _ := proxy.ReadState()
 	st := proxy.State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC(), Exe: proxy.ExeHash()}
 	cleanup, err := proxy.WriteState(st)
 	if err != nil {
@@ -42,6 +43,7 @@ func Serve(ctx context.Context, port int) error {
 		return err
 	}
 	defer cleanup()
+	proxy.RetireOlder(prev, st.Port) // a co-bound older daemon drains and exits; clients never see a closed port
 
 	r := newRouter(secret)
 	defer drainStateWrites(r) // in-flight state writes finish before the process exits, within a short bound
@@ -59,7 +61,7 @@ func Serve(ctx context.Context, port int) error {
 }
 
 func listen(ctx context.Context, port int) (net.Listener, error) {
-	var lc net.ListenConfig
+	lc := net.ListenConfig{Control: reusePort}
 	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if errors.Is(err, syscall.EADDRINUSE) && port != 0 {
 		// Clients hold this port: replace an older router of ours; only a foreign holder of the default moves us.

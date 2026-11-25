@@ -256,23 +256,6 @@ func TestReclaimUnrecordedPIDIsNotSignalled(t *testing.T) {
 }
 
 // TestAwaitPortFreeCancelledCtxIsNotFree: a cancelled ctx with the port still bound errors; a closed port is free.
-func TestAwaitPortFreeCancelledCtxIsNotFree(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := awaitPortFree(ctx, port); !errors.Is(err, context.Canceled) {
-		t.Fatalf("awaitPortFree with cancelled ctx and bound port = %v, want context.Canceled", err)
-	}
-	_ = ln.Close()
-	if err := awaitPortFree(context.Background(), port); err != nil {
-		t.Fatalf("awaitPortFree on closed port = %v, want nil", err)
-	}
-}
-
 // TestRunningRejectsPidlessReplyFromNonClaudeCodePID: no pid header and a recorded pid that is not claude-code.
 func TestRunningRejectsPidlessReplyFromNonClaudeCodePID(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
