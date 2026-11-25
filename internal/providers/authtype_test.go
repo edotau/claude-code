@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -369,6 +370,148 @@ func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	if !ok || method != AuthM2M || time.Until(exp) < 50*time.Minute {
 		t.Fatalf("record = %v, %q, %v; want ~1h, m2m", exp, method, ok)
 	}
+}
+
+// sp_mint rows are written only by a real mint: a sealed hit and a failed exchange add none.
+func TestSPMintAuditRowOnlyOnRealMint(t *testing.T) {
+	p := mintRow(t, "sp-audit-mint", AuthOAuth, "", "http://127.0.0.1:1")
+	p.Auth.SPClientID = "sp-audit-client"
+	spCache.Delete(p.Name)
+	t.Cleanup(func() { spCache.Delete(p.Name) })
+	name := SecretName(p.Provider, p.Name, AuthM2M)
+	if err := vault.Store(name, "qz7vN2wLx9Rb4kTm"); err != nil {
+		t.Fatal(err)
+	}
+	refuse := stubSPExchange(t)
+	ctx := context.Background()
+	_, _, err := mintSP(ctx, p, false, expiryMargin)
+	if rows := spMintRows(t); err != nil || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" || rows[0].Detail != p.Name {
+		t.Fatalf("real mint: err %v, sp_mint rows %+v; want one naming %s_ACCESS and %s", err, rows, name, p.Name)
+	}
+	if _, _, err := mintSP(ctx, p, false, expiryMargin); err != nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("sealed cache hit: err %v; want no new sp_mint row", err)
+	}
+	*refuse = errors.New("exchange refused")
+	if _, _, err := mintSP(ctx, p, true, expiryMargin); err == nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("failed exchange: err %v; want an error and no new sp_mint row", err)
+	}
+}
+
+// Two independent calls that miss the shared seal must serialize and serve the winner's mint.
+func TestM2MTokenConcurrentMintOnce(t *testing.T) {
+	p := mintRow(t, "m2m-concurrent-mint", AuthM2M, "client", "http://127.0.0.1:1")
+	name := AuthSecretName(p)
+	tok := jwtExpIn(time.Hour, "")
+	first, waited, unlock, calls := concurrentM2MStub(t, tok)
+	runConcurrentM2M(t, p, name, tok, first, waited, unlock)
+	if rows := spMintRows(t); calls.Load() != 1 || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" {
+		t.Errorf("exchanges = %d, sp_mint rows = %+v; want one of each", calls.Load(), rows)
+	}
+}
+
+func concurrentM2MStub(t *testing.T, tok string) (first, waited chan struct{}, unlock func(), calls *atomic.Int32) {
+	first, release, waited := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	var once sync.Once
+	unlock = func() { once.Do(func() { close(release) }) }
+	calls = new(atomic.Int32)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if calls.Add(1) == 1 {
+			close(first)
+			<-release
+		}
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	hook := func() {
+		select {
+		case waited <- struct{}{}:
+		default:
+		}
+	}
+	lockWaitHook.Store(&hook)
+	t.Cleanup(func() { lockWaitHook.Store(nil) })
+	return first, waited, unlock, calls
+}
+
+func runConcurrentM2M(t *testing.T, p *Provider, name, tok string, first, waited chan struct{}, unlock func()) {
+	t.Helper()
+	type result struct {
+		tok oauth.Token
+		err error
+	}
+	results := make(chan result, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	started := 0
+	defer func() {
+		cancel()
+		unlock()
+		for range started {
+			select {
+			case <-results:
+			case <-time.After(5 * time.Second):
+				t.Error("mint worker did not exit after cancellation")
+			}
+		}
+	}()
+	call := func() { v, err := m2mToken(ctx, p, name, "host", "client", "secret", false); results <- result{v, err} }
+	started++
+	go call()
+	waitM2MSignal(t, first, "first exchange did not start")
+	started++
+	go call()
+	waitM2MSignal(t, waited, "second mint did not wait for the refresh lock")
+	unlock()
+	for range 2 {
+		select {
+		case r := <-results:
+			started--
+			if r.err != nil || r.tok.Access != tok {
+				t.Errorf("mint result: err %v, winner token = %v", r.err, r.tok.Access == tok)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("mint never returned")
+		}
+	}
+}
+
+func waitM2MSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// stubSPExchange serves a fresh token from mintM2M until the returned error is set, then fails every exchange.
+func stubSPExchange(t *testing.T) *error {
+	t.Helper()
+	refuse := new(error)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if *refuse != nil {
+			return oauth.Token{}, *refuse
+		}
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	return refuse
+}
+
+func spMintRows(t *testing.T) []audit.Event {
+	t.Helper()
+	evs, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []audit.Event
+	for _, e := range evs {
+		if e.Action == audit.SPMint {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {

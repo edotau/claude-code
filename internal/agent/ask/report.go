@@ -55,7 +55,7 @@ func (s maskedEvents) Emit(ev wire.Event) error {
 
 // writeEnvelope is the one way to print an envelope as a JSON line: masked, so no verb can forget it.
 func writeEnvelope(w io.Writer, env wire.Envelope) error {
-	return agent.WriteJSONLine(w, maskEnvelope(env))
+	return json.NewEncoder(w).Encode(maskEnvelope(env))
 }
 
 func maskEnvelope(env wire.Envelope) wire.Envelope {

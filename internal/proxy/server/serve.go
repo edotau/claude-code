@@ -55,7 +55,7 @@ func Serve(ctx context.Context, port int) error {
 	srv := &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	serveListening()
 	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", proxy.Base(st.Port), st.PID)
-	return serve(ctx, srv, ln)
+	return serve(ctx, srv, ln, r)
 }
 
 func listen(ctx context.Context, port int) (net.Listener, error) {
@@ -80,7 +80,7 @@ func listen(ctx context.Context, port int) (net.Listener, error) {
 	return ln, nil
 }
 
-func serve(ctx context.Context, srv *http.Server, ln net.Listener) error {
+func serve(ctx context.Context, srv *http.Server, ln net.Listener, r *Router) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	select {
@@ -88,12 +88,9 @@ func serve(ctx context.Context, srv *http.Server, ln net.Listener) error {
 		return err
 	case <-ctx.Done():
 	}
-	dctx, cancel := context.WithTimeout(context.Background(), proxy.ShutdownDrain)
-	defer cancel()
 	// A stream past the drain is closed, not an error: a slow stop is still a stop.
-	if err := srv.Shutdown(dctx); errors.Is(err, context.DeadlineExceeded) {
+	if err := shutdownIdle(srv, r); errors.Is(err, context.DeadlineExceeded) {
 		fmt.Fprintf(os.Stderr, "proxy: drain exceeded %s, closing the remaining streams\n", proxy.ShutdownDrain)
-		_ = srv.Close()
 	} else if err != nil {
 		return err
 	}
@@ -101,4 +98,36 @@ func serve(ctx context.Context, srv *http.Server, ln net.Listener) error {
 		return err
 	}
 	return nil
+}
+
+// idleGrace is how long nothing may be in flight before shutdownIdle cuts the connections still open.
+const idleGrace = time.Second
+
+// shutdownIdle drains srv within ShutdownDrain, closing early once r is idle for idleGrace.
+func shutdownIdle(srv *http.Server, r *Router) error {
+	dctx, cancel := context.WithTimeout(context.Background(), proxy.ShutdownDrain)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- srv.Shutdown(dctx) }()
+	tick := time.NewTicker(idleGrace / 20)
+	defer tick.Stop()
+	var idleSince time.Time
+	for {
+		select {
+		case err := <-done:
+			if errors.Is(err, context.DeadlineExceeded) {
+				_ = srv.Close()
+			}
+			return err
+		case <-tick.C:
+			if r.inflight.Load() != 0 {
+				idleSince = time.Time{}
+			} else if idleSince.IsZero() {
+				idleSince = time.Now()
+			} else if time.Since(idleSince) >= idleGrace {
+				_ = srv.Close()
+				return <-done
+			}
+		}
+	}
 }

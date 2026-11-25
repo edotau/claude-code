@@ -139,6 +139,17 @@ func TestCheckWorkspaceFailsADeadLoginOnlyWithoutAServicePrincipal(t *testing.T)
 	}
 }
 
+// An id of no served family still names what the workspace serves, and the finding prints it.
+func TestUnservedFindingNamesNearestIDs(t *testing.T) {
+	setConfigDir(t)
+	saveListing(t, "dev", []string{"databricks-glm-5-3", "databricks-claude-opus-5-5"})
+	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
+	f := failFinding(p, "nonesuch-9", "served", "dev"+listsNoEndpoint+"nonesuch-9", time.Now())
+	if got := f.String(); !strings.Contains(got, "; nearest: ") || !strings.Contains(got, "databricks-glm-5-3") {
+		t.Errorf("Finding = %q, want nearest served ids", got)
+	}
+}
+
 // A refusal names served models of the same vendor beyond Claude, GPT and Gemini (kimi-k3-1-pro -> kimi-k3).
 func TestServedAlternativesOtherVendor(t *testing.T) {
 	setConfigDir(t)

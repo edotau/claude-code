@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,14 +30,39 @@ func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv
 
 // SpawnDetachedPID is SpawnDetached returning the child's pid, 0 when it did not start.
 func SpawnDetachedPID(bin string, args []string, dir string, out *os.File, extraEnv ...string) int {
+	return spawnDetachedPID(bin, args, dir, out, nil, extraEnv)
+}
+
+// childEnv is os.Environ without the unset names, then extraEnv; nil (inherit as is) when both are empty.
+func childEnv(unset, extraEnv []string) []string {
+	if len(unset) == 0 && len(extraEnv) == 0 {
+		return nil
+	}
+	env := make([]string, 0, len(os.Environ())+len(extraEnv))
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if !slices.ContainsFunc(unset, func(u string) bool { return envNameEqual(k, u) }) {
+			env = append(env, kv)
+		}
+	}
+	return append(env, extraEnv...)
+}
+
+// envNameEqual: Windows env names are case-insensitive.
+func envNameEqual(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func spawnDetachedPID(bin string, args []string, dir string, out *os.File, unset, extraEnv []string) int {
 	if IsSelfUnderTest(bin) {
 		return 0
 	}
 	cmd := exec.CommandContext(context.Background(), bin, args...)
 	cmd.Dir = dir
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	cmd.Env = childEnv(unset, extraEnv)
 	if out != nil { // a typed-nil *os.File would defeat exec's /dev/null default
 		cmd.Stdout, cmd.Stderr = out, out
 	}
@@ -76,12 +103,17 @@ func ExitReceipt(dir string, pid int) string {
 // SpawnDetachedWithReceipt is SpawnDetached under an sh wrapper that writes the child's exit status to
 // ExitReceiptPath(receiptDir, wrapperPid); without sh it spawns the child directly.
 func SpawnDetachedWithReceipt(bin string, args []string, dir string, out *os.File, receiptDir string, extraEnv ...string) bool {
+	return SpawnDetachedWithReceiptUnset(bin, args, dir, out, receiptDir, nil, extraEnv...)
+}
+
+// SpawnDetachedWithReceiptUnset is SpawnDetachedWithReceipt minus the unset names from the child's inherited env.
+func SpawnDetachedWithReceiptUnset(bin string, args []string, dir string, out *os.File, receiptDir string, unset []string, extraEnv ...string) bool {
 	sh, err := exec.LookPath("sh")
 	if err != nil || os.MkdirAll(receiptDir, 0o700) != nil {
-		return SpawnDetached(bin, args, dir, out, extraEnv...)
+		return spawnDetachedPID(bin, args, dir, out, unset, extraEnv) > 0
 	}
 	argv := append([]string{"-c", receiptScript, "sh", receiptDir, bin}, args...)
-	return SpawnDetached(sh, argv, dir, out, extraEnv...)
+	return spawnDetachedPID(sh, argv, dir, out, unset, extraEnv) > 0
 }
 
 // errExecUnderTest: under `go test`, Exec would replace the test binary and end the run with the child's status.

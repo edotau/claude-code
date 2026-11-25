@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/bench"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ErrRebaseConflict marks a rebase that conflicted and was aborted, leaving the lane as it was.
@@ -78,7 +79,7 @@ func abortRebase(ctx context.Context, plan *LandPlan, before string, out []byte,
 		return errors.Join(failed, fmt.Errorf("git rebase --abort in %s failed, abort by hand: %w (%s)",
 			plan.WorktreePath, err, firstNonEmpty(gitErrorDetail(err), string(abortOut))))
 	}
-	files := strings.FieldsFunc(string(conflicts), func(r rune) bool { return r == '\x00' })
+	files := textutil.SplitNUL(string(conflicts))
 	if listErr != nil || len(files) == 0 {
 		return errors.Join(fmt.Errorf("%w; rebase aborted", failed), listErr)
 	}
@@ -583,7 +584,7 @@ func laneFiles(ctx context.Context, dir, a, b string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-only %s..%s: %w", ShortOID(a), ShortOID(b), err)
 	}
-	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
+	return textutil.SplitNUL(string(out)), nil
 }
 
 // afterLand reports the land, then removes the lane's worktree (its branch stays until clean) and starts the audit.

@@ -40,12 +40,12 @@ func vaultOpencodeMenu() ([]OpencodeModel, bool) {
 	out, err := menuCache.Get(vault.Path(), func() (out []OpencodeModel, err error) {
 		err = vault.View(func(t *vault.Tx) error {
 			if raw, ok := t.Get(vault.Overlay, opencodeMenuKey); ok && raw != "" {
-				var saved []savedMenuEntry
-				if err := json.Unmarshal([]byte(raw), &saved); err != nil {
+				menu, err := ParseOpencodeMenu([]byte(raw))
+				if err != nil {
 					warnMenu(fmt.Errorf("vault overlay %s is not a JSON menu: %w", opencodeMenuKey, err))
 					return nil
 				}
-				out = loadSavedMenu(saved)
+				out = menu
 			}
 			return nil
 		})
@@ -66,6 +66,15 @@ type savedMenuEntry struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Responses *bool  `json:"responses,omitempty"`
+}
+
+// ParseOpencodeMenu decodes the saved menu and resolves its catalog defaults.
+func ParseOpencodeMenu(doc []byte) ([]OpencodeModel, error) {
+	var saved []savedMenuEntry
+	if err := json.Unmarshal(doc, &saved); err != nil {
+		return nil, err
+	}
+	return loadSavedMenu(saved), nil
 }
 
 // loadSavedMenu resolves each entry's Responses: chat-only ids never, else the saved override, else the catalog.

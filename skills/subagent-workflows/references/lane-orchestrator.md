@@ -16,9 +16,10 @@ wave owns overlapping work.
 - The manager sends ready, disjoint leaves together, with a complete brief per `prompts.md`; each owns one checklist
   line. New tests wait for the manager's live check; repairs of existing tests may run beside implementation.
 - Fan-in per `../SKILL.md` → Fan-in; return gaps to the same leaf with changed evidence. Apply
-  `rules/standards/quality.md` to the combined diff; no leaf runs the full suite or commits.
-- The manager lands named files only when authorized, then records the resulting hash on completed checklist lines.
-  An edit-only task remains uncommitted and records checked results without a hash.
+  `rules/standards/quality.md` to the combined diff; no leaf runs the full suite, and a relay never commits.
+- The manager commits named files only when authorized and lands the lane (`../SKILL.md` → Landing), then records the
+  resulting hash on completed checklist lines. An edit-only task remains uncommitted and records checked results
+  without a hash.
 
 Explicitly requested batch scripts use `claude-code agents ask --batch` per its help. They do not bypass ownership,
 permission or per-account concurrency limits, and are not a hidden fallback for unavailable Agent-tool dispatch.

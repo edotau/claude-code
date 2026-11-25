@@ -84,9 +84,6 @@ func (o serveOpts) check(fs *flag.FlagSet) (int, bool) {
 	case flagSet(fs, "cap") && !o.start && !o.restart && !o.fg:
 		return helptext.FailUsage("agents serve: --cap needs --start, --restart or --serve"), false
 	}
-	if err := helptext.CheckFormat(*o.format); err != nil {
-		return helptext.BadFormat("agents serve", err), false
-	}
 	return 0, true
 }
 

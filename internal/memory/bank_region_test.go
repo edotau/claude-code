@@ -595,10 +595,10 @@ func TestAliasedIndexFilesAreRefusedWithNothingChanged(t *testing.T) {
 
 func TestMemoryMdStaysWhenHardLinksAreUnsupported(t *testing.T) {
 	runBank(t, func(t *testing.T) {
-		linkFile = func(a, b string) error {
+		paths.NoReplaceLink = func(a, b string) error {
 			return &os.LinkError{Op: "link", Old: a, New: b, Err: errors.New("operation not supported")}
 		}
-		t.Cleanup(func() { linkFile = os.Link })
+		t.Cleanup(func() { paths.NoReplaceLink = os.Link })
 		for i := range 3 {
 			e := fmt.Sprintf("- link-fail %d", i)
 			appendFile(t, NativeIndex(), e+"\n")

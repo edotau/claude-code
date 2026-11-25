@@ -47,6 +47,7 @@ var problemCases = []struct {
 	{"no shared", func(c *Config) { c.Teams[0].Host, c.Teams[0].Lifetime = HostAsk, LifetimeAsk }, "lifetime", "have 0"},
 	{"two shared", func(c *Config) { c.Teams[1].Host, c.Teams[1].Lifetime = HostDaemon, LifetimeShared }, "lifetime", "have 2"},
 	{"negative reserved", func(c *Config) { c.Teams[2].Reserved = -1 }, "reserved", "negative"},
+	{"reserved over cap", func(c *Config) { c.Teams[2].Reserved = MaxReserved + 1 }, "reserved", "over the cap"},
 	{"zero reserved on shared", func(c *Config) { c.Teams[0].Reserved = 0 }, "reserved", "shared team"},
 	{"host and lifetime unpaired", func(c *Config) { c.Teams[2].Lifetime = LifetimeAsk }, "lifetime", "runs with"},
 	{"empty fallback", func(c *Config) { c.Teams[2].Fallback = nil }, "fallback", "empty"},
@@ -202,7 +203,7 @@ func TestRoutesAreCopies(t *testing.T) {
 
 func TestOverlayProblemNamesItsSource(t *testing.T) {
 	overlay := `{"schema":1,"teams":[{"name":"general","kinds":["group"],"host":"ask","lifetime":"ask","reserved":1,` +
-		`"borrow":"never","fallback":["shared"]}]}`
+		`"borrow":"never","fallback":["missing"]}]}`
 	_, ps := Parse(assets.ProxyTeams(), []byte(overlay))
 	if len(ps) == 0 || !strings.Contains(ps[0].String(), "vault overlay proxy-teams; remove: claude-code vault overlay unset proxy-teams --yes") {
 		t.Fatalf("problems %v: want the overlay source and the remove command", ps)

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -454,10 +453,11 @@ func (r Repo) Ensure() error {
 	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755); err != nil {
 		return err
 	}
-	if err := createExcl(filepath.Join(gitDir, "hooks", "pre-push"), prePushHook, 0o755); err != nil {
+	if _, err := paths.WriteNoReplace(filepath.Join(gitDir, "hooks", "pre-push"), []byte(prePushHook), 0o755); err != nil {
 		return err
 	}
-	return createExcl(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
+	_, err := paths.WriteNoReplace(filepath.Join(r.Dir, ".gitignore"), []byte(storeGitignore), 0o644)
+	return err
 }
 
 func (r Repo) initIfAbsent(gitDir string) error {
@@ -780,12 +780,7 @@ func (r Repo) stageable(rels []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	for tracked := range strings.SplitSeq(out, "\x00") {
-		if tracked != "" {
-			present = append(present, tracked)
-		}
-	}
-	return present, nil
+	return append(present, textutil.SplitNUL(out)...), nil
 }
 
 // credentialShaped is CredentialRE().Match(data), run anchored at each lead literal instead of scanning every byte.
@@ -925,11 +920,7 @@ func (r Repo) checkStaged(rels []string) (staged []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	for p := range strings.SplitSeq(out, "\x00") {
-		if p != "" {
-			staged = append(staged, p)
-		}
-	}
+	staged = textutil.SplitNUL(out)
 	return staged, refuseUnexpected(staged, rels)
 }
 
@@ -1000,9 +991,7 @@ func (r Repo) run(args ...string) (string, error) {
 
 // runGit is the one exec seam (internal/proc): env minus GIT_*, bounded, trims only trailing newlines; full carries -C.
 func runGit(full []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	return proc.RunGit(ctx, "", full...)
+	return proc.GitTimeout(gitTimeout, "", full...)
 }
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.

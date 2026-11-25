@@ -102,6 +102,7 @@ type Record struct {
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 	TakeoverOf     string      `json:"takeover_of,omitempty"`     // a --carry takeover: the cut-off child dispatch this run finished
 	Report         string      `json:"report,omitempty"`          // absolute path of the report `memory report --job` stored
+	Jev            *JevShadow  `json:"jev,omitempty"`             // shadow tier pick of Open-Jev beside the keyword one; routes nothing
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -490,6 +491,23 @@ func NotePick(ctx context.Context, model string) {
 	}
 }
 
+// NoteProxy stores the chosen proxy route label on id's running record, so a live run shows its proxy.
+func NoteProxy(id, label string) {
+	if id == "" || label == "" {
+		return
+	}
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+		if r.Status != "running" || r.Proxy == label {
+			return r, false
+		}
+		r.Proxy = label
+		return r, true
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dispatch %s proxy %s not recorded: %v\n", id, label, err)
+	}
+}
+
 // withPick fills an unreported model of an auto hop from the pick NotePick stored.
 func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result {
 	if id := DispatchIDOf(ctx); id != "" && res.Model == "" && (req.AutoModel || IsAuto(req.Model)) {
@@ -503,14 +521,18 @@ func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result 
 // noteAccount charges the running dispatch ctx carries to account, so admission counts the account that runs it.
 func noteAccount(ctx context.Context, account string, notify func(string)) {
 	id := DispatchIDOf(ctx)
-	if id == "" || account == "" {
+	if id == "" {
 		return
 	}
+	// each real attempt starts with no proxy: a direct or own-login hop must not keep the last hop's route
 	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-		if r.Status != "running" || r.Account == account {
+		if r.Status != "running" || ((account == "" || r.Account == account) && r.Proxy == "") {
 			return r, false
 		}
-		r.Account = account
+		r.Proxy = ""
+		if account != "" {
+			r.Account = account
+		}
 		return r, true
 	})
 	if err != nil && notify != nil {
@@ -623,6 +645,9 @@ func (r Record) LogLine() string {
 // Finish records the outcome of the run.
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.FailKind, r.Cutoff = "", ""
+	if j := takeJev(r.ID); j != nil {
+		r.Jev = j
+	}
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked, r.Reported = res.Invoked, res.Reported
 	r.Usage = nil

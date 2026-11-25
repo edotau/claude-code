@@ -46,9 +46,6 @@ func Cmd(args []string) int {
 	if len(rest) > 0 {
 		return helptext.FailUsage("network browser: unexpected argument %q (use --browser)", rest[0])
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("network browser", err)
-	}
 	if *open != "" {
 		if setupFlagsSet(fs) != "" || *setup {
 			return helptext.FailUsage("network browser: --open takes no --setup flags")
@@ -104,10 +101,7 @@ func setupFlagsSet(fs *flag.FlagSet) string {
 func networkBrowserList(format string) int {
 	rep := Detect(NewEnv())
 	if format == "json" {
-		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return helptext.Fail("network browser: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("network browser", rep)
 	}
 	if err := renderText(os.Stdout, rep); err != nil {
 		return helptext.Fail("network browser: %v", err)
@@ -125,8 +119,8 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	}
 	rc := setupExitCode(acts.Items)
 	if format == "json" {
-		if err := helptext.WriteJSON(os.Stdout, acts); err != nil {
-			return helptext.Fail("network browser --setup: %v", err)
+		if code := helptext.WriteJSONOrFail("network browser --setup", acts); code != 0 {
+			return code
 		}
 		return rc
 	}

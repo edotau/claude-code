@@ -90,7 +90,7 @@ func titleFromRecord(rec sessionHeadLine) string {
 	if text == "" || isSkippableTitle(text) {
 		return ""
 	}
-	return truncate(text, 60)
+	return textutil.CapRunes(textutil.OneLine(text), 60, "…")
 }
 
 // userTurnText reads a user record's message.content: a plain string or an array of blocks (text parts concatenated).
@@ -102,11 +102,6 @@ func userTurnText(raw json.RawMessage) string {
 		return ""
 	}
 	return transcript.ContentText(msg.Content)
-}
-
-// truncate renders s on one line, cut to n runes with an ellipsis when longer.
-func truncate(s string, n int) string {
-	return textutil.CapRunes(textutil.OneLine(s), n, "…")
 }
 
 var toolUseMarker = []byte(`"tool_use"`)
@@ -184,7 +179,7 @@ func toolArg(input json.RawMessage) string {
 	case in.Path != "":
 		return in.Path
 	case in.Command != "":
-		return truncate(textutil.RedactSecrets(in.Command), 60)
+		return textutil.CapRunes(textutil.OneLine(textutil.RedactSecrets(in.Command)), 60, "…")
 	default:
 		return in.Pattern
 	}
@@ -249,7 +244,7 @@ func applyEvents(act *Activity, raw []byte, home, cwd string) {
 		case c.Type == "tool_use" && c.Name != "":
 			act.Tool, act.Arg, act.At = c.Name, stripPaths(toolArg(c.Input), home, cwd), at
 		case c.Type == "text" && c.Text != "":
-			act.Text, act.At = truncate(textutil.RedactSecrets(c.Text), 80), at
+			act.Text, act.At = textutil.CapRunes(textutil.OneLine(textutil.RedactSecrets(c.Text)), 80, "…"), at
 		}
 	}
 }

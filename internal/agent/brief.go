@@ -51,7 +51,18 @@ func MarkReviewLoop(req RunOptions) RunOptions {
 func reviewLoopCandidate(req RunOptions) bool {
 	p := WithoutReviewLoop(req.Prompt)
 	return req.Tools && !req.NoTools && !IsReadOnlyBrief(p) && req.Rubric == "" &&
-		!strings.HasPrefix(p, rubricLead) // a rubric run is a review, kept so on replay
+		!strings.HasPrefix(p, rubricLead) && !answerOnly(p) // a rubric run is a review, kept so on replay
+}
+
+// answerOnlyMax is the brief length under which a plain question or reply-style ask writes no code.
+const answerOnlyMax = 200
+
+var answerLeadRe = regexp.MustCompile(`(?i)^\W*(reply|say|answer|respond|echo|print|what|which|who|where|why|how many|explain|summari[sz]e)\b`)
+
+// answerOnly is a short brief that opens as a question or a reply request and has no edit wording or file path.
+func answerOnly(brief string) bool {
+	b := strings.TrimSpace(brief)
+	return len(b) < answerOnlyMax && answerLeadRe.MatchString(b) && !editRe().MatchString(b) && !fileTaskRe().MatchString(b)
 }
 
 // WithReviewLoop is req.Prompt plus ReviewLoopRule, once, when the run can write code.

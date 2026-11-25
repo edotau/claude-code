@@ -59,7 +59,7 @@ func TestAskPackFlagCombos(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.pack, _ = askPack(fs, f)
-	req := (&askRun{ctx: t.Context(), f: f}).request("task")
+	req, _ := (&askRun{ctx: t.Context(), f: f}).request("task")
 	if p := req.Pack; p == nil || len(p.Dirs) != 2 || !p.Diff || !p.Index || !p.IndexOnly {
 		t.Fatalf("request.Pack = %+v, want dirs a,b + diff + index + index-only", p)
 	}
@@ -264,7 +264,7 @@ func TestAskJobRestoresRecordedLead(t *testing.T) {
 	if _, code, done := loadAskJob(f.job, f.format, r.askState(), &r.prompt); done || code != 0 {
 		t.Fatalf("loadAskJob = %d, %v", code, done)
 	}
-	if got := r.request(r.prompt); got.Lead != "qa" {
+	if got, _ := r.request(r.prompt); got.Lead != "qa" {
 		t.Fatalf("job lead = %q, want qa", got.Lead)
 	}
 }
@@ -295,7 +295,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
-			if got := r.request(r.prompt); got.Lead != tc.wantLead {
+			if got, _ := r.request(r.prompt); got.Lead != tc.wantLead {
 				t.Fatalf("replayed lead = %q, want %q", got.Lead, tc.wantLead)
 			}
 			if got := f.profile + f.provider; got != tc.wantRoute {

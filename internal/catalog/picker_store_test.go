@@ -92,3 +92,19 @@ func TestCostOptionsDoNotChangeThePickerScope(t *testing.T) {
 		t.Errorf("setting cost options changed the picker scope: %s -> %s", before, after)
 	}
 }
+
+func TestOpencodeMenuForAliasModels(t *testing.T) {
+	vaulttest.Use(t)
+	local := &providers.Provider{Name: "local", Provider: "magnitude", Models: map[string]string{"sonnet": "qwen3.8-27b:gguf:q6"}}
+	dbx := &providers.Provider{Name: "dev", Provider: providers.GroupDatabricks, Host: "https://example.invalid", Models: map[string]string{"sonnet": "alias-only-model"}}
+	for p, want := range map[*providers.Provider]bool{local: true, dbx: false} {
+		menu, _ := OpencodeMenuFor(p)
+		got := false
+		for _, m := range menu {
+			got = got || m.ID == p.Models["sonnet"]
+		}
+		if got != want {
+			t.Errorf("%s: alias model on menu = %v, want %v", p.Name, got, want)
+		}
+	}
+}

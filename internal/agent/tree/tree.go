@@ -92,6 +92,7 @@ type Dispatch struct {
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
 	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is no overlay confinement
+	Proxy          string `json:"proxy,omitempty"`   // the proxy route label the final attempt ran through, once recorded
 	Task           string `json:"task,omitempty"`    // first line of the brief's task, past any Owned/Mode/Verify header
 
 	Files []string `json:"files,omitempty"` // --files: files the run wrote that are still dirty, repo-relative
@@ -163,9 +164,11 @@ type Session struct {
 
 // Tree is the stable `agents tree --format json` schema; live sessions also carry registry fields.
 type Tree struct {
-	Sessions   []Session  `json:"sessions"`
-	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
-	Free       []string   `json:"free,omitempty"`       // --files: dirty files in this repo that no live leaf holds
+	Sessions     []Session  `json:"sessions"`
+	Dispatches   []Dispatch `json:"dispatches,omitempty"`   // unscoped views: live dispatch jobs machine-wide
+	Free         []string   `json:"free,omitempty"`         // --files: dirty files in this repo that no live leaf holds
+	TeamWarnings []string   `json:"teamWarnings,omitempty"` // team config or proxy state that could not be read
+	Teams        []TeamNode `json:"teams,omitempty"`        // --detail and json: proxy teams, their proxies and dispatches
 
 	detail bool // --detail: each dispatch row is followed by its id and task
 }
@@ -203,6 +206,9 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 		tree.Dispatches = runningDispatches(opts.now())
 		cacheDispatchTotals(tree.Dispatches)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
+		if showAll {
+			tree.Teams, tree.TeamWarnings = loadTeams(tree.Dispatches)
+		}
 	}
 	if opts.Files {
 		attachHoldings(tree, cwdTop(), opts.now())

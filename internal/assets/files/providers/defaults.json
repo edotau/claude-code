@@ -135,6 +135,21 @@
           "haiku": "gemini-4-hydrogen-low"
         }
       }
+    },
+    "magnitude": {
+      "local": {
+        "protocol": "openai",
+        "base_url": "http://127.0.0.1:10100/inference/v1",
+        "auth": {
+          "type": "key",
+          "command": "echo local"
+        },
+        "models": {
+          "opus": "qwen3.8-27b:gguf:q6",
+          "sonnet": "qwen3.8-27b:gguf:q6",
+          "haiku": "qwen3.8-27b:gguf:q6"
+        }
+      }
     }
   }
 }

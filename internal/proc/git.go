@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // GitEnv is the process environment minus every GIT_* variable, which would otherwise override a -C flag.
@@ -25,6 +28,22 @@ func GitEnv() []string {
 // RunGit executes git with GitEnv; dir becomes -C when non-empty (pass "" if args carries its own).
 func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return run(ctx, GitEnv(), dir, args...)
+}
+
+// GitTimeout is RunGit bounded by d.
+func GitTimeout(d time.Duration, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	return RunGit(ctx, dir, args...)
+}
+
+// GitNUL runs git (args carry -z) and returns its NUL-separated fields, empty ones dropped.
+func GitNUL(ctx context.Context, dir string, args ...string) ([]string, error) {
+	out, err := RunGitRaw(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	return textutil.SplitNUL(out), nil
 }
 
 // RunGitInherit runs git with the caller's GIT_* env for git-hook commands; configure and memory must keep RunGit.

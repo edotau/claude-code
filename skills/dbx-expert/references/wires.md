@@ -28,9 +28,9 @@ Listing: `GET /api/2.0/serving-endpoints` (one endpoint: `/<name>`). Per endpoin
 
 - Context and output come from the tracked catalog per field, else the listing's `context` and `output`
   (`LimitsFor`). The listing's numbers are parsed from the endpoint description.
-- Nothing known: Codex assumes 128,000 (`fallbackContextWindow`) and warns; OpenCode writes no `limit` block (it needs
-  both numbers); Pi omits `contextWindow` and `maxTokens`; Copilot does not read the listing and uses the catalog
-  window with its own output cap.
+- Nothing known: Codex assumes 128,000 (`models.ContextWindowUnknown`) and warns; OpenCode writes no `limit`
+  block (it needs both numbers); Pi omits `contextWindow` and `maxTokens`; Copilot does not read the listing and
+  uses the catalog window with its own output cap.
 - No verb prints them. `claude-code models --live --profile <p>` lists what a profile serves; read the numbers in
   `/Users/edotau/.claude/state/harness/preflight/served-<profile>.json` (refresh: `claude-code doctor --refresh`).
 

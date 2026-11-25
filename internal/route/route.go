@@ -10,7 +10,7 @@ import (
 )
 
 // Providers lists the provider names ParseLegacy knows; agentconfig's test keeps it equal to the registry's.
-var Providers = []string{"anthropic", "databricks", "github", "google", "openai"}
+var Providers = []string{"anthropic", "databricks", "github", "google", "magnitude", "openai"}
 
 // AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
 const AutoArm = "auto"

@@ -269,7 +269,7 @@ const (
 
 // guardToolsFor adds the fleet actions only when the run's own contract names it an owner; a fleet run gets none.
 func guardToolsFor(env []string) string {
-	if lastEnv(env, ownerEnv) == "1" {
+	if proc.LastEnv(env, ownerEnv) == "1" {
 		return guardTools + ownerTools
 	}
 	return guardTools

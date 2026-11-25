@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -69,15 +68,12 @@ func loginCandidates(ps []*providers.Provider) []*providers.Provider {
 // runChecks runs every provider's sign-in check concurrently, results in todo order.
 func runChecks(ctx context.Context, todo []*providers.Provider) []checkResult {
 	checks := make([]checkResult, len(todo))
-	var wg sync.WaitGroup
-	for i, p := range todo {
-		wg.Go(func() {
-			s := signinFor(p)
-			v, d, ok := checkSignin(ctx, s)
-			checks[i] = checkResult{s, v, d, ok}
-		})
-	}
-	wg.Wait()
+	parallel.Rethrow(parallel.All(len(todo), func(i int) error {
+		s := signinFor(todo[i])
+		v, d, ok := checkSignin(ctx, s)
+		checks[i] = checkResult{s, v, d, ok}
+		return nil
+	})...)
 	return checks
 }
 

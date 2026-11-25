@@ -391,7 +391,8 @@ func TestEnvironDispatchProxyKeepsInheritedAndTypedEnv(t *testing.T) {
 }
 
 func TestParentTeamFirst(t *testing.T) {
-	cfg, _ := proxyteam.Load(nil)
+	cfg, _ := proxyteam.Load([]byte(`{"schema":1,"teams":[{"name":"phase","kinds":["group"],"host":"phase","lifetime":"phase",` +
+		`"reserved":1,"borrow":"never","fallback":["shared"]}]}`))
 	t.Setenv(dispatchProxyEnv, "phase:g1")
 	got := parentTeamFirst(cfg, cfg.Routes(proxyteam.KindNested))
 	if len(got) == 0 || got[0].Name != "phase" || got[len(got)-1].Name != "shared" {

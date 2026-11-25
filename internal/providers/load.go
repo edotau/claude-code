@@ -229,12 +229,20 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
-// Validate checks an overlay merged with the embedded defaults; unlike Load it refuses an unknown routing key.
+// Validate checks an overlay quietly, including unknown routing keys.
 func Validate(overlay []byte) error {
-	if _, err := Parse(providerDefaults(), overlay); err != nil {
+	if _, err := parse(providerDefaults(), overlay, false); err != nil {
 		return err
 	}
 	return checkRoutingKeys(overlay)
+}
+
+// ValidateOverlayChange also applies the existing sealed-auth change guard.
+func ValidateOverlayChange(oldDoc, newDoc []byte) error {
+	if len(oldDoc) == 0 {
+		oldDoc = []byte("{}")
+	}
+	return checkOverlayDoc(oldDoc, newDoc, false)
 }
 
 // checkRoutingKeys refuses an overlay whose routing object carries a key Routing does not define (a typo).
@@ -290,13 +298,17 @@ func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
 
 // Parse merges base with an optional overlay; the Registry is never nil, even on an error, so callers can fall back.
 func Parse(base, overlay []byte) (*Registry, error) {
+	return parse(base, overlay, true)
+}
+
+func parse(base, overlay []byte, warn bool) (*Registry, error) {
 	reg, err := decodeRegistry(base, nil)
 	if err != nil {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
 	mergeErr := mergeOverlay(reg, overlay)
 	order := declaredOrder(reg, base, overlay)
-	order = renameAll(order, nameGithubRows(reg))
+	order = renameAll(order, nameGithubRows(reg, warn))
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
@@ -334,21 +346,11 @@ func applyOverlay(base, o *Registry) error {
 	if err := applyProviderOverlay(base, o); err != nil {
 		return err
 	}
-	if o.Default != "" {
-		base.Default = o.Default
-	}
-	if o.Fallback != nil {
-		base.Fallback = o.Fallback
-	}
-	if o.OpencodePlugins != nil {
-		base.OpencodePlugins = o.OpencodePlugins
-	}
-	if o.AgentPlans != nil {
-		base.AgentPlans = o.AgentPlans
-	}
-	if o.AgentPlanFormat != "" {
-		base.AgentPlanFormat = o.AgentPlanFormat
-	}
+	setIf(&base.Default, o.Default, o.Default != "")
+	setIf(&base.Fallback, o.Fallback, o.Fallback != nil)
+	setIf(&base.OpencodePlugins, o.OpencodePlugins, o.OpencodePlugins != nil)
+	setIf(&base.AgentPlans, o.AgentPlans, o.AgentPlans != nil)
+	setIf(&base.AgentPlanFormat, o.AgentPlanFormat, o.AgentPlanFormat != "")
 	applyRoutingOverlay(&base.Routing, &o.Routing)
 	return nil
 }
@@ -382,16 +384,10 @@ func applyProviderOverlay(base, o *Registry) error {
 // applyRoutingOverlay merges o into base: cells cell by cell, every other field replaced whole when set.
 func applyRoutingOverlay(base, o *Routing) {
 	mergeCells(base, o)
-	if o.Weights != nil {
-		// an overlay replaces the weights whole, per its docstring
-		base.Weights = o.Weights
-	}
-	if o.ServedAware != nil {
-		base.ServedAware = o.ServedAware
-	}
-	if o.ClaudeAnywhere != nil {
-		base.ClaudeAnywhere = o.ClaudeAnywhere
-	}
+	// an overlay replaces the weights whole, per its docstring
+	setIf(&base.Weights, o.Weights, o.Weights != nil)
+	setIf(&base.ServedAware, o.ServedAware, o.ServedAware != nil)
+	setIf(&base.ClaudeAnywhere, o.ClaudeAnywhere, o.ClaudeAnywhere != nil)
 	for name, ladder := range o.Ladders {
 		if base.Ladders == nil {
 			base.Ladders = map[string][]Rung{}
@@ -417,17 +413,16 @@ func mergeCells(base, o *Routing) {
 
 // applyOpencodeOverlay replaces each opencode field whole when the overlay sets it.
 func applyOpencodeOverlay(base, o *OpencodeRouting) {
-	if o.Ladder != nil {
-		base.Ladder = o.Ladder
-	}
-	if o.WorkRepoMarkers != nil {
-		base.WorkRepoMarkers = o.WorkRepoMarkers
-	}
-	if o.FreeTiers != nil {
-		base.FreeTiers = o.FreeTiers
-	}
-	if o.FreeFirstOutput != "" {
-		base.FreeFirstOutput = o.FreeFirstOutput
+	setIf(&base.Ladder, o.Ladder, o.Ladder != nil)
+	setIf(&base.WorkRepoMarkers, o.WorkRepoMarkers, o.WorkRepoMarkers != nil)
+	setIf(&base.FreeTiers, o.FreeTiers, o.FreeTiers != nil)
+	setIf(&base.FreeFirstOutput, o.FreeFirstOutput, o.FreeFirstOutput != "")
+}
+
+// setIf stores v in *dst when set.
+func setIf[T any](dst *T, v T, set bool) {
+	if set {
+		*dst = v
 	}
 }
 
@@ -440,7 +435,7 @@ func ProfileNames() []string {
 	return reg.Names()
 }
 
-func nameGithubRows(reg *Registry) map[string]string {
+func nameGithubRows(reg *Registry, warn bool) map[string]string {
 	logins, names := map[string]string{}, []string{}
 	for n, p := range reg.Providers {
 		if p == nil {
@@ -451,7 +446,7 @@ func nameGithubRows(reg *Registry) map[string]string {
 			logins[n] = p.Login
 		}
 	}
-	renames := loginRenames(logins, names)
+	renames := githubRenames(logins, names, warn)
 	rows := map[string]*Provider{}
 	for old, name := range renames {
 		rows[name] = reg.Providers[old]
@@ -480,7 +475,14 @@ var warnedRenames sync.Map
 
 // loginRenames is vault.LoginRenames with each collision warning printed once per process.
 func loginRenames(logins map[string]string, names []string) map[string]string {
+	return githubRenames(logins, names, true)
+}
+
+func githubRenames(logins map[string]string, names []string, warn bool) map[string]string {
 	renames, warns := vault.LoginRenames(logins, names)
+	if !warn {
+		return renames
+	}
 	for _, w := range warns {
 		if _, dup := warnedRenames.LoadOrStore(w, true); !dup {
 			fmt.Fprintln(os.Stderr, "warning: "+w)

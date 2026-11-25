@@ -68,9 +68,6 @@ func Run(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*o.format); err != nil {
-		return helptext.BadFormat("doctor", err)
-	}
 	if len(fs.Args()) > 0 && !o.scan && (!o.all || !o.fix) {
 		helptext.Fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
@@ -146,11 +143,11 @@ func runDoctor(o *doctorOpts, targets []string) int {
 // printChecks renders checks as JSON or text and returns the exit code: 1 when !ok.
 func printChecks(o *doctorOpts, checks []check, ok bool) int {
 	if *o.format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		if code := helptext.WriteJSONOrFail("doctor", struct {
 			OK     bool    `json:"ok"`
 			Checks []check `json:"checks"`
-		}{ok, checks}); err != nil {
-			return helptext.Fail("doctor: %v", err)
+		}{ok, checks}); code != 0 {
+			return code
 		}
 	} else {
 		printCheckLines(os.Stdout, checks)

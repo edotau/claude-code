@@ -1,13 +1,139 @@
-# Go Performance
+# Go Concurrency and Performance
 
-Finding and fixing Go hot spots on Go 1.27: profiling, allocation, data layout, collection internals, runtime knobs.
+Goroutines, channels, `sync`, `context`, then profiling, allocation, layout and runtime tuning (Go 1.27).
+
+## Decide the primitive first
+
+| Need | Reach for | Not |
+| --- | --- | --- |
+| Hand ownership of data to another goroutine | channel | shared slice + mutex |
+| Guard a few fields read and written in place | `sync.Mutex` next to the fields | a channel used as a lock |
+| Counter, flag, or swapped config pointer | `atomic.Int64`, `atomic.Bool`, `atomic.Pointer[T]` | mutex around one int |
+| Lazy one-time init returning a value | `sync.OnceValue` / `sync.OnceValues` | `sync.Once` + package var |
+| N tasks, first error cancels the rest | `errgroup.WithContext` (`x/sync`) | `WaitGroup` + error channel |
+| Wait for N tasks, no errors | `sync.WaitGroup` (`wg.Go(f)` on 1.25+) | sleeping, polling |
+| Bound parallelism | `g.SetLimit(n)` or a `chan struct{}` semaphore | unbounded goroutines |
+| Cache with disjoint or write-once keys | `sync.Map` | `sync.Map` as a general map |
+| Reuse short-lived hot-path allocations | `sync.Pool` ([below](#syncpool)) | a pool for long-lived or rare objects |
+| Broadcast "state changed" | `close(ch)` once, or `sync.Cond` when re-armed | per-waiter sends |
+| Collapse identical concurrent lookups | `singleflight.Group` (`x/sync`) | N callers each hitting the DB |
+| Sequential lazy transform | an `iter.Seq` chain (1.23+) | a goroutine + channel per stage |
+
+## Goroutine lifetime rules
+
+- Every `go` has a known exit (closed input, cancelled `ctx`, finished job) and a waiter in the starting function.
+- No goroutines in library constructors or `init`; expose a blocking `Run(ctx)` and let the caller choose `go`.
+- A panic in a spawned goroutine kills the process; recovery: [errors-testing.md](errors-testing.md) → Panics.
+- `go 1.22`+ loop variables are per-iteration: drop `v := v` and `tt := tt`.
+- Classic leak: a goroutine blocks on a send nobody receives after the caller timed out. Buffer of 1 for a single
+  result, or `select` on `ctx.Done()` alongside the send.
+- Leak detection: [errors-testing.md](errors-testing.md); live: `runtime.NumGoroutine()`,
+  `/debug/pprof/goroutine?debug=2`.
+
+```go
+func first(ctx context.Context, q string) (Result, error) {
+    ch := make(chan Result, 1) // buffer 1: the sender never blocks if we return early
+    go func() { ch <- search(q) }()
+    select {
+    case r := <-ch:
+        return r, nil
+    case <-ctx.Done():
+        return Result{}, context.Cause(ctx)
+    }
+}
+```
+
+## Channels and select
+
+- Panics: send on a closed channel, `close` of a nil or closed channel. A nil channel blocks forever on send and
+  receive; a closed one receives the zero value with `ok == false`.
+- With multiple senders, close from the coordinator after `wg.Wait()`. Closing is a broadcast, not cleanup.
+- Buffer size is a design choice: 0 = synchronous handoff, 1 = don't block on a single result, n = a known batch or
+  semaphore size (comment why). A large buffer "fixing" a deadlock only hides it.
+- A `nil` channel case never fires: set a drained input to `nil` to drop it from a merge loop.
+- `default` makes `select` non-blocking; in a `for` loop it busy-spins, so only for try-send/try-receive.
+- Ready cases are chosen at random; to prefer `ctx.Done()`, check `ctx.Err()` before the select.
+- With `go 1.23`+: `time.After` in a loop no longer leaks and `Stop`/`Reset` deliver no stale tick, so the
+  drain-before-reset dance is dead code (older modules still drain when `Stop` returns false). Reuse one
+  `time.NewTimer` on a hot loop.
+
+## sync and atomic gotchas
+
+- Never copy a `Mutex`, `WaitGroup`, `Once`, `Cond` or typed atomic after first use: use pointers; `go vet`
+  copylocks catches most.
+- A plain `map` read and written from two goroutines is a fatal error `recover` can't catch: mutex or `sync.Map`.
+- Embedding `sync.Mutex` in an exported struct leaks `Lock`/`Unlock`; use an unexported `mu` field.
+- No I/O, channel ops or callbacks inside a critical section.
+- `RWMutex` pays only when reads dominate and the section is non-trivial. A recursive `RLock` deadlocks when a writer
+  waits between calls; no upgrade (`Lock` while holding `RLock` deadlocks): release, lock, re-check.
+- No reentrant mutex: a locking method calling another locking method deadlocks; split into `fooLocked()` helpers.
+- `wg.Add` before `go`, never inside the goroutine. `wg.Go(f)` (1.25+) propagates no error and cancels no sibling:
+  use `errgroup` for those.
+- Typed atomics over `atomic.AddInt64(&x, …)`: alignment handled, plain reads won't compile.
+- Atomics make one word consistent, not an invariant across fields: mutex, or one `atomic.Pointer` to an immutable
+  struct (copy-on-write).
+- `sync.Map`: write-once/read-many or disjoint keys only; no `Len`, `Range` is not a snapshot; for either, or
+  overlapping writes, use `map` + `RWMutex`.
+- `sync.OnceFunc`/`OnceValue` re-panic on every call if `f` panicked, where `sync.Once` swallows the retry.
+- `-race` mechanics: [errors-testing.md](errors-testing.md).
+
+## Pipelines and worker pools
+
+- Each stage creates its output channel and `defer close(out)`s it; every send selects on `ctx.Done()` so an early
+  consumer unwinds upstream stages.
+- Fan-in: one `WaitGroup` over the workers, one goroutine that `Wait`s then closes the merged output.
+- Ordered results: carry the index and write `out[i] = r` into a pre-sized slice (no lock needed).
+- Prefer `errgroup.SetLimit` to a hand-rolled pool; own pools only for per-worker state, custom priority/backpressure,
+  or draining on shutdown. Channel semaphore: acquire before `go` so the loop blocks.
+- Size to the bottleneck: ~`GOMAXPROCS` for CPU-bound, the downstream limit (DB pool, API quota) for I/O-bound.
+
+## context rules
+
+- Never store a ctx in a struct (exception: a struct that is itself one request's lifetime).
+- `context.Background()` mid-chain drops deadline and cancellation; never pass `nil` (`context.TODO()` while plumbing);
+  tests use `t.Context()` (1.24+).
+- Always `defer cancel()` from `WithCancel`/`WithTimeout`/`WithDeadline` (`go vet` lostcancel); exception: a
+  constructor returning ctx and `cancel` together.
+- A derived context can only shorten the parent's deadline; to outlive the parent, detach.
+- Check cancellation where work loops or blocks (`select` on `ctx.Done()`, or `ctx.Err()` per CPU-loop iteration);
+  functions calling only ctx-aware APIs need none.
+- Don't log a cancellation as a failure. Matching: [errors-testing.md](errors-testing.md).
+
+### Cancellation tools (1.21+)
+
+| API | Use when |
+| --- | --- |
+| `WithCancelCause`, `WithTimeoutCause` + `Cause(ctx)` | callers need *why* it stopped |
+| `WithoutCancel(ctx)` | work outlives the request (audit write, cache fill) but keeps values; add a timeout |
+| `AfterFunc(ctx, f)` | cleanup on cancel without a parked goroutine; `f` runs in its own goroutine; call `stop` on success |
+| `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)` | root context stopping on SIGINT/SIGTERM |
+
+### context in HTTP services
+
+- `r.Context()` cancels on client disconnect, HTTP/2 stream reset or handler return; pass it to every DB/RPC call
+  (`QueryContext`, `ExecContext`, never the ctx-less variants). `ctx.Err() != nil` on error: client left, skip the
+  response.
+- Goroutines outliving the handler must not use `r.Context()`: `WithoutCancel`.
+- Outbound: `http.NewRequestWithContext(ctx, …)`; `http.Client.Timeout` is a whole-request cap, ctx the per-call
+  budget; set both on a client you own. Per-request budgets live in middleware (`http.TimeoutHandler`), not handlers.
+- Graceful shutdown: on the signal context's `Done`, `srv.Shutdown(shutdownCtx)` with its own timeout; `BaseContext`
+  ties request contexts to the server. Streams (SSE, websockets) select on `r.Context().Done()` in the write loop.
+
+### context values
+
+- Only request-scoped metadata crossing API boundaries (trace/span ID, auth principal, request ID), never optional
+  parameters, config, DB handles, feature flags. A logger only when enriched with request fields.
+- Keys: unexported type per package (`type ctxKey struct{}`) with typed `WithX(ctx, v)` / `XFrom(ctx) (v, ok)`.
+- Lookup walks a linked list: fine for a handful, not per-item data in a loop.
+- Values must be immutable or concurrency-safe.
+- `WithoutCancel` and `AfterFunc` keep values, so prefer them over `context.Background()` for detached work.
 
 ## Measure first
 
 - Rule out external waits first: many goroutines blocked in `net.(*conn).Read` or `database/sql`, or a trace span
   dominated by an upstream, means fix the query, pool or cache.
 - Pick one metric (p99, throughput, RSS, CPU) and a target; one change per measurement; compare with `benchstat`
-  over `-count` ≥ 6. Benchmarks: [testing.md](testing.md).
+  over `-count` ≥ 6. Benchmarks: [errors-testing.md](errors-testing.md).
 - Put the trimmed `benchstat` delta (with the `goos/goarch/cpu` header) in the `perf(scope):` commit body and a
   one-line comment on the optimized code.
 
@@ -45,8 +171,7 @@ Finding and fixing Go hot spots on Go 1.27: profiling, allocation, data layout, 
   early return must leave nothing half-filled.
 - `make(map[K]V, n)` when the count is known.
 - `for k, v := range m`; `for k := range m { m[k] }` hashes twice.
-- Compile `regexp` once at package level.
-- Concurrent misses on one key: `singleflight` ([concurrency.md](concurrency.md)).
+- Compile `regexp` once at package level. Concurrent misses on one key: `singleflight`.
 
 ## Strings and bytes
 
@@ -75,20 +200,8 @@ Finding and fixing Go hot spots on Go 1.27: profiling, allocation, data layout, 
 - Discard grown objects (`if cap(*bp) > 64<<10 { return }`) so one huge request doesn't pin memory.
 - Never return pooled memory to the caller; copy out first.
 
-```go
-var bufPool = sync.Pool{New: func() any { b := make([]byte, 0, 4<<10); return &b }}
-
-func render(v Item) []byte {
-    bp := bufPool.Get().(*[]byte)
-    buf := v.AppendTo((*bp)[:0])
-    out := bytes.Clone(buf)  // the caller gets its own copy
-    if cap(buf) <= 64<<10 { // drop oversized buffers
-        *bp = buf
-        bufPool.Put(bp)
-    }
-    return out
-}
-```
+- Pattern: `bp := pool.Get().(*[]byte)`, build into `(*bp)[:0]`, `bytes.Clone` the result for the caller, then
+  `*bp = buf; pool.Put(bp)` only if `cap(buf) <= 64<<10`.
 
 ## Slices: internals and gotchas
 
@@ -100,7 +213,7 @@ func render(v Item) []byte {
   pointers reachable.
 - `slices.Clip` drops spare capacity but not the array; only a copy shrinks it.
 - An array (`[32]byte`) is comparable and a valid map key; pass large ones by pointer.
-- Matrices: one allocation (`make([]float64, rows*cols)`, rows as subslices), walked row-major.
+- Matrices: one allocation (`make([]float64, rows*cols)`), rows as subslices, walked row-major.
 
 ## Maps: internals and gotchas
 
@@ -111,17 +224,11 @@ func render(v Item) []byte {
   scan); small or mostly-read values stay inline.
 - `slices.Contains` in a loop is O(n·m): build a `map[T]struct{}` once.
 - Pointer-free keys and values (ints, fixed arrays) spare the GC from scanning the map; matters at millions of entries.
-- `sync.Map` only for write-once/read-many or disjoint keys: [concurrency.md](concurrency.md).
 
 ## Struct layout and locality
 
-- Fields keep declared order and pad to alignment; order largest to smallest. `fieldalignment`
-  (`golang.org/x/tools`) reports shrinkable structs.
-
-```go
-type loose struct { a bool; b int64; c bool; d int32 } // 24 bytes: 7 + 3 bytes of padding
-type tight struct { b int64; d int32; a, c bool }      // 16 bytes
-```
+- Fields pad to alignment in declared order: largest to smallest (`bool,int64,bool,int32` is 24 bytes, reordered 16);
+  `fieldalignment` (`golang.org/x/tools`) reports them.
 
 - A trailing zero-size field gets padded (`struct{ v int64; _ struct{} }` is 16 bytes); put it first.
 - Reorder only structs allocated by the million or iterated in hot loops; elsewhere group by meaning.
@@ -141,9 +248,8 @@ type tight struct { b int64; d int32; a, c bool }      // 16 bytes
 - One-accumulator sums form a dependency chain: use 2-4 accumulators when a profile blames the loop.
 - `math/bits` compiles to single instructions (popcount, clz, rotate). Assembly or `GOEXPERIMENT=simd` only for a
   profiled numeric kernel, with a pure-Go fallback.
-- A cgo call costs tens of ns and pins the goroutine to its OS thread: batch across the boundary.
-- A disabled debug log line still formats its arguments: `slog.LogAttrs` with typed attributes (`slog.Int`,
-  `slog.String`) avoids allocating when the level is off.
+- A cgo call costs tens of ns and pins the OS thread: batch across the boundary.
+- A disabled `slog` line still formats its arguments: `slog.LogAttrs` with typed attributes avoids the allocation.
 
 ## I/O
 
@@ -166,10 +272,8 @@ type tight struct { b int64; d int32; a, c bool }      // 16 bytes
 - `GOMEMLIMIT` ≈ 80–90% of the container limit (stacks, cgo allocations and mmap count toward the container, not the
   Go heap). It is soft: GC caps itself at ~50% CPU, so a live heap above the limit still OOMs.
 - Runtime setters: `debug.SetGCPercent`, `debug.SetMemoryLimit`. Memory ballast is obsolete; delete it.
-- Go 1.26+ uses the Green Tea collector (page-by-page small-object scanning, better locality); re-measure GC CPU
-  instead of reusing old tuning.
-- A finished goroutine keeps its large stack until GC shrinks it: deep recursion in pooled workers shows as high
-  `StackInuse`.
+- Go 1.26+ uses the Green Tea collector: re-measure GC CPU instead of reusing old tuning.
+- A finished goroutine keeps its large stack until GC shrinks it (deep recursion in pooled workers: high `StackInuse`).
 - PGO: save a 30–60 s CPU profile of representative production load as `default.pgo` in the main package directory;
   `go build` picks it up (`-pgo=auto`). Expect a few percent, mostly devirtualized interface calls. Merge with
   `go tool pprof -proto a.pprof b.pprof > default.pgo`; refresh after large refactors (stale helps less, no harm).

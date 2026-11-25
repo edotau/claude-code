@@ -1,27 +1,40 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
 var vaultOverlayPage = helptext.Page{
-	Usage: "claude-code vault overlay <ls|unset> [KEY] [flags]",
-	About: "List the vault's overlay keys, or remove one that overrides a built-in default.\n" +
-		"Removable keys: " + strings.Join(vaultdoc.OverlayKeys, ", ") + ".",
+	Usage: "claude-code vault overlay <ls|set|unset> [KEY] [flags]",
+	About: "List the vault's overlay keys, validate and store one, or remove one.\n" +
+		vaultOverlaySetAbout,
 	Commands: [][2]string{
 		{"ls", "every overlay key with its stored size"},
+		{"set", "KEY --file PATH|-: validate, store, audit"},
 		{"unset", "KEY: remove that overlay document"},
 	},
 }
 
-// cmdVaultOverlay is `vault overlay ls` and `vault overlay unset KEY`.
+const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models,\n" +
+	"github-auth. providers.prev is a backup and cannot be set.\n" +
+	"github-auth is a plain-text profile name; other keys are JSON.\n" +
+	"Set prints byte sizes only, never document values."
+
+// cmdVaultOverlay is `vault overlay ls`, `set KEY --file PATH|-` and `unset KEY`.
 func cmdVaultOverlay(args []string) int {
 	if code, ok := helpOrBare(vaultOverlayPage, args); ok {
 		return code
@@ -30,6 +43,8 @@ func cmdVaultOverlay(args []string) int {
 	switch sub {
 	case "ls":
 		return vaultOverlayList(args)
+	case "set":
+		return vaultOverlaySet(args)
 	case "unset":
 		return vaultOverlayUnset(args)
 	}
@@ -105,4 +120,70 @@ func confirmOverlayUnset(key string, size int, yes bool) (code int, stop bool) {
 		return 0, true
 	}
 	return 0, false
+}
+
+// overlayValidators hold each settable key's own parser; a key with none is refused.
+var overlayValidators = map[string]func(doc []byte) error{
+	"providers": providers.Validate,
+	"agent-records": func(doc []byte) error {
+		_, err := vault.ParseAgentRecords(doc)
+		return err
+	},
+	"opencode-models": func(doc []byte) error {
+		_, err := providers.ParseOpencodeMenu(doc)
+		return err
+	},
+	"github-auth": func(doc []byte) error {
+		_, err := vault.ParseGitHubAuth(doc)
+		return err
+	},
+	"proxy-teams": func(doc []byte) error {
+		_, ps := proxyteam.Parse(assets.ProxyTeams(), doc)
+		if len(ps) > 0 {
+			return errors.New("invalid proxy-teams document")
+		}
+		return nil
+	},
+}
+
+func vaultOverlaySet(args []string) int {
+	fs := helptext.NewFlagSet("vault overlay set", helptext.Page{
+		Usage: "claude-code vault overlay set KEY --file PATH|-",
+		About: vaultOverlaySetAbout,
+	})
+	file := fs.String("file", "", "document to store: a path, or - for stdin")
+	words, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(words) != 1 || *file == "" {
+		fs.Usage()
+		return 2
+	}
+	key := words[0]
+	validate, ok := overlayValidators[key]
+	if !ok {
+		return helptext.Fail("vault overlay set: key has no validator; settable keys: %s", strings.Join(vaultdoc.SettableOverlayKeys, ", "))
+	}
+	raw, err := readOverlayDoc(*file)
+	if err != nil {
+		return helptext.Fail("vault overlay set: %v", err)
+	}
+	if err := validate(raw); err != nil {
+		return helptext.Fail("vault overlay set: %s refused, nothing written (invalid document)", key)
+	}
+	old, err := vaultdoc.SetOverlay(key, string(raw))
+	if err != nil {
+		return helptext.Fail("vault overlay set: %v", err)
+	}
+	audit.Log(audit.OverlaySet, key, fmt.Sprintf("%d -> %d bytes", old, len(raw)))
+	fmt.Fprintf(os.Stderr, "overlay %s set: %d -> %d bytes\n", key, old, len(raw))
+	return 0
+}
+
+func readOverlayDoc(path string) ([]byte, error) {
+	if path == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(path)
 }

@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -81,5 +83,50 @@ func TestOpenLeavesNoProxyJSON(t *testing.T) {
 	}
 	if _, err := os.Stat(stateJSON); !os.IsNotExist(err) {
 		t.Errorf("proxy.json exists after Close: %v", err)
+	}
+}
+
+// Close returns once nothing is in flight, even with a stalled connection the router never counted.
+func TestScopedCloseIdleReturnsFast(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, err := Open(ctx, proxy.Scope{Team: "t", ID: "i"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get(s.Base() + "/healthz") // leaves one idle keepalive connection
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	c, err := net.Dial("tcp", s.Base()[len("http://"):]) // a gate-answered request whose body never arrives
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Write([]byte("POST /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	closed := make(chan struct{})
+	go func() { s.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close did not return within 3s with nothing in flight")
+	}
+}
+
+func BenchmarkOpen(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv("HARNESS_VAULT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	for i := 0; i < b.N; i++ {
+		s, err := Open(context.Background(), proxy.Scope{Team: "t", ID: "i"})
+		if err != nil {
+			b.Fatal(err)
+		}
+		s.Close()
 	}
 }

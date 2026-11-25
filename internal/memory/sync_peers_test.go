@@ -290,8 +290,12 @@ func (ts *twoStores) peerImport(script string, in io.Reader, out io.Writer) int 
 	if strings.Contains(script, "--replace") {
 		replace, _ = ReadReplaceList(filepath.Join(dir, ".replace"))
 	}
+	var remove map[string]string
+	if strings.Contains(script, "--remove") {
+		remove, _ = ReadReplaceList(filepath.Join(dir, ".remove"))
+	}
 	answer, code := "sync-pre "+LocalToken()+"\n", 0
-	res, err := ImportBank(ImportOptions{From: dir, Label: "driver", Topics: true, Replace: replace,
+	res, err := ImportBank(ImportOptions{From: dir, Label: "driver", Topics: true, Replace: replace, Remove: remove,
 		DryRun: strings.Contains(script, "--dry-run")})
 	if err != nil {
 		code = 1
@@ -466,5 +470,70 @@ func TestSyncProbeDigestTracksContent(t *testing.T) {
 func TestHashTreeMissingRootIsEmpty(t *testing.T) {
 	if got := hashTree(filepath.Join(t.TempDir(), "nope")); len(got) != 0 {
 		t.Fatalf("hashTree(missing) = %v, want empty", got)
+	}
+}
+
+// gone is rel's presence on the local side and on the peer's.
+func (ts *twoStores) gone(rel string) (local, peer bool) {
+	ts.asPeer(func() { peer = !syncExists(rel) })
+	return !syncExists(rel), peer
+}
+
+func syncExists(rel string) bool {
+	_, err := os.Lstat(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)))
+	return err == nil
+}
+
+func TestSyncDeletionPropagates(t *testing.T) {
+	ts := newTwoStores(t)
+	x := "notes/x.md"
+	ts.put(false, x, "a0\n")
+	ts.step("seed", x, "a0\n", "a0\n")
+	syncMust(t, os.Remove(filepath.Join(paths.MemoryStoreDir(), x)))
+	var out bytes.Buffer
+	_, _ = RunSync([]string{"peer.example"}, false, &out)
+	if l, p := ts.gone(x); !l || !p || !strings.Contains(out.String(), "deleted "+x) {
+		t.Fatalf("unedited peer copy: local gone %v, peer gone %v\n%s", l, p, out.String())
+	}
+}
+
+func TestSyncDeletionKeepsPeerEdit(t *testing.T) {
+	ts := newTwoStores(t)
+	x := "notes/x.md"
+	ts.put(false, x, "a0\n")
+	ts.step("seed", x, "a0\n", "a0\n")
+	syncMust(t, os.Remove(filepath.Join(paths.MemoryStoreDir(), x)))
+	ts.put(true, x, "b1\n")
+	ts.step("peer edit survives the deletion", x, "b1\n", "b1\n")
+}
+
+func TestSyncPrimaryWinsConflict(t *testing.T) {
+	for _, tc := range []struct{ primary, want string }{{SyncPrimarySelf, "a1\n"}, {"peer.example", "b1\n"}, {"", ""}} {
+		ts := newTwoStores(t)
+		x := "notes/x.md"
+		ts.put(false, x, "a0\n")
+		ts.step("seed", x, "a0\n", "a0\n")
+		syncMust(t, SetSyncPrimary(tc.primary))
+		ts.put(false, x, "a1\n")
+		ts.put(true, x, "b1\n")
+		if tc.want == "" {
+			ts.step("no primary keeps both", x, "a1\n", "b1\n")
+			continue
+		}
+		ts.step("primary "+tc.primary, x, tc.want, tc.want)
+	}
+}
+
+func TestSyncPrimaryDeletionBeatsPeerEdit(t *testing.T) {
+	ts := newTwoStores(t)
+	x := "notes/x.md"
+	ts.put(false, x, "a0\n")
+	ts.step("seed", x, "a0\n", "a0\n")
+	syncMust(t, SetSyncPrimary(SyncPrimarySelf))
+	syncMust(t, os.Remove(filepath.Join(paths.MemoryStoreDir(), x)))
+	ts.put(true, x, "b1\n")
+	_, _ = RunSync([]string{"peer.example"}, false, io.Discard)
+	if l, p := ts.gone(x); !l || !p {
+		t.Fatalf("primary deletion: local gone %v, peer gone %v", l, p)
 	}
 }

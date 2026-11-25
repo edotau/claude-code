@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -33,7 +34,7 @@ func SweepScopes() []string {
 			removed = append(removed, file)
 		}
 	}
-	return removed
+	return append(removed, sweepOrphanLocks()...)
 }
 
 // DetachedScopes returns the live standing proxies, after sweeping the dead records.
@@ -85,7 +86,7 @@ func DrainIfIdle(ctx context.Context, sc Scope) (idle, answered bool) {
 		return false, false
 	}
 	req.Header.Set(ClientHeader, secret)
-	resp, err := sessionClient.Do(req)
+	resp, err := httpx.Client.Do(req)
 	if err != nil {
 		return false, false
 	}

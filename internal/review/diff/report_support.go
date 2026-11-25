@@ -127,8 +127,8 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 		return nil, fmt.Errorf("git diff %s...%s failed, no files reviewed: %w", base, head, err)
 	}
 	var files []string
-	for name := range strings.SplitSeq(out, "\x00") {
-		if name != "" && exts[strings.ToLower(filepath.Ext(name))] {
+	for _, name := range textutil.SplitNUL(out) {
+		if exts[strings.ToLower(filepath.Ext(name))] {
 			files = append(files, name)
 		}
 	}

@@ -130,7 +130,7 @@ func closeScope(sc Scope, file string) {
 		return nil
 	})
 	if err == nil && removed {
-		err = removeScopeLock(file + ".lock")
+		err = errors.Join(removeScopeLock(file+".lock"), removeScopeLock(file+".spawn.lock"))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "proxy scope: removing %s: %v\n", file, err)
@@ -159,6 +159,24 @@ func removeScopeLock(lock string) error {
 		return nil
 	}
 	return removeIfExists(lock) // the deferred close releases the lock after the unlink
+}
+
+// sweepOrphanLocks removes lock files in the scopes dir whose record is gone and which nobody holds.
+func sweepOrphanLocks() []string {
+	var removed []string
+	locks, _ := filepath.Glob(filepath.Join(ScopesDir(), "*.lock"))
+	for _, lock := range locks {
+		record := strings.TrimSuffix(strings.TrimSuffix(lock, ".lock"), ".spawn")
+		if _, err := os.Stat(record); !errors.Is(err, fs.ErrNotExist) {
+			continue // a record, live or unreadable, keeps its locks
+		}
+		if removeScopeLock(lock) == nil {
+			if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
+				removed = append(removed, lock)
+			}
+		}
+	}
+	return removed
 }
 
 // ReadScope returns the record of team and id.

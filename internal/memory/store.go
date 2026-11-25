@@ -3,7 +3,6 @@
 package memory
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -48,48 +47,11 @@ func Init() (string, error) {
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
-		if err := seedFile(p, body); err != nil {
+		if _, err := paths.WriteNoReplace(p, []byte(body), 0o600); err != nil {
 			return "", err
 		}
 	}
 	return paths.MemorySubDir(""), nil
-}
-
-// writeBody writes a new file's body (seedFile, createExcl); tests swap it to fail mid-write.
-var writeBody = func(f *os.File, body string) error { _, err := f.WriteString(body); return err }
-
-// seedFile writes body to a temp file and links it into place, so p is never partial and never replaces a racer's file.
-func seedFile(p, body string) error {
-	f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }() // the temp name is spare once linked, garbage if the write failed
-	werr := writeBody(f, body)
-	if err := errors.Join(werr, f.Chmod(0o600), f.Close()); err != nil {
-		return err
-	}
-	err = os.Link(tmp, p)
-	if err == nil || errors.Is(err, fs.ErrExist) {
-		return nil
-	}
-	return createExcl(p, body, 0o600) // no hard links here (FUSE, network mounts)
-}
-
-// createExcl writes body to a new p, never replacing an existing or racing writer's file.
-func createExcl(p, body string, mode os.FileMode) error {
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if errors.Is(err, fs.ErrExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if err := errors.Join(writeBody(f, body), f.Close()); err != nil {
-		return errors.Join(err, os.Remove(p)) // Init skips an existing file, so a partial one must not survive
-	}
-	return nil
 }
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
@@ -216,9 +178,7 @@ var gitTimeout = 30 * time.Second
 
 // gitOut runs `git -C dir args` with the sanitized env and gitTimeout; for identity probes of OTHER repos only.
 var gitOut = func(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	return proc.RunGit(ctx, "", append([]string{"-C", dir}, args...)...)
+	return proc.GitTimeout(gitTimeout, dir, args...)
 }
 
 // GitToplevel is dir's git work-tree root, "" outside a repo.

@@ -193,7 +193,8 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(args, cmArgs...)
-	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
+	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true,
+		ProfileAsked: cmp.Or(req.CellRoute.Profile, req.Provider) != ""}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
@@ -227,7 +228,7 @@ func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.Ru
 
 // childBase is the endpoint the child uses: the --settings env block's ANTHROPIC_BASE_URL over the process env's.
 func childBase(argv, env []string) string {
-	base := lastEnv(env, proc.EnvAnthropicBaseURL)
+	base := proc.LastEnv(env, proc.EnvAnthropicBaseURL)
 	for i, a := range argv {
 		v, ok := strings.CutPrefix(a, "--settings=")
 		if a == "--settings" && i+1 < len(argv) {
@@ -729,7 +730,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 type claudeLauncher struct{}
 
 func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv, Dispatch: o.Dispatch}, args)
+	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv, Dispatch: o.Dispatch, Asked: o.ProfileAsked}, args)
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}
@@ -769,7 +770,7 @@ func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd
 }
 
 func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
-	return agent.WriteJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
+	return json.NewEncoder(w).Encode(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 }
 
 // Parse prices the turn alone (total_cost_usd accumulates over the process); a silent child is killed when idle.

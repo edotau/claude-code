@@ -83,18 +83,17 @@ verdict on a hook-changed input, so the call would bounce for a verbatim resend
 Besides Write/Edit targets it checks `apply_patch` headers and Bash write targets. A new `*plan*.md` at a repo root or
 in `docs/` is rewritten to the dated plans home (denied with the fix where the host cannot rewrite). A Claude first
 write to a native plan draft that lacks only `# Plan:` or `## Tasks` is rewritten with a note; any other first write
-lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's Bash block becomes allow + note
-. `HARNESS_HOOK_SKIP=docs-placement` skips both
-the placement block and the plan checks.
+lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's Bash block becomes allow + note.
+`HARNESS_HOOK_SKIP=docs-placement` skips both the placement block and the plan checks.
 
 ## dispatch-effort
 
 Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
 line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
 (effort only when neither the call nor the agent file sets one); claims
-slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall rides `additionalContext`
+slots, recalls context and labels the row, for Codex-spawned children too. Recall rides `additionalContext`
 as a context note so the brief prompt stays unchanged. A dispatched `agents ask` carries the same block for every agent
-(`withRecall`, `internal/agent/ask/memory.go`), except on `--retry`, `--job` or `--host`. The label is
+(`internal/agent/ask/memory.go`), except on `--retry`, `--job` or `--host`. The label is
 the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
 pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the brief has no text;
 `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch takes the route
@@ -133,9 +132,10 @@ ended job the context line `job <id> ended: hand back now with this result`, and
 stuck-leaf watchdog.
 
 On a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), `dispatch-handback` runs the task's
-`verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines on
-top of the message; it never holds. A rejected shape prints `verify not run: shape` and leaves only the scoped gate.
-For the `verify:` allowlist, see `VerifyShape` in `internal/plans/verify.go`.
+`verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines, then a
+`commit+tick: [cd <lane> && ]claude-code worktree commit --task '<id>' --plan <file> --type "<type>" <file ids>` line
+for the main session, on top of the message; it never holds. A rejected shape prints `verify not run: shape` and leaves
+only the scoped gate. For the `verify:` allowlist, see `VerifyShape` in `internal/plans/verify.go`.
 
 `dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
 started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,
@@ -151,7 +151,8 @@ to run once (never a sleep).
 On Bash, only in a subagent of an external type (`relayLeaf`; a `claude` leaf and the main session pass), it
 refuses a poll of a finished job the leaf already handed back (`already reported: stop`) and a second follow poll of
 one job while the first is in flight or backgrounded with a live writer (`one poller only`). That leaf's Bash is
-limited to `claude-code` asks, commands the shared judge allows, `gofmt -l`, and `go build|vet|test`
+limited to `claude-code` asks (never `worktree commit`: `a relay does not commit; the dispatched agent or the main
+session commits`), commands the shared judge allows, `gofmt -l`, and `go build|vet|test`
 (behind `rtk`, a bare `env`, `time [-p]`, `nice [-n N]` or `timeout [opts] N[smh]`) with `./` package patterns inside
 the repo and a short flag list: `-args`, writing or program-running flags, any `go build` but `./...` or `-o
 /dev/null`, and an inline or process `GOFLAGS`/`GOENV`/`GOWORK`/`GOBIN`/`GOCACHE`/`GOTOOLCHAIN` are refused (the relay
@@ -254,5 +255,5 @@ its upstream, adds one line per HEAD/upstream pair, whatever the mode
 Pi has no prompts and no sandbox: its only tools are the guard extension's seven (read, bash, edit, write, grep, find,
 ls), each judged by `claude-code hook PreToolUse --pi-guard` (`safety-scan` for
 bash). Only an explicit allow runs the tool, on the judged path; `HARNESS_HOOK_*` is ignored there. Mapping, path
-rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi ask
+rules and fail-closed behavior: `rules/harness/hooks.md` → Pi · plugin. A pi ask
 carries no permission policy, like any agent (R30); `make` and the live check stay with the main session.

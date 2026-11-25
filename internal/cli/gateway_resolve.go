@@ -38,7 +38,7 @@ func cmdGatewayResolve(args []string) int {
 	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(router.FallbackModes, "|")+"); none refuses a model the listing lacks")
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
-	format := fs.String("format", "text", "text or json")
+	format := helptext.FormatFlagWithUsage(fs, "text or json")
 	taskFile := fs.String("task", "", "the brief the run gets (- reads stdin): auto and an untyped model size it")
 	tools := fs.Bool("tools", false, "the run calls tools: auto skips a model whose probe refused them")
 	words, err := helptext.ParseArgs(fs, args)

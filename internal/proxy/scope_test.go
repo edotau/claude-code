@@ -23,6 +23,27 @@ func TestReadScopeNewerSchema(t *testing.T) {
 	}
 }
 
+func TestSweepScopesRemovesOrphanLocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(ScopesDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphan := scopeFile("standing", "1") + ".spawn.lock"
+	kept := scopeFile("t", "i")
+	for _, p := range []string{orphan, kept + ".lock", kept} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	SweepScopes()
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("orphan spawn lock survived (stat err %v)", err)
+	}
+	if _, err := os.Stat(kept + ".lock"); err != nil {
+		t.Errorf("lock of an existing record was removed: %v", err)
+	}
+}
+
 func TestScopeCloseRemovesFileAndLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	sc := Scope{Team: "t", ID: "i", PID: os.Getpid(), Start: "x", Port: 1, Started: time.Now()}

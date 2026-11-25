@@ -505,6 +505,9 @@ func TestGateBashRunsPinnedRTKUnderChildPath(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "rtk")
 	hosttest.WriteExec(t, bin, "#!/bin/sh\nif [ \"$1\" = rewrite ]; then printf 'rtk %s' \"$3\"; exit 0; fi\necho pinned-ran\n")
 	t.Setenv("HARNESS_RTK_BIN", bin)
+	for _, v := range []string{"CODEMODE", "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE", "OPENCODE_EXPERIMENTAL_CODE_MODE"} {
+		t.Setenv(v, "off") // code mode skips the rtk rewrite, so an inherited value would fail this test
+	}
 	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var out strings.Builder
 	exit, err := gateBash(context.Background(), t.TempDir(), "git status", []string{"PATH=/usr/bin:/bin"}, &out)

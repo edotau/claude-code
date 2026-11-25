@@ -57,7 +57,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 |-------------|-------------|---------|
 | Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
 | Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | Language-specific conventions, or general code quality |
-| Security pattern | `rules/software/<lang>/security.md` or `rules/standards/security.md` | Mandatory checks |
+| Security pattern | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
 | Architecture insight | `~/.claude/memory/decisionLog.md` | Dated entry, newest first |
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |

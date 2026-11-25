@@ -592,17 +592,13 @@ const searchMaxBody = 16 << 20
 var robotsTimeout = 5 * time.Second
 
 // pageClient refuses loopback/private/link-local targets at dial time (covers redirects and DNS) and caps 5 hops.
-var pageClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Control: rejectInternal, Timeout: 10 * time.Second}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConnsPerHost:   4,
-	},
-	CheckRedirect: capRedirects,
-	Timeout:       requestTimeout,
-}
+var pageClient = httpx.NewClient(requestTimeout, &http.Transport{
+	DialContext:           (&net.Dialer{Control: rejectInternal, Timeout: 10 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ResponseHeaderTimeout: 10 * time.Second,
+	IdleConnTimeout:       90 * time.Second,
+	MaxIdleConnsPerHost:   4,
+}, capRedirects)
 
 func capRedirects(_ *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {

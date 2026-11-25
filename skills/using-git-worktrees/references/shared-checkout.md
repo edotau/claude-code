@@ -1,71 +1,33 @@
-# Sharing One Checkout Without a Worktree
+# Shared-Checkout Coordination
 
-Sessions and leaves sharing one tree (always `~/.claude`; any repo where you declined a worktree) edit it on
-`main`; collisions surface as a red build or a commit carrying another session's half-done hunks.
+Policy lives in [Git and Worktrees](../../../rules/standards/worktree-git.md); the
+[skill's enforcement table](../SKILL.md#hook-enforcement-vs-policy) distinguishes the checks.
+Use [the lane protocol](../SKILL.md#the-lane-protocol) for isolated streams.
 
-## Before planning
+## Claims are warnings, not isolation
 
-- List what else is live: `rtk git status --short` (uncommitted files you didn't write), other sessions'
-  `plans/*.md`, and `claude-code agents tree` for peers in the same checkout.
-- Check each task's `owns:` files against that list. Registry-shaped files (see Registry files below) are edited by
-  every lane that adds an entry; assume they overlap.
-- Name each overlap in the plan's Risks with the holder and who goes first.
+`worktree-claim` records edit-tool paths and Git-staged paths per session/leaf. Live ownership, dirty state and newer
+commits determine whether a claim still matters. Bash formatters and external editors are not comprehensively
+tracked before staging: inspect the diff even when no claim warning appeared.
 
-## While editing
+Peer-file enforcement is in the [skill table](../SKILL.md#hook-enforcement-vs-policy); interactive hunk staging
+is exempt. A named-file commit takes the whole working-tree file, not just your hunks. Check both the file diff
+and staged content; leave peer hunks to their owner.
 
-- Edit only your `owns:` files; a build break in someone else's file is reported to its owner, not fixed.
-- Lint autofixes on save can rewrite your line without its import (`perfsprint` turned `fmt.Errorf` into
-  `errors.New`): rebuild after every edit.
+Inspect peer sessions with `claude-code agents tree`, dirty paths with `git status --short`, and the selected files
+with `git diff HEAD -- <paths>` before committing. An isolated snapshot check avoids a false green from peers'
+uncommitted dependencies (verification procedure: the standard's LAST-MILE).
 
-## Claims: who has uncommitted edits in a file
+## Notices and queues
 
-Every Write/Edit, and every path a `git add` stages, is recorded per session and leaf; a claim lasts while the file is
-dirty (staged counts), its owner is live and the file has no newer commit. Before you edit a claimed file the hook
-says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf under
-`~/.claude`; `git add -p` passes. Inspect: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered
-until staged: edits by Bash (`sed -i`, formatters) and external agents (codex/copilot/opencode) — check
-`git diff <file>` first. Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit`
-takes whatever a peer staged.
+Conflict notices go to the session recorded in the lane ledger; `worktree-busy` / `worktree-claim-check` drain
+notices on prompts or Git commands. Dirty-target refusals identify claimants; divergence context is advisory, not
+a universal commit ban. `lane-land-queue` shows lanes that did not auto-land and their next commands. Read those
+reasons rather than assuming a finished leaf was committed or landed.
 
-## Notices: what reaches you without a message
+## Registry coordination is policy
 
-Hooks queue notices in a per-session inbox (`~/.claude/state/harness/notices/<session>.jsonl`), drained into
-context at your next prompt or `git` command: a `worktree land` stopped on a rebase conflict tells the session
-that opened the worktree (ledger `Session:`) which files conflict; a diverged local branch gives one line per
-HEAD/upstream pair naming the sides and whose commits they are: do not commit until reconciled. A `dirty-target`
-refusal names the session or leaf claiming each overlapping file.
-
-## Registry files: the orchestrator owns them
-
-Files every lane appends to (`internal/schemas/testdata/registry.golden`,
-`internal/settings/hookspec.go`, `internal/assets/files/providers/defaults.json`, `internal/hooks/dispatch.go`'s handler
-map, `rules/harness/hooks.md`) are never in a leaf's `owns:`. The leaf's report carries its entry as a fenced block
-(file, anchor line, exact text); main applies every lane's entries in one commit after the leaves land. A leaf that
-must compile against a new entry first gets its own linked worktree (`claude-code worktree create <slug>`). A new file
-writer is the exception: one row in `internal/schemas/testdata/writers/<pkg>.txt`, owned by its package. Under
-`HARNESS_WORKTREE=lanes`, see [the lane protocol](../SKILL.md).
-
-## Before committing
-
-- `rtk git diff <file>` on every file you commit: commit by path takes the WHOLE file, including a peer's hunks.
-- A peer's hunk in your file: commit without that file and tell the peer.
-- Check the commit stands alone: `git archive HEAD | tar -x -C "$(mktemp -d)"`, then in that dir
-  `rtk go test -count=1` for the touched packages; a pass in the live tree can lean on uncommitted files.
-
-## Never rewrite shared history
-
-Rule: `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md` → Worktrees. It holds in a shared tree:
-`~/.claude`, a tree a peer works in, or a main tree where your session has live leaves. Rewrite history only in your own
-linked worktree (`claude-code worktree create <slug>`). Path resets
-(`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
-
-## Incident (2026-11-04)
-
-One session amended another's pushed `8ca4f03c` into local `76a11afa` (folding in its own two files): origin
-stayed intact, local `main` diverged, and any commit by either session would have stacked on the rewrite.
-
-## Incident (2026-10-30)
-
-A cleanup lane and the agent refactor both edited `internal/schemas/schemas_test.go` (then `writers_test.go`). A
-commit by path swept the refactor's three unpushed registry keys into `a32139a6`, and `origin/main` went red on
-`TestWriters` until the refactor's commit landed. A clean-archive check without `-count=1` passed; with it, failed.
+Give shared registries to the orchestrator and return proposed entries with exact file/anchor/text. Common hot
+files include `internal/settings/hookspec.go`, the hook handler map, provider defaults and `rules/harness/hooks.md`.
+This ownership split is **prose**, not a registry-specific hook refusal. New file writers have package-owned rows
+in `internal/schemas/testdata/writers/<pkg>.txt`; do not recreate a central writer-registry bottleneck.

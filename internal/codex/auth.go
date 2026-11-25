@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +31,14 @@ func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
 	if err != nil {
 		return agent.ClassifyProbe(ctx, err)
 	}
+	return providers.VerdictOK, statusLine(out)
+}
+
+// statusLine is the first line of codex's status output without the account/key tail it appends.
+func statusLine(out []byte) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-	line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
-	return providers.VerdictOK, line
+	line, _, _ = strings.Cut(line, " - ")
+	return line
 }
 
 var _ agent.Authenticator = codexEngine{}
@@ -205,20 +209,12 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 
 // codexPlanFrom is the ChatGPT plan in an auth.json id_token claim; the token is decoded, never verified or printed.
 func codexPlanFrom(t codexTokens) string {
-	parts := strings.Split(t.IDToken, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	if err != nil {
-		return ""
-	}
 	var claims struct {
 		Auth struct {
 			Plan string `json:"chatgpt_plan_type"`
 		} `json:"https://api.openai.com/auth"`
 	}
-	if json.Unmarshal(payload, &claims) != nil {
+	if !textutil.JWTClaims(t.IDToken, &claims) {
 		return ""
 	}
 	return claims.Auth.Plan
@@ -243,8 +239,7 @@ func codexLoginProbe(bin string) (error, bool) {
 }
 
 func codexLoginVerdict(ctx context.Context, out []byte, err error) (error, bool) {
-	text, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-	text, _, _ = strings.Cut(text, " - ")
+	text := statusLine(out)
 	ee, exited := errors.AsType[*exec.ExitError](err)
 	switch {
 	case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):

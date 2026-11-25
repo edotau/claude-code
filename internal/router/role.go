@@ -151,5 +151,5 @@ func FableHint(model string) string {
 	if !strings.EqualFold(model, models.Fable) && (!claude || fam != models.Fable) {
 		return ""
 	}
-	return "Fable is served only on anthropic"
+	return "Fable is served only on anthropic; run `claude-code switch ultra` (or `claude-code --profile ultra` for one launch)"
 }

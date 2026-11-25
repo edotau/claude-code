@@ -69,6 +69,9 @@ var pairs = map[Host]Lifetime{
 	HostDaemon: LifetimeShared, HostPhase: LifetimePhase, HostDetached: LifetimeStanding, HostAsk: LifetimeAsk,
 }
 
+// MaxReserved caps Team.Reserved: a detached team may start that many proxies, one per slot id.
+const MaxReserved = 16
+
 // Team is one row of the schema; every field appears in Fields.
 type Team struct {
 	Name     string   `json:"name"`

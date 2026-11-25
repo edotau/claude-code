@@ -530,7 +530,8 @@ func spMintUnderLock(ctx context.Context, p *Provider, force bool, margin time.D
 	if v, ok := peerToken(read, &spCache, p.Name, force, margin); ok {
 		return v, false, finishSPCredential(p, v, time.Time{})
 	}
-	tok, err := m2mToken(ctx, p, name, host, p.Auth.SPClientID, secret, true)
+	// mintSP already holds the lock or has taken its lock-error fallback; do not reacquire.
+	tok, err := mintClientUnderLock(ctx, p, name, host, p.Auth.SPClientID, secret, true)
 	if err != nil {
 		if !force && Verdict(err) == VerdictTransient {
 			if old, ok := staleSPAccess(p, access, bind, err); ok {
@@ -708,6 +709,37 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 			return oauth.Token{Access: v}, nil
 		}
 	}
+	// Keepalive already holds the lock for forced mints; never reacquire it.
+	if force {
+		return mintClientUnderLock(ctx, p, secretName, host, clientID, secret, true)
+	}
+	var tok oauth.Token
+	ran := false
+	err := withRefreshLockCtx(ctx, p, func() error {
+		ran = true
+		var e error
+		tok, e = mintClientUnderLock(ctx, p, secretName, host, clientID, secret, false)
+		return e
+	})
+	// Idempotent mints may proceed unlocked if state is read-only or the lock times out.
+	if !ran && ctx.Err() == nil {
+		return mintClientUnderLock(ctx, p, secretName, host, clientID, secret, false)
+	}
+	return tok, err
+}
+
+// mintClientUnderLock rechecks the seal when not forced; callers hold the lock or fell back.
+func mintClientUnderLock(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
+	bind := clientBind(host, clientID, secret)
+	name := secretName + "_ACCESS"
+	if !force {
+		if v, ok := sealedClientAccess(name, bind, freshMargin); ok {
+			return oauth.Token{Access: v}, nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return oauth.Token{}, err
+	}
 	tok, err := mintM2M(ctx, host, clientID, secret)
 	if err != nil {
 		return tok, err
@@ -716,6 +748,7 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	if err := checkIssuer(p, tok.Access); err != nil {
 		return tok, err
 	}
+	audit.Log(audit.SPMint, name, p.Name) // one row per mint: the contained-proxy sweep counts mints per expiry
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)

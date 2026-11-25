@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -40,8 +41,8 @@ func stagedSourceFiles(repo string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	for name := range strings.SplitSeq(out, "\x00") {
-		if name != "" && source.DetectComplexityLang(name) != "" {
+	for _, name := range textutil.SplitNUL(out) {
+		if source.DetectComplexityLang(name) != "" {
 			files = append(files, filepath.Join(repo, name))
 		}
 	}

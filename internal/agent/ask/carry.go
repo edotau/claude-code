@@ -319,7 +319,10 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 			return agent.ModelRoute{}, fmt.Errorf("resolve inner ask: exit %d", code)
 		}
 	}
-	req := r.request(rec.Request.Prompt)
+	req, err := r.request(rec.Request.Prompt)
+	if err != nil {
+		return agent.ModelRoute{}, err
+	}
 	if run := r.armRun(); run != nil {
 		req = run.probe(req)
 	}

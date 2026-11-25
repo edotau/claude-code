@@ -14,6 +14,16 @@ func FirstLine(s string) string {
 	return line
 }
 
+// FirstNonBlank returns the first line of s that is not blank, trimmed; "" when every line is blank.
+func FirstNonBlank(s string) string {
+	for line := range strings.SplitSeq(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
 var lineReaderPool = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 1<<20) }}
 
 // EachLineErr joins oversized lines and includes the final partial line

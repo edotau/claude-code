@@ -302,6 +302,14 @@ func OpencodeMenuFor(p *providers.Provider) ([]providers.OpencodeModel, error) {
 	for _, m := range out {
 		seen[p.WireModel(m.ID)] = true
 	}
+	if p.Provider == "magnitude" { // a local server's menu is its pinned aliases; other rows keep their catalogs
+		for _, alias := range models.AliasNames {
+			if id := models.Strip1M(p.Models[alias]); id != "" && !seen[p.WireModel(id)] {
+				out = append(out, providers.OpencodeModel{ID: id, Label: id, Responses: models.ResponsesOnly(id)})
+				seen[p.WireModel(id)] = true
+			}
+		}
+	}
 	for _, m := range saved {
 		if seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue

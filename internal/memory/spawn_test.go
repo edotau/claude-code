@@ -6,7 +6,9 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -32,6 +34,45 @@ func captureLaunches(t *testing.T) *[]launch {
 	}
 	t.Cleanup(func() { spawnDetached = orig })
 	return &got
+}
+
+func TestWithoutRouteEnvDropsParentRoute(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh to dump the child env")
+	}
+	tempConfig(t)
+	for _, k := range routeEnv {
+		t.Setenv(k, "parent-"+k)
+	}
+	t.Setenv("KEEP_ME", "yes")
+	dump := filepath.Join(t.TempDir(), "env.txt")
+	if !spawnDetached("/bin/sh", []string{"-c", "env > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"", "sh", dump}, "", nil, "EXTRA=1") {
+		t.Fatal("spawnDetached = false")
+	}
+	lines := readEnvDump(t, dump)
+	for _, k := range routeEnv {
+		if slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, k+"=") }) {
+			t.Errorf("%s leaked into the child env", k)
+		}
+	}
+	for _, want := range []string{"KEEP_ME=yes", "EXTRA=1"} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("child env lost %s", want)
+		}
+	}
+}
+
+// readEnvDump waits for the detached child to write path and returns its lines.
+func readEnvDump(t *testing.T, path string) []string {
+	t.Helper()
+	for range 500 {
+		if got, err := os.ReadFile(path); err == nil {
+			return strings.Split(string(got), "\n")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("child never wrote its env")
+	return nil
 }
 
 func TestSpawnSelfLaunchesWithLogUnderStateDir(t *testing.T) {

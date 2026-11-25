@@ -37,7 +37,9 @@ func agyGoogleToolsHeader(p *providers.Provider, base string, names []string) (s
 	} else {
 		fmt.Fprintf(os.Stderr, "gemini: google tools unprobed on %s; sent as asked\n", p.Name)
 	}
-	return translate.GoogleToolsHeader + ": " + translate.JoinGoogleTools(asked), nil
+	// the model token scopes the tools to the main model; agy's flash-lite title calls reach the same gateway
+	return translate.GoogleToolsHeader + ": " + translate.JoinGoogleTools(asked) + "," +
+		translate.GoogleToolsModelPrefix + base, nil
 }
 
 // agySettingsKey maps a tool to its agy --settings key; Phase 0.1 found none, so every tool is refused.

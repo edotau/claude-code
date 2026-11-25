@@ -102,19 +102,19 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 		{"diff", "--name-only", "--diff-filter=d", "-z", "--relative", "HEAD"},
 		{"ls-files", "--others", "--exclude-standard", "-z"},
 	} {
-		out, err := proc.RunGitRaw(ctx, root, args...)
+		out, err := proc.GitNUL(ctx, root, args...)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("git -C %s %s: %w", root, strings.Join(args, " "), ctx.Err())
 			}
 			return nil, err
 		}
-		all = append(all, strings.Split(out, "\x00")...) // -z: raw names, never quoted or newline-split
+		all = append(all, out...) // -z: raw names, never quoted or newline-split
 	}
 	seen := map[string]bool{}
 	var uniq []string
 	for _, p := range all {
-		if p != "" && !seen[p] {
+		if !seen[p] {
 			seen[p] = true
 			uniq = append(uniq, p)
 		}

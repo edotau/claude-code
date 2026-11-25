@@ -43,6 +43,8 @@ type ImportOptions struct {
 	DryRun, Topics bool // Topics also imports non-log files: topic files, backups, MEMORY.md pointers
 	Now            time.Time
 	Replace        map[string]string // store-relative file -> sha256 hex of the local bytes the caller saw; a match lets the source replace it
+	Remove         map[string]string // store-relative file -> sha256 hex it must still have to be deleted (sync deletions)
+	Skip           map[string]bool   // store-relative files the import leaves alone (a sync deletion in flight)
 }
 
 // ImportResult is the plan (dry run) or the outcome: one line per action, then the summary line.
@@ -87,7 +89,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 	return res, err
 }
 
-type importStats struct{ merged, copied, kept, conflicts, skipped, left int }
+type importStats struct{ merged, copied, kept, conflicts, skipped, left, removed int }
 
 type importPlan struct {
 	changes  []Change
@@ -97,19 +99,21 @@ type importPlan struct {
 	st       importStats
 	topics   bool
 	replace  map[string]string
+	skip     map[string]bool
 	pointers []string // the source's entries, folded into the destination catalog after its own
 	newPtrs  int      // how many of them the destination does not hold yet
 }
 
 // planImport reads both sides and builds the changes without writing.
 func planImport(opt ImportOptions) (*importPlan, error) {
-	p := &importPlan{topics: opt.Topics, replace: opt.Replace}
+	p := &importPlan{topics: opt.Topics, replace: opt.Replace, skip: opt.Skip}
 	if err := checkImportLayout(opt.From); err != nil {
 		return p, err
 	}
 	if err := p.planStore(opt.From); err != nil {
 		return p, err
 	}
+	p.planRemovals(opt.Remove)
 	if len(p.leaks) > 0 { // refuse before apply: the commit gate would fail only after the writes
 		var msg strings.Builder
 		for _, rel := range p.leaks {
@@ -131,6 +135,9 @@ func (p *importPlan) result(opt ImportOptions) ImportResult {
 	}
 	if p.newPtrs > 0 {
 		left = fmt.Sprintf("; %d pointer line(s)", p.newPtrs) + left
+	}
+	if s.removed > 0 {
+		left = fmt.Sprintf("; %d removed", s.removed) + left
 	}
 	verb := "imported"
 	if opt.DryRun {
@@ -190,6 +197,8 @@ func (p *importPlan) diverged(rels []string) {
 			p.st.merged -= a.n
 		case impCopy:
 			p.st.copied--
+		case impRemove:
+			p.st.removed--
 		}
 		p.st.conflicts++
 		if j := slices.Index(p.lines, p.acts[i].line); j >= 0 {
@@ -248,7 +257,7 @@ func (p *importPlan) planStore(from string) error {
 			p.skipFile(rel, err.Error())
 		case d.IsDir() && skipImportDir(rel, d.Name()):
 			return fs.SkipDir
-		case d.IsDir(), foldSkips(rel), rel == layoutFile, rel == catalogFile: // index.md's entries go by readPointers
+		case d.IsDir(), foldSkips(rel), rel == layoutFile, rel == catalogFile, p.skip[rel]: // index.md's entries go by readPointers
 		case !p.flatImportFile(rel):
 		case !filepath.IsLocal(filepath.FromSlash(rel)):
 			p.skipFile(rel, "path escapes the store")
@@ -342,6 +351,7 @@ const (
 	impCopy
 	impKept
 	impConflict
+	impRemove
 )
 
 // importAction is one file's verdict: the bytes to write (nil = none), its report line and its summary bucket.

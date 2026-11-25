@@ -30,6 +30,11 @@ func SetOf(items ...string) map[string]bool {
 	return m
 }
 
+// SplitNUL splits git -z style output on NUL, dropping empty fields.
+func SplitNUL(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == 0 })
+}
+
 // LastLine returns the last non-empty line of s, trimmed.
 func LastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, " \t\r\n"), "\n")

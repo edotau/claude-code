@@ -232,12 +232,9 @@ var agentsVerbs = map[string]func([]string) int{
 func cmdAgentsList(args []string) int {
 	fs := agentsFlags("list")
 	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents list --format)")
-	format := fs.String("format", "text", "text, or json: caps, events, permissions")
+	format := helptext.FormatFlagWithUsage(fs, "text, or json: caps, events, permissions")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents list", err)
 	}
 	if fs.NArg() > 0 {
 		fs.Usage()
@@ -258,12 +255,9 @@ func cmdAgentsSync(args []string) int {
 	name := fs.String("agent", "", "one target: "+strings.Join(project.Names(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
-	format := fs.String("format", "text", "output: text|json (json = one row per destination)")
+	format := helptext.FormatFlagWithUsage(fs, "output: text|json (json = one row per destination)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents sync", err)
 	}
 	if fs.NArg() > 0 {
 		fs.Usage()
@@ -367,9 +361,6 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents label", err)
-	}
 	if len(pos) != 1 {
 		fs.Usage()
 		return 2
@@ -468,9 +459,6 @@ func cmdAgentsDiff(args []string) int {
 	if code, done := parseWithPaths(fs, args, &sel); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents diff", err)
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("agents diff: %v", err)
@@ -518,9 +506,6 @@ func cmdAgentsFind(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents find", err)
-	}
 	if len(pos) != 1 {
 		fs.Usage()
 		return 2
@@ -544,9 +529,6 @@ func cmdAgentsWaves(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents ask --waves", err)
-	}
 	waveOpts.Timeout, waveOpts.JSON = *timeout, *format == helptext.JSON
 	return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})
 }
@@ -560,9 +542,6 @@ func cmdAgentsWait(args []string) int {
 	ids, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents wait", err)
 	}
 	if len(ids) == 0 {
 		fs.Usage()
@@ -892,9 +871,6 @@ func agentSetup(name string, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" setup", err)
-	}
 	return ask.Setup(name, *format)
 }
 
@@ -919,9 +895,6 @@ func agentReview(name string, args []string) int {
 	}
 	if *repeated != "" {
 		return helptext.FailUsage("%s review: --%s given more than once; put flag-like focus text after --", name, *repeated)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" review", err)
 	}
 	o.Format = *format
 	o.Focus = strings.Join(pos, " ")

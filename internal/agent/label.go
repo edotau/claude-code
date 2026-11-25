@@ -258,8 +258,9 @@ var (
 	tierLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[ \t]*Tier:[ \t]*(fast|standard|deep)\b`) })
 	// deepTaskRe: costly-mistake or large-judgment work; deep when in the task's head or 3+ distinct words.
 	deepTaskRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)\b(audit\w*|security|safety|threat\w*|parser\w*|parsing|grammar|judg(?:e)?ment|` +
-			`planning|design|redesign|architect\w*|permissions?|auth[nz]?|authenticat\w*|authoriz\w*|migrat\w*|` +
+		return regexp.MustCompile(`(?i)\b(audit(?:s|ed|ing|ors?)?|security|safety|threats?|parsers?|parsing|grammar|judg(?:e)?ment|` +
+			`planning|design|redesign|architect(?:s|ure|ures|ural|ing)?|permissions?|auth[nz]?|` +
+			`authenticat(?:e|es|ed|ing|ion)|authoriz(?:e|es|ed|ing|ation)|migrat(?:e|es|ed|ing|ion|ions)|` +
 			`irreversible|credentials?|secrets?)\b`)
 	})
 	taskLineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[#\s]*Task:[ \t]*(.*)$`) })

@@ -185,7 +185,7 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 	now, role := time.Now(), dispatchRole(o.Prompt)
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
 	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
-	cells, scope := modeCells(reg, ov.ProviderMode, role, session)
+	cells, scope := dispatchCells(reg, ov.ProviderMode, o.Prompt, session)
 	eng, _ := Lookup(o.Agent) // a missing engine fails at Plan's own Lookup right after
 	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, engine: eng, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
 	ready, rows, skipped := scan.ready(cells)
@@ -275,12 +275,20 @@ func overlayRoutes(ov agentconfig.Overlay) bool {
 		ov.Remote != "" || identity || ov.Fallback == router.FallbackNone
 }
 
-// dispatchRole is the role a brief's typed `Tier:` line names: deep is an owner, any other tier or none the fleet.
+// dispatchRole uses the brief's tier: deep is an owner, fast and standard are fleet.
 func dispatchRole(prompt string) router.Role {
-	if m := tierLineRe().FindStringSubmatch(WithoutReviewLoop(prompt)); m != nil && strings.EqualFold(m[1], "deep") {
+	if alias, _ := TaskTier(prompt); alias == models.Opus {
 		return router.RoleOwner
 	}
 	return router.RoleFleet
+}
+
+// dispatchCells keeps only the brief's tier model; an empty brief defaults to sonnet.
+func dispatchCells(reg *providers.Registry, modes map[string]string, prompt, session string) ([]router.RoleCell, modeScope) {
+	cells, scope := modeCells(reg, modes, dispatchRole(prompt), session)
+	alias, _ := TaskTier(prompt)
+	alias = cmp.Or(alias, models.Sonnet)
+	return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Model != alias }), scope
 }
 
 // modeScope is how providerMode bounded a rotation: staying on an exclusive start, or exclusive providers kept out.
@@ -672,9 +680,21 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, true, err
 	}
 	r.Source, c.Model, c.Criterion = base.Source, r.Model, "rotation"
+	if want := cmp.Or(tierAliases[need.tier], models.Sonnet); alias != want { // stepped: the tier alias note would mislead
+		step := fmt.Sprintf("%s pool empty for %s on %s, ran %s %s", rotationTiers[want], q.Agent, p.Name, rotationTiers[alias], r.Model)
+		r.Note = joinNotes(routeNote(stripAliasNote(base.Note, q.Agent)), step, note)
+		return r, true, nil
+	}
 	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
 	return r, true, nil
+}
+
+// stripAliasNote drops aliasNote's "<alias> is <agent>'s alias for <model> here" part from note.
+func stripAliasNote(note, agentName string) string {
+	return joinNotes(slices.DeleteFunc(strings.Split(note, "; "), func(s string) bool {
+		return strings.Contains(s, " is "+agentName+"'s alias for ")
+	})...)
 }
 
 // tierRotation is the pick at alias on p, stepping to standard when the row serves nothing in alias's tier.

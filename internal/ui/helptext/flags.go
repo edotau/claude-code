@@ -152,7 +152,38 @@ const (
 
 // FormatFlag registers --format on fs, defaulting to text.
 func FormatFlag(fs *flag.FlagSet) *string {
-	return fs.String("format", Text, "output format: text|json")
+	return FormatFlagWithUsage(fs, "output format: text|json")
+}
+
+// FormatFlagWithUsage registers a text|json format flag with command-specific help text.
+func FormatFlagWithUsage(fs *flag.FlagSet, usage string) *string {
+	v := new(string)
+	*v = Text
+	fs.Var(NewFormatValue(v), "format", usage+` (default "text")`)
+	return v
+}
+
+// NewFormatValue validates a string backed by an existing field at flag parse time.
+func NewFormatValue(v *string) flag.Value {
+	return formatValue{v}
+}
+
+type formatValue struct{ value *string }
+
+func (f formatValue) String() string {
+	if f.value == nil { // flag.PrintDefaults probes the zero value; the default is shown in usage.
+		return Text
+	}
+	return *f.value
+}
+func (f formatValue) Get() any            { return *f.value }
+func (f formatValue) Placeholder() string { return "string" }
+func (f formatValue) Set(v string) error {
+	if err := CheckFormat(v); err != nil {
+		return err
+	}
+	*f.value = v
+	return nil
 }
 
 // CheckFormat rejects anything but text or json.

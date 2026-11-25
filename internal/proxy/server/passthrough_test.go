@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1313,4 +1314,15 @@ func googleToolsRefusals(t *testing.T, served string) {
 			t.Errorf("status %d hits %+v", resp.StatusCode, g)
 		}
 	})
+}
+
+func TestWithGoogleToolsRefusesUnparsableBody(t *testing.T) {
+	for _, body := range []string{`[1]`, `not json`, `{"tools":"x"}`, `{"tools":{"a":1}}`} {
+		if _, err := decodeProxyBody([]byte(body)).withGoogleTools("url", nil); !errors.Is(err, errGoogleToolsBody) {
+			t.Errorf("body %s: err = %v, want errGoogleToolsBody", body, err)
+		}
+	}
+	if _, err := decodeProxyBody([]byte(`{"tools":[]}`)).withGoogleTools("url", nil); err != nil {
+		t.Errorf("valid body refused: %v", err)
+	}
 }

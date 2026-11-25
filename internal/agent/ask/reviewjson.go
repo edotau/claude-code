@@ -160,7 +160,7 @@ func runReviewAsk(name string, args []string, o ReviewOptions) int {
 		}
 		return helpReviewError(err)
 	}
-	if err := agent.WriteJSONLine(os.Stdout, withVerdict(env)); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(withVerdict(env)); err != nil {
 		return helpReviewError(err)
 	}
 	return rc
@@ -227,7 +227,7 @@ func reviewPartAnswer(name string, args []string, o ReviewOptions) (string, wire
 			return "", usage, helpReviewError(err)
 		}
 		out.Reset()
-		if err := agent.WriteJSONLine(&out, withVerdict(parsed)); err != nil {
+		if err := json.NewEncoder(&out).Encode(withVerdict(parsed)); err != nil {
 			return "", usage, helpReviewError(err)
 		}
 		return out.String(), usage, code
@@ -286,7 +286,7 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 	m := mergeJudged(js, len(answers) < len(parts))
 	merged.reviewVerdict, merged.VerdictNote = m.reviewVerdict, m.Note()
 	merged.Usage = &usage
-	return agent.WriteJSONLine(os.Stdout, merged)
+	return json.NewEncoder(os.Stdout).Encode(merged)
 }
 
 // partProse is a part's answer; a structured part is rendered as finding lines so the merge reads them too.

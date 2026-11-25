@@ -128,9 +128,6 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("", err)
-	}
 	entries, err := worktree.List(repo)
 	if err != nil {
 		return helptext.Fail("worktree list: %v", err)
@@ -139,8 +136,8 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 		if entries == nil {
 			entries = []worktree.Entry{} // [] not null, so JSON consumers can iterate
 		}
-		if err := helptext.WriteJSON(os.Stdout, entries); err != nil {
-			return helptext.Fail("worktree list: %v", err)
+		if code := helptext.WriteJSONOrFail("worktree list", entries); code != 0 {
+			return code
 		}
 		return listExit(entries)
 	}
@@ -197,9 +194,6 @@ func cmdWorktreeGate(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("", err)
-	}
 	if *run {
 		return runWorktreeGate(*dir, textutil.SplitCSV(*scope), *lintCheck)
 	}
@@ -208,10 +202,7 @@ func cmdWorktreeGate(args []string) int {
 		return helptext.Fail("no verification gate found in %s", *dir)
 	}
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]string{"gate": gate, "source": source}); err != nil {
-			return helptext.Fail("worktree gate: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("worktree gate", map[string]string{"gate": gate, "source": source})
 	}
 	if _, err := fmt.Println(gate); err != nil {
 		return helptext.Fail("worktree gate: %v", err)
@@ -227,10 +218,7 @@ func runWorktreeGate(dir string, scope []string, lintCheck bool) int {
 	if err != nil {
 		return helptext.Fail("worktree gate: %v", err)
 	}
-	if err := helptext.WriteJSON(os.Stdout, r); err != nil {
-		return helptext.Fail("worktree gate: %v", err)
-	}
-	return 0
+	return helptext.WriteJSONOrFail("worktree gate", r)
 }
 
 // cmdWorktreeCommit commits the named files (else this session's claimed ones); 1 refused, 2 usage.

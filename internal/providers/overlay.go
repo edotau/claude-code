@@ -245,30 +245,44 @@ func AddGithubAccount(login string) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	_, _, err := UpdateOverlayDoc(true, func(doc map[string]json.RawMessage, _ *vault.Tx) error {
-		provs := map[string]map[string]json.RawMessage{}
-		if b, ok := doc["providers"]; ok {
-			if err := json.Unmarshal(b, &provs); err != nil {
-				return fmt.Errorf("vault overlay/providers: providers: %w", err)
+	_, _, err := UpdateOverlayDocForce(true, false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		return EditProviderRows(top, "vault overlay/providers: providers", func(provs map[string]map[string]json.RawMessage) error {
+			entry := provs[name]
+			if entry == nil {
+				var err error
+				if entry, err = builtinEntry(name); err != nil {
+					return err
+				}
 			}
-		}
-		if provs == nil {
-			provs = map[string]map[string]json.RawMessage{}
-		}
-		entry := provs[name]
-		var err error
-		if entry == nil {
-			if entry, err = builtinEntry(name); err != nil {
+			if err := update(entry); err != nil {
 				return err
 			}
-		}
-		if err := update(entry); err != nil {
+			provs[name] = entry
+			return nil
+		})
+	})
+	return err
+}
+
+// EditProviderRows runs fn on an open overlay doc's providers rows (a missing key is empty); prefix labels errors.
+func EditProviderRows(top map[string]json.RawMessage, prefix string, fn func(rows map[string]map[string]json.RawMessage) error) error {
+	provs := map[string]map[string]json.RawMessage{}
+	if b, ok := top["providers"]; ok {
+		if err := json.Unmarshal(b, &provs); err != nil {
+			if prefix != "" {
+				return fmt.Errorf("%s: %w", prefix, err)
+			}
 			return err
 		}
-		provs[name] = entry
-		doc["providers"], err = json.Marshal(provs)
+	}
+	if provs == nil {
+		provs = map[string]map[string]json.RawMessage{}
+	}
+	if err := fn(provs); err != nil {
 		return err
-	})
+	}
+	b, err := json.Marshal(provs)
+	top["providers"] = b
 	return err
 }
 
@@ -407,7 +421,7 @@ func checkAuthTypeChange(oldDoc, newDoc []byte) error {
 }
 
 // providerKeys are the registry's provider keys, the parents of every profile.
-var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google"}
+var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google", "magnitude"}
 
 // ProviderKeys is providerKeys sorted: the names an overlay's provider accepts.
 func ProviderKeys() []string { return slices.Sorted(slices.Values(providerKeys)) }

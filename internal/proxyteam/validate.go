@@ -86,9 +86,16 @@ func validateValues(t Team, add adder) {
 	if hostOK && lifeOK && pairs[t.Host] != t.Lifetime {
 		add(t.Name, "lifetime", "host %q runs with lifetime %q, not %q", t.Host, pairs[t.Host], t.Lifetime)
 	}
-	if t.Reserved < 0 {
+	validateReserved(t, add)
+}
+
+func validateReserved(t Team, add adder) {
+	switch {
+	case t.Reserved < 0:
 		add(t.Name, "reserved", "negative: %d", t.Reserved)
-	} else if t.Reserved == 0 && t.Lifetime == LifetimeShared {
+	case t.Reserved > MaxReserved:
+		add(t.Name, "reserved", "%d is over the cap of %d (a standing team starts one proxy per slot)", t.Reserved, MaxReserved)
+	case t.Reserved == 0 && t.Lifetime == LifetimeShared:
 		add(t.Name, "reserved", "0 on the shared team")
 	}
 }

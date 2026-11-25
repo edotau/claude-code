@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -494,8 +493,8 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	if dryRun {
 		return
 	}
-	if out, err := exec.CommandContext(ctx, "git", "-C", root, "config", "core.hooksPath", ".githooks").CombinedOutput(); err != nil {
-		fmt.Fprintf(w, "  githooks skip  %v %s\n", err, strings.TrimSpace(string(out)))
+	if _, err := proc.RunGitInherit(ctx, root, "config", "core.hooksPath", ".githooks"); err != nil {
+		fmt.Fprintf(w, "  githooks skip  %v\n", err)
 	}
 }
 

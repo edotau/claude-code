@@ -48,9 +48,6 @@ func modelsLearn(args []string) int {
 	if len(rest) > 0 {
 		return helptext.FailUsage("models learn: unexpected argument %q", rest[0])
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("models learn", err)
-	}
 	now := time.Now()
 	next, err := foldFit(now, *dry)
 	if err != nil {
@@ -151,15 +148,12 @@ func printFit(f catalog.Fit, prices *catalog.PriceReport, now time.Time, format 
 		views[i] = fitCellView{c, e.N, e.Score, e.MeanSecs, !e.Evidence()}
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		return helptext.WriteJSONOrFail("models learn: cannot write JSON", struct {
 			Created time.Time            `json:"created"`
 			Live    bool                 `json:"live"`
 			Cells   []fitCellView        `json:"cells"`
 			Prices  *catalog.PriceReport `json:"prices,omitempty"`
-		}{f.Created, (&f).Live(now), views, prices}); err != nil {
-			return helptext.Fail("models learn: cannot write JSON: %v", err)
-		}
-		return 0
+		}{f.Created, (&f).Live(now), views, prices})
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "fit table created %s, %s\n", f.Created.Local().Format("2006-01-02"), map[bool]string{true: "live", false: "shadow"}[(&f).Live(now)])

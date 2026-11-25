@@ -728,7 +728,7 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 		rep.Folded += n
 		return finishIndexRefresh(rep, perr)
 	}
-	tmp, err := stageFile(NativeIndex(), []byte(text)) // before anything moves, so a full disk fails here
+	tmp, err := paths.StageFile(NativeIndex(), []byte(text), 0o644) // before anything moves, so a full disk fails here
 	if err != nil {
 		return rep, err
 	}
@@ -738,7 +738,7 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 	indexStep("renamed")
 	m, ferr := foldFile(aside, extra) // on failure the input stays in the moved file, folded by the next step 1
 	indexStep("appended")
-	installed, ierr := placeNoReplace(tmp, NativeIndex(), []byte(text))
+	installed, ierr := paths.PlaceNoReplace(tmp, NativeIndex(), []byte(text), 0o644)
 	if !installed && ierr != nil {
 		ierr = errors.Join(ierr, restoreMoved(aside))
 	} else if installed {
@@ -792,7 +792,7 @@ func adoptLegacy() (int, error) {
 func restoreMoved(aside string) error {
 	data, err := os.ReadFile(aside)
 	if err == nil {
-		_, err = installNoReplace(NativeIndex(), data)
+		_, err = paths.WriteNoReplace(NativeIndex(), data, 0o644)
 	}
 	return err
 }
@@ -834,56 +834,6 @@ func fileKind(m fs.FileMode) string {
 		return "directory"
 	}
 	return "special file"
-}
-
-// linkFile is os.Link, a var so tests can model a filesystem without hard links.
-var linkFile = os.Link
-
-// stageFile writes data to a synced temp file beside dest and returns its path.
-func stageFile(dest string, data []byte) (string, error) {
-	f, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".tmp-*")
-	if err != nil {
-		return "", err
-	}
-	_, werr := f.Write(data)
-	if err := errors.Join(werr, f.Chmod(0o644), f.Sync(), f.Close()); err != nil {
-		return "", errors.Join(err, os.Remove(f.Name()))
-	}
-	return f.Name(), nil
-}
-
-// placeNoReplace puts staged tmp at dest unless dest exists (false, nil): a hard link, else an exclusive create.
-func placeNoReplace(tmp, dest string, data []byte) (bool, error) {
-	lerr := linkFile(tmp, dest) // link(2) on Unix, CreateHardLinkW on Windows: neither replaces
-	if lerr != nil && !errors.Is(lerr, fs.ErrExist) {
-		lerr = createExclusive(dest, data) // no hard links here (FAT, some network mounts): O_EXCL never replaces either
-	}
-	rerr := os.Remove(tmp)
-	if errors.Is(lerr, fs.ErrExist) {
-		return false, rerr
-	}
-	return lerr == nil, errors.Join(lerr, rerr)
-}
-
-func createExclusive(dest string, data []byte) error {
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(data)
-	if err := errors.Join(werr, f.Sync(), f.Close()); err != nil {
-		return errors.Join(err, os.Remove(dest)) // a part-written MEMORY.md is neither the old text nor the new
-	}
-	return nil
-}
-
-// installNoReplace stages data and places it at dest unless dest exists (false, nil).
-func installNoReplace(dest string, data []byte) (bool, error) {
-	tmp, err := stageFile(dest, data)
-	if err != nil {
-		return false, err
-	}
-	return placeNoReplace(tmp, dest, data)
 }
 
 // BuildCatalog renders the store-root router: the bank's hook and freshness, its knowledge notes, then its index rows.

@@ -73,9 +73,8 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 // changedPackages maps NUL-separated changed files to their package dirs; full is true when the whole suite must run.
 func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, full bool) {
 	changed, src := map[string]bool{}, cachedReader()
-	for f := range strings.SplitSeq(names, "\x00") {
+	for _, f := range textutil.SplitNUL(names) {
 		switch f {
-		case "":
 		case "go.mod", "go.sum":
 			return nil, true
 		default:
@@ -274,7 +273,7 @@ func emptyPytest(ctx context.Context, dir, base string, err error, out io.Writer
 	isPy := func(f string) bool {
 		return strings.HasSuffix(f, ".py") || slices.Contains([]string{"pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini"}, path.Base(f))
 	}
-	if gitErr != nil || slices.ContainsFunc(strings.Split(string(names), "\x00"), isPy) {
+	if gitErr != nil || slices.ContainsFunc(textutil.SplitNUL(string(names)), isPy) {
 		return errNoTests
 	}
 	fmt.Fprintln(out, "verify: no tests collected (no .py or pytest-config change in the lane); passing")
@@ -674,8 +673,8 @@ func parseGateFailures(out string) []GateFailure {
 
 // gateChanged lists `<path> <hash|deleted>` for dirty files under scope (whole repo when empty).
 func gateChanged(ctx context.Context, dir string, scope []string) ([]string, error) {
-	probe := exec.CommandContext(ctx, "git", "rev-parse", "--is-inside-work-tree")
-	probe.Dir, probe.Env = dir, gitEnv()
+	probe := gitCmd(ctx, "rev-parse", "--is-inside-work-tree")
+	probe.Dir = dir
 	var pe *exec.ExitError
 	if err := probe.Run(); errors.As(err, &pe) && pe.ExitCode() == 128 {
 		return []string{}, nil // not a git repo: nothing is observable as changed
@@ -686,8 +685,8 @@ func gateChanged(ctx context.Context, dir string, scope []string) ([]string, err
 	if len(scope) > 0 {
 		args = append(append(args, "--"), scope...)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir, cmd.Env = dir, gitEnv()
+	cmd := gitCmd(ctx, args...)
+	cmd.Dir = dir
 	data, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
@@ -713,8 +712,8 @@ func gateStamp(ctx context.Context, dir, p string) string {
 	if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 		return p + " deleted"
 	}
-	h := exec.CommandContext(ctx, "git", "hash-object", "--", p)
-	h.Dir, h.Env = dir, gitEnv()
+	h := gitCmd(ctx, "hash-object", "--", p)
+	h.Dir = dir
 	if sum, err := h.Output(); err == nil {
 		return p + " " + strings.TrimSpace(string(sum))
 	}

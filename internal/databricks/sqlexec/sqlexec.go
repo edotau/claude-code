@@ -241,58 +241,42 @@ func appendRows(rows [][]string, data [][]*string, b *budget) (out [][]string, f
 
 // call sends one request, retrying 429 and 503 honouring Retry-After, and decodes a 2xx reply into out.
 func (c *client) call(ctx context.Context, method, path string, body []byte, out any) error {
-	for attempt := 1; ; attempt++ {
-		status, data, rh, err := c.send(ctx, method, path, body)
-		if status == 0 {
-			return err
-		}
-		if (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable) && attempt < attempts {
-			if werr := textutil.WaitRetry(ctx, attempt, retryBase, rh, textutil.StatusError(status)); werr != nil {
-				return fmt.Errorf("sql statement: %w", werr)
-			}
-			continue
-		}
-		return decode(status, data, err, out)
-	}
-}
-
-// decode turns a final reply into an error, or a 2xx body into out (nil out skips decoding).
-func decode(status int, data []byte, err error, out any) error {
-	switch {
-	case status/100 != 2:
-		return statusError(status, data)
-	case errors.Is(err, httpx.ErrTooLarge):
-		return errors.New("sql statement: reply too large")
-	case err != nil:
-		return errors.New("sql statement: reply read failed")
-	case out == nil:
-		return nil
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("sql statement: decode reply: %w", err)
-	}
-	return nil
-}
-
-// send is one authorised request; a status-0 error never carries the URL, host or a header.
-func (c *client) send(ctx context.Context, method, path string, body []byte) (int, []byte, http.Header, error) {
 	hdr := http.Header{"Accept": {"application/json"}}
 	if body != nil {
 		hdr.Set("Content-Type", "application/json")
 	}
 	var authErr error
-	status, data, rh, err := httpx.Do(ctx, httpx.Call{Client: httpClient(), Method: method, URL: c.base + path,
-		Header: hdr, Body: body, Limit: replyLimit, NoRedirect: true,
-		Authorize: func(h http.Header) error { authErr = providers.Authorize(ctx, c.p, h); return authErr }})
+	var data []byte
+	var decodeErr bool
+	status, err := httpx.DoJSON(ctx, httpx.Call{Client: httpClient(), Method: method, URL: c.base + path,
+		Header: hdr, Body: body, Limit: replyLimit, NoRedirect: true, Response: &data,
+		Attempts: attempts, Base: retryBase, Retry: func(status int) bool {
+			return status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable
+		},
+		Authorize:   func(h http.Header) error { authErr = providers.Authorize(ctx, c.p, h); return authErr },
+		DecodeError: func(err error) error { decodeErr = true; return fmt.Errorf("sql statement: decode reply: %w", err) },
+	}, out)
+	var rerr *httpx.RetryError
+	retryWait := errors.As(err, &rerr)
 	switch {
 	case authErr != nil:
-		return 0, nil, nil, fmt.Errorf("sql statement: authorize: %w", authErr)
+		return fmt.Errorf("sql statement: authorize: %w", authErr)
+	case retryWait:
+		return fmt.Errorf("sql statement: %w", err)
 	case status == 0 && ctx.Err() != nil:
-		return 0, nil, nil, fmt.Errorf("sql statement: %w", ctx.Err())
+		return fmt.Errorf("sql statement: %w", ctx.Err())
 	case status == 0:
-		return 0, nil, nil, transportError(err)
+		return transportError(err)
+	case status/100 != 2:
+		return statusError(status, data)
+	case decodeErr:
+		return err
+	case errors.Is(err, httpx.ErrTooLarge):
+		return errors.New("sql statement: reply too large")
+	case err != nil:
+		return errors.New("sql statement: reply read failed")
 	}
-	return status, data, rh, err
+	return nil
 }
 
 // transportError names the failed step only: *url.Error and *net.OpError both embed the address.

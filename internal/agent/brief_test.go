@@ -14,6 +14,23 @@ import (
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
+// A reply-style ask carries no review-loop rule; a code-writing brief keeps it.
+func TestReviewLoopSkipsAnswerOnlyBrief(t *testing.T) {
+	for brief, want := range map[string]bool{
+		"reply ok":                          false,
+		"What is the default timeout?":      false,
+		"reply ok, then fix a.go":           true,
+		"fix the typo in README":            true,
+		"implement the parser in x":         true,
+		"stage the deploy pipeline signoff": true,
+	} {
+		got := WithReviewLoop(RunOptions{Tools: true, Prompt: brief})
+		if has := strings.Contains(got, ReviewLoopRule); has != want {
+			t.Errorf("%q: review rule present = %v, want %v", brief, has, want)
+		}
+	}
+}
+
 func TestBriefParseOwned(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", config)

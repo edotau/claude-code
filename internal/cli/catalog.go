@@ -104,7 +104,8 @@ func (o *catalogOpts) bind() *flag.FlagSet {
 		fs.BoolVar(&o.refresh, "refresh", false, "rediscover instead of using the sealed snapshot")
 		return fs
 	}
-	fs.StringVar(&o.format, "format", helptext.Text, "output format: text or json")
+	o.format = helptext.Text
+	fs.Var(helptext.NewFormatValue(&o.format), "format", `output format: text or json (default "text")`)
 	return fs
 }
 
@@ -124,9 +125,6 @@ func agentCatalog(name string, args []string) int {
 	}
 	if len(pos) > 0 && verb != "check" {
 		return helptext.FailUsage("%s catalog: unexpected argument %q", name, pos[0])
-	}
-	if err := helptext.CheckFormat(o.format); err != nil {
-		return helptext.BadFormat(name+" catalog", err)
 	}
 	return o.run(context.Background(), pos, args)
 }
@@ -594,11 +592,6 @@ func runOpencodeMenu(args []string) int {
 	pos, err := helptext.ParseArgs(m.fs, rest)
 	if err != nil {
 		return helptext.ExitCode(err)
-	}
-	if verb == "list" || verb == "check" {
-		if err := helptext.CheckFormat(*m.format); err != nil {
-			return helptext.BadFormat("opencode catalog "+verb, err)
-		}
 	}
 	return m.run(pos)
 }

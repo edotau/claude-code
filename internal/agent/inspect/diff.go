@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -167,13 +166,13 @@ func gatesInput(ctx context.Context, o DiffOptions, in diffIn, changed []DiffFil
 	if !o.All {
 		return gi, nil
 	}
-	list, err := proc.RunGitRaw(ctx, in.root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	list, err := proc.GitNUL(ctx, in.root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return gi, err
 	}
 	var all []DiffFile
-	for p := range strings.SplitSeq(list, "\x00") {
-		if p != "" && (len(in.sel) == 0 || inPaths(in.sel, p)) && fileExists(filepath.Join(in.root, filepath.FromSlash(p))) {
+	for _, p := range list {
+		if (len(in.sel) == 0 || inPaths(in.sel, p)) && paths.FileExists(filepath.Join(in.root, filepath.FromSlash(p))) {
 			all = append(all, DiffFile{Path: p, Status: "M"})
 		}
 	}
@@ -183,11 +182,6 @@ func gatesInput(ctx context.Context, o DiffOptions, in diffIn, changed []DiffFil
 		wide.pkgs = []string{"./..."}
 	}
 	return wide, nil
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 // diffIn is what Diff resolves before it reports: the repo root, the cleaned --path list, the base commit and files.
@@ -361,14 +355,15 @@ func resolveBase(ctx context.Context, root, base string) (string, error) {
 
 // collectChanges is two git calls (diff --raw --numstat, ls-files --others) against the resolved base commit.
 func collectChanges(ctx context.Context, root, base string) ([]DiffFile, error) {
-	var diffOut, othersOut string
+	var diffOut string
+	var othersOut []string
 	var diffErr, othersErr error
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		diffOut, diffErr = proc.RunGitRaw(ctx, root, "diff", "--raw", "--numstat", "-z", "-M", base, "--")
 	})
 	wg.Go(func() {
-		othersOut, othersErr = proc.RunGitRaw(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
+		othersOut, othersErr = proc.GitNUL(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
 	})
 	wg.Wait()
 	if err := errors.Join(diffErr, othersErr); err != nil {
@@ -382,8 +377,8 @@ func collectChanges(ctx context.Context, root, base string) ([]DiffFile, error) 
 	for _, f := range files {
 		seen[f.Path] = true
 	}
-	for p := range strings.SplitSeq(othersOut, "\x00") {
-		if p != "" && !seen[p] {
+	for _, p := range othersOut {
+		if !seen[p] {
 			added, bin := countFileLines(filepath.Join(root, filepath.FromSlash(p)))
 			files = append(files, DiffFile{Path: p, Status: "?", Added: added, Binary: bin, Test: pack.IsTestPath(p)})
 		}

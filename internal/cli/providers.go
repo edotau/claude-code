@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -145,10 +147,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 		return listLive(sel.Provider, format)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()}); err != nil {
-			return helptext.Fail("models: %v", err)
-		}
-		return 0
+		return helptext.WriteJSONOrFail("models", map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()})
 	}
 	if err := printLines(providers.SelectionLines(reg, sel)); err != nil {
 		return helptext.Fail("models: %v", err)
@@ -180,12 +179,13 @@ func listLive(p *providers.Provider, format string) int {
 
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
-	About: "Sets the profile on claude and every other agent that is on and can serve it; relaunch to apply. " +
+	About: "Sets the profile on claude and each other agent pinned to a fixed profile of the same provider; pool pins, " +
+		"own-login, account and off pins, and other providers are kept. Relaunch to apply. " +
 		"One launch only: claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
 
-// cmdSwitch is the switch verb: it pins the session profile on every agent that can serve it.
+// cmdSwitch moves claude and eligible fixed same-provider pins; other routes are retained.
 func cmdSwitch(args []string) int {
 	dryRun, args := helptext.ExtractBool(args, "dry-run")
 	if len(args) == 0 && !dryRun || len(args) > 0 && isHelpVerb(args[0]) {
@@ -200,27 +200,54 @@ func cmdSwitch(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if _, err := reg.Get(args[0]); err != nil {
+	profile, err := switchTarget(reg, args[0])
+	if err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if dryRun {
-		return previewSwitchProfile(reg, args[0])
+		return previewSwitchProfile(reg, profile)
 	}
-	if err := configure.SwitchProfile(reg, args[0]); err != nil {
+	return applySwitchProfile(reg, profile)
+}
+
+func applySwitchProfile(reg *providers.Registry, profile string) int {
+	if err := configure.SwitchProfile(reg, profile); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
+	if err := stdoutf("switch", "profile pinned: %s (relaunch to apply)\n", profile); err != nil {
+		return helptext.Fail("%v", err)
+	}
 	preflight.Warm(context.Background(), os.Stdout, reg, time.Now())
 	return 0
 }
 
+// switchTarget rejects the pool name with a hint, else an unknown profile.
+func switchTarget(reg *providers.Registry, name string) (string, error) {
+	if name == agent.PoolPin {
+		if len(reg.ProfilesOf(providers.GroupDatabricks)) == 0 {
+			return "", fmt.Errorf("%q is the pool, not a profile: configure a Databricks profile first", name)
+		}
+		return "", fmt.Errorf("%q is the pool, not a profile: name one (%s); pool-pinned agents already rotate",
+			name, strings.Join(reg.ProfilesOf(providers.GroupDatabricks), ", "))
+	}
+	p, err := reg.Get(name)
+	if err != nil {
+		return "", err
+	}
+	return p.Name, nil
+}
+
 func previewSwitchProfile(reg *providers.Registry, profile string) int {
-	apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, profile) }
 	recs, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
 		return helptext.Fail("switch preview: %v", err)
 	}
-	return printRecordDiff(apply, keptOff(reg, recs, profile))
+	after := maps.Clone(recs)
+	configure.SwitchRecords(reg, after, profile)
+	if err := printLines(providers.DryRunLines(recs, after, keptLines(reg, recs, profile))); err != nil {
+		return helptext.Fail("switch preview: %v", err)
+	}
+	return 0
 }
 
 // switchUsage prints switch's page; helptext.ExtractBool pulls its one flag out, so this FlagSet only renders it.
@@ -263,6 +290,9 @@ func cmdResolve(args []string) int {
 func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) {
 	if proxy {
 		pid := os.Getppid()
+		if err := guardProxyBase(profile); err != nil {
+			return "", err
+		}
 		if err := checkProfile(profile); err != nil {
 			return "", err
 		}
@@ -287,6 +317,25 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 		return "", err
 	}
 	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
+}
+
+// guardProxyBase refuses a session token when the caller's base is set but not a loopback /p/<profile> proxy base.
+func guardProxyBase(profile string) error {
+	base := os.Getenv(proc.EnvAnthropicBaseURL)
+	if base == "" {
+		return nil
+	}
+	u, err := url.Parse(base)
+	if err == nil && textutil.IsLoopbackHost(u.Hostname()) && routeProfile(base) != "" {
+		return nil
+	}
+	host := "unparseable"
+	if err == nil {
+		host = u.Host
+	}
+	audit.Log(audit.HookBlocked, "resolve --proxy", "session token withheld: base host "+host)
+	return fmt.Errorf("resolve --proxy: base %s is not the harness proxy; relaunch with `claude-code --profile %s`",
+		host, cmp.Or(profile, "<profile>"))
 }
 
 // checkProfile refuses a --profile the registry does not know; "" is the session profile.
@@ -446,17 +495,22 @@ func scopedProxyToken(ctx context.Context, profile string, refresh bool, pid int
 	return resolveProxyToken(ctx, scope, pid)
 }
 
-// keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.
-func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
-	_, off := configure.SwitchTargets(reg, recs, profile)
-	lines := make([]string, len(off))
-	for i, n := range off {
-		lines[i] = n + ": off (kept)"
+// keptLines lists "agent: off (kept)" or "agent: <pin> (kept)" for each agent a switch to profile leaves alone.
+func keptLines(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
+	_, off, kept := configure.SwitchTargets(reg, recs, profile)
+	var lines []string
+	for _, n := range off {
+		lines = append(lines, n+": off (kept)")
+	}
+	for _, n := range kept {
+		rec := recs[n]
+		rec.Route = providers.CompleteRoute(reg, rec.EffectiveRoute())
+		lines = append(lines, n+": "+configure.PinLabel(rec)+" (kept)")
 	}
 	return lines
 }
 
-// printRecordDiff is the shared --dry-run body for switch and models.
+// printRecordDiff previews model-pin changes; switch uses one snapshot for both its diff and kept notes.
 func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
 	before, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
@@ -502,9 +556,6 @@ func modelsDiscover(args []string) int {
 	if *apply && *dry {
 		return helptext.FailUsage("models discover: --apply and --dry-run conflict; drop one")
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("models discover", err)
-	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("models discover: cannot load provider registry: %v", err)
@@ -543,11 +594,11 @@ func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, 
 		code = 1
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		if c := helptext.WriteJSONOrFail("models discover: cannot write JSON", struct {
 			Apply   bool                 `json:"apply"`
 			Results []catalog.DropResult `json:"results"`
-		}{apply, results}); err != nil {
-			return helptext.Fail("models discover: cannot write JSON: %v", err)
+		}{apply, results}); c != 0 {
+			return c
 		}
 		return code
 	}
@@ -602,11 +653,11 @@ func discoverNames(reg *providers.Registry, profile string) ([]string, int) {
 
 func printDiscoverResults(results []catalog.DiscoverResult, apply bool, format string, code int) int {
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
+		if c := helptext.WriteJSONOrFail("models discover: cannot write JSON", struct {
 			Apply   bool                     `json:"apply"`
 			Results []catalog.DiscoverResult `json:"results"`
-		}{apply, results}); err != nil {
-			return helptext.Fail("models discover: cannot write JSON: %v", err)
+		}{apply, results}); c != 0 {
+			return c
 		}
 		return code
 	}

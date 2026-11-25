@@ -440,7 +440,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback, Runner: agent.RunnerOf(rec), recType: rec.Type,
-		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
+		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task, Proxy: rec.Proxy,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: usage,
 		carry: rec.Request.Carry, codeMode: answeredInCodeMode(rec), routeKind: cmp.Or(rec.RanRoute.Provider, rec.Route.Provider), takeover: rec.TakeoverOf != "", launch: launchLabel(rec),
 	}, rec, now)

@@ -812,13 +812,7 @@ func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git show %s: %w", sha, err)
 	}
-	var files []string
-	for f := range strings.SplitSeq(raw, "\x00") {
-		if f != "" {
-			files = append(files, f)
-		}
-	}
-	return files, nil
+	return textutil.SplitNUL(raw), nil
 }
 
 // rangeCommits lists rng's commits oldest first, merges included (one may carry the trailer), each with its files.

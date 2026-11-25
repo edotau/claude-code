@@ -52,6 +52,16 @@ func pinAll(t *testing.T) {
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CODEX_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev"})
 }
 
+func TestClaudeSourceNamesLaunchEnvAndPin(t *testing.T) {
+	for _, c := range []struct{ env, pin, want string }{
+		{"", "ultra", "pin"}, {"prod", "prod", "session"}, {"prod", "", "session"}, {"prod", "ultra", "session; pin ultra"},
+	} {
+		if got := claudeSource(c.env, c.pin); got != c.want {
+			t.Errorf("claudeSource(%q,%q) = %q, want %q", c.env, c.pin, got, c.want)
+		}
+	}
+}
+
 // An agent with no profile is off: Check skips it and the session line stays quiet.
 func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	hermeticVault(t)

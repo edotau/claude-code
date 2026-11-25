@@ -6,6 +6,7 @@ Find the symptom, run the command, read the cause. All `claude-code` verbs: `cla
 | --- | --- | --- |
 | 401 or 403 on every call | Token expired, user login dead, or the wrong identity | `claude-code doctor`, then `claude-code databricks check --profile <p>` |
 | 401 and the status line shows `login:<profile>` | The user login is dead; a paired service principal still covers headless runs | `claude-code databricks login --profile <p>`; over SSH `claude-code --remote <host> databricks login --profile <p>` |
+| 401 "Invalid API key" with a `req_011…` request id | The session sent its proxy token straight to api.anthropic.com: its base URL is no longer the proxy | Relaunch with `claude-code --profile <p>`; `resolve --proxy` now refuses such a caller and names the host |
 | 401 only in headless runs | Service-principal secret missing or rejected | `claude-code doctor` (`source=` on the row), then `claude-code vault set` |
 | 401 and doctor shows `source=env <NAME>` | An env var shadows the vault entry | Unset the variable, or fix its value |
 | 403 on one endpoint only | The identity lacks permission on that endpoint | Ask the workspace owner; not a harness fault |

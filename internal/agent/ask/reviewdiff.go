@@ -130,16 +130,13 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	if top := paths.GitTop(ctx, cwd); top != "" { // from a subdirectory, list the whole repo like `git diff HEAD` does
 		cwd = top
 	}
-	listing, err := proc.RunGit(ctx, cwd, "ls-files", "-z", "--others", "--exclude-standard")
+	listing, err := proc.GitNUL(ctx, cwd, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	total, skipped := 0, 0
-	for rel := range strings.SplitSeq(listing, "\x00") { // -z: names are raw, never C-quoted
-		if rel == "" {
-			continue
-		}
+	for _, rel := range listing {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}

@@ -260,6 +260,7 @@ func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) (Recor
 		return Record{}, err
 	}
 	rec.Request.Launcher = c.Launcher
+	startJev(ctx, rec.ID, o.Prompt)
 	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
 		if o.Host != "" {

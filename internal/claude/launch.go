@@ -200,6 +200,10 @@ func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOpti
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
+	if o.Dispatch && o.Asked { // a profile the dispatch named owns the endpoint; the caller's own base never overrides it
+		keepShellKeys(ctx, plan, keep[1:], false)
+		return
+	}
 	own := plan.Set[proc.EnvAnthropicBaseURL]
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
@@ -343,6 +347,8 @@ func putLaunchDoc(plan *agent.Plan, path string, doc map[string]any) error {
 		plan.Files, plan.Argv[1] = nil, string(data)
 		return nil
 	}
+	path = hashedOverlayPath(path, data)
+	plan.Argv[1] = path
 	plan.Files = []agent.LaunchFile{{Path: path, Data: data}}
 	return nil
 }
@@ -809,15 +815,4 @@ func onAnthropicAPI(base string) bool {
 	}
 	u, err := url.Parse(base)
 	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), "api.anthropic.com")
-}
-
-// lastEnv is the value the child gets for name: the last entry of env.
-func lastEnv(env []string, name string) string {
-	v := ""
-	for _, kv := range env {
-		if s, ok := strings.CutPrefix(kv, name+"="); ok {
-			v = s
-		}
-	}
-	return v
 }

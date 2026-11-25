@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -171,6 +172,9 @@ func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Sche
 	names := RosterNames()
 	if def, ok := agents[ref]; ok {
 		return cmp.Or(def.Agent, "claude"), def, nil
+	}
+	if ref == agentid.CodeModeType { // the code-mode type is pi; ask turns code mode on
+		return agentid.Pi, nil, nil
 	}
 	if v, name, ok := strings.Cut(ref, ":"); ok {
 		if !slices.Contains(names, v) {

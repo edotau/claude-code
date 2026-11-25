@@ -10,6 +10,18 @@ One path to the public web for every agent. Tavily is the default; Claude's buil
 optional extra after Tavily, never instead of it. On a harness Claude launch the built-ins answer through Tavily too
 (`web-tavily` hook, `rules/harness/hooks.md`). Training data goes stale: search rather than guess a version or price.
 
+## Which search tool
+
+| Surface | Use when | Command | Returns | Cost and limits |
+| --- | --- | --- | --- | --- |
+| Tavily search (default) | Sources for a question | `claude-code network websearch --query "<q>" [--max-results N]` (default 5) | Per hit: title, URL, content | One Tavily search; needs `TAVILY_API_KEY` in the vault; no fallback engine |
+| Tavily read | Named pages (up to 20) | `claude-code network websearch --extract <url>` | Markdown, `# <url>` header per page | robots.txt checked; output cut at 12000 chars, so save to a file or narrow the URL |
+| MCP `web_search` / `web_extract` | Same as the two rows above, when the agent has them | `mcp__web_search__web_search`, `mcp__web_search__web_extract` | Same | Runs outside the shell sandbox |
+| `tvly` CLI | Filters (`--time-range`, `--include-domains`, `--depth`), `map`, `crawl` | `tvly search '<q>'`, `tvly extract <url>` | Text or `-o` file | Needs `TAVILY_API_KEY` in the environment |
+| Claude's built-in WebSearch on a routed provider | A Claude Code session on Databricks or another non-Anthropic route | Nothing: the proxy swaps the `web_search` server tool for a `web_search` function and answers it with Tavily (`internal/proxy/server/websearch.go`, `internal/proxy/translate/websearch.go`) | Titles, URLs, snippets | One Tavily search per call |
+| Pi and Gemini on Databricks | A tools run on a Databricks row (no native web tool; Pi runs `--no-mcp`) | Automatic: the launcher appends `agent.WebViaCLI`, pointing the agent at the Tavily search row | Same as Tavily search | Nothing to pass |
+| Gemini Google built-ins | A Gemini dispatch needs grounded search, page reads or code runs | `claude-code agents ask --agent gemini --google-tools search\|url\|code "<prompt>"` | Probe only (2026-11-24): `url` adds `urlContextMetadata`, `code` adds `executableCode` and `codeExecutionResult`; live runs refused | Gemini only; agy's own Google login refuses every tool (no settings key); a Databricks row serves only the tools in its `options.google_tools` (`claude-code configure provider <p> options.google_tools=...`); `search` returned 400 on dev; `computer` and `file` are held (`internal/proxy/translate/googletools.go`, preflight in `internal/gemini/googletools.go`) |
+
 ## Ladder
 
 Start at the top; move down only when a rung fails or cannot do the job.

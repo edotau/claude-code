@@ -113,12 +113,12 @@ func logAPIRun(ctx context.Context, res wire.Result, err error) {
 }
 
 // chatClient bounds the wait for response headers; the body stream stays governed by ctx.
-var chatClient = &http.Client{Transport: func() http.RoundTripper {
+var chatClient = httpx.NewClient(0, func() http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ResponseHeaderTimeout = 2 * time.Minute
 	t.Proxy = egress.Proxy // cloned at init, before cli.Run installs it on the default transport
 	return t
-}(), CheckRedirect: httpx.SameOriginRedirect}
+}(), httpx.SameOriginRedirect)
 
 type httpError struct {
 	status int

@@ -54,7 +54,7 @@ func watchLeaves(ctx context.Context, id string) func() {
 // watchOnce re-sends each lost leaf of owner once, to a new holder; a second death fails it owner-dead.
 func watchOnce(ctx context.Context, owner string, send sendFunc, tries map[string]int) {
 	c, err := contract.Load(owner)
-	if err != nil {
+	if err != nil || c.State() != contract.StateWorking {
 		return
 	}
 	for _, id := range c.Children {

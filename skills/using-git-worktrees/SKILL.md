@@ -1,127 +1,112 @@
 ---
 name: using-git-worktrees
-description: Isolated git worktrees for parallel feature work, hotfixes, and plan execution — directory selection with gitignore safety checks, .venv symlink + .env copy setup, deterministic port allocation for parallel dev servers, and merged/stale cleanup. Triggers "git worktree", "parallel branches", "isolated workspace", "work on two branches", "worktree cleanup".
+description: Current harness worktree verbs, lane landing and cleanup, shared-checkout coordination, and manual worktree mechanics. Triggers "git worktree", "parallel branches", "isolated workspace", "work on two branches", "worktree cleanup".
 ---
 
 # Using Git Worktrees
 
-Isolated working directories off one shared `.git` for parallel branches (feature, hotfix, PR review) without
-stashing or switching.
+Linked worktrees isolate working directories, not the shared Git object store or stash list.
+Policy belongs to [Git and Worktrees](../../rules/standards/worktree-git.md); this skill documents mechanics.
 
-## When to use a worktree (vs. staying put)
+## Verbs
 
-| Situation | Action |
-|-----------|--------|
-| Need 2+ branches open locally at once | New worktree per branch |
-| Hotfix needed while feature branch is dirty | Dedicated hotfix worktree (no stash) |
-| Human terminal or long-running background agent owning its own branch | One worktree per agent |
-| Parallel fan-out leaves in one session | One lane per stream (`HARNESS_WORKTREE=lanes`, below); else one shared tree (references/shared-checkout.md) |
-| Reproducing a bug on another branch | Temporary worktree, clean up same day |
-| Quick local diff review only | Stay on current tree — no worktree |
+Run `claude-code worktree -h`, then the verb's `-h` for flags. Put flags **before** the lane name
+(`commit` also accepts interspersed flags). A lane name is its directory basename: `agent-<id>`, **not**
+its branch `worktree-agent-<id>`. The verbs resolve the actual branch through Git.
 
-Staying put while other sessions edit the same tree — the no-rewrite rule, file claims, registry files:
-[references/shared-checkout.md](references/shared-checkout.md).
+| Verb | Behavior / flags |
+| --- | --- |
+| `create <name>` | Prints `~/worktrees/<repo>/<name>`; defaults to branch `worktree-<name>`, or `--branch <b>`; reuses an existing owned worktree/branch. `<repo>` drops a leading dot. |
+| `list` | Status, ahead/behind, overlaps, reopen and cleanup commands; `--format json`. Exits 1 if any lane's divergence is unreadable, after printing the others. |
+| `gate` | Prints the detected gate; `--dir`, comma-separated `--scope`, `--lint-check`, `--format json`. `--run` executes it and returns JSON: inspect `exit` (a red gate still gives CLI exit 0). No gate exits 1. |
+| `commit` | `-m <msg>` or `--type <t>`; named files or `@id` candidates (`--list`). Main may omit files for its own claims; dispatched leaves must name them. `--dry-run`, repeatable `--task <id>`, `--plan <file>`. |
+| `land <name>` | Rebase, verify, apply uncommitted; `--dry-run`, `--target <branch>`, `--no-clean`, `--verify <cmd>`, `--full-verify`, `--no-verify`, `--resolve-agent <agent>`, `--resume`. |
+| `clean <name>` | Remove an eligible worktree or its kept branch; `--dry-run`, `--force` (discard dirty/unmerged worktrees). |
+| `clean-all` | Preview eligible/refused lanes; only `--yes` applies, `--dry-run` overrides it. |
+| `base <ref>` / `base --clear` | Pin/clear the current branch's status-line diff base. |
+| `pr list\|view\|diff\|create`, `checks`, `comment` | Origin-host PR/CI operations; use each subcommand's `-h` (the top-level `pr -h` shows the worktree overview). |
 
-## In this harness: use `claude-code worktree` (the paved road)
+`create` and native `EnterWorktree` share `worktree-create` setup: `.venv` and `venv` get a local overlay reusing
+primary packages with editable imports redirected to lane source, or a symlink fallback; Git excludes are added
+if needed. `.env` is copied only if the destination branch ignores it. Existing destinations are not overwritten;
+resumed worktrees are not reseeded; seed failures warn. See `internal/worktree/{seed,venvoverlay}.go`.
 
-The verbs handle everything with the harness conventions baked in:
+## The lane protocol
 
-```bash
-claude-code worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
-claude-code worktree list [--format json]        # all worktrees: status, +ahead -behind main, file overlaps
-claude-code worktree gate --dir . --scope internal/worktree   # prints the gate for this scope (that dir) only; narrower than merge's
-claude-code worktree land add-auth-endpoint      # rebase in the lane, gate, land uncommitted on the live checkout
-claude-code worktree clean add-auth-endpoint     # safe single removal; also deletes a landed lane's kept branch
-claude-code worktree commit -m "fix: x" <files>   # one pathspec commit of named files; no paths = the main session's own claims (a subagent or CLI leaf names its files)
-```
+Follow the [canonical lane policy](../../rules/standards/worktree-git.md#worktrees). In particular,
+`HARNESS_WORKTREE=lanes` is **advisory**, not an isolation boundary (see the enforcement table).
 
-More verbs and options:
-
-| Verb | Does |
-|------|------|
-| `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
-| `claude-code worktree land <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | Rebase in the lane, gate, then **land on local**: uncommitted changes in your checkout, you commit; `--dry-run` changes nothing |
-| `claude-code worktree land <name> --resolve-agent <agent>` · `--resume` | Agent resolves a conflict in the lane; reattach |
-| `claude-code worktree commit -m <msg> [<files>] [--dry-run]` | Conventional subject, files only; refuses a peer's file (a CLI leaf: any claimed file); never pushes |
-| `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
-
-`clean` takes `--force` (discard uncommitted and unmerged work); `clean-all` takes only `--dry-run` and `--yes`; every
-other verb refuses with a reason instead. Only pass `--force` with the user's explicit go — it is a data-loss operation.
-`land` refuses when `main` moved mid-verify (re-run it); `clean` refuses while a process has its cwd inside (`cd` out
-or `ExitWorktree`). Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive
-value here is `land` and `clean-all`.
-
-`create` makes the worktree under `~/worktrees/<repo>/<slug>` (`<repo>` drops a leading dot; older
-`~/worktrees/.claude` lanes still list; outside the repo, shared with native Claude Code) via `git worktree add`, then
-seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent and the new branch
-ignores the path (a seeding failure only warns). The full procedure and conflict
-handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1. In the harness repo itself, a
-worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 — but `make install` and `claude-code` verbs
-run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it
-(`rules/harness/settings-management.md` → Worktree render). Never run a worktree-built binary as the proxy.
-
-## The lane protocol (`HARNESS_WORKTREE=lanes`)
-
-One lane per stream of work, opened after its dated plan (R18); a lane lands on the live checkout uncommitted and
-you commit it. Vault
-env `HARNESS_WORKTREE=lanes` makes
-the claim check refuse a leaf's edit or stage of a tracked file in the live checkout (it asks the main session) and name
-`claude-code worktree create <slug>`; a lane is never refused.
+From a repo root, set `LANE` to an unused name and the other variables to an open task, dated plan and owned file.
+Creation is real (there is no create dry-run); only the commit below previews:
 
 ```bash
-claude-code worktree create <slug>                           # lane at ~/worktrees/<repo>/<slug>, branch worktree-<slug>
-claude-code worktree commit --task <id> -m "<msg>" <files>   # in the lane; a leaf names its files
-claude-code worktree land <slug> --dry-run                   # every step and the overlaps with other lanes; changes nothing
-claude-code worktree land <slug>                             # rebase in the lane, gate, land uncommitted on the live checkout
-claude-code worktree land <slug> --no-clean                  # keep the lane for its next task
+: "${LANE:?set lane name}" "${TASK_ID:?set open task id}" "${PLAN:?set dated plan path}" "${OWNED_FILE:?set owned path}"
+wt=$(claude-code worktree create "$LANE") && cd "$wt" &&
+claude-code worktree commit --dry-run --task "$TASK_ID" --plan "$PLAN" -m "docs: clarify lanes" "$OWNED_FILE"
 ```
 
-A finished leaf's committed lane lands by itself (`lane-land` hook); one it cannot land is a `land queue:` line.
+Remove `--dry-run` only at the authorized commit boundary. `--task` validates an open task before staging and
+adds `Task: <plan-slug> <id>` trailers; `--plan` disambiguates. Task ticking is not a land operation; see the standard.
+An Agent-tool **relay** leaf cannot commit, even in a worktree: leave the diff
+for the dispatched executor or main session. `isolation:worktree` selects a checkout; it does not itself impose a
+blanket read ban on the live checkout in these handlers. Reads remain subject to configured permissions.
 
-What `land` does, in order:
+From outside the finished lane:
 
-- Rebases the lane onto `main` inside the lane; `main` is never rebased.
-- Runs the scoped gate in the lane on the rebased tree (`--verify "<cmd>"` overrides, `--full-verify` runs the whole
-  Makefile gate). With no detectable gate the land is refused unless `--no-verify`.
-- Applies the lane's net diff to the live working tree, uncommitted and unstaged (new, deleted and renamed files
-  included); if `main` moved meanwhile it refuses and says to re-run. A landed path already dirty in the live tree, or
-  a patch that does not check, changes nothing, keeps the lane and exits 3 naming the paths (a write failure after a
-  clean check exits 1 and may be partial; the lane stays).
-- Removes the lane's worktree and prints `landed <lane>: N files uncommitted in <dir>; branch <b> kept` plus the diff
-  stat; the branch is the only committed copy until you commit, and `worktree clean <lane>` deletes it once its diff is
-  in `HEAD`. No plan ticks fire at landing: they tick when you commit with `Task:` trailers or run `plan task --done`.
+```bash
+claude-code worktree land --dry-run "$LANE" &&
+claude-code worktree land "$LANE" &&
+claude-code worktree clean --dry-run "$LANE"
+```
 
-Exit code 3 = the rebase conflicted (aborted, the lane exactly as it was, files named, the lane's session notified) or
-the land was refused on a dirty path. Fix a conflict in the lane, never on `main`: edit the files and commit with
-`claude-code worktree commit`, or let an agent do it with `land <slug> --resolve-agent <agent>` (it resolves with a
-merge commit in the lane, so that one merge is not linear history; `--resume` reattaches), then run `land` again.
-The lane that lands second resolves. Other non-zero exits are refusals with a reason (gate red, `main` moved).
+### Land: effects and recovery
 
-Notices a lane sees (drained at its next prompt or `git` command):
+The `land` verb enforces these steps (`internal/worktree/{preflight,land,gate,audit}.go`):
 
-| Notice | Do |
-|--------|----|
-| A land stopped on a conflict in your lane | Resolve in the lane as above, then re-run `land` |
+1. Pin the primary checkout's current branch and both OIDs; `--target` requires that branch, not an arbitrary
+   destination. Refuse a dirty source, busy lane (process cwd inside), in-progress Git operation or other blocking
+   preflight issue. A predicted conflict alone may proceed; a preview does not run the gate or prove it can land.
+2. Rebase **inside the lane**, then gate the rebased tree. Makefile `test` + `go.mod` uses concurrent build/vet
+   across the module and tests of changed packages plus **direct** importers (including test imports), not a fixed
+   registry set. Non-Go files map to owners/embedders/tests naming them; `go.mod`/`go.sum` or unowned non-Markdown,
+   non-Go files retain the full Makefile gate. `--full-verify` also retains it. Otherwise detection uses Makefile
+   `test`, Go, Python, npm or Cargo. `--verify` overrides detection; no gate refuses unless `--no-verify`.
+3. Recheck pinned heads, source state and liveness. A live foreign process with cwd inside, or a live dispatch job,
+   refuses promotion (the invoking process's ancestry is excluded). If peers commit meanwhile, expect
+   `promote: target moved ... since integration`: re-run land to integrate and verify again.
+4. Check and apply the net diff to the primary working tree **unstaged and uncommitted**. Start a detached audit
+   on the rebased lane head (equivalent to target HEAD plus the landed diff). Normally remove the worktree and
+   keep its branch; `--no-clean`, a detached lane or a removal refusal keeps the worktree.
 
-After a green land the audit runs detached on `HEAD` plus the landed diff; once you commit, the main session installs
-and pushes; a red audit is fixed forward with a new commit or a `git revert` landed the same way, never a reset.
+| Outcome | Meaning / next step |
+| --- | --- |
+| Exit 3: rebase conflict | Rebase aborted, lane restored; resolve in the lane, then retry. `--resolve-agent <agent>` resolves via a controller-created merge commit; `--resume` reattaches without restarting the agent. |
+| Exit 3: land refused | Overlapping dirty target paths, hidden index flags, unsupported submodule changes or failed patch check; live tree unchanged, lane kept. Resolve the named cause, retry. |
+| Exit 1 | Other refusal/failure: gate red, moved target, busy lane, etc. A gate failure can leave the lane rebased; it does not promote. An apply failure **after** a clean check may partially write the live tree; inspect status before retrying. |
+| Exit 0 | Preview plan accepted (possibly with predicted conflicts), or apply succeeded/already landed. Preview never mutates, even on nonzero exit; after apply, read any worktree-removal refusal. |
 
-Known gaps:
+`clean --dry-run <name>` rechecks ownership, cleanliness, merge/landed-diff state, locks and use by processes.
+After the owner's commit, `clean <name>` can delete the kept branch if its changed paths match `HEAD`; it need not
+be an ancestor. If they do not match, it refuses. `clean --force` discards an **existing worktree** and its branch,
+but still refuses main, locked or in-use lanes; it does not handle a branch-only remainder. User approval before
+intentional discard is policy, not a confirmation prompt in this verb. `clean-all` does not force-remove dirty,
+unmerged, orphaned or prunable entries. Native `worktree-remove` likewise refuses in-use/dirty worktrees and only
+tries safe `branch -d`; it is not the landed-diff-aware `clean` path.
 
-- A conflict only in a generated file (goldens, projections) is not regenerated automatically: do it in the lane.
-- A `--resolve-agent` merge commit can conflict again if `main` moves before the next rebase.
+### Hook enforcement vs. policy
 
-Registry files: a new file writer is one row in its package's own `internal/schemas/testdata/writers/<pkg>.txt`, so
-parallel lanes no longer collide; the other registry files still go through the orchestrator
-([references/shared-checkout.md](references/shared-checkout.md)).
+Hooks run on the events/tools declared in `internal/settings/hookspec.go`, not on every possible filesystem write.
 
-## Manual control / non-harness repos
+| Rule / process | What actually enforces it |
+| --- | --- |
+| Lane choice, dated plan before work, no stash, no shared-history rewrites, root sandbox scope, discard approval | Policy/prose in the standard and workflow; not a blanket guard in the hooks listed here. `safety-scan` applies configured denies, not a universal Git rewrite ban. |
+| Lanes-mode reminder | `worktree-claim-check` (`wthook.ClaimCheck`): notes tracked edits/stages in the live harness checkout and, once per session, another repo's primary checkout; never refuses merely for lanes mode. |
+| Peer's dirty claimed file | `worktree-claim-check`: note before edits; ask before stage/commit, block a leaf in the live config checkout. `worktree commit` independently refuses claimed peer files. |
+| Relay commit refusal | `dispatch-handback` / `relay-shell`; applies to Agent-tool relays, not every executor. |
+| Finished leaf auto-land | `lane-land`: detached worker waits for completion and clean `UNFIXED: none`; dirty/busy/unreadable lanes queue. Its restriction check is path-based, not semantic proof of owner approval. `lane-land-queue` prints pending work on prompts. |
+| Land / cleanup checks | `worktree land`, `worktree clean`, `clean-all` and native `worktree-remove`, as detailed above. |
+| Plan/report placement | `docs-placement` redirects/gates plans and blocks recognized misplaced Markdown writes; it does not require every task to have a plan. Placement policy: `rules/harness/docs-placement.md`. |
+| No AI-attribution footers | `safety-scan` blocks recognized commit/merge/tag/PR message footers; commit policy stays in the standard. |
 
-When `claude-code worktree` doesn't apply, follow the full mechanics (Part 2) — directory selection,
-gitignore safety, `.venv` symlink, port allocation for parallel dev servers, and gated
-cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
-
-## Scoping a subagent below the root breaks git and the venv
-
-Grant a subagent or sandbox the repo (or worktree) root, never a subdirectory: that hides `.git` and `.venv` and
-causes import errors that look like regressions.
+Shared-tree claims and registry coordination: [shared-checkout.md](references/shared-checkout.md).
+Manual creation and dev-server setup: [manual-worktrees.md](references/manual-worktrees.md).

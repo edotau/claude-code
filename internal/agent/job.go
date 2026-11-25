@@ -130,6 +130,7 @@ func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, reco
 	if !recovering {
 		_ = NotePID(*rec, false)
 	}
+	stopJev(rec.ID)                // the detached child starts its own shadow; this process never takes the one it prepared
 	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
 	return nil
 }

@@ -16,7 +16,13 @@ const logStampLayout = "20060102-150405.000"
 
 // spawnDetached is the process-launch seam under spawnSelf; tests replace it.
 var spawnDetached = func(bin string, args []string, dir string, out *os.File, env ...string) bool {
-	return proc.SpawnDetachedWithReceipt(bin, args, dir, out, paths.MemoryStateDir(), env...)
+	return proc.SpawnDetachedWithReceiptUnset(bin, args, dir, out, paths.MemoryStateDir(), routeEnv, env...)
+}
+
+// routeEnv is the parent's launch route; a child inheriting it runs on the wrong endpoint with the wrong model id.
+var routeEnv = []string{
+	proc.EnvAnthropicBaseURL, "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", proc.EnvAnthropicCustomHeaders,
+	"HARNESS_PROXY_API_KEY", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS",
 }
 
 // spawnSelf relaunches this binary detached in dir; a non-empty logName appends its output to paths.MemoryStateDir()/logName.

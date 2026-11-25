@@ -129,6 +129,25 @@ func TestWatchTickResumesADeadJobOnce(t *testing.T) {
 	}
 }
 
+func TestWatchTickClaimsMarkerBeforeSpawn(t *testing.T) {
+	watchStubs(t, deadStale())
+	var claimed bool
+	var idAtSpawn string
+	startResume = func([]string) (string, error) {
+		_, err := os.Stat(agent.WatchMarker("resumed", deadJob))
+		idAtSpawn, _ = agent.ResumedAs(deadJob)
+		claimed = err == nil
+		return "20261116T120000.000-opencode", nil
+	}
+	watchTick(promptIn("s1"))
+	if !claimed || idAtSpawn != "" {
+		t.Fatalf("at spawn: marker exists %v id %q, want an empty claim already published", claimed, idAtSpawn)
+	}
+	if id, ok := agent.ResumedAs(deadJob); !ok || id == "" {
+		t.Fatalf("after spawn marker id %q %v, want the new job id", id, ok)
+	}
+}
+
 func TestWatchTickFailedResumeLeavesNoMarker(t *testing.T) {
 	watchStubs(t, deadStale())
 	startResume = func([]string) (string, error) { return "", os.ErrDeadlineExceeded }

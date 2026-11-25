@@ -175,15 +175,14 @@ func findTracked(root string, o FindOptions) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := proc.RunGitRaw(context.Background(), root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	files, err := proc.GitNUL(context.Background(), root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
 	}
-	files := strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00")
 	slices.Sort(files)
 	files = slices.Compact(files)
 	files = slices.DeleteFunc(files, func(p string) bool {
-		return p == "" || (len(sel) > 0 && !inPaths(sel, p)) ||
+		return (len(sel) > 0 && !inPaths(sel, p)) ||
 			(findGoMode(o) && !strings.HasSuffix(p, ".go"))
 	})
 	return files, nil

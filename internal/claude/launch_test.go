@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -144,7 +145,7 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
 		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
 	}
-	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !strings.HasSuffix(overlayFile(p).Path, "overlay-ollama-proxy.json") {
+	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !regexp.MustCompile(`overlay-ollama-proxy-[0-9a-f]{12}\.json$`).MatchString(overlayFile(p).Path) {
 		t.Errorf("overlay %s at %s", overlayFile(p).Data, overlayFile(p).Path)
 	}
 }
@@ -1119,7 +1120,7 @@ func TestMergeDocUnionsEnv(t *testing.T) {
 }
 
 func TestLastEnvTakesTheLastEntry(t *testing.T) {
-	if got := lastEnv([]string{"A=1", "B=2", "A=3"}, "A"); got != "3" {
+	if got := proc.LastEnv([]string{"A=1", "B=2", "A=3"}, "A"); got != "3" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -1131,5 +1132,31 @@ func TestChildBasePrefersSettingsEnv(t *testing.T) {
 	}
 	if got := childBase(nil, []string{"ANTHROPIC_BASE_URL=x"}); got != "x" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestHashedOverlayPathByContent(t *testing.T) {
+	base := filepath.Join("state", "overlay-qa-proxy.json")
+	a, b := hashedOverlayPath(base, []byte("{\"apiKeyHelper\":\"x\"}")), hashedOverlayPath(base, []byte("{}"))
+	if a == b || a == base {
+		t.Fatalf("different content must get different files: %s %s", a, b)
+	}
+	if again := hashedOverlayPath(a, []byte("{\"apiKeyHelper\":\"x\"}")); again != a {
+		t.Errorf("rehash of a hashed path = %s, want %s", again, a)
+	}
+}
+
+// TestKeepShellEndpointAskedProfileWins: a dispatch with an asked profile ignores the caller's foreign base.
+func TestKeepShellEndpointAskedProfileWins(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:10100/inference/anthropic/proxies/claude-code")
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/local"}}
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{Dispatch: true, Provider: "local", Asked: true})
+	if plan.ForeignBase || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/local" || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("caller's base won: foreign=%v set=%q keep=%v", plan.ForeignBase, plan.Set["ANTHROPIC_BASE_URL"], plan.Keep)
+	}
+	session := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/local"}}
+	keepShellEndpoint(context.Background(), &session, agent.LaunchOptions{Dispatch: true, Provider: "local"})
+	if !session.ForeignBase { // a session-default profile still yields to the caller's own base
+		t.Errorf("session-default profile overrode the caller's base: set=%q", session.Set["ANTHROPIC_BASE_URL"])
 	}
 }
