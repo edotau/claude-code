@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/vault"
@@ -19,8 +20,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // agentPinRows is the profile section: Pin / default, Databricks, Model (a record one without a catalog), Fallback.
@@ -424,4 +427,270 @@ func dbxTokenCheck(d *dialog, ws string) {
 	}
 	why := strings.Join(strings.Fields(textutil.RedactSecrets(err.Error())), " ")
 	d.printf("databricks %s: %s · fix: %s\n", ws, textutil.TruncateCells(why, 70, "…"), providers.LoginCommand(ws))
+}
+
+// The anthropic picker row stands for both anthropic billing modes.
+const (
+	anthropicRow      = "anthropic"
+	anthropicProvider = "anthropic"
+	anthropicKeyEnv   = "ANTHROPIC_API_KEY"
+)
+
+// anthropicLogin memoizes the two anthropic probes for one picker pass.
+type anthropicLogin struct {
+	reg                *providers.Registry
+	loginDone, keyDone bool
+	keyOK              bool
+	st                 providers.AuthState
+}
+
+func (f *anthropicLogin) login() (loggedIn bool) {
+	if !f.loginDone {
+		f.st = agentpkg.AuthStatus("claude")
+		f.loginDone = true
+	}
+	return f.st.Present
+}
+
+func (f *anthropicLogin) key() bool {
+	if !f.keyDone {
+		if p := f.reg.ProfileBy(anthropicProvider, providers.AuthKey); p != nil {
+			f.keyOK = providers.CredentialPresent(p)
+		}
+		f.keyDone = true
+	}
+	return f.keyOK
+}
+
+// claudeMenu is the claude agent's submenu: the two anthropic billing modes, then Login and OAuth token.
+func claudeMenu(d *dialog) agentMenu {
+	fp := &anthropicLogin{reg: d.reg}
+	cur := configure.CurrentProvider(d.reg)
+	loggedIn := fp.login()
+	keyOK := fp.key()
+	tier := agentpkg.AuthPlan(context.Background(), "claude", fp.st)
+	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
+		{"Subscription", "OAuth · plan limits · Remote Control " + bracket(loggedIn, withTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
+			if !loggedIn {
+				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
+					return false
+				}
+				if err := configure.RunLogin([]string{"claude", "auth", "login"}); err != nil {
+					d.printf("anthropic: %v\n", err)
+					return false
+				}
+			}
+			return keepOrPin(d, cur, providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthCLI)))
+		}},
+		{"API key", "pay per token · no Remote Control " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
+			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: anthropicKeyEnv, FixCmd: "claude-code vault set " + anthropicKeyEnv,
+				Provider: fp.reg.ProfileBy(anthropicProvider, providers.AuthKey)}
+			if !ensureKey(d, kt, keyOK) {
+				d.printf("anthropic: no usable API key; left on %s\n", billingLabel(d.reg, cur))
+				return false
+			}
+			return keepOrPin(d, cur, providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthKey)))
+		}},
+		{"Login", "browser sign-in (claude auth login)", "", func() bool {
+			return regenerate(d, configure.KeyTarget{Label: anthropicRow}, []string{"claude", "auth", "login"}, false)
+		}},
+		{"OAuth token", "headless token (" + providers.OAuthTokenEnv + ")", "", func() bool {
+			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: providers.OAuthTokenEnv}
+			return regenerate(d, kt, []string{"claude", "setup-token"}, true)
+		}},
+	}}
+}
+
+// claudeState is the pinned backend's mode and check; a non-anthropic pin shows by name.
+func claudeState(d *dialog, fp *anthropicLogin, cur string, tier providers.Subscription) agentState {
+	p, err := d.reg.Get(cur)
+	if err != nil {
+		return agentState{mode: billingLabel(d.reg, cur), verified: false}
+	}
+	switch {
+	case p.Provider == anthropicProvider && p.Auth.Method() == providers.AuthCLI:
+		return agentState{modeSubscription, tier, fp.login()}
+	case p.Provider == anthropicProvider:
+		return agentState{mode: modeAPIKey, verified: fp.key() && configure.KeyVerified(p)}
+	case p.Auth.Login != "":
+		return agentState{mode: billingLabel(d.reg, cur), verified: agentpkg.AuthStatus(p.Auth.Login).Present}
+	}
+	return agentState{mode: billingLabel(d.reg, cur), verified: configure.KeyVerified(p)}
+}
+
+// keepOrPin pins name unless it is already the session provider.
+func keepOrPin(d *dialog, cur, name string) bool {
+	if name == "" {
+		d.printf("provider   no matching anthropic profile; left on %s\n", cur)
+		return false
+	}
+	if name == cur || !switchConfirmed(d, cur, name) {
+		d.printf("provider   pinned %s (kept)\n", cur)
+		return true
+	}
+	return applyProvider(d, name)
+}
+
+// switchConfirmed asks before a terminal pick re-points every new Claude Code launch.
+func switchConfirmed(d *dialog, cur, name string) bool {
+	if !d.o.Interactive || !d.onTerminal() {
+		return true
+	}
+	return tui.Confirm("Run every new Claude Code launch on "+name+" instead of "+cur+"?", false)
+}
+
+// billingLabel names cur as the picker shows it.
+func billingLabel(reg *providers.Registry, cur string) string {
+	if p, err := reg.Get(cur); err == nil && p.Provider == anthropicProvider {
+		if p.Auth.Method() == providers.AuthCLI {
+			return "subscription"
+		}
+		return "API key"
+	}
+	return backendLabel(reg, cur)
+}
+
+// backendLabel names a non-Anthropic profile as provider-profile and its key type: "databricks-qa · API key".
+func backendLabel(reg *providers.Registry, cur string) string {
+	p, err := reg.Get(cur)
+	if err != nil {
+		return cur
+	}
+	name := cur
+	if p.Provider != "" && p.Provider != cur {
+		name = p.Provider + "-" + cur
+	}
+	if p.Auth.Method() == providers.AuthCLI || p.Auth.Login != "" {
+		return name + " · subscription"
+	}
+	return name + " · API key"
+}
+
+func codexPreferenceValue(key string, overlay, live map[string]string) (value, source string) {
+	if value, ok := overlay[key]; ok {
+		return value, "vault"
+	}
+	if value := live[key]; value != "" {
+		return value, "native"
+	}
+	return "Codex default", "default"
+}
+
+func runCodexSettings(d *dialog) bool {
+	ov, live, path, err := loadCodexSettings(d.o.Home)
+	if err != nil {
+		d.printf("codex: %v\n", err)
+		return false
+	}
+	d.printf("codex settings: %s\n", path)
+	if d.interactive() {
+		return runCodexSettingsMenu(d, ov, live)
+	}
+	return reportCodexSettings(d, ov, live)
+}
+
+// loadCodexSettings reads the codex record's preferences, the native settings under home, and the native config path.
+func loadCodexSettings(home string) (ov, live map[string]string, path string, err error) {
+	if ov, err = codex.LoadCodexPreferences(); err != nil {
+		return nil, nil, "", err
+	}
+	if live, err = codex.ReadCodexSettings(home); err != nil {
+		return nil, nil, "", err
+	}
+	if path, err = paths.CodexConfigPath(home); err != nil {
+		return nil, nil, "", err
+	}
+	return ov, live, path, nil
+}
+
+// reportCodexSettings prints one line per field (value, source) with no prompt or write; false on a drift in --check.
+func reportCodexSettings(d *dialog, ov, live map[string]string) bool {
+	drift, err := codex.CodexSettingsDrift(d.o.Home)
+	if err != nil {
+		d.printf("codex: %v\n", err)
+		return false
+	}
+	for _, field := range codex.CodexFields() {
+		value, source := codexPreferenceValue(field.Key, ov, live)
+		if saved, exists := ov[field.Key]; exists && !field.Local && live[field.Key] != saved {
+			source += " · live differs"
+		}
+		d.printf("%s  %s  %s\n", field.Key, value, source)
+	}
+	if drift {
+		d.println("codex: saved preferences differ from native config")
+	}
+	return !d.o.Check || !drift
+}
+
+// runCodexSettingsMenu stages choices; only the explicit Save row writes or applies them.
+func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
+	next := maps.Clone(ov)
+	fields := codex.CodexFields()
+	for {
+		rows := codexSettingRows(fields, ov, next, live)
+		idx, err := d.shell().pickPlain("Codex settings", rows)
+		if err != nil {
+			d.printf("codex: %v\n", err)
+			return false
+		}
+		if idx < 0 {
+			return true
+		}
+		if idx == len(fields) {
+			return saveCodexSettings(d, ov, next)
+		}
+		if err := stageCodexChoice(d, fields[idx], next); err != nil {
+			d.printf("codex: %v\n", err)
+			return false
+		}
+	}
+}
+
+// codexSettingRows is one "<key> → value · source" row per field plus the trailing Save row.
+func codexSettingRows(fields []codex.CodexField, ov, next, live map[string]string) [][2]string {
+	rows := make([][2]string, 0, len(fields)+1)
+	for _, f := range fields {
+		value, source := codexPreferenceValue(f.Key, next, live)
+		if _, existed := ov[f.Key]; existed {
+			if _, kept := next[f.Key]; !kept {
+				value, source = "Codex default", "after save"
+			}
+		}
+		rows = append(rows, [2]string{f.Key, value + " · " + source})
+	}
+	return append(rows, [2]string{"Save and apply", "Codex only"})
+}
+
+// stageCodexChoice asks for f's value and stages it in next ("Codex default" drops it); a cancel stages nothing.
+func stageCodexChoice(d *dialog, f codex.CodexField, next map[string]string) error {
+	choices := make([][2]string, 0, len(f.Values)+1)
+	for _, value := range f.Values {
+		choices = append(choices, [2]string{value, ""})
+	}
+	choices = append(choices, [2]string{"Codex default", "remove harness override"})
+	choice, err := d.shell().Pick(f.Key, choices)
+	if err != nil || choice < 0 {
+		return err
+	}
+	if choice == len(f.Values) {
+		delete(next, f.Key)
+	} else {
+		next[f.Key] = f.Values[choice]
+	}
+	return nil
+}
+
+func saveCodexSettings(d *dialog, old, next map[string]string) bool {
+	saved, err := configure.SaveCodexSettings(d.o.Home, old, next)
+	if !saved {
+		d.printf("codex: %v\n", err)
+		return false
+	}
+	if err != nil {
+		d.printf("codex: preferences saved; native apply failed: %v\n", err)
+		return false
+	}
+	d.println("codex: preferences saved and applied")
+	return true
 }

@@ -605,3 +605,199 @@ func pastePreview(raw string) string {
 	_, v := configure.ParseAssignment(raw)
 	return vault.Preview(v)
 }
+
+// routingRow is the main-menu "routing" row: N overrides from default, or "vault error" on a load failure.
+func routingRow() homeRow {
+	overlay, err := providers.RoutingOverlay()
+	detail := "vault error"
+	if err == nil {
+		detail = fmt.Sprintf("%d overrides", countRoutingOverrides(overlay))
+	}
+	return homeRow{Name: "routing", State: detail, Check: "price weight, served-aware, opencode sub-pick", Run: func(d *dialog) { runRouting(d) }}
+}
+
+// countRoutingOverrides is how many fields the vault overlay itself sets, across every module.
+func countRoutingOverrides(overlay providers.Routing) int {
+	n := 0
+	for _, m := range configure.Modules() {
+		for _, f := range m.Fields() {
+			if f.IsSet(overlay) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// routingSource reports "vault" when the overlay itself sets f.
+func routingSource(f configure.RoutingField, overlay providers.Routing) string {
+	if f.IsSet(overlay) {
+		return "vault"
+	}
+	return "default"
+}
+
+// runRouting is the "routing" page.
+func runRouting(d *dialog) bool {
+	reg, err := providers.Load()
+	if err != nil {
+		d.printf("routing: %v\n", err)
+		return false
+	}
+	overlay, err := providers.RoutingOverlay()
+	if err != nil {
+		d.printf("routing: %v\n", err)
+		return false
+	}
+	if d.interactive() {
+		return runRoutingMenu(d, reg.Routing, overlay)
+	}
+	return reportRouting(d, reg.Routing, overlay)
+}
+
+// reportRouting prints one line per field under its module's header: key, effective value, source.
+func reportRouting(d *dialog, r, overlay providers.Routing) bool {
+	for _, m := range configure.Modules() {
+		fields := m.Fields()
+		if len(fields) == 0 {
+			continue
+		}
+		if m.Name() != "routing" {
+			d.println(heading(m.Name()))
+		}
+		for _, f := range fields {
+			d.println(f.Key + "  " + f.Get(r) + "  " + routingSource(f, overlay))
+		}
+	}
+	return true
+}
+
+// runRoutingMenu is the interactive page.
+func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
+	staged := map[string]string{}
+	resetKeys := map[string]bool{}
+	defer saveRouting(d, staged, resetKeys)
+	start := 0
+	for {
+		sections, fields := routingSections(r, overlay, staged, resetKeys)
+		idx, err := pickMenu("routing", sections, enterRow("save and go back"), start)
+		if err != nil || idx < 0 || idx >= len(fields) {
+			return true
+		}
+		start = idx
+		f := fields[idx]
+		input, ok := editRoutingField(d, f)
+		if !ok {
+			continue
+		}
+		stageRoutingField(staged, resetKeys, f, input)
+	}
+}
+
+// routingSections groups the routing fields by module.
+func routingSections(r, overlay providers.Routing, staged map[string]string, resetKeys map[string]bool) ([]tui.Section, []configure.RoutingField) {
+	var sections []tui.Section
+	var fields []configure.RoutingField
+	for _, m := range configure.Modules() {
+		var rows [][2]string
+		for _, f := range m.Fields() {
+			val, source := f.Get(r), routingSource(f, overlay)
+			switch {
+			case resetKeys[f.Key]:
+				val, source = f.Get(providers.DefaultRouting()), "default"
+			case staged[f.Key] != "":
+				val, source = staged[f.Key], "vault"
+			}
+			rows = append(rows, [2]string{f.Key, val + "  " + source})
+			fields = append(fields, f)
+		}
+		if len(rows) > 0 {
+			sections = append(sections, tui.Section{Title: heading(m.Name()), Rows: rows})
+		}
+	}
+	return sections, fields
+}
+
+// stageRoutingField records one edit.
+func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f configure.RoutingField, input string) {
+	delete(staged, f.Key)
+	delete(resetKeys, f.Key)
+	if input == "" {
+		resetKeys[f.Key] = true
+		return
+	}
+	staged[f.Key] = input
+}
+
+// editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise.
+func editRoutingField(d *dialog, f configure.RoutingField) (string, bool) {
+	switch f.Kind {
+	case configure.RoutingBool:
+		return editRoutingChoice(d, f, []string{"true", "false"})
+	case configure.RoutingEnum:
+		return editRoutingChoice(d, f, f.Values)
+	default:
+		return editRoutingText(d, f)
+	}
+}
+
+// editRoutingChoice is the on/off or enum picker, with a trailing "reset to default" row.
+func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (string, bool) {
+	rows := make([][2]string, 0, len(values)+1)
+	for _, v := range values {
+		rows = append(rows, [2]string{v, ""})
+	}
+	resetIdx := len(rows)
+	rows = append(rows, [2]string{"reset to default (" + f.Get(providers.DefaultRouting()) + ")", ""})
+	idx, err := d.shell().Pick(f.Key, rows)
+	if err != nil || idx < 0 {
+		return "", false
+	}
+	if idx == resetIdx {
+		return "", true
+	}
+	if err := configure.ValidateRoutingInput(f, values[idx]); err != nil {
+		d.printf("%s: %v\n", f.Key, err)
+		return "", false
+	}
+	return values[idx], true
+}
+
+// editRoutingText is the number/text/list prompt; an empty line resets to the default.
+func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
+	for {
+		raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
+		if !ok {
+			// input ended: a cancel, never an accidental reset
+			return "", false
+		}
+		input := strings.TrimSpace(raw)
+		if input == "" {
+			return "", true
+		}
+		if err := configure.ValidateRoutingInput(f, input); err != nil {
+			d.printf("%s: %v\n", f.Key, err)
+			continue
+		}
+		return input, true
+	}
+}
+
+// saveRouting asks to save n staged change(s) on leaving the page; n/Esc discards them.
+func saveRouting(d *dialog, staged map[string]string, resetKeys map[string]bool) {
+	n := len(staged) + len(resetKeys)
+	if n == 0 {
+		return
+	}
+	if !confirmLeave(n, "routing setting(s)") {
+		d.printf("routing: %d change(s) discarded\n", n)
+		return
+	}
+	err := configure.SaveRouting(staged, resetKeys)
+	if err != nil {
+		d.printf("routing: %v\n", err)
+		return
+	}
+	d.changed = true
+	d.printf("routing: %d setting(s) saved\n", n)
+}

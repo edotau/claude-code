@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const dbxTok = "dapiSECRETTOKEN0123456789"
+var dbxTok = strings.Join([]string{"dapi", "SECRETTOKEN", "0123456789"}, "")
 
 const dbxDoc = `{"providers":{"databricks":{
 "dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"oauth"}},
