@@ -69,7 +69,8 @@ func fallbackMode(ctx context.Context) string {
 	if v := strings.TrimSpace(proc.Value(ctx, router.EnvFallback)); v != "" {
 		return router.ParseFallback(v)
 	}
-	return router.DefaultFallback()
+	mode, _ := router.FallbackSetting(ctx, "")
+	return router.ParseFallback(mode)
 }
 
 // pinHop is copilot's record profile as a target other than t's row; false when the pin is t, unset or unusable.

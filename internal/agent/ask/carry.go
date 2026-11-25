@@ -306,7 +306,8 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 		return agent.ModelRoute{}, fmt.Errorf("parse inner ask: exit %d", code)
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		f.fallback = router.DefaultFallback()
+		mode, _ := router.FallbackSetting(ctx, "")
+		f.fallback = router.ParseFallback(mode)
 	}
 	f.dryRun = true
 	peek := withValues(agent.PeekContext(ctx), proc.Values{proc.DispatchIDEnv: rec.ID}) // the child's ancestry: it is carried

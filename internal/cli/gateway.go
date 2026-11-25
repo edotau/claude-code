@@ -336,7 +336,8 @@ func gatewayRoute(args []string) int {
 		return helptext.FailUsage(name+": %v", err)
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		q.Fallback = router.DefaultFallback()
+		mode, _ := router.FallbackSetting(context.Background(), "")
+		q.Fallback = router.ParseFallback(mode)
 		if !slices.Contains(router.FallbackModes, q.Fallback) {
 			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(router.FallbackModes, "|"))
 		}
