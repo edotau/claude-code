@@ -153,3 +153,15 @@ func TestSpawnDetachedWithReceiptRecordsSignal(t *testing.T) {
 	}
 	t.Fatal("no exit receipt written")
 }
+
+func TestChildEnvDropsUnsetThenAppendsExtra(t *testing.T) {
+	t.Setenv("PROC_DROP_ME", "1")
+	t.Setenv("PROC_KEEP_ME", "1")
+	env := childEnv([]string{"PROC_DROP_ME"}, []string{"PROC_DROP_ME=new"})
+	if slices.Contains(env, "PROC_DROP_ME=1") || !slices.Contains(env, "PROC_KEEP_ME=1") || !slices.Contains(env, "PROC_DROP_ME=new") {
+		t.Fatalf("childEnv wrong: drop/keep/extra not honored")
+	}
+	if childEnv(nil, nil) != nil {
+		t.Fatal("no unset and no extra must inherit (nil)")
+	}
+}
