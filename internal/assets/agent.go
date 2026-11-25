@@ -53,8 +53,11 @@ func renderFrom(set map[string]*parse.ListNode, name string, input any) string {
 	if !ok {
 		panic("assets: no template " + name)
 	}
+	if renderedKey != nil {
+		renderedKey(name)
+	}
 	var out strings.Builder
-	execTemplate(&out, set, name, root, input)
+	execTemplate(&out, set, name, root, input, 0)
 	return out.String()
 }
 

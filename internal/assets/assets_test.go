@@ -402,17 +402,19 @@ func TestRendersGolden(t *testing.T) {
 	for _, set := range [][]renderCase{agentRenderCases(), hookRenderCases(), planHookRenderCases(), briefRenderCases(), memoryRenderCases()} {
 		cases = append(cases, set...)
 	}
-	called := map[string]bool{}
+	rendered := map[string]bool{}
+	renderedKey = func(key string) { rendered[key] = true }
+	defer func() { renderedKey = nil }()
 	var got strings.Builder
 	for _, c := range cases {
 		label := c.acc
 		if c.variant != "" {
 			label += " (" + c.variant + ")"
 		}
-		called[c.acc] = true
 		got.WriteString("== " + label + " ==\n" + c.fn() + "\n")
 	}
-	if missing := unrenderedTemplates(t, called); len(missing) != 0 {
+	missing := unrenderedKeys(rendered)
+	if len(missing) != 0 {
 		t.Fatalf("templates never rendered by TestRendersGolden: %v", missing)
 	}
 	const golden = "testdata/renders.golden"
@@ -420,6 +422,7 @@ func TestRendersGolden(t *testing.T) {
 		if err := os.WriteFile(golden, []byte(got.String()), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		t.Fatalf("RE-RECORDED %s: rerun without -update to check it", golden)
 	}
 	want, err := os.ReadFile(golden)
 	if err != nil {
@@ -430,28 +433,17 @@ func TestRendersGolden(t *testing.T) {
 	}
 }
 
-// unrenderedTemplates lists embedded .tmpl files that no called accessor reads.
-func unrenderedTemplates(t *testing.T, called map[string]bool) []string {
-	t.Helper()
-	covered := map[string]bool{}
-	for acc, paths := range readers(t) {
-		if !called[acc] {
-			continue
-		}
-		for _, p := range paths {
-			covered[p] = true
-		}
-	}
+// unrenderedKeys lists every loaded template key (all sets, block keys included) absent from rendered.
+func unrenderedKeys(rendered map[string]bool) []string {
 	var missing []string
-	err := fs.WalkDir(files, "files", func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".tmpl") && !covered[p] {
-			missing = append(missing, p)
+	for _, load := range []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates} {
+		for key := range load() {
+			if !rendered[key] {
+				missing = append(missing, key)
+			}
 		}
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
+	slices.Sort(missing)
 	return missing
 }
 
@@ -468,13 +460,44 @@ func TestTemplateBlocks(t *testing.T) {
 	if got := renderFrom(set, "plain.tmpl", "x"); got != "hi x" {
 		t.Errorf("plain.tmpl = %q", got)
 	}
-	set["bad.tmpl"] = parseTemplate("bad.tmpl", []byte(`{{template "nope" .}}`))
+	maps.Copy(set, parseTemplates("bad.tmpl", []byte(`{{template "nope" .}}`)))
 	defer func() {
 		if r := recover(); r == nil || !strings.Contains(r.(string), `no template nope`) {
 			t.Errorf("unknown block did not panic as expected: %v", r)
 		}
 	}()
 	renderFrom(set, "bad.tmpl", nil)
+}
+
+func mustPanic(t *testing.T, want string, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(r.(string), want) {
+			t.Errorf("panic = %v, want it to contain %q", r, want)
+		}
+	}()
+	fn()
+}
+
+func TestTemplateRecursionLimit(t *testing.T) {
+	set := parseTemplates("loop.tmpl", []byte(`{{define "self"}}{{template "self" .}}{{end}}{{define "a"}}{{template "b" .}}{{end}}{{define "b"}}{{template "a" .}}{{end}}`))
+	mustPanic(t, "nests deeper than the limit", func() { renderFrom(set, "loop/self", nil) })
+	mustPanic(t, "nests deeper than the limit", func() { renderFrom(set, "loop/a", nil) })
+}
+
+func TestTemplateDefineShadowsFile(t *testing.T) {
+	mustPanic(t, "may not reuse its file name", func() { parseTemplates("lane.tmpl", []byte(`{{define "lane.tmpl"}}x{{end}}`)) })
+}
+
+func TestStandaloneTemplateBlocks(t *testing.T) {
+	set := parseTemplates("solo", []byte(`{{define "hi"}}<{{.}}>{{end}}a{{template "hi" .}}`))
+	if got := renderFrom(set, "solo", "x"); got != "a<x>" {
+		t.Errorf("solo = %q", got)
+	}
+}
+
+func TestMemoryMissingTemplateNamesArea(t *testing.T) {
+	mustPanic(t, "no memory template nope", func() { renderMemory("nope", nil) })
 }
 
 func firstDiff(a, b string) int {

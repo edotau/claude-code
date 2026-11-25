@@ -219,7 +219,13 @@ func TranscriptHandoff(cwd, transcript, note string) string {
 
 var memoryTemplates = loadTemplates("files/memory/prompts/*.tmpl")
 
-func renderMemory(name string, input any) string { return renderFrom(memoryTemplates(), name, input) }
+func renderMemory(name string, input any) string {
+	set := memoryTemplates()
+	if _, ok := set[name]; !ok {
+		panic("assets: no memory template " + name)
+	}
+	return renderFrom(set, name, input)
+}
 
 func memoryProcedure(body []byte) string {
 	text := strings.TrimSpace(string(body))

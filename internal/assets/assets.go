@@ -16,10 +16,6 @@ var files embed.FS
 type tmplFields map[string]any
 
 // Parse-only on purpose: executing text/template links MethodByName, keeping all methods (+11 MB hookd).
-func parseTemplate(name string, src []byte) *parse.ListNode {
-	return parseTrees(name, src)[name].Root
-}
-
 func parseTrees(name string, src []byte) map[string]*parse.Tree {
 	trees, err := parse.Parse(name, string(src), "", "")
 	if err != nil {
@@ -31,6 +27,9 @@ func parseTrees(name string, src []byte) map[string]*parse.Tree {
 // parseTemplates keys a file's trees: the file by name (unless only defines), each define as "<stem>/<block>".
 func parseTemplates(name string, src []byte) map[string]*parse.ListNode {
 	trees := parseTrees(name, src)
+	if strings.Contains(string(src), `define "`+name+`"`) {
+		panic("assets: " + name + ": a define may not reuse its file name")
+	}
 	stem := templateStem(name)
 	roots := make(map[string]*parse.ListNode, len(trees))
 	for key, tree := range trees {
@@ -52,14 +51,14 @@ func templateStem(name string) string {
 	return strings.TrimSuffix(name, path.Ext(name))
 }
 
-func renderTemplate(name string, root *parse.ListNode, dot any) string {
-	var out strings.Builder
-	execTemplate(&out, nil, name, root, dot)
-	return out.String()
-}
+// maxTemplateDepth bounds {{template}} nesting so a recursive block panics instead of overflowing the stack.
+const maxTemplateDepth = 16
+
+// renderedKey, set only by tests, sees every template key executed.
+var renderedKey func(key string)
 
 // execTemplate covers the subset the embedded templates use: text, {{.}}, {{.Field}}, if/else, range and template.
-func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, list *parse.ListNode, dot any) {
+func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, list *parse.ListNode, dot any, depth int) {
 	if list == nil {
 		return
 	}
@@ -71,14 +70,14 @@ func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name str
 			fmt.Fprint(out, templateValue(name, n.Pipe, dot))
 		case *parse.IfNode:
 			if templateTruth(name, templateValue(name, n.Pipe, dot)) {
-				execTemplate(out, set, name, n.List, dot)
+				execTemplate(out, set, name, n.List, dot, depth)
 			} else {
-				execTemplate(out, set, name, n.ElseList, dot)
+				execTemplate(out, set, name, n.ElseList, dot, depth)
 			}
 		case *parse.RangeNode:
-			rangeTemplate(out, set, name, n, dot)
+			rangeTemplate(out, set, name, n, dot, depth)
 		case *parse.TemplateNode:
-			callTemplate(out, set, name, n, dot)
+			callTemplate(out, set, name, n, dot, depth)
 		default:
 			panic("assets: " + name + ": unsupported template node " + node.String())
 		}
@@ -86,7 +85,7 @@ func execTemplate(out *strings.Builder, set map[string]*parse.ListNode, name str
 }
 
 // callTemplate resolves a bare block name against the caller's file first, then as a full set key.
-func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.TemplateNode, dot any) {
+func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.TemplateNode, dot any, depth int) {
 	key := templateStem(name) + "/" + n.Name
 	root, ok := set[key]
 	if !ok {
@@ -96,23 +95,29 @@ func callTemplate(out *strings.Builder, set map[string]*parse.ListNode, name str
 	if !ok {
 		panic("assets: " + name + ": no template " + n.Name)
 	}
+	if depth >= maxTemplateDepth {
+		panic("assets: " + name + ": template " + n.Name + " nests deeper than the limit (recursive block?)")
+	}
+	if renderedKey != nil {
+		renderedKey(key)
+	}
 	var arg any
 	if n.Pipe != nil {
 		arg = templateValue(name, n.Pipe, dot)
 	}
-	execTemplate(out, set, key, root, arg)
+	execTemplate(out, set, key, root, arg, depth+1)
 }
 
-func rangeTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.RangeNode, dot any) {
+func rangeTemplate(out *strings.Builder, set map[string]*parse.ListNode, name string, n *parse.RangeNode, dot any, depth int) {
 	items, ok := templateValue(name, n.Pipe, dot).([]string)
 	if !ok {
 		panic("assets: " + name + ": range needs []string")
 	}
 	for _, item := range items {
-		execTemplate(out, set, name, n.List, item)
+		execTemplate(out, set, name, n.List, item, depth)
 	}
 	if len(items) == 0 {
-		execTemplate(out, set, name, n.ElseList, dot)
+		execTemplate(out, set, name, n.ElseList, dot, depth)
 	}
 }
 

@@ -10,7 +10,7 @@ var workflowNameEscaper = strings.NewReplacer(`\`, `\\`, "'", `\'`, "\n", `\n`, 
 
 type workflowSkeleton struct {
 	once   sync.Once
-	parsed *parse.ListNode
+	parsed map[string]*parse.ListNode
 }
 
 var pipelineSkeleton, parallelSkeleton, evaluatorSkeleton, orchestratorSkeleton workflowSkeleton
@@ -71,6 +71,6 @@ func WorkflowOrchestratorSkeleton(name string) string {
 }
 
 func (s *workflowSkeleton) render(name string, source func() []byte) string {
-	s.once.Do(func() { s.parsed = parseTemplate("workflow", source()) })
-	return renderTemplate("workflow", s.parsed, tmplFields{"Name": workflowNameEscaper.Replace(name)})
+	s.once.Do(func() { s.parsed = parseTemplates("workflow", source()) })
+	return renderFrom(s.parsed, "workflow", tmplFields{"Name": workflowNameEscaper.Replace(name)})
 }
