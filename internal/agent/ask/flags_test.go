@@ -408,7 +408,8 @@ func TestAskRetryFallbackFromEnv(t *testing.T) {
 			if err := fs.Parse(args); err != nil {
 				t.Fatal(err)
 			}
-			f.fallback = router.DefaultFallback() // runTo does this before the phases when --fallback is not typed
+			mode, _ := router.FallbackSetting(t.Context(), "")
+			f.fallback = router.ParseFallback(mode) // runTo does this before the phases when --fallback is not typed
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
 			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)

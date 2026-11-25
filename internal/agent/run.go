@@ -170,14 +170,12 @@ func withRubric(o RunOptions) (RunOptions, error) {
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
-	raw := proc.Value(valuesContext(context.Background(), o.Values), router.EnvFallback)
-	if strings.TrimSpace(raw) == "" {
-		raw = providers.CustomEnv()[router.EnvFallback]
+	raw, src := router.FallbackSetting(valuesContext(context.Background(), o.Values), "")
+	pol, err := router.PolicyOf(raw, src)
+	if o.Fallback == "" && err != nil {
+		return o, clientUsageError{err}
 	}
-	fallback := router.ParseFallback(raw)
-	if o.Fallback == "" && !slices.Contains(router.FallbackModes, fallback) {
-		return o, clientUsageError{fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, raw, strings.Join(router.FallbackModes, "|"))}
-	}
+	fallback := pol.Mode()
 	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
@@ -187,7 +185,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	if err := c.resolve(&o); err != nil {
 		return o, err
 	}
-	o, err := runBudgets(valuesContext(context.Background(), o.Values), o)
+	o, err = runBudgets(valuesContext(context.Background(), o.Values), o)
 	if err != nil {
 		return o, clientUsageError{err}
 	}

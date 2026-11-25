@@ -544,7 +544,8 @@ func TestCheckArmClampsFallbackForTypedModel(t *testing.T) {
 			if err := fs.Parse([]string{"--provider", "databricks", "--model", model}); err != nil {
 				t.Fatal(err)
 			}
-			f.fallback = router.DefaultFallback()
+			mode, _ := router.FallbackSetting(t.Context(), "")
+			f.fallback = router.ParseFallback(mode)
 			r := &askRun{ctx: t.Context(), fs: fs, f: f, ag: "codex"}
 			if code, failed := r.checkArm(); failed {
 				t.Fatalf("%s: checkArm exit %d", model, code)

@@ -737,10 +737,11 @@ func TestIsWorkRepoCachesGitPerDir(t *testing.T) {
 	}
 }
 
-func TestDefaultFallbackModes(t *testing.T) {
+func TestFallbackSettingModes(t *testing.T) {
 	for env, want := range map[string]string{"pin": FallbackPin, "PIN": FallbackPin, "agents": FallbackAgents, "1": FallbackAll, "yes": FallbackAll, "bogus": "bogus"} {
 		t.Setenv(EnvFallback, env)
-		if got := DefaultFallback(); got != want {
+		mode, _ := FallbackSetting(t.Context(), "")
+		if got := ParseFallback(mode); got != want {
 			t.Errorf("%q: got %q want %q", env, got, want)
 		}
 	}

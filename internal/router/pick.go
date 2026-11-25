@@ -657,15 +657,6 @@ const EnvFallback = "AGENT_ERROR_FALLBACK"
 // oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).
 func (o PickOpts) oneHop() bool { return o.Fallback == FallbackNone || o.Fallback == FallbackPin }
 
-// DefaultFallback is EnvFallback's mode; an unknown value comes back as is, so the --fallback check rejects it.
-func DefaultFallback() string {
-	v := os.Getenv(EnvFallback)
-	if strings.TrimSpace(v) == "" {
-		v = providers.CustomEnv()[EnvFallback]
-	}
-	return ParseFallback(v)
-}
-
 // ParseFallback reads a stored mode: empty is none, 1/true/yes is all; any other value is returned for validation.
 func ParseFallback(raw string) string {
 	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
