@@ -131,11 +131,11 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 
 // planFence is the overlay's confinement held to the parent's fence.
 func planFence(ctx context.Context, parent ParentRoute) (route.Fence, error) {
-	profiles, open, err := proxy.ConfinementFence(ctx)
+	f, err := proxy.ConfinementFence(ctx)
 	if err != nil {
 		return route.Fence{}, err
 	}
-	return parent.Fence.Narrow(route.Fence{Profiles: profiles, Open: open}), nil
+	return parent.Fence.Narrow(f), nil
 }
 
 // planPolicy is the typed mode, else the configured one; a session is none, a confinement or pin one workspace.

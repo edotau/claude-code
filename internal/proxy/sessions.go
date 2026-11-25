@@ -73,29 +73,29 @@ func overlayShapeErr(ctx context.Context) error {
 }
 
 // ConfinementFence is the profile set the overlay confines ctx to; open when unconfined, an error when malformed.
-func ConfinementFence(ctx context.Context) (fence []string, open bool, err error) {
+func ConfinementFence(ctx context.Context) (route.Fence, error) {
 	if o, ok := ctx.Value(fenceKey{}).(fenceOverride); ok {
-		return o.fence, o.open, nil
+		return route.Fence{Profiles: o.fence, Open: o.open}, nil
 	}
 	if err := overlayShapeErr(ctx); err != nil {
-		return nil, false, fmt.Errorf("confinement overlay: %w", err)
+		return route.Fence{}, fmt.Errorf("confinement overlay: %w", err)
 	}
 	arm := router.ArmProfileContext(ctx)
 	if arm == "" {
-		return nil, true, nil
+		return route.Fence{Open: true}, nil
 	}
 	reg, err := providers.LoadShared()
 	if err != nil {
-		return nil, false, fmt.Errorf("confinement fence: %w", err)
+		return route.Fence{}, fmt.Errorf("confinement fence: %w", err)
 	}
-	fence = []string{arm}
+	fence := []string{arm}
 	for _, n := range reg.Names() {
 		if n != arm && ArmAllows(reg.Row(n)) {
 			fence = append(fence, n)
 		}
 	}
 	slices.Sort(fence)
-	return fence, false, nil
+	return route.Fence{Profiles: fence}, nil
 }
 
 type SessionResponse struct {
@@ -110,11 +110,11 @@ func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, e
 
 // MintScopedTokenWithFailover mints a profile-bound token with optional server-side same-provider failover.
 func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int, failoverProvider string) (string, error) {
-	fence, open, err := ConfinementFence(ctx)
+	f, err := ConfinementFence(ctx)
 	if err != nil {
 		return "", err
 	}
-	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: fence, Open: open}
+	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider, Fence: f.Profiles, Open: f.Open}
 	tok, err := mintFenced(ctx, req)
 	if !errors.Is(err, errNoFenceSupport) {
 		return tok, err
@@ -293,10 +293,11 @@ func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, er
 }
 
 func resolveProxyToken(ctx context.Context, scope []string, pid int, failover string, refresh bool) (string, error) {
-	fence, open, err := ConfinementFence(ctx)
+	f, err := ConfinementFence(ctx)
 	if err != nil {
 		return "", err
 	}
+	fence, open := f.Profiles, f.Open
 	ctx = WithFence(ctx, fence, open) // one snapshot for the cache binding and the mint
 	start, err := proxyTokenStart(pid)
 	if err != nil {

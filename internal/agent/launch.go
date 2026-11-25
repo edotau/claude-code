@@ -316,14 +316,21 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
 func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
-	fence, open, err := proxy.ConfinementFence(ctx)
-	if err != nil {
+	fence := route.Fence{}
+	if plan, ok := PlanOf(ctx); ok {
+		fence = plan.Fence
+	} else if f, err := proxy.ConfinementFence(ctx); err != nil {
 		return nil, fmt.Errorf("token scope: %w", err)
+	} else {
+		fence = f
 	}
-	if !open { // confinement never widens, nor moves to a sibling workspace
-		if !slices.Contains(fence, profile) {
-			return nil, fmt.Errorf("token scope: %s is outside the confinement fence (%s)", profile, strings.Join(fence, ","))
-		}
+	if !fence.Open && len(fence.Profiles) == 0 { // fail closed, but say why: a plan whose fence admits nothing
+		return nil, fmt.Errorf("token scope: the confinement fence admits no profile (%s refused)", profile)
+	}
+	if !fence.Allows(profile) {
+		return nil, fmt.Errorf("token scope: %s is outside the confinement fence (%s)", profile, strings.Join(fence.Profiles, ","))
+	}
+	if !fence.Open { // confinement never widens, nor moves to a sibling workspace
 		return []string{profile}, nil
 	}
 	reg, err := providers.Load()
@@ -357,10 +364,11 @@ func SessionToken(ctx context.Context, routerBase string, profiles ...string) (s
 
 // SessionTokenWithFailover mints a token strictly bound to profiles, with optional server-side same-provider failover.
 func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider string, profiles ...string) (string, error) {
-	fence, open, err := proxy.ConfinementFence(ctx)
+	f, err := proxy.ConfinementFence(ctx)
 	if err != nil {
 		return "", err
 	}
+	fence, open := f.Profiles, f.Open
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
 	ctx = proxy.WithFence(ctx, fence, open)                          // one snapshot for the slot key and the mint
 	key := routerBase + "|" + strings.Join(profiles, ",") + "|open"

@@ -28,12 +28,12 @@ func TestAgyGatewayRouteTokensSurviveLauncherExit(t *testing.T) {
 	now := time.Now()
 	orig := agent.MintSession
 	agent.MintSession = func(ctx context.Context, profiles []string, _ int) (string, error) {
-		fence, open, err := proxy.ConfinementFence(ctx)
+		f, err := proxy.ConfinementFence(ctx)
 		if err != nil {
 			return "", err
 		}
 		return proxy.SignSessionToken(secret, proxy.SessionClaims{
-			Profiles: profiles, PID: helper.Process.Pid, Start: start, Fence: fence, Open: open,
+			Profiles: profiles, PID: helper.Process.Pid, Start: start, Fence: f.Profiles, Open: f.Open,
 		}, now)
 	}
 	t.Cleanup(func() { agent.MintSession = orig })

@@ -357,11 +357,11 @@ func signLocalToken(ctx context.Context, profiles []string, failover string) (st
 	if err != nil {
 		return "", fmt.Errorf("local session token: secret: %w", err)
 	}
-	fence, open, err := proxy.ConfinementFence(ctx)
+	f, err := proxy.ConfinementFence(ctx)
 	if err != nil {
 		return "", fmt.Errorf("local session token: fence: %w", err)
 	}
-	c := proxy.SessionClaims{Profiles: profiles, Failover: failover, PID: pid, Start: start, Fence: fence, Open: open}
+	c := proxy.SessionClaims{Profiles: profiles, Failover: failover, PID: pid, Start: start, Fence: f.Profiles, Open: f.Open}
 	tok, err := proxy.SignSessionToken(secret, c, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("local session token: sign: %w", err)

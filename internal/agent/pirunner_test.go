@@ -23,7 +23,11 @@ func withTestPlan(t *testing.T, ctx context.Context, o RunOptions, profiles ...s
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := RoutePlan{Agent: o.Agent, Fallback: pol}
+	fence, err := planFence(ctx, ParentRoute{Fence: route.Fence{Open: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := RoutePlan{Agent: o.Agent, Fence: fence, Fallback: pol}
 	for _, p := range profiles {
 		plan.Pool = append(plan.Pool, Workspace{Profile: p, Account: "databricks·" + p})
 	}

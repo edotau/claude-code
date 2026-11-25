@@ -414,21 +414,16 @@ func withinFence(c *proxy.SessionClaims, profiles []string) error {
 	if c != nil && c.Open {
 		return nil
 	}
-	fence := []string(nil)
-	if c != nil && len(c.Fence) > 0 {
-		fence = c.Fence
-	} else {
-		f, open, err := proxy.ConfinementFence(context.Background())
+	allows := func(p string) bool { return c != nil && slices.Contains(c.Fence, p) }
+	if c == nil || len(c.Fence) == 0 { // only a legacy or unsigned token reads the env's overlay fence
+		fence, err := proxy.ConfinementFence(context.Background())
 		if err != nil {
 			return fmt.Errorf("resolve --proxy: %w; relaunch it", err)
 		}
-		if open {
-			return nil
-		}
-		fence = f
+		allows = fence.Allows
 	}
 	for _, p := range profiles {
-		if !slices.Contains(fence, p) {
+		if !allows(p) {
 			return fmt.Errorf("resolve --proxy: %s is outside the token's confinement fence; relaunch it", p)
 		}
 	}
