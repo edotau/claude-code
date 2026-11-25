@@ -36,6 +36,7 @@ func isJSONNull(raw json.RawMessage) bool {
 // sessionHead is what the first ~64KB of a main transcript carries about the session itself.
 type sessionHead struct {
 	cwd, branch, title string
+	headless           bool
 }
 
 // sessionHeadLine is the head-record subset; cwd/gitBranch may ride on any line type, so the first carrier wins.
@@ -43,6 +44,7 @@ type sessionHeadLine struct {
 	Type        string          `json:"type"`
 	Cwd         string          `json:"cwd"`
 	GitBranch   string          `json:"gitBranch"`
+	Entrypoint  string          `json:"entrypoint"`
 	IsSidechain bool            `json:"isSidechain"`
 	Message     json.RawMessage `json:"message"`
 }
@@ -71,6 +73,7 @@ func scanSessionHead(path string) sessionHead {
 		}
 		head.cwd = cmp.Or(head.cwd, rec.Cwd)
 		head.branch = cmp.Or(head.branch, rec.GitBranch)
+		head.headless = head.headless || strings.HasPrefix(rec.Entrypoint, "sdk-")
 		if head.title == "" {
 			head.title = titleFromRecord(rec)
 		}

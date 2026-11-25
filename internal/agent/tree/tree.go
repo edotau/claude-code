@@ -144,6 +144,7 @@ type WorkflowRun struct {
 // Session is one projects/<slug>/<session>.jsonl plus everything nested under projects/<slug>/<session>/.
 type Session struct {
 	total     subtreeTotal
+	headless  bool          // an sdk-* entrypoint: a job the harness spawned, not a terminal
 	ID        string        `json:"id"`
 	Project   string        `json:"project"` // the on-disk project slug (sanitized cwd)
 	Cwd       string        `json:"cwd"`
@@ -237,6 +238,9 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 	tree := &Tree{}
 	for _, f := range sessionFiles {
 		s := buildSession(f, now, scans)
+		if s.headless && opts.Session == "" { // a named session still shows whole
+			continue
+		}
 		if e, ok := reg[s.ID]; ok {
 			s = applyRegistry(s, e)
 		}
@@ -352,13 +356,14 @@ func buildSession(transcriptPath string, now time.Time, scans *scanCache) Sessio
 
 	head := scanSessionHead(transcriptPath)
 	s := Session{
-		ID:      id,
-		Project: project,
-		Cwd:     head.cwd,
-		Branch:  head.branch,
-		Title:   head.title,
-		Updated: updated,
-		Status:  sessionStatus(updated, now),
+		ID:       id,
+		Project:  project,
+		Cwd:      head.cwd,
+		Branch:   head.branch,
+		Title:    head.title,
+		Updated:  updated,
+		Status:   sessionStatus(updated, now),
+		headless: head.headless,
 	}
 
 	for _, agentFile := range transcript.WorkflowAgentFiles(filepath.Join(sessionDir, "subagents")) {

@@ -29,6 +29,7 @@ const (
 	staleSID    = "stale-session-cccc3333"
 	runningSID  = "running-session-bbbb2222"
 	demoProj    = "-Users-fake-demo-repo"
+	jobSID      = "memory-job-eeee5555"
 )
 
 var (
@@ -345,6 +346,7 @@ func TestBuildFilters(t *testing.T) {
 		onlyIDs  []string
 	}{
 		{"days excludes old sessions", Options{Days: 1}, []string{finishedSID}, []string{staleSID}, nil},
+		{"sdk-cli harness job is not a top-level session", Options{Days: 1}, []string{finishedSID}, []string{jobSID}, nil},
 		{"session narrows to one id ignoring days", Options{Session: staleSID}, nil, nil, []string{staleSID}},
 	}
 	for _, c := range cases {
