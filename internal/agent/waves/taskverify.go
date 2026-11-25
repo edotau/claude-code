@@ -3,7 +3,6 @@ package waves
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -127,14 +126,13 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 		return nil, fmt.Errorf("not a commit sha: %q", sha)
 	}
 	root := filepath.Join(paths.StateDir(), "verify")
-	treeRoot := filepath.Join(os.TempDir(), "claude-code-verify")
-	pruneTrees(ctx, top, root, treeRoot)
+	pruneTrees(ctx, top, root, worktree.SlotRoot())
 	own := sha[:min(12, len(sha))] + "-" + strconv.Itoa(os.Getpid())
-	dir, release, err := acquireTree(ctx, top, treeRoot, sha, own)
+	slot, err := worktree.AcquireSlot(ctx, top, sha, own)
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer slot.Release()
 	// diff against the first parent so a merge lists its files; -z keeps spaces and quotes intact
 	raw, err := proc.RunGit(ctx, top, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", "-m", "--first-parent", sha)
 	if err != nil {
@@ -143,7 +141,7 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 	files := slices.DeleteFunc(strings.Split(raw, "\x00"), func(f string) bool { return strings.TrimSpace(f) == "" })
 	out := map[string][]TaskCheck{}
 	for _, t := range tasks {
-		out[cmp.Or(t.ID, t.Title)] = VerifyTask(ctx, TaskVerifyInput{Dir: dir, Base: sha + "^", Task: t, Files: files,
+		out[cmp.Or(t.ID, t.Title)] = VerifyTask(ctx, TaskVerifyInput{Dir: slot.Dir, Base: sha + "^", Task: t, Files: files,
 			OutDir: filepath.Join(root, "out-"+own)})
 	}
 	return out, nil
@@ -154,71 +152,18 @@ func pruneTrees(ctx context.Context, top, root, treeRoot string) {
 	// in-repo trees and slots are from before snapshots moved out of the module; go build and gopls walk into them
 	old, _ := filepath.Glob(filepath.Join(root, "slot-*-[0-9]"))
 	for _, t := range old {
-		removeTree(ctx, top, t)
+		worktree.RemoveTree(ctx, top, t)
 	}
 	trees, _ := filepath.Glob(filepath.Join(root, "tree-*"))
 	for _, t := range trees {
-		removeTree(ctx, top, t)
+		worktree.RemoveTree(ctx, top, t)
 	}
 	trees, _ = filepath.Glob(filepath.Join(treeRoot, "tree-*"))
 	for _, t := range trees {
 		pid, err := strconv.Atoi(t[strings.LastIndexByte(t, '-')+1:])
 		if _, serr := proc.StartTime(pid); err != nil || errors.Is(serr, proc.ErrNoProcess) {
-			removeTree(ctx, top, t)
+			worktree.RemoveTree(ctx, top, t)
 		}
 	}
 	plans.PruneVerify(root, "out-*")
-}
-
-const verifySlots = 4
-
-// acquireTree checks sha out in a per-repo slot held by a lock file, so the build cache sees one stable path.
-// A dead holder's flock is released by the OS; with every slot busy it falls back to a private tree.
-func acquireTree(ctx context.Context, top, root, sha, own string) (string, func(), error) {
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return "", nil, err
-	}
-	key := fmt.Sprintf("%x", sha256.Sum256([]byte(top)))[:8]
-	for i := range verifySlots {
-		base := filepath.Join(root, fmt.Sprintf("slot-%s-%d", key, i))
-		f, err := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR, 0o600)
-		if err != nil {
-			return "", nil, err
-		}
-		if !paths.TryLock(f) {
-			_ = f.Close()
-			continue
-		}
-		if err := resetSlot(ctx, top, base, sha); err != nil {
-			_ = f.Close()
-			return "", nil, err
-		}
-		return base, func() { _ = f.Close() }, nil
-	}
-	dir := filepath.Join(root, "tree-"+own)
-	removeTree(ctx, top, dir) // a reused pid's leftover is ours
-	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
-		return "", nil, err
-	}
-	return dir, func() { removeTree(context.Background(), top, dir) }, nil
-}
-
-// resetSlot moves the slot's worktree to sha and drops untracked and ignored files, recreating it when it is missing or broken.
-func resetSlot(ctx context.Context, top, dir, sha string) error {
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		if _, err = proc.RunGit(ctx, dir, "checkout", "--force", "--detach", sha); err == nil {
-			if _, err = proc.RunGit(ctx, dir, "clean", "-ffdxq"); err == nil {
-				return nil
-			}
-		}
-	}
-	removeTree(ctx, top, dir)
-	_, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha)
-	return err
-}
-
-func removeTree(ctx context.Context, top, dir string) {
-	_, _ = proc.RunGit(ctx, top, "worktree", "remove", "--force", dir)
-	_ = os.RemoveAll(dir)
-	_, _ = proc.RunGit(ctx, top, "worktree", "prune")
 }

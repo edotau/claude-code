@@ -10,6 +10,7 @@ internal/worktree/resolve.go:WithLandLease	unversioned: text: lease holder pid a
 internal/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/worktree/sessions.go:Append	notices
 internal/worktree/sessions.go:capInbox	notices
+internal/worktree/slot.go:AcquireSlot	unversioned: lock: an empty flock file, no content
 internal/worktree/venvoverlay.go:copyScript	unversioned: text: console script copied into a lane venv
 internal/worktree/venvoverlay.go:inheritSystemSitePackages	unversioned: text: pyvenv.cfg of a lane venv
 internal/worktree/venvoverlay.go:writeOverlayPth	unversioned: text: .pth files of a lane venv
