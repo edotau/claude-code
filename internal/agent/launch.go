@@ -527,6 +527,7 @@ type ClaudeOptions struct {
 	Provider, Model string
 	KeepEnv         []string
 	Dispatch        bool
+	ProfileAsked    bool // the dispatch named Provider; false when it is the session default
 }
 
 // Launcher resolves a Claude launch; the claude package registers the default and tests fake it.
@@ -549,6 +550,7 @@ type LaunchOptions struct {
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
 	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
 	Dispatch bool
+	Asked    bool   // Provider was named by the dispatch, not filled from the session profile
 	Binary   string // launcher only: the native claude to exec (VS Code wrapper's bundled path)
 	Route    route.Route
 }

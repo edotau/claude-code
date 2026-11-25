@@ -193,7 +193,8 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(args, cmArgs...)
-	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
+	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true,
+		ProfileAsked: cmp.Or(req.CellRoute.Profile, req.Provider) != ""}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
@@ -729,7 +730,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 type claudeLauncher struct{}
 
 func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv, Dispatch: o.Dispatch}, args)
+	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv, Dispatch: o.Dispatch, Asked: o.ProfileAsked}, args)
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}

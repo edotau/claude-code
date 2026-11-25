@@ -200,6 +200,10 @@ func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOpti
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
+	if o.Dispatch && o.Asked { // a profile the dispatch named owns the endpoint; the caller's own base never overrides it
+		keepShellKeys(ctx, plan, keep[1:], false)
+		return
+	}
 	own := plan.Set[proc.EnvAnthropicBaseURL]
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route

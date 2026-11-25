@@ -1145,3 +1145,18 @@ func TestHashedOverlayPathByContent(t *testing.T) {
 		t.Errorf("rehash of a hashed path = %s, want %s", again, a)
 	}
 }
+
+// TestKeepShellEndpointAskedProfileWins: a dispatch with an asked profile ignores the caller's foreign base.
+func TestKeepShellEndpointAskedProfileWins(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:10100/inference/anthropic/proxies/claude-code")
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/local"}}
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{Dispatch: true, Provider: "local", Asked: true})
+	if plan.ForeignBase || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/local" || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("caller's base won: foreign=%v set=%q keep=%v", plan.ForeignBase, plan.Set["ANTHROPIC_BASE_URL"], plan.Keep)
+	}
+	session := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/local"}}
+	keepShellEndpoint(context.Background(), &session, agent.LaunchOptions{Dispatch: true, Provider: "local"})
+	if !session.ForeignBase { // a session-default profile still yields to the caller's own base
+		t.Errorf("session-default profile overrode the caller's base: set=%q", session.Set["ANTHROPIC_BASE_URL"])
+	}
+}
