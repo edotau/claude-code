@@ -1,6 +1,6 @@
 ---
 description: "Send a task to the gemini agent on its own pin, here or on --host <host>"
-argument-hint: "[--host <host>] [--profile <p>] [--model <m>] <task>"
+argument-hint: "[--host <host>] [--provider <p>] [--profile <p>] [--model <m>] [--effort <e>] [--fallback <mode>] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label gemini *), Bash(claude-code agents brief --path gemini), Read, Write,
   Bash(claude-code agents ask --agent gemini --spec *), Bash(claude-code agents result -f *)
@@ -9,13 +9,20 @@ allowed-tools: Bash(claude-code agents label gemini *), Bash(claude-code agents 
 # /gemini
 
 ```text
-/gemini [--host <host>] [--profile <p>] [--model <m>] <task>
+/gemini [--host <host>] [--provider <p>] [--profile <p>] [--model <m>] [--effort <e>] [--fallback <mode>] <task>
+
+  --host <host>      run the whole ask on that machine (ssh alias, tailnet name or auto)
+  --provider <p>     lead on this provider's signed-in profile (databricks picks the least busy workspace)
+  --profile <p>      the profile to lead on (dev, qa, prod, a login); omitted: the agent's pin
+  --model <m>        alias, version, wire id or auto; omitted: the pin, else the tier pick
+  --effort <e>       low|medium|high|xhigh|max
+  --fallback <mode>  none|pin|agents|all; none keeps a typed model and route fixed
 ```
 
 Launcher only, carried with no relay subagent. Empty `$ARGUMENTS` or `help`: print the block above and stop.
 Otherwise:
 
-1. Take the leading `--host <host>`, `--profile <p>` and `--model <m>` off `$ARGUMENTS`; the rest is the task.
+1. Take the leading flags in the block above off `$ARGUMENTS` (any order, each optional); the rest is the task.
 2. Run `claude-code agents brief --path gemini`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label gemini [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).

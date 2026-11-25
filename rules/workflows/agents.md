@@ -35,7 +35,8 @@ agent: `skills/subagent-workflows/SKILL.md`.
 
 All are owner-only (`disable-model-invocation: true`); each launcher specifies its dispatch tool.
 
-- `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <h>] [--profile <p>] [--model <m>] <task>` — the session
+- `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <h>] [--provider <p>] [--profile <p>] [--model <m>]
+  [--effort <e>] [--fallback <mode>] <task>` — the session
   runs `agents ask --carry --background --agent <type> [flags] --tools - < brief`,
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   `/pi` (same flags) runs the same ask plain, without `--carry` (which refuses pi). There is no `/claude`: the name
