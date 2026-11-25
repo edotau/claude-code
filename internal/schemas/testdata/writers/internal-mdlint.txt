@@ -1,0 +1,1 @@
+internal/mdlint/mdlint.go:WriteStoreConfig	unversioned: text: memory store markdownlint child config, rewritten when stale
