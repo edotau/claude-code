@@ -3,8 +3,6 @@ package memory
 import (
 	"archive/tar"
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,11 +10,9 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -26,9 +22,6 @@ import (
 // replaceFiles keep the target and drop the source (nothing is archived); idFiles merge by block.
 var (
 	replaceFiles = map[string]bool{"activeContext.md": true, "progress.md": true, "projectContext.md": true}
-	headingDate  = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
-	})
 )
 
 // importMaxFile caps one imported file; importMaxTotal caps a fetched archive.
@@ -47,8 +40,8 @@ type ImportOptions struct {
 	Skip           map[string]bool   // store-relative files the import leaves alone (a sync deletion in flight)
 }
 
-// ImportResult is the plan (dry run) or the outcome: one line per action, then the summary line.
-type ImportResult struct {
+// importResult is the plan (dry run) or the outcome: one line per action, then the summary line.
+type importResult struct {
 	Lines   []string
 	Summary string
 }
@@ -61,7 +54,7 @@ func (e *ImportInputError) Error() string { return e.Msg }
 func importInput(format string, a ...any) error { return &ImportInputError{fmt.Sprintf(format, a...)} }
 
 // ImportBank merges another bank into the local one under the job and bank locks; Replace lets a source file win.
-func ImportBank(opt ImportOptions) (ImportResult, error) {
+func ImportBank(opt ImportOptions) (importResult, error) {
 	if opt.Now.IsZero() {
 		opt.Now = time.Now()
 	}
@@ -69,7 +62,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		p, err := planImport(opt)
 		return p.result(opt), err
 	}
-	var res ImportResult
+	var res importResult
 	ran, err := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { // the job lock memory update and dream hold
 		return withFlatLock(BankLockWait, func() error {
 			p, err := planImport(opt)
@@ -92,7 +85,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 type importStats struct{ merged, copied, kept, conflicts, skipped, left, removed int }
 
 type importPlan struct {
-	changes  []Change
+	changes  []storeChange
 	acts     []importAction // parallel to changes: what each one was counted as
 	leaks    []string       // planned writes the store commit would refuse as credential-shaped
 	lines    []string
@@ -125,13 +118,13 @@ func planImport(opt ImportOptions) (*importPlan, error) {
 	return p, nil
 }
 
-func (p *importPlan) result(opt ImportOptions) ImportResult {
+func (p *importPlan) result(opt ImportOptions) importResult {
 	s, left := p.st, ""
 	if s.left > 0 {
 		left = fmt.Sprintf("; %d non-log file(s) left out (--topics imports them)", s.left)
 	}
 	if len(p.changes) == 0 && p.newPtrs == 0 {
-		return ImportResult{Lines: p.lines, Summary: "nothing to import" + left}
+		return importResult{Lines: p.lines, Summary: "nothing to import" + left}
 	}
 	if p.newPtrs > 0 {
 		left = fmt.Sprintf("; %d pointer line(s)", p.newPtrs) + left
@@ -143,7 +136,7 @@ func (p *importPlan) result(opt ImportOptions) ImportResult {
 	if opt.DryRun {
 		verb = "would import"
 	}
-	return ImportResult{Lines: p.lines, Summary: fmt.Sprintf("%s: %d merged, %d copied, %d kept local, %d conflict(s), %d skipped",
+	return importResult{Lines: p.lines, Summary: fmt.Sprintf("%s: %d merged, %d copied, %d kept local, %d conflict(s), %d skipped",
 		verb, s.merged, s.copied, s.kept, s.conflicts, s.skipped) + left}
 }
 
@@ -153,7 +146,7 @@ func (p *importPlan) countNewPointers() {
 	if held == nil {
 		held = map[string]bool{}
 	}
-	for _, f := range append(keptCopies(), NativeIndex()) {
+	for _, f := range []string{asidePath(), NativeIndex()} {
 		data, _ := readIfExists(f)
 		in, _ := inputEntries(string(data), lastGenerated())
 		for _, e := range in {
@@ -317,7 +310,7 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 	}
 	a := decideImport(rel, cur, data, err == nil, p.replace[rel])
 	if err == nil && dst == filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)) {
-		a.pre = sha256Hex(cur) // else rel itself was absent at the plan
+		a.pre = textutil.SHA256Hex(cur) // else rel itself was absent at the plan
 	}
 	p.record(rel, a)
 }
@@ -380,7 +373,7 @@ func (p *importPlan) record(rel string, a importAction) {
 	if credentialShaped(a.data) {
 		p.leaks = append(p.leaks, rel)
 	}
-	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data, Planned: true, PreSHA256: a.pre})
+	p.changes = append(p.changes, storeChange{Rel: filepath.FromSlash(rel), Data: a.data, Planned: true, PreSHA256: a.pre})
 	p.acts = append(p.acts, a)
 }
 
@@ -394,7 +387,7 @@ func decideImport(rel string, cur, data []byte, exists bool, replaceHash string)
 		return mergedAction(rel, "merge %d entr(ies)", merged, n)
 	case bytes.Equal(cur, data):
 		return importAction{}
-	case replaceHash != "" && replaceHash == sha256Hex(cur):
+	case replaceHash != "" && replaceHash == textutil.SHA256Hex(cur):
 		return importAction{kind: impCopy, data: data, line: "replace " + rel} // counted under "copied"
 	case replaceFiles[rel]:
 		return importAction{kind: impKept, line: "kept local " + rel}
@@ -418,8 +411,8 @@ func mergedAction(rel, format, merged string, n int) importAction {
 	return importAction{kind: impMerge, n: n, data: []byte(merged), line: rel + ": " + fmt.Sprintf(format, n)}
 }
 
-// ExtractStoreTar unpacks a tar of a memory root into dir: only regular files inside a store dir, within the caps.
-func ExtractStoreTar(r io.Reader, dir string) ([]string, error) {
+// extractStoreTar unpacks a tar of a memory root into dir: only regular files inside a store dir, within the caps.
+func extractStoreTar(r io.Reader, dir string) ([]string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
@@ -528,8 +521,8 @@ func sortNewestFirst(all []string) []string {
 	last := "9999-99-99"
 	dates := make([]string, len(all))
 	for i, b := range all {
-		if m := headingDate().FindStringSubmatch(b); m != nil {
-			last = m[1]
+		if len(b) >= 13 && strings.HasPrefix(b, "## ") && isDate(b[3:13]) {
+			last = b[3:13]
 		}
 		dates[i] = last
 	}
@@ -543,11 +536,6 @@ func sortNewestFirst(all []string) []string {
 		sorted[i] = all[j]
 	}
 	return sorted
-}
-
-func sha256Hex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 const (
@@ -597,7 +585,7 @@ func bundleAge(file string, now time.Time) time.Duration {
 	return now.Sub(t)
 }
 
-// storeTarName reports whether a store file may travel: what ExtractStoreTar and planStore would accept as a file.
+// storeTarName reports whether a store file may travel: what extractStoreTar and planStore would accept as a file.
 func storeTarName(rel string) bool {
 	if !filepath.IsLocal(filepath.FromSlash(rel)) || foldSkips(rel) || strings.HasPrefix(path.Base(rel), ".") {
 		return false
@@ -609,8 +597,8 @@ func storeTarName(rel string) bool {
 	return !slices.ContainsFunc(parts[:len(parts)-1], func(d string) bool { return d == ".git" || d == "locks" || d == ".locks" })
 }
 
-// WriteStoreTar writes the named store files, plus .layout, as a tar ExtractStoreTar reads; skipped names are dropped.
-func WriteStoreTar(w io.Writer, rels []string) error {
+// writeStoreTar writes the named store files, plus .layout, as a tar extractStoreTar reads; skipped names are dropped.
+func writeStoreTar(w io.Writer, rels []string) error {
 	root, err := os.OpenRoot(paths.MemoryStoreDir())
 	if err != nil {
 		return err

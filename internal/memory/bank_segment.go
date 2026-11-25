@@ -9,13 +9,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"unsafe"
 
 	"github.com/edotau/claude-code/internal/parallel"
@@ -483,7 +481,7 @@ func indexSegments(uniq map[string]int, segs []segView) (
 
 // scoreSegmentDocs returns the BM25F-scored hits for every matched doc in one segment.
 func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl float64,
-	seg segView, wt map[int][]float64, file corpusFile, dir string) []SearchHit {
+	seg segView, wt map[int][]float64, file corpusFile) []SearchHit {
 	idfs := make([]float64, len(df))
 	for j, d := range df {
 		idfs[j] = math.Log((n-float64(d)+0.5)/(float64(d)+0.5) + 1)
@@ -517,7 +515,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		}
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir, sum: sum, replaced: replacedFlag(seg.DocSuperseded(doc)),
+			File: filepath.Base(file.Path), Block: block, ID: id, sum: sum, replaced: replacedFlag(seg.DocSuperseded(doc)),
 		})
 	}
 	return hits
@@ -556,10 +554,9 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	}
 	n := float64(ndocs)
 	var hits []SearchHit
-	dir := accessDir()
 	perSeg := make([][]SearchHit, len(segs))
 	forEachIndex(usable, func(i int) {
-		perSeg[i] = scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)
+		perSeg[i] = scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i])
 	})
 	for _, i := range usable {
 		hits = append(hits, perSeg[i]...)
@@ -665,11 +662,10 @@ type SearchHit struct {
 	UnresolvedReplacement bool    `json:"unresolvedReplacement,omitempty"`
 	Score                 float64 `json:"score"`
 	Matched               int     `json:"matched"` // distinct query terms the block contains
-	Bank                  string  `json:"bank"`    // local | home | archive | native
+	Bank                  string  `json:"bank"`    // home | archive | native | knowledge | techdebt
 	File                  string  `json:"file"`
 	Block                 string  `json:"block"`
 	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
-	Dir                   string  `json:"-"`
 	sum                   uint64  // blockSum(Block) when the segment supplied it, else 0; reset when Block changes
 	replaced              uint8   // 0 unknown, 1 live, 2 superseded: the segment's flag for Block
 }
@@ -729,16 +725,15 @@ func corpusBlocks() ([]SearchHit, error) {
 			return nil, err
 		}
 		base := filepath.Base(f.Path)
-		dir := accessDir()
 		for _, block := range parseBlocks(f.Mode, base, data) {
-			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: dir})
+			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block})
 		}
 	}
 	return out, nil
 }
 
-// Entry is one discrete memory item (the ADK MemoryEntry shape): a bank block with id, date and type metadata.
-type Entry struct {
+// memoryEntry is one discrete memory item (the ADK MemoryEntry shape): a bank block with id, date and type metadata.
+type memoryEntry struct {
 	ID         string
 	Date       string // YYYY-MM-DD from the title, "" when the block carries none
 	Type       string // decision | convention | progress | session | context | topic | knowledge
@@ -750,9 +745,6 @@ type Entry struct {
 }
 
 var (
-	entryDate = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	})
 	// entryTypes maps a typed bank file to its entry type.
 	entryTypes = map[string]string{
 		"decisionLog.md": "decision", "conventions.md": "convention", "progress.md": "progress",
@@ -802,7 +794,7 @@ func isSupersededTitle(first string) bool {
 func (h SearchHit) ReplacedBy() string { return replacedBy(h.Block) }
 
 // entryFromHit lifts a search hit to an Entry; a block without a persisted id gets its contentRef.
-func entryFromHit(h SearchHit) Entry {
+func entryFromHit(h SearchHit) memoryEntry {
 	id := blockRef(h.Block, h.ID)
 	typ := entryTypes[logicalName(h.File)]
 	switch {
@@ -813,15 +805,15 @@ func entryFromHit(h SearchHit) Entry {
 		typ = "topic"
 	}
 	title := strings.TrimLeft(stripIDMarks(textutil.FirstLine(h.Block)), "#- ")
-	return Entry{
-		ID: id, Date: entryDate().FindString(title), Type: typ, Title: truncateLine(title),
+	return memoryEntry{
+		ID: id, Date: dateRE().FindString(title), Type: typ, Title: truncateLine(title),
 		Body: strings.TrimSpace(stripIDMarks(h.Block)), Bank: h.Bank, File: h.File,
 		Archived: h.Bank == "archive", Superseded: isSupersededBlock(h.Block),
 	}
 }
 
 // pointer is the one-line reference `memory search <id>` expands.
-func (e Entry) pointer() string {
+func (e memoryEntry) pointer() string {
 	line := e.ID
 	if e.Date != "" && !strings.Contains(e.Title, e.Date) {
 		line += " · " + e.Date
@@ -833,7 +825,7 @@ func (e Entry) pointer() string {
 }
 
 // typeRank orders entry types for recall: decisions and conventions first, session narrative last.
-func (e Entry) typeRank() int {
+func (e memoryEntry) typeRank() int {
 	switch e.Type {
 	case "decision", "convention":
 		return 0

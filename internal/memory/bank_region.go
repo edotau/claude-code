@@ -58,9 +58,6 @@ func genPath() string   { return filepath.Join(paths.MemoryStateDir(), genName) 
 // renameFile is os.Rename, a var so tests can model a state folder on another volume.
 var renameFile = os.Rename
 
-// keptCopies lists the kept MEMORY.md copies a refresh reads: the current one.
-func keptCopies() []string { return []string{asidePath()} }
-
 // errIndexProblem marks a refresh failure that automatic settle tolerates.
 var errIndexProblem = errors.New("MEMORY.md refresh")
 
@@ -653,7 +650,7 @@ func planRefresh(rows []pointerRow, extra []string) (string, indexReport, error)
 	var in []string
 	blanks := 0
 	prevGen := lastGenerated()
-	for _, p := range append(keptCopies(), NativeIndex()) {
+	for _, p := range []string{asidePath(), NativeIndex()} {
 		data, err := readIfExists(p)
 		if err != nil {
 			return "", indexReport{}, err

@@ -132,7 +132,7 @@ func pathsOf(files []corpusFile, label string) []string {
 	return out
 }
 
-func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
+func TestCorpusFilesOwnershipInTheBank(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)

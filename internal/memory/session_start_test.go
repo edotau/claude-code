@@ -119,7 +119,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-scaffold the store (steady state: a .origin exists) so this test isolates the link-repair contract.
+	// Pre-scaffold the store (steady state: the bank exists) so this test isolates the link-repair contract.
 	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestStartSessionProbesBankOnce(t *testing.T) {
 
 func TestStartWorkersRetriesFailedWakeForPendingJob(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, err := Enqueue(Job{Kind: "dream", Key: "today"}); err != nil {
+	if _, err := enqueue(job{Kind: "dream", Key: "today"}); err != nil {
 		t.Fatal(err)
 	}
 	orig := spawn.catchup
@@ -452,32 +452,6 @@ func TestSectionBodyRespectsFence(t *testing.T) {
 	want := "```\n## not a heading\n```\n- a"
 	if got := sectionBody(text, "Current Focus"); got != want {
 		t.Errorf("sectionBody = %q, want %q (fence-aware heading scan must keep the fenced \"## \" line in-section)", got, want)
-	}
-}
-
-// TestAccessLogPathMovesToStateAfterCutover: store dirs log under state/harness/memory/access, never inside memory/.
-func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
-	isolatedConfig(t)
-	legacy := filepath.Join(t.TempDir(), "bank")
-	if got := AccessLogPath(legacy); got != filepath.Join(legacy, accessLogFile) {
-		t.Fatalf("pre-cutover path = %s, want beside the bank", got)
-	}
-	initStore(t)
-	for dir, want := range map[string]string{
-		paths.MemoryStoreDir():                           "home.log",
-		filepath.Join(paths.MemoryStoreDir(), ".claude"): ".claude.log",
-		filepath.Join(paths.MemoryStoreDir(), "repo-a"):  "repo-a.log",
-	} {
-		if got := AccessLogPath(dir); got != filepath.Join(AccessStateDir(), want) {
-			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
-		}
-	}
-	logAccess(filepath.Join(paths.MemoryStoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
-	if _, err := os.Stat(filepath.Join(paths.MemoryStoreDir(), "repo-a", accessLogFile)); !os.IsNotExist(err) {
-		t.Errorf("access.log written inside the store: %v", err)
-	}
-	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
-		t.Errorf("state access log missing the entry: %q", data)
 	}
 }
 

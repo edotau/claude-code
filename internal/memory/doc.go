@@ -53,8 +53,8 @@ type Ref struct {
 	Alias   string // slug a model or a hand wrote after "-"; Go never mints one
 }
 
-// Front is the typed view of a note's frontmatter; other keys stay untouched in Doc.Front.
-type Front struct{ Name, Description, Type string }
+// noteFront is the typed view of a note's frontmatter; other keys stay untouched in Doc.Front.
+type noteFront struct{ Name, Description, Type string }
 
 // GrammarOf picks the grammar from the file name: idFiles and archives first, else GrammarSections.
 func GrammarOf(name string) Grammar {
@@ -275,21 +275,21 @@ func marker(line string) (r Ref, lo, hi int, ok bool) {
 	}
 }
 
-// ErrFrontFlow is returned when a type change would have to edit an inline (flow-style) metadata map.
-var ErrFrontFlow = errors.New("memory: frontmatter metadata is not a block map; edit it by hand")
+// errFrontFlow is returned when a type change would have to edit an inline (flow-style) metadata map.
+var errFrontFlow = errors.New("memory: frontmatter metadata is not a block map; edit it by hand")
 
-// FrontFields reads name, description and metadata.type from the front block; false when there is none.
-func (d Doc) FrontFields() (Front, bool, error) {
+// frontFields reads name, description and metadata.type from the front block; false when there is none.
+func (d Doc) frontFields() (noteFront, bool, error) {
 	if d.Front == nil {
-		return Front{}, false, nil
+		return noteFront{}, false, nil
 	}
 	f, err := readFront(d.Front)
 	return f, true, err
 }
 
 // readFront reads the three typed scalars from front lines (fences included); a malformed quoted value is an error.
-func readFront(front []string) (Front, error) {
-	var f Front
+func readFront(front []string) (noteFront, error) {
+	var f noteFront
 	if len(front) < 2 {
 		return f, nil
 	}
@@ -301,7 +301,7 @@ func readFront(front []string) (Front, error) {
 		}
 		j := continuationEnd(body, i+1)
 		if err := f.set(key, val, body[i+1:j]); err != nil {
-			return Front{}, fmt.Errorf("frontmatter %s: %w", key, err)
+			return noteFront{}, fmt.Errorf("frontmatter %s: %w", key, err)
 		}
 		i = j - 1
 	}
@@ -316,7 +316,7 @@ func continuationEnd(lines []string, from int) int {
 	return from
 }
 
-func (f *Front) set(key, val string, cont []string) (err error) {
+func (f *noteFront) set(key, val string, cont []string) (err error) {
 	switch key {
 	case "name":
 		f.Name, err = foldedScalar(val, cont)
@@ -457,9 +457,9 @@ func plainTyped(v string) bool {
 	return err != nil && !strings.HasPrefix(low, "0x") && !strings.HasPrefix(low, "0o")
 }
 
-// WithFront returns a copy whose front lines carry f; only changed name, description and type lines are rewritten.
-func (d Doc) WithFront(f Front) (Doc, error) {
-	cur, _, err := d.FrontFields()
+// withFront returns a copy whose front lines carry f; only changed name, description and type lines are rewritten.
+func (d Doc) withFront(f noteFront) (Doc, error) {
+	cur, _, err := d.frontFields()
 	if err != nil {
 		return d, err
 	}
@@ -483,7 +483,7 @@ func (d Doc) WithFront(f Front) (Doc, error) {
 			return d, err
 		}
 		if slices.ContainsFunc(lines, inlineMetadata) {
-			return d, ErrFrontFlow
+			return d, errFrontFlow
 		}
 		lines = setFrontLine(lines, "  ", "type", enc)
 	}

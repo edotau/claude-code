@@ -48,9 +48,9 @@ func journals(t *testing.T) []string {
 }
 
 // commitLocked runs one batch under the writable bank lock, the shape every caller uses.
-func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, error) {
+func commitLocked(t *testing.T, subject string, changes []storeChange) (commitReceipt, error) {
 	t.Helper()
-	var rec Receipt
+	var rec commitReceipt
 	err := WithBankLock(BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked(subject, changes)
@@ -60,9 +60,9 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 }
 
 // assertNoopBatch: a second identical batch changes no bytes, so there is no commit.
-func assertNoopBatch(t *testing.T, first Receipt) {
+func assertNoopBatch(t *testing.T, first commitReceipt) {
 	t.Helper()
-	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n")}})
+	rec2, err := commitLocked(t, "import", []storeChange{{Rel: "repo/MEMORY.md", Data: []byte("- a\n")}})
 	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
 		t.Fatalf("no-op batch = %+v, %v", rec2, err)
 	}
@@ -73,7 +73,7 @@ func assertNoopBatch(t *testing.T, first Receipt) {
 
 func TestCommitChangesLockedFreshImportCommits(t *testing.T) {
 	store, decoy := storeFixture(t)
-	rec, err := commitLocked(t, "import", []Change{
+	rec, err := commitLocked(t, "import", []storeChange{
 		{Rel: "repo/MEMORY.md", Data: []byte("- a\n")},
 		{Rel: "repo/activeContext.md", Data: []byte("# Active\n")},
 	})
@@ -103,10 +103,10 @@ func TestCommitChangesLockedFreshImportCommits(t *testing.T) {
 // Delete: absent is skipped, present is removed and committed.
 func TestCommitChangesLockedDeleteRules(t *testing.T) {
 	store, _ := storeFixture(t)
-	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/new.md", Data: []byte("new\n")}}); err != nil {
+	if _, err := commitLocked(t, "seed", []storeChange{{Rel: "r/new.md", Data: []byte("new\n")}}); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := commitLocked(t, "delete", []Change{
+	rec, err := commitLocked(t, "delete", []storeChange{
 		{Rel: "r/gone.md", Delete: true},
 		{Rel: "r/new.md", Delete: true},
 	})
@@ -125,7 +125,7 @@ func TestCommitChangesLockedDeleteRules(t *testing.T) {
 func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, _ := storeFixture(t)
-	if _, err := commitLocked(t, "x", []Change{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
+	if _, err := commitLocked(t, "x", []storeChange{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
 		t.Fatal("escaping rel accepted")
 	}
 	if len(journals(t)) != 0 {
@@ -141,7 +141,7 @@ func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *test
 	if err := os.Symlink(outside, filepath.Join(store, "repo")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commitLocked(t, "escape", []Change{{Rel: "repo/sub/MEMORY.md", Data: []byte("x\n")}}); err == nil {
+	if _, err := commitLocked(t, "escape", []storeChange{{Rel: "repo/sub/MEMORY.md", Data: []byte("x\n")}}); err == nil {
 		t.Fatal("commit accepted a write through a symlinked ancestor directory")
 	}
 	if _, err := os.Stat(filepath.Join(outside, "sub", "MEMORY.md")); !os.IsNotExist(err) {
@@ -155,7 +155,7 @@ func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *test
 func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, _ := storeFixture(t)
-	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("a\n")}}); err != nil {
+	if _, err := commitLocked(t, "seed", []storeChange{{Rel: "r/a.md", Data: []byte("a\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "outside.md")
@@ -163,7 +163,7 @@ func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(store, "r", "link.md")); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := commitLocked(t, "settle", []Change{{Rel: "r/a.md", Data: []byte("b\n")}})
+	rec, err := commitLocked(t, "settle", []storeChange{{Rel: "r/a.md", Data: []byte("b\n")}})
 	if err != nil || len(rec.Preexisting) != 0 {
 		t.Fatalf("symlink swept: %+v, %v", rec, err)
 	}
@@ -173,7 +173,7 @@ func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
 }
 
 // batchLocked runs one batch under the bank lock like commitLocked, but without a *testing.T.
-func batchLocked(subject string, changes []Change) (rec Receipt, err error) {
+func batchLocked(subject string, changes []storeChange) (rec commitReceipt, err error) {
 	err = WithBankLock(BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked(subject, changes)
@@ -213,7 +213,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	// Hooks are disabled; a held ref lock makes git commit itself fail.
 	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, refLock, "")
-	_, err := batchLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n")}})
+	_, err := batchLocked("batch", []storeChange{{Rel: "r/x.md", Data: []byte("x\n")}})
 	if err == nil || errors.Is(err, errDivergent) {
 		t.Fatalf("commit must fail under the held ref lock: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The next batch recovers the old journal as its own commit.
-	rec, err := batchLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
+	rec, err := batchLocked("next", []storeChange{{Rel: "r/y.md", Data: []byte("y\n")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 }
 
 // assertRecovered checks the old journal is retired, both batches are committed, and the store is clean.
-func assertRecovered(t *testing.T, rec Receipt) {
+func assertRecovered(t *testing.T, rec commitReceipt) {
 	t.Helper()
 	if len(journals(t)) != 0 {
 		t.Fatal("journal not retired after recovery")
@@ -256,7 +256,7 @@ func assertRecovered(t *testing.T, rec Receipt) {
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
 	if err := WithBankLock(BankLockWait, func() error {
-		_, err := commitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
+		_, err := commitChangesLocked("seed", []storeChange{{Rel: "r/a.md", Data: []byte("v1\n")}})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -281,9 +281,9 @@ func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 }
 
 // assertApply applies c with the planned outcome into a fresh receipt and checks its Applied and Divergent rels.
-func assertApply(t *testing.T, c journalChange, repo Repo, planned outcome, wantApplied, wantDivergent, label string) {
+func assertApply(t *testing.T, c journalChange, repo storeRepo, planned outcome, wantApplied, wantDivergent, label string) {
 	t.Helper()
-	var rec Receipt
+	var rec commitReceipt
 	err := c.apply(repo, planned, &rec)
 	if err != nil || strings.Join(rec.Applied, ",") != wantApplied || strings.Join(rec.Divergent, ",") != wantDivergent {
 		t.Fatalf("%s: %+v, %v", label, rec, err)
@@ -353,7 +353,7 @@ func writeJournal(t *testing.T, id string, extra map[string]any) {
 
 func nextBatch(t *testing.T) error {
 	t.Helper()
-	_, err := commitLocked(t, "next", []Change{{Rel: "r/next.md", Data: []byte("n\n")}})
+	_, err := commitLocked(t, "next", []storeChange{{Rel: "r/next.md", Data: []byte("n\n")}})
 	return err
 }
 
@@ -425,14 +425,14 @@ func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
 	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := commitLocked(t, "newer", []Change{{Rel: "r/seeded.md", Data: []byte("newer\n")}}); err != nil {
+	if _, err := commitLocked(t, "newer", []storeChange{{Rel: "r/seeded.md", Data: []byte("newer\n")}}); err != nil {
 		t.Fatal(err)
 	}
 	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"changes": []map[string]any{{
 		"rel": "r/seeded.md", "hasPreimage": true, "preimageSha256": textutil.SHA256Hex([]byte("old\n")), "data": []byte("stale\n"),
 	}}})
 
-	_, err := commitLocked(t, "after", []Change{{Rel: "r/other.md", Data: []byte("o\n")}})
+	_, err := commitLocked(t, "after", []storeChange{{Rel: "r/other.md", Data: []byte("o\n")}})
 	if err != nil {
 		t.Fatalf("diverging journal must not wedge: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	storeFixture(t)
 	write(t, filepath.Join(paths.MemoryStoreDir(), "other", "note.md"), "key: "+placeholder+"\n")
 	readStderr := captureStderr(t)
-	rec, err := commitLocked(t, "import", []Change{{Rel: "r/a.md", Data: []byte("a\n")}})
+	rec, err := commitLocked(t, "import", []storeChange{{Rel: "r/a.md", Data: []byte("a\n")}})
 	stderr := readStderr()
 	if err != nil {
 		t.Fatalf("an unrelated credential-shaped file failed the batch: %v", err)
@@ -463,21 +463,21 @@ func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	}
 
 	write(t, filepath.Join(paths.MemoryStoreDir(), "r", "leak.md"), "key: "+placeholder+"\n")
-	if _, err := commitLocked(t, "import", []Change{{Rel: "r/b.md", Data: []byte("b\n")}}); err == nil ||
+	if _, err := commitLocked(t, "import", []storeChange{{Rel: "r/b.md", Data: []byte("b\n")}}); err == nil ||
 		!strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the batch's dir must be refused, got %v", err)
 	}
 }
 
 // storeFixture isolates config and sets a hostile inherited git env at a decoy repo; tests assert it stays untouched.
-func storeFixture(t *testing.T) (store string, decoy Repo) {
+func storeFixture(t *testing.T) (store string, decoy storeRepo) {
 	t.Helper()
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	decoy = Repo{Dir: filepath.Join(t.TempDir(), "decoy")}
+	decoy = storeRepo{Dir: filepath.Join(t.TempDir(), "decoy")}
 	if err := decoy.Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func storeFixture(t *testing.T) (store string, decoy Repo) {
 }
 
 // assertDecoyUntouched: the hostile GIT_* env must never retarget a store operation at the decoy.
-func assertDecoyUntouched(t *testing.T, decoy Repo) {
+func assertDecoyUntouched(t *testing.T, decoy storeRepo) {
 	t.Helper()
 	if head, _ := decoy.head(); head != "" {
 		t.Fatalf("decoy gained a commit %s", head)
@@ -566,7 +566,7 @@ func assertGitignoreSeeded(t *testing.T, store string) {
 }
 
 // assertFreshRepoEmpty checks a just-ensured repo has no HEAD, no log and no remotes.
-func assertFreshRepoEmpty(t *testing.T, r Repo) {
+func assertFreshRepoEmpty(t *testing.T, r storeRepo) {
 	t.Helper()
 	if head, _ := r.head(); head != "" {
 		t.Fatalf("fresh repo has HEAD %q", head)
@@ -594,7 +594,7 @@ func assertPrePushRefuses(t *testing.T, hookPath string) {
 func TestEnsureRefusesPointerFileAndRemotes(t *testing.T) {
 	t.Parallel()
 	store := filepath.Join(t.TempDir(), "memory")
-	r := Repo{Dir: store}
+	r := storeRepo{Dir: store}
 	write(t, filepath.Join(store, ".git"), "gitdir: /elsewhere\n")
 	if err := r.Ensure(); err == nil {
 		t.Fatal("Ensure accepted a gitdir pointer file")
@@ -727,10 +727,10 @@ func TestCheckRootRejectsSharedCommondir(t *testing.T) {
 	t.Parallel()
 	store := filepath.Join(t.TempDir(), "memory")
 	other := filepath.Join(t.TempDir(), "other")
-	if err := (Repo{Dir: other}).Ensure(); err != nil {
+	if err := (storeRepo{Dir: other}).Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	r := Repo{Dir: store}
+	r := storeRepo{Dir: store}
 	gitDir := filepath.Join(store, ".git")
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		t.Fatal(err)
@@ -759,7 +759,7 @@ func TestCheckRootRejectsSharedCommondir(t *testing.T) {
 func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
 	t.Parallel()
 	store := filepath.Join(t.TempDir(), "memory")
-	r := Repo{Dir: store}
+	r := storeRepo{Dir: store}
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +788,7 @@ func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
 func TestGitOutSanitizesEnv(t *testing.T) {
 	_, decoy := storeFixture(t)
 	other := filepath.Join(t.TempDir(), "other")
-	if err := (Repo{Dir: other}).Ensure(); err != nil {
+	if err := (storeRepo{Dir: other}).Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	top, err := gitOut(other, "rev-parse", "--show-toplevel")
@@ -823,7 +823,7 @@ func mustEval(t *testing.T, p string) string {
 // Store git calls run with -C: from a cwd inside the store, pathspecs and output stay relative to the store root.
 func TestRepoRunIgnoresProcessCwd(t *testing.T) {
 	store, _ := storeFixture(t)
-	r := Repo{Dir: store}
+	r := storeRepo{Dir: store}
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
@@ -869,14 +869,14 @@ func TestStoreGitProbesBounded(t *testing.T) {
 // TestHeadDistinguishesUnbornFromFailure: an unborn HEAD is ("", nil); any other git failure is returned.
 func TestHeadDistinguishesUnbornFromFailure(t *testing.T) {
 	storeFixture(t)
-	r := Repo{Dir: filepath.Join(t.TempDir(), "repo")}
+	r := storeRepo{Dir: filepath.Join(t.TempDir(), "repo")}
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	if head, err := r.head(); err != nil || head != "" {
 		t.Fatalf("unborn Head = %q, %v, want \"\", nil", head, err)
 	}
-	if _, err := (Repo{Dir: filepath.Join(t.TempDir(), "missing")}).head(); err == nil {
+	if _, err := (storeRepo{Dir: filepath.Join(t.TempDir(), "missing")}).head(); err == nil {
 		t.Fatal("Head on a non-repo = nil error, want the git failure")
 	}
 }

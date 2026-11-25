@@ -392,7 +392,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "decisionLog.md") {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
-	data, err := os.ReadFile(memory.AccessLogPath(paths.MemoryStoreDir()))
+	data, err := os.ReadFile(filepath.Join(memory.AccessStateDir(), "home.log"))
 	if err != nil {
 		t.Fatal(err)
 	}

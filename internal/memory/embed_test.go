@@ -120,7 +120,7 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient) {
 }
 
 // entryCosines returns the query's cosine to entry aaaa0001 (gamma) and to the other entry (delta).
-func entryCosines(t *testing.T, sem *Semantic) (gamma, delta float64) {
+func entryCosines(t *testing.T, sem *semanticQuery) (gamma, delta float64) {
 	t.Helper()
 	hits, err := corpusBlocks()
 	if err != nil {

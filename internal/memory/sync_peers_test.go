@@ -101,7 +101,7 @@ func TestSyncPassOrder(t *testing.T) {
 			calls: []string{probe, "probe down.peer.example", "pull peer.example", "push peer.example"}},
 		{name: "held refusal", layout: layoutFlat, code: 1, calls: []string{probe}, state: func() *PeerSync {
 			return &PeerSync{Pull: SyncDir{Refusal: "credential-shaped content: x.md", Since: time.Now(), Token: tok},
-				Push: SyncDir{Refusal: "exit 1: credential-shaped content: y.md", Since: time.Now(), Token: LocalToken()}}
+				Push: SyncDir{Refusal: "exit 1: credential-shaped content: y.md", Since: time.Now(), Token: localToken()}}
 		}},
 		{name: "unequal layout", layout: "flat 2", code: 1, calls: []string{probe}},
 		{name: "replace refused by an older peer", layout: layoutFlat, calls: []string{probe, "push peer.example --replace", "push peer.example"},
@@ -125,7 +125,7 @@ func runSyncCase(t *testing.T, c syncCase) {
 	if code != c.code || !slices.Equal(st.calls, c.calls) {
 		t.Fatalf("code %d, calls %v; want %d, %v\n%s", code, st.calls, c.code, c.calls, out.String())
 	}
-	if p := LoadSync().Peers[c.down]; c.down != "" && (p == nil || p.Unreachable.IsZero()) {
+	if p := loadSync().Peers[c.down]; c.down != "" && (p == nil || p.Unreachable.IsZero()) {
 		t.Fatalf("the unreachable peer was not recorded: %+v", p)
 	}
 }
@@ -217,7 +217,7 @@ func syncLiveSetup(t *testing.T, peerCfg string) (commit string) {
 		if _, code, err := syncLiveRun(peerCfg, memoryFetchScript, nil, &tarball); code != 0 || err != nil {
 			return dir, fmt.Errorf("fetch exit %d: %v", code, err)
 		}
-		_, err := ExtractStoreTar(&tarball, dir)
+		_, err := extractStoreTar(&tarball, dir)
 		return dir, err
 	}
 	return commit
@@ -271,7 +271,7 @@ func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, o
 	ts.asPeer(func() {
 		if script == syncProbeScript() {
 			layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
-			head, digest, _ := strings.Cut(LocalToken(), " ")
+			head, digest, _ := strings.Cut(localToken(), " ")
 			_, _ = fmt.Fprintf(out, "%s\n%s\n%s\n", strings.TrimSpace(string(layout)), head, digest)
 			return
 		}
@@ -283,7 +283,7 @@ func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, o
 // peerImport is the push script in Go: unpack, import with the .replace list, bracket the answer with tokens.
 func (ts *twoStores) peerImport(script string, in io.Reader, out io.Writer) int {
 	dir := ts.t.TempDir()
-	if _, err := ExtractStoreTar(in, dir); err != nil {
+	if _, err := extractStoreTar(in, dir); err != nil {
 		return 1
 	}
 	var replace map[string]string
@@ -294,7 +294,7 @@ func (ts *twoStores) peerImport(script string, in io.Reader, out io.Writer) int 
 	if strings.Contains(script, "--remove") {
 		remove, _ = ReadReplaceList(filepath.Join(dir, ".remove"))
 	}
-	answer, code := "sync-pre "+LocalToken()+"\n", 0
+	answer, code := "sync-pre "+localToken()+"\n", 0
 	res, err := ImportBank(ImportOptions{From: dir, Label: "driver", Topics: true, Replace: replace, Remove: remove,
 		DryRun: strings.Contains(script, "--dry-run")})
 	if err != nil {
@@ -302,7 +302,7 @@ func (ts *twoStores) peerImport(script string, in io.Reader, out io.Writer) int 
 	} else {
 		answer += strings.Join(append(res.Lines, res.Summary), "\n") + "\n"
 	}
-	answer += "sync-post " + LocalToken() + "\n"
+	answer += "sync-post " + localToken() + "\n"
 	if ts.mangle != nil {
 		answer = ts.mangle(answer)
 	}
@@ -322,13 +322,13 @@ func (ts *twoStores) fetch(host string) (string, error) {
 	var err error
 	ts.asPeer(func() {
 		var rels []string
-		for rel := range HashStore() {
+		for rel := range hashStore() {
 			rels = append(rels, rel)
 		}
-		err = WriteStoreTar(&buf, rels)
+		err = writeStoreTar(&buf, rels)
 	})
 	if err == nil {
-		_, err = ExtractStoreTar(&buf, dir)
+		_, err = extractStoreTar(&buf, dir)
 	}
 	return dir, err
 }
@@ -368,7 +368,7 @@ func (ts *twoStores) step(name, rel, wantLocal, wantPeer string, peers ...string
 	var out bytes.Buffer
 	_, _ = RunSync(append([]string{"peer.example"}, peers...), false, &out)
 	local, peer := ts.get(rel)
-	seen := LoadSync().Peers["peer.example"].Seen[rel]
+	seen := loadSync().Peers["peer.example"].Seen[rel]
 	want := syncSum(wantLocal)
 	if wantLocal != wantPeer {
 		want += " " + syncSum(wantPeer)
@@ -412,7 +412,7 @@ func TestSyncTwoStoresConverge(t *testing.T) {
 	ts.put(false, x, "a8\n")
 	ts.mangle = func(a string) string { return strings.SplitN(a, "\n", 2)[0] + "\n" + strings.Repeat("x", 1<<17) + "\n" }
 	_, _ = RunSync([]string{"peer.example"}, false, io.Discard)
-	if seen := LoadSync().Peers["peer.example"].Seen[x]; seen != syncSum("a7\n") {
+	if seen := loadSync().Peers["peer.example"].Seen[x]; seen != syncSum("a7\n") {
 		t.Fatalf("a truncated answer advanced seen to %q", seen)
 	}
 	ts.mangle = nil
@@ -439,7 +439,7 @@ func TestSyncBusyIsRetriedNotHeld(t *testing.T) {
 	for range 2 {
 		_, _ = RunSync([]string{"peer.example"}, false, io.Discard)
 	}
-	if p := LoadSync().Peers["peer.example"]; p.Push.Refusal != "" || countPrefix(st.calls, "push ") != 2 {
+	if p := loadSync().Peers["peer.example"]; p.Push.Refusal != "" || countPrefix(st.calls, "push ") != 2 {
 		t.Fatalf("busy peer: refusal %q, calls %v; want no hold and a push each pass", p.Push.Refusal, st.calls)
 	}
 }
@@ -508,7 +508,7 @@ func TestSyncDeletionKeepsPeerEdit(t *testing.T) {
 }
 
 func TestSyncPrimaryWinsConflict(t *testing.T) {
-	for _, tc := range []struct{ primary, want string }{{SyncPrimarySelf, "a1\n"}, {"peer.example", "b1\n"}, {"", ""}} {
+	for _, tc := range []struct{ primary, want string }{{syncPrimarySelf, "a1\n"}, {"peer.example", "b1\n"}, {"", ""}} {
 		ts := newTwoStores(t)
 		x := "notes/x.md"
 		ts.put(false, x, "a0\n")
@@ -529,7 +529,7 @@ func TestSyncPrimaryDeletionBeatsPeerEdit(t *testing.T) {
 	x := "notes/x.md"
 	ts.put(false, x, "a0\n")
 	ts.step("seed", x, "a0\n", "a0\n")
-	syncMust(t, SetSyncPrimary(SyncPrimarySelf))
+	syncMust(t, SetSyncPrimary(syncPrimarySelf))
 	syncMust(t, os.Remove(filepath.Join(paths.MemoryStoreDir(), x)))
 	ts.put(true, x, "b1\n")
 	_, _ = RunSync([]string{"peer.example"}, false, io.Discard)

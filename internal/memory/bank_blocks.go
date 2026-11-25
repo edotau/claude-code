@@ -241,21 +241,11 @@ func lastIDMarker(text string) string {
 		if i < 0 {
 			return ""
 		}
-		if rest := text[i+len("<!-- id:"):]; len(rest) >= 12 && rest[8:12] == " -->" && isLowerHex(rest[:8]) {
+		if rest := text[i+len("<!-- id:"):]; len(rest) >= 12 && rest[8:12] == " -->" && isHex(rest[:8]) {
 			return rest[:8]
 		}
 		end = i
 	}
-}
-
-// isLowerHex reports whether s is only 0-9a-f.
-func isLowerHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if c := s[i]; c < '0' || c > '9' && c < 'a' || c > 'f' {
-			return false
-		}
-	}
-	return true
 }
 
 // stripID removes the ID marker for display.

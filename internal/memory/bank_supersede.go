@@ -441,7 +441,7 @@ func reaches(edges map[string][]string, from, to string) bool {
 
 // blockDate is the YYYY-MM-DD in block's title line, "" when undated.
 func blockDate(block string) string {
-	return entryDate().FindString(stripID(textutil.FirstLine(block)))
+	return dateRE().FindString(stripID(textutil.FirstLine(block)))
 }
 
 // revisePlan is the lookup state planRevisions classifies each reference against.
@@ -608,7 +608,7 @@ func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit,
 					continue
 				}
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id}, true
 			}
 		}
 		return SearchHit{}, false

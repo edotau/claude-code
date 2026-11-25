@@ -509,7 +509,7 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 }
 
 // headOrEmpty is Head() with the error folded away ("" when there is no commit yet).
-func (r Repo) headOrEmpty(t *testing.T) string {
+func (r storeRepo) headOrEmpty(t *testing.T) string {
 	t.Helper()
 	h, _ := r.head()
 	return h

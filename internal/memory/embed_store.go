@@ -471,8 +471,8 @@ func hitHash(h SearchHit) string {
 	return string(out[:])
 }
 
-func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
-	s := &Semantic{query: query, rows: rows, blocks: make(map[string]string, len(rows))}
+func newSemantic(query []float32, rows map[string]vectorRow) *semanticQuery {
+	s := &semanticQuery{query: query, rows: rows, blocks: make(map[string]string, len(rows))}
 	for id, row := range rows {
 		if row.BlockHash != "" {
 			s.blocks[row.BlockHash] = id
@@ -482,7 +482,7 @@ func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
 }
 
 // cosineHit reuses the minted block hash and ID without constructing an Entry.
-func (s *Semantic) cosineHit(h SearchHit) (float64, bool) {
+func (s *semanticQuery) cosineHit(h SearchHit) (float64, bool) {
 	id, ok := s.blocks[hitHash(h)]
 	if !ok || h.ID != "" && h.ID != id {
 		return 0, false
@@ -490,7 +490,7 @@ func (s *Semantic) cosineHit(h SearchHit) (float64, bool) {
 	return s.cosineRow(s.rows[id])
 }
 
-func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
+func (s *semanticQuery) cosineRow(row vectorRow) (float64, bool) {
 	if len(row.Vec) != 4*len(s.query) {
 		return 0, false
 	}
@@ -503,7 +503,7 @@ func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
 }
 
 // candidates scores the already loaded corpus segments without parsing bank files or constructing entries.
-func (s *Semantic) candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
+func (s *semanticQuery) candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	var all []scoredHit
 	for i, seg := range segs {
 		if seg == nil || files[i].Bank == "archive" || files[i].Bank == techdebtDir {
@@ -581,7 +581,7 @@ func topK(all []scoredHit, k int) []scoredHit {
 }
 
 // hitFor builds the hit for block of file f and its cosine; false for a struck-out or unembedded block at floor.
-func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
+func (s *semanticQuery) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
 	if isSupersededBlock(block) {
 		return SearchHit{}, 0, false
 	}
@@ -591,6 +591,14 @@ func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit,
 	if h.ID == "" || !ok || cos < floor {
 		return h, 0, false
 	}
-	h.Dir = accessDir()
 	return h, cos, true
 }
+
+// embedCacheSchema is the embedding cache's schema version.
+const embedCacheSchema = 3
+
+var embedFormat = schemas.Register(schemas.Format{
+	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
+	Glob: embedDBPath,
+	Keep: "bbolt metadata and binary float32 rows of one shared cache; a version mismatch is a miss",
+})

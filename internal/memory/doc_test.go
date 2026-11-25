@@ -123,47 +123,47 @@ func TestFrontWriteReadIdentity(t *testing.T) {
 		"true", "123", "x:", " lead", "tab\there", "it's", "a, b",
 	}
 	for _, v := range vals {
-		d, err := ParseDoc("n.md", []byte("---\nname: old\ndescription: old\n---\n- a\n")).WithFront(Front{Name: v, Description: v})
+		d, err := ParseDoc("n.md", []byte("---\nname: old\ndescription: old\n---\n- a\n")).withFront(noteFront{Name: v, Description: v})
 		if err != nil {
 			t.Fatalf("WithFront(%q): %v", v, err)
 		}
-		got, ok, err := d.FrontFields()
+		got, ok, err := d.frontFields()
 		if err != nil || !ok || got.Name != v || got.Description != v {
 			t.Errorf("value %q read back %+v %v %v from %q", v, got, ok, err, d.Front)
 		}
-		again, err := ParseDoc("n.md", d.Render()).WithFront(Front{Name: v, Description: v})
+		again, err := ParseDoc("n.md", d.Render()).withFront(noteFront{Name: v, Description: v})
 		if err != nil || strings.Join(again.Front, "\n") != strings.Join(d.Front, "\n") {
 			t.Errorf("value %q not stable: %v %q", v, err, again.Front)
 		}
 	}
-	d, _ := ParseDoc("n.md", []byte("---\nname: old\n---\n")).WithFront(Front{Name: "plain text"})
+	d, _ := ParseDoc("n.md", []byte("---\nname: old\n---\n")).withFront(noteFront{Name: "plain text"})
 	if d.Front[1] != "name: plain text" {
 		t.Errorf("safe value was quoted: %q", d.Front)
 	}
 }
 
 func TestFrontRefusesBadInput(t *testing.T) {
-	if _, err := ParseDoc("n.md", nil).WithFront(Front{Name: "a\nb"}); err == nil {
+	if _, err := ParseDoc("n.md", nil).withFront(noteFront{Name: "a\nb"}); err == nil {
 		t.Error("newline value accepted")
 	}
 	bad := ParseDoc("n.md", []byte("---\nname: \"open\n---\n"))
-	if _, ok, err := bad.FrontFields(); !ok || err == nil {
+	if _, ok, err := bad.frontFields(); !ok || err == nil {
 		t.Errorf("parse error dropped: ok=%v err=%v", ok, err)
 	}
-	if _, err := bad.WithFront(Front{Name: "x"}); err == nil {
+	if _, err := bad.withFront(noteFront{Name: "x"}); err == nil {
 		t.Error("WithFront rewrote a front block it could not parse")
 	}
 }
 
 func TestFrontFlowMetadata(t *testing.T) {
 	d := ParseDoc("n.md", []byte("---\nname: n\nmetadata: {type: x}\n---\n"))
-	if f, _, err := d.FrontFields(); err != nil || f.Type != "x" {
+	if f, _, err := d.frontFields(); err != nil || f.Type != "x" {
 		t.Fatalf("flow type = %+v %v", f, err)
 	}
-	if _, err := d.WithFront(Front{Name: "n", Type: "y"}); !errors.Is(err, ErrFrontFlow) {
+	if _, err := d.withFront(noteFront{Name: "n", Type: "y"}); !errors.Is(err, errFrontFlow) {
 		t.Errorf("flow edit err = %v, want ErrFrontFlow", err)
 	}
-	if _, err := d.WithFront(Front{Name: "m", Type: "x"}); err != nil {
+	if _, err := d.withFront(noteFront{Name: "m", Type: "x"}); err != nil {
 		t.Errorf("unrelated edit refused: %v", err)
 	}
 }
@@ -257,11 +257,11 @@ func TestRefMarker(t *testing.T) {
 
 func TestFrontFields(t *testing.T) {
 	d := ParseDoc("note.md", []byte(docFixtures["note.md"]))
-	f, ok, err := d.FrontFields()
-	if !ok || err != nil || f != (Front{Name: "n", Description: "d", Type: "feedback"}) {
+	f, ok, err := d.frontFields()
+	if !ok || err != nil || f != (noteFront{Name: "n", Description: "d", Type: "feedback"}) {
 		t.Fatalf("FrontFields = %+v %v %v", f, ok, err)
 	}
-	nd, err := d.WithFront(Front{Name: "n", Description: "e", Type: "feedback"})
+	nd, err := d.withFront(noteFront{Name: "n", Description: "e", Type: "feedback"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,8 +269,8 @@ func TestFrontFields(t *testing.T) {
 	if string(nd.Render()) != want || string(d.Render()) != docFixtures["note.md"] {
 		t.Errorf("WithFront render = %q", nd.Render())
 	}
-	fresh, err := ParseDoc("x.md", []byte("- a\n")).WithFront(Front{Name: "x", Type: "t"})
-	if g, _, _ := fresh.FrontFields(); err != nil || g.Name != "x" || g.Type != "t" {
+	fresh, err := ParseDoc("x.md", []byte("- a\n")).withFront(noteFront{Name: "x", Type: "t"})
+	if g, _, _ := fresh.frontFields(); err != nil || g.Name != "x" || g.Type != "t" {
 		t.Errorf("fresh front = %+v", g)
 	}
 }

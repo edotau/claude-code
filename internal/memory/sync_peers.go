@@ -118,7 +118,7 @@ type syncPass struct {
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
-	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout)),
+	s := &syncPass{st: loadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout)),
 		refused: map[string]bool{}, plansTok: map[string]string{},
 		theirs: map[string]map[string]string{}}
 	tokens := map[string]string{}
@@ -280,7 +280,7 @@ func (s *syncPass) pull(name string, p *PeerSync, tok string) bool {
 		s.say("pull", name, "fetch failed: "+err.Error()+"; retried at the next pass")
 		return false
 	}
-	theirs, side, local := hashTree(dir), s.st.primaryOf(name), HashStore()
+	theirs, side, local := hashTree(dir), s.st.primaryOf(name), hashStore()
 	s.theirs[name] = theirs
 	gone := localGone(p.Seen)
 	drop, back := localDeletes(p.Seen, gone, theirs, side)
@@ -301,7 +301,7 @@ func (s *syncPass) pull(name string, p *PeerSync, tok string) bool {
 	s.say("pull", name, fmt.Sprintf("%s; differ %d", res.Summary, n))
 	if !s.dryRun {
 		forgetRemoved(p.Seen, res.Lines, gone, theirs)
-		settleSeen(p.Seen, HashStore(), theirs, wroteFiles(res.Lines), side)
+		settleSeen(p.Seen, hashStore(), theirs, wroteFiles(res.Lines), side)
 		p.Pulled, p.Pull = tok, SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
 	}
 	return true
@@ -320,7 +320,7 @@ func (s *syncPass) fail(d *SyncDir, dir, peer, why string, lasting bool, token s
 func takePeer(seen, local, theirs map[string]string, side primarySide) map[string]string {
 	replace := map[string]string{}
 	for rel, h := range theirs {
-		if l, ok := local[rel]; ok && !MergesOnImport(rel) && side.resolve(DecideSync(seen[rel], l, h)) == SyncTakePeer {
+		if l, ok := local[rel]; ok && !mergesOnImport(rel) && side.resolve(decideSync(seen[rel], l, h)) == syncTakePeer {
 			replace[rel] = l
 		}
 	}
@@ -334,10 +334,10 @@ func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool, si
 		switch {
 		case wrote[rel]:
 			seen[rel] = h // the import wrote the peer's bytes: an edit since is a local change
-		case !ok, MergesOnImport(rel) && l != h:
+		case !ok, mergesOnImport(rel) && l != h:
 		case l == h:
 			seen[rel] = l
-		case DecideSync(seen[rel], l, h) == SyncDiffer && side != primaryLocal: // the primary's push still has to carry it
+		case decideSync(seen[rel], l, h) == syncDiffer && side != primaryLocal: // the primary's push still has to carry it
 			seen[rel] = l + " " + h // both keep their own; the next one-sided change wins
 		}
 	}
@@ -392,8 +392,7 @@ func hashTree(dir string) map[string]string {
 				return nil
 			}
 			if b, err := os.ReadFile(p); err == nil {
-				sum := sha256.Sum256(b)
-				out[rel] = hex.EncodeToString(sum[:])
+				out[rel] = textutil.SHA256Hex(b)
 			}
 		}
 		return nil
@@ -403,7 +402,7 @@ func hashTree(dir string) map[string]string {
 
 // push sends the files whose local hash moved since the peer last saw them; skipped when the local token did not move.
 func (s *syncPass) push(name string, p *PeerSync, peerTok string) bool {
-	tok := LocalToken()
+	tok := localToken()
 	if tok != "" && tok == p.Pushed {
 		s.say("push", name, "unchanged")
 		return true
@@ -413,8 +412,8 @@ func (s *syncPass) push(name string, p *PeerSync, peerTok string) bool {
 		s.say("push", name, "refused earlier: "+p.Push.Refusal)
 		return false
 	}
-	local, theirs, side := HashStore(), s.theirs[name], s.st.primaryOf(name)
-	rels := ChangedSince(local, p.Seen)
+	local, theirs, side := hashStore(), s.theirs[name], s.st.primaryOf(name)
+	rels := changedSince(local, p.Seen)
 	if side == primaryLocal {
 		rels = withStanding(rels, local, p.Seen)
 	}
@@ -466,7 +465,7 @@ func pushReplace(seen, local map[string]string, rels []string, theirs map[string
 		if theirs != nil {
 			ph = theirs[rel]
 		}
-		if ph != "" && !MergesOnImport(rel) && side.resolve(DecideSync(seen[rel], local[rel], ph)) == SyncSendLocal {
+		if ph != "" && !mergesOnImport(rel) && side.resolve(decideSync(seen[rel], local[rel], ph)) == syncSendLocal {
 			fmt.Fprintf(&b, "%s  %s\n", ph, rel)
 		}
 	}
@@ -584,7 +583,7 @@ func writePushTar(w io.Writer, replace string, drop map[string]string, rels []st
 			return err
 		}
 	}
-	return WriteStoreTar(w, append(slices.Clone(rels), "index.md")) // index.md: the peer reads only its entries
+	return writeStoreTar(w, append(slices.Clone(rels), "index.md")) // index.md: the peer reads only its entries
 }
 
 // pushScript unpacks the tar into a temp dir the trap removes, runs the peer's import, and brackets it with tokens.
@@ -659,7 +658,7 @@ func fetchTar(host, script string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return dir, err
 	}
-	skipped, xerr := ExtractStoreTar(out, dir)
+	skipped, xerr := extractStoreTar(out, dir)
 	if xerr != nil {
 		_ = cmd.Process.Kill()
 	}

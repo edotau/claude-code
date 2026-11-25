@@ -611,7 +611,7 @@ func TestApplyBatchKeepsCommittedBatchWhenSettleFails(t *testing.T) {
 func TestApplyBatchReplaysPendingJournalFirst(t *testing.T) {
 	batchStore(t)
 	edited := strings.Replace(datedIn, "body b", "body B", 1)
-	j, err := newJournal(StoreRepo(), "pending", []Change{{Rel: "decisionLog.md", Data: []byte(edited)}})
+	j, err := newJournal(StoreRepo(), "pending", []storeChange{{Rel: "decisionLog.md", Data: []byte(edited)}})
 	if err == nil {
 		err = j.save()
 	}

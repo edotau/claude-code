@@ -1,15 +1,17 @@
-// Package memory is the session memory bank: six typed markdown files per git repo in one flat
-// <ConfigDir>/memory/ store, named <repo>--<file>; the home bank's files are unprefixed.
+// Package memory manages the shared memory bank and its recall state.
 package memory
 
 import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
@@ -84,20 +86,6 @@ func JournalDir() string { return filepath.Join(paths.MemoryStateDir(), "journal
 // AccessStateDir holds the access logs; the single source of truth for their path.
 func AccessStateDir() string { return filepath.Join(paths.MemoryStateDir(), "access") }
 
-// insideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
-func insideStore(p string) (rel string, ok bool) {
-	store := paths.CanonDeep(paths.MemoryStoreDir())
-	r, err := filepath.Rel(store, paths.CanonDeep(p))
-	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	rel = filepath.ToSlash(r)
-	if rel == ".git" || strings.HasPrefix(rel, ".git/") {
-		return "", false
-	}
-	return rel, true
-}
-
 func root(repo string) string {
 	if repo != "" {
 		abs, _ := filepath.Abs(repo)
@@ -117,7 +105,7 @@ func root(repo string) string {
 	if !ran {
 		top = GitToplevel(cwd)
 	}
-	// Inside the store its own toplevel is the store root; keep cwd so the <repo>-- files resolve to that repo.
+	// Inside the store, keep cwd rather than its Git toplevel.
 	if top != "" && !paths.SamePath(top, paths.MemoryStoreDir()) {
 		return top
 	}
@@ -351,4 +339,186 @@ func nativeLinkProblems(root string) []string {
 		problems = append(problems, "native memory link "+r.Link+": "+r.Detail)
 	}
 	return problems
+}
+
+// identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
+var identities sync.Map
+
+// resolve maps root to its canonical identity; any git failure is the home tier, never an error.
+func resolve(root string) string { return resolveWith(root, gitMain) }
+
+// gitMain is root's main checkout per git, "" outside a repo; definitive is false when git itself failed.
+func gitMain(root string) (top string, definitive bool) {
+	definitive = true
+	top = paths.MainCheckout(root, func(dir string, args ...string) (string, error) {
+		out, err := gitOut(dir, args...)
+		if err != nil && !gitRefused(err) {
+			definitive = false
+		}
+		return out, err
+	})
+	return top, definitive
+}
+
+// gitRefused reports whether err is git running and exiting nonzero (a non-repo, no remote), not failing to run.
+func gitRefused(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() > 0
+}
+
+// resolveWith is resolve with main supplying root's git main checkout on a memo miss.
+func resolveWith(root string, main func(string) (string, bool)) string {
+	root = filepath.Clean(root)
+	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
+		return harnessIdentity()
+	}
+	origin, ok := identities.Load(root)
+	if !ok {
+		if id, fixed := fixedIdentity(root); fixed {
+			return id
+		}
+		o, memoize := resolveOrigin(root, main)
+		if !memoize {
+			return ""
+		}
+		origin = o
+		identities.Store(root, origin)
+	}
+	o := origin.(string)
+	switch {
+	case o == "":
+		return ""
+	case paths.SamePath(o, paths.ConfigDir()):
+		return harnessIdentity()
+	}
+	return o
+}
+
+// resolveOrigin finds root's origin; memoize is false when git failed to run, so a later call re-asks.
+func resolveOrigin(root string, main func(string) (string, bool)) (origin string, memoize bool) {
+	o, definitive := main(root)
+	if o != "" {
+		o = paths.CanonDeep(o)
+	}
+	return o, definitive || o != ""
+}
+
+// storeIdentity maps a cwd inside the store to the home tier, else ok=false.
+func storeIdentity(root string) (string, bool) {
+	if !paths.Within(paths.CanonDeep(root), paths.CanonDeep(paths.MemoryStoreDir())) {
+		return "", false
+	}
+	return "", true
+}
+
+func harnessIdentity() string {
+	return paths.CanonDeep(paths.ConfigDir())
+}
+
+// OriginEnv carries the launching workspace's store origin to child sessions (set by agent.EnvSpec.Environ).
+const OriginEnv = "HARNESS_MEMORY_ORIGIN"
+
+// throwawayRoots are folders whose git repos are scratch or fixtures, never a project of their own.
+func throwawayRoots() []string {
+	roots := []string{os.TempDir(), "/tmp", filepath.Join(paths.ConfigDir(), "state")}
+	if home, err := os.UserHomeDir(); err == nil {
+		// TMPDIR=$HOME (or /) would make every repo scratch
+		roots = slices.DeleteFunc(roots, func(r string) bool { return paths.SamePath(r, home) || filepath.Dir(r) == r })
+		roots = append(roots, filepath.Join(home, "worktrees", "wf-fixtures"))
+	}
+	return roots
+}
+
+// throwawayOff keeps temporary test repositories eligible as projects.
+var throwawayOff = testing.Testing()
+
+// throwaway reports whether root sits in a scratch or fixture folder, which must never mint a store.
+func throwaway(root string) bool {
+	if throwawayOff {
+		return false
+	}
+	canon := paths.CanonDeep(root)
+	for _, r := range throwawayRoots() {
+		if paths.Within(canon, paths.CanonDeep(r)) {
+			return true
+		}
+	}
+	return false
+}
+
+// fixedIdentity covers roots that never get a store of their own: inside the store, or a scratch/fixture folder.
+func fixedIdentity(root string) (string, bool) {
+	if id, ok := storeIdentity(root); ok {
+		return id, true
+	}
+	if throwaway(root) {
+		return throwawayIdentity(), true
+	}
+	return "", false
+}
+
+// throwawayIdentity is the launching workspace from OriginEnv, else the home tier.
+func throwawayIdentity() string {
+	o := os.Getenv(OriginEnv)
+	if o == "" || !filepath.IsAbs(o) {
+		return ""
+	}
+	if paths.SamePath(o, paths.ConfigDir()) {
+		return harnessIdentity()
+	}
+	o = paths.CanonDeep(o)
+	return o
+}
+
+// LaunchOrigin is the origin a child launched from cwd inherits: OriginEnv wins; the home tier passes nothing.
+func LaunchOrigin(cwd string) string {
+	if o := os.Getenv(OriginEnv); o != "" {
+		return o
+	}
+	return resolve(cwd)
+}
+
+const dateLayout = "2006-01-02"
+
+var (
+	repoKeyRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*--`) })
+	dateRE    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\d{4}-\d{2}-\d{2}`) })
+	compactRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})-`) })
+)
+
+func validDate(s string) bool {
+	_, err := time.Parse(dateLayout, s)
+	return err == nil
+}
+
+// StripRepoPrefix drops every leading `<key>--` and returns the first key; a name with none comes back whole.
+func StripRepoPrefix(name string) (rest, key string) {
+	rest = name
+	for {
+		k := repoKeyRE().FindString(rest)
+		if k == "" || len(k) == len(rest) {
+			return rest, key
+		}
+		if key == "" {
+			key = k[:len(k)-2]
+		}
+		rest = rest[len(k):]
+	}
+}
+
+// DatedName strips the repo prefix and leads the name with a date: its own, one inside it, else now.
+func DatedName(name string, now time.Time) string {
+	rest, _ := StripRepoPrefix(name)
+	if len(rest) > 10 && rest[10] == '-' && validDate(rest[:10]) {
+		return rest
+	}
+	if m := compactRE().FindStringSubmatch(rest); m != nil && validDate(m[1]+"-"+m[2]+"-"+m[3]) {
+		return m[1] + "-" + m[2] + "-" + m[3] + rest[8:]
+	}
+	for _, d := range dateRE().FindAllString(rest, -1) {
+		if validDate(d) {
+			return d + "-" + rest
+		}
+	}
+	return now.Format(dateLayout) + "-" + rest
 }

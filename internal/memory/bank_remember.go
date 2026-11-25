@@ -30,8 +30,8 @@ var RememberTypes = map[string]string{
 	"reference": "conventions.md",
 }
 
-// FeedbackClasses are the classes of a feedback note, each with the sentence that tells the model when to pick it.
-var FeedbackClasses = map[string]string{
+// feedbackClasses are the classes of a feedback note, each with the sentence that tells the model when to pick it.
+var feedbackClasses = map[string]string{
 	"correction": "the owner corrected an action, claim or output",
 	"preference": "the owner stated how they want something done",
 	"process":    "the owner changed a workflow, order or approval step",
@@ -41,7 +41,7 @@ var FeedbackClasses = map[string]string{
 const feedbackDir = "feedback/"
 
 func init() {
-	for c := range FeedbackClasses {
+	for c := range feedbackClasses {
 		RememberTypes["feedback-"+c] = feedbackDir
 	}
 }
@@ -50,8 +50,8 @@ func init() {
 func RememberTypeHelp() string {
 	var b strings.Builder
 	b.WriteString("user, feedback, project, reference")
-	for _, c := range slices.Sorted(maps.Keys(FeedbackClasses)) {
-		b.WriteString("; feedback-" + c + " (a feedback/ note: " + FeedbackClasses[c] + ")")
+	for _, c := range slices.Sorted(maps.Keys(feedbackClasses)) {
+		b.WriteString("; feedback-" + c + " (a feedback/ note: " + feedbackClasses[c] + ")")
 	}
 	return b.String()
 }

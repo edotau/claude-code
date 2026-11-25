@@ -43,7 +43,7 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	trace.seen = seen
 	ranked, files, segs := searchBankTerms(terms, 0)
 	ranked = followReplaced(ranked, files, segs)
-	var sem *Semantic
+	var sem *semanticQuery
 	semSeen := false
 	if semantic {
 		res := <-ready
@@ -53,7 +53,7 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts([]string{accessDir()}, time.Now())
+	counts := returnCounts(time.Now())
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr, recallWeights())
 	trace.Silent = len(picks) == 0
 	return picks, trace
@@ -64,7 +64,7 @@ func skipRecallQuery(query string, tokens []string, semantic bool) bool {
 }
 
 type semanticReady struct {
-	sem *Semantic
+	sem *semanticQuery
 	err error
 }
 
@@ -79,7 +79,7 @@ func startSemantic(ctx context.Context, query string, enabled bool) <-chan seman
 	return ready
 }
 
-func recallSemantic(result semanticReady, files []corpusFile, segs []segView, seen map[string]bool, need int, ranked []SearchHit, trace *recallTrace) ([]SearchHit, *Semantic, bool, string) {
+func recallSemantic(result semanticReady, files []corpusFile, segs []segView, seen map[string]bool, need int, ranked []SearchHit, trace *recallTrace) ([]SearchHit, *semanticQuery, bool, string) {
 	if result.err != nil {
 		return ranked, nil, false, "keyword-only: " + result.err.Error()
 	}
@@ -117,7 +117,7 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 const expandKey = "expand-shown"
 
 // recallBodyLine is a body hit's line; a native topic whose body opens with its file stem skips the repeated label.
-func recallBodyLine(e Entry) string {
+func recallBodyLine(e memoryEntry) string {
 	flat := capRecallPreview(recallFlat(e), recallBodyCapRunes)
 	if e.Type == "topic" && strings.HasPrefix(strings.TrimLeft(e.Body, "#- "), strings.TrimSuffix(e.File, ".md")) {
 		return assets.MemoryRecallLine("", flat, false)
@@ -125,7 +125,7 @@ func recallBodyLine(e Entry) string {
 	return assets.MemoryRecallLine(e.File, flat, true)
 }
 
-func recallPointerLine(e Entry) string {
+func recallPointerLine(e memoryEntry) string {
 	return assets.MemoryRecallLine("", capRecallPreview(e.pointer(), recallPointerCapRunes), false)
 }
 
@@ -278,13 +278,13 @@ func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
 
 // recallPick is one surviving entry with its search hit and final score.
 type recallPick struct {
-	Entry Entry
+	Entry memoryEntry
 	Hit   SearchHit
 	Score float64
 }
 
 // recallFlat is an entry's id and whole body on one line, heading and bullet marks stripped.
-func recallFlat(e Entry) string {
+func recallFlat(e memoryEntry) string {
 	return e.ID + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.Body), " "), "#- ")
 }
 
@@ -319,7 +319,7 @@ func distinctCount(tokens []string, minLen int) int {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace, weights map[string]float64) []recallPick {
+func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *semanticQuery, semSeen bool, counts map[string]int, trace *recallTrace, weights map[string]float64) []recallPick {
 	need := recallNeed(terms)
 	if trace != nil {
 		trace.candidates(ranked, need, sem)
@@ -342,7 +342,7 @@ func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem 
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace, weights map[string]float64) ([]recallPick, bool) {
+func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *semanticQuery, counts map[string]int, trace *recallTrace, weights map[string]float64) ([]recallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
@@ -407,7 +407,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	return cands, top
 }
 
-func scoreRecall(c recallPick, top float64, admitted bool, sem *Semantic) (float64, bool) {
+func scoreRecall(c recallPick, top float64, admitted bool, sem *semanticQuery) (float64, bool) {
 	kw := 0.0
 	if top > 0 {
 		kw = min(c.Hit.Score/top, 1)
@@ -423,7 +423,7 @@ func scoreRecall(c recallPick, top float64, admitted bool, sem *Semantic) (float
 	return blend, admitted || cos >= recallCosineAdmit
 }
 
-func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *recallTrace) []recallPick {
+func recallPool(cands []SearchHit, top float64, need int, sem *semanticQuery, trace *recallTrace) []recallPick {
 	var pool []recallPick
 	for _, h := range cands {
 		kwOK := h.Matched >= need && h.Score >= top*recallScoreFloor
@@ -623,7 +623,7 @@ func (t *recallTrace) outcome(key, outcome string) {
 	}
 }
 
-func (t *recallTrace) candidate(c recallPick, need int, sem *Semantic) {
+func (t *recallTrace) candidate(c recallPick, need int, sem *semanticQuery) {
 	if t == nil {
 		return
 	}
@@ -705,7 +705,7 @@ func (t *recallTrace) selected(picks []recallPick, expand bool) {
 	}
 }
 
-func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
+func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *semanticQuery) {
 	for _, archived := range []bool{false, true} {
 		_, top := recallTier(ranked, archived, need)
 		tierSem := sem
@@ -724,7 +724,7 @@ func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
 }
 
 func recallTracePick(h SearchHit) recallPick {
-	entry := Entry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
+	entry := memoryEntry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
 		Superseded: isSupersededBlock(h.Block)}
 	return recallPick{Entry: entry, Hit: h}
 }

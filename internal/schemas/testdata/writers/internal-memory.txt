@@ -16,6 +16,8 @@ internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report
 internal/memory/bank_settle.go:rotateSessionHistory	unversioned: memory-bank: sessionHistory rotation
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router
 internal/memory/bank_supersede.go:writeDirtyDocs	unversioned: memory-bank: replaced-entry pointers
+internal/memory/candidates.go:appendLocked	unversioned: text: proposed-test list, one JSON object per line
+internal/memory/candidates.go:ingestTestProposals	unversioned: text: report ingestion watermark, one timestamp
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
 internal/memory/catchup.go:save	memory-catchup-heads
 internal/memory/compact_handoff.go:WriteCompactHandoff	unversioned: text: PreCompact's fact-only handoff markdown in memory/handoffs
@@ -25,17 +27,18 @@ internal/memory/doctor.go:recordIndexProblem	unversioned: text: last failed sett
 internal/memory/dream.go:appendDreamResult	unversioned: log: dream run results JSONL, newest 200
 internal/memory/dream.go:openDreamLog	unversioned: log: per-run dream output log
 internal/memory/dream.go:stampDream	unversioned: text: per-store dream timestamp stamp
-internal/memory/dream_bench.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
-internal/memory/dream_p95.go:queueDreamBench	unversioned: log: dream benchmark improvement queue JSONL
+internal/memory/dream_audit.go:queueDreamBench	unversioned: log: dream benchmark improvement queue JSONL
+internal/memory/dream_audit.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
 internal/memory/embed.go:embedQuery	unversioned: marker: semantic-recall backoff stamp
 internal/memory/embed_store.go:refreshEmbeddings	unversioned: marker: embedding refresh spawn stamp
 internal/memory/promote.go:archiveFile	unversioned: memory-bank: bank overflow archive
 internal/memory/queue.go:queueAdd	unversioned: marker: memory worker job queue file, one JSON job per kind and key
+internal/memory/queue.go:spawnSelf	unversioned: log: detached worker log, humans only
 internal/memory/recall.go:markSeen	unversioned: log: seen-ids list, text lines
 internal/memory/recall.go:resetSeen	unversioned: log: seen-ids list rewrite
-internal/memory/recall_accesslog.go:appendAccessLines	unversioned: log: memory access log, text lines
 internal/memory/recall_index.go:writeRecallIndex	unversioned: text: recall index, rebuilt on a miss
-internal/memory/recall_learn.go:learnRecallLocked	unversioned: cache: rolling recall tallies and access log checkpoints
+internal/memory/recall_log.go:appendAccessLines	unversioned: log: memory access log, text lines
+internal/memory/recall_log.go:learnRecallLocked	unversioned: cache: rolling recall tallies and access log checkpoints
 internal/memory/sandbox.go:UpdateSandboxRegistry	unversioned: text: sandbox dir list, one path per line
 internal/memory/sandbox.go:placeStoreRels	unversioned: memory-bank: disposable flat sandbox copy
 internal/memory/sandbox.go:recordSandbox	unversioned: marker: sandbox owner pid and start
@@ -43,10 +46,7 @@ internal/memory/sandbox.go:sandboxFlat	unversioned: marker: flat layout stamp in
 internal/memory/session_start.go:WriteCompactRecord	unversioned: marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart
 internal/memory/session_start.go:writeChain	unversioned: text: last-session chain stamp
 internal/memory/session_start.go:writeSessionRoot	unversioned: text: per-session launch repository root
-internal/memory/spawn.go:spawnSelf	unversioned: log: detached worker log, humans only
 internal/memory/sync.go:SaveSync	memory-sync
-internal/memory/test_proposals.go:appendLocked	unversioned: text: proposed-test list, one JSON object per line
-internal/memory/test_proposals.go:ingestTestProposals	unversioned: text: report ingestion watermark, one timestamp
 internal/memory/update.go:receiptDir	unversioned: marker: completed flat update receipt migration
 internal/memory/update.go:writeUpdateResult	unversioned: text: update result text
 internal/memory/update_gate.go:writeCountState	unversioned: text: edit count stamp

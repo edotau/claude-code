@@ -19,18 +19,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-// embedCacheSchema is the embedding cache's schema version.
-const embedCacheSchema = 3
 
 const (
 	embedBatch     = 16
@@ -44,12 +41,6 @@ const (
 
 // embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
 var embedRecallWait = 500 * time.Millisecond
-
-var embedFormat = schemas.Register(schemas.Format{
-	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
-	Glob: embedDBPath,
-	Keep: "bbolt metadata and binary float32 rows of one shared cache; a version mismatch is a miss",
-})
 
 var safeProfile = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -82,7 +73,7 @@ type EmbedClient struct {
 var openEmbedClient = openDatabricksEmbed
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
-func entryEmbedText(e Entry) string {
+func entryEmbedText(e memoryEntry) string {
 	return textutil.TruncateRunes(e.Type+": "+e.Body, embedTextRunes)
 }
 
@@ -341,15 +332,15 @@ func (r *embedRun) shed(cur vectorRecord) {
 	}
 }
 
-// Semantic scores entries against one embedded query, from the cached entry vectors.
-type Semantic struct {
+// semanticQuery scores entries against one embedded query, from the cached entry vectors.
+type semanticQuery struct {
 	query  []float32
 	rows   map[string]vectorRow
 	blocks map[string]string
 }
 
 // embedQuery embeds a query with the first usable workspace's endpoint and scores it against the shared cache.
-func embedQuery(parent context.Context, query string) (*Semantic, error) {
+func embedQuery(parent context.Context, query string) (*semanticQuery, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
@@ -1027,4 +1018,11 @@ func embedDatabricks(ctx context.Context, p *providers.Provider, model string, t
 		}
 	}
 	return postEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
+}
+
+// embedClient is the default client with a same-origin redirect policy, so the credential never leaves its host.
+func embedClient() *http.Client {
+	c := *http.DefaultClient
+	c.CheckRedirect = httpx.SameOriginRedirect
+	return &c
 }

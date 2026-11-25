@@ -17,9 +17,9 @@ import (
 )
 
 // runGate is the update hooks' path minus the hook layer: session root, Updatable, then UpdateIfNew.
-func runGate(session, tr, cwd, trigger string) GateResult {
+func runGate(session, tr, cwd, trigger string) gateResult {
 	if !Updatable(session, tr) {
-		return GateResult{}
+		return gateResult{}
 	}
 	return UpdateIfNew(UpdateRequest{SessionID: session, Transcript: tr, CWD: SessionRoot(session, cwd)}, trigger, time.Now())
 }
@@ -39,7 +39,7 @@ func newGateRun(t *testing.T) *gateRun {
 	return &gateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &StubSpawn(t, true).Update}
 }
 
-func (u *gateRun) stop() GateResult { return runGate("s1", u.tr, u.cwd, TriggerStop) }
+func (u *gateRun) stop() gateResult { return runGate("s1", u.tr, u.cwd, TriggerStop) }
 
 func (u *gateRun) end() { runGate("s1", u.tr, u.cwd, TriggerSessionEnd) }
 

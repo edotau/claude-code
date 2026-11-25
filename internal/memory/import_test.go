@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // importTar builds a tar of name->body entries; a body starting "->" is a symlink to the rest.
@@ -189,7 +190,7 @@ func TestImportRefusesDetectedSourceBeforeWriting(t *testing.T) {
 
 func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
 	dir := t.TempDir()
-	_, err := ExtractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", routerFile: "router\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
+	_, err := extractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", routerFile: "router\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,12 +347,12 @@ func TestImportReplaceNeedsMatchingHash(t *testing.T) {
 	if res, err := ImportBank(o); err != nil || !slices.Contains(res.Lines, "conflict topic.md: kept local") {
 		t.Fatalf("no Replace: %v, %v; want a conflict", res.Lines, err)
 	}
-	o.Replace = map[string]string{"topic.md": sha256Hex([]byte("stale\n"))}
+	o.Replace = map[string]string{"topic.md": textutil.SHA256Hex([]byte("stale\n"))}
 	if res, err := ImportBank(o); err != nil || !slices.Contains(res.Lines, "conflict topic.md: kept local") {
 		t.Fatalf("wrong hash: %v, %v; want a conflict", res.Lines, err)
 	}
 	wantFile(t, Path("topic.md"), "local\n")
-	o.Replace = map[string]string{"topic.md": sha256Hex([]byte("local\n"))}
+	o.Replace = map[string]string{"topic.md": textutil.SHA256Hex([]byte("local\n"))}
 	res, err := ImportBank(o)
 	if err != nil || !slices.Contains(res.Lines, "replace topic.md") || !strings.Contains(res.Summary, "1 copied, 0 kept local, 0 conflict(s)") {
 		t.Fatalf("matching hash: %v %q, %v; want a replace counted as copied", res.Lines, res.Summary, err)
@@ -373,11 +374,11 @@ func TestWriteStoreTarRoundTrip(t *testing.T) {
 		rels = append(rels, "link.md")
 	}
 	var buf bytes.Buffer
-	if err := WriteStoreTar(&buf, rels); err != nil {
+	if err := writeStoreTar(&buf, rels); err != nil {
 		t.Fatal(err)
 	}
 	dst := t.TempDir()
-	if skipped, err := ExtractStoreTar(&buf, dst); err != nil || len(skipped) != 0 {
+	if skipped, err := extractStoreTar(&buf, dst); err != nil || len(skipped) != 0 {
 		t.Fatalf("extract: skipped %v, err %v", skipped, err)
 	}
 	var got []string
@@ -460,7 +461,7 @@ func TestImportWaitsForJobLockThenBusy(t *testing.T) {
 
 func TestImportReplaceRechecksBeforeWrite(t *testing.T) {
 	src := replaceFixture(t)
-	opt := ImportOptions{From: src, Topics: true, Now: time.Now(), Replace: map[string]string{"topic.md": sha256Hex([]byte("local\n"))}}
+	opt := ImportOptions{From: src, Topics: true, Now: time.Now(), Replace: map[string]string{"topic.md": textutil.SHA256Hex([]byte("local\n"))}}
 	p, err := planImport(opt)
 	if err != nil {
 		t.Fatal(err)

@@ -15,10 +15,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 const (
@@ -28,8 +30,8 @@ const (
 
 var queueKinds = []string{"update", "watch", "dream", "catchup", "embed", "learn-routing", "learn-recall"}
 
-// Job is one queued background task; Kind+Key name its file, so a duplicate enqueue coalesces.
-type Job struct {
+// job is one queued background task; Kind+Key name its file, so a duplicate enqueue coalesces.
+type job struct {
 	Schema    int               `json:"schema"`
 	Kind      string            `json:"kind"`
 	Key       string            `json:"key"`
@@ -54,8 +56,8 @@ func jobName(kind, key string) string {
 	return fmt.Sprintf("%s-%.32s-%x.json", kind, clean, sha256.Sum256([]byte(key)))
 }
 
-// Enqueue files j unless a job with the same kind and key waits; queued=false means coalesced.
-func Enqueue(j Job) (queued bool, err error) {
+// enqueue files j unless a job with the same kind and key waits; queued=false means coalesced.
+func enqueue(j job) (queued bool, err error) {
 	if !slices.Contains(queueKinds, j.Kind) || j.Key == "" {
 		return false, fmt.Errorf("memory queue: bad job kind %q key %q", j.Kind, j.Key)
 	}
@@ -67,7 +69,7 @@ func Enqueue(j Job) (queued bool, err error) {
 }
 
 // queueAdd writes a temp file then hard-links it to the final name, so the name appears whole or not at all.
-func queueAdd(dir string, j Job) (bool, error) {
+func queueAdd(dir string, j job) (bool, error) {
 	b, err := json.Marshal(j)
 	if err != nil {
 		return false, err
@@ -100,11 +102,11 @@ func queueAdd(dir string, j Job) (bool, error) {
 	return true, nil
 }
 
-func readJob(path string) (Job, bool) {
-	var j Job
+func readJob(path string) (job, bool) {
+	var j job
 	b, err := os.ReadFile(path)
 	if err != nil || json.Unmarshal(b, &j) != nil || j.Kind == "" {
-		return Job{}, false
+		return job{}, false
 	}
 	return j, true
 }
@@ -130,9 +132,9 @@ func queuedDue(now time.Time) bool {
 }
 
 // claimNext moves the oldest due job into running/ and returns it with its running path.
-func claimNext(now time.Time) (Job, string, bool) {
+func claimNext(now time.Time) (job, string, bool) {
 	type cand struct {
-		j    Job
+		j    job
 		path string
 	}
 	var due []cand
@@ -144,11 +146,11 @@ func claimNext(now time.Time) (Job, string, bool) {
 	slices.SortFunc(due, func(a, b cand) int { return a.j.Enqueued.Compare(b.j.Enqueued) })
 	runDir := filepath.Join(queueDir(), "running")
 	if os.MkdirAll(runDir, 0o700) != nil {
-		return Job{}, "", false
+		return job{}, "", false
 	}
 	start, err := proc.StartTime(os.Getpid())
 	if err != nil {
-		return Job{}, "", false
+		return job{}, "", false
 	}
 	for _, c := range due {
 		dst := filepath.Join(runDir, filepath.Base(c.path)+fmt.Sprintf(".%d.%x.%s", os.Getpid(),
@@ -159,20 +161,20 @@ func claimNext(now time.Time) (Job, string, bool) {
 			}
 		}
 	}
-	return Job{}, "", false
+	return job{}, "", false
 }
 
-func claimedJob(dst string, now time.Time) (Job, bool) {
+func claimedJob(dst string, now time.Time) (job, bool) {
 	j, ok := readJob(dst)
 	if !ok {
 		failJob(dst)
-		return Job{}, false
+		return job{}, false
 	}
 	if j.NotBefore.After(now) {
 		if _, err := queueAdd(queueDir(), j); err == nil {
 			_ = finish(dst)
 		}
-		return Job{}, false
+		return job{}, false
 	}
 	return j, true
 }
@@ -239,7 +241,7 @@ func requeueDead() {
 }
 
 // runQueuedJob is the subprocess boundary; tests never execute their own binary.
-var runQueuedJob = func(ctx context.Context, self string, j Job, path string, out io.Writer) error {
+var runQueuedJob = func(ctx context.Context, self string, j job, path string, out io.Writer) error {
 	cmd := exec.CommandContext(ctx, self, j.Args...)
 	cmd.Dir = j.CWD
 	cmd.Stdout, cmd.Stderr = out, out
@@ -365,4 +367,107 @@ func failJob(path string) {
 func jobNameFromClaim(path string) string {
 	name, _, _ := strings.CutLast(filepath.Base(path), ".json.")
 	return name + ".json"
+}
+
+// logStampLayout timestamps detached worker log names; milliseconds keep two workers in one second apart.
+const logStampLayout = "20060102-150405.000"
+
+// spawnDetached is the process-launch seam under spawnSelf; tests replace it.
+var spawnDetached = func(bin string, args []string, dir string, out *os.File, env ...string) bool {
+	return proc.SpawnDetachedWithReceiptUnset(bin, args, dir, out, paths.MemoryStateDir(), routeEnv, env...)
+}
+
+// routeEnv is the parent's launch route; a child inheriting it runs on the wrong endpoint with the wrong model id.
+var routeEnv = []string{
+	proc.EnvAnthropicBaseURL, "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN", proc.EnvAnthropicCustomHeaders,
+	"HARNESS_PROXY_API_KEY", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS",
+}
+
+// spawnSelf relaunches this binary detached in dir, appending output to the named memory state log when non-empty.
+func spawnSelf(args []string, dir, logName string, env ...string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	var out *os.File
+	if logName != "" {
+		if os.MkdirAll(paths.MemoryStateDir(), 0o700) != nil {
+			return false
+		}
+		out, err = os.OpenFile(filepath.Join(paths.MemoryStateDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return false
+		}
+		defer out.Close()
+	}
+	return spawnDetached(self, args, dir, out, env...)
+}
+
+// spawner holds the detached-worker seams; tests swap the whole struct through stubSpawns.
+type spawner struct {
+	update  func(transcriptPath, cwd, sessionID string) bool
+	watcher func(args []string, cwd string) bool
+	catchup func(cwd, sessionID string) bool
+	refresh func(root, profile string) bool
+	sync    func(cwd string) bool
+}
+
+var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, catchup: spawnCatchup, refresh: spawnEmbedRefresh, sync: spawnSync}
+
+// spawnUpdate records the session's result as pending, then launches `memory update`; a failed launch undoes it.
+func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
+	logName := "update-" + time.Now().Format(logStampLayout) + ".log"
+	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
+	prior, hadPrior := readUpdateResult(sessionID)
+	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(paths.MemoryStateDir(), logName)})
+	if spawnSelf(args, cwd, logName, DetachedEnv+"=1") {
+		return true
+	}
+	if hadPrior {
+		_ = writeUpdateResult(sessionID, prior)
+	} else if sessionID != "" {
+		_ = os.Remove(resultPath(sessionID))
+	}
+	return false
+}
+
+// spawnWatcher launches `memory watch`; args[1] is the session ID naming its log.
+func spawnWatcher(args []string, cwd string) bool {
+	// The helper runs from the state dir: a cwd inside the spawning worktree makes `worktree land` refuse the lane.
+	return spawnSelf(append([]string{"memory", "watch"}, args...), paths.MemoryStateDir(), "watch-"+filepath.Base(args[1])+".log")
+}
+
+func spawnCatchup(cwd, sessionID string) bool {
+	args := []string{"memory", "update", "--catchup", "--skip", sessionID}
+	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
+}
+
+func spawnSync(cwd string) bool {
+	return spawnSelf([]string{"memory", "import", "--sync"}, cwd, "sync-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
+}
+
+// spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
+func spawnEmbedRefresh(root, profile string) bool {
+	values := proc.Values{UpdateChildEnv: "1"}
+	if profile != "" {
+		values[providers.EnvSessionProfile] = profile
+	}
+	return spawnSelf([]string{"memory", "index", "--mint-only"}, root, "", values.Env()...)
+}
+
+// Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
+type Spawns struct{ Update, Catchup, Refresh, Sync atomic.Int64 }
+
+// StubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
+func StubSpawns(ok bool) (s *Spawns, restore func()) {
+	s = new(Spawns)
+	prev := spawn
+	spawn = spawner{
+		update:  func(string, string, string) bool { s.Update.Add(1); return ok },
+		watcher: func([]string, string) bool { return true },
+		catchup: func(string, string) bool { s.Catchup.Add(1); return true },
+		refresh: func(string, string) bool { s.Refresh.Add(1); return true },
+		sync:    func(string) bool { s.Sync.Add(1); return true },
+	}
+	return s, func() { spawn = prev }
 }

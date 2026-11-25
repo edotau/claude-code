@@ -889,8 +889,8 @@ func commitBatchDocs(docs map[string]Doc, raw map[string][]byte, now time.Time) 
 }
 
 // batchChanges lists a planned write for each bank file whose rendering differs from the bytes read.
-func batchChanges(docs map[string]Doc, raw map[string][]byte) []Change {
-	var changes []Change
+func batchChanges(docs map[string]Doc, raw map[string][]byte) []storeChange {
+	var changes []storeChange
 	for _, name := range bankFiles {
 		out := docs[name].Render()
 		if bytes.Equal(out, raw[name]) {
@@ -900,13 +900,13 @@ func batchChanges(docs map[string]Doc, raw map[string][]byte) []Change {
 		if raw[name] != nil {
 			sha = textutil.SHA256Hex(raw[name])
 		}
-		changes = append(changes, Change{Rel: name, Data: out, Planned: true, PreSHA256: sha})
+		changes = append(changes, storeChange{Rel: name, Data: out, Planned: true, PreSHA256: sha})
 	}
 	return changes
 }
 
 // rollbackBatch drops the batch's journal, restores the files it applied from the bytes read, and undoes its commit.
-func rollbackBatch(raw map[string][]byte, rec Receipt, err error) error {
+func rollbackBatch(raw map[string][]byte, rec commitReceipt, err error) error {
 	if rec.ID != "" { // a kept journal would replay the aborted write on the next commit
 		if rerr := os.Remove(filepath.Join(JournalDir(), rec.ID+".json")); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 			return errors.Join(err, fmt.Errorf("drop the journal: %w", rerr))

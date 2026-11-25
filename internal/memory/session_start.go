@@ -69,9 +69,9 @@ const catchupEvery = 10 * time.Minute
 func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 	queued := false
 	if banked && dreamDue(now) {
-		job := Job{Kind: "dream", Key: now.Format(time.DateOnly), CWD: cwd, Args: []string{"memory", "dream", "--cwd", cwd, "--trigger", "session-start"}}
+		j := job{Kind: "dream", Key: now.Format(time.DateOnly), CWD: cwd, Args: []string{"memory", "dream", "--cwd", cwd, "--trigger", "session-start"}}
 		var err error
-		if queued, err = Enqueue(job); err != nil {
+		if queued, err = enqueue(j); err != nil {
 			fmt.Fprintf(os.Stderr, "memory-start: queue dream: %v\n", err)
 		}
 	}
@@ -352,9 +352,9 @@ func sessionRootFor(cwd string) string {
 	root := GitToplevel(cwd)
 	switch {
 	case root == "": // not a work tree: git's main-checkout probe would fail the same way
-		root = resolveWith(cwd, func(string) (string, bool) { return "", true }).Origin
+		root = resolveWith(cwd, func(string) (string, bool) { return "", true })
 	case paths.SamePath(root, paths.MemoryStoreDir()):
-		root = Resolve(cwd).Origin
+		root = resolve(cwd)
 	}
 	if root == "" {
 		root, _ = filepath.Abs(cwd)

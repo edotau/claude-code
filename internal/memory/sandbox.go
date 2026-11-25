@@ -91,8 +91,8 @@ type SandboxOptions struct {
 	Empty bool
 }
 
-// SandboxStore reports the number of bank files placed in one store.
-type SandboxStore struct {
+// sandboxStore reports the number of bank files placed in one store.
+type sandboxStore struct {
 	Key   string `json:"key"`
 	Files int    `json:"files"`
 }
@@ -101,7 +101,7 @@ type SandboxStore struct {
 type SandboxResult struct {
 	Dir    string            `json:"dir"`
 	Env    map[string]string `json:"env"`
-	Stores []SandboxStore    `json:"stores"`
+	Stores []sandboxStore    `json:"stores"`
 }
 
 // Sandbox creates a disposable config without writing to the source bank.
@@ -127,7 +127,7 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 }
 
 // sandboxFlat copies the one bank's files into config's flat store, stamped.
-func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
+func sandboxFlat(config string, opt SandboxOptions) ([]sandboxStore, error) {
 	dst := filepath.Join(config, "memory")
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return nil, err
@@ -143,7 +143,7 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	if err := os.WriteFile(filepath.Join(dst, layoutFile), stamp, 0o600); err != nil {
 		return nil, err
 	}
-	return []SandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
+	return []sandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
 }
 
 // sandboxFlatBank places the bank's files in the flat store at dst: its templates when empty, else every file it owns.

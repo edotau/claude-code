@@ -45,17 +45,17 @@ func TestSyncOffByDefault(t *testing.T) {
 func TestSyncDecide(t *testing.T) {
 	cases := []struct {
 		seen, local, peer string
-		want              SyncAction
+		want              syncAction
 	}{
-		{"a b", "a", "c", SyncTakePeer},
-		{"a b", "c", "b", SyncSendLocal},
-		{"a b", "c", "d", SyncDiffer},
-		{"", "c", "d", SyncDiffer},
-		{"a b", "a", "b", SyncStanding},
-		{"a", "a", "a", SyncEqual},
+		{"a b", "a", "c", syncTakePeer},
+		{"a b", "c", "b", syncSendLocal},
+		{"a b", "c", "d", syncDiffer},
+		{"", "c", "d", syncDiffer},
+		{"a b", "a", "b", syncStanding},
+		{"a", "a", "a", syncEqual},
 	}
 	for _, c := range cases {
-		if got := DecideSync(c.seen, c.local, c.peer); got != c.want {
+		if got := decideSync(c.seen, c.local, c.peer); got != c.want {
 			t.Errorf("DecideSync(%q,%q,%q) = %d, want %d", c.seen, c.local, c.peer, got, c.want)
 		}
 	}
@@ -89,7 +89,7 @@ func TestSyncIfDue(t *testing.T) {
 
 func TestSyncStateAndChangedSince(t *testing.T) {
 	tempConfig(t)
-	st := LoadSync()
+	st := loadSync()
 	if len(st.Peers) != 0 {
 		t.Fatal("fresh state is not empty")
 	}
@@ -98,7 +98,7 @@ func TestSyncStateAndChangedSince(t *testing.T) {
 	if err := SaveSync(st); err != nil {
 		t.Fatal(err)
 	}
-	got := LoadSync().Peers["peer.example"]
+	got := loadSync().Peers["peer.example"]
 	if got == nil || got.Pulled != "h 0" || !got.Pull.OK.Equal(at) || got.Pull.Differ != 2 || got.Seen["a.md"] != "x" {
 		t.Fatalf("round trip lost data: %+v", got)
 	}
@@ -108,12 +108,12 @@ func TestSyncStateAndChangedSince(t *testing.T) {
 	write(t, filepath.Join(root, "notes", "b.md"), "two")
 	write(t, filepath.Join(root, "MEMORY.md"), "generated")
 	write(t, filepath.Join(root, ".git", "x"), "git")
-	local := HashStore()
+	local := hashStore()
 	if len(local) != 2 || local["notes/a.md"] == "" {
 		t.Fatalf("HashStore = %v, want only the two notes", local)
 	}
 	seen := map[string]string{"notes/a.md": local["notes/a.md"] + " peerhash"}
-	if got := ChangedSince(local, seen); !slices.Equal(got, []string{"notes/b.md"}) {
+	if got := changedSince(local, seen); !slices.Equal(got, []string{"notes/b.md"}) {
 		t.Fatalf("ChangedSince = %v, want [notes/b.md]", got)
 	}
 }
@@ -122,9 +122,9 @@ func TestSyncLocalTokenTracksContent(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	write(t, Path("topic.md"), "one\n")
-	before := LocalToken()
+	before := localToken()
 	write(t, Path("topic.md"), "two\n") // the same dirty-line count, other bytes
-	if after := LocalToken(); after == before || after == "" {
+	if after := localToken(); after == before || after == "" {
 		t.Fatalf("LocalToken did not move with the content: %q -> %q", before, after)
 	}
 }

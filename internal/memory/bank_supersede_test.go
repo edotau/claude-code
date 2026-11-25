@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +170,7 @@ func TestSettleRecoversPendingJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	j, err := newJournal(StoreRepo(), "pending fixture", []Change{{Rel: filepath.ToSlash(rel), Data: []byte(recovered)}})
+	j, err := newJournal(StoreRepo(), "pending fixture", []storeChange{{Rel: filepath.ToSlash(rel), Data: []byte(recovered)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +291,7 @@ func oldFindBlockByID(id string, files []corpusFile, segs []segView) (SearchHit,
 		for d := range seg.Docs() {
 			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id}, true
 			}
 		}
 	}
@@ -317,22 +315,6 @@ func TestBlockFinderMatchesScan(t *testing.T) {
 		got, ok := find(id)
 		if ok != wok || got != want {
 			t.Errorf("id %q: got %+v %v, want %+v %v", id, got, ok, want, wok)
-		}
-	}
-}
-
-// TestSortByScoreMatchesStableSort: equal scores keep their order, as sort.SliceStable did.
-func TestSortByScoreMatchesStableSort(t *testing.T) {
-	var hits []SearchHit
-	for i := range 200 {
-		hits = append(hits, SearchHit{Score: float64(i * 7 % 5), ID: strconv.Itoa(i)})
-	}
-	want := append([]SearchHit(nil), hits...)
-	sort.SliceStable(want, func(i, j int) bool { return want[i].Score > want[j].Score })
-	got := sortByScore(append([]SearchHit(nil), hits...))
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("row %d: got %+v, want %+v", i, got[i], want[i])
 		}
 	}
 }

@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -54,7 +52,7 @@ type plansAction struct {
 	differ     int
 }
 
-// decidePlans applies DecideSync per file; a plan archived in the store leaves every side whose copy is unedited.
+// decidePlans applies decideSync per file; a plan archived in the store leaves every side whose copy is unedited.
 func decidePlans(seen, local, theirs, archived map[string]string, side primarySide) plansAction {
 	a := plansAction{take: newPlansWrite(), send: newPlansWrite()}
 	for _, rel := range slices.Sorted(maps.Keys(union(local, theirs))) {
@@ -99,12 +97,12 @@ func (a *plansAction) gonePeer(rel, seen, l string, side primarySide) {
 }
 
 func (a *plansAction) decide(rel, seen, l, t string, side primarySide) {
-	switch side.resolve(DecideSync(seen, l, t)) {
-	case SyncTakePeer:
+	switch side.resolve(decideSync(seen, l, t)) {
+	case syncTakePeer:
 		a.take.rels, a.take.over[rel] = append(a.take.rels, rel), l
-	case SyncSendLocal:
+	case syncSendLocal:
 		a.send.rels, a.send.over[rel] = append(a.send.rels, rel), t
-	case SyncDiffer, SyncStanding:
+	case syncDiffer, syncStanding:
 		a.differ++
 	}
 }
@@ -166,7 +164,7 @@ func settlePlans(seen, local, peer map[string]string) {
 			delete(seen, rel)
 		case l == t:
 			seen[rel] = l
-		case l != "" && t != "" && DecideSync(seen[rel], l, t) == SyncDiffer:
+		case l != "" && t != "" && decideSync(seen[rel], l, t) == syncDiffer:
 			seen[rel] = l + " " + t
 		}
 	}
@@ -207,7 +205,7 @@ func (s *syncPass) plans(name string, p *PeerSync) {
 
 // plansStamp digests the plans and their archive copies, so a plan archived elsewhere reruns an unchanged pass.
 func plansStamp(local map[string]string) string {
-	return digestOf([]byte(treeDigest(local) + treeDigest(archivedPlans(local))))
+	return textutil.SHA256Hex([]byte(treeDigest(local) + treeDigest(archivedPlans(local))))
 }
 
 // takePlans applies the take side here and settles it, so a failed send never turns a taken file into a differ.
@@ -330,7 +328,7 @@ func writePlansTar(w io.Writer, pw plansWrite, kept map[string]bool, sent map[st
 		if err := addTarBytes(tw, rel, data); err != nil {
 			return err
 		}
-		sent[rel] = digestOf(data)
+		sent[rel] = textutil.SHA256Hex(data)
 	}
 	return tw.Close()
 }
@@ -352,12 +350,7 @@ func hashList(m map[string]string) []byte {
 	return []byte(b.String())
 }
 
-func treeDigest(m map[string]string) string { return digestOf(hashList(m)) }
-
-func digestOf(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
+func treeDigest(m map[string]string) string { return textutil.SHA256Hex(hashList(m)) }
 
 // ImportPlans is the peer side of plans sync: from holds the sent plans plus the .replace and .remove lists.
 func ImportPlans(from string, dryRun bool) ([]string, error) {
@@ -431,7 +424,7 @@ func archivedHere(dst, arch *os.Root, rel string) (bool, string) {
 
 // keepBeside writes data as <name>-<hash12><ext> beside the archive copy; equal bytes already kept write nothing.
 func keepBeside(arch *os.Root, rel string, data []byte, dryRun bool) (string, bool, error) {
-	sum := digestOf(data)
+	sum := textutil.SHA256Hex(data)
 	ext := path.Ext(rel)
 	side := strings.TrimSuffix(rel, ext) + "-" + sum[:12] + ext
 	for _, have := range []string{rel, side} { // a missing or unreadable file hashes "", never sum
@@ -495,7 +488,7 @@ func applyPlan(dst, src *os.Root, rel, want string, dryRun bool) (string, error)
 		switch {
 		case !fi.Mode().IsRegular():
 			return "skipped " + rel + ": not a regular file", nil
-		case cur == digestOf(data):
+		case cur == textutil.SHA256Hex(data):
 			return "", nil
 		case want == "" || cur != want:
 			return "kept local " + rel, nil

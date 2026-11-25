@@ -16,43 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestInsideStore(t *testing.T) {
-	cfg := tempConfig(t)
-	cases := map[string]struct {
-		rel string
-		ok  bool
-	}{
-		filepath.Join(paths.MemoryStoreDir(), "repo", "MEMORY.md"): {"repo/MEMORY.md", true},
-		filepath.Join(paths.MemoryStoreDir(), ".git", "config"):    {"", false},
-		filepath.Join(paths.MemoryStoreDir(), ".gitx"):             {".gitx", true},
-		filepath.Join(cfg, "memory-other", "x.md"):                 {"", false},
-		filepath.Join(cfg, "docs", "x.md"):                         {"", false},
-		paths.MemoryStoreDir():                                     {".", true},
-	}
-	for p, want := range cases {
-		if rel, ok := insideStore(p); rel != want.rel || ok != want.ok {
-			t.Errorf("insideStore(%q) = %q, %v; want %q, %v", p, rel, ok, want.rel, want.ok)
-		}
-	}
-}
-
-// A symlink escaping the store is outside it even though its lexical path is inside.
-func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	tempConfig(t)
-	if err := os.MkdirAll(paths.MemoryStoreDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(t.TempDir(), "outside.md")
-	os.WriteFile(outside, []byte("x"), 0o600)
-	if err := os.Symlink(outside, filepath.Join(paths.MemoryStoreDir(), "escape.md")); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := insideStore(filepath.Join(paths.MemoryStoreDir(), "escape.md")); ok {
-		t.Error("insideStore accepted a symlink escaping the store")
-	}
-}
-
 func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -185,8 +148,8 @@ var storeTmpl struct {
 var realInitDirs sync.Map
 
 // copyInit is gitInit for tests: a copy of the template .git, marked root-verified like initStore does.
-func copyInit(real func(Repo) error) func(Repo) error {
-	return func(r Repo) error {
+func copyInit(real func(storeRepo) error) func(storeRepo) error {
+	return func(r storeRepo) error {
 		if _, ok := realInitDirs.Load(r.Dir); ok || r.Dir == storeTmpl.dir {
 			return real(r)
 		}
@@ -225,7 +188,7 @@ func TestMain(m *testing.M) {
 	tb := &hosttest.MainTB{}
 	StubSpawn(tb, true) // no memory test may launch a real detached worker
 	if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
-		storeTmpl.err = Repo{Dir: storeTmpl.dir}.Ensure()
+		storeTmpl.err = storeRepo{Dir: storeTmpl.dir}.Ensure()
 	}
 	if storeTmpl.err == nil { // git's inert sample hooks: fewer files for every per-test copy to write and remove
 		samples, _ := filepath.Glob(filepath.Join(storeTmpl.dir, ".git", "hooks", "*.sample"))
@@ -509,4 +472,204 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 			t.Error("a link to the store root was flagged broken")
 		}
 	})
+}
+
+func idFatal(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func idMkdir(t *testing.T, dir string) {
+	t.Helper()
+	idFatal(t, os.MkdirAll(dir, 0o755))
+}
+
+func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
+	tempConfig(t)
+	repo := gitRepo(t, t.TempDir(), "proj")
+	sub := filepath.Join(repo, "a", "b")
+	idMkdir(t, sub)
+	wt := filepath.Join(t.TempDir(), "wt")
+	hosttest.In(t, repo, "worktree", "add", "-q", wt)
+	want := resolve(repo)
+	if want != paths.CanonDeep(repo) {
+		t.Fatalf("Resolve(repo) = %+v", want)
+	}
+	for _, root := range []string{sub, wt, filepath.Join(wt, "a")} {
+		os.MkdirAll(root, 0o755)
+		if got := resolve(root); got != want {
+			t.Errorf("Resolve(%s) = %+v want %+v", root, got, want)
+		}
+	}
+	if got := resolve(t.TempDir()); got != "" {
+		t.Errorf("non-repo must be global, got %+v", got)
+	}
+}
+
+type mainCheckoutCase struct{ root, lexical, git string }
+
+// mainCheckoutCases builds the repo, worktree, symlink, separate-gitdir and bare layouts MainCheckout must tell apart.
+func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	t.Helper()
+	base := t.TempDir()
+	repo := gitRepo(t, base, "repo")
+	wt, separate, bare := filepath.Join(base, "wt"), filepath.Join(base, "separate"), filepath.Join(base, "bare")
+	hosttest.In(t, repo, "worktree", "add", "-q", wt)
+	write(t, filepath.Join(wt, ".git"), "gitdir: ../repo/.git/worktrees/wt\n")
+	hosttest.In(t, base, "init", "-q", "--separate-git-dir="+filepath.Join(base, "gitdata"), separate)
+	hosttest.In(t, base, "init", "-q", "--bare", bare)
+	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(wt, "sub"), filepath.Join(base, "plain")} {
+		idMkdir(t, dir)
+	}
+	link := filepath.Join(base, "link")
+	idFatal(t, os.Symlink(repo, link))
+	idFatal(t, os.Symlink(wt, wt+"-link"))
+	t.Chdir(base) // a cwd-relative path stays short wherever TMPDIR lives (ramdisk, other volume)
+	rel, err := filepath.Rel(base, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []mainCheckoutCase{
+		{repo, repo, repo}, {filepath.Join(repo, "sub"), filepath.Join(repo, "sub"), repo},
+		{wt, repo, repo}, {filepath.Join(wt, "sub"), filepath.Join(wt, "sub"), repo}, {wt + "-link", repo, repo},
+		{link, link, repo}, {rel, rel, repo}, {filepath.Join(filepath.Dir(rel), "wt"), rel, repo},
+		{separate, separate, separate}, {bare, bare, ""},
+		{filepath.Join(base, "plain"), filepath.Join(base, "plain"), ""},
+		{filepath.Join(base, "missing"), filepath.Join(base, "missing"), ""},
+	}
+}
+
+// canonical resolves p through symlinks unless it is empty.
+func canonical(p string) string {
+	if p == "" {
+		return ""
+	}
+	return paths.CanonDeep(p) // git reports the real path: macOS TempDir /var is /private/var
+}
+
+func TestMainCheckoutModes(t *testing.T) {
+	tempConfig(t)
+	for _, tc := range mainCheckoutCases(t) {
+		if got := paths.MainCheckout(tc.root); got != tc.lexical {
+			t.Errorf("MainCheckout(%q) = %q, want lexical %q", tc.root, got, tc.lexical)
+		}
+		got, want := canonical(paths.MainCheckout(tc.root, gitOut)), canonical(tc.git)
+		if got != want {
+			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, want)
+		}
+	}
+}
+
+func TestResolveHarness(t *testing.T) {
+	cfg := gitRepo(t, t.TempDir(), ".claude")
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	sub := filepath.Join(cfg, "internal", "memory")
+	idMkdir(t, sub)
+	for _, root := range []string{cfg, sub} {
+		id := resolve(root)
+		if id != paths.CanonDeep(cfg) {
+			t.Errorf("Resolve(%s) = %+v", root, id)
+		}
+
+	}
+}
+
+func TestResolveHarnessWorktreePointer(t *testing.T) {
+	cfg := tempConfig(t)
+	worktree := t.TempDir()
+	write(t, filepath.Join(worktree, ".git"), "gitdir: "+filepath.Join(cfg, ".git", "worktrees", "x")+"\n")
+	want := resolve(cfg)
+	if got := resolve(worktree); got != want {
+		t.Errorf("Resolve(worktree) = %+v, want main checkout identity %+v", got, want)
+	}
+}
+
+// The config dir is itself a linked worktree of another checkout.
+func TestResolveConfigDirWorktree(t *testing.T) {
+	main := t.TempDir()
+	cfg := tempConfig(t)
+	write(t, filepath.Join(cfg, ".git"), "gitdir: "+filepath.Join(main, ".git", "worktrees", "x")+"\n")
+	if got := resolve(cfg); got != paths.CanonDeep(cfg) {
+		t.Errorf("Resolve(config worktree) = %+v, want harness identity", got)
+	}
+}
+
+// A hostile GIT_DIR/GIT_WORK_TREE pointing at a decoy cannot redirect resolution: runGit strips inherited GIT_*.
+func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
+	tempConfig(t)
+	a := gitRepo(t, t.TempDir(), "proj")
+	decoy := gitRepo(t, t.TempDir(), "decoy")
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_WORK_TREE", decoy)
+	if got := resolve(a); got != paths.CanonDeep(a) {
+		t.Errorf("Resolve under hostile GIT_DIR/GIT_WORK_TREE = %+v, want proj", got)
+	}
+}
+
+// Pins the physical lock file and guards against a ".lock.lock" variant.
+func TestBankLockPathLocation(t *testing.T) {
+	cfg := tempConfig(t)
+	p := BankLockPath()
+	want := filepath.Join(cfg, "state", "harness", "memory", "bank.lock")
+	if p != want {
+		t.Fatalf("BankLockPath() = %q, want %q", p, want)
+	}
+	if strings.HasSuffix(p, ".lock.lock") {
+		t.Fatalf("BankLockPath() produced a .lock.lock variant: %q", p)
+	}
+	if err := WithBankLock(10*time.Millisecond, func() error { return nil }); err != nil {
+		t.Fatalf("WithBankLock: %v", err)
+	}
+	if _, err := os.Stat(p + ".lock"); err == nil {
+		t.Fatalf("a %s.lock file must never appear", p)
+	}
+}
+
+// A held OS file lock yields ErrBankBusy without running fn; once released fn runs.
+func TestWithBankLockContention(t *testing.T) {
+	tempConfig(t)
+	path := BankLockPath()
+	idFatal(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	ran := false
+	held, err := paths.TryFileLock(path, 0, func() error {
+		return WithBankLock(10*time.Millisecond, func() error { ran = true; return nil })
+	})
+	if !held {
+		t.Fatalf("could not take the bank lock for the holder: %v", err)
+	}
+	if err != ErrBankBusy {
+		t.Fatalf("WithBankLock while held = %v, want ErrBankBusy", err)
+	}
+	if ran {
+		t.Fatal("fn must not run while the bank lock is held elsewhere")
+	}
+	if err := WithBankLock(10*time.Millisecond, func() error { ran = true; return nil }); err != nil {
+		t.Fatalf("WithBankLock after release: %v", err)
+	}
+	if !ran {
+		t.Fatal("fn must run once the bank lock is released")
+	}
+}
+
+func TestDatedNameAndStripRepoPrefix(t *testing.T) {
+	now := time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC)
+	for in, want := range map[string]string{
+		"repo--2026-01-02-x.md": "2026-01-02-x.md",
+		"20260102-x.md":         "2026-01-02-x.md",
+		"x-2026-03-04.md":       "2026-03-04-x-2026-03-04.md",
+		"plain.md":              "2026-11-25-plain.md",
+	} {
+		if got := DatedName(in, now); got != want {
+			t.Errorf("DatedName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if rest, key := StripRepoPrefix("a--b--c.md"); rest != "c.md" || key != "a" {
+		t.Errorf("StripRepoPrefix = %q, %q", rest, key)
+	}
+	if rest, key := StripRepoPrefix("plain.md"); rest != "plain.md" || key != "" {
+		t.Errorf("StripRepoPrefix plain = %q, %q", rest, key)
+	}
 }

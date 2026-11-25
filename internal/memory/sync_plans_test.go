@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 func TestPlansSyncDecideAndArchiveMove(t *testing.T) {
@@ -19,7 +21,7 @@ func TestPlansSyncDecideAndArchiveMove(t *testing.T) {
 		syncMust(t, os.MkdirAll(filepath.Dir(p), 0o700))
 		syncMust(t, os.WriteFile(p, []byte(body), 0o600))
 	}
-	h := func(s string) string { return digestOf([]byte(s)) }
+	h := func(s string) string { return textutil.SHA256Hex([]byte(s)) }
 	peerCfg := t.TempDir()
 	peer := filepath.Join(peerCfg, "plans")
 	put(plansRoot(), "a.md", "A") // unchanged here, edited there: taken
@@ -66,7 +68,7 @@ func plansPut(t *testing.T, dir, rel, body string) {
 }
 
 func TestDecidePlansArchivedRules(t *testing.T) {
-	h := func(s string) string { return digestOf([]byte(s)) }
+	h := func(s string) string { return textutil.SHA256Hex([]byte(s)) }
 	tests := []struct {
 		name                          string
 		seen, local, theirs, archived string
@@ -102,7 +104,7 @@ func TestDecidePlansArchivedRules(t *testing.T) {
 
 func TestPlansSentSettlesOnPackedBytes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	h := func(s string) string { return digestOf([]byte(s)) }
+	h := func(s string) string { return textutil.SHA256Hex([]byte(s)) }
 	plansPut(t, plansRoot(), "x.md", "two")
 	theirs := map[string]string{"x.md": h("one")}
 	seen := map[string]string{"x.md": h("one")}
@@ -122,7 +124,7 @@ func TestWriteAtomicKeepsAMovedFile(t *testing.T) {
 	syncMust(t, err)
 	defer root.Close()
 	syncMust(t, root.WriteFile("x.md", []byte("saved"), 0o600))
-	line, err := writeAtomic(root, "x.md", []byte("incoming"), digestOf([]byte("observed")))
+	line, err := writeAtomic(root, "x.md", []byte("incoming"), textutil.SHA256Hex([]byte("observed")))
 	syncMust(t, err)
 	if b, _ := root.ReadFile("x.md"); line != "kept local x.md" || string(b) != "saved" {
 		t.Fatalf("line %q, file %q: a save since the observation was overwritten", line, b)
@@ -130,7 +132,7 @@ func TestWriteAtomicKeepsAMovedFile(t *testing.T) {
 	if _, err := root.Lstat(".sync-x.md"); err == nil {
 		t.Fatal("temp file left behind")
 	}
-	line, err = writeAtomic(root, "x.md", []byte("incoming"), digestOf([]byte("saved")))
+	line, err = writeAtomic(root, "x.md", []byte("incoming"), textutil.SHA256Hex([]byte("saved")))
 	if b, _ := root.ReadFile("x.md"); err != nil || line != "write x.md" || string(b) != "incoming" {
 		t.Fatalf("matching before: line %q err %v file %q", line, err, b)
 	}
@@ -176,7 +178,7 @@ func TestApplyPlansArchivedIdentical(t *testing.T) {
 func TestApplyPlansArchivedDiffering(t *testing.T) {
 	arch, in := archivedFixture(t)
 	plansPut(t, in, "r/x.md", "edited")
-	side := "r/x-" + digestOf([]byte("edited"))[:12] + ".md"
+	side := "r/x-" + textutil.SHA256Hex([]byte("edited"))[:12] + ".md"
 	want := plansBeside + "r/x.md: kept beside as archive/plans/" + side
 	if lines := plansApplyX(t, in); !slices.Equal(lines, []string{want}) || len(plansList(plansRoot())) != 0 || !slices.Equal(plansList(arch), []string{side, "r/x.md"}) {
 		t.Fatalf("differing copy: lines %v live %v archive %v", lines, plansList(plansRoot()), plansList(arch))
@@ -189,7 +191,7 @@ func TestApplyPlansArchivedDiffering(t *testing.T) {
 func TestApplyPlansArchivedSideNameTaken(t *testing.T) {
 	arch, in := archivedFixture(t)
 	plansPut(t, in, "r/x.md", "edited")
-	side := "r/x-" + digestOf([]byte("edited"))[:12] + ".md"
+	side := "r/x-" + textutil.SHA256Hex([]byte("edited"))[:12] + ".md"
 	plansPut(t, arch, side, "someone else's")
 	if lines := plansApplyX(t, in); len(lines) != 1 || !strings.HasPrefix(lines[0], "skipped r/x.md: side copy") {
 		t.Fatalf("taken side name: lines %v", lines)

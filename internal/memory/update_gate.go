@@ -38,15 +38,15 @@ type UpdateRequest struct {
 	OnDispatch                 func(trigger string, work int, now time.Time)
 }
 
-// GateResult is the gate's verdict: Blocked = Stop gets a not-saved note (work units uncovered); FailedOpen = unsaved.
-type GateResult struct {
+// gateResult is the gate's verdict: Blocked = Stop gets a not-saved note (work units uncovered); FailedOpen = unsaved.
+type gateResult struct {
 	Blocked    bool
 	FailedOpen bool
 }
 
 // UpdateIfNew spawns an update when work (edits or user turns) is new since the stamp.
-func UpdateIfNew(r UpdateRequest, trigger string, now time.Time) GateResult {
-	var res GateResult
+func UpdateIfNew(r UpdateRequest, trigger string, now time.Time) gateResult {
+	var res gateResult
 	withStampLock(r.SessionID, func() { // hooks of one session are separate processes
 		res.Blocked, res.FailedOpen = updateIfNewLocked(r, trigger, now)
 	})

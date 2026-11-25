@@ -590,7 +590,7 @@ func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
 
 func TestRecallTraceSelectedUsesTheRealHeader(t *testing.T) {
 	mk := func(id uint64, title string) recallPick {
-		return recallPick{Entry: Entry{ID: fmt.Sprintf("id%d", id), File: strings.Repeat("f", 216) + ".md",
+		return recallPick{Entry: memoryEntry{ID: fmt.Sprintf("id%d", id), File: strings.Repeat("f", 216) + ".md",
 			Type: "convention", Body: strings.Repeat("alpha ", 60), Title: title}, Hit: SearchHit{sum: id}}
 	}
 	picks := []recallPick{mk(1, "t"), mk(2, "t"), mk(3, strings.Repeat("p", 80))}
@@ -610,7 +610,7 @@ func TestRecallPreviewCapsAtWordBoundaries(t *testing.T) {
 	const id = "abcd1234"
 	body := strings.Repeat("éclair ", 21)
 	title := strings.Repeat("éclair ", 12)
-	pick := recallPick{Entry: Entry{ID: id, File: "f.md", Body: body + "boundary tail", Title: title + "boundary tail"}}
+	pick := recallPick{Entry: memoryEntry{ID: id, File: "f.md", Body: body + "boundary tail", Title: title + "boundary tail"}}
 	got, hits := recallContext([]recallPick{pick, pick, pick}, true)
 	lines := strings.Split(got, "\n")
 	if len(hits) != 3 || len(lines) != 4 {
@@ -684,7 +684,7 @@ func benchRecallCorpus(b *testing.B) int {
 		total += benchBankFile(b, name, fi, 7500, false, &id, &ids, aged)
 	}
 	for i, hid := range ids {
-		logAccess(accessDir(), aged.Add(time.Duration(i)*time.Minute), hid, AccessShow)
+		logAccess(aged.Add(time.Duration(i)*time.Minute), hid, AccessShow)
 	}
 	return total
 }
@@ -707,7 +707,7 @@ func benchRecallBank(b *testing.B) int {
 		fmt.Fprintf(&sb, "%s -- %s -- memory show\n", aged.Add(time.Duration(i)*time.Second).UTC().Format(time.RFC3339),
 			ids[i%len(ids)])
 	}
-	logPath := AccessLogPath(accessDir())
+	logPath := accessLogPath()
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		b.Fatal(err)
