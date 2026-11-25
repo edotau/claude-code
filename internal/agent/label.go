@@ -507,6 +507,9 @@ func briefTier(q ModelQuery) (string, string) {
 	if q.Task == "" {
 		return q.Default, "tier " + q.Default
 	}
+	if t, ok := plannedStepUp(q.ctx, q.Task); ok {
+		return t.Alias, t.Signal
+	}
 	return TaskTier(q.Task)
 }
 

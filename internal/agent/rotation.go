@@ -170,7 +170,11 @@ func (n roleNote) onto(c Chain) Chain {
 
 // rotateRole runs an untyped Claude dispatch on its role's least-recently-picked ready cell; the note says so.
 func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions, roleNote, error) {
-	if !untypedClaude(ctx, o) {
+	untyped, err := untypedClaude(ctx, o)
+	if err != nil {
+		return ctx, o, roleNote{}, err
+	}
+	if !untyped {
 		ctx, o = replayRotation(ctx, o)
 		return ctx, o, roleNote{}, nil
 	}
@@ -185,7 +189,7 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 	now, role := time.Now(), dispatchRole(o.Prompt)
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
 	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
-	cells, scope := dispatchCells(reg, ov.ProviderMode, o.Prompt, session)
+	cells, scope := dispatchCells(ctx, reg, ov.ProviderMode, o.Prompt, session)
 	eng, _ := Lookup(o.Agent) // a missing engine fails at Plan's own Lookup right after
 	scan := cellScan{ctx: ctx, reg: reg, agent: o.Agent, engine: eng, session: session, now: now, st: router.LoadState(), preflt: map[string]string{}}
 	ready, rows, skipped := scan.ready(cells)
@@ -244,22 +248,29 @@ func noReadyCell(reg *providers.Registry, o RunOptions, session string, scope mo
 }
 
 // untypedClaude reports a Claude dispatch nothing routes: no model, profile, lead, model pin, host or session.
-func untypedClaude(ctx context.Context, o RunOptions) bool {
+func untypedClaude(ctx context.Context, o RunOptions) (bool, error) {
 	named := []string{o.Model, o.Provider, o.Lead, o.Account, o.Host, o.SessionID}
 	if !VaultAgentIsClaude(o.Agent) || slices.ContainsFunc(named, func(s string) bool { return s != "" }) {
-		return false
+		return false, nil
 	}
-	if o.AutoModel || o.Direct || !o.Route.IsZero() || fenced(ctx, o) {
-		return false
+	if o.AutoModel || o.Direct || !o.Route.IsZero() {
+		return false, nil
 	}
-	return agentModelPinContext(ctx, o.Agent) == "" // claude's record profile is its default lead, not a typed route
+	if f, err := fenced(ctx, o); f || err != nil {
+		return false, err
+	}
+	return agentModelPinContext(ctx, o.Agent) == "", nil // claude's record profile is its default lead, not a typed route
 }
 
 // fenced reports a run held to one route: an inherited arm or provider fence, a typed --fallback none or --as.
-func fenced(ctx context.Context, o RunOptions) bool {
-	typedNone := o.Fallback == router.FallbackNone && !o.FallbackDefaulted // ask's env-default none is no request
+func fenced(ctx context.Context, o RunOptions) (bool, error) {
+	plan, err := decidedFence(ctx, o)
+	if err != nil {
+		return false, err
+	}
 	identity := o.Identity != "" && o.Identity != providers.IdentityAuto
-	return confinedRoute(ctx) || typedNone || identity
+	none := plan.Fallback.Kind == router.PolicyNone && plan.Fallback.Typed() // an env-default none is no request
+	return confinedRoute(ctx) || !plan.Fence.Open || none || identity, nil
 }
 
 // confinedRoute reports an inherited databricks:<p> arm or provider fence on ctx.
@@ -284,10 +295,9 @@ func dispatchRole(prompt string) router.Role {
 }
 
 // dispatchCells keeps only the brief's tier model; an empty brief defaults to sonnet.
-func dispatchCells(reg *providers.Registry, modes map[string]string, prompt, session string) ([]router.RoleCell, modeScope) {
+func dispatchCells(ctx context.Context, reg *providers.Registry, modes map[string]string, prompt, session string) ([]router.RoleCell, modeScope) {
 	cells, scope := modeCells(reg, modes, dispatchRole(prompt), session)
-	alias, _ := TaskTier(prompt)
-	alias = cmp.Or(alias, models.Sonnet)
+	alias := cmp.Or(tierAlias(ctx, prompt), models.Sonnet)
 	return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Model != alias }), scope
 }
 
@@ -675,8 +685,12 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, true, err
 	}
 	r.Source, c.Model, c.Criterion = base.Source, r.Model, "rotation"
-	if want := cmp.Or(tierAliases[need.tier], models.Sonnet); alias != want { // stepped: the tier alias note would mislead
-		step := fmt.Sprintf("%s pool empty for %s on %s, ran %s %s", rotationTiers[want], q.Agent, p.Name, rotationTiers[alias], r.Model)
+	want := cmp.Or(tierAliases[need.tier], models.Sonnet)
+	if planned, ok := plannedStepUp(q.ctx, q.Task); ok {
+		want = planned.Asked // the plan already stepped: the pick is measured against the asked tier
+	}
+	if alias != want { // stepped: the tier alias note would mislead
+		step := poolEmptyNote(want, q.Agent, p, alias, r.Model)
 		r.Note = joinNotes(routeNote(stripAliasNote(base.Note, q.Agent)), step, note)
 		return r, true, nil
 	}

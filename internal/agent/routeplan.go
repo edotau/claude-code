@@ -117,16 +117,23 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
-	if p.Fence, err = planFence(ctx, parent); err != nil {
-		return p, fmt.Errorf("route plan: %w", err)
-	}
-	if p.Fallback, err = planPolicy(ctx, o, ov.Fallback); err != nil {
+	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parent, ov.Fallback); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
 	p.Pool = planPool(ctx, reg, o, p) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
 	return p, nil
+}
+
+// planDecisions is the one fence and policy decision, read by the rotation's pre-pass and by PlanRoute alike.
+func planDecisions(ctx context.Context, o RunOptions, parent ParentRoute, overlayMode string) (route.Fence, router.Policy, error) {
+	f, err := planFence(ctx, parent)
+	if err != nil {
+		return f, router.Policy{}, err
+	}
+	pol, err := planPolicy(ctx, o, overlayMode)
+	return f, pol, err
 }
 
 // planFence is the overlay's confinement held to the parent's fence.
@@ -229,8 +236,57 @@ func planTier(ctx context.Context, reg *providers.Registry, o RunOptions, pool [
 		return t
 	}
 	t.Alias = alias
-	t.Note = fmt.Sprintf("%s pool empty for %s on %s, ran %s %s", rotationTiers[asked], o.Agent, p.Name, rotationTiers[alias], m)
+	t.Note = poolEmptyNote(asked, o.Agent, p, alias, m)
 	return t
+}
+
+// poolEmptyNote is the one step-up line: the asked tier's pool is empty on p, so model m ran at alias's tier.
+func poolEmptyNote(asked, agentName string, p *providers.Provider, alias, m string) string {
+	return fmt.Sprintf("%s pool empty for %s on %s, ran %s %s", rotationTiers[asked], agentName, p.Name, rotationTiers[alias], m)
+}
+
+// tierAlias is the plan's tier alias, else the brief's own (previews and hooks have no plan).
+func tierAlias(ctx context.Context, prompt string) string {
+	if ctx != nil {
+		if plan, ok := PlanOf(ctx); ok {
+			return plan.Tier.Alias
+		}
+	}
+	alias, _ := TaskTier(prompt)
+	return alias
+}
+
+// plannedStepUp is the plan's tier when it stepped up for task's brief; false otherwise.
+func plannedStepUp(ctx context.Context, task string) (Tier, bool) {
+	if ctx == nil {
+		return Tier{}, false
+	}
+	plan, ok := PlanOf(ctx)
+	asked, _ := TaskTier(task)
+	return plan.Tier, ok && plan.Tier.Note != "" && plan.Tier.Asked == asked
+}
+
+// decidedFence is the plan's fence and policy, else the pre-pass's: Client.Plan rotates before PlanRoute runs.
+func decidedFence(ctx context.Context, o RunOptions) (RoutePlan, error) {
+	if plan, ok := PlanOf(ctx); ok {
+		return plan, nil
+	}
+	return preFence(ctx, o)
+}
+
+// preFence is the fence and policy before the rotation pick, which reads them through fenced; an error refuses.
+func preFence(ctx context.Context, o RunOptions) (RoutePlan, error) {
+	ctx = PeekContext(ctx)
+	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return RoutePlan{}, fmt.Errorf("route plan: %w", err)
+	}
+	var p RoutePlan
+	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parentRoute(ctx), ov.Fallback); err != nil {
+		return p, fmt.Errorf("route plan: %w", err)
+	}
+	p.Fallback = executablePolicy(p.Fallback)
+	return p, nil
 }
 
 // mayStepUp reports a fast or deep tier a rotating agent picks on a Databricks lead with no typed model.

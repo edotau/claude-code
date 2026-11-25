@@ -338,7 +338,7 @@ func checkDispatchTierCells(t *testing.T, prompt, model, session string, exclusi
 	if exclusive {
 		modes["anthropic"] = "exclusive"
 	}
-	cells, scope := dispatchCells(reg, modes, prompt, session)
+	cells, scope := dispatchCells(context.Background(), reg, modes, prompt, session)
 	var got []string
 	for _, c := range cells {
 		if c.Model != model {
@@ -385,11 +385,12 @@ func TestRoleRotationModes(t *testing.T) {
 // An arm-confined (databricks:<p>) or provider-fenced dispatch does not rotate at all; an unfenced one may.
 func TestRoleRotationFenced(t *testing.T) {
 	o := RunOptions{Agent: "claude", Prompt: "say hi"}
-	if !untypedClaude(context.Background(), o) {
+	if ok, _ := untypedClaude(context.Background(), o); !ok {
 		t.Fatal("an unfenced untyped claude dispatch should rotate")
 	}
 	for _, fence := range []string{`{"provider":"databricks","profile":"qa"}`, `{"provider":"anthropic"}`} {
-		if ctx := valuesContext(context.Background(), proc.Values{route.OverlayVar: fence}); untypedClaude(ctx, o) {
+		ctx := valuesContext(context.Background(), proc.Values{route.OverlayVar: fence})
+		if ok, _ := untypedClaude(ctx, o); ok {
 			t.Errorf("fence %s: rotated", fence)
 		}
 	}
