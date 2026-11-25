@@ -880,3 +880,47 @@ func TestNewAgyRequestWebHint(t *testing.T) {
 		t.Errorf("own-login prompt = %q", got)
 	}
 }
+
+func TestAgyGoogleToolsHeader(t *testing.T) {
+	p := &providers.Provider{Name: "dev", Options: providers.Options{GoogleTools: []string{"url", "code"}}}
+	const base = "databricks-gemini-3-8-flash"
+	if got, err := agyGoogleToolsHeader(p, base, []string{"url"}); err != nil || got != "X-Claude-Code-Google-Tools: url" {
+		t.Fatalf("served: got %q, %v", got, err)
+	}
+	_, err := agyGoogleToolsHeader(p, base, []string{"search"})
+	var pe *agent.PreflightError
+	if !errors.As(err, &pe) || !strings.Contains(pe.Finding.Detail, "dev does not serve google tool search; served: url,code") {
+		t.Fatalf("unserved: %v", err)
+	}
+	if _, err := agyGoogleToolsHeader(p, "databricks-claude-sonnet-5-5", []string{"url"}); err == nil {
+		t.Fatal("foreign model must be refused")
+	}
+	if got, err := agyGoogleToolsHeader(&providers.Provider{Name: "x"}, base, []string{"search"}); err != nil || !strings.HasSuffix(got, ": search") {
+		t.Fatalf("unprobed: got %q, %v", got, err)
+	}
+}
+
+func TestAgyLoginGoogleToolsRefused(t *testing.T) {
+	if err := agyLoginGoogleTools(nil, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	err := agyLoginGoogleTools(&providers.Provider{Name: "google"}, "gemini-x", []string{"url"})
+	var pe *agent.PreflightError
+	if !errors.As(err, &pe) || pe.Finding.Profile != "google" || pe.Finding.Model != "gemini-x" || !strings.Contains(pe.Finding.Detail, "no setting for google tool url") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGeminiGatewayRefusesGoogleToolsBeforeRouter(t *testing.T) {
+	calls := 0
+	orig := agent.EnsureRouter
+	agent.EnsureRouter = func(context.Context) (string, error) { calls++; return "http://127.0.0.1:19876", nil }
+	t.Cleanup(func() { agent.EnsureRouter = orig })
+	p := &providers.Provider{Name: "devx", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"},
+		Options: providers.Options{GoogleTools: []string{"url"}}}
+	_, _, err := geminiGateway(context.Background(), p, "gemini-3.8-flash-high", &agent.Headless{GoogleTools: []string{"search"}})
+	var pe *agent.PreflightError
+	if !errors.As(err, &pe) || pe.Finding.Profile != "devx" || calls != 0 {
+		t.Fatalf("err = %v, EnsureRouter calls = %d; want a devx PreflightError and 0 calls", err, calls)
+	}
+}
