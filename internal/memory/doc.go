@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,6 +58,9 @@ type Front struct{ Name, Description, Type string }
 
 // GrammarOf picks the grammar from the file name: idFiles and archives first, else GrammarSections.
 func GrammarOf(name string) Grammar {
+	if src, ok := archiveSource(filepath.Base(name)); ok { // an archive parses with its source file's grammar
+		name = src + ".md"
+	}
 	switch logicalName(name) {
 	case "decisionLog.md", "sessionHistory.md":
 		return GrammarDated
