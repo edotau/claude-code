@@ -65,7 +65,7 @@ func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
 	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
 		"format":   nil,
-		"fallback": func() []string { return router.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
+		"fallback": func() []string { return route.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
 }
 
 func engineNames() []string {
@@ -105,7 +105,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 
 // registerFallbackFlag and registerOverlayFlag are the flag definitions ask and dispatch share.
 func registerFallbackFlag(fs *flag.FlagSet, f *askFlags) {
-	fs.StringVar(&f.fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
+	fs.StringVar(&f.fallback, "fallback", "", strings.Join(route.FallbackModes, "|")+"; default from "+router.EnvFallback)
 }
 
 func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {
@@ -120,8 +120,8 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
-	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
-	fs.StringVar(&f.runner, "runner", "", strings.Join(agentconfig.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
+	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(route.Codemodes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
+	fs.StringVar(&f.runner, "runner", "", strings.Join(route.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
 	fs.StringVar(&f.googleTools, "google-tools", "", "gemini: Google built-ins, comma list (search,url,code)")
 	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
@@ -183,8 +183,8 @@ func directRoute(provider, profile string) bool {
 
 // validateCodemode resolves --codemode: a misspelled value errors; an unsupported one runs off with a reason.
 func validateCodemode(mode, ag, runner string, tools, direct bool) (resolved, reason string, err error) {
-	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
-		return "", "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
+	if mode != "" && !slices.Contains(route.Codemodes, mode) {
+		return "", "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(route.Codemodes, " or "))
 	}
 	if ag == agentid.Pi {
 		return piCodemode(mode, tools)
@@ -370,8 +370,8 @@ func validateAskFlags(format, fallback string) error {
 	if !slices.Contains(agent.Formats, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
-	if !slices.Contains(router.FallbackModes, fallback) {
-		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
+	if !slices.Contains(route.FallbackModes, fallback) {
+		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(route.FallbackModes, "|"))
 	}
 	return nil
 }
@@ -418,10 +418,10 @@ func googleToolNames(csv string) ([]string, error) {
 	return out, err
 }
 
-// runnerCheck refuses a --runner outside agentconfig.Runners.
+// runnerCheck refuses a --runner outside route.Runners.
 func runnerCheck(f *askFlags) error {
-	if f.runner != "" && !slices.Contains(agentconfig.Runners, f.runner) {
-		return fmt.Errorf("--runner %q must be %s", f.runner, strings.Join(agentconfig.Runners, " or "))
+	if f.runner != "" && !slices.Contains(route.Runners, f.runner) {
+		return fmt.Errorf("--runner %q must be %s", f.runner, strings.Join(route.Runners, " or "))
 	}
 	return nil
 }

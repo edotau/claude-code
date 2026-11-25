@@ -349,8 +349,8 @@ func gatewayRoute(args []string) int {
 	if !helptext.Explicit(fs, "fallback") {
 		mode, _ := router.FallbackSetting(context.Background(), "")
 		q.Fallback = router.ParseFallback(mode)
-		if !slices.Contains(router.FallbackModes, q.Fallback) {
-			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(router.FallbackModes, "|"))
+		if !slices.Contains(route.FallbackModes, q.Fallback) {
+			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(route.FallbackModes, "|"))
 		}
 	}
 	ctx := context.Background()
@@ -373,7 +373,7 @@ func gatewayFlags() (fs *flag.FlagSet, q *agent.RouteReq, overlay, format *strin
 	fs.StringVar(&q.Model, "model", "", "alias (opus), version (opus-5-5) or wire id (default: classify --task, else sonnet)")
 	fs.StringVar(&q.Agent, "agent", "", "the agent asked for; it leads when it passes the gates")
 	fs.StringVar(&q.Task, "task", "", "task text the classifier reads when --model is absent")
-	fs.StringVar(&q.Fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
+	fs.StringVar(&q.Fallback, "fallback", "", strings.Join(route.FallbackModes, "|")+"; default from "+router.EnvFallback)
 	fs.StringVar(&q.Profile, "profile", "", "lead profile, or session")
 	fs.StringVar(&q.Provider, "provider", "", "lead on this provider's signed-in profile")
 	overlay = fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+route.OverlayVar)
@@ -420,8 +420,8 @@ func checkOverlayFlags(ctx context.Context, name, confinement, profile, format, 
 	if err := helptext.CheckFormat(format); err != nil {
 		return ctx, helptext.BadFormat(name, err)
 	}
-	if !slices.Contains(router.FallbackModes, fallback) {
-		return ctx, helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
+	if !slices.Contains(route.FallbackModes, fallback) {
+		return ctx, helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(route.FallbackModes, "|"))
 	}
 	if want != "" && !slices.Contains(router.TableAgents, want) {
 		return ctx, helptext.Fail(name+": --agent %q unknown (%s)", want, strings.Join(router.TableAgents, "|"))
@@ -606,10 +606,10 @@ func gatewaySpec() *helptext.Node {
 	return &helptext.Node{Flags: helptext.FlagsOf(fs, map[string]func() []string{
 		"model":    func() []string { return router.Aliases },
 		"agent":    func() []string { return router.TableAgents },
-		"fallback": func() []string { return router.FallbackModes },
+		"fallback": func() []string { return route.FallbackModes },
 	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
 		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"), helptext.Plain("provider"),
-			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return router.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
+			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return route.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
 
 // gatewayStop is proxy.Stop; tests stub it so no live pid is signalled.

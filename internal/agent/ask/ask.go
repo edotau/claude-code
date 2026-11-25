@@ -120,9 +120,8 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	if !helptext.Explicit(fs, "fallback") {
 		mode, _ := router.FallbackSetting(ctx, "")
 		f.fallback = router.ParseFallback(mode) // unset reads as none
-		if !slices.Contains(router.FallbackModes, f.fallback) {
-			err := fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(router.FallbackModes, "|"))
-			return failAskCode(f.format, f.name, err, 2)
+		if !slices.Contains(route.FallbackModes, f.fallback) {
+			return failAskCode(f.format, f.name, fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(route.FallbackModes, "|")), 2)
 		}
 	}
 	if remote.IsSelf(f.host) { // --host naming this machine runs here

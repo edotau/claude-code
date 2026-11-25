@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -35,7 +34,7 @@ func cmdGatewayResolve(args []string) int {
 	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks")
 	provider := fs.String("provider", "", "provider (databricks selects the pool)")
 	overlay := fs.String("overlay", "", `overlay document (keys provider, profile, model, effort): file, inline JSON or -; e.g. {"provider":"databricks","profile":"auto"}`)
-	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(router.FallbackModes, "|")+"); none refuses a model the listing lacks")
+	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(route.FallbackModes, "|")+"); none refuses a model the listing lacks")
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
 	format := helptext.FormatFlagWithUsage(fs, "text or json")
@@ -94,10 +93,10 @@ func resolveOne(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 
 // checkFallback rejects a --fallback mode the router does not know; empty means unset.
 func checkFallback(mode string) error {
-	if mode == "" || slices.Contains(router.FallbackModes, mode) {
+	if mode == "" || slices.Contains(route.FallbackModes, mode) {
 		return nil
 	}
-	return fmt.Errorf("--fallback %q unknown (%s)", mode, strings.Join(router.FallbackModes, "|"))
+	return fmt.Errorf("--fallback %q unknown (%s)", mode, strings.Join(route.FallbackModes, "|"))
 }
 
 // autoTop is how many ranked candidates --format json shows for an auto pick.

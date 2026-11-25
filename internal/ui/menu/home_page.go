@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
@@ -200,22 +201,13 @@ func stageEnvEdit(edits map[string]envEdit, name string, e envEdit) {
 // fallbackEnv is the vault env name whose value picks how a failed dispatch falls back.
 const fallbackEnv = router.EnvFallback
 
-// fallbackHelp says what each router.FallbackModes value does.
-var fallbackHelp = map[string]string{
-	router.FallbackNone:   "a failed dispatch exits on its error",
-	router.FallbackPin:    "retry once on the agent's record, then its fallback",
-	router.FallbackAgents: "then the other agents",
-	router.FallbackAll:    "then every agent, ending in claude",
+// fallbackModes are the picker's rows in route.FallbackModes order, each with its help text.
+var fallbackModes = [][2]string{
+	{route.FallbackNone, "a failed dispatch exits on its error"},
+	{route.FallbackPin, "retry once on the agent's record, then its fallback"},
+	{route.FallbackAgents, "then the other agents"},
+	{route.FallbackAll, "then every agent, ending in claude"},
 }
-
-// fallbackModes are the picker's rows in router order, each with its help text.
-var fallbackModes = func() [][2]string {
-	rows := make([][2]string, 0, len(router.FallbackModes))
-	for _, m := range router.FallbackModes {
-		rows = append(rows, [2]string{m, fallbackHelp[m]})
-	}
-	return rows
-}()
 
 // fallbackMode is the shown mode of a stored value, parsed as the router reads it.
 func fallbackMode(raw string) string { return router.ParseFallback(raw) }

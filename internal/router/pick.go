@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -641,18 +642,15 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 	return s
 }
 
-// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents, the pin hop, or none.
+// Fallback modes live in route; these aliases spare ~200 call sites.
 const (
-	FallbackAll    = "all"
-	FallbackAgents = "agents"
-	FallbackPin    = "pin"
-	FallbackNone   = "none"
+	FallbackAll    = route.FallbackAll
+	FallbackAgents = route.FallbackAgents
+	FallbackPin    = route.FallbackPin
+	FallbackNone   = route.FallbackNone
 )
 
-// FallbackModes lists the accepted --fallback values.
-var FallbackModes = []string{FallbackNone, FallbackPin, FallbackAgents, FallbackAll}
-
-// EnvFallback (process, else vault env) names the mode: a FallbackModes value, or 1/true/yes for all; unset means none.
+// EnvFallback (process, else vault env) names the mode: a route.FallbackModes value or 1/true/yes (all); unset is none
 const EnvFallback = "AGENT_ERROR_FALLBACK"
 
 // oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).

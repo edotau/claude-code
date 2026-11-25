@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -28,16 +29,13 @@ const (
 	guardCodemodeEnv = "HARNESS_PI_GUARD_CODEMODE"
 )
 
-// CodemodeModes are the --codemode values: Pi's codemode.mode setting.
-var CodemodeModes = []string{"off", "on", "only"}
-
 // ResolveCodemode is the typed --codemode (a typed off stays off), else the vault CODEMODE under --tools, else "".
 func ResolveCodemode(typed string, tools bool) (string, error) {
 	if typed != "" || !tools {
 		return typed, nil
 	}
 	mode := strings.ToLower(strings.TrimSpace(providers.CustomEnv()[rtkwrap.CodemodeEnv]))
-	if mode == "off" || !slices.Contains(CodemodeModes, mode) {
+	if mode == route.CodemodeOff || !slices.Contains(route.Codemodes, mode) {
 		return "", nil
 	}
 	return mode, nil
@@ -72,8 +70,8 @@ func checkCodemode(req agent.RunOptions, _ []string) error {
 	if req.Codemode == "" {
 		return nil
 	}
-	if !slices.Contains(CodemodeModes, req.Codemode) {
-		return fmt.Errorf("pi: --codemode %q is not one of %s", req.Codemode, strings.Join(CodemodeModes, "|"))
+	if !slices.Contains(route.Codemodes, req.Codemode) {
+		return fmt.Errorf("pi: --codemode %q is not one of %s", req.Codemode, strings.Join(route.Codemodes, "|"))
 	}
 	if !codemodeOn(req.Codemode) {
 		return nil

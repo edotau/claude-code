@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -100,7 +101,7 @@ var settingLimits = map[string]obj{
 func routeKeyEnums() map[string][]string {
 	return map[string][]string{
 		"provider": providers.ProviderKeys(), "effort": agentid.EffortNames(),
-		"fallback": router.FallbackModes, "identity": identityModes, "runner": Runners,
+		"fallback": route.FallbackModes, "identity": identityModes, "runner": route.Runners,
 	}
 }
 

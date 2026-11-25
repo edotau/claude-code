@@ -73,9 +73,9 @@ var routeKeys = []routeKey{
 	{"model", "model", func(o Overlay) string { return o.Model }, nil, ""},
 	{"effort", "effort", func(o Overlay) string { return o.Effort }, in(agentid.EffortNames()),
 		"want " + strings.Join(agentid.EffortNames(), ", ")},
-	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, in(router.FallbackModes),
-		"want " + strings.Join(router.FallbackModes, ", ")},
-	{"runner", "runner", func(o Overlay) string { return o.Runner }, in(Runners), "want " + strings.Join(Runners, ", ")},
+	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, in(route.FallbackModes),
+		"want " + strings.Join(route.FallbackModes, ", ")},
+	{"runner", "runner", func(o Overlay) string { return o.Runner }, in(route.Runners), "want " + strings.Join(route.Runners, ", ")},
 	{"host", "host", func(o Overlay) string { return o.Host }, sshHost, "not a valid ssh host"},
 	{"remote", "", func(o Overlay) string { return o.Remote }, sshHost, "not a valid ssh host"},
 	{"account", "", func(o Overlay) string { return o.Account }, nil, ""},
@@ -83,14 +83,8 @@ var routeKeys = []routeKey{
 		"want " + strings.Join(identityModes, ", ")},
 }
 
-// Runner values: who executes a typed agent's Databricks hop; unset is pi where it can run, else own.
-const (
-	RunnerPi  = "pi"
-	RunnerOwn = "own"
-)
-
-// Runners lists the runner key's values.
-var Runners = []string{RunnerPi, RunnerOwn}
+// RunnerOwn is the runner value for the agent's own CLI; unset is pi where it can run, else own.
+const RunnerOwn = route.RunnerOwn
 
 // identityModes are the Databricks identity values: the --as pair plus auto (the profile's own setting).
 var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}

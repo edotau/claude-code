@@ -19,9 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -33,8 +33,8 @@ func init() { askspec.Register(askSchema) }
 func askSchema() askspec.Schema {
 	fs, _ := askFlagSet()
 	return askspec.FromFlagSet(fs, askspec.Opts{
-		Choices: map[string][]string{"fallback": router.FallbackModes,
-			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes, "runner": agentconfig.Runners, "tier": agent.TierNames()},
+		Choices: map[string][]string{"fallback": route.FallbackModes,
+			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": route.Codemodes, "runner": route.Runners, "tier": agent.TierNames()},
 		JSON: []string{"overlay", "agents", "output-schema"},
 	})
 }

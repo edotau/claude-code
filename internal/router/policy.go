@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // PolicyKind is how far an unavailable hop may move.
@@ -93,7 +94,7 @@ func PolicyOf(mode string, src PolicySource) (Policy, error) {
 	case FallbackAll:
 		return Policy{Kind: PolicyAnyInFence, Agents: true, OffArm: true, Source: src}, nil
 	}
-	return Policy{}, fmt.Errorf("%s=%q unknown (%s)", EnvFallback, mode, strings.Join(FallbackModes, "|"))
+	return Policy{}, fmt.Errorf("%s=%q unknown (%s)", EnvFallback, mode, strings.Join(route.FallbackModes, "|"))
 }
 
 // Mode is p as the persisted --fallback string (record fallback_policy).

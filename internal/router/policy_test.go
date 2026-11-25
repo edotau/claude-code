@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -26,14 +27,11 @@ func testPolicyModes(t *testing.T) {
 		FallbackAgents: {Kind: PolicyAnyInFence, Agents: true},
 		FallbackAll:    {Kind: PolicyAnyInFence, Agents: true, OffArm: true},
 	}
-	for _, mode := range FallbackModes {
+	for _, mode := range route.FallbackModes {
 		t.Run(mode, func(t *testing.T) {
 			expected, ok := want[mode]
-			if !ok {
-				t.Fatalf("no expected policy for persisted mode %q", mode)
-			}
 			p, err := PolicyOf(mode, PolicyDefault)
-			if err != nil || p != expected {
+			if !ok || err != nil || p != expected {
 				t.Fatalf("PolicyOf(%q) = %+v, %v; want %+v", mode, p, err, expected)
 			}
 			if got := p.Mode(); got != mode {
@@ -59,7 +57,7 @@ func testPolicyAliases(t *testing.T) {
 	}
 	for _, raw := range []string{"bogus", "false", "0"} {
 		p, err := PolicyOf(raw, PolicyTyped)
-		want := fmt.Sprintf("%s=%q unknown (%s)", EnvFallback, raw, strings.Join(FallbackModes, "|"))
+		want := fmt.Sprintf("%s=%q unknown (%s)", EnvFallback, raw, strings.Join(route.FallbackModes, "|"))
 		if err == nil || err.Error() != want || p != (Policy{}) {
 			t.Errorf("PolicyOf(%q) = %+v, %v; want zero policy and %q", raw, p, err, want)
 		}
@@ -69,7 +67,7 @@ func testPolicyAliases(t *testing.T) {
 // A none request is still typed; env and vault defaults never become requests.
 func testPolicySources(t *testing.T) {
 	for _, src := range []PolicySource{PolicyDefault, PolicyEnv, PolicyOverlay, PolicyTyped} {
-		for _, mode := range FallbackModes {
+		for _, mode := range route.FallbackModes {
 			p, err := PolicyOf(mode, src)
 			if err != nil || p.Source != src || p.Mode() != mode {
 				t.Fatalf("PolicyOf(%q, %v) = %+v, %v", mode, src, p, err)
