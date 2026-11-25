@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -50,16 +51,16 @@ func TestAPITargetValidation(t *testing.T) {
 	}
 }
 
-// apiServer is a TLS workspace answering h, with a profile "api-test" on it and apiClient trusting it.
+// apiServer is a TLS workspace answering h, with a profile "api-test" on it and httpx.Client trusting it.
 func apiServer(t *testing.T, h http.HandlerFunc) {
 	t.Helper()
 	seedOverlay(t, "")
 	t.Setenv("DATABRICKS_TEST_API_TOKEN", "synthetic-api-token")
 	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
-	old := apiClient
-	apiClient = srv.Client()
-	t.Cleanup(func() { apiClient = old })
+	old := httpx.Client
+	httpx.Client = srv.Client()
+	t.Cleanup(func() { httpx.Client = old })
 	if err := providers.SetProviderFields("api-test", map[string]any{"preset": "databricks", "host": srv.URL,
 		"auth": map[string]any{"type": "key", "env": "DATABRICKS_TEST_API_TOKEN"}}); err != nil {
 		t.Fatal(err)

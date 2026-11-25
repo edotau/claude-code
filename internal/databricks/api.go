@@ -35,9 +35,6 @@ const (
 	apiAttempts = 3
 )
 
-// apiClient is the HTTP client for api; a package var so tests reach their TLS server.
-var apiClient = &http.Client{Timeout: 30 * time.Second}
-
 // apiAllowed is read-only metadata only (no exports, DBFS, tokens, users, jobs); extra is the segments below prefix.
 var apiAllowed = []struct {
 	prefix string
@@ -107,16 +104,10 @@ func apiGet(ctx context.Context, p *providers.Provider, host, path string) (int,
 	if u, err := url.Parse(target); err != nil || u.Host != strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://") {
 		return 0, nil, errors.New("path would leave the workspace host")
 	}
-	for attempt := 1; ; attempt++ {
-		status, body, hdr, err := httpx.Do(ctx, httpx.Call{Client: apiClient, URL: target, Limit: apiLimit, NoRedirect: true,
-			Authorize: func(h http.Header) error { return providers.Authorize(ctx, p, h) }})
-		if !textutil.RetriableGET(status) || attempt == apiAttempts {
-			return status, body, err
-		}
-		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr, textutil.StatusError(status)); werr != nil {
-			return 0, nil, werr
-		}
-	}
+	status, body, _, err := httpx.Do(ctx, httpx.Call{URL: target, Limit: apiLimit, NoRedirect: true,
+		Attempts: apiAttempts, Base: 500 * time.Millisecond, Retry: textutil.RetriableGET,
+		Authorize: func(h http.Header) error { return providers.Authorize(ctx, p, h) }})
+	return status, body, err
 }
 
 // apiVerb is `databricks api <path>`: an authenticated GET, so no one reaches for curl with a token.

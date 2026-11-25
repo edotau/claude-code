@@ -4,19 +4,22 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ErrTooLarge is returned with the first Limit bytes when a response body is longer than Call.Limit.
 var ErrTooLarge = errors.New("response body too large")
 
-// defaultTimeout is the whole-request limit of the client a nil Call.Client gets.
-var defaultTimeout = 30 * time.Second
+// Client is the default bounded client; callers may supply Call.Client for different policies.
+var Client = &http.Client{Timeout: 30 * time.Second, CheckRedirect: SameOriginRedirect}
 
 // Call is one bounded request. Limit is required; a longer body is ErrTooLarge.
 type Call struct {
@@ -27,10 +30,48 @@ type Call struct {
 	Body        []byte
 	Limit       int64
 	NoRedirect  bool // return a 3xx instead of following it
+	Attempts    int  // zero or one means no retry
+	Base        time.Duration
+	Retry       func(int) bool    // statuses to retry
+	Response    *[]byte           // DoJSON saves the bounded response when non-nil
+	DecodeError func(error) error // optional mapping for JSON decoding failures
 }
 
 // Do sends c: status (0 = no response), up to Limit bytes, header; a read error or ErrTooLarge keeps the status.
 func Do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, err error) {
+	for attempt := 1; ; attempt++ {
+		status, body, hdr, err = do(ctx, c)
+		if status == 0 || attempt >= c.Attempts || c.Retry == nil || !c.Retry(status) {
+			return status, body, hdr, err
+		}
+		if err := textutil.WaitRetry(ctx, attempt, c.Base, hdr, textutil.StatusError(status)); err != nil {
+			return 0, nil, nil, &RetryError{err}
+		}
+	}
+}
+
+// RetryError preserves the interrupted wait and its last response status.
+type RetryError struct{ Err error }
+
+func (e *RetryError) Error() string { return e.Err.Error() }
+func (e *RetryError) Unwrap() error { return e.Err }
+
+// DoJSON reads a bounded response, saving it in Response if requested, and decodes a successful response into out.
+func DoJSON(ctx context.Context, c Call, out any) (int, error) {
+	status, body, _, err := Do(ctx, c)
+	if c.Response != nil {
+		*c.Response = body
+	}
+	if err == nil && status/100 == 2 && out != nil {
+		err = json.Unmarshal(body, out)
+		if err != nil && c.DecodeError != nil {
+			err = c.DecodeError(err)
+		}
+	}
+	return status, err
+}
+
+func do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, err error) {
 	if c.Limit <= 0 {
 		return 0, nil, nil, errors.New("httpx: Limit is required")
 	}
@@ -75,7 +116,7 @@ func (c Call) request(ctx context.Context) (*http.Request, error) {
 func (c Call) client() *http.Client {
 	client := c.Client
 	if client == nil {
-		client = &http.Client{Timeout: defaultTimeout, CheckRedirect: SameOriginRedirect}
+		client = Client
 	}
 	if c.NoRedirect {
 		cp := *client

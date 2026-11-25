@@ -96,16 +96,16 @@ func TestDoContextCancel(t *testing.T) {
 }
 
 func TestDoNilClientGetsTheDefaultTimeout(t *testing.T) {
-	if defaultTimeout != 30*time.Second {
-		t.Fatalf("default timeout %v", defaultTimeout)
+	if Client.Timeout != 30*time.Second {
+		t.Fatalf("default timeout %v", Client.Timeout)
 	}
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
 	defer srv.Close()
 	defer close(release)
-	orig := defaultTimeout
-	defaultTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { defaultTimeout = orig })
+	orig := Client.Timeout
+	Client.Timeout = 50 * time.Millisecond
+	t.Cleanup(func() { Client.Timeout = orig })
 	start := time.Now()
 	if _, _, _, err := Do(context.Background(), Call{URL: srv.URL, Limit: 10}); err == nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("nil client did not time out: %v", err)

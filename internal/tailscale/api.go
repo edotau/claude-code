@@ -165,9 +165,11 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 		}
 		call.Body, call.Header = b, http.Header{"Content-Type": {"application/json"}}
 	}
-	status, b, err := c.send(ctx, call, false)
+	var b []byte
+	call.Response = &b
+	status, err := c.send(ctx, call, out, false)
 	if status == http.StatusUnauthorized {
-		status, b, err = c.send(ctx, call, true)
+		status, err = c.send(ctx, call, out, true)
 	}
 	if status == 0 {
 		return err
@@ -176,14 +178,11 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 		return errors.Join(fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, status,
 			strings.TrimSpace(string(b[:min(len(b), 4<<10)]))), err)
 	}
-	if err != nil || out == nil {
-		return err
-	}
-	return json.Unmarshal(b, out)
+	return err
 }
 
-// send runs call with a bearer token (re-minted when forceRefresh) and returns the status and bounded body.
-func (c *Client) send(ctx context.Context, call httpx.Call, forceRefresh bool) (int, []byte, error) {
+// send runs call with a bearer token (re-minted when forceRefresh).
+func (c *Client) send(ctx context.Context, call httpx.Call, out any, forceRefresh bool) (int, error) {
 	if forceRefresh {
 		ctx = withForceRefresh(ctx)
 	}
@@ -195,8 +194,7 @@ func (c *Client) send(ctx context.Context, call httpx.Call, forceRefresh bool) (
 		h.Set("Authorization", "Bearer "+tok)
 		return nil
 	}
-	status, b, _, err := httpx.Do(ctx, call)
-	return status, b, err
+	return httpx.DoJSON(ctx, call, out)
 }
 
 // keyOpts configures a minted auth key.

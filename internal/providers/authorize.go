@@ -102,17 +102,10 @@ const catalogAttempts = 3
 
 // getCatalog GETs the catalog, retrying 429/502/503/504 (an idempotent GET) with Retry-After-aware backoff.
 func getCatalog(ctx context.Context, p *Provider, url string, hdr http.Header) (status int, body []byte, err error) {
-	for attempt := 1; ; attempt++ {
-		var rh http.Header
-		status, body, rh, err = httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
-			Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
-		if !slices.Contains([]int{429, 502, 503, 504}, status) || attempt == catalogAttempts {
-			return status, body, err
-		}
-		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, rh, textutil.StatusError(status)); werr != nil {
-			return 0, nil, werr
-		}
-	}
+	status, body, _, err = httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
+		Attempts: catalogAttempts, Base: 500 * time.Millisecond, Retry: func(status int) bool { return slices.Contains([]int{429, 502, 503, 504}, status) },
+		Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
+	return status, body, err
 }
 
 // catalogURL picks the model-listing URL for p and whether it speaks the Anthropic dialect.

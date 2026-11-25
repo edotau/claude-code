@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -85,7 +86,7 @@ func DrainIfIdle(ctx context.Context, sc Scope) (idle, answered bool) {
 		return false, false
 	}
 	req.Header.Set(ClientHeader, secret)
-	resp, err := sessionClient.Do(req)
+	resp, err := httpx.Client.Do(req)
 	if err != nil {
 		return false, false
 	}
