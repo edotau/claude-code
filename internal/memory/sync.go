@@ -45,8 +45,9 @@ func SyncOn() bool {
 
 // SyncState is state/harness/memory/sync.json: what each peer's last passes saw and decided.
 type SyncState struct {
-	Schema int                  `json:"schema"`
-	Peers  map[string]*PeerSync `json:"peers"`
+	Schema  int                  `json:"schema"`
+	Primary string               `json:"primary"` // "self" or a peer host: its version wins conflicts; "" keeps both
+	Peers   map[string]*PeerSync `json:"peers"`
 }
 
 // PeerSync is one peer's record.

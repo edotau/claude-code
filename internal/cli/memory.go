@@ -233,7 +233,7 @@ func memorySpec() *helptext.Node {
 		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
-			helptext.BoolFlag("plans")}},
+			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
 	}}
 }
 
@@ -619,6 +619,8 @@ func cmdMemoryImport(args []string) int {
 	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
 	sync := fs.Bool("sync", false, "pull, then push; all peers when no --host")
 	replaceFile := fs.String("replace", "", "file of sha256 lines: replace those files on a match")
+	removeFile := fs.String("remove", "", "file of sha256 lines: delete those files while the hash still matches")
+	primary := fs.String("primary", "", "with --sync: self, a peer host or none; its version wins conflicts and deletions")
 	plans := fs.Bool("plans", false, "apply a sync peer's plans from --from DIR")
 	if code, done := memoryParseNoArgs(fs, "import", args); done {
 		return code
@@ -627,14 +629,18 @@ func cmdMemoryImport(args []string) int {
 		return memoryImportPlans(*from, *dryRun, *sync, *host, *replaceFile)
 	}
 	if *sync {
-		return memorySync(*host, *from, *replaceFile, *dryRun)
+		return memorySync(*host, memorySyncFlags{*from, *replaceFile, *removeFile, *primary}, *dryRun)
 	}
+
 	if (*from == "") == (*host == "") {
 		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
 	}
-	replace, err := memory.ReadReplaceList(*replaceFile)
+	replace, remove, err := memoryHashLists(*replaceFile, *removeFile)
 	if err != nil {
-		return helptext.FailUsage("memory import: --replace: %v", err)
+		return helptext.FailUsage("memory import: %v", err)
+	}
+	if *primary != "" {
+		return helptext.FailUsage("memory import: --primary goes with --sync (usage: %s)", memoryImportPage.Usage)
 	}
 	dir, label, err := memoryImportSource(*from, *host)
 	if err != nil {
@@ -643,12 +649,23 @@ func cmdMemoryImport(args []string) int {
 	if *host != "" {
 		defer func() { _ = os.RemoveAll(dir) }()
 	}
-	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics, Replace: replace})
+	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics, Replace: replace, Remove: remove})
 	if err != nil {
 		return memoryImportFail(err)
 	}
 	fmt.Println(strings.Join(append(res.Lines, res.Summary), "\n"))
 	return 0
+}
+
+// memoryHashLists reads --replace and --remove, each a file of sha256 lines.
+func memoryHashLists(replaceFile, removeFile string) (replace, remove map[string]string, err error) {
+	if replace, err = memory.ReadReplaceList(replaceFile); err != nil {
+		return nil, nil, fmt.Errorf("--replace: %w", err)
+	}
+	if remove, err = memory.ReadReplaceList(removeFile); err != nil {
+		return nil, nil, fmt.Errorf("--remove: %w", err)
+	}
+	return replace, remove, nil
 }
 
 // memoryImportPlans is the peer side of the plans sync, run by the syncing machine over ssh.
@@ -664,10 +681,23 @@ func memoryImportPlans(from string, dryRun, sync bool, host, replaceFile string)
 	return 0
 }
 
+// memorySyncFlags are the import flags --sync sees; only primary is its own.
+type memorySyncFlags struct{ from, replace, remove, primary string }
+
+func (f memorySyncFlags) refusal(dryRun bool) string {
+	switch {
+	case f.from != "" || f.replace != "" || f.remove != "":
+		return "--sync takes none of --from, --replace and --remove"
+	case f.primary != "" && dryRun:
+		return "--primary is saved, so it does not combine with --dry-run"
+	}
+	return ""
+}
+
 // memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
-func memorySync(host, from, replaceFile string, dryRun bool) int {
-	if from != "" || replaceFile != "" {
-		return helptext.FailUsage("memory import: --sync takes neither --from nor --replace (usage: %s)", memoryImportPage.Usage)
+func memorySync(host string, f memorySyncFlags, dryRun bool) int {
+	if msg := f.refusal(dryRun); msg != "" {
+		return helptext.FailUsage("memory import: %s (usage: %s)", msg, memoryImportPage.Usage)
 	}
 	if memory.InSandbox() {
 		fmt.Fprintln(os.Stderr, "memory sync: refused: this config dir is a sandbox")
@@ -685,6 +715,11 @@ func memorySync(host, from, replaceFile string, dryRun bool) int {
 	}
 	if len(peers) == 0 {
 		return helptext.FailUsage("memory import --sync: CLAUDE_REMOTE_HOST names no peer; give --host")
+	}
+	if f.primary != "" {
+		if err := memory.SetSyncPrimary(f.primary); err != nil {
+			return helptext.FailUsage("memory import: --primary: %v", err)
+		}
 	}
 	code, err := memory.RunSync(peers, dryRun, os.Stdout)
 	if err != nil {

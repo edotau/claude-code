@@ -32,7 +32,7 @@ func TestPlansSyncDecideAndArchiveMove(t *testing.T) {
 	put(peer, "x/d.md", "D") // only the peer has it: copied, slug subdirectory included
 	seen := map[string]string{"a.md": h("A"), "b.md": h("B0"), "c.md": h("C")}
 	local, theirs := hashTree(plansRoot()), hashTree(peer)
-	got := decidePlans(seen, local, theirs, archivedPlans(union(local, theirs)))
+	got := decidePlans(seen, local, theirs, archivedPlans(union(local, theirs)), primaryNone)
 	want := plansAction{
 		take: plansWrite{rels: []string{"a.md", "x/d.md"}, over: map[string]string{"a.md": h("A")}, drop: map[string]string{"c.md": h("C")}},
 		send: plansWrite{rels: []string{"b.md"}, over: map[string]string{"b.md": h("B0")}, drop: map[string]string{"c.md": h("C")}},
@@ -89,7 +89,7 @@ func TestDecidePlansArchivedRules(t *testing.T) {
 			if tc.seen != "" {
 				seen["x.md"] = tc.seen
 			}
-			a := decidePlans(seen, m(tc.local), m(tc.theirs), m(tc.archived))
+			a := decidePlans(seen, m(tc.local), m(tc.theirs), m(tc.archived), primaryNone)
 			if !reflect.DeepEqual(a.take.rels, tc.wantTake) || !reflect.DeepEqual(a.send.rels, tc.wantSend) || a.differ != tc.wantDiffer {
 				t.Fatalf("take %v send %v differ %d, want %v %v %d", a.take.rels, a.send.rels, a.differ, tc.wantTake, tc.wantSend, tc.wantDiffer)
 			}
@@ -106,12 +106,12 @@ func TestPlansSentSettlesOnPackedBytes(t *testing.T) {
 	plansPut(t, plansRoot(), "x.md", "two")
 	theirs := map[string]string{"x.md": h("one")}
 	seen := map[string]string{"x.md": h("one")}
-	a := decidePlans(seen, hashTree(plansRoot()), theirs, nil)
+	a := decidePlans(seen, hashTree(plansRoot()), theirs, nil, primaryNone)
 	kept, sent := map[string]bool{}, map[string]string{}
 	syncMust(t, writePlansTar(io.Discard, a.send, kept, sent))
 	plansPut(t, plansRoot(), "x.md", "three") // saved during the push
 	plansSent(seen, a, theirs, kept, sent)
-	next := decidePlans(seen, hashTree(plansRoot()), map[string]string{"x.md": h("two")}, nil)
+	next := decidePlans(seen, hashTree(plansRoot()), map[string]string{"x.md": h("two")}, nil, primaryNone)
 	if !slices.Equal(next.send.rels, []string{"x.md"}) {
 		t.Fatalf("seen = %v: the save during the push was not sent next pass (send %v)", seen, next.send.rels)
 	}

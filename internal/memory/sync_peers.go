@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -110,14 +111,16 @@ type syncPass struct {
 	out                           io.Writer
 	layout                        string
 	refused                       map[string]bool
-	plansTok                      map[string]string // peer -> plans digest from the probe
+	plansTok                      map[string]string            // peer -> plans digest from the probe
+	theirs                        map[string]map[string]string // peer -> its file hashes from this pass's pull
 	synced, down, failed, retried int
 }
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
 	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout)),
-		refused: map[string]bool{}, plansTok: map[string]string{}}
+		refused: map[string]bool{}, plansTok: map[string]string{},
+		theirs: map[string]map[string]string{}}
 	tokens := map[string]string{}
 	for _, peer := range peers {
 		if tok, ok := s.probe(peer, s.peer(peer)); ok {
@@ -277,18 +280,28 @@ func (s *syncPass) pull(name string, p *PeerSync, tok string) bool {
 		s.say("pull", name, "fetch failed: "+err.Error()+"; retried at the next pass")
 		return false
 	}
-	theirs := hashTree(dir)
+	theirs, side, local := hashTree(dir), s.st.primaryOf(name), HashStore()
+	s.theirs[name] = theirs
+	gone := localGone(p.Seen)
+	drop, back := localDeletes(p.Seen, gone, theirs, side)
+	remove, keptEdits := peerDeletes(p.Seen, local, theirs, side)
 	res, err := ImportBank(ImportOptions{From: dir, Label: name, DryRun: s.dryRun, Topics: true,
-		Replace: takePeer(p.Seen, HashStore(), theirs)})
+		Replace: takePeer(p.Seen, local, theirs, side), Remove: remove, Skip: setOf(drop)})
 	if err != nil {
 		_, input := errors.AsType[*ImportInputError](err)
 		s.fail(&p.Pull, "pull", name, refusalReason(err), input || strings.Contains(err.Error(), credentialMark), tok)
 		return false
 	}
-	n := countPrefix(res.Lines, "conflict ")
+	n := countPrefix(res.Lines, "conflict ") + len(back) + keptEdits
+	for _, l := range res.Lines {
+		if strings.HasPrefix(l, "remove ") {
+			s.say("pull", name, l)
+		}
+	}
 	s.say("pull", name, fmt.Sprintf("%s; differ %d", res.Summary, n))
 	if !s.dryRun {
-		settleSeen(p.Seen, HashStore(), theirs, wroteFiles(res.Lines))
+		forgetRemoved(p.Seen, res.Lines, gone, theirs)
+		settleSeen(p.Seen, HashStore(), theirs, wroteFiles(res.Lines), side)
 		p.Pulled, p.Pull = tok, SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
 	}
 	return true
@@ -304,10 +317,10 @@ func (s *syncPass) fail(d *SyncDir, dir, peer, why string, lasting bool, token s
 }
 
 // takePeer is the pull's replace list: the files only the peer changed since the last sync, keyed to the local hash.
-func takePeer(seen, local, theirs map[string]string) map[string]string {
+func takePeer(seen, local, theirs map[string]string, side primarySide) map[string]string {
 	replace := map[string]string{}
 	for rel, h := range theirs {
-		if l, ok := local[rel]; ok && !MergesOnImport(rel) && DecideSync(seen[rel], l, h) == SyncTakePeer {
+		if l, ok := local[rel]; ok && !MergesOnImport(rel) && side.resolve(DecideSync(seen[rel], l, h)) == SyncTakePeer {
 			replace[rel] = l
 		}
 	}
@@ -315,7 +328,7 @@ func takePeer(seen, local, theirs map[string]string) map[string]string {
 }
 
 // settleSeen records only what the pull proved; a local-only change or an unequal log keeps its pair for the push.
-func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool) {
+func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool, side primarySide) {
 	for rel, h := range theirs {
 		l, ok := local[rel]
 		switch {
@@ -324,7 +337,7 @@ func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool) {
 		case !ok, MergesOnImport(rel) && l != h:
 		case l == h:
 			seen[rel] = l
-		case DecideSync(seen[rel], l, h) == SyncDiffer:
+		case DecideSync(seen[rel], l, h) == SyncDiffer && side != primaryLocal: // the primary's push still has to carry it
 			seen[rel] = l + " " + h // both keep their own; the next one-sided change wins
 		}
 	}
@@ -400,20 +413,24 @@ func (s *syncPass) push(name string, p *PeerSync, peerTok string) bool {
 		s.say("push", name, "refused earlier: "+p.Push.Refusal)
 		return false
 	}
-	local := HashStore()
+	local, theirs, side := HashStore(), s.theirs[name], s.st.primaryOf(name)
 	rels := ChangedSince(local, p.Seen)
-	if len(rels) == 0 {
+	if side == primaryLocal {
+		rels = withStanding(rels, local, p.Seen)
+	}
+	drop, _ := localDeletes(p.Seen, localGone(p.Seen), theirs, side)
+	if len(rels) == 0 && len(drop) == 0 {
 		if !s.dryRun {
 			p.Pushed = tok
 		}
 		s.say("push", name, "nothing changed")
 		return true
 	}
-	a, tail, exit, err := s.send(name, rels, pushReplace(p.Seen, local, rels))
+	a, tail, exit, err := s.send(name, rels, pushReplace(p.Seen, local, rels, theirs, side), drop)
 	if !s.pushOK(name, p, tok, a, tail, exit, err) {
 		return false
 	}
-	s.pushed(name, p, pushResult{tok: tok, peerTok: peerTok, rels: rels, local: local, a: a})
+	s.pushed(name, p, pushResult{tok: tok, peerTok: peerTok, rels: rels, local: local, a: a, drop: drop})
 	return true
 }
 
@@ -441,13 +458,16 @@ func cmpErr(err error, tail string) string {
 	return lastLine(tail)
 }
 
-// pushReplace is the .replace list: "<peer sha256>  <rel>" for each sent file only this side changed.
-func pushReplace(seen, local map[string]string, rels []string) string {
+// pushReplace is the .replace list, "<peer sha256>  <rel>" per sent file this side wins; nil theirs uses seen.
+func pushReplace(seen, local map[string]string, rels []string, theirs map[string]string, side primarySide) string {
 	var b strings.Builder
 	for _, rel := range rels {
-		f := strings.Fields(seen[rel])
-		if len(f) > 0 && !MergesOnImport(rel) && DecideSync(seen[rel], local[rel], f[len(f)-1]) == SyncSendLocal {
-			fmt.Fprintf(&b, "%s  %s\n", f[len(f)-1], rel)
+		_, ph := seenPair(seen[rel])
+		if theirs != nil {
+			ph = theirs[rel]
+		}
+		if ph != "" && !MergesOnImport(rel) && side.resolve(DecideSync(seen[rel], local[rel], ph)) == SyncSendLocal {
+			fmt.Fprintf(&b, "%s  %s\n", ph, rel)
 		}
 	}
 	return b.String()
@@ -458,6 +478,7 @@ type pushResult struct {
 	rels         []string
 	local        map[string]string
 	a            pushAnswer
+	drop         map[string]string
 }
 
 // pushed records a push: each sent file the peer did not name as kept or skipped is equal; a dry run records nothing.
@@ -472,6 +493,12 @@ func (s *syncPass) pushed(name string, p *PeerSync, r pushResult) {
 			p.Seen[rel] = r.local[rel]
 		}
 	}
+	for _, rel := range slices.Sorted(maps.Keys(r.a.dropped)) {
+		if !r.a.kept[rel] {
+			delete(p.Seen, rel)
+			s.say("push", name, "deleted "+rel)
+		}
+	}
 	if r.a.pre == r.peerTok && p.Pulled == r.peerTok && r.a.post != "" { // nothing else moved the peer: the next pull skips
 		p.Pulled = r.a.post
 	}
@@ -481,6 +508,7 @@ func (s *syncPass) pushed(name string, p *PeerSync, r pushResult) {
 // pushAnswer is what the driver reads from the peer's import; complete means the summary came right before sync-post.
 type pushAnswer struct {
 	kept               map[string]bool
+	dropped            map[string]string // the deletions the peer was asked for
 	summary, pre, post string
 	complete           bool
 }
@@ -519,32 +547,38 @@ func importSummary(l string) bool {
 }
 
 // send streams the tar to the push script; a peer answering 2 to --replace (an older binary) gets it once without.
-func (s *syncPass) send(name string, rels []string, replace string) (a pushAnswer, tail string, exit int, err error) {
+func (s *syncPass) send(name string, rels []string, replace string, drop map[string]string) (a pushAnswer, tail string, exit int, err error) {
 	for {
 		var in, out bytes.Buffer
-		if err := writePushTar(&in, replace, rels); err != nil {
+		if err := writePushTar(&in, replace, drop, rels); err != nil {
 			return pushAnswer{}, "", 0, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), memoryFetchTimeout)
-		tail, exit, err = syncSSH(ctx, name, pushScript(replace != "", s.dryRun), &in, &out)
+		tail, exit, err = syncSSH(ctx, name, pushScript(replace != "", len(drop) > 0, s.dryRun), &in, &out)
 		cancel()
-		if exit != 2 || replace == "" || err != nil {
-			return readPushAnswer(out.String()), tail, exit, err
+		if exit != 2 || replace == "" && len(drop) == 0 || err != nil {
+			a = readPushAnswer(out.String())
+			a.dropped = drop
+			return a, tail, exit, err
 		}
-		s.say("push", name, "peer refused --replace (exit 2); sending once more without it")
-		replace = ""
+		s.say("push", name, "peer refused --replace or --remove (exit 2); sending once more without them")
+		replace, drop = "", nil
 	}
 }
 
-// writePushTar writes .replace (when non-empty) then the store files as one archive: Flush pads without a trailer.
-func writePushTar(w io.Writer, replace string, rels []string) error {
-	if replace != "" {
+// writePushTar writes .replace and .remove (when non-empty) then the store files: Flush pads without a trailer.
+func writePushTar(w io.Writer, replace string, drop map[string]string, rels []string) error {
+	if replace != "" || len(drop) > 0 {
 		tw := tar.NewWriter(w)
-		if err := tw.WriteHeader(&tar.Header{Name: ".replace", Mode: 0o600, Size: int64(len(replace)), Typeflag: tar.TypeReg}); err != nil {
-			return err
+		if replace != "" {
+			if err := addTarBytes(tw, ".replace", []byte(replace)); err != nil {
+				return err
+			}
 		}
-		if _, err := io.WriteString(tw, replace); err != nil {
-			return err
+		if len(drop) > 0 {
+			if err := addTarBytes(tw, ".remove", hashList(drop)); err != nil {
+				return err
+			}
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -554,10 +588,13 @@ func writePushTar(w io.Writer, replace string, rels []string) error {
 }
 
 // pushScript unpacks the tar into a temp dir the trap removes, runs the peer's import, and brackets it with tokens.
-func pushScript(replace, dryRun bool) string {
+func pushScript(replace, remove, dryRun bool) string {
 	imp := textutil.QuotePath(remote.HomePath(remote.Bin())) + ` memory import --from "$d" --topics`
 	if replace {
 		imp += ` --replace "$d/.replace"`
+	}
+	if remove {
+		imp += ` --remove "$d/.remove"`
 	}
 	if dryRun {
 		imp += " --dry-run"

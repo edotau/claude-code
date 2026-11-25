@@ -55,27 +55,51 @@ type plansAction struct {
 }
 
 // decidePlans applies DecideSync per file; a plan archived in the store leaves every side whose copy is unedited.
-func decidePlans(seen, local, theirs, archived map[string]string) plansAction {
+func decidePlans(seen, local, theirs, archived map[string]string, side primarySide) plansAction {
 	a := plansAction{take: newPlansWrite(), send: newPlansWrite()}
 	for _, rel := range slices.Sorted(maps.Keys(union(local, theirs))) {
 		l, t := local[rel], theirs[rel]
 		switch {
 		case archived[rel] != "" && a.archived(rel, seen[rel], l, t, archived[rel]):
 		case l == "":
-			a.take.rels = append(a.take.rels, rel) // deletions do not propagate: a file only the peer has comes back
+			a.goneHere(rel, seen[rel], t, side)
 		case t == "" && archived[rel] != "":
 			a.differ++ // never offer the peer a live copy of a plan the store archived
 		case t == "":
-			a.send.rels = append(a.send.rels, rel)
+			a.gonePeer(rel, seen[rel], l, side)
 		default:
-			a.decide(rel, seen[rel], l, t)
+			a.decide(rel, seen[rel], l, t, side)
 		}
 	}
 	return a
 }
 
-func (a *plansAction) decide(rel, seen, l, t string) {
-	switch DecideSync(seen, l, t) {
+// goneHere handles a plan the peer has and this side lacks: new, a deletion to send, or a peer edit that stays.
+func (a *plansAction) goneHere(rel, seen, t string, side primarySide) {
+	if ls, ps := seenPair(seen); seen == "" || (t != ps || ls != ps) && side != primaryLocal { // a recorded conflict is no deletion
+		a.take.rels = append(a.take.rels, rel)
+		if seen != "" && ls == ps {
+			a.differ++ // the peer edited what this side deleted
+		}
+		return
+	}
+	a.send.drop[rel] = t
+}
+
+// gonePeer is goneHere for a plan the peer deleted.
+func (a *plansAction) gonePeer(rel, seen, l string, side primarySide) {
+	if ls, ps := seenPair(seen); seen == "" || (l != ls || ls != ps) && side != primaryPeer {
+		a.send.rels = append(a.send.rels, rel)
+		if seen != "" && ls == ps {
+			a.differ++ // this side edited what the peer deleted
+		}
+		return
+	}
+	a.take.drop[rel] = l
+}
+
+func (a *plansAction) decide(rel, seen, l, t string, side primarySide) {
+	switch side.resolve(DecideSync(seen, l, t)) {
 	case SyncTakePeer:
 		a.take.rels, a.take.over[rel] = append(a.take.rels, rel), l
 	case SyncSendLocal:
@@ -162,7 +186,7 @@ func (s *syncPass) plans(name string, p *PeerSync) {
 		return
 	}
 	theirs := hashTree(dir)
-	a := decidePlans(p.PlansSeen, local, theirs, archivedPlans(union(local, theirs)))
+	a := decidePlans(p.PlansSeen, local, theirs, archivedPlans(union(local, theirs)), s.st.primaryOf(name))
 	lines, ok := s.takePlans(name, p, dir, a.take, theirs)
 	if n := a.differ + countPrefix(lines, plansBeside); n > 0 {
 		s.say("plans", name, fmt.Sprintf("differ %d", n))
@@ -250,9 +274,18 @@ func (s *syncPass) sendPlans(name string, a plansAction, sent map[string]string)
 		s.say("plans", name, fmt.Sprintf("send failed (exit %d): %s", exit, lastLine(tail)))
 	default:
 		s.say("plans", name, fmt.Sprintf("sent %d, drop %d: %s", len(a.send.rels), len(a.send.drop), readPlansAnswer(out.String(), kept)))
+		s.sayDeleted(name, a.send.drop, kept)
 		return kept, true
 	}
 	return nil, false
+}
+
+func (s *syncPass) sayDeleted(name string, drop map[string]string, kept map[string]bool) {
+	for _, rel := range slices.Sorted(maps.Keys(drop)) {
+		if !kept[rel] && !s.dryRun {
+			s.say("plans", name, "deleted "+rel)
+		}
+	}
 }
 
 // readPlansAnswer marks each file the peer kept or skipped and returns its summary line.
