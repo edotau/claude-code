@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -274,6 +276,9 @@ func cmdResolve(args []string) int {
 func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) {
 	if proxy {
 		pid := os.Getppid()
+		if err := guardProxyBase(profile); err != nil {
+			return "", err
+		}
 		if err := checkProfile(profile); err != nil {
 			return "", err
 		}
@@ -298,6 +303,25 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 		return "", err
 	}
 	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
+}
+
+// guardProxyBase refuses a session token when the caller's base is set but not a loopback /p/<profile> proxy base.
+func guardProxyBase(profile string) error {
+	base := os.Getenv(proc.EnvAnthropicBaseURL)
+	if base == "" {
+		return nil
+	}
+	u, err := url.Parse(base)
+	if err == nil && textutil.IsLoopbackHost(u.Hostname()) && routeProfile(base) != "" {
+		return nil
+	}
+	host := "unparseable"
+	if err == nil {
+		host = u.Host
+	}
+	audit.Log(audit.HookBlocked, "resolve --proxy", "session token withheld: base host "+host)
+	return fmt.Errorf("resolve --proxy: base %s is not the harness proxy; relaunch with `claude-code --profile %s`",
+		host, cmp.Or(profile, "<profile>"))
 }
 
 // checkProfile refuses a --profile the registry does not know; "" is the session profile.

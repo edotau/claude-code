@@ -1003,3 +1003,17 @@ func TestResolveProxyProfileOutsideLaunchScopeMints(t *testing.T) {
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/p/dev")
 	check("refused multi-profile key, explicit qa beats the dev route", "qa", []string{"qa"})
 }
+
+// resolve --proxy withholds the session token when the caller's base is not a loopback proxy base.
+func TestResolveProxyRefusesForeignBase(t *testing.T) {
+	cliScratch(t)
+	t.Setenv(claude.ProxyKeyEnv, "cct_GUARD_TEST")
+	stubSessionInvalid(t, nil)
+	for base, want := range map[string]int{"https://api.anthropic.com": 1, "http://127.0.0.1:1/p/dev": 0} {
+		t.Setenv(proc.EnvAnthropicBaseURL, base)
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
+		if code != want || (want == 1 && (out != "" || strings.Contains(stderr, "cct_GUARD_TEST") || !strings.Contains(stderr, "api.anthropic.com"))) {
+			t.Errorf("base %s: exit %d stdout %q stderr %q; want exit %d", base, code, out, stderr, want)
+		}
+	}
+}
