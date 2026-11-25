@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"container/heap"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -594,11 +595,10 @@ func (s *Semantic) candidates(files []corpusFile, segs []segView, k int, floor f
 				skipped = true
 				continue
 			}
-			all = append(all, scoredHit{h, cos})
+			all = append(all, scoredHit{hit: h, cos: cos, idx: len(all)})
 		}
 	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].cos > all[j].cos })
-	for _, a := range all[:min(k, len(all))] {
+	for _, a := range topK(all, k) {
 		hits = append(hits, a.hit)
 	}
 	return hits, skipped
@@ -607,6 +607,53 @@ func (s *Semantic) candidates(files []corpusFile, segs []segView, k int, floor f
 type scoredHit struct {
 	hit SearchHit
 	cos float64
+	idx int
+}
+
+// hitMinHeap keeps the worst hit on top: cos ascending, then arrival index descending.
+type hitMinHeap []scoredHit
+
+func (h hitMinHeap) Len() int { return len(h) }
+func (h hitMinHeap) Less(i, j int) bool {
+	if h[i].cos != h[j].cos {
+		return h[i].cos < h[j].cos
+	}
+	return h[i].idx > h[j].idx
+}
+func (h hitMinHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *hitMinHeap) Push(x any)   { *h = append(*h, x.(scoredHit)) }
+func (h *hitMinHeap) Pop() any {
+	o := *h
+	x := o[len(o)-1]
+	*h = o[:len(o)-1]
+	return x
+}
+
+// topK returns the k best hits, cos descending then idx ascending, matching a stable sort truncated to k.
+func topK(all []scoredHit, k int) []scoredHit {
+	if k <= 0 || len(all) == 0 {
+		return nil
+	}
+	h := make(hitMinHeap, 0, min(k, len(all)))
+	for _, a := range all {
+		if len(h) < k {
+			h = append(h, a)
+			if len(h) == k {
+				heap.Init(&h)
+			}
+		} else if a.cos > h[0].cos {
+			h[0] = a
+			heap.Fix(&h, 0)
+		}
+	}
+	out := []scoredHit(h)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].cos != out[j].cos {
+			return out[i].cos > out[j].cos
+		}
+		return out[i].idx < out[j].idx
+	})
+	return out
 }
 
 // hitFor builds the hit for block of file f and its cosine; false for a struck-out or unembedded block at floor.

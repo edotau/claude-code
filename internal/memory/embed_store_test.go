@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-
 	"github.com/edotau/claude-code/internal/paths"
 	"go.etcd.io/bbolt"
 )
@@ -751,4 +752,55 @@ func BenchmarkDecodeEmbedRecord(b *testing.B) {
 	if !reflect.DeepEqual(got, want) {
 		b.Fatal("decoded metadata or vector bytes differ from the 2000 x 1024 fixture")
 	}
+}
+
+func synthHits(n, buckets int, seed int64) []scoredHit {
+	r := rand.New(rand.NewSource(seed))
+	all := make([]scoredHit, n)
+	for i := range all {
+		all[i] = scoredHit{cos: float64(r.Intn(buckets)) / float64(buckets), idx: i}
+	}
+	return all
+}
+
+func stableTopK(all []scoredHit, k int) []scoredHit {
+	c := append([]scoredHit(nil), all...)
+	sort.SliceStable(c, func(i, j int) bool { return c[i].cos > c[j].cos })
+	var out []scoredHit
+	for _, a := range c[:min(max(k, 0), len(c))] {
+		out = append(out, a)
+	}
+	return out
+}
+
+func TestTopKMatchesStableSort(t *testing.T) {
+	all := synthHits(300, 10, 1)
+	for _, k := range []int{0, 1, 8, len(all), len(all) + 5} {
+		got, want := topK(all, k), stableTopK(all, k)
+		if len(got) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got, want)) {
+			t.Fatalf("k=%d mismatch", k)
+		}
+	}
+}
+
+func TestTopKEmpty(t *testing.T) {
+	if got := topK(nil, 8); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func BenchmarkCandidatesTopK(b *testing.B) {
+	all := synthHits(20000, 1000, 2)
+	b.Run("sort", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			_ = stableTopK(all, 8)
+		}
+	})
+	b.Run("heap", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			_ = topK(all, 8)
+		}
+	})
 }
