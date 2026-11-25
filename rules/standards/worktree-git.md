@@ -88,6 +88,8 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
   an owner statement. A landed worktree is removed by the land; one it refuses to remove (a process still inside
   it) is removed with `claude-code worktree clean <lane>` once that process ends. No finished worktree outlives
   its task. A lane that cannot land by itself is queued, and the main session works the queue off at once.
+  Several lanes finished at the same time are collapsed into one first and gated once
+  (`testing-guidelines.md` → Several worktrees: collapse, then test once).
   Enforced by `lane-land` (`rules/harness/hooks.md`).
 
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in

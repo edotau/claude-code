@@ -94,6 +94,21 @@ See `rules/standards/quality.md` for size caps.
 - **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB
   contract, auth, permissions or PII.
 
+## Several worktrees: collapse, then test once
+
+When more than one worktree is finished, never gate and land each by itself (owner, 2026-11-25; any codebase, not
+only this one):
+
+1. Merge them into each other one by one (cherry-pick or merge each lane's commits into one collector lane),
+   resolving conflicts as they come, until one worktree is left.
+2. While collapsing, never run the whole suite (`go test ./...`). Check that it compiles (`go build ./...`,
+   `go vet <pkgs>`) and, when one thing needs proof, run that test alone
+   (`rtk go test -run '^TestX$' ./internal/<pkg>`).
+3. Run the whole suite once, on the last worktree, right before it lands on local
+   (`claude-code worktree land --verify 'go test ./...' <lane>`), then land.
+
+A single finished worktree with no finished sibling lands at once, as before (`worktree-git.md` → Worktrees).
+
 ## When a test fails
 
 The test is guilty until its expectation traces to the spec, the request or observed behavior — say which. Rerun a
