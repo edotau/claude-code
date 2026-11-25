@@ -122,7 +122,7 @@ func altAuthScratch(t *testing.T) (home string) {
 
 func TestAltAuthAnthropicHeadlessToken(t *testing.T) {
 	altAuthScratch(t)
-	t.Setenv(providers.OAuthTokenEnv, "sk-ant-oat-test")
+	t.Setenv(providers.OAuthTokenEnv, "not a credential!")
 	if got := altAuth("anthropic"); got != "claude uses the OAuth token instead" {
 		t.Errorf("altAuth(anthropic) with a headless token = %q", got)
 	}
@@ -162,15 +162,11 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 // loginRig runs one stored oauth row's credential check; record is "dead", "healthy" or "" (nothing recorded).
 func loginRig(t *testing.T, record string, seals []audit.Event) check {
 	t.Helper()
-	vaulttest.Use(t)
+	doctorVaultScratch(t)
 	p := &providers.Provider{Name: "dbx", Provider: "databricks",
 		Auth: providers.Auth{Type: providers.AuthOAuth, SPClientID: "sp-client"}}
-	if err := vault.Store(providers.AuthSecretName(p), `{"refresh":"x"}`); err != nil {
-		t.Fatal(err)
-	}
-	if err := vault.Store(providers.SecretName("databricks", "dbx", providers.AuthM2M), "secret"); err != nil {
-		t.Fatal(err)
-	}
+	putCredentialMetadata(t, providers.AuthSecretName(p))
+	putCredentialMetadata(t, providers.SecretName("databricks", "dbx", providers.AuthM2M))
 	plantLoginRecord(t, record)
 	oldProbe, oldAudit := probeCredential, readAudit
 	t.Cleanup(func() { probeCredential, readAudit = oldProbe, oldAudit })
@@ -252,7 +248,7 @@ func TestCredentialRowReportsARecentSealFailure(t *testing.T) {
 }
 
 func TestCredentialRowNamesTheSourceThatWon(t *testing.T) {
-	vaulttest.Use(t)
+	doctorVaultScratch(t)
 	p := &providers.Provider{Name: "dbx-pat", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT, Env: "DBX_TEST_TOKEN"}}
 	old := probeCredential
 	t.Cleanup(func() { probeCredential = old })
@@ -262,9 +258,7 @@ func TestCredentialRowNamesTheSourceThatWon(t *testing.T) {
 		return providerCredentialChecks(context.Background(), reg, providers.Selection{Provider: p}, nil, []string{"dbx-pat"})[0]
 	}
 	t.Setenv("DBX_TEST_TOKEN", "")
-	if err := vault.Store(providers.AuthSecretName(p), "tok"); err != nil {
-		t.Fatal(err)
-	}
+	putCredentialMetadata(t, providers.AuthSecretName(p))
 	if c := row(); !c.OK || !strings.HasSuffix(c.Detail, " · source=vault") {
 		t.Errorf("vault-only row = %+v, want source=vault", c)
 	}

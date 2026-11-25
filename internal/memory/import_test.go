@@ -93,7 +93,7 @@ func flatImportFixture(t *testing.T) string {
 	for rel, body := range files {
 		write(t, filepath.Join(src, rel), body)
 	}
-	write(t, filepath.Join(src, "huge.md"), strings.Repeat("x", importMaxFile+1))
+	write(t, filepath.Join(src, "huge.md"), string(bytes.Repeat([]byte("!"), importMaxFile+1)))
 	if err := os.Symlink("new.md", filepath.Join(src, "link.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +158,8 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	}
 }
 
-func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
-	key := "sk-" + strings.Repeat("a", 40) // built at runtime so no literal key sits in the source
+func TestImportRefusesDetectedSourceBeforeWriting(t *testing.T) {
+	key := useCredentialPlaceholder(t)
 	for _, tc := range []struct{ name, rel, body string }{
 		{"copy", "reports/leak.md", "k=" + key + "\n"},
 		{"merge", "decisionLog.md", "## 2026-11-03 — leak <!-- id:55555555 -->\nuses " + key + "\n"},

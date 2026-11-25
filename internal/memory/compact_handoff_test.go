@@ -12,9 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// fakeKey is a credential-shaped string built at run time so no literal trips a scanner.
-var fakeKey = "sk-" + "proj-" + strings.Repeat("Fk", 12)
-
 // compactRepo is a banked git repo with a decision log, today's plan and report, in an isolated config.
 func compactRepo(t *testing.T) (root string) {
 	t.Helper()
@@ -66,14 +63,15 @@ func TestCompactHandoffWritesSixSections(t *testing.T) {
 	}
 }
 
-func TestCompactHandoffDropsCredentialShapedBriefLines(t *testing.T) {
+func TestCompactHandoffDropsDetectedBriefLines(t *testing.T) {
+	placeholder := useCredentialPlaceholder(t)
 	root := compactRepo(t)
-	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Rotate "+fakeKey+" <!-- id:aa11bb22 -->\n")
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Rotate "+placeholder+" <!-- id:aa11bb22 -->\n")
 	now := time.Now()
 	d := HandoffDispatch{ID: "20261116T1-claude", Agent: "claude", Status: "running", Started: now,
-		Brief: "TASK ID: " + fakeKey + "\nOwns: /abs/x.go " + fakeKey}
+		Brief: "TASK ID: " + placeholder + "\nOwns: /abs/x.go " + placeholder}
 	got := writeHandoff(t, compactInput(root, now, d))
-	if strings.Contains(got, fakeKey) || strings.Contains(got, "Owns:") {
+	if strings.Contains(got, placeholder) || strings.Contains(got, "Owns:") {
 		t.Errorf("credential-shaped brief text reached the file:\n%s", got)
 	}
 	if !strings.Contains(got, "- 20261116T1-claude: claude") {

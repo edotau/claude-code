@@ -9,12 +9,49 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// These tests inspect records and plaintext buckets, never encrypted credential values or keys.
+func doctorVaultScratch(t *testing.T) string {
+	t.Helper()
+	vault.DisableSyncForTests()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "!")
+	t.Setenv("CLAUDE_PROFILE", "")
+	t.Setenv("HARNESS_ARM_HOST", "")
+	return dir
+}
+
+func putCredentialMetadata(t *testing.T, name string) {
+	t.Helper()
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutRecord(name, vault.Record{SetAt: time.Now(), Len: len("not a credential!")})
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const scanKnownPlaceholder = "not a credential! (known)"
+const scanGenericPlaceholder = "not a credential! (generic)"
+
+// Exercise scanner traversal and reporting, not the production detector's credential shapes.
+func useScanPlaceholders(t *testing.T) {
+	t.Helper()
+	old := scanSecretValue
+	t.Cleanup(func() { scanSecretValue = old })
+	scanSecretValue = func(value string, generic bool) bool {
+		// SecretRef must be rejected by the bucket guard, not by this detector stub.
+		return value == scanKnownPlaceholder || value == providers.SecretRef || generic && value == scanGenericPlaceholder
+	}
+}
 
 func currentVaultSchema(t *testing.T) int {
 	t.Helper()
@@ -28,8 +65,9 @@ func currentVaultSchema(t *testing.T) int {
 }
 
 func TestScanVaultOverlaySecretsSorted(t *testing.T) {
-	vaulttest.Use(t)
-	const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	useScanPlaceholders(t)
+	doctorVaultScratch(t)
+	const value = scanKnownPlaceholder
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"d":{"k":"`+value+`"},"a":{"k":"`+value+`"},"c":{"k":"`+value+`"},"b":{"k":"`+value+`"},"e":{"k":"`+value+`"}}}`)
 	var want []string
 	for _, n := range []string{"a", "b", "c", "d", "e"} {
@@ -45,8 +83,9 @@ func TestScanVaultOverlaySecretsSorted(t *testing.T) {
 }
 
 func TestScanVaultFindsInlineSecrets(t *testing.T) {
-	vaulttest.Use(t)
-	const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	useScanPlaceholders(t)
+	doctorVaultScratch(t)
+	const value = scanKnownPlaceholder
 	vaulttest.Put(t, vault.Pins, "PIN_TOKEN", value)
 	vaulttest.Put(t, vault.Env, "ENV_TOKEN", value)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"headers":[{"Authorization":"`+value+`"}]}}}`)
@@ -54,7 +93,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"o":{"launch":{"env":["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1","O_KEY=`+value+`"]}}}}`)
 	vaulttest.Put(t, vault.Env, "STORED_REF", providers.SecretRef)
 	vaulttest.Put(t, vault.Pins, "ENV_REF", "${API_KEY}")
-	vaulttest.Secret(t, "SEALED", value)
+	putCredentialMetadata(t, "SEALED")
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	var out bytes.Buffer
 	scanner := &secretScanner{Out: &out}
@@ -80,14 +119,15 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 }
 
 func TestScanVaultClean(t *testing.T) {
+	useScanPlaceholders(t)
 	for _, populated := range []bool{false, true} {
 		t.Run(map[bool]string{false: "missing", true: "populated"}[populated], func(t *testing.T) {
-			vaulttest.Use(t)
+			doctorVaultScratch(t)
 			if populated {
 				vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "openai")
 				vaulttest.Put(t, vault.Env, "API_KEY", providers.SecretRef)
 				vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"auth":{"env":"API_KEY"}}}}`)
-				vaulttest.Secret(t, "API_KEY", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
+				putCredentialMetadata(t, "API_KEY")
 			}
 			t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 			var out bytes.Buffer
@@ -106,7 +146,7 @@ func TestScanVaultClean(t *testing.T) {
 }
 
 func TestScanVaultReadErrorIsFinding(t *testing.T) {
-	vaulttest.Use(t)
+	doctorVaultScratch(t)
 	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	var out bytes.Buffer
 	scanner := &secretScanner{Out: &out}
@@ -118,10 +158,10 @@ func TestScanVaultReadErrorIsFinding(t *testing.T) {
 }
 
 func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
-	dir := vaulttest.Use(t)
-	t.Setenv("HOME", t.TempDir())
+	useScanPlaceholders(t)
+	dir := doctorVaultScratch(t)
 	t.Chdir(t.TempDir())
-	vaulttest.Put(t, vault.Env, "INLINE_KEY", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
+	vaulttest.Put(t, vault.Env, "INLINE_KEY", scanKnownPlaceholder)
 	path := filepath.Join(dir, "settings.json")
 	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -157,11 +197,12 @@ func TestScanConfigsMissingExplicitTargetIsFinding(t *testing.T) {
 	}
 }
 
-// LooksLikeSecret must flag a real-shaped token and ignore an ${ENV} reference.
+// A detector finding names only the key; environment references remain clean.
 func TestScanFileFindsPlantedSecretAndIgnoresEnvRef(t *testing.T) {
+	useScanPlaceholders(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
-	doc := `{"env": {"ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}", "LEAKED": "sk-abcdefghij0123456789"}}`
+	doc := `{"env": {"ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}", "LEAKED": "` + scanKnownPlaceholder + `"}}`
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -174,14 +215,15 @@ func TestScanFileFindsPlantedSecretAndIgnoresEnvRef(t *testing.T) {
 	if !strings.Contains(s.Findings[0], "LEAKED") {
 		t.Errorf("finding %q does not name the LEAKED key", s.Findings[0])
 	}
-	if strings.Contains(buf.String(), "sk-abcdefghij0123456789") {
+	if strings.Contains(buf.String(), scanKnownPlaceholder) {
 		t.Fatal("scan output must never echo the secret value itself")
 	}
 }
 
 // An unparseable .json is a finding, never clean; a non-.json file that is not JSON is scanned as KEY=value lines.
 func TestScanFileParseFallback(t *testing.T) {
-	const leak = "sk-abcdefghij0123456789"
+	useScanPlaceholders(t)
+	const leak = scanKnownPlaceholder
 	for _, tc := range []struct{ file, doc, want string }{
 		{"settings.json", `{"env": {"K": "${K}"}}`, "clean"},
 		{"broken.json", `{"env": {"K": "` + leak + `"`, "not valid JSON"},
@@ -207,12 +249,11 @@ func TestScanFileParseFallback(t *testing.T) {
 }
 
 func TestScanFileClaudeMetadataFixtures(t *testing.T) {
+	useScanPlaceholders(t)
 	dir := t.TempDir()
 	fixtures := map[string]string{
-		".claude.json": `{"userID":"` + strings.Repeat("ab", 32) +
-			`","machineID":"` + strings.Repeat("cd", 32) +
-			`","projects":{"/home/u/.claude":{"lastSessionId":"12345678-1234-1234-1234-123456789abc"}}}`,
-		"settings.json": `{"extraKnownMarketplaces":{"x":{"source":{"repo":"anthropics/claude-plugins-official"}}}}`,
+		".claude.json":  `{"userID":"` + scanGenericPlaceholder + `","machineID":"` + scanGenericPlaceholder + `","projects":{"/home/u/.claude":{"lastSessionId":"` + scanGenericPlaceholder + `"}}}`,
+		"settings.json": `{"extraKnownMarketplaces":{"x":{"source":{"repo":"` + scanGenericPlaceholder + `"}}}}`,
 	}
 	var buf bytes.Buffer
 	s := &secretScanner{Out: &buf}
@@ -311,17 +352,12 @@ var metadataLeafKeys = []string{
 }
 
 var scanValues = []scanValue{
-	{"hex", strings.Repeat("ab", 32), false},
-	{"UUID", "12345678-1234-1234-1234-123456789abc", false},
-	{"base64", strings.Repeat("Ab01", 10), false},
-	{"sk", "sk-" + strings.Repeat("a", 40), true},
-	{"github", "ghp_" + strings.Repeat("a", 40), true},
-	{"AWS", "AKIA" + strings.Repeat("A", 16), true},
-	{"JWT", "eyJheader.payload.signature", true},
-	{"Slack", "xoxb-" + strings.Repeat("a", 40), true},
+	{"generic placeholder", scanGenericPlaceholder, false},
+	{"known placeholder", scanKnownPlaceholder, true},
 }
 
 func TestScanFileMetadataExemptions(t *testing.T) {
+	useScanPlaceholders(t)
 	cases := slices.Clone(scanExemptionCases)
 	for _, key := range metadataLeafKeys {
 		cases = append(cases, scanCase{key, ".claude.json", []string{"projects", "/home/u/.claude", key}, true})
@@ -356,9 +392,6 @@ func checkScanExemption(t *testing.T, tc scanCase, value scanValue) {
 // scanNested writes value nested under tc.keys into tc.file and scans it, returning the scanner and its output.
 func scanNested(t *testing.T, tc scanCase, value string) (*secretScanner, *bytes.Buffer) {
 	t.Helper()
-	if !providers.LooksLikeSecret(value) {
-		t.Fatal("exported heuristic must still flag the value")
-	}
 	var doc any = value
 	for _, k := range slices.Backward(tc.keys) {
 		doc = map[string]any{k: doc}

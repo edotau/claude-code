@@ -22,6 +22,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// scanSecretValue is the detector boundary; tests supply non-credential placeholders.
+var scanSecretValue = providers.LooksLikeSecretGeneric
+
 // secretScanner audits the config surface for inline secrets; Out gets the report, values are never echoed.
 type secretScanner struct {
 	Out      io.Writer
@@ -190,7 +193,7 @@ func (s *secretScanner) scanFile(path string) {
 func (s *secretScanner) scanJSONLeaves(path string, doc any) {
 	walkJSONStrings(nil, doc, func(p []string, val string) {
 		metadata := marketplaceRepoPath(p) || (filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
-		if providers.LooksLikeSecretGeneric(val, !metadata) {
+		if scanSecretValue(val, !metadata) {
 			s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
 		}
 	})
@@ -200,7 +203,7 @@ func (s *secretScanner) scanJSONLeaves(path string, doc any) {
 func (s *secretScanner) scanEnvLines(path string) {
 	env := providers.ReadEnvFile(path)
 	for _, k := range slices.Sorted(maps.Keys(env)) {
-		if providers.LooksLikeSecret(env[k]) {
+		if scanSecretValue(env[k], true) {
 			s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
 		}
 	}
@@ -256,7 +259,7 @@ func scanOverlayDocs(t *vault.Tx) []string {
 			continue
 		}
 		walkJSONStrings(nil, doc, func(p []string, val string) {
-			if providers.LooksLikeSecret(envPairValue(val)) {
+			if scanSecretValue(envPairValue(val), true) {
 				found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
 			}
 		})
@@ -270,7 +273,7 @@ func scanSecretBuckets(t *vault.Tx) []string {
 	for _, bucket := range []string{vault.Pins, vault.Env} {
 		kv := t.All(bucket)
 		for _, k := range slices.Sorted(maps.Keys(kv)) {
-			if v := kv[k]; v != providers.SecretRef && providers.LooksLikeSecret(v) {
+			if v := kv[k]; v != providers.SecretRef && scanSecretValue(v, true) {
 				found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
 			}
 		}

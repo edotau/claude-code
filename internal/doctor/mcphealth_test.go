@@ -6,13 +6,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// The regex seam accepts punctuation-rich text while real token-shape checks stay outside tests.
+func useMCPPlaceholder(t *testing.T) string {
+	t.Helper()
+	// Keep the derived start-byte cache on the production pattern, regardless of test order.
+	_ = textutil.LooksSecret("ordinary prose!")
+	const value = "silly!not a credential!"
+	old := textutil.CredentialRE
+	t.Cleanup(func() { textutil.CredentialRE = old })
+	re := regexp.MustCompile(`\A` + regexp.QuoteMeta(value) + `\z`)
+	textutil.CredentialRE = func() *regexp.Regexp { return re }
+	return value
+}
 
 // fakeBin writes an executable shell script named name into dir and returns its path.
 func fakeBin(t *testing.T, dir, name, script string) string {
@@ -41,7 +56,7 @@ func TestCollectDefs(t *testing.T) {
 	proj := filepath.Join(dir, ".mcp.json")
 	hosttest.WriteRel(t, "", proj, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"]}}}`)
 	settings := filepath.Join(dir, "settings.json")
-	hosttest.WriteRel(t, "", settings, `{"mcpServers": {"sentry": {"type": "http", "url": "https://sentry.example/mcp"}}}`)
+	hosttest.WriteRel(t, "", settings, `{"mcpServers": {"sentry": {"type": "http", "url": "https://devhost/mcp"}}}`)
 
 	defs, _ := collectDefs(userJSON, []string{proj, proj}, []string{settings})
 	if len(defs) != 4 {
@@ -97,15 +112,15 @@ func TestFindConflicts(t *testing.T) {
 // TestDoctorConflictSeesSecretArgDifference: defs differing only in a secret arg are a real conflict, shown redacted.
 func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 	defs := []def{
-		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "gh" + "p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
-		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "gh" + "p_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
+		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "not a credential! first"}}},
+		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "not a credential! second"}}},
 	}
 	conflicts := findConflicts(defs, "/home/u")
 	if len(conflicts) != 1 || !conflicts[0].Real {
 		t.Fatalf("secret-only difference not flagged real: %+v", conflicts)
 	}
 	for _, r := range conflicts[0].Rows {
-		if strings.Contains(strings.Join(r.D.Args, " "), "ghp_") {
+		if strings.Contains(strings.Join(r.D.Args, " "), "not a credential!") {
 			t.Errorf("conflict row leaks a token: %v", r.D.Args)
 		}
 	}
@@ -113,27 +128,29 @@ func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 
 // TestFindSecrets
 func TestFindSecrets(t *testing.T) {
+	value := useMCPPlaceholder(t)
 	defs := []def{
-		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi" + "0123456789abcdef0123456789abcdef"}}},
-		{"github", "user", serverDef{Env: map[string]string{"GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}", "CA": "/etc/ssl/ca.pem"}}},
-		{"openai", "user", serverDef{Env: map[string]string{"KEY": "sk" + "-abcdefghijklmnopqrstuvwxyz0123456789ABCD"}}},
-		{"slack", "user", serverDef{Env: map[string]string{"TOKEN": "xoxb-" + "1234567890" + "-abcdefghijklmnop"}}},
+		{"env", "user", serverDef{Env: map[string]string{"TOKEN": value}}},
+		{"reference", "user", serverDef{Env: map[string]string{"TOKEN": "${TOKEN}", "CA": "/etc/ssl/ca.pem"}}},
+		{"args", "user", serverDef{Args: []string{"--token", "not a credential!"}}},
 		{"remote", "project:/x/.mcp.json", serverDef{
-			URL:     "https://example.com/sse?token=abcdef0123456789",
-			Headers: map[string]string{"Authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			URL:     "https://devhost/sse?token=not-a-credential!",
+			Headers: map[string]string{"Authorization": value},
 		}},
 		{"placeholder", "user", serverDef{Env: map[string]string{"KEY": "YOUR_API_KEY_HERE"}}},
 	}
 	findings := findSecrets(defs)
-	if len(findings) != 5 {
-		t.Fatalf("findings = %d, want 5 (dapi, sk-, xoxb-, url token=, header Bearer): %+v", len(findings), findings)
+	if len(findings) != 4 {
+		t.Fatalf("findings = %d, want 4: %+v", len(findings), findings)
 	}
 	fields := map[string]int{}
 	for _, f := range findings {
 		fields[f.Field]++
 	}
-	if fields["env"] != 3 || fields["url"] != 1 || fields["headers"] != 1 {
-		t.Errorf("by field = %+v, want env=3 url=1 headers=1", fields)
+	for _, field := range []string{"env", "args", "url", "headers"} {
+		if fields[field] != 1 {
+			t.Errorf("%s findings = %d, want 1", field, fields[field])
+		}
 	}
 }
 
@@ -220,10 +237,11 @@ fi`)
 
 // TestRedactScrubsEnvHeadersAndURL
 func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
+	value := useMCPPlaceholder(t)
 	defs := []def{{"s", "user", serverDef{
-		Env:     map[string]string{"TOKEN": "dapi" + "0123456789abcdef0123456789abcdef", "CA": "/etc/ssl/ca.pem"},
-		Headers: map[string]string{"Authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		URL:     "https://example.com/sse?token=abcdef0123456789&other=1",
+		Env:     map[string]string{"TOKEN": value, "CA": "/etc/ssl/ca.pem"},
+		Headers: map[string]string{"Authorization": value},
+		URL:     "https://devhost/sse?token=not-a-credential!&other=1",
 	}}}
 	safe := redact(defs)[0].D
 	if safe.Env["TOKEN"] != "REDACTED" || safe.Env["CA"] != "/etc/ssl/ca.pem" {
@@ -232,7 +250,7 @@ func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
 	if safe.Headers["Authorization"] != "REDACTED" {
 		t.Errorf("headers after redact = %+v", safe.Headers)
 	}
-	if strings.Contains(safe.URL, "abcdef0123456789") || !strings.Contains(safe.URL, "token=REDACTED") || !strings.Contains(safe.URL, "other=1") {
+	if strings.Contains(safe.URL, "not-a-credential!") || !strings.Contains(safe.URL, "token=REDACTED") || !strings.Contains(safe.URL, "other=1") {
 		t.Errorf("url after redact = %q", safe.URL)
 	}
 }
@@ -261,7 +279,7 @@ func TestDoctorRejectsReportWriteFailure(t *testing.T) {
 func TestDoctorJSONRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk`+`-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp", "--token", "not a credential!"]}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir, JSON: true})
@@ -275,7 +293,7 @@ func TestDoctorJSONRoundTrips(t *testing.T) {
 	if len(rep.Secrets) != 1 || len(rep.Defs) != 1 {
 		t.Fatalf("decoded report = %+v", rep)
 	}
-	if strings.Contains(out.String(), "sk-aaaa") {
+	if strings.Contains(out.String(), "not a credential!") {
 		t.Error("JSON report echoed the secret value, not just its location")
 	}
 }
@@ -284,14 +302,14 @@ func TestDoctorJSONRoundTrips(t *testing.T) {
 func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "gh`+`p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["--token", "not a credential!"]}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir})
 	if code != 1 {
 		t.Fatalf("Doctor exit = %d, want 1", code)
 	}
-	if strings.Contains(out.String(), "ghp_aaaa") {
+	if strings.Contains(out.String(), "not a credential!") {
 		t.Fatal("text report echoed the secret value")
 	}
 	if !strings.Contains(out.String(), "holds an inline secret") {
@@ -301,8 +319,8 @@ func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 
 // A serverDef marshals redacted at the type, so no JSON path can forget redact(); has_secrets says one existed.
 func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
-	tok := "ghp" + "_abcdefghijklmnopqrstuvwxyz0123"
-	d := def{Server: "x", Scope: "user", D: serverDef{URL: "https://h/?token=" + tok, Env: map[string]string{"T": tok}}}
+	tok := useMCPPlaceholder(t)
+	d := def{Server: "x", Scope: "user", D: serverDef{URL: "https://devhost/?token=not-a-credential!", Env: map[string]string{"T": tok}}}
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +359,7 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 // TestQueryParamSecretCoversKeyAndTokenSuffixes: api_key=, access_token= and apikey= URL secrets are redacted.
 func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 	for _, q := range []string{"api_key", "access_token", "apikey", "api-key"} {
-		defs := []def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}
+		defs := []def{{"s", "user", serverDef{URL: "https://devhost/x?" + q + "=SECRET123"}}}
 		if len(findSecrets(defs)) == 0 {
 			t.Errorf("%s=: no finding", q)
 		}
@@ -354,14 +372,14 @@ func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 // TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines
 func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 	dir := t.TempDir()
-	const tok = "gh" + "p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const tok = "not a credential! first"
 	userJSON := filepath.Join(dir, ".claude.json")
 	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"gh": {"command": "npx", "args": ["srv", "--token", "`+tok+`"]}}}`)
-	claude := fakeBin(t, dir, "claude", "echo 'gh: npx srv --token "+tok+" - ✔ Connected'\necho 'web: https://x.test/mcp?api_key=zzz1234 - ✘ Failed'")
+	claude := fakeBin(t, dir, "claude", "echo 'gh: https://devhost/mcp?token=not-a-credential! - ✔ Connected'\necho 'web: https://devhost/mcp?api_key=not-a-credential! - ✘ Failed'")
 
 	var out strings.Builder
 	doctorMCP(&out, options{UserPath: userJSON, Home: dir, Claude: claude})
-	for _, leak := range []string{"ghp_aaaa", "zzz1234"} {
+	for _, leak := range []string{tok, "not-a-credential!"} {
 		if strings.Contains(out.String(), leak) {
 			t.Errorf("text report echoed %q:\n%s", leak, out.String())
 		}

@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault"
@@ -133,7 +134,7 @@ func TestDoctorVendorRows(t *testing.T) {
 }
 
 func TestDoctorAgentVersionRows(t *testing.T) {
-	hermetic(t)
+	doctorScratch(t)
 	pathstest.FakeVendor(t, "copilot", "echo 'GitHub Copilot CLI 1.0.100.'")
 	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "agent version copilot")
@@ -188,9 +189,13 @@ func TestNestedDetailWorktrees(t *testing.T) {
 	}
 }
 
-// doctorScratch isolates config dir, credentials and opencode's own files so Checks never reads real machine state.
+// Route and tool fixtures omit unrelated live-host sections and never probe credentials.
 func doctorScratch(t *testing.T) (xdgData string) {
 	t.Helper()
+	oldSections, oldProbe := doctorSections, probeCredential
+	t.Cleanup(func() { doctorSections, probeCredential = oldSections, oldProbe })
+	doctorSections = []doctorSection{collect(checkProviderHealth), collect(checkToolHealth)}
+	probeCredential = func(context.Context, *providers.Provider) (string, string) { return providers.ProbeVerified, "" }
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("PATH", t.TempDir()) // no gh/copilot CLI reachable
@@ -201,7 +206,7 @@ func doctorScratch(t *testing.T) (xdgData string) {
 	for _, k := range []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
 		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
 		"COPILOT_MODEL", "COPILOT_REASONING_EFFORT", "COPILOT_CONTEXT_TIER",
-		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"} {
+		"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", providers.OAuthTokenEnv} {
 		t.Setenv(k, "")
 	}
 	return xdgData
@@ -217,7 +222,7 @@ func workableCopilotPin(t *testing.T, user string) {
 	}
 	t.Setenv("GH_CONFIG_DIR", dir)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
-		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
+		`"base_url":"https://devhost","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
 	vaulttest.SetRecord(t, "copilot", "profile", "work")
 	prev := copilot.CopilotUsedPct
 	copilot.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
@@ -325,12 +330,12 @@ func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 // A stale key in opencode's auth.json for a vault-covered provider gives a soft check naming the logout command.
 func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	xdgData := doctorScratch(t)
-	t.Setenv("OPENAI_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	t.Setenv("OPENAI_API_KEY", "not a credential!")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"api","key":"nvapi-realFAKEsecretvalue"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"api","key":"not a credential!"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	checks, _ := runChecks(context.Background())
@@ -347,7 +352,7 @@ func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	if !strings.Contains(c.Detail, "openai key") || !strings.Contains(c.Detail, "opencode auth logout openai") {
 		t.Errorf("detail = %q, want it to name openai and the logout command", c.Detail)
 	}
-	if strings.Contains(c.Detail, "nvapi-realFAKEsecretvalue") {
+	if strings.Contains(c.Detail, "not a credential!") {
 		t.Fatalf("detail leaked the stored credential value: %q", c.Detail)
 	}
 }
@@ -368,7 +373,7 @@ func TestDoctorOpenCodeAuthJSONCleanWhenNoStaleKey(t *testing.T) {
 // An oauth connection (not a static "key" method) never counts as stale, even for a vault-covered provider.
 func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
 	xdgData := doctorScratch(t)
-	t.Setenv("OPENAI_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	t.Setenv("OPENAI_API_KEY", "not a credential!")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -389,10 +394,10 @@ func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
 // The doctor row never prints a secret: GH_TOKEN's value must not surface, only the env var's presence.
 func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	doctorScratch(t)
-	t.Setenv("GH_TOKEN", "super-secret-gh-token-value")
+	t.Setenv("GH_TOKEN", "not a credential!")
 	checks, _ := runChecks(context.Background())
 	for _, c := range checks {
-		if strings.Contains(c.Detail, "super-secret-gh-token-value") {
+		if strings.Contains(c.Detail, "not a credential!") {
 			t.Fatalf("check %q leaked a credential: %q", c.Name, c.Detail)
 		}
 	}
@@ -401,7 +406,7 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 // RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep
 func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	doctorScratch(t)
-	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
+	t.Setenv("GH_TOKEN", "not a credential!")
 	checks, _ := runChecks(context.Background())
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {
 		detail, ok := agent.RouteDetail(context.Background(), vendor)

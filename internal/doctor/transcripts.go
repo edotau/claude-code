@@ -24,6 +24,9 @@ import (
 
 var transcriptIdle = 10 * time.Minute
 
+// transcriptValues is the credential-source boundary; tests supply non-credential records without vault keys.
+var transcriptValues = secretredact.VaultRecords
+
 type transcriptStore struct {
 	name, root string
 	disabled   bool
@@ -65,7 +68,7 @@ func transcriptStores() []transcriptStore {
 
 // transcriptMatcher counts the same records the live hooks mask: a labeled cache (model listings) is no credential.
 func transcriptMatcher() (*secretredact.Matcher, error) {
-	records, err := secretredact.VaultRecords()
+	records, err := transcriptValues()
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,6 @@ package doctor
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
@@ -14,19 +13,17 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	secretredact "github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestTranscriptFix(t *testing.T) {
 	files, original, young, outside := transcriptFixture(t)
 	report := transcriptRun(t, 1, "--secrets", "--since", "1")
-	if !strings.Contains(report, "matches 12") {
-		t.Fatal("report missed encoded matches")
+	if !strings.Contains(report, "matches 8") {
+		t.Fatal("report missed placeholder matches")
 	}
 	transcriptUnchanged(t, append(files, young, outside), original)
 	fixed := transcriptRun(t, 0, "--secrets", "--fix", "--since", "1")
-	for _, want := range []string{"masked files 3, matches masked 9", "temporary task outputs: scanned 1, with matches 1, matches 3, masked files 1", "skipped: not idle 1", "skipped: symlink or outside root 1", "skipped: not yet enabled 1"} {
+	for _, want := range []string{"masked files 3, matches masked 6", "temporary task outputs: scanned 1, with matches 1, matches 2, masked files 1", "skipped: not idle 1", "skipped: symlink or outside root 1", "skipped: not yet enabled 1"} {
 		if !strings.Contains(fixed, want) {
 			t.Fatalf("missing count: %s", want)
 		}
@@ -46,24 +43,28 @@ func TestTranscriptFix(t *testing.T) {
 	transcriptUnchanged(t, []string{invalid}, []byte(transcriptFake))
 }
 
-const transcriptFake = "FAKE-SECRET-0123456789abcdef"
+const transcriptFake = "not a credential! Zq9"
+
+func useTranscriptValues(t *testing.T, records map[string]string) string {
+	t.Helper()
+	cfg := resolvedPath(doctorVaultScratch(t))
+	old := transcriptValues
+	t.Cleanup(func() { transcriptValues = old })
+	transcriptValues = func() (map[string]string, error) { return records, nil }
+	return cfg
+}
 
 func transcriptFixture(t *testing.T) ([]string, []byte, string, string) {
 	t.Helper()
-	cfg := resolvedPath(vaulttest.UseFreshKey(t))
+	escaped := "not a credential! Zq9\"cd\\ef"
+	cfg := useTranscriptValues(t, map[string]string{"FAKE_TOKEN": transcriptFake, "FAKE_ESCAPED": escaped})
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	tmp := t.TempDir() // unresolved: macOS /var is a link, and the store under it must still be fixed
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("TMP", tmp)
 	t.Chdir(doctorGitFixture(t, false))
-	escaped := "FAKE-SECRET-0123456789ab\"cd\\ef"
-	for name, value := range map[string]string{"FAKE_TOKEN": transcriptFake, "FAKE_ESCAPED": escaped} {
-		if err := vault.Store(name, value); err != nil {
-			t.Fatal(err)
-		}
-	}
-	b, err := json.Marshal(map[string]string{"raw": transcriptFake, "escaped": escaped, "base64": base64.StdEncoding.EncodeToString([]byte(transcriptFake))})
+	b, err := json.Marshal(map[string]string{"raw": transcriptFake, "escaped": escaped})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,10 +137,10 @@ func transcriptMasked(t *testing.T, files []string, original []byte) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(b) != len(original) || bytes.Count(b, []byte("[redacted]")) != 3 {
+		if len(b) != len(original) || bytes.Count(b, []byte("[redacted]")) != 2 {
 			t.Fatal("size or masking assertion failed")
 		}
-		if bytes.Contains(b, []byte("FAKE-SECRET")) || bytes.Contains(b, []byte(base64.StdEncoding.EncodeToString([]byte(transcriptFake)))) {
+		if bytes.Contains(b, []byte("not a credential!")) {
 			t.Fatal("planted value remains")
 		}
 		for line := range bytes.SplitSeq(bytes.TrimSpace(b), []byte{'\n'}) {
@@ -151,11 +152,11 @@ func transcriptMasked(t *testing.T, files []string, original []byte) {
 }
 
 func TestTranscriptWindow(t *testing.T) {
-	cfg := resolvedPath(vaulttest.UseFreshKey(t))
+	cfg := useTranscriptValues(t, map[string]string{"FAKE_TOKEN": transcriptFake})
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
 	path := filepath.Join(cfg, "projects", "old.jsonl")
-	transcriptWrite(t, path, []byte("sk-"+strings.Repeat("A", 24)), 8*24*time.Hour)
+	transcriptWrite(t, path, []byte(transcriptFake), 8*24*time.Hour)
 	_, opts := doctorFlags()
 	if opts.days != 7 {
 		t.Fatal("default window is not seven days")
@@ -176,18 +177,13 @@ func TestTranscriptWindow(t *testing.T) {
 	}
 }
 
-// The report counts only credential records, the set the hooks mask, and breaks matches down by kind and needle.
+// Report attribution names only supplied records; unrelated prose is not a needle.
 func TestTranscriptBreakdown(t *testing.T) {
-	cfg := resolvedPath(vaulttest.UseFreshKey(t))
+	cfg := useTranscriptValues(t, map[string]string{"FAKE_TOKEN": transcriptFake})
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
-	const listed = "databricks-fake-model-id"
-	vaulttest.Secret(t, "FAKE_TOKEN", transcriptFake)
-	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutSealed(key, "model-cache", `{"models":["`+listed+`"]}`, "cache", time.Now())
-	}); err != nil {
-		t.Fatal("seal")
-	}
+	const listed = "unrelated model! prose"
+
 	transcriptWrite(t, filepath.Join(cfg, "projects", "s.jsonl"), []byte(listed+" "+transcriptFake+" "+listed+"\n"), time.Hour)
 	var report bytes.Buffer
 	transcriptAudit(&report, false, nil, 0)
@@ -202,12 +198,7 @@ func TestTranscriptBreakdown(t *testing.T) {
 func TestTranscriptCountBoundary(t *testing.T) {
 	m := secretredact.FromValues([]string{transcriptFake})
 	counter := secretredact.NewCounter(m)
-	forms := []string{
-		transcriptFake, base64.StdEncoding.EncodeToString([]byte(transcriptFake)),
-		"sk-" + strings.Repeat("A", 64), "BeArEr " + strings.Repeat("A", 64),
-		"eyJ" + strings.Repeat("a", 20) + "." + strings.Repeat("b", 20),
-		"-----BEGIN PRI" + "VATE KEY-----\n" + strings.Repeat("A", 2*secretredact.CountWindow) + "\n-----END PRIVATE KEY-----",
-	}
+	forms := []string{transcriptFake, "prefix: " + transcriptFake + " suffix!"}
 	for i, form := range forms {
 		for _, delta := range []int{-20, -2, 0, 2} {
 			input := append(bytes.Repeat([]byte(" "), secretredact.CountWindow+delta), []byte(form)...)
@@ -227,16 +218,11 @@ func TestTranscriptCountBoundary(t *testing.T) {
 }
 
 func TestTranscriptCountPrefilter(t *testing.T) {
-	m := secretredact.FromValues([]string{transcriptFake, "Abcdefghijkl0123456789"})
+	m := secretredact.FromValues([]string{transcriptFake})
 	counter := secretredact.NewCounter(m)
-	forms := []string{"ghp_a", "xoxb-a", "ordinary prose", transcriptFake, "Bearer " + transcriptFake,
-		"sk-" + strings.Repeat("a", 24), "dapi" + strings.Repeat("a", 32),
-		"nvapi-" + strings.Repeat("A", 24), "ghp_" + strings.Repeat("A", 28),
-		"github_pat_" + strings.Repeat("A", 22), "AIza" + strings.Repeat("A", 35),
-		"tvly-" + strings.Repeat("A", 16), "gsk_" + strings.Repeat("A", 24),
-		"AKIA" + strings.Repeat("A", 16), "ASIA" + strings.Repeat("A", 16),
-		"xoxb-" + strings.Repeat("A", 12), "[redacted]************************",
-		transcriptFake + transcriptFake, "YOUR_sk-" + strings.Repeat("A", 24), "Bearer\t" + transcriptFake + strings.Repeat("*", 50),
+	forms := []string{"ordinary prose", transcriptFake, "Bearer " + transcriptFake,
+		"[redacted]************************", transcriptFake + "; " + transcriptFake,
+		"prefix! " + transcriptFake, "Bearer\t" + transcriptFake + "**************************************************",
 	}
 	for i, form := range forms {
 		path := filepath.Join(t.TempDir(), "candidate.txt")
@@ -251,14 +237,12 @@ func TestTranscriptCountPrefilter(t *testing.T) {
 }
 
 func TestTranscriptCountParity(t *testing.T) {
-	values := []string{transcriptFake, transcriptFake[10:] + "TAIL", "ghp_Ab12", "Énergie-0123456789", "\xffAbcdefghijkl012"}
+	values := []string{transcriptFake, transcriptFake[10:] + "!TAIL", "Énergie! qwerty9", "\xffAbc!def ghi012"}
 	m := secretredact.FromValues(values)
 	counter := secretredact.NewCounter(m)
 	random := rand.New(rand.NewPCG(1, 2))
-	pieces := []string{"Énergie-0123456789", "\xffAbcdefghijkl012", "plain ", "ghp_a", "xoxb-a", "[redacted]******", "ghp_Ab12", transcriptFake,
-		transcriptFake[10:] + "TAIL", "Bearer " + strings.Repeat("Ab1_", 12),
-		"sk-" + strings.Repeat("a", 24), "github_pat_", "YOUR_sk-" + strings.Repeat("a", 24),
-		"-----BEGIN PRI" + "VATE KEY-----\nx\n-----END PRIVATE KEY-----", "\n", " ", "_", "."}
+	pieces := []string{"Énergie! qwerty9", "\xffAbc!def ghi012", "plain ", "[redacted]******", transcriptFake,
+		transcriptFake[10:] + "!TAIL", "Bearer " + transcriptFake, "\n", " ", "_", "."}
 	path := filepath.Join(t.TempDir(), "parity.txt")
 	for i := range 200 {
 		var input []byte

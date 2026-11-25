@@ -70,7 +70,7 @@ func signalTestRows() string {
 		line := fmt.Sprintf(`{"module":%q,"rule":%q,"verdict":%q,"outcome":"deny",`+
 			`"t":"fake-time","event":"fake-event","ms":123456789,"sid":"fake-sid","tool":"fake-tool","future":"fake-future"}`+"\n",
 			row.module, row.rule, row.verdict)
-		rows.WriteString(strings.Repeat(line, row.count))
+		rows.WriteString(string(bytes.Repeat([]byte(line), row.count)))
 	}
 	return rows.String()
 }
@@ -103,8 +103,8 @@ func (e e2eEnv) run(t *testing.T, stdin string, args ...string) (stdout, stderr 
 		"CLAUDE_PROJECT_DIR=" + e.repo,
 		"HARNESS_MEMORY_ORIGIN=" + e.repo, // the repo sits under /tmp: launched-from-workspace, as a harness launch passes
 		"TMPDIR=" + e.home,
-		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@example.com",
-		"GIT_COMMITTER_NAME=e2e", "GIT_COMMITTER_EMAIL=e2e@example.com",
+		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@devhost",
+		"GIT_COMMITTER_NAME=e2e", "GIT_COMMITTER_EMAIL=e2e@devhost",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 	}
 	cmd.Stdin = strings.NewReader(stdin)
@@ -515,9 +515,10 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	}
 }
 
-func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
+func TestDoctorFlagsDetectedPlaceholder(t *testing.T) {
+	placeholder := useCredentialPlaceholder(t)
 	tempConfig(t)
-	write(t, filepath.Join(paths.MemoryStoreDir(), "conventions.md"), "# C\n\n- token AK"+"IAABCDEFGHIJKLMNOP in here\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "conventions.md"), "# C\n\n- value "+placeholder+" in here\n")
 	problems := doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
@@ -544,11 +545,12 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	}
 }
 
-func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
+func TestLogAccessRedactsDetectedReason(t *testing.T) {
+	placeholder := useCredentialPlaceholder(t)
 	dir := t.TempDir()
-	logAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnopqrstuvwx in reason")
+	logAccess(dir, time.Now(), "aa11bb22", "leaked "+placeholder+" in reason")
 	data := mustRead(t, filepath.Join(dir, accessLogFile))
-	if strings.Contains(data, "sk-abcdefghijklmnopqrstuvwx") {
+	if strings.Contains(data, placeholder) {
 		t.Error("a credential-shaped reason must be redacted, not logged verbatim")
 	}
 	if !strings.Contains(data, "redacted") {
@@ -629,12 +631,13 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 
 // TestDoctorReadsEachBankFileOnce: one read per typed file feeds the cap, staleness and credential findings.
 func TestDoctorReadsEachBankFileOnce(t *testing.T) {
+	placeholder := useCredentialPlaceholder(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "proj")
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
+	write(t, Path("progress.md"), "# Progress\n\n- value "+placeholder+"\n")
 	reads := countBankReads(t)
 	got := doctor(root, DefaultStaleDays, time.Now())
 	want := "home progress.md: possible credential-shaped value — scrub before promoting"
@@ -657,7 +660,7 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	if err := os.MkdirAll(paths.MemoryStateDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
+	notice := string(bytes.Repeat([]byte("!"), 196)) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
 	write(t, doctorNoticePath(), notice)
 	got := doctorNotice()
 	if !strings.HasPrefix(got, " memory review: ") {
@@ -723,8 +726,18 @@ func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
 	})
 }
 
+func candidatePlaceholderSpans(line string) [][2]int {
+	if at := strings.Index(line, memoryCredentialPlaceholder); at >= 0 {
+		return [][2]int{{at, at + len(memoryCredentialPlaceholder)}}
+	}
+	return nil
+}
+
 // Dream lists feedback notes, its seam writes the candidates file; review accepts it and rejects each bad variant.
 func TestCandidatesEndToEnd(t *testing.T) {
+	oldSpans := candidateSecretSpans
+	t.Cleanup(func() { candidateSecretSpans = oldSpans })
+	candidateSecretSpans = candidatePlaceholderSpans
 	isolatedConfig(t)
 	t.Setenv(UpdateChildEnv, "")
 	t.Setenv(dreamChildEnv, "")
@@ -753,15 +766,14 @@ func TestCandidatesEndToEnd(t *testing.T) {
 	if err := ReviewReport(&out, ReviewOptions{StaleDays: DefaultStaleDays}); err != nil {
 		t.Errorf("review on a valid file failed: %v", err)
 	}
-	secret := "AKIA" + "ABCDEFGHIJKLMNOP"
-	for _, tc := range candidateVariants(good, secret) {
+	for _, tc := range candidateVariants(good, memoryCredentialPlaceholder) {
 		write(t, candidates, file(tc.body))
 		got := strings.Join(candidateProblems(), "\n")
 		if !strings.Contains(got, candidatesRel+tc.want) {
 			t.Errorf("%s: problems = %q, want %q", tc.name, got, tc.want)
 		}
-		if strings.Contains(got, secret) {
-			t.Errorf("%s: a problem row echoes the secret", tc.name)
+		if strings.Contains(got, memoryCredentialPlaceholder) {
+			t.Errorf("%s: a problem row echoes the placeholder", tc.name)
 		}
 		if err := ReviewReport(&out, ReviewOptions{StaleDays: DefaultStaleDays}); err == nil {
 			t.Errorf("%s: review exited zero", tc.name)
@@ -772,7 +784,7 @@ func TestCandidatesEndToEnd(t *testing.T) {
 type candidateVariant struct{ name, body, want string }
 
 // candidateVariants are malformed copies of good with the problem each must produce.
-func candidateVariants(good, secret string) []candidateVariant {
+func candidateVariants(good, placeholder string) []candidateVariant {
 	row := func(old, new string) string { return strings.Replace(good, old, new, 1) }
 	return []candidateVariant{
 		{"unknown field", row(`"size":"small"`, `"size":"small","extra":1`), ":4: invalid record: unknown field"},
@@ -782,7 +794,7 @@ func candidateVariants(good, secret string) []candidateVariant {
 		{"target outside", row(`"unknown"`, `"/etc/passwd"`), ":4: target is outside"},
 		{"target dotdot", row(`"unknown"`, `"../../etc/passwd"`), ":4: target must use only"},
 		{"duplicate id", row(`"fc-b"`, `"fc-a"`), ":5: duplicate id (first at line 4)"},
-		{"credential", row("Add a hook.", secret), ":4: credential-shaped"},
+		{"detected placeholder", row("Add a hook.", placeholder), ":4: credential-shaped"},
 		{"bad kind", row(`"hook"`, `"magic"`), ":4: kind must be one of"},
 		{"two sentences", row("Add a hook.", "Add a hook. Then more."), ":4: change must be one sentence"},
 		{"trailing brace", row(`"size":"small"}`, `"size":"small"}}`), ":4: invalid record: more than one JSON value"},
@@ -804,7 +816,7 @@ func TestCandidateDiagnosticsNeverEchoInput(t *testing.T) {
 		"syntax": rec(`"fc-a"`, `@`), "trailing": base + ` @`, "duplicate key": rec(`"size"`, `"@":1,"@":2,"size"`),
 		"bad utf8": rec(`Add a hook.`, "\xff@"), "scalar": `"@"`, "array": `["@"]`,
 	}
-	for _, val := range []string{"zq9fakevalue", "AKIA" + "ABCDEFGHIJKLMNOP"} {
+	for _, val := range []string{"zq9!fake!value", memoryCredentialPlaceholder} {
 		for name, tpl := range templates {
 			text := "```jsonl\n" + strings.ReplaceAll(tpl, "@", val) + "\n" + strings.ReplaceAll(tpl, "@", val) + "\n```\n"
 			got := validateCandidates(text)
@@ -859,7 +871,7 @@ func TestCandidatePathsResolveSymlinks(t *testing.T) {
 
 // The change cap counts characters, not bytes.
 func TestOneSentenceCountsRunes(t *testing.T) {
-	if !oneSentence(strings.Repeat("é", candidateMaxText)) || oneSentence(strings.Repeat("é", candidateMaxText+1)) {
+	if !oneSentence(string(bytes.Repeat([]byte("é"), candidateMaxText))) || oneSentence(string(bytes.Repeat([]byte("é"), candidateMaxText+1))) {
 		t.Error("the cap is not 200 runes")
 	}
 }

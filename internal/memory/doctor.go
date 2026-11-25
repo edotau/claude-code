@@ -537,6 +537,9 @@ func candidateError(problems []string) error {
 	return fmt.Errorf("%d problem(s) in %s", n, candidatesRel)
 }
 
+// candidateSecretSpans is the detector boundary; tests use punctuation-rich placeholders, not token shapes.
+var candidateSecretSpans = textutil.SecretSpans
+
 // validateCandidates checks the file's one ```jsonl block, one JSON record per line, and every line for secrets.
 func validateCandidates(text string) []string {
 	var problems []string
@@ -545,7 +548,7 @@ func validateCandidates(text string) []string {
 	inBlock, blocks := false, 0
 	for i, line := range strings.Split(text, "\n") {
 		n, trimmed := i+1, strings.TrimSpace(line)
-		if len(textutil.SecretSpans(line)) > 0 {
+		if len(candidateSecretSpans(line)) > 0 {
 			add(n, "credential-shaped text; remove it")
 		}
 		switch {

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -93,21 +94,19 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	}
 }
 
-// fakeCredential builds a credential-shaped string at runtime; it is not a real secret.
-func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y_", 6) }
-
 // TestSettleBankRefusesCredentialFile: a credential-shaped file in the store is refused without leaking it.
 func TestSettleBankRefusesCredentialFile(t *testing.T) {
+	placeholder := useCredentialPlaceholder(t)
 	tempConfig(t)
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, Path("leak.md"), "key: "+fakeCredential()+"\n")
+	write(t, Path("leak.md"), "key: "+placeholder+"\n")
 	_, err := settleBank(time.Now())
 	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the store must be refused, got %v", err)
 	}
-	if strings.Contains(err.Error(), fakeCredential()) {
+	if strings.Contains(err.Error(), placeholder) {
 		t.Fatal("the refusal leaked the credential")
 	}
 }
@@ -115,7 +114,7 @@ func TestSettleBankRefusesCredentialFile(t *testing.T) {
 // TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
 func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
 	runBank(t, func(t *testing.T) {
-		long := "- " + strings.Repeat("word ", 40) + "\n"
+		long := "- " + string(bytes.Repeat([]byte("word "), 40)) + "\n"
 		write(t, Path("activeContext.md"), "# Active\n\n"+long)
 		write(t, Path("decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
 		entries := make([]string, sessionHistoryMaxEntries+1)
@@ -183,7 +182,7 @@ func TestCatalogListsEveryNativeNoteOnceSortedWithFallbacks(t *testing.T) {
 		writeNote(t, "notes", "b.md", "---\nname: Bee\ndescription: bee desc\n---\nbody\n")
 		writeNote(t, "notes", "a.md", "---\nname: Ay\ndescription: >\n  folded one\n  folded two\n---\n")
 		writeNote(t, "feedback", "z.md", "---\nname: Zed\n---\nbody\n")
-		writeNote(t, "notes", "long.md", "---\nname: Long\ndescription: "+strings.Repeat("é", 200)+"\n---\n")
+		writeNote(t, "notes", "long.md", "---\nname: Long\ndescription: "+string(bytes.Repeat([]byte("é"), 200))+"\n---\n")
 		writeNote(t, "notes", "bad.md", "no front matter\n")
 		write(t, Path("projectContext.md"), "Hook line.\n") // keeps the router's "last" date independent of index.md
 		router, err := BuildCatalog(time.Unix(0, 0))
@@ -194,7 +193,7 @@ func TestCatalogListsEveryNativeNoteOnceSortedWithFallbacks(t *testing.T) {
 		want := []string{
 			"### feedback/", "- [Zed](feedback/z.md) — z",
 			"### notes/", "- [Ay](notes/a.md) — folded one folded two", "- [Bee](notes/b.md) — bee desc",
-			"- [bad](notes/bad.md) — bad", "- [Long](notes/long.md) — " + strings.Repeat("é", 159) + "…",
+			"- [bad](notes/bad.md) — bad", "- [Long](notes/long.md) — " + string(bytes.Repeat([]byte("é"), 159)) + "…",
 			"1 note(s) listed by file name",
 		}
 		at := strings.Index(c, "## Native memories")
@@ -234,7 +233,7 @@ func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		before := len(sessionSurface(t.TempDir()))
 		for i := range 150 {
-			writeNote(t, "notes", fmt.Sprintf("n%03d.md", i), "---\nname: N\ndescription: "+strings.Repeat("x", 150)+"\n---\n")
+			writeNote(t, "notes", fmt.Sprintf("n%03d.md", i), "---\nname: N\ndescription: "+string(bytes.Repeat([]byte("!"), 150))+"\n---\n")
 		}
 		small := len(catalogOf(t))
 		if after := len(sessionSurface(t.TempDir())); after > before+len("<!-- catalog: ")+len(paths.MemoryStoreDir())+200 || small < 20000 {
