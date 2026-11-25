@@ -31,7 +31,7 @@ func TestWireArgvAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--mode", "json", "--no-mcp", "--no-context-files", "--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "dbx-claude/databricks-claude-sonnet-5-5", "--thinking", "high", "--no-session"}
+	want := []string{"--mode", "json", "--no-mcp", "--no-context-files", "--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "dbx-claude/databricks-claude-sonnet-5-5", "--thinking", "high", "--session-dir", sessionDir()}
 	if !slices.Equal(argv, want) {
 		t.Errorf("argv = %v, want %v", argv, want)
 	}
@@ -152,6 +152,42 @@ func TestWireToolsRunWritesGuard(t *testing.T) {
 	}
 	if _, ok := guardFromEnv(envNo); ok {
 		t.Error("a no-tools run wrote a guard")
+	}
+}
+
+// A tools run saves its session: Pi writes one only without --no-session, so a later --session can resume it.
+func TestToolsRunSavesSession(t *testing.T) {
+	_, argv, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Tools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(argv, "--no-session") || !slices.Contains(argv, "--session-dir") {
+		t.Errorf("tools run argv = %v, want --session-dir and no --no-session", argv)
+	}
+}
+
+// Resuming a session Pi has no file for fails before the run, naming the --retry alternative.
+func TestSessionMissing(t *testing.T) {
+	_, _, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Tools: true, SessionID: "ses-missing"})
+	if err == nil || !strings.Contains(err.Error(), "--retry") {
+		t.Fatalf("err = %v, want a refusal naming --retry", err)
+	}
+}
+
+// A session Pi saved under the session dir resumes with --session.
+func TestSessionSavedResumes(t *testing.T) {
+	r := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(sessionDir(), "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "2026-11-25T10-00-00_ses-1.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, argv, err := piEngine{}.Wire(t.Context(), r, &agent.Headless{Tools: true, SessionID: "ses-1"})
+	if err != nil || !slices.Contains(argv, "--session") {
+		t.Fatalf("err %v argv %v, want a resume with --session", err, argv)
 	}
 }
 
@@ -444,5 +480,19 @@ func TestEmptyPackageListSyncsNothing(t *testing.T) {
 func TestWebHint(t *testing.T) {
 	if webHint(false) != "" || !strings.Contains(webHint(true), "claude-code network websearch") {
 		t.Errorf("webHint = %q / %q", webHint(false), webHint(true))
+	}
+}
+
+func TestSessionCwd(t *testing.T) {
+	dir, work := t.TempDir(), t.TempDir()
+	hdr := `{"type":"session","id":"ses-9","cwd":"` + work + `"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "2026-11-25T10-00-00_ses-9.jsonl"), []byte(hdr), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionCwd(dir, "ses-9"); got != work {
+		t.Fatalf("sessionCwd = %q, want %q (Pi prompts to fork from any other directory)", got, work)
+	}
+	if got := sessionCwd(dir, "other"); got != "" {
+		t.Fatalf("sessionCwd of an unknown id = %q, want empty", got)
 	}
 }

@@ -84,6 +84,9 @@ func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := resumeErr(h.SessionID); err != nil {
+		return nil, nil, err
+	}
 	dir, model, pkgDirs, remove, err := runSetup(ctx, r)
 	if err != nil {
 		return nil, nil, err
@@ -98,10 +101,26 @@ func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 	}
 	argv = append(append([]string{"--mode", "json"}, lockdownArgv...), "--model", model)
 	argv = append(argv, thinking...)
-	if h.SessionID != "" {
-		return env, append(argv, "--session", h.SessionID, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions")), nil
+	return env, append(argv, sessionArgv(h)...), nil
+}
+
+// sessionArgv resumes a named session; a tools run saves its session, any other run keeps none.
+func sessionArgv(h *agent.Headless) []string {
+	switch {
+	case h.SessionID != "":
+		return []string{"--session", h.SessionID, "--session-dir", sessionDir()}
+	case h.Tools:
+		return []string{"--session-dir", sessionDir()}
 	}
-	return env, append(argv, "--no-session"), nil
+	return []string{"--no-session"}
+}
+
+// resumeErr refuses a --session id Pi never saved, since Pi would end the run with no answer.
+func resumeErr(id string) error {
+	if id == "" || sessionSaved(sessionDir(), id) {
+		return nil
+	}
+	return fmt.Errorf("pi session %s was not saved, so it cannot resume; start it again with claude-code agents ask --retry <dispatch id>", id)
 }
 
 // runSetup writes the run's private agent dir and returns it with Pi's model, the synced package dirs and a remover.
@@ -384,6 +403,7 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	if err != nil {
 		return p.Result, err
 	}
+	req.WorkDir = cmp.Or(sessionCwd(sessionDir(), req.SessionID), req.WorkDir)
 	cmd, tail := childCmd(ctx, bin, p, req)
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
@@ -393,6 +413,7 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { ti.beat(ev); return w.check() }, logs...)
 	}
 	res, err := agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
+	err = withPiOutput(ctx, e.Name(), err, tail)
 	if cmd.Process != nil {
 		_ = proc.ReapGroup(cmd.Process.Pid, time.Second) // a fork in flight at cancel escapes the group kill
 	}
@@ -537,4 +558,12 @@ func (piEngine) RouteDetail(ctx context.Context) (string, bool) {
 		return "provider=databricks (pool: no profile pinned, each run picks one) runs=" + RunsDir("<profile>"), true
 	}
 	return fmt.Sprintf("provider=%s runs=%s", pin, RunsDir(pin)), true
+}
+
+// withPiOutput adds Pi's own stderr to a no-answer failure, which otherwise hides why Pi stopped.
+func withPiOutput(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
+	if err == nil || !strings.Contains(err.Error(), "pi ended without an answer") || strings.TrimSpace(tail.String()) == "" {
+		return err
+	}
+	return agent.ChildErr(ctx, name, err, tail)
 }
