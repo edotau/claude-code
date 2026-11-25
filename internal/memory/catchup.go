@@ -200,13 +200,26 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) strin
 		covered = st.edits
 	}
 	c.edits = count(c.path, countPath(c.id))
-	if hasResult && res.needsAttention(now) && (!hasStamp || st.state != "catchup" || secondRetryDue(st, res, now)) {
+	if hasResult && res.needsAttention(now) && !ownerFixRequired(res) && (!hasStamp || st.state != "catchup" || secondRetryDue(st, res, now)) {
 		return "update " + res.Status
 	}
-	if c.edits >= updateMinEdits && c.edits > covered {
+	if newEditsSinceFailure(*c, covered, res, hasResult) {
 		return fmt.Sprintf("%d edits, %d covered", c.edits, covered)
 	}
 	return ""
+}
+
+// newEditsSinceFailure admits a failed owner-fix session only when its transcript changed after the failure.
+func newEditsSinceFailure(c sweepCand, covered int, r UpdateResult, hasResult bool) bool {
+	if c.edits < updateMinEdits || c.edits <= covered {
+		return false
+	}
+	return !hasResult || !ownerFixRequired(r) || c.mtime.After(r.Time)
+}
+
+// ownerFixRequired marks failures that a retry of the same edits cannot repair.
+func ownerFixRequired(r UpdateResult) bool {
+	return r.Status == updateFailed && (r.Class == JobClassAuth || r.Class == JobClassBudget)
 }
 
 // secondRetryDue: one catch-up ran, its failed receipt is within a day of its stamp, and a day has passed.
@@ -239,6 +252,9 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 		if skip == "" {
 			if c.why = sweepWhy(&c, now, count); c.why == "" {
 				skip = "nothing new"
+				if res, ok := readUpdateResult(c.id); ok && ownerFixRequired(res) {
+					skip = "needs fix (" + res.Class + ")"
+				}
 			}
 		}
 		if skip != "" {

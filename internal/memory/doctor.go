@@ -274,8 +274,12 @@ func updateProblems(now time.Time) []string {
 		if LiveTranscript("", id) == "" { // a transcript that no longer exists can never be retried
 			continue
 		}
+		fix := ""
+		if r.Fix != "" {
+			fix = " — fix: " + r.Fix
+		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
-			updateLogNote(r.Log)+" (claude-code memory update --session "+id+")")
+			updateLogNote(r.Log)+fix+" (claude-code memory update --session "+id+")")
 	}
 	return problems
 }

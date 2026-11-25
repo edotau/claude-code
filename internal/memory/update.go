@@ -81,10 +81,12 @@ const updateTimeout = 15 * time.Minute
 
 // UpdateResult is one session's update outcome (KEY=value lines on disk).
 type UpdateResult struct {
-	Status      string
-	Time        time.Time
-	BankUpdated bool
-	Log         string
+	Status          string
+	Time            time.Time
+	BankUpdated     bool
+	Log             string
+	Class, Fix, Ran string
+	Local           bool
 }
 
 func resultPath(sessionID string) string {
@@ -135,9 +137,18 @@ func writeUpdateResult(sessionID string, r UpdateResult) error {
 	if sessionID == "" {
 		return nil
 	}
-	body := "status=" + r.Status + "\ntime=" + r.Time.Format(time.RFC3339) +
-		"\nbank_updated=" + strconv.FormatBool(r.BankUpdated) + "\nlog=" + r.Log + "\n"
-	return paths.AtomicWrite(resultPath(sessionID), []byte(body), 0o600)
+	var body strings.Builder
+	fmt.Fprintf(&body, "status=%s\ntime=%s\nbank_updated=%t\nlog=%s\n",
+		r.Status, r.Time.Format(time.RFC3339Nano), r.BankUpdated, r.Log)
+	for _, field := range []struct{ key, value string }{{"class", r.Class}, {"fix", r.Fix}, {"ran", r.Ran}} {
+		if field.value != "" {
+			fmt.Fprintf(&body, "%s=%s\n", field.key, field.value)
+		}
+	}
+	if r.Local {
+		body.WriteString("local=true\n")
+	}
+	return paths.AtomicWrite(resultPath(sessionID), []byte(body.String()), 0o600)
 }
 
 // readUpdateResult loads sessionID's result; ok=false when absent or unparseable.
@@ -162,7 +173,8 @@ func readUpdateResult(sessionID string) (UpdateResult, bool) {
 	if err != nil {
 		return UpdateResult{}, false
 	}
-	r := UpdateResult{Status: m["status"], Time: t, Log: m["log"], BankUpdated: m["bank_updated"] == "true"}
+	r := UpdateResult{Status: m["status"], Time: t, Log: m["log"], BankUpdated: m["bank_updated"] == "true",
+		Class: m["class"], Fix: m["fix"], Ran: m["ran"], Local: m["local"] == "true"}
 	return r, r.Status != ""
 }
 
@@ -481,10 +493,10 @@ func update(o updateOptions) error {
 	defer cleanHandoff(o.Session, o.Handoff)
 	o = updateDefaults(o)
 	prior, _ := readUpdateResult(o.Session)
-	record := func(status string, updated bool) error {
-		return recordUpdateResult(o.Session, prior.Log, status, updated)
-	}
 	var run updateRun
+	record := func(status string, updated bool) error {
+		return recordUpdateResult(o.Session, prior.Log, status, updated, run.report)
+	}
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
 	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
@@ -521,8 +533,13 @@ func auditUpdatePlans(o updateOptions) {
 }
 
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
-func recordUpdateResult(session, log, status string, updated bool) error {
-	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log})
+func recordUpdateResult(session, log, status string, updated bool, rep JobResult) error {
+	ran := strings.Join([]string{rep.Agent, rep.Profile, rep.Model}, "·")
+	if rep.Agent == "" && rep.Profile == "" && rep.Model == "" {
+		ran = ""
+	}
+	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log,
+		Class: rep.Class, Fix: rep.Fix, Ran: ran, Local: rep.Local})
 	if err != nil {
 		return fmt.Errorf("record update result: %w", err)
 	}
@@ -558,6 +575,7 @@ type updateRun struct {
 	before            time.Time
 	runErr, settleErr error
 	updated           bool
+	report            JobResult
 }
 
 // finish settles under the writer lock and reports whether the update wrote the bank.
@@ -593,7 +611,9 @@ func (r *updateRun) locked(o updateOptions) error {
 	r.before = newestMtime()
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
+	ctx, rep := WithJobReport(ctx)
 	r.runAgent(ctx, o)
+	r.report = *rep
 	r.updated, r.settleErr = r.finish(o)
 	return nil
 }

@@ -224,6 +224,82 @@ func assertUpdateFailure(t *testing.T, root string) {
 	}
 }
 
+// TestUpdateReceiptRoundTripsClassAndFix checks typed receipts, runner reports and owner-only retry gating.
+func TestUpdateReceiptRoundTripsClassAndFix(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	id := "22222222-2222-2222-2222-222222222222"
+	now := time.Now()
+	assertReceiptFields(t, id, now)
+	assertOwnerRetry(t, id, now, JobClassAuth)
+	if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: now}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := readUpdateResult(id)
+	if !ok || got.Class != "" || got.Fix != "" || got.Ran != "" || got.Local {
+		t.Fatalf("legacy receipt: %+v, ok=%t", got, ok)
+	}
+	assertReportedUpdate(t, id, JobClassBudget)
+}
+
+// assertReceiptFields checks that all typed keys survive a write and read.
+func assertReceiptFields(t *testing.T, id string, now time.Time) {
+	t.Helper()
+	want := UpdateResult{Status: updateFailed, Time: now, Log: "/tmp/update.log", Class: JobClassAuth,
+		Fix: "claude-code databricks login --profile dev", Ran: "claude·dev·sonnet", Local: true}
+	if err := writeUpdateResult(id, want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := readUpdateResult(id)
+	if !ok || got.Class != want.Class || got.Fix != want.Fix || got.Ran != want.Ran || !got.Local {
+		t.Fatalf("typed receipt: %+v, ok=%t", got, ok)
+	}
+}
+
+// assertOwnerRetry checks that only new edits can rearm an owner-fix failure.
+func assertOwnerRetry(t *testing.T, id string, now time.Time, class string) {
+	t.Helper()
+	c := sweepCand{id: id, path: "transcript", mtime: now.Add(-time.Nanosecond)}
+	count := func(string, string) int { return updateMinEdits }
+	if why := sweepWhy(&c, now, count); why != "" {
+		t.Errorf("owner failure without stamp retried: %q", why)
+	}
+	if err := writeStampAttempts(stampPath(id), now, "catchup", updateMinEdits, 1); err != nil {
+		t.Fatal(err)
+	}
+	if why := sweepWhy(&c, now, count); why != "" {
+		t.Errorf("owner failure retried: %q", why)
+	}
+	if !ownerFixRequired(UpdateResult{Status: updateFailed, Class: class}) {
+		t.Error("owner failure not classified")
+	}
+	if why := sweepWhy(&c, now.Add(2*catchupRetry), count); why != "" {
+		t.Errorf("second retry of owner failure: %q", why)
+	}
+	count = func(string, string) int { return updateMinEdits + 1 }
+	c.mtime = now.Add(time.Second)
+	if why := sweepWhy(&c, now, count); !strings.Contains(why, "edits") {
+		t.Errorf("fresh edits should save: %q", why)
+	}
+}
+
+// assertReportedUpdate checks an injected runner's failure report reaches the persisted receipt.
+func assertReportedUpdate(t *testing.T, id, class string) {
+	t.Helper()
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		ReportJob(ctx, JobResult{Agent: "claude", Profile: "dev", Model: "sonnet", Class: class,
+			Fix: "claude-code memory update --catchup", Local: true})
+		return "claude", errors.New("dispatch tree budget spent")
+	}
+	if err := update(updateOptions{Run: run, Session: id}); err == nil {
+		t.Fatal("expected failing update")
+	}
+	got, ok := readUpdateResult(id)
+	if !ok || got.Status != updateFailed || got.Class != class || got.Fix != "claude-code memory update --catchup" || got.Ran != "claude·dev·sonnet" || !got.Local {
+		t.Fatalf("runner report: %+v, ok=%t", got, ok)
+	}
+}
+
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	tempConfig(t)
 	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
