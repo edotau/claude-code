@@ -181,3 +181,27 @@ func checkJobClasses(t *testing.T, reg *providers.Registry) {
 		}
 	}
 }
+
+func TestMemoryRunOptionsSchemaTurnsToolsOff(t *testing.T) {
+	ctx, text := memory.WithJobAnswer(context.Background(), `{"type":"object"}`)
+	o := memoryRunOptions(ctx, "p", "/w")
+	if o.Tools || o.OutputSchema != `{"type":"object"}` {
+		t.Fatalf("memoryRunOptions = %+v, want tools off and the schema set", o)
+	}
+	ws := func(n string) *providers.Provider {
+		return &providers.Provider{Name: n, Provider: providers.GroupDatabricks}
+	}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": ws("dev"), "qa": ws("qa")}}
+	run := func(context.Context, agent.RunOptions) (wire.Result, error) {
+		return wire.Result{Agent: "claude", Structured: []byte(`{"ops":[]}`)}, nil
+	}
+	if _, err := memoryWalk(ctx, run, reg, o, attempt{err: errors.New("x"), profile: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if *text != `{"ops":[]}` {
+		t.Fatalf("answer slot = %q, want the structured answer", *text)
+	}
+	if plain := memoryRunOptions(context.Background(), "p", "/w"); !plain.Tools || plain.OutputSchema != "" {
+		t.Fatalf("no slot: %+v, want tools on and no schema", plain)
+	}
+}

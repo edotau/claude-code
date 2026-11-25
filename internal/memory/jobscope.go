@@ -68,3 +68,29 @@ func JobOutput(ctx context.Context, fallback io.Writer) io.Writer {
 	}
 	return fallback
 }
+
+type jobAnswerKey struct{}
+
+type jobAnswer struct {
+	schema string
+	text   *string
+}
+
+// WithJobAnswer asks the runner for one answer matching schema; the job reads *text after o.Run returns.
+func WithJobAnswer(ctx context.Context, schema string) (context.Context, *string) {
+	text := new(string)
+	return context.WithValue(ctx, jobAnswerKey{}, jobAnswer{schema, text}), text
+}
+
+// JobAnswerSchema is the schema ctx asks for; "" means a tools-on run with no structured answer.
+func JobAnswerSchema(ctx context.Context) string {
+	a, _ := ctx.Value(jobAnswerKey{}).(jobAnswer)
+	return a.schema
+}
+
+// AnswerJob fills ctx's answer slot; a ctx without one (a test runner) drops it.
+func AnswerJob(ctx context.Context, text string) {
+	if a, ok := ctx.Value(jobAnswerKey{}).(jobAnswer); ok {
+		*a.text = text
+	}
+}

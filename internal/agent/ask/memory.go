@@ -68,8 +68,20 @@ func (r *askRun) startRecall(prompt string) func() string {
 
 // memoryRunOptions pins the memory job to claude's own CLI: it holds write tools, so Pi never leads.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
-	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: memory.JobTools(memory.JobKind(ctx)), WorkDir: workdir,
+	o := agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: memory.JobTools(memory.JobKind(ctx)), WorkDir: workdir,
 		Fallback: router.FallbackNone, Runner: agentconfig.RunnerOwn}
+	if schema := memory.JobAnswerSchema(ctx); schema != "" {
+		o.OutputSchema, o.Tools = schema, false
+	}
+	return o
+}
+
+// answerText is the structured answer when the run produced one, else the plain text.
+func answerText(res wire.Result) string {
+	if len(res.Structured) > 0 {
+		return string(res.Structured)
+	}
+	return res.Answer
 }
 
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.
@@ -215,6 +227,7 @@ func MemoryRunner() memory.AgentFunc {
 		res, err := run(ctx, opts)
 		first := attempt{res: res, profile: cmp.Or(res.Provider, providers.SessionLeadContext(ctx, reg, true)), err: err}
 		if err == nil {
+			memory.AnswerJob(ctx, answerText(res))
 			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model})
 			return memoryWho(res, false), nil
 		}
@@ -253,6 +266,7 @@ func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts a
 		res, err := run(ctx, hopOptions(opts, hop))
 		who = memoryWho(res, local)
 		if err == nil {
+			memory.AnswerJob(ctx, answerText(res))
 			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: hop.Profile, Model: res.Model, Local: local})
 			return who, nil
 		}
