@@ -1144,7 +1144,7 @@ func BenchmarkFixPassthroughBody(b *testing.B) {
 	b.SetBytes(int64(len(body)))
 	b.ReportAllocs()
 	for b.Loop() {
-		out, _, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
+		out, _, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, "", false)
 		if err != nil || bytes.Equal(out, body) || !strings.HasPrefix(m, models.DatabricksPrefix) {
 			b.Fatal(err, m)
 		}
@@ -1219,4 +1219,98 @@ func TestPassthroughRetryableHonoursShouldRetry(t *testing.T) {
 	if passthroughRetryable(in, http.StatusTooManyRequests, retry.ShouldRetryNo) {
 		t.Error("x-should-retry: false must end the failover")
 	}
+}
+
+func googleToolsSetup(t *testing.T, options string) (*rawUp, string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newRawUp(t, okRaw)
+	t.Setenv("DBX_KEY", "dbx-token")
+	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
+		`/serving-endpoints/anthropic","routes":{"gemini":"` + up.URL + `/serving-endpoints/gemini"},` + options +
+		`"auth":{"type":"key","env":"DBX_KEY"}}`
+	srv := setup(t, `{"default":"dbx","providers":{"databricks":{"dbx":`+row+`}}}`)
+	return up, srv.URL + "/p/dbx/gemini/v1beta/models/gemini-3.8-flash:generateContent"
+}
+
+// The header is stripped, served tools are injected once, an unserved tool is a 400, an unprobed row sends as asked.
+func TestWithGoogleTools(t *testing.T) {
+	if http.CanonicalHeaderKey(translate.GoogleToolsHeader) != translate.GoogleToolsHeader {
+		t.Fatalf("%s is not canonical", translate.GoogleToolsHeader)
+	}
+	served := `"options":{"google_tools":["url","code"]},`
+	t.Run("injects", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		hdr := map[string]string{translate.GoogleToolsHeader: "url,code"}
+		resp := ptDo(t, http.MethodPost, url, `{"contents":[],"tools":[{"urlContext":{}}]}`, hdr)
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || g[0].hdr.Get(translate.GoogleToolsHeader) != "" {
+			t.Fatalf("status %d hits %+v, want 200 and one hit with the header stripped", resp.StatusCode, g)
+		}
+		if want := `"tools":[{"urlContext":{}},{"codeExecution":{}}]`; !strings.Contains(g[0].body, want) {
+			t.Errorf("body = %s, want %s", g[0].body, want)
+		}
+	})
+	t.Run("refusals", func(t *testing.T) { googleToolsRefusals(t, served) })
+	t.Run("repeated header lines", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		req := testRequest(t, http.MethodPost, url, strings.NewReader(`{"contents":[]}`))
+		req.Header.Set("X-Api-Key", secret)
+		req.Header.Add(translate.GoogleToolsHeader, "url")
+		req.Header.Add(translate.GoogleToolsHeader, "code")
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || !strings.Contains(g[0].body, `{"urlContext":{}},{"codeExecution":{}}`) {
+			t.Errorf("status %d hits %+v, want both tools injected", resp.StatusCode, g)
+		}
+	})
+	t.Run("failover skips an unserving sibling", googleToolsFailover)
+}
+
+func googleToolsFailover(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	first := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(429) })
+	second, third := newRawUp(t, okRaw), newRawUp(t, okRaw)
+	for _, k := range []string{"GT_FIRST", "GT_SECOND", "GT_THIRD"} {
+		t.Setenv(k, "fake-"+k)
+	}
+	row := func(up *rawUp, key, tools string) string {
+		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + up.URL +
+			`/serving-endpoints/anthropic","routes":{"gemini":"` + up.URL + `/serving-endpoints/gemini"},` +
+			`"options":{"google_tools":` + tools + `},"auth":{"type":"key","env":"` + key + `"},"models":{"opus":"databricks-test-model"}}`
+	}
+	srv := setup(t, `{"default":"first","fallback":["second","third"],"providers":{"databricks":{"first":`+
+		row(first, "GT_FIRST", `["code"]`)+`,"second":`+row(second, "GT_SECOND", `["url"]`)+`,"third":`+
+		row(third, "GT_THIRD", `["url","code"]`)+`}}}`)
+	hdr := map[string]string{translate.GoogleToolsHeader: "code"}
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/first/gemini/v1beta/models/databricks-test-model:generateContent",
+		`{"contents":[]}`, hdr)
+	if resp.StatusCode != 200 || len(second.got()) != 0 || len(third.got()) != 1 {
+		t.Errorf("status %d hits second=%d third=%d, want 200 via third only", resp.StatusCode,
+			len(second.got()), len(third.got()))
+	}
+}
+
+func googleToolsRefusals(t *testing.T, served string) {
+	hdr := map[string]string{translate.GoogleToolsHeader: "search"}
+	t.Run("unserved", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		if resp := ptDo(t, http.MethodPost, url, `{"contents":[]}`, hdr); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("status %d, want 400", resp.StatusCode)
+		}
+		if len(up.got()) != 0 {
+			t.Error("an unserved tool reached the upstream")
+		}
+	})
+	t.Run("unprobed", func(t *testing.T) {
+		up, url := googleToolsSetup(t, "")
+		resp := ptDo(t, http.MethodPost, url, `{"contents":[]}`, hdr)
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || !strings.Contains(g[0].body, `"tools":[{"googleSearch":{}}]`) {
+			t.Errorf("status %d hits %+v", resp.StatusCode, g)
+		}
+	})
 }
