@@ -135,7 +135,7 @@ func TestOverlayReplacesOrAdds(t *testing.T) {
 		`{"name":"shared","kinds":["interactive","lane"],"host":"daemon","lifetime":"shared","reserved":2,"borrow":"any","fallback":[],"default":true},` +
 		`{"name":"phase","kinds":["group"],"host":"phase","lifetime":"phase","reserved":1,"borrow":"never","fallback":["shared"]}]}`
 	c, ps := Parse(assets.ProxyTeams(), []byte(overlay))
-	if len(ps) != 0 || len(c.Teams) != 3 || c.Teams[0].Reserved != 2 || c.TeamFor(KindLane).Name != "shared" {
+	if len(ps) != 0 || len(c.Teams) != 2 || c.Teams[0].Reserved != 2 || c.TeamFor(KindLane).Name != "shared" {
 		t.Fatalf("merge = %+v, problems %v", c, ps)
 	}
 	dup := `{"schema":1,"teams":[{"name":"x","kinds":["lane"],"host":"ask","lifetime":"ask","reserved":1,"borrow":"never","fallback":["shared"]},` +
@@ -168,7 +168,7 @@ func TestBadOverlayKeepsLastGood(t *testing.T) {
 		t.Fatalf("no last-good: got %+v %v, want the embedded default and problems", c, ps)
 	}
 	want, ps := Load([]byte(goodOverlay))
-	if len(ps) != 0 || len(want.Teams) != 3 {
+	if len(ps) != 0 || len(want.Teams) != 2 {
 		t.Fatalf("good overlay: %+v %v", want, ps)
 	}
 	if c, ps := Load([]byte(bad)); len(ps) == 0 || !reflect.DeepEqual(c, want) {

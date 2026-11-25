@@ -10,15 +10,6 @@
       "borrow": "any",
       "fallback": [],
       "default": true
-    },
-    {
-      "name": "general",
-      "kinds": ["single"],
-      "host": "detached",
-      "lifetime": "standing",
-      "reserved": 1,
-      "borrow": "any",
-      "fallback": ["shared"]
     }
   ]
 }
