@@ -13,7 +13,18 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
+
+// getsid is the session id of pid, -1 when unreadable.
+func getsid(pid int) int {
+	s, err := unix.Getsid(pid)
+	if err != nil {
+		return -1
+	}
+	return s
+}
 
 // TreeCancel runs cmd in its own group under a per-run env tag; cancel: SIGTERM, grace, then kill descendants and tag.
 func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
@@ -30,7 +41,7 @@ func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
 		for end := time.Now().Add(grace); time.Now().Before(end) && Alive(pid); {
 			time.Sleep(10 * time.Millisecond)
 		}
-		for _, k := range append(kids, Descendants(pid)...) {
+		for _, k := range killable(append(kids, Descendants(pid)...), pid, getsid) {
 			if Alive(k) {
 				_ = SignalGroup(k, syscall.SIGKILL)  // a tool's own group (Pi's bash) is not ours
 				_ = syscall.Kill(k, syscall.SIGKILL) // not a group leader: the group signal missed it
