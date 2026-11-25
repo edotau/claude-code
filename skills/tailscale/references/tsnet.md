@@ -72,11 +72,11 @@ device. `srv.ListenTLS("tcp", ":443")` replaces the `tls.NewListener` block with
 
 ## Authenticating the app to the tailnet
 
-| Method | Set via | Use when |
-|---|---|---|
-| Interactive auth URL | (no auth set) | Local development |
-| **Auth key** | `Server.AuthKey` or `TS_AUTHKEY` | Most servers/containers |
-| **OAuth client** | `Server.ClientSecret` (+ `Server.AdvertiseTags`) or `TS_CLIENT_SECRET` | Fleets: scoped, rotatable credentials, auto-minted auth keys |
+| Method                       | Set via                                                                                                                        | Use when                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Interactive auth URL         | (no auth set)                                                                                                                  | Local development                                                                                     |
+| **Auth key**                 | `Server.AuthKey` or `TS_AUTHKEY`                                                                                               | Most servers/containers                                                                               |
+| **OAuth client**             | `Server.ClientSecret` (+ `Server.AdvertiseTags`) or `TS_CLIENT_SECRET`                                                         | Fleets: scoped, rotatable credentials, auto-minted auth keys                                          |
 | **Workload identity (OIDC)** | `Server.ClientID` + `Server.IDToken` or `TS_CLIENT_ID` + `TS_ID_TOKEN` (+ `Server.AdvertiseTags`), plus a blank import (below) | GCP, Azure, GitHub Actions without a static secret; the cloud OIDC token is exchanged for an auth key |
 
 `Server.AuthKey` beats `TS_AUTHKEY`, which beats legacy `TS_AUTH_KEY`. OAuth and workload identity **require**
@@ -207,21 +207,21 @@ log.Fatal(http.Serve(ln, httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "ht
 
 ## Useful Server methods
 
-| Method | Purpose |
-|---|---|
-| `Listen(network, addr)` | Plain `net.Listener` on the tailnet |
-| `ListenTLS(network, addr)` | TLS with auto-provisioned cert |
-| `ListenFunnel(network, addr, opts...)` | Public via Funnel; `tsnet.FunnelOnly()` for public-only |
-| `ListenService(svc, mode)` | Tailscale Service (stable identity, multi-instance) |
-| `ListenSSH(addr)` | Tailscale SSH listener with peer identity; needs blank import `_ "tailscale.com/feature/ssh"` or it errors |
-| `ListenPacket(network, addr)` | UDP `net.PacketConn`; `udp`/`udp4`/`udp6`, address needs an explicit IP (from `TailscaleIPs()`) |
-| `Dial(ctx, network, addr)` | Outgoing connection from inside the tailnet |
-| `HTTPClient()` | `*http.Client` routed through the tailnet |
-| `LocalClient()` | Embedded `tailscaled` client — `WhoIs`, `GetCertificate`, `Status`, others |
-| `TailscaleIPs()` | Own tailnet IPv4/IPv6 (after `Start`) |
-| `Up(ctx)` | Block until online (after `Start`) |
-| `CertDomains()` | Domains the node can mint certs for |
-| `Start()` / `Close()` | Lifecycle (most methods Start implicitly; always defer Close) |
+| Method                                 | Purpose                                                                                                    |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `Listen(network, addr)`                | Plain `net.Listener` on the tailnet                                                                        |
+| `ListenTLS(network, addr)`             | TLS with auto-provisioned cert                                                                             |
+| `ListenFunnel(network, addr, opts...)` | Public via Funnel; `tsnet.FunnelOnly()` for public-only                                                    |
+| `ListenService(svc, mode)`             | Tailscale Service (stable identity, multi-instance)                                                        |
+| `ListenSSH(addr)`                      | Tailscale SSH listener with peer identity; needs blank import `_ "tailscale.com/feature/ssh"` or it errors |
+| `ListenPacket(network, addr)`          | UDP `net.PacketConn`; `udp`/`udp4`/`udp6`, address needs an explicit IP (from `TailscaleIPs()`)            |
+| `Dial(ctx, network, addr)`             | Outgoing connection from inside the tailnet                                                                |
+| `HTTPClient()`                         | `*http.Client` routed through the tailnet                                                                  |
+| `LocalClient()`                        | Embedded `tailscaled` client — `WhoIs`, `GetCertificate`, `Status`, others                                 |
+| `TailscaleIPs()`                       | Own tailnet IPv4/IPv6 (after `Start`)                                                                      |
+| `Up(ctx)`                              | Block until online (after `Start`)                                                                         |
+| `CertDomains()`                        | Domains the node can mint certs for                                                                        |
+| `Start()` / `Close()`                  | Lifecycle (most methods Start implicitly; always defer Close)                                              |
 
 ## Production checklist
 
@@ -235,17 +235,17 @@ log.Fatal(http.Serve(ln, httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "ht
 
 ## Where to find current information
 
-| Topic | Fetch |
-|---|---|
-| Overview & install | <https://tailscale.com/docs/features/tsnet> |
-| Hello tsnet | <https://tailscale.com/docs/features/tsnet/how-to/create-basic-tsnet-app> |
-| Register a Tailscale Service | <https://tailscale.com/docs/features/tsnet/how-to/register-service> |
-| `tsnet.Server` field/method reference | <https://tailscale.com/docs/reference/tsnet-server-api> |
-| Auth keys | <https://tailscale.com/docs/features/access-control/auth-keys> |
-| OAuth clients (`ClientSecret`) | <https://tailscale.com/docs/features/oauth-clients> |
-| Workload identity federation | <https://tailscale.com/docs/features/workload-identity-federation> |
-| Userspace networking | <https://tailscale.com/docs/concepts/userspace-networking> |
-| pkg.go.dev | <https://pkg.go.dev/tailscale.com/tsnet> |
+| Topic                                 | Fetch                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| Overview & install                    | <https://tailscale.com/docs/features/tsnet>                               |
+| Hello tsnet                           | <https://tailscale.com/docs/features/tsnet/how-to/create-basic-tsnet-app> |
+| Register a Tailscale Service          | <https://tailscale.com/docs/features/tsnet/how-to/register-service>       |
+| `tsnet.Server` field/method reference | <https://tailscale.com/docs/reference/tsnet-server-api>                   |
+| Auth keys                             | <https://tailscale.com/docs/features/access-control/auth-keys>            |
+| OAuth clients (`ClientSecret`)        | <https://tailscale.com/docs/features/oauth-clients>                       |
+| Workload identity federation          | <https://tailscale.com/docs/features/workload-identity-federation>        |
+| Userspace networking                  | <https://tailscale.com/docs/concepts/userspace-networking>                |
+| pkg.go.dev                            | <https://pkg.go.dev/tailscale.com/tsnet>                                  |
 
 ## Answering pattern
 

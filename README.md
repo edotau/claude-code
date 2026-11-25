@@ -53,15 +53,15 @@ Every verb takes `-h`; `claude-code -h` lists the menu.
 
 ## How the pieces fit
 
-| Path | Holds |
-| --- | --- |
-| `cmd/claude-code/`, `internal/` | The binary; `internal/cli` is the command table, logic lives in each package |
-| `internal/settings/hookspec.go`, `internal/hooks/` | Hook declarations and their handlers |
-| `agents/`, `commands/`, `workflows/` | Subagents, slash commands, Workflow scripts |
-| `rules/`, `skills/` | Standards and gotchas Claude loads; on-demand how-to references |
-| `state/vault.db` | The encrypted vault (untracked): secrets, pins, provider and agent overlays |
-| `memory/` | The memory bank, a local-only git repo that is never pushed |
-| `settings.json` | Yours: hand-edited and untracked |
+| Path                                               | Holds                                                                        |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `cmd/claude-code/`, `internal/`                    | The binary; `internal/cli` is the command table, logic lives in each package |
+| `internal/settings/hookspec.go`, `internal/hooks/` | Hook declarations and their handlers                                         |
+| `agents/`, `commands/`, `workflows/`               | Subagents, slash commands, Workflow scripts                                  |
+| `rules/`, `skills/`                                | Standards and gotchas Claude loads; on-demand how-to references              |
+| `state/vault.db`                                   | The encrypted vault (untracked): secrets, pins, provider and agent overlays  |
+| `memory/`                                          | The memory bank, a local-only git repo that is never pushed                  |
+| `settings.json`                                    | Yours: hand-edited and untracked                                             |
 
 The full map is `CLAUDE.md` → Where things live. State formats, backups, `container/` and `mods/`:
 [`rules/harness/commands.md`](rules/harness/commands.md) → Layout.
@@ -93,20 +93,20 @@ subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-message rules, see
 [`rules/standards/worktree-git.md`](rules/standards/worktree-git.md).
 
-| Situation | What happens | Applies to |
-| --- | --- | --- |
-| Memory sync between your own machines | Off by default; opting in sends the memory store over ssh only to the hosts you listed | opted-in machines |
-| Force push to `main` or `master` | Blocked; push a branch and open a PR | main and leaves |
-| `git add` or `commit` of a file another live session or agent has uncommitted edits in | Ask, or block for a leaf under `~/.claude` | main and leaves |
-| `claude-code worktree commit` | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files | main and leaves |
-| A command that prints a token (`claude-code … --secret`, `gh auth token`) piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
-| `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
-| `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
-| `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context | Ask in main; blocked in a leaf | main, leaves |
-| `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
-| `agents ask --tools=false` or `--no-tools` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |
-| Unsetting or overriding the `HARNESS_DISPATCH_*` variables | Blocked, so a nested dispatch keeps its limits | leaves |
-| Writing `settings.json` from Bash or a leaf | Blocked | main (Bash) and leaves |
+| Situation                                                                                                                 | What happens                                                                                                                                           | Applies to             |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| Memory sync between your own machines                                                                                     | Off by default; opting in sends the memory store over ssh only to the hosts you listed                                                                 | opted-in machines      |
+| Force push to `main` or `master`                                                                                          | Blocked; push a branch and open a PR                                                                                                                   | main and leaves        |
+| `git add` or `commit` of a file another live session or agent has uncommitted edits in                                    | Ask, or block for a leaf under `~/.claude`                                                                                                             | main and leaves        |
+| `claude-code worktree commit`                                                                                             | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files                         | main and leaves        |
+| A command that prints a token (`claude-code … --secret`, `gh auth token`) piped to `curl`, `nc` or `wget`                 | Blocked                                                                                                                                                | main and leaves        |
+| `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch  | main, leaves           |
+| `claude-code vault get --key --secret` (the vault master key)                                                             | Ask in main; blocked in a leaf                                                                                                                         | main, leaves           |
+| `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context                                           | Ask in main; blocked in a leaf                                                                                                                         | main, leaves           |
+| `make audit`, `make install`, `make fmt` inside this repository                                                           | Blocked for a leaf; `make lint` stays open to all                                                                                                      | leaves                 |
+| `agents ask --tools=false` or `--no-tools`                                                                                | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents      |
+| Unsetting or overriding the `HARNESS_DISPATCH_*` variables                                                                | Blocked, so a nested dispatch keeps its limits                                                                                                         | leaves                 |
+| Writing `settings.json` from Bash or a leaf                                                                               | Blocked                                                                                                                                                | main (Bash) and leaves |
 
 Codex, Copilot, Gemini and OpenCode launched through `claude-code <agent>` also lose inherited `*_KEY`, `*_TOKEN`,
 `*_SECRET` and `*_PASSWORD` variables.

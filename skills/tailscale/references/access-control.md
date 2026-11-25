@@ -77,8 +77,8 @@ Grant narrow standing access with tags and groups; layer time-bound elevation on
 
 Fetch before writing Accessbot or posture config:
 
-| If the user wants to… | Fetch |
-|---|---|
-| Replace standing admin access with elevated access on demand | <https://tailscale.com/docs/features/access-control/just-in-time-access> |
-| Add an approval step (e.g. Slack) | <https://tailscale.com/docs/features/tailscale-accessbot-jit> |
-| Least-privilege production access for an audit | <https://tailscale.com/docs/use-cases/infrastructure-access/manage-least-priviledged-and-jit-access> |
+| If the user wants to…                                        | Fetch                                                                                                |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Replace standing admin access with elevated access on demand | <https://tailscale.com/docs/features/access-control/just-in-time-access>                             |
+| Add an approval step (e.g. Slack)                            | <https://tailscale.com/docs/features/tailscale-accessbot-jit>                                        |
+| Least-privilege production access for an audit               | <https://tailscale.com/docs/use-cases/infrastructure-access/manage-least-priviledged-and-jit-access> |

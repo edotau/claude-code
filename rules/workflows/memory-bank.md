@@ -60,14 +60,14 @@ update`; the rest print none.
   the side that changed since the last sync wins. The first pass only records both sides' hashes (`seen`) for these
   comparisons, leaving existing differences in place.
 
-  | Local vs seen | Peer vs seen | Result |
-  | --- | --- | --- |
-  | same | changed | the peer's replaces the local file |
-  | changed | same | the local file replaces the peer's (the peer checks its hash first) |
-  | changed | changed, or never seen | both keep their own; counted as `differ` |
-  | same | same, but unequal | standing difference; counted, quiet |
-  | gone | same | the peer's copy is removed (it checks its hash first); a peer's deletion removes the local copy |
-  | gone | changed | the edit stays and returns as a conflict (`differ`) |
+  | Local vs seen | Peer vs seen           | Result                                                                                          |
+  | ------------- | ---------------------- | ----------------------------------------------------------------------------------------------- |
+  | same          | changed                | the peer's replaces the local file                                                              |
+  | changed       | same                   | the local file replaces the peer's (the peer checks its hash first)                             |
+  | changed       | changed, or never seen | both keep their own; counted as `differ`                                                        |
+  | same          | same, but unequal      | standing difference; counted, quiet                                                             |
+  | gone          | same                   | the peer's copy is removed (it checks its hash first); a peer's deletion removes the local copy |
+  | gone          | changed                | the edit stays and returns as a conflict (`differ`)                                             |
 
   Logs never take this rule: they merge by block and are sent until the peer holds every local entry; a log is never
   deleted by sync, nor is anything outside the bank's folders and the plans home. Mass deletions (over 20 files and
@@ -103,14 +103,14 @@ hand.
 
 ## Files + mutation contracts
 
-| File | Holds | Contract |
-| --- | --- | --- |
-| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/files/memory/prompts/init.md` seeds it) | Replace, sparingly |
-| `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
-| `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
-| `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |
-| `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
-| `sessionHistory.md` | Newest-first summaries | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
+| File                | Holds                                                                                             | Contract                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/files/memory/prompts/init.md` seeds it) | Replace, sparingly                                                           |
+| `activeContext.md`  | Focus, open questions, blockers, next steps                                                       | **Replace** each session end                                                 |
+| `progress.md`       | What Works / In Progress / What's Next / Known Issues                                             | **Replace** each session end                                                 |
+| `decisionLog.md`    | Dated decisions + rationale                                                                       | **Append-only, newest first; supersede, never delete**                       |
+| `conventions.md`    | Learned patterns not yet promoted                                                                 | Append; `memory dream` prunes                                                |
+| `sessionHistory.md` | Newest-first summaries                                                                            | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
 Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name>.md`, knowledge
 `knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
@@ -178,15 +178,15 @@ chain returns the original flagged unavailable. `memory search` still lists it a
 
 ## Caps
 
-| Limit | Value | Defined by |
-| --- | --- | --- |
-| `projectContext.md` · `progress.md` | 60 lines each | `fileCaps` |
-| `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
-| `decisionLog.md` | 200 lines | `fileCaps` |
-| `sessionHistory.md` | 30 entries (rotates) | `sessionHistoryMaxEntries` |
-| Generated `MEMORY.md` | 120 lines / 12 KB; newest drop first, pins stay (warns) | `bankIndexMaxLines/Bytes` |
-| Pinned lines | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*` |
-| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code loader |
+| Limit                                 | Value                                                                         | Defined by                 |
+| ------------------------------------- | ----------------------------------------------------------------------------- | -------------------------- |
+| `projectContext.md` · `progress.md`   | 60 lines each                                                                 | `fileCaps`                 |
+| `activeContext.md` · `conventions.md` | 80 lines each                                                                 | `fileCaps`                 |
+| `decisionLog.md`                      | 200 lines                                                                     | `fileCaps`                 |
+| `sessionHistory.md`                   | 30 entries (rotates)                                                          | `sessionHistoryMaxEntries` |
+| Generated `MEMORY.md`                 | 120 lines / 12 KB; newest drop first, pins stay (warns)                       | `bankIndexMaxLines/Bytes`  |
+| Pinned lines                          | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*`               |
+| Whole `MEMORY.md` (native index)      | 200 lines / 25 KB                                                             | Claude Code loader         |
 
 The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow;
 `activeContext.md` and `progress.md` split per section into `archive/<file>-<yyyy-mm>.md`.

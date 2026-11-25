@@ -27,16 +27,16 @@ claude-code review bench --verdicts --pkg internal/shell --format json
 
 Normal benchmark reports also include verdicts. Verdict precedence is:
 
-| Verdict | Evidence in the current epoch |
-| --- | --- |
-| dead | Explicitly recorded subject state is `gone` |
-| off-path | Explicitly recorded production path is `off` |
-| noisy | Latest run has load/noise flags, within-run CV >5%, or last five quiet medians have CV >5% |
-| costly | Latest measured cost exceeds two seconds per sample |
-| idle | No measurement, fewer than two samples, or no comparison/decision |
-| idle | Epoch is at least 30 days old and has never been compared or has no decisive evidence in 30 days |
-| unverified | Compared or decisive, but no recorded production path (`--production-path on\|off`) |
-| working | Stable samples, recorded production relevance, and comparison or decisive evidence |
+| Verdict    | Evidence in the current epoch                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| dead       | Explicitly recorded subject state is `gone`                                                      |
+| off-path   | Explicitly recorded production path is `off`                                                     |
+| noisy      | Latest run has load/noise flags, within-run CV >5%, or last five quiet medians have CV >5%       |
+| costly     | Latest measured cost exceeds two seconds per sample                                              |
+| idle       | No measurement, fewer than two samples, or no comparison/decision                                |
+| idle       | Epoch is at least 30 days old and has never been compared or has no decisive evidence in 30 days |
+| unverified | Compared or decisive, but no recorded production path (`--production-path on\|off`)              |
+| working    | Stable samples, recorded production relevance, and comparison or decisive evidence               |
 
 Cross-run CV uses matching machine, OS, architecture, Go version, CPU count, and GOMAXPROCS.
 A quiet significant delta or a named kept/reverted scorecard row supplies decisive evidence.

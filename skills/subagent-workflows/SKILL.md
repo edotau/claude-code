@@ -19,10 +19,10 @@ orchestration layer. Agent file = who, brief's `Method:` skill = how, this skill
 
 ## Who holds the plan
 
-| Shape | The plan lives in | Use when |
-| --- | --- | --- |
-| Subagent / skill | Claude, turn by turn | the next step depends on what the last one found |
-| Workflow | the script | the steps are known up front and must run the same every time |
+| Shape            | The plan lives in    | Use when                                                      |
+| ---------------- | -------------------- | ------------------------------------------------------------- |
+| Subagent / skill | Claude, turn by turn | the next step depends on what the last one found              |
+| Workflow         | the script           | the steps are known up front and must run the same every time |
 
 Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-engineer.js`).
 
@@ -31,17 +31,17 @@ Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-en
 Shell `agents ask` belongs in a carried dispatch, workflow stage or requested script. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
-| Leaf | Role | Output |
-| --- | --- | --- |
-| `claude` | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (`--runner pi\|own`, Databricks default); dispatches a step it needs another agent for | Status and verification |
-| `Explore` | Scoped scan before non-trivial work | Codebase Context Brief |
-| `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
-| `general-purpose` | Built-in work when no named role fits | Brief's requested report |
-| `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
-| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf (a relay): a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict |
-| `code-mode` | Script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
-| `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
-| `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
+| Leaf                                        | Role                                                                                                                                                                                                                                                                                             | Output                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `claude`                                    | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (`--runner pi\|own`, Databricks default); dispatches a step it needs another agent for                           | Status and verification               |
+| `Explore`                                   | Scoped scan before non-trivial work                                                                                                                                                                                                                                                              | Codebase Context Brief                |
+| `Plan`                                      | Design on the session's model unless the call names one                                                                                                                                                                                                                                          | Plan in `docs/templates/plan.md` form |
+| `general-purpose`                           | Built-in work when no named role fits                                                                                                                                                                                                                                                            | Brief's requested report              |
+| `web-fetch`                                 | Host built-in page fetch, only where the host offers it (else `general-purpose`)                                                                                                                                                                                                                 | The answer                            |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf (a relay): a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict  |
+| `code-mode`                                 | Script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run                                                                                               | `ask: ran on` line, then the verdict  |
+| `claude-code-guide`                         | Host built-in: questions about Claude Code, the Agent SDK and the Claude API                                                                                                                                                                                                                     | The answer                            |
+| `statusline-setup`                          | Host built-in: configures the status line setting                                                                                                                                                                                                                                                | The settings edit                     |
 
 Print a leaf's description prefix with `claude-code agents label <type> [--model m] [--profile p] --task FILE`
 (`--session-model` supplies the parent's). For a relay type it prints the route's predicted work model (`rotation
@@ -136,17 +136,17 @@ The tier in `rules/workflows/master-workflow.md` → Phase 0 picks the shape; a 
 context: follow-up (re-run one leaf with its prior report and `git diff`) or continued plan (resume at the first
 unticked line of its `~/.claude/plans/` checklist).
 
-| Shape | Do |
-|---|---|
-| Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
-| Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
-| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) |
-| Same question, many angles | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md)) |
-| Sequential plan · tournament | [patterns.md](references/patterns.md) |
-| A plan's waves, observed | `claude-code agents ask --waves <plan>` (a flag, not a verb; never commits) ; exit codes, rerun and the `--background` + `agents wait` loop: [agent-verbs.md](references/agent-verbs.md) |
-| Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
-| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md) |
-| Fleet scan | A carried `copilot` ask with an explicitly requested fleet task; verify the returned diff |
+| Shape                         | Do                                                                                                                                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Single leaf                   | One `Agent` call with a brief ([prompts.md](references/prompts.md))                                                                                                                      |
+| Parallel fan-out              | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract))                                                                                                            |
+| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md)                                                                                                                                  |
+| Same question, many angles    | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md))                                                                    |
+| Sequential plan · tournament  | [patterns.md](references/patterns.md)                                                                                                                                                    |
+| A plan's waves, observed      | `claude-code agents ask --waves <plan>` (a flag, not a verb; never commits) ; exit codes, rerun and the `--background` + `agents wait` loop: [agent-verbs.md](references/agent-verbs.md) |
+| Many leaf-sized tasks         | [Lane orchestrator](references/lane-orchestrator.md)                                                                                                                                     |
+| Saved `Workflow`              | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md)                               |
+| Fleet scan                    | A carried `copilot` ask with an explicitly requested fleet task; verify the returned diff                                                                                                |
 
 ### Phase 1: prepare
 
@@ -262,12 +262,12 @@ Write it before the first dispatch of a multi-part request (after its dated plan
 and every new user message (merge the new asks into it; never serve requests in arrival order), and dispatch every
 unblocked row in one message.
 
-| Task | Owns | Blocked by | Agent |
-|---|---|---|---|
-| A: fix flag parse | `/r/internal/cli/args.go` | none | claude |
-| B: fix flag help | `/r/internal/cli/args.go` | A (lane 2 of 2) | claude (lane of A) |
-| C: add retry | `/r/internal/net/retry.go` | none | copilot (carried) |
-| D: review A | none | A | codex (carried) |
+| Task              | Owns                       | Blocked by      | Agent              |
+| ----------------- | -------------------------- | --------------- | ------------------ |
+| A: fix flag parse | `/r/internal/cli/args.go`  | none            | claude             |
+| B: fix flag help  | `/r/internal/cli/args.go`  | A (lane 2 of 2) | claude (lane of A) |
+| C: add retry      | `/r/internal/net/retry.go` | none            | copilot (carried)  |
+| D: review A       | none                       | A               | codex (carried)    |
 
 - **Hot file:** when 2+ queued tasks own one file, first dispatch a split (extract by function into a new file in the
   same package, behavior unchanged) so they run in parallel; if not worth it, show that file's queue and length.
@@ -290,13 +290,13 @@ existing tests are repaired by the implementer, a `claude` leaf or a carried `co
 live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
 (`rules/standards/testing-guidelines.md` → When a test fails).
 
-| Situation | Shape |
-| --- | --- |
-| One failing test or package | the loop yourself, or one carried `copilot` ask naming the TEST section |
-| Failures across packages | one carried `copilot` ask per package in ONE message, each owning only its `_test.go` files |
-| A change being implemented | the implementer writes its basic tests; a repair leaf only for tests the change broke |
-| A fixed bug | after your live before/after, the regression test is a proposal the owner approves |
-| Suite must go green, bounded | `Workflow code-looper` — only when the user asks |
+| Situation                    | Shape                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| One failing test or package  | the loop yourself, or one carried `copilot` ask naming the TEST section                     |
+| Failures across packages     | one carried `copilot` ask per package in ONE message, each owning only its `_test.go` files |
+| A change being implemented   | the implementer writes its basic tests; a repair leaf only for tests the change broke       |
+| A fixed bug                  | after your live before/after, the regression test is a proposal the owner approves          |
+| Suite must go green, bounded | `Workflow code-looper` — only when the user asks                                            |
 
 ### Phase 3: integrate
 
@@ -398,15 +398,15 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 
 ## Error handling
 
-| Situation | Strategy |
-| --- | --- |
-| One leaf fails | Retry once on a `claude` leaf with its failure output; a second failure: the main session finishes it where it can and says so, else lands the rest and names the gap |
-| Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
-| Timeout | Keep partial results, cancel the rest |
-| A leaf touched a file it didn't own | Report it; revert only a hunk its own diff proves it made (a file dirty at dispatch is the owner's or a peer's); re-dispatch with `Owns:` sharpened |
-| Block on a leaf | `safety-scan` blocks only a `settings.json` deny match or an AI-attribution footer, for every agent; main does the blocked step itself or the owner edits the deny rule |
-| External agent unavailable (credential or route missing, e.g. no M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
-| Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
+| Situation                                                                    | Strategy                                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One leaf fails                                                               | Retry once on a `claude` leaf with its failure output; a second failure: the main session finishes it where it can and says so, else lands the rest and names the gap   |
+| Most leaves fail                                                             | Stop and tell the owner; the brief or plan is wrong                                                                                                                     |
+| Timeout                                                                      | Keep partial results, cancel the rest                                                                                                                                   |
+| A leaf touched a file it didn't own                                          | Report it; revert only a hunk its own diff proves it made (a file dirty at dispatch is the owner's or a peer's); re-dispatch with `Owns:` sharpened                     |
+| Block on a leaf                                                              | `safety-scan` blocks only a `settings.json` deny match or an AI-attribution footer, for every agent; main does the blocked step itself or the owner edits the deny rule |
+| External agent unavailable (credential or route missing, e.g. no M2M secret) | Report BLOCKED with the fix command; never silently do it in-context                                                                                                    |
+| Quota pressure                                                               | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md))                                                   |
 
 ## Test scenarios
 

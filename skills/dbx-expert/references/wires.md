@@ -4,12 +4,12 @@ Each model rides one wire. The harness picks it from the cached workspace listin
 Listing: `GET /api/2.0/serving-endpoints` (one endpoint: `/<name>`). Per endpoint it keeps `id`, `task`, `ready`,
 `api_types`, `model_class`, `context` and `output` (`/Users/edotau/.claude/internal/router/served.go`).
 
-| Wire | Proxy path under `http://127.0.0.1:18765/p/<profile>/` | Upstream under `<workspace-host>/serving-endpoints` | Models | Decided by |
-| --- | --- | --- | --- | --- |
-| anthropic | `v1/messages` (the root) | `/anthropic/v1/messages` | Claude | Claude family and an anthropic route |
-| responses | `responses/...` | `/responses` | GPT and others the listing marks Responses | `api_types` has `openai/v1/responses` |
-| openai (chat) | `openai/...` | `/chat/completions` | open-weights, Grok, GPT with no Responses | the fallback when neither above applies |
-| gemini | `gemini/...` | `/gemini` | Gemini | agy only, native Gemini ids |
+| Wire          | Proxy path under `http://127.0.0.1:18765/p/<profile>/` | Upstream under `<workspace-host>/serving-endpoints` | Models                                     | Decided by                              |
+| ------------- | ------------------------------------------------------ | --------------------------------------------------- | ------------------------------------------ | --------------------------------------- |
+| anthropic     | `v1/messages` (the root)                               | `/anthropic/v1/messages`                            | Claude                                     | Claude family and an anthropic route    |
+| responses     | `responses/...`                                        | `/responses`                                        | GPT and others the listing marks Responses | `api_types` has `openai/v1/responses`   |
+| openai (chat) | `openai/...`                                           | `/chat/completions`                                 | open-weights, Grok, GPT with no Responses  | the fallback when neither above applies |
+| gemini        | `gemini/...`                                           | `/gemini`                                           | Gemini                                     | agy only, native Gemini ids             |
 
 - Without `api_types` the rule falls back to the family: GPT that is not chat-only counts as Responses
   (`ResponsesServable`, `/Users/edotau/.claude/internal/providers/resolve.go`). Codex also refuses Grok.

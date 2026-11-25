@@ -14,14 +14,14 @@ site in a script (`internal/hooks/dispatchhook/leaves.go` `Effort`).
 
 ## Patterns we run
 
-| Pattern | Harness component | Roles filled by | Enforced by |
-| --- | --- | --- | --- |
-| Pipeline | `code-workers.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
-| Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
-| Expert pool | `code-engineer.js` sizing router | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort` |
-| Producer-reviewer | fix, test repair, gate · rederive | implementer vs blind re-deriver | repaired tests and gate exit codes |
-| Supervisor | main session + leaves | `claude`, `Explore`; carried external asks | dispatch cap, `dispatch-stop` ran-on |
-| Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
+| Pattern           | Harness component                                                    | Roles filled by                                                                  | Enforced by                          |
+| ----------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------ |
+| Pipeline          | `code-workers.js` per package                                        | find, rederive, fix, test, gate = Sonnet/Haiku claude agents                     | `stepOf` pins, schemas               |
+| Fan-out / fan-in  | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files                                                  | dispatch cap, `worktree-claim-check` |
+| Expert pool       | `code-engineer.js` sizing router                                     | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort`        |
+| Producer-reviewer | fix, test repair, gate · rederive                                    | implementer vs blind re-deriver                                                  | repaired tests and gate exit codes   |
+| Supervisor        | main session + leaves                                                | `claude`, `Explore`; carried external asks                                       | dispatch cap, `dispatch-stop` ran-on |
+| Hierarchical      | `code-engineer.js` calling `workflow()` on `code-workers.js`         | one workflow level                                                               | runtime rule: one nesting level      |
 
 ### Pipeline
 

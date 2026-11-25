@@ -187,21 +187,21 @@ paths:
   `codexNetwork` and `cloud` are refused naming the key. Held-job hints print `--overlay '<object>'`; batch lines take
   an `overlay` key.
 
-  | Key | Values | Overrides |
-  | --- | --- | --- |
-  | `provider` / `profile` | provider key / profile name (both, or neither) | `--provider`, `--profile` |
-  | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
-  | `fallback` | `none\|pin\|agents\|all` | `--fallback`, `AGENT_ERROR_FALLBACK` |
-  | `host` / `remote` | ssh host, in the route (not both, unless `host` names this machine) | `--host`, remote run |
-  | `account` | GitHub account login (github only) | the credit gate's account pick |
-  | `identity` | `auto\|user\|sp` (Databricks only) | `--as`, the profile's identity |
-  | `codexNetwork` | `true`: codex `--tools` `workspace-write` sandbox gets network (inert under `danger-full-access`; top-level ask only) | sealed network |
-  | `cloud` | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login | local |
-  | `maxChildren` | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default | 8 |
-  | `maxTreeTokens` | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default | 20000000 |
-  | `budgetUSD` | Claude only: number > 0, passed as `--max-budget-usd` | uncapped |
-  | `budgetCredits` | Copilot only: integer >= 30, SDK session credit limit | uncapped |
-  | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
+  | Key                      | Values                                                                                                                | Overrides                            |
+  | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+  | `provider` / `profile`   | provider key / profile name (both, or neither)                                                                        | `--provider`, `--profile`            |
+  | `model` / `effort`       | model id or alias / effort name                                                                                       | `--model`, `--effort`                |
+  | `fallback`               | `none\|pin\|agents\|all`                                                                                              | `--fallback`, `AGENT_ERROR_FALLBACK` |
+  | `host` / `remote`        | ssh host, in the route (not both, unless `host` names this machine)                                                   | `--host`, remote run                 |
+  | `account`                | GitHub account login (github only)                                                                                    | the credit gate's account pick       |
+  | `identity`               | `auto\|user\|sp` (Databricks only)                                                                                    | `--as`, the profile's identity       |
+  | `codexNetwork`           | `true`: codex `--tools` `workspace-write` sandbox gets network (inert under `danger-full-access`; top-level ask only) | sealed network                       |
+  | `cloud`                  | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login                      | local                                |
+  | `maxChildren`            | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default                                | 8                                    |
+  | `maxTreeTokens`          | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default                                          | 20000000                             |
+  | `budgetUSD`              | Claude only: number > 0, passed as `--max-budget-usd`                                                                 | uncapped                             |
+  | `budgetCredits`          | Copilot only: integer >= 30, SDK session credit limit                                                                 | uncapped                             |
+  | `set` / `unset` / `keep` | env name -> value / names / names                                                                                     | env layer                            |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 - **Model precedence** (`agent.ResolveRun`; model merges per key across layers, preflight refuses an unserved one):
@@ -348,13 +348,13 @@ vendor CLI untouched.
   `.github/copilot-instructions.md`: first present) plus unscoped `rules/standards/*.md`, listed by
   `project.PortableCore`; headless and interactive runs load the same core.
 
-| Agent | Reads the core from | Probe |
-| --- | --- | --- |
-| codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/targets.go` `docs:` |
-| gemini (agy) | `~/.gemini/GEMINI.md` (rendered by sync) | same |
-| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | `project/targets.go` |
-| copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
-| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` |
+| Agent                 | Reads the core from                                                                      | Probe                        |
+| --------------------- | ---------------------------------------------------------------------------------------- | ---------------------------- |
+| codex                 | `~/.codex/AGENTS.md` (rendered by sync)                                                  | `project/targets.go` `docs:` |
+| gemini (agy)          | `~/.gemini/GEMINI.md` (rendered by sync)                                                 | same                         |
+| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md`               | `project/targets.go`         |
+| copilot `ask` (SDK)   | appended system text + instruction, skill, agent dirs                                    | `copilot/sdk.go`             |
+| opencode              | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go`         |
 
 - **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` carries no policy;
   hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are

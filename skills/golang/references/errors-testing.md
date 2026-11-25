@@ -27,13 +27,13 @@ benchmarks (Go 1.22+).
 
 ## Creating errors
 
-| Need | Use | Caller checks with |
-| --- | --- | --- |
-| Fixed condition callers branch on | sentinel: `var ErrNotFound = errors.New("not found")` | `errors.Is` |
-| Condition with data callers read | custom type: `type ValidationError struct{ Field string }` | `errors.AsType` |
-| One-off, nobody branches | `errors.New` / `fmt.Errorf` inline | nothing |
-| Add context to an underlying error | `fmt.Errorf("op %s: %w", id, err)` | `Is`/`As` see through it |
-| Several independent failures | `errors.Join(errs...)` | `Is`/`As` match any member |
+| Need                               | Use                                                        | Caller checks with         |
+| ---------------------------------- | ---------------------------------------------------------- | -------------------------- |
+| Fixed condition callers branch on  | sentinel: `var ErrNotFound = errors.New("not found")`      | `errors.Is`                |
+| Condition with data callers read   | custom type: `type ValidationError struct{ Field string }` | `errors.AsType`            |
+| One-off, nobody branches           | `errors.New` / `fmt.Errorf` inline                         | nothing                    |
+| Add context to an underlying error | `fmt.Errorf("op %s: %w", id, err)`                         | `Is`/`As` see through it   |
+| Several independent failures       | `errors.Join(errs...)`                                     | `Is`/`As` match any member |
 
 - Sentinels and custom types become public API: export only what callers branch on.
 - Pointer receiver for `Error()`, returned as a pointer, so `As` targets are consistent.
@@ -103,13 +103,13 @@ func write(path string, b []byte) (err error) {
 
 ## Panics
 
-| Situation | Do |
-| --- | --- |
-| Expected failure (I/O, input, network, not found) | return an `error` |
-| Programmer bug / broken invariant (impossible switch arm, nil required dep) | `panic` with a clear message |
-| `Must*` helper for init-time constants (`regexp.MustCompile`) | panic is fine: input is a literal |
-| Goroutine you spawn | `recover` at its top if the process must survive; an unrecovered panic kills it |
-| Library API | never let a panic cross the public boundary; convert to `error` |
+| Situation                                                                   | Do                                                                              |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Expected failure (I/O, input, network, not found)                           | return an `error`                                                               |
+| Programmer bug / broken invariant (impossible switch arm, nil required dep) | `panic` with a clear message                                                    |
+| `Must*` helper for init-time constants (`regexp.MustCompile`)               | panic is fine: input is a literal                                               |
+| Goroutine you spawn                                                         | `recover` at its top if the process must survive; an unrecovered panic kills it |
+| Library API                                                                 | never let a panic cross the public boundary; convert to `error`                 |
 
 - `recover` only works in a function deferred directly by the panicking goroutine.
 - Recovered `r` that is an `error`: wrap with `%w`; capture `debug.Stack()` inside the deferred function (gone after
@@ -142,28 +142,28 @@ func write(path string, b []byte) (err error) {
 - Test error paths first; assert with `errors.Is` / `errors.AsType`, never message text.
 - Table cases: `name` says the condition, not the expected value (`"trailing slash"`, not `"ok"`).
 
-| Form | Name | Run one |
-| --- | --- | --- |
-| Test | `TestParse`, `TestStore_Get` | `rtk go test -run '^TestStore_Get$' ./internal/store` |
-| Subtest | `t.Run("empty input", …)` → `TestParse/empty_input` | `-run 'TestParse/empty_input'` |
-| Fuzz | `FuzzParse` | `-run '^$' -fuzz '^FuzzParse$' -fuzztime 30s` |
-| Benchmark | `BenchmarkParse/size=4k` | `-run '^$' -bench 'Parse/size=4k' -benchmem` |
-| Example | `ExampleStore_Get_cached` (suffix lowercase) | `-run ExampleStore` |
+| Form      | Name                                                | Run one                                               |
+| --------- | --------------------------------------------------- | ----------------------------------------------------- |
+| Test      | `TestParse`, `TestStore_Get`                        | `rtk go test -run '^TestStore_Get$' ./internal/store` |
+| Subtest   | `t.Run("empty input", …)` → `TestParse/empty_input` | `-run 'TestParse/empty_input'`                        |
+| Fuzz      | `FuzzParse`                                         | `-run '^$' -fuzz '^FuzzParse$' -fuzztime 30s`         |
+| Benchmark | `BenchmarkParse/size=4k`                            | `-run '^$' -bench 'Parse/size=4k' -benchmem`          |
+| Example   | `ExampleStore_Get_cached` (suffix lowercase)        | `-run ExampleStore`                                   |
 
 - `-run` splits on `/` and matches each level; `-run '^$'` skips tests so only benchmarks or fuzzing run.
 - `-count=1` defeats the test cache; `-shuffle=on` exposes order dependence; `-failfast` stops at first failure.
 
 ## Lifecycle helpers on `testing.T`
 
-| Helper | Use for | Gotcha |
-| --- | --- | --- |
-| `t.Helper()` | First line of any assert/setup helper | Omit it and failures blame the helper's line |
-| `t.Cleanup(fn)` | Teardown next to setup; LIFO; runs after subtests | `defer` fires before parallel subtests run |
-| `t.Context()` | Context canceled just before Cleanup runs | Goroutines outliving the test should watch it |
-| `t.TempDir()` | Hermetic dir, removed after the test | Point `HOME` and config-dir env vars at it, never the real one |
-| `t.Setenv`, `t.Chdir` | Process-wide env/cwd, restored after | Panics under `t.Parallel()` |
-| `t.ArtifactDir()` | Files kept for inspection (`-artifacts` flag) | Not a scratch dir |
-| `t.Output()` | `io.Writer` into the test log, indented like `t.Log` | Give it to a logger instead of `os.Stderr` |
+| Helper                | Use for                                              | Gotcha                                                         |
+| --------------------- | ---------------------------------------------------- | -------------------------------------------------------------- |
+| `t.Helper()`          | First line of any assert/setup helper                | Omit it and failures blame the helper's line                   |
+| `t.Cleanup(fn)`       | Teardown next to setup; LIFO; runs after subtests    | `defer` fires before parallel subtests run                     |
+| `t.Context()`         | Context canceled just before Cleanup runs            | Goroutines outliving the test should watch it                  |
+| `t.TempDir()`         | Hermetic dir, removed after the test                 | Point `HOME` and config-dir env vars at it, never the real one |
+| `t.Setenv`, `t.Chdir` | Process-wide env/cwd, restored after                 | Panics under `t.Parallel()`                                    |
+| `t.ArtifactDir()`     | Files kept for inspection (`-artifacts` flag)        | Not a scratch dir                                              |
+| `t.Output()`          | `io.Writer` into the test log, indented like `t.Log` | Give it to a logger instead of `os.Stderr`                     |
 
 ## Parallelism, races and time
 
@@ -182,11 +182,11 @@ func write(path string, b []byte) (err error) {
 
 ## HTTP
 
-| Need | Tool |
-| --- | --- |
-| One handler, no network | `httptest.NewRequest` + `httptest.NewRecorder`, then `h.ServeHTTP(rec, req)` |
-| A real client against a fake upstream | `httptest.NewTestServer(t, h)`: in-memory, auto-closed, synctest-safe |
-| Real loopback socket (TLS, proxy) | `httptest.NewTLSServer` + `t.Cleanup(srv.Close)`; `srv.Client()` trusts it |
+| Need                                  | Tool                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| One handler, no network               | `httptest.NewRequest` + `httptest.NewRecorder`, then `h.ServeHTTP(rec, req)` |
+| A real client against a fake upstream | `httptest.NewTestServer(t, h)`: in-memory, auto-closed, synctest-safe        |
+| Real loopback socket (TLS, proxy)     | `httptest.NewTLSServer` + `t.Cleanup(srv.Close)`; `srv.Client()` trusts it   |
 
 ## Golden files, fuzzing, examples, coverage
 
@@ -214,12 +214,12 @@ func write(path string, b []byte) (err error) {
 - One `b.Run` per variant or size (`size=64`, `size=4k`): the sub-name is the row benchstat compares, and a sweep
   exposes superlinear growth.
 
-| Flag | Effect |
-| --- | --- |
-| `-count=10` | Samples for statistics; under 6 benchstat cannot reach significance |
-| `-benchtime=2s` / `500x` | Time or fixed iterations per sample |
-| `-cpu=1,4,8` | Repeat at several GOMAXPROCS (`-8` suffix in the name) |
-| `-cpuprofile`, `-memprofile`, `-trace` | Profile the benchmark; read with `go tool pprof` / `go tool trace` |
+| Flag                                   | Effect                                                              |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `-count=10`                            | Samples for statistics; under 6 benchstat cannot reach significance |
+| `-benchtime=2s` / `500x`               | Time or fixed iterations per sample                                 |
+| `-cpu=1,4,8`                           | Repeat at several GOMAXPROCS (`-8` suffix in the name)              |
+| `-cpuprofile`, `-memprofile`, `-trace` | Profile the benchmark; read with `go tool pprof` / `go tool trace`  |
 
 - Workflow: `go test -run '^$' -bench Parse -benchmem -count=10 ./pkg > old.txt`, apply the change (same machine,
   toolchain, nothing else running), repeat to `new.txt`, then `go run golang.org/x/perf/cmd/benchstat@latest old.txt

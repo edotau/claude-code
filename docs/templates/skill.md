@@ -13,8 +13,8 @@ Not for <neighbour skill or task>.'
 - <Situation that routes here; name the inputs you expect.>
 - **Not for:** <task that belongs to another skill, agent or verb, with its name>.
 
-| Step needs | Load |
-| --- | --- |
+| Step needs                           | Load                    |
+| ------------------------------------ | ----------------------- |
 | <Detail the main path does not need> | `references/<topic>.md` |
 
 ## Workflow

@@ -57,14 +57,14 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 
 ## Execution surfaces
 
-| Agent | CLI | Instructions |
-| --- | --- | --- |
-| `claude` | Claude Code | `~/.claude/CLAUDE.md` and native scoped rules |
-| `codex` | OpenAI Codex | `~/.codex/AGENTS.md`, rendered by sync |
-| `copilot` | Copilot SDK for headless ask | rendered instructions plus SDK context |
-| `gemini` | Antigravity (`agy`) | `~/.gemini/GEMINI.md`, rendered by sync |
-| `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
-| `pi` | Pi (`pi`), Databricks by default (local: `cost-routing.md`), behind the guard extension; the default leaf route | none in a dispatch (`--no-context-files`) |
+| Agent      | CLI                                                                                                             | Instructions                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `claude`   | Claude Code                                                                                                     | `~/.claude/CLAUDE.md` and native scoped rules |
+| `codex`    | OpenAI Codex                                                                                                    | `~/.codex/AGENTS.md`, rendered by sync        |
+| `copilot`  | Copilot SDK for headless ask                                                                                    | rendered instructions plus SDK context        |
+| `gemini`   | Antigravity (`agy`)                                                                                             | `~/.gemini/GEMINI.md`, rendered by sync       |
+| `opencode` | OpenCode                                                                                                        | native `CLAUDE.md` plus launch overlay        |
+| `pi`       | Pi (`pi`), Databricks by default (local: `cost-routing.md`), behind the guard extension; the default leaf route | none in a dispatch (`--no-context-files`)     |
 
 Projection, per-agent behavior and Pi's packages and their risk: `rules/harness/agent.md`.
 Hook applicability: `rules/harness/hooks.md`.

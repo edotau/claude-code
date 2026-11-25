@@ -34,20 +34,20 @@ Pick the writable target by signal type with the table below. Replace `<lang>` w
 primary language dir (`python`, `go`, …). Honor a target the user names only if it is
 a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 
-| Signal Type | Target File | Section |
-|-------------|-------------|---------|
-| Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
-| Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | Language-specific conventions, or general code quality |
-| Security pattern | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
-| Architecture insight | `~/.claude/memory/decisionLog.md` | Dated entry, newest first |
-| Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
-| Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
-| Git/commit/worktree pattern | `rules/standards/worktree-git.md` | Conventional commits, branch/PR workflow |
-| Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/principles.md` | Markdown/living-docs, or response style |
-| Model-selection insight | `rules/harness/providers.md` | Model selection |
-| Session-learned fact | `~/.claude/memory/<topic>.md` (+ `MEMORY.md` TOC entry; root from `claude-code memory path`) | Appropriate topic |
-| Project state change | `~/.claude/memory/activeContext.md` | "Current Focus" / "Next Steps" |
-| Completed work | `~/.claude/memory/progress.md` | "What Works" / "What's Next" |
+| Signal Type                 | Target File                                                                                  | Section                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Code behavior mistake       | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md`                          | Language patterns, or general code quality             |
+| Missing convention          | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md`                      | Language-specific conventions, or general code quality |
+| Security pattern            | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md`                          | Language patterns, or general code quality             |
+| Architecture insight        | `~/.claude/memory/decisionLog.md`                                                            | Dated entry, newest first                              |
+| Hook/tooling issue          | `rules/harness/hooks.md`                                                                     | Hook-specific section                                  |
+| Testing pattern             | `rules/software/<lang>/testing.md` or `rules/standards/quality.md`                           | Test conventions                                       |
+| Git/commit/worktree pattern | `rules/standards/worktree-git.md`                                                            | Conventional commits, branch/PR workflow               |
+| Docs/communication pattern  | `rules/standards/documentation.md` or `rules/standards/principles.md`                        | Markdown/living-docs, or response style                |
+| Model-selection insight     | `rules/harness/providers.md`                                                                 | Model selection                                        |
+| Session-learned fact        | `~/.claude/memory/<topic>.md` (+ `MEMORY.md` TOC entry; root from `claude-code memory path`) | Appropriate topic                                      |
+| Project state change        | `~/.claude/memory/activeContext.md`                                                          | "Current Focus" / "Next Steps"                         |
+| Completed work              | `~/.claude/memory/progress.md`                                                               | "What Works" / "What's Next"                           |
 
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
@@ -75,12 +75,12 @@ debugging notes, session-specific context, or anything mid-migration that may ch
 
 Use when a learning is reusable how-to knowledge rather than a one-line rule.
 
-| `--to skill` | `--to rules` |
-|-----------------|----------------|
+| `--to skill`                               | `--to rules`                    |
+| ------------------------------------------ | ------------------------------- |
 | Multi-step procedure that's easy to forget | One-line imperative ("Never X") |
-| Non-obvious fix that took real debugging | Convention / prohibition |
-| Recurs across 2+ projects | Project-specific doctrine |
-| User says "save this as a skill" | User says "make this a rule" |
+| Non-obvious fix that took real debugging   | Convention / prohibition        |
+| Recurs across 2+ projects                  | Project-specific doctrine       |
+| User says "save this as a skill"           | User says "make this a rule"    |
 
 ### Step 1: Identify the pattern
 

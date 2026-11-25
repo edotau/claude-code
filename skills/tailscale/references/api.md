@@ -28,13 +28,13 @@ curl -X POST https://api.tailscale.com/api/v2/oauth/token \
 
 ### Device endpoints
 
-| Call | Purpose |
-|---|---|
-| `GET /tailnet/-/devices` | List; fields include `id`, `hostname`, `addresses`, `tags`, `os`, `lastSeen` (ISO timestamp) |
-| `GET` / `DELETE /device/{id}` | Get or delete one device |
-| `POST /device/{id}/authorized` `{"authorized": true}` | Authorize / deauthorize |
-| `POST /device/{id}/expire` | Expire the device key (force re-auth) |
-| `POST /device/{id}/tags` `{"tags": [...]}` | Replace tags |
+| Call                                                  | Purpose                                                                                      |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `GET /tailnet/-/devices`                              | List; fields include `id`, `hostname`, `addresses`, `tags`, `os`, `lastSeen` (ISO timestamp) |
+| `GET` / `DELETE /device/{id}`                         | Get or delete one device                                                                     |
+| `POST /device/{id}/authorized` `{"authorized": true}` | Authorize / deauthorize                                                                      |
+| `POST /device/{id}/expire`                            | Expire the device key (force re-auth)                                                        |
+| `POST /device/{id}/tags` `{"tags": [...]}`            | Replace tags                                                                                 |
 
 ### Create an auth key
 
@@ -68,16 +68,16 @@ curl -X POST -u "$TOKEN:" -H "Content-Type: application/json" \
 
 Fetch rather than reconstruct endpoint specifics, OAuth scope names, webhook payloads/signatures and log fields.
 
-| Topic | Fetch |
-|---|---|
-| Full REST reference | <https://tailscale.com/docs/reference/tailscale-api> |
-| OAuth clients (scopes, secrets, ephemeral flag) | <https://tailscale.com/docs/features/oauth-clients> |
-| Trust credentials | <https://tailscale.com/docs/reference/trust-credentials> |
-| Webhooks (events, payloads) | <https://tailscale.com/docs/features/webhooks> |
-| Rotate a webhook signing secret | <https://tailscale.com/docs/features/webhooks/how-to/rotate-webhook-secret> |
-| Logging overview | <https://tailscale.com/docs/features/logging> |
-| Configuration audit logs | <https://tailscale.com/docs/features/logging/audit-logging> |
-| Network flow logs | <https://tailscale.com/docs/features/logging/network-flow-logs> |
-| Log streaming (SIEM, S3) | <https://tailscale.com/docs/features/logging/log-streaming> |
-| Streaming event schema | <https://tailscale.com/docs/reference/logging-streaming-events> |
-| `tsnet` Server API | <https://tailscale.com/docs/reference/tsnet-server-api> |
+| Topic                                           | Fetch                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------- |
+| Full REST reference                             | <https://tailscale.com/docs/reference/tailscale-api>                        |
+| OAuth clients (scopes, secrets, ephemeral flag) | <https://tailscale.com/docs/features/oauth-clients>                         |
+| Trust credentials                               | <https://tailscale.com/docs/reference/trust-credentials>                    |
+| Webhooks (events, payloads)                     | <https://tailscale.com/docs/features/webhooks>                              |
+| Rotate a webhook signing secret                 | <https://tailscale.com/docs/features/webhooks/how-to/rotate-webhook-secret> |
+| Logging overview                                | <https://tailscale.com/docs/features/logging>                               |
+| Configuration audit logs                        | <https://tailscale.com/docs/features/logging/audit-logging>                 |
+| Network flow logs                               | <https://tailscale.com/docs/features/logging/network-flow-logs>             |
+| Log streaming (SIEM, S3)                        | <https://tailscale.com/docs/features/logging/log-streaming>                 |
+| Streaming event schema                          | <https://tailscale.com/docs/reference/logging-streaming-events>             |
+| `tsnet` Server API                              | <https://tailscale.com/docs/reference/tsnet-server-api>                     |

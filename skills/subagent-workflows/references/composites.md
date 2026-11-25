@@ -15,15 +15,15 @@ machine total, not the real agent count.
 - **Script**: `~/.claude/workflows/code-engineer.js` calling
   `~/.claude/workflows/code-workers.js`.
 
-| Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
-| --- | --- | --- | --- | --- | --- |
-| Size | sizer, `haiku` low | task, `git status`, `go list` | `{kind, packages, paths, focus, reason}`; the script computes the tier | kind enum fix\|feature\|refactor\|audit\|consolidate\|architecture | decision line |
-| Route | none (code) | tier | `code-workers:paths` · `code-workers:packages` · `plan` (prefixed `code-analyzer→` or `code-evaluator→` when they run first) | EPIC returns early | route line |
-| Run | code-workers (composite B) | paths or packages | code-workers result | exit `green\|red\|review` | child decisions |
-| Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
-| Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |
-| Review | reviewer, `sonnet` high | that merged diff | findings | any finding (lows too) earns one Fix-all, test and gate per package (no second child run) | decision |
-| Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
+| Stage    | Agent / model, effort       | Input                              | Output                                                                                                                       | Gate / check                                                                              | Recorded         |
+| -------- | --------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------- |
+| Size     | sizer, `haiku` low          | task, `git status`, `go list`      | `{kind, packages, paths, focus, reason}`; the script computes the tier                                                       | kind enum fix\|feature\|refactor\|audit\|consolidate\|architecture                        | decision line    |
+| Route    | none (code)                 | tier                               | `code-workers:paths` · `code-workers:packages` · `plan` (prefixed `code-analyzer→` or `code-evaluator→` when they run first) | EPIC returns early                                                                        | route line       |
+| Run      | code-workers (composite B)  | paths or packages                  | code-workers result                                                                                                          | exit `green\|red\|review`                                                                 | child decisions  |
+| Dedupe   | deduper, `sonnet` medium    | combined diff of 2+ fixed packages | applied, flagged, Δ lines                                                                                                    | only cross-package duplicated helpers; `polish:false` skips                               | decision         |
+| Simplify | simplifier, `sonnet` medium | merged diff of all fixed files     | simplify result                                                                                                              | simplify gate                                                                             | decision         |
+| Review   | reviewer, `sonnet` high     | that merged diff                   | findings                                                                                                                     | any finding (lows too) earns one Fix-all, test and gate per package (no second child run) | decision         |
+| Record   | recorder, `haiku` low       | report, decisions                  | paths written                                                                                                                | two files exist                                                                           | the memory files |
 
 - **Args**: [saved-workflows.md](saved-workflows.md) → `code-engineer` row. Exits `green|red|review|plan|error`, or a
   child's `blocked|stalled|incomplete|capped`.
@@ -37,16 +37,16 @@ machine total, not the real agent count.
 
 - **Use when**: audit and repair named packages or files; `fix:false` for review only (R7, R8 shape).
 
-| Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
-| --- | --- | --- | --- | --- | --- |
-| Find x2 lenses | `sonnet` medium | package | findings (file, line, symbol, severity) | merge by file +-10 or symbol | merged count |
-| Rederive | `sonnet` medium, blind | file:line + symptom | reproduced, scenario, severity | reproduced=false drops; null = unverified | dropped, unverified |
-| Fix | `sonnet` medium | confirmed >= `minFix` | `{status, files, callers}` | status `done` or red | fixed count |
-| Test | `steps.test` `sonnet` medium | the diff | repairs the tests the fix broke, writes no new test (proposed in `proposedTests`) | the tests pass | test report |
-| Gate | `haiku` low | package | `{exit, residual, ...}` from `stageLoop` | `claude-code worktree gate --scope <pkg>` (build ./..., vet, test of the package) or `args.gate` | green or red |
-| Dedupe / Simplify | `sonnet` medium | once over the merged diff of the packages that went green after the stream (Dedupe needs 2+ packages) | applied, flagged, Δ lines | simplify gate; reverts its own regressing edit; skipped if `polish:false` or budget < 150k | "simplify: N applied" |
-| Review | `sonnet` high | that merged diff | findings (file, line, symbol, symptom, severity) | correctness + contract lenses | "review: N findings (sev counts)" |
-| Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate` | every review finding, lows included | fixed count; repaired tests; `{green}` | each package with review findings gets one cycle; red re-gate or unfinished fix-all = red | "fix-all: N fixed" |
+| Stage                  | Agent / model, effort        | Input                                                                                                 | Output                                                                            | Gate / check                                                                                     | Recorded                          |
+| ---------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
+| Find x2 lenses         | `sonnet` medium              | package                                                                                               | findings (file, line, symbol, severity)                                           | merge by file +-10 or symbol                                                                     | merged count                      |
+| Rederive               | `sonnet` medium, blind       | file:line + symptom                                                                                   | reproduced, scenario, severity                                                    | reproduced=false drops; null = unverified                                                        | dropped, unverified               |
+| Fix                    | `sonnet` medium              | confirmed >= `minFix`                                                                                 | `{status, files, callers}`                                                        | status `done` or red                                                                             | fixed count                       |
+| Test                   | `steps.test` `sonnet` medium | the diff                                                                                              | repairs the tests the fix broke, writes no new test (proposed in `proposedTests`) | the tests pass                                                                                   | test report                       |
+| Gate                   | `haiku` low                  | package                                                                                               | `{exit, residual, ...}` from `stageLoop`                                          | `claude-code worktree gate --scope <pkg>` (build ./..., vet, test of the package) or `args.gate` | green or red                      |
+| Dedupe / Simplify      | `sonnet` medium              | once over the merged diff of the packages that went green after the stream (Dedupe needs 2+ packages) | applied, flagged, Δ lines                                                         | simplify gate; reverts its own regressing edit; skipped if `polish:false` or budget < 150k       | "simplify: N applied"             |
+| Review                 | `sonnet` high                | that merged diff                                                                                      | findings (file, line, symbol, symptom, severity)                                  | correctness + contract lenses                                                                    | "review: N findings (sev counts)" |
+| Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate`  | every review finding, lows included                                                                   | fixed count; repaired tests; `{green}`                                            | each package with review findings gets one cycle; red re-gate or unfinished fix-all = red        | "fix-all: N fixed"                |
 
 - **Foreign re-route**: a finding citing a file outside its finder's package is fixed after the stream by the owning
   directory (`d51420fb`); a live re-route run is still owed.
@@ -64,11 +64,11 @@ machine total, not the real agent count.
   sizer's; with neither, the leading task verb: `build|add|implement|create|introduce|support|write|finish|refactor|
   move|migrate|replace|rewire|fold|extract|retire|remove|delete|rename|phase`); this is code-engineer's MEDIUM route.
 
-| Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
-| --- | --- | --- | --- | --- | --- |
-| Intel | `sonnet` medium | task, sized paths | `{paths, focus}` | empty keeps sized paths | decision |
-| Implementer | `sonnet` medium | files, task, focus | `{status, summary}` | gofmt, go vet; writes no tests | status line |
-| Harden | code-workers on the files | paths | composite B result | test repair, gate | child decisions |
+| Stage       | Agent / model, effort     | Input              | Output              | Gate / check                   | Recorded        |
+| ----------- | ------------------------- | ------------------ | ------------------- | ------------------------------ | --------------- |
+| Intel       | `sonnet` medium           | task, sized paths  | `{paths, focus}`    | empty keeps sized paths        | decision        |
+| Implementer | `sonnet` medium           | files, task, focus | `{status, summary}` | gofmt, go vet; writes no tests | status line     |
+| Harden      | code-workers on the files | paths              | composite B result  | test repair, gate              | child decisions |
 
 - **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
 - **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job.

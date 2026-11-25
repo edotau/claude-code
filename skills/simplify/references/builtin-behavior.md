@@ -21,14 +21,14 @@ Reconstructed from public docs, community sources and behavioral analysis.
 
 ## Characteristics
 
-| Property | Detail |
-|----------|--------|
-| **Agent count** | 3 parallel sub-agents |
-| **Scope** | Recent changes only (`git diff`) |
-| **Fix mode** | Automatic, with summary |
-| **False positives** | Skipped rather than argued |
-| **Customization** | Focus areas as arguments (`focus on performance`) |
-| **Dependency** | Reads `CLAUDE.md` for project standards; well-defined ones give better results |
+| Property            | Detail                                                                         |
+| ------------------- | ------------------------------------------------------------------------------ |
+| **Agent count**     | 3 parallel sub-agents                                                          |
+| **Scope**           | Recent changes only (`git diff`)                                               |
+| **Fix mode**        | Automatic, with summary                                                        |
+| **False positives** | Skipped rather than argued                                                     |
+| **Customization**   | Focus areas as arguments (`focus on performance`)                              |
+| **Dependency**      | Reads `CLAUDE.md` for project standards; well-defined ones give better results |
 
 Recommended flow: build feature → run tests → `/simplify` → review diffs → commit. A post-implementation pass that
 tightens verbose AI-generated code; not a replacement for human review.

@@ -60,21 +60,21 @@ decrypting; your device terminates TLS and your IP stays hidden.
 - **macOS**: open-source CLI variant only (not App Store or Standalone).
 - **Let's Encrypt rate limits**: frequent certificate requests can trigger a 34-hour wait.
 
-| | Serve | Funnel |
-|---|---|---|
-| Audience | Tailnet members | Anyone |
-| Authentication | Identity headers | None |
-| Your IP | Visible to peers | Hidden behind relay |
-| Ports | Any | 443, 8443, 10000 |
+|                | Serve            | Funnel              |
+| -------------- | ---------------- | ------------------- |
+| Audience       | Tailnet members  | Anyone              |
+| Authentication | Identity headers | None                |
+| Your IP        | Visible to peers | Hidden behind relay |
+| Ports          | Any              | 443, 8443, 10000    |
 
 ## Worked examples
 
-| If the user wants to… | Fetch |
-|---|---|
-| Let teammates preview a laptop web app privately | <https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-team> |
+| If the user wants to…                                 | Fetch                                                                                           |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Let teammates preview a laptop web app privately      | <https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-team>     |
 | Put a local dev server on the internet (demo/webhook) | <https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-internet> |
-| Host a game server for friends without a public IP | <https://tailscale.com/docs/use-cases/personal-or-at-home-use/share-private-game-server> |
-| Run a private Minecraft server | <https://tailscale.com/docs/solutions/set-up-minecraft> |
-| Code from an iPad (VS Code, code-server) | <https://tailscale.com/docs/solutions/code-on-ipad-vscode-caddy-code-server> |
-| Reach a home/lab inference server (Ollama, LM Studio) | <https://tailscale.com/docs/use-cases/ai-infrastructure-access/connect-inference-servers> |
-| Private access to an AI training cluster | <https://tailscale.com/docs/use-cases/ai-infrastructure-access/secure-ai-training-cluster> |
+| Host a game server for friends without a public IP    | <https://tailscale.com/docs/use-cases/personal-or-at-home-use/share-private-game-server>        |
+| Run a private Minecraft server                        | <https://tailscale.com/docs/solutions/set-up-minecraft>                                         |
+| Code from an iPad (VS Code, code-server)              | <https://tailscale.com/docs/solutions/code-on-ipad-vscode-caddy-code-server>                    |
+| Reach a home/lab inference server (Ollama, LM Studio) | <https://tailscale.com/docs/use-cases/ai-infrastructure-access/connect-inference-servers>       |
+| Private access to an AI training cluster              | <https://tailscale.com/docs/use-cases/ai-infrastructure-access/secure-ai-training-cluster>      |

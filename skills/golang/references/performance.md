@@ -4,20 +4,20 @@ Goroutines, channels, `sync`, `context`, then profiling, allocation, layout and 
 
 ## Decide the primitive first
 
-| Need | Reach for | Not |
-| --- | --- | --- |
-| Hand ownership of data to another goroutine | channel | shared slice + mutex |
-| Guard a few fields read and written in place | `sync.Mutex` next to the fields | a channel used as a lock |
-| Counter, flag, or swapped config pointer | `atomic.Int64`, `atomic.Bool`, `atomic.Pointer[T]` | mutex around one int |
-| Lazy one-time init returning a value | `sync.OnceValue` / `sync.OnceValues` | `sync.Once` + package var |
-| N tasks, first error cancels the rest | `errgroup.WithContext` (`x/sync`) | `WaitGroup` + error channel |
-| Wait for N tasks, no errors | `sync.WaitGroup` (`wg.Go(f)` on 1.25+) | sleeping, polling |
-| Bound parallelism | `g.SetLimit(n)` or a `chan struct{}` semaphore | unbounded goroutines |
-| Cache with disjoint or write-once keys | `sync.Map` | `sync.Map` as a general map |
-| Reuse short-lived hot-path allocations | `sync.Pool` ([below](#syncpool)) | a pool for long-lived or rare objects |
-| Broadcast "state changed" | `close(ch)` once, or `sync.Cond` when re-armed | per-waiter sends |
-| Collapse identical concurrent lookups | `singleflight.Group` (`x/sync`) | N callers each hitting the DB |
-| Sequential lazy transform | an `iter.Seq` chain (1.23+) | a goroutine + channel per stage |
+| Need                                         | Reach for                                          | Not                                   |
+| -------------------------------------------- | -------------------------------------------------- | ------------------------------------- |
+| Hand ownership of data to another goroutine  | channel                                            | shared slice + mutex                  |
+| Guard a few fields read and written in place | `sync.Mutex` next to the fields                    | a channel used as a lock              |
+| Counter, flag, or swapped config pointer     | `atomic.Int64`, `atomic.Bool`, `atomic.Pointer[T]` | mutex around one int                  |
+| Lazy one-time init returning a value         | `sync.OnceValue` / `sync.OnceValues`               | `sync.Once` + package var             |
+| N tasks, first error cancels the rest        | `errgroup.WithContext` (`x/sync`)                  | `WaitGroup` + error channel           |
+| Wait for N tasks, no errors                  | `sync.WaitGroup` (`wg.Go(f)` on 1.25+)             | sleeping, polling                     |
+| Bound parallelism                            | `g.SetLimit(n)` or a `chan struct{}` semaphore     | unbounded goroutines                  |
+| Cache with disjoint or write-once keys       | `sync.Map`                                         | `sync.Map` as a general map           |
+| Reuse short-lived hot-path allocations       | `sync.Pool` ([below](#syncpool))                   | a pool for long-lived or rare objects |
+| Broadcast "state changed"                    | `close(ch)` once, or `sync.Cond` when re-armed     | per-waiter sends                      |
+| Collapse identical concurrent lookups        | `singleflight.Group` (`x/sync`)                    | N callers each hitting the DB         |
+| Sequential lazy transform                    | an `iter.Seq` chain (1.23+)                        | a goroutine + channel per stage       |
 
 ## Goroutine lifetime rules
 
@@ -101,12 +101,12 @@ func first(ctx context.Context, q string) (Result, error) {
 
 ### Cancellation tools (1.21+)
 
-| API | Use when |
-| --- | --- |
-| `WithCancelCause`, `WithTimeoutCause` + `Cause(ctx)` | callers need *why* it stopped |
-| `WithoutCancel(ctx)` | work outlives the request (audit write, cache fill) but keeps values; add a timeout |
-| `AfterFunc(ctx, f)` | cleanup on cancel without a parked goroutine; `f` runs in its own goroutine; call `stop` on success |
-| `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)` | root context stopping on SIGINT/SIGTERM |
+| API                                                        | Use when                                                                                            |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `WithCancelCause`, `WithTimeoutCause` + `Cause(ctx)`       | callers need *why* it stopped                                                                       |
+| `WithoutCancel(ctx)`                                       | work outlives the request (audit write, cache fill) but keeps values; add a timeout                 |
+| `AfterFunc(ctx, f)`                                        | cleanup on cancel without a parked goroutine; `f` runs in its own goroutine; call `stop` on success |
+| `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)` | root context stopping on SIGINT/SIGTERM                                                             |
 
 ### context in HTTP services
 
@@ -137,15 +137,15 @@ func first(ctx context.Context, q string) (Result, error) {
 - Put the trimmed `benchstat` delta (with the `goos/goarch/cpu` header) in the `perf(scope):` commit body and a
   one-line comment on the optimized code.
 
-| Question | Tool | Look at |
-| --- | --- | --- |
-| Where does CPU go? | `go test -cpuprofile` · `/debug/pprof/profile?seconds=30` | `top -cum`, flame graph |
-| Who allocates most? | `pprof -sample_index=alloc_objects` (`alloc_space` for bytes) | hot handlers, encoders |
-| What holds live memory? | `pprof -sample_index=inuse_space` | large live objects that should be gone |
-| Why is it waiting? | block, mutex, goroutine profiles · `fgprof` (on- and off-CPU) | lock and channel waits, I/O |
-| Scheduling, GC, latency | `go tool trace` · `trace.FlightRecorder` (1.25+, last N seconds) | STW, assist, idle P |
-| Does it escape? Inlined? | `go build -gcflags='-m=2' ./pkg 2>&1` | `escapes to heap`, `cannot inline` |
-| How often does GC run? | `GODEBUG=gctrace=1` · `runtime/metrics` | GC CPU %, heap goal, cycles/s |
+| Question                 | Tool                                                             | Look at                                |
+| ------------------------ | ---------------------------------------------------------------- | -------------------------------------- |
+| Where does CPU go?       | `go test -cpuprofile` · `/debug/pprof/profile?seconds=30`        | `top -cum`, flame graph                |
+| Who allocates most?      | `pprof -sample_index=alloc_objects` (`alloc_space` for bytes)    | hot handlers, encoders                 |
+| What holds live memory?  | `pprof -sample_index=inuse_space`                                | large live objects that should be gone |
+| Why is it waiting?       | block, mutex, goroutine profiles · `fgprof` (on- and off-CPU)    | lock and channel waits, I/O            |
+| Scheduling, GC, latency  | `go tool trace` · `trace.FlightRecorder` (1.25+, last N seconds) | STW, assist, idle P                    |
+| Does it escape? Inlined? | `go build -gcflags='-m=2' ./pkg 2>&1`                            | `escapes to heap`, `cannot inline`     |
+| How often does GC run?   | `GODEBUG=gctrace=1` · `runtime/metrics`                          | GC CPU %, heap goal, cycles/s          |
 
 - `pprof -diff_base=old.pprof new.pprof` compares profiles; `pprof.Do(ctx, labels, fn)` splits one handler's samples
   from another's.
@@ -175,12 +175,12 @@ func first(ctx context.Context, q string) (Result, error) {
 
 ## Strings and bytes
 
-| Need | Use | Why |
-| --- | --- | --- |
-| Build a string in a loop | `strings.Builder` + `Grow(n)` | `String()` hands over bytes without copying |
-| Read and write a buffer, `io` plumbing | `bytes.Buffer` | `io.Reader` and `io.Writer`; `String()` copies |
-| Join a few fixed parts | `a + b + c` | one allocation for the expression |
-| `+=` in a loop | never | O(n²) copying |
+| Need                                   | Use                           | Why                                            |
+| -------------------------------------- | ----------------------------- | ---------------------------------------------- |
+| Build a string in a loop               | `strings.Builder` + `Grow(n)` | `String()` hands over bytes without copying    |
+| Read and write a buffer, `io` plumbing | `bytes.Buffer`                | `io.Reader` and `io.Writer`; `String()` copies |
+| Join a few fixed parts                 | `a + b + c`                   | one allocation for the expression              |
+| `+=` in a loop                         | never                         | O(n²) copying                                  |
 
 - Copying a `strings.Builder` after its first write panics: pass `*strings.Builder`.
 - No allocation for `m[string(b)]` lookups, `string(b) == s`, or ranging over `[]byte(s)`; elsewhere `string`↔`[]byte`
@@ -261,13 +261,13 @@ func first(ctx context.Context, q string) (Result, error) {
 
 ## Runtime tuning
 
-| Knob | Effect | Use when |
-| --- | --- | --- |
-| `GOGC` (default 100) | next GC when the heap grows by GOGC% over live heap | trading memory for fewer cycles |
-| `GOMEMLIMIT` | soft limit on total Go memory; GC runs harder near it | container limits, avoiding OOM |
-| `GOGC=off` + `GOMEMLIMIT` | GC runs only near the limit | batch jobs with a known, stable working set |
-| `GOMAXPROCS` | number of Ps; follows the cgroup CPU limit and its changes (1.25+) | rarely set by hand now |
-| `default.pgo` | profile-guided inlining and devirtualization | long-running services with a stable profile |
+| Knob                      | Effect                                                             | Use when                                    |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------- |
+| `GOGC` (default 100)      | next GC when the heap grows by GOGC% over live heap                | trading memory for fewer cycles             |
+| `GOMEMLIMIT`              | soft limit on total Go memory; GC runs harder near it              | container limits, avoiding OOM              |
+| `GOGC=off` + `GOMEMLIMIT` | GC runs only near the limit                                        | batch jobs with a known, stable working set |
+| `GOMAXPROCS`              | number of Ps; follows the cgroup CPU limit and its changes (1.25+) | rarely set by hand now                      |
+| `default.pgo`             | profile-guided inlining and devirtualization                       | long-running services with a stable profile |
 
 - `GOMEMLIMIT` ≈ 80–90% of the container limit (stacks, cgo allocations and mmap count toward the container, not the
   Go heap). It is soft: GC caps itself at ~50% CPU, so a live heap above the limit still OOMs.

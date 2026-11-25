@@ -18,10 +18,10 @@ sudo tailscale up
 
 ## macOS variants
 
-| Variant | Notes |
-|---|---|
-| Mac App Store | GUI, sandboxed |
-| Standalone (GUI) | <https://tailscale.com/download/mac>; same GUI, not sandboxed |
+| Variant                        | Notes                                                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Mac App Store                  | GUI, sandboxed                                                                                                                   |
+| Standalone (GUI)               | <https://tailscale.com/download/mac>; same GUI, not sandboxed                                                                    |
 | Open-source CLI (`tailscaled`) | CLI only; **required for the Tailscale SSH server**; Serve/Funnel limits: [sharing-and-publishing.md](sharing-and-publishing.md) |
 
 GUI variants reach the CLI via CLI integration or `/Applications/Tailscale.app/Contents/MacOS/Tailscale <command>`

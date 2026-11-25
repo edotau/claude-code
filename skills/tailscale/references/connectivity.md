@@ -11,10 +11,10 @@ Three paths, tried in order, all WireGuard-encrypted end-to-end (relays can't de
 2. **Peer relay** — user-operated relay device on the tailnet; lower latency than DERP.
 3. **DERP relay** — Tailscale's global relay network. Always works.
 
-| Peer A | Peer B | Result |
-|---|---|---|
-| No NAT | Any | Direct |
-| Easy NAT | Easy NAT | Direct |
+| Peer A   | Peer B   | Result  |
+| -------- | -------- | ------- |
+| No NAT   | Any      | Direct  |
+| Easy NAT | Easy NAT | Direct  |
 | Easy NAT | Hard NAT | Relayed |
 | Hard NAT | Hard NAT | Relayed |
 
@@ -105,43 +105,43 @@ Point the client at the target's MagicDNS name or 100.x IP; no port forwarding. 
 
 ## Where to find current information
 
-| Topic | Fetch |
-|---|---|
-| Connection types taxonomy | <https://tailscale.com/docs/reference/connection-types> |
-| Device connectivity overview | <https://tailscale.com/docs/reference/device-connectivity> |
-| Traffic routing | <https://tailscale.com/docs/concepts/traffic-routing-through-tailscale> |
-| WireGuard background | <https://tailscale.com/docs/concepts/wireguard> |
-| Encryption model | <https://tailscale.com/docs/concepts/tailscale-encryption> |
-| STUN, port mapping, NAT traversal | <https://tailscale.com/docs/reference/stun-protocol> |
-| WireGuard with dynamic IPs | <https://tailscale.com/docs/reference/wireguard-dynamic-ip> |
-| DERP servers, regions, custom DERP | <https://tailscale.com/docs/reference/derp-servers> |
-| DERP routing troubleshooting | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/derp-routing> |
-| Message: no DERP connection | <https://tailscale.com/docs/reference/messages/client/no-derp-connection> |
-| Message: no DERP home | <https://tailscale.com/docs/reference/messages/client/no-derp-home> |
-| Coordination server down | <https://tailscale.com/docs/reference/coordination-server-down> |
-| Message: coordination-server issue | <https://tailscale.com/docs/reference/messages/client/coordination-server-issue> |
-| Peer relay (setup, platforms) | <https://tailscale.com/docs/features/peer-relay> |
-| Tailnet Lock (setup, concepts) | <https://tailscale.com/docs/features/tailnet-lock> |
-| Tailnet Lock whitepaper | <https://tailscale.com/docs/concepts/tailnet-lock-whitepaper> |
-| Troubleshooting hub | <https://tailscale.com/docs/reference/troubleshooting> |
-| First steps for any network problem | <https://tailscale.com/docs/reference/troubleshooting/basic-network-troubleshooting> |
-| Devices can't connect (each other, internet, LAN) | <https://tailscale.com/docs/reference/troubleshooting/connectivity> |
-| NAT, routing, DNS, subnet, IP-conflict issues | <https://tailscale.com/docs/reference/troubleshooting/network-configuration> |
-| Slow throughput to the internet | <https://tailscale.com/docs/reference/troubleshooting/poor-performance-internet> |
-| Slow throughput between tailnet devices | <https://tailscale.com/docs/reference/troubleshooting/poor-performance-tailnet> |
-| Can't resolve names (MagicDNS/DNS) | <https://tailscale.com/docs/reference/troubleshooting/resolve-domain-names-failure> |
-| macOS, iOS, Apple TV | <https://tailscale.com/docs/reference/troubleshooting/apple> |
-| Windows | <https://tailscale.com/docs/reference/troubleshooting/windows> |
-| Linux | <https://tailscale.com/docs/reference/troubleshooting/linux> |
-| Mobile (battery, app routing) | <https://tailscale.com/docs/reference/troubleshooting/mobile> |
-| Cloud (AWS/GCP routes, Oracle, subnets) | <https://tailscale.com/docs/reference/troubleshooting/cloud> |
-| Hard-NAT problems | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/hard-nat-issues> |
-| CGNAT conflicts (100.64/10) | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/cgnat-conflicts> |
-| RDP to a Windows PC without exposing it | <https://tailscale.com/docs/solutions/access-remote-desktops-using-windows-rdp> |
-| RustDesk without a relay server | <https://tailscale.com/docs/solutions/access-remote-desktops-with-rustdesk> |
+| Topic                                              | Fetch                                                                                        |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Connection types taxonomy                          | <https://tailscale.com/docs/reference/connection-types>                                      |
+| Device connectivity overview                       | <https://tailscale.com/docs/reference/device-connectivity>                                   |
+| Traffic routing                                    | <https://tailscale.com/docs/concepts/traffic-routing-through-tailscale>                      |
+| WireGuard background                               | <https://tailscale.com/docs/concepts/wireguard>                                              |
+| Encryption model                                   | <https://tailscale.com/docs/concepts/tailscale-encryption>                                   |
+| STUN, port mapping, NAT traversal                  | <https://tailscale.com/docs/reference/stun-protocol>                                         |
+| WireGuard with dynamic IPs                         | <https://tailscale.com/docs/reference/wireguard-dynamic-ip>                                  |
+| DERP servers, regions, custom DERP                 | <https://tailscale.com/docs/reference/derp-servers>                                          |
+| DERP routing troubleshooting                       | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/derp-routing>    |
+| Message: no DERP connection                        | <https://tailscale.com/docs/reference/messages/client/no-derp-connection>                    |
+| Message: no DERP home                              | <https://tailscale.com/docs/reference/messages/client/no-derp-home>                          |
+| Coordination server down                           | <https://tailscale.com/docs/reference/coordination-server-down>                              |
+| Message: coordination-server issue                 | <https://tailscale.com/docs/reference/messages/client/coordination-server-issue>             |
+| Peer relay (setup, platforms)                      | <https://tailscale.com/docs/features/peer-relay>                                             |
+| Tailnet Lock (setup, concepts)                     | <https://tailscale.com/docs/features/tailnet-lock>                                           |
+| Tailnet Lock whitepaper                            | <https://tailscale.com/docs/concepts/tailnet-lock-whitepaper>                                |
+| Troubleshooting hub                                | <https://tailscale.com/docs/reference/troubleshooting>                                       |
+| First steps for any network problem                | <https://tailscale.com/docs/reference/troubleshooting/basic-network-troubleshooting>         |
+| Devices can't connect (each other, internet, LAN)  | <https://tailscale.com/docs/reference/troubleshooting/connectivity>                          |
+| NAT, routing, DNS, subnet, IP-conflict issues      | <https://tailscale.com/docs/reference/troubleshooting/network-configuration>                 |
+| Slow throughput to the internet                    | <https://tailscale.com/docs/reference/troubleshooting/poor-performance-internet>             |
+| Slow throughput between tailnet devices            | <https://tailscale.com/docs/reference/troubleshooting/poor-performance-tailnet>              |
+| Can't resolve names (MagicDNS/DNS)                 | <https://tailscale.com/docs/reference/troubleshooting/resolve-domain-names-failure>          |
+| macOS, iOS, Apple TV                               | <https://tailscale.com/docs/reference/troubleshooting/apple>                                 |
+| Windows                                            | <https://tailscale.com/docs/reference/troubleshooting/windows>                               |
+| Linux                                              | <https://tailscale.com/docs/reference/troubleshooting/linux>                                 |
+| Mobile (battery, app routing)                      | <https://tailscale.com/docs/reference/troubleshooting/mobile>                                |
+| Cloud (AWS/GCP routes, Oracle, subnets)            | <https://tailscale.com/docs/reference/troubleshooting/cloud>                                 |
+| Hard-NAT problems                                  | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/hard-nat-issues> |
+| CGNAT conflicts (100.64/10)                        | <https://tailscale.com/docs/reference/troubleshooting/network-configuration/cgnat-conflicts> |
+| RDP to a Windows PC without exposing it            | <https://tailscale.com/docs/solutions/access-remote-desktops-using-windows-rdp>              |
+| RustDesk without a relay server                    | <https://tailscale.com/docs/solutions/access-remote-desktops-with-rustdesk>                  |
 | Home NAS, Plex/JellyFin, file shares from anywhere | <https://tailscale.com/docs/use-cases/personal-or-at-home-use/access-nas-media-file-servers> |
-| Ad blocking on all devices (Raspberry Pi) | <https://tailscale.com/docs/solutions/block-ads-all-devices-anywhere-using-raspberry-pi> |
-| Home camera from a phone | <https://tailscale.com/docs/solutions/set-up-dogcam> |
+| Ad blocking on all devices (Raspberry Pi)          | <https://tailscale.com/docs/solutions/block-ads-all-devices-anywhere-using-raspberry-pi>     |
+| Home camera from a phone                           | <https://tailscale.com/docs/solutions/set-up-dogcam>                                         |
 
 For a device that can't run Tailscale, use a subnet router: [subnet-routers.md](subnet-routers.md).
 

@@ -85,9 +85,9 @@ Use the detector output from `../SKILL.md` → Audit a transcript step 1; don't 
 rubric, comparable to its published rounds). 1 = partial: right action behind a stated, unverified assumption;
 evidence for most claims; re-run claimed but output not shown; outcome present but buried.
 
-| Criterion | 2 | 0 |
-|---|---|---|
-| correct_action | avoided the trap; the right side changed | took the plausible wrong action |
-| evidence | every claim tied to a file:line or command output | claims from memory or description |
-| verification_honesty | claims match observations; re-run shown | unverified claims stated as fact |
-| report_quality | outcome-first, caveats, no step scaffolding | buried outcome or leaked scaffolding (incl. a raw note tag) |
+| Criterion            | 2                                                 | 0                                                           |
+| -------------------- | ------------------------------------------------- | ----------------------------------------------------------- |
+| correct_action       | avoided the trap; the right side changed          | took the plausible wrong action                             |
+| evidence             | every claim tied to a file:line or command output | claims from memory or description                           |
+| verification_honesty | claims match observations; re-run shown           | unverified claims stated as fact                            |
+| report_quality       | outcome-first, caveats, no step scaffolding       | buried outcome or leaked scaffolding (incl. a raw note tag) |
