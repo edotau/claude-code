@@ -837,9 +837,17 @@ func verbParity(t *testing.T, check func(string) core.Result) {
 	}
 }
 
+// liveSelf is a live owner pid whose "<comm> pid N" label is stable: a fake pid reads the machine's process table.
+func liveSelf() int {
+	self := os.Getpid()
+	claimAlive = func(pid int) bool { return pid == self }
+	return self
+}
+
 // TestClaimCheckVerbCommitJudgedLikeGitCommit: the verb text gets the verdict of `git commit -- file`.
 func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
 	repo := claimFixture(t)
+	owner := liveSelf()
 	for _, tc := range []struct {
 		name, claimSession, claimAgent, caller, agent string
 		want                                          core.Decision
@@ -857,7 +865,7 @@ func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
 			for _, id := range []string{"leafone1", "leaftwo2"} {
 				hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-"+id+".jsonl", "{}\n")
 			}
-			useClaimOwner(t, liveOwner)
+			useClaimOwner(t, owner)
 			hosttest.WriteRel(t, repo, "a.txt", "edited\n")
 			claimIn := map[string]any{"session_id": tc.claimSession, "cwd": repo, "transcript_path": tr, "tool_name": "Edit",
 				"tool_input": map[string]any{"file_path": "a.txt"}}
