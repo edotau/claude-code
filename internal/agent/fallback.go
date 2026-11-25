@@ -933,7 +933,7 @@ func StallHeld(st router.State, account, agentName string, now time.Time) bool {
 
 // noteStall remembers a stalled agent on an account for 15 minutes without benching other agents.
 func noteStall(disp Dispatch, err error) {
-	if disp.Account == "" || disp.Agent == nil || !errors.Is(err, ErrStalled) {
+	if disp.Account == "" || disp.Agent == nil || !errors.Is(err, ErrStalled) || !retry.MayRedispatch(err) {
 		return
 	}
 	now := time.Now()

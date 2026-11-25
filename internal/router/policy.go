@@ -36,6 +36,15 @@ type Policy struct {
 	Source PolicySource
 }
 
+// Resolved is p, or today's default mode when p is the zero value (a plan or record that lacked a fallback).
+func (p Policy) Resolved() Policy {
+	if p.Kind != 0 {
+		return p
+	}
+	d, _ := PolicyOf("", PolicyDefault)
+	return d
+}
+
 // PolicyOf maps a stored mode; empty is none everywhere.
 func PolicyOf(mode string, src PolicySource) (Policy, error) {
 	switch ParseFallback(mode) {
@@ -53,6 +62,7 @@ func PolicyOf(mode string, src PolicySource) (Policy, error) {
 
 // Mode is p as the persisted --fallback string (record fallback_policy).
 func (p Policy) Mode() string {
+	p = p.Resolved()
 	switch {
 	case p.Kind == PolicyNone:
 		return FallbackNone

@@ -44,7 +44,8 @@ func (k Kind) String() string {
 var overflowRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`prompt is too long|` + // Anthropic
 		`exceed context limit|input length|context length|maximum context|` + // Anthropic, OpenAI, vLLM, Databricks
-		`context window|context[_ ]length[_ ]exceeded|context_window_exceeded|` + // OpenAI, codex, MiniMax; stream codes
+		`(?:exceed\w*|over|beyond|longer than|larger than|maximum|max|full)\W+(?:\w+\W+){0,3}?context window|` +
+		`context window\W+(?:\w+\W+){0,2}?(?:exceed\w*|overflow\w*|full)|context[_ ]length[_ ]exceeded|context_window_exceeded|` + // OpenAI, codex, MiniMax; stream codes
 		`input is too long for requested model|input token count.*exceeds the maximum|` + // Bedrock, Gemini
 		`maximum prompt length is \d+|reduce the length of the messages|exceeded model token limit|` + // xAI, Groq, Kimi
 		`(?:available|max) context size|context size (?:has been )?exceeded|exceed_context_size_error|` + // llama.cpp
@@ -56,8 +57,11 @@ var overflowLooseRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`exceeds the limit of \d+|(?:^|: )4(?:00|13)\s*(?:status code)?\s*\(no body\)`)
 })
 
-// IsContextOverflow is true when body (error text, reply or stream-error code) names an overflow; 400/413 widen it.
+// IsContextOverflow: body names an overflow; a status other than 400/413 never does, 0 is a stream error or text.
 func IsContextOverflow(status int, body string) bool {
+	if status != 0 && !overflowStatus(status) {
+		return false
+	}
 	low := strings.ToLower(body)
 	return overflowRE().MatchString(low) || overflowStatus(status) && overflowLooseRE().MatchString(low)
 }

@@ -296,6 +296,7 @@ func OffOrder(label, want string) bool {
 
 // ClaudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
 func ClaudeBackstop(cands []Candidate, req int, p Policy) int {
+	p = p.Resolved()
 	if !p.Agents || !p.OffArm {
 		return -1
 	}
@@ -538,7 +539,7 @@ func gateOthers(want string, gate func(string) []Candidate) (rest [][]Candidate)
 
 // claudeLast gates claude as the final agent fallback.
 func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
-	if !o.Policy.Agents || !o.Policy.OffArm {
+	if p := o.Policy.Resolved(); !p.Agents || !p.OffArm {
 		return nil
 	}
 	if cs := gate("claude"); len(cs) > 0 {
@@ -655,7 +656,9 @@ var FallbackModes = []string{FallbackNone, FallbackPin, FallbackAgents, Fallback
 const EnvFallback = "AGENT_ERROR_FALLBACK"
 
 // oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).
-func (o PickOpts) oneHop() bool { return o.Policy.Kind == PolicyNone || !o.Policy.Agents }
+func (o PickOpts) oneHop() bool {
+	return o.Policy.Resolved().Kind == PolicyNone || !o.Policy.Resolved().Agents
+}
 
 // ParseFallback reads a stored mode: empty is none, 1/true/yes is all; any other value is returned for validation.
 func ParseFallback(raw string) string {

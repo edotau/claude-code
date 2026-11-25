@@ -681,6 +681,9 @@ func TestIsContextOverflow(t *testing.T) {
 		{400, "bad field x", false},
 		{0, "429 too many tokens per minute", false},
 		{0, "", false},
+		{400, "context window parameter is not supported", false},
+		{500, "Your input exceeds the context window of this model", false},
+		{400, "Your input exceeds the context window of this model", true},
 	} {
 		if got := IsContextOverflow(c.status, c.body); got != c.want {
 			t.Errorf("IsContextOverflow(%d, %q) = %v, want %v", c.status, c.body, got, c.want)
@@ -798,5 +801,12 @@ func TestClassifyMarksCancelled(t *testing.T) {
 	}
 	if e := Classify("x", statusErr{http.StatusTooManyRequests}, false); e.Cancelled || !MayRedispatch(e) {
 		t.Errorf("429: %+v, want redispatchable", e)
+	}
+}
+
+func TestClassifyNonOverflowContextWindow400(t *testing.T) {
+	err := stubErr{code: 400, body: "context window parameter is not supported"}
+	if e := Classify("x", err, false); e.Kind == KindContext {
+		t.Errorf("a 400 naming the context window parameter is no overflow: %+v", e)
 	}
 }

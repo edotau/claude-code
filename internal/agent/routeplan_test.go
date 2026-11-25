@@ -197,3 +197,21 @@ func wantPool(t *testing.T, p RoutePlan, profiles ...string) {
 		t.Errorf("pool = %v, want %v", got, profiles)
 	}
 }
+
+// Without a plan in ctx, tierAlias is the brief's own TaskTier alias.
+func TestTierAliasNoPlanMatchesTaskTier(t *testing.T) {
+	for _, prompt := range []string{"Tier: fast\nRename foo to bar", "Reply ok"} {
+		want, _ := TaskTier(prompt)
+		if got := tierAlias(context.Background(), prompt); got != want {
+			t.Errorf("tierAlias(%q) = %q, want %q", prompt, got, want)
+		}
+	}
+}
+
+// A workspace pin under a typed all still walks the legacy agent ladder: the recorded plan says any-in-fence.
+func TestExecutablePolicyPinnedAll(t *testing.T) {
+	got := executablePolicy(router.Policy{Kind: router.PolicySameWorkspace, Agents: true, OffArm: true, Source: router.PolicyTyped})
+	if got.Kind != router.PolicyAnyInFence || !got.OffArm {
+		t.Errorf("executablePolicy = %+v, want any-in-fence with off-arm", got)
+	}
+}

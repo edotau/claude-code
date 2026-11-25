@@ -131,3 +131,14 @@ func testPolicySnapshot(t *testing.T) {
 		}
 	}
 }
+
+// The zero Policy resolves to the default mode, never to all or to a bare nothing.
+func TestPolicyZeroResolves(t *testing.T) {
+	want, _ := PolicyOf("", PolicyDefault)
+	if got := (Policy{}).Resolved(); got != want {
+		t.Fatalf("Resolved() = %+v, want %+v", got, want)
+	}
+	if got := ClaudeBackstop([]Candidate{{Agent: "claude"}, {Agent: "codex"}}, 1, Policy{}); got != -1 {
+		t.Errorf("zero Policy ClaudeBackstop = %d, want -1 (default none)", got)
+	}
+}

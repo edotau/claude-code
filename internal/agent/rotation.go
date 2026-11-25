@@ -814,10 +814,15 @@ func progressed(err error) bool {
 	return ok && e.Progressed
 }
 
+// slowCutoff is true for a deadline or idle cutoff that is not a client cancel.
+func slowCutoff(k string, err error) bool {
+	return (k == CutoffDeadline || k == CutoffIdle) && retry.MayRedispatch(err)
+}
+
 // noteSlowModel holds a pool model out of auto picks after a deadline or idle cutoff; the account stays usable.
 func noteSlowModel(disp Dispatch, req RunOptions, model string, err error) {
 	k := CutoffOf(err)
-	if (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" {
+	if !slowCutoff(k, err) || model == "" || disp.Account == "" {
 		return
 	}
 	if k == CutoffDeadline && (req.ModelTyped || req.TimeoutTyped || progressed(err)) {

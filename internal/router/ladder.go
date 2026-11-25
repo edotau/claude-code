@@ -486,6 +486,7 @@ type ChainHop struct {
 
 // Chain orders q's hops; the caller validates each one (served, READY, agent fit) before it runs.
 func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
+	q.Policy = q.Policy.Resolved()
 	hop := func(agent, profile, model string, off bool) ChainHop {
 		return ChainHop{agent, profile, accountIn(reg)(profile), model, off}
 	}
