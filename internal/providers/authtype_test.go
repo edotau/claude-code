@@ -371,6 +371,61 @@ func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	}
 }
 
+// sp_mint rows are written only by a real mint: a sealed hit and a failed exchange add none.
+func TestSPMintAuditRowOnlyOnRealMint(t *testing.T) {
+	p := mintRow(t, "sp-audit-mint", AuthOAuth, "", "http://127.0.0.1:1")
+	p.Auth.SPClientID = "sp-audit-client"
+	spCache.Delete(p.Name)
+	t.Cleanup(func() { spCache.Delete(p.Name) })
+	name := SecretName(p.Provider, p.Name, AuthM2M)
+	if err := vault.Store(name, "qz7vN2wLx9Rb4kTm"); err != nil {
+		t.Fatal(err)
+	}
+	refuse := stubSPExchange(t)
+	ctx := context.Background()
+	_, _, err := mintSP(ctx, p, false, expiryMargin)
+	if rows := spMintRows(t); err != nil || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" || rows[0].Detail != p.Name {
+		t.Fatalf("real mint: err %v, sp_mint rows %+v; want one naming %s_ACCESS and %s", err, rows, name, p.Name)
+	}
+	if _, _, err := mintSP(ctx, p, false, expiryMargin); err != nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("sealed cache hit: err %v; want no new sp_mint row", err)
+	}
+	*refuse = errors.New("exchange refused")
+	if _, _, err := mintSP(ctx, p, true, expiryMargin); err == nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("failed exchange: err %v; want an error and no new sp_mint row", err)
+	}
+}
+
+// stubSPExchange serves a fresh token from mintM2M until the returned error is set, then fails every exchange.
+func stubSPExchange(t *testing.T) *error {
+	t.Helper()
+	refuse := new(error)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if *refuse != nil {
+			return oauth.Token{}, *refuse
+		}
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	return refuse
+}
+
+func spMintRows(t *testing.T) []audit.Event {
+	t.Helper()
+	evs, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []audit.Event
+	for _, e := range evs {
+		if e.Action == audit.SPMint {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
