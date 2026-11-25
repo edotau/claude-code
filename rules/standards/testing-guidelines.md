@@ -71,6 +71,10 @@ See `rules/standards/quality.md` for size caps.
   memory store, vault, `state/`, settings, plans, a user cache (`GOCACHE`, `Library/Caches`) or any other path the
   harness or the owner uses, not even read-only: the result then depends on the machine and a slip deletes real data
   (owner, 2026-11-25). A check that must run over real data is a verb's preflight or a `doctor` row, not a test.
+- **Never a real network call** — no test dials a real host, a real service on this machine (the proxy daemon, the
+  local model on 10100, Jev, Tailscale, ssh) or DNS. Network, proxy, server and remote code is validated live and by
+  hand (Live first, above); its unit and regression tests run on mocks: an in-process `httptest` server or a stubbed
+  transport or dialer the test owns, with the remote's replies written in the test (owner, 2026-11-25).
 - **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
   after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
   `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
