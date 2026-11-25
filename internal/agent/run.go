@@ -600,6 +600,7 @@ type RunOptions struct {
 	Fleet                                               bool       // copilot only: run in fleet mode (parallel subagents)
 	Codemode                                            string     `json:"codemode,omitempty"`        // off|on|only: the agent's code mode (agentid.CodeMode row)
 	CodemodeReason                                      string     `json:"codemode_reason,omitempty"` // why a requested code mode runs off
+	Runner                                              string     `json:"runner,omitempty"`          // the typed --runner (pi|own), so a replay keeps it
 	NoTools                                             bool       // claude only: answer from the provider directly, no claude process
 	NoPersist                                           bool       // claude, codex: no session persistence
 	DebugFile                                           string     // claude, gemini: debug log at <path>

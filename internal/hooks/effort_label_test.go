@@ -306,3 +306,21 @@ func TestInheritedFableSessionLabelsOpusOnDatabricks(t *testing.T) {
 		t.Errorf("a typed Fable label lost its refusal note: %q", n)
 	}
 }
+
+// An agent file baking --provider databricks labels through that provider, not the agent's own pin.
+func TestLabelQueryUsesBakedProvider(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(route.OverlayVar, "")
+	old := readAgentFile
+	readAgentFile = func(string) ([]byte, error) {
+		return []byte("```bash\nclaude-code agents ask --agent codex --provider databricks --tools - < PATH\n```\n"), nil
+	}
+	t.Cleanup(func() { readAgentFile = old })
+	var seen agentpkg.ModelQuery
+	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
+	labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "codex", "do x")
+	if seen.Provider != "databricks" {
+		t.Errorf("query provider = %q, want databricks from the baked ask line", seen.Provider)
+	}
+}

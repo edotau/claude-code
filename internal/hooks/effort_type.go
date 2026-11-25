@@ -32,7 +32,10 @@ func dispatchTypes() []string {
 	}
 	if err != nil || len(srcs) == 0 {
 		fmt.Fprintf(os.Stderr, "dispatch-effort: no agent definitions read from %s (%v); allowing the roster\n", dir, err)
-		names = append(slices.Clone(builtinTypes), agentid.All()...)
+		names = slices.Clone(builtinTypes)
+		for _, a := range agentid.All() {
+			names = append(names, agentid.SubagentType(a))
+		}
 	}
 	if pdir := projectAgentsDir(); pdir != "" && !paths.SamePath(pdir, dir) {
 		psrcs, _ := listAgents(pdir) // best effort: an unreadable project dir only drops its names
@@ -84,8 +87,8 @@ func (e *effortPlan) retype(in *core.Input, to string) {
 
 // coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.
 func coworkerTarget(st, task string) string {
-	if agent := coworkerAgent(st, task); slices.Contains(dispatchTypes(), agent) {
-		return agent
+	if to := agentid.SubagentType(coworkerAgent(st, task)); slices.Contains(dispatchTypes(), to) {
+		return to
 	}
 	return ""
 }
@@ -111,7 +114,37 @@ func typeSuggestion(st, task string) string {
 		return `use "general-purpose"` // the host-wide agent with every tool
 	}
 	if agent := coworkerAgent(st, task); agent != "" {
-		return fmt.Sprintf("use %q", agent)
+		return fmt.Sprintf("use %q", agentid.SubagentType(agent))
 	}
 	return "name one roster agent"
+}
+
+// staleTypeTarget is the subagent type a roster agent's bare name (pi) is rewritten to; "" for any other type.
+func staleTypeTarget(st string) string {
+	if to := agentid.SubagentType(st); agentid.Known(st) && to != st && slices.Contains(dispatchTypes(), to) {
+		return to
+	}
+	return ""
+}
+
+// codemodeTarget retypes code-mode off to claude and claude's code-mode pi run to code-mode; "" for none.
+func codemodeTarget(st, task string) string {
+	m := codemodeRe().FindStringSubmatch(briefHeader(task))
+	if m == nil {
+		return ""
+	}
+	on := !strings.EqualFold(m[1], "off")
+	to := ""
+	switch {
+	case agentid.Routing(agentid.AgentOfType(st)).CodeMode.TypedByMode && !on:
+		to = agentid.Claude
+	case st == agentid.Claude && on:
+		if a := briefExternal(task); agentid.Routing(a).CodeMode.TypedByMode {
+			to = agentid.SubagentType(a)
+		}
+	}
+	if slices.Contains(dispatchTypes(), to) {
+		return to
+	}
+	return ""
 }

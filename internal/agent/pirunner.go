@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
 // piRunnerAsked reports q taking the pi runner (every roster agent but pi, unless runner own) and if it was typed.
@@ -51,6 +52,19 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
 	}
 	return c.ledBy(hops)
+}
+
+// withOwnHopCodemodeNote notes each own-CLI hop that runs code mode off (hopCodemode applies it per hop).
+func withOwnHopCodemodeNote(q RouteReq, c Chain) Chain {
+	if !rtkwrap.CodemodeOn(q.Opts.Codemode) {
+		return c
+	}
+	for _, d := range c.Dispatches {
+		if ownCLICodemodeOff(d.Agent.Name()) {
+			c = c.noted("codemode: off for " + d.Agent.Name() + " (" + ownCLIReason + ")")
+		}
+	}
+	return c
 }
 
 // notedIf is c with line as a preflight note when a typed runner was asked, else c.

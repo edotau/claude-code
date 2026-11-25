@@ -2,6 +2,7 @@
 package hooks
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
@@ -23,6 +25,9 @@ import (
 var (
 	agentLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`) })
 	agentNameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z]+`) })
+	codemodeRe  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?mi)^[ \t]*Codemode:[ \t]*(on|only|off)[ \t\r]*$`)
+	})
 	blankLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n[ \t\r]*\n\s*`) })
 )
 
@@ -125,6 +130,7 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session), mode: mode}
 	e.retype(in, fixType)
+	task = e.keepPiAgent(in, fixType, promptField, task)
 	return e.finish(ctx, in, promptField, task)
 }
 
@@ -152,20 +158,37 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 	return e.result()
 }
 
-func (e *effortPlan) retyped(st string) bool {
-	return strings.HasPrefix(st, "coworker:") && e.updated["subagent_type"] != st
+// keepPiAgent adds an `Agent: pi` header line to a brief retyped from a Pi type to claude, so the leaf still runs Pi.
+func (e *effortPlan) keepPiAgent(in *core.Input, fixType, promptField, task string) string {
+	st := in.Nested("tool_input", "subagent_type")
+	piType := agentid.AgentOfType(st) == agentid.Pi || coworkerAgent(st, task) == agentid.Pi || staleTypeTarget(st) != ""
+	if fixType != agentid.Claude || !piType || promptField != "prompt" || agentLineRe().MatchString(briefHeader(task)) {
+		return task
+	}
+	task = "Agent: " + agentid.Pi + "\n" + task
+	e.updated[promptField] = task
+	e.systemMessage = strings.TrimSpace(e.systemMessage + " Added `Agent: pi` to the brief so the claude leaf runs a plain Pi ask.")
+	return task
 }
 
-// effortDenial is the call's type denial, else the coworker type to retype to ("" for none).
+func (e *effortPlan) retyped(st string) bool {
+	got, _ := e.updated["subagent_type"].(string)
+	return got != st
+}
+
+// effortDenial is the call's type denial, else the coworker or code-mode type to retype to ("" for none).
 func effortDenial(in *core.Input) (fixType string, deny *core.Result) {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
+	if to := staleTypeTarget(st); to != "" { // a bare "pi" type is the code-mode type now
+		return cmp.Or(codemodeTarget(to, prompt), to), nil
+	}
 	if deny = typeBlock(st, prompt); deny != nil {
 		if fixType = coworkerTarget(st, prompt); fixType == "" {
 			return "", deny
 		}
-		return fixType, nil
+		return cmp.Or(codemodeTarget(fixType, prompt), fixType), nil
 	}
-	return "", nil
+	return codemodeTarget(st, prompt), nil
 }
 
 func spawnTask(in *core.Input) (field, task string) {

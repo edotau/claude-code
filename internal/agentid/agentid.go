@@ -35,6 +35,27 @@ func Projected() []string {
 	return slices.DeleteFunc(External(), func(n string) bool { return facts(n).NoProjection })
 }
 
+// CodeModeType is the Claude subagent type that runs Pi in code mode; Pi has no type under its own name.
+const CodeModeType = "code-mode"
+
+// SubagentType is the Claude subagent type that dispatches agent: code-mode for Pi, else the agent's own name.
+func SubagentType(agent string) string {
+	if agent == Pi {
+		return CodeModeType
+	}
+	return agent
+}
+
+// AgentOfType is the roster agent a subagent type dispatches; "" for any other type, a bare "pi" included.
+func AgentOfType(subagentType string) string {
+	for _, a := range All() {
+		if SubagentType(a) == subagentType {
+			return a
+		}
+	}
+	return ""
+}
+
 // Known reports whether name is a roster agent.
 func Known(name string) bool { return slices.Contains(All(), name) }
 
@@ -95,6 +116,8 @@ type CodeModeRow struct {
 	ViaSettings bool
 	// DirectOnly refuses the mode on any gateway or cloud-provider route.
 	DirectOnly bool
+	// TypedByMode: the agent's type names its code-mode runs; a run with code mode off is typed by its model.
+	TypedByMode bool
 }
 
 // Has reports whether the agent has a code mode.
@@ -122,7 +145,7 @@ var roster = []struct {
 	{Copilot, RouteFacts{FreezeTarget: true, Discovery: true}},
 	{Gemini, RouteFacts{EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()}},
 	{OpenCode, RouteFacts{SubLadder: true, Discovery: true, CodeMode: CodeModeRow{Var: "OPENCODE_EXPERIMENTAL_CODE_MODE"}}},
-	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, CodeMode: CodeModeRow{Extension: true, Only: true},
+	{Pi, RouteFacts{Discovery: true, NoOwnLogin: true, NoProjection: true, CodeMode: CodeModeRow{Extension: true, Only: true, TypedByMode: true},
 		nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
 }
 

@@ -123,7 +123,9 @@ paths:
   off the direct route, or `--tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
   recorded as `codemode_reason`; only a misspelled value exits 2. The guard allows pi's one tool only from
   `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
-  experiments, rule 4).
+  experiments, rule 4). The type `code-mode` means Pi in code mode: `CodeModeRow.TypedByMode` on Pi's row
+  (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi run with code mode off by its
+  model (`claude`, runner `pi`).
   Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
   `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:

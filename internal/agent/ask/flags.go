@@ -44,6 +44,7 @@ type askFlags struct {
 	keepEnv                                                                                                                                                                            []string
 	codemode                                                                                                                                                                           string
 	codemodeReason                                                                                                                                                                     string
+	runner                                                                                                                                                                             string
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
 	spec, verify, action                                                                                                                                                               string
@@ -118,6 +119,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
+	fs.StringVar(&f.runner, "runner", "", strings.Join(agentconfig.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
 	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -177,11 +179,14 @@ func directRoute(provider, profile string) bool {
 }
 
 // validateCodemode resolves --codemode: a misspelled value errors; an unsupported one runs off with a reason.
-func validateCodemode(mode, ag string, tools, direct bool) (resolved, reason string, err error) {
+func validateCodemode(mode, ag, runner string, tools, direct bool) (resolved, reason string, err error) {
 	if mode != "" && !slices.Contains(pi.CodemodeModes, mode) {
 		return "", "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(pi.CodemodeModes, " or "))
 	}
 	if ag == agentid.Pi {
+		return piCodemode(mode, tools)
+	}
+	if mode != "" && piRunnerLeads(ag, runner, direct) { // the vault CODEMODE never turns it on for another agent's ask
 		return piCodemode(mode, tools)
 	}
 	if mode == "" || mode == "off" {
@@ -194,6 +199,15 @@ func validateCodemode(mode, ag string, tools, direct bool) (resolved, reason str
 		return "off", why, nil
 	}
 	return mode, "", nil
+}
+
+// piRunnerLeads reports a typed agent with no code-mode row of its own running on the pi runner, which owns code mode.
+func piRunnerLeads(ag, runner string, direct bool) bool {
+	if runner == agentconfig.RunnerOwn || direct || !agentid.Known(ag) || agentid.Routing(ag).CodeMode.Has() {
+		return false
+	}
+	pi, err := agent.Lookup(agentid.Pi)
+	return err == nil && pi.Available() == nil
 }
 
 // piCodemode is pi's resolved mode (the vault CODEMODE under --tools); on or only without tools runs off.
@@ -359,6 +373,14 @@ func validateAskFlags(format, fallback string) error {
 	return nil
 }
 
+// runnerCheck refuses a --runner outside agentconfig.Runners.
+func runnerCheck(f *askFlags) error {
+	if f.runner != "" && !slices.Contains(agentconfig.Runners, f.runner) {
+		return fmt.Errorf("--runner %q must be %s", f.runner, strings.Join(agentconfig.Runners, " or "))
+	}
+	return nil
+}
+
 // askExclusive rejects flag pairs that cannot be combined.
 func askExclusive(background bool, job string, tools, noTools bool) error {
 	if background && job != "" {
@@ -443,7 +465,7 @@ type askTarget struct {
 	Tools, NoTools, Autonomous, Fleet, EnableMemory, Direct   *bool
 	NoPersist, Native                                         *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
-	Host, Fallback, Coworker, Codemode, Verify                *string
+	Host, Fallback, Coworker, Codemode, Runner, Verify        *string
 	Timeout                                                   *time.Duration
 	Persona                                                   **agent.Schema
 	Pack                                                      **pack.Spec
@@ -459,6 +481,9 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
+	if rec.Request.Runner != "" { // records from before the field keep this run's runner
+		*t.Runner = rec.Request.Runner
+	}
 	if t.Verify != nil { // a retried or replayed run repeats its spec's verify
 		*t.Verify = rec.Request.Verify
 	}
@@ -772,9 +797,9 @@ func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.
 	return settingConflict(fs, ov)
 }
 
-// settingConflict refuses a typed --model, --effort, --fallback or --host that differs from the same overlay key.
+// settingConflict refuses a typed --model, --effort, --fallback, --host or --runner that differs from its overlay key.
 func settingConflict(fs *flag.FlagSet, ov agentconfig.Overlay) error {
-	for _, k := range [][2]string{{"model", ov.Model}, {"effort", ov.Effort}, {"fallback", ov.Fallback}, {"host", ov.Host}} {
+	for _, k := range [][2]string{{"model", ov.Model}, {"effort", ov.Effort}, {"fallback", ov.Fallback}, {"host", ov.Host}, {"runner", ov.Runner}} {
 		if v := fs.Lookup(k[0]).Value.String(); helptext.Explicit(fs, k[0]) && v != "" && k[1] != "" && v != k[1] {
 			return fmt.Errorf("--%s %s conflicts with overlay %s %s", k[0], v, k[0], k[1])
 		}

@@ -421,13 +421,15 @@ type Result struct {
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
 type Hop struct {
-	Agent     string `json:"agent"`
-	Account   string `json:"account,omitempty"`
-	Profile   string `json:"profile,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Reported  string `json:"reported_model,omitempty"` // Result.Reported of this hop
-	RunFor    string `json:"run_for,omitempty"`        // the asked agent a pi runner hop executes for
-	ErrorKind string `json:"error_kind,omitempty"`
+	Agent          string `json:"agent"`
+	Account        string `json:"account,omitempty"`
+	Profile        string `json:"profile,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Reported       string `json:"reported_model,omitempty"` // Result.Reported of this hop
+	RunFor         string `json:"run_for,omitempty"`        // the asked agent a pi runner hop executes for
+	ErrorKind      string `json:"error_kind,omitempty"`
+	Codemode       string `json:"codemode,omitempty"`        // this hop's effective code mode: off on an own CLI
+	CodemodeReason string `json:"codemode_reason,omitempty"` // why a requested code mode ran off on this hop
 	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
 	NotStarted bool `json:"not_started,omitempty"`
 	// Errors lists every attempt's failure, oldest first, when the dispatch was retried.

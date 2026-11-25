@@ -2,7 +2,7 @@
 name: gemini
 description: |
   Codebase sweeps, targeted traces, cited research and diff review as gemini: a scoped terminal leaf whose work runs
-  as one typed `claude-code agents ask --agent gemini` on the Databricks route.
+  as one typed `claude-code agents ask --agent gemini` on agy, its own pin (Google first-party).
 color: purple
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -28,14 +28,13 @@ The one ask (PATH is the file `claude-code agents brief --path gemini` prints; a
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent gemini --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent gemini --tools --timeout 60m - < PATH
 ```
 
-No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
-its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(the receipt reads `gemini via pi`; its own CLI is the fallback hop). Gemini on agy and its Google sign-in stays
-reachable from the main session: `claude-code gemini …`, or overlay `{"runner":"own"}`. Role rotation covers
-gemini's models too.
+No `--provider`, `--profile` or `--model`: the ask runs agy on gemini's own pin (`claude-code gateway resolve gemini`,
+Google first-party) and the model comes from the brief's `Tier:` line, else its wording. Databricks only when the owner
+names it for a dispatch (`--provider databricks`, R20); the receipt names what ran. Role rotation covers gemini's
+models too.
 
 ## Owns
 

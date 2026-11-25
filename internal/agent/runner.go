@@ -40,21 +40,27 @@ func carriedFor(res wire.Result, asked string) bool {
 // stampRunner sets the typed Runner, Asked and Type on res: Runner "pi" when Pi ran another agent's request.
 func stampRunner(rec Record, res wire.Result) wire.Result {
 	engine := engineOf(res)
-	if engine == agentid.Pi && rec.Agent != agentid.Pi && carriedFor(res, rec.Agent) {
+	if carriedByPi(rec, res, engine) {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
 	// the pi label is for a pi code-mode run only: a claude or opencode one keeps its own name
-	codeMode := (rec.Request.Codemode == "on" || rec.Request.Codemode == "only") && engine == agentid.Pi
-	if rec.Agent != agentid.Pi && !codeMode {
+	codeMode := rtkwrap.CodemodeOn(rec.Request.Codemode) && agentid.Routing(engine).CodeMode.TypedByMode
+	typedByMode := agentid.Routing(rec.Agent).CodeMode.TypedByMode
+	if !typedByMode && !codeMode {
 		res.Type = cmp.Or(res.Asked, res.Agent) // a typed agent is never relabelled by its model's family
 		return res
 	}
 	model, kind := ranTarget(rec, res)
 	res.Type = cmp.Or(string(models.AgentType(kind, model, codeMode)), res.Asked, res.Agent)
-	if rec.Agent == agentid.Pi && engine == agentid.Pi && res.Type != agentid.Pi {
+	if typedByMode && engine == rec.Agent && res.Type != rec.Agent {
 		res.Runner = engine // a pi ask outside code mode shows the model's type, carried by pi
 	}
 	return res
+}
+
+// carriedByPi: Pi ran another agent's request.
+func carriedByPi(rec Record, res wire.Result, engine string) bool {
+	return engine == agentid.Pi && rec.Agent != agentid.Pi && carriedFor(res, rec.Agent)
 }
 
 // ranTarget is the model that ran and its route's provider kind; "" for the auto model.
@@ -90,8 +96,25 @@ func CodemodeEnv(name, mode string) []string {
 	return env
 }
 
+// ownCLICodemodeOff: name is a roster agent whose own CLI has no code-mode row.
+func ownCLICodemodeOff(name string) bool {
+	return agentid.Known(name) && !agentid.Routing(name).CodeMode.Has()
+}
+
+// ownCLIReason is why an own-CLI hop runs code mode off.
+const ownCLIReason = "own CLI has no code mode; it runs on the pi runner hop only"
+
+// hopCodemode is req for one hop: an own CLI with no code-mode row runs it off, the shared record untouched.
+func hopCodemode(name string, req RunOptions) RunOptions {
+	if rtkwrap.CodemodeOn(req.Codemode) && ownCLICodemodeOff(name) {
+		return withoutCodemode(name, ownCLIReason, req)
+	}
+	return req
+}
+
 // withCodemodeEnv layers the code-mode env after --env, so the typed flag wins; tools off means no scripts.
 func withCodemodeEnv(name string, req RunOptions) RunOptions {
+	req = hopCodemode(name, req)
 	if req.Tools {
 		req.Env = slices.Concat(req.Env, CodemodeEnv(name, req.Codemode))
 	}
@@ -107,6 +130,11 @@ func CodemodeOff(ctx context.Context, name, reason string, req RunOptions) RunOp
 			return r, true
 		})
 	}
+	return withoutCodemode(name, reason, req)
+}
+
+// withoutCodemode is req with code mode off and its reason set, CODEMODE and the vendor switch dropped from the env.
+func withoutCodemode(name, reason string, req RunOptions) RunOptions {
 	req.Codemode, req.CodemodeReason = "off", reason
 	vendor := agentid.Routing(name).CodeMode.Var
 	req.Env = slices.DeleteFunc(slices.Clone(req.Env), func(kv string) bool {

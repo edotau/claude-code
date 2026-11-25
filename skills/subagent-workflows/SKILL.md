@@ -39,8 +39,8 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
-| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type> --provider databricks` its file bakes, waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
-| `pi` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
+| `code-mode` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
@@ -59,10 +59,11 @@ overwrite another machine's pins.
 For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
 task, then follow it with one wait call; Pi runs the same way without `--carry` (it refuses pi), on any Databricks
 model for review, audits and self-tested edits. To run one as an Agent leaf instead, pick its type (`codex`,
-`copilot`, `gemini`, `opencode`, `agents/<type>.md`): it runs the typed Databricks ask its file bakes, and its own
-CLI on its own login stays reachable here (`claude-code <agent> …`, overlay `{"runner":"own"}`). Codex handles
-cross-family review, plan vetting and delegated edits (`claude-code codex review` for a diff), gemini research and
-codebase sweeps, opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
+`copilot`, `gemini`, `opencode`, `agents/<type>.md`): it runs the typed ask its file bakes (Databricks, gemini excepted:
+agy on its Google pin), and its own CLI on its own login stays reachable here (`claude-code <agent> …`,
+overlay `{"runner":"own"}`). Codex handles cross-family review, plan vetting and delegated edits
+(`claude-code codex review` for a diff), gemini research and codebase sweeps,
+opencode code and docs work, copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
 claude-code agents ask --carry --background --agent <agent> [ask flags] - < BRIEF
@@ -86,10 +87,10 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
 `claude` workflow stage; the wait, hand-back and receipt rules bind both:
 
 - Run the prescribed ask once: `claude-code agents ask --carry --agent <a> …`, the plain ask for `claude`/`pi`, or,
-  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `pi.md`), the one non-carry typed
-  `agents ask --background --agent <type> --provider databricks --tools - < PATH` its file prints (pi adds
-  `--codemode on`); copy it as printed, add `--workdir <dir>` only for a `Workdir:` line, and never add `--profile`
-  or `--model`:
+  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `code-mode.md`), the one
+  non-carry typed `agents ask --background --agent <type> --tools - < PATH` its file prints (Databricks baked, gemini
+  excepted; pi adds `--codemode on`); copy it as printed, add `--workdir <dir>` only for a `Workdir:` line, and
+  never add `--profile` or `--model`:
   1. Write the task to the path `claude-code agents brief --path <agent>` prints (Read it first), and attach it as
      `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
      flag or start another ask.

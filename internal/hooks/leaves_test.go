@@ -570,9 +570,9 @@ func TestRanOnReceiptFromResultFollow(t *testing.T) {
 // relayNote is the note a gated leaf that did the work itself passes with.
 const relayNote = "NOTE: ran on the relay model"
 
-// Retired external types (pi included; kept by the fallback roster) activate the ran-on gate; bare claude is exempt.
+// External types (code-mode for pi; the old bare pi still gates) activate the ran-on gate; bare claude is exempt.
 func TestRanOnGateTypes(t *testing.T) {
-	for st, want := range map[string]bool{"pi": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
+	for st, want := range map[string]bool{"code-mode": true, "pi": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
 		for _, brief := range []string{"Objective: x\nAgent: codex\n", "Objective: x\nOwns: /tmp/x\n"} {
 			r, blocked := leafStopBlock(leafTx(t, st, brief, "ls output"), "a1")
 			if blocked || strings.Contains(r.SystemMessage, relayNote) != want {

@@ -66,7 +66,7 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "codex", "copilot", "gemini", "general-purpose", "opencode", "pi", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "code-mode", "codex", "copilot", "gemini", "general-purpose", "opencode", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all
@@ -131,5 +131,60 @@ func TestDispatchCoworkerRetypeMatchesDirect(t *testing.T) {
 	}
 	if retyped.UpdatedInput["model"] != nil || retyped.UpdatedInput["effort"] != nil {
 		t.Errorf("retyped = %v, want no model or effort pin over the agent file", retyped.UpdatedInput)
+	}
+}
+
+func TestDispatchCodemodeRetype(t *testing.T) {
+	dispatchEnv(t)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
+	for _, c := range []struct{ st, brief, want string }{
+		{"code-mode", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
+		{"claude", "Agent: pi\\nCodemode: on\\n\\nbody", "code-mode"},
+		{"code-mode", "Agent: pi\\n\\nbody", "code-mode"},
+		{"pi", "Agent: pi\\n\\nbody", "code-mode"},
+		{"pi", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
+		{"claude", "Agent: pi\\nrun --codemode on\\n\\nbody", "claude"},
+	} {
+		r := pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"%s","description":"x"}}`, c.st, c.brief))
+		got, _ := r.UpdatedInput["subagent_type"].(string)
+		if r.Decision == core.Block || got != c.want {
+			t.Errorf("%s %q = %+v, want type %s", c.st, c.brief, r, c.want)
+		}
+	}
+}
+
+func TestDispatchCoworkerPiRetypesToCodeMode(t *testing.T) {
+	dispatchEnv(t)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
+	for _, c := range []struct{ st, brief string }{
+		{"coworker:pi", "do it"},
+		{"coworker", "Agent: pi\\n\\nbody"},
+	} {
+		r := pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"%s","description":"x"}}`, c.st, c.brief))
+		if got, _ := r.UpdatedInput["subagent_type"].(string); r.Decision == core.Block || got != "code-mode" {
+			t.Errorf("%s %q = %+v, want a retype to code-mode", c.st, c.brief, r)
+		}
+	}
+	if got := typeSuggestion("coworker:pi", ""); got != `use "code-mode"` {
+		t.Errorf("suggestion = %q, want code-mode", got)
+	}
+}
+
+func TestDispatchCodeModeOffKeepsPiAgentLine(t *testing.T) {
+	dispatchEnv(t)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
+	r := pre(`{"tool_name":"Agent","tool_input":{"subagent_type":"code-mode","prompt":"Codemode: off\n\nbody","description":"x"}}`)
+	p, _ := r.UpdatedInput["prompt"].(string)
+	if got, _ := r.UpdatedInput["subagent_type"].(string); got != "claude" || !strings.HasPrefix(p, "Agent: pi\n") {
+		t.Errorf("type %q prompt %q, want claude with an Agent: pi header line", got, p)
+	}
+}
+
+func TestAskLineRoutePicksAgentLineAcrossContinuations(t *testing.T) {
+	text := "claude-code agents ask --agent claude --profile x\nclaude-code agents ask --background \\\n  --agent pi --provider databricks --profile qa - < PATH\n"
+	if prov, prof := askLineRoute(text, "pi"); prov != "databricks" || prof != "qa" {
+		t.Errorf("route = %q %q, want databricks qa", prov, prof)
 	}
 }

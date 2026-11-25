@@ -17,11 +17,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -132,7 +134,7 @@ func newAskTarget() *askTarget {
 	return &askTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
 		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
-		Host: s(), Fallback: s(), Codemode: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
+		Host: s(), Fallback: s(), Codemode: s(), Runner: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
 		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema)}
 }
 
@@ -148,6 +150,18 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
 	if *s.NoTools || !*s.Tools {
 		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.NoTools, *s.Tools)
+	}
+}
+
+// A replayed record keeps its --runner own, so code mode is rechecked against the own CLI.
+func TestApplyRecordRestoresRunner(t *testing.T) {
+	s := newAskTarget()
+	s.Apply(agent.Record{Agent: "codex", Request: agent.RunOptions{Runner: "own"}}, io.Discard)
+	if *s.Runner != "own" {
+		t.Errorf("runner = %q, want own", *s.Runner)
+	}
+	if mode, why, _ := validateCodemode("on", "codex", *s.Runner, true, false); mode != "off" || why == "" {
+		t.Errorf("own runner codemode = %q %q, want off with a reason", mode, why)
 	}
 }
 
@@ -677,19 +691,19 @@ func TestValidateCodemodeTable(t *testing.T) {
 		{"off", "codex", true, "", false},
 	}
 	for _, c := range cases {
-		got, why, err := validateCodemode(c.mode, c.ag, true, c.direct)
+		got, why, err := validateCodemode(c.mode, c.ag, "", true, c.direct)
 		if err != nil || got != c.want || (why != "") != c.reason {
 			t.Errorf("validateCodemode(%q, %q, direct=%v) = %q, %q, %v", c.mode, c.ag, c.direct, got, why, err)
 		}
 	}
-	if _, _, err := validateCodemode("onn", "claude", true, true); err == nil {
+	if _, _, err := validateCodemode("onn", "claude", "", true, true); err == nil {
 		t.Error("a misspelled mode must still error")
 	}
 }
 
 func TestCodemodeRouteGuards(t *testing.T) {
 	for _, ag := range []string{"claude", "opencode"} {
-		if got, why, err := validateCodemode("on", ag, false, true); err != nil || got != "off" || why == "" {
+		if got, why, err := validateCodemode("on", ag, "", false, true); err != nil || got != "off" || why == "" {
 			t.Errorf("%s --codemode on without tools = %q, %q, %v", ag, got, why, err)
 		}
 	}
@@ -713,5 +727,47 @@ func TestReplayCodemode(t *testing.T) {
 	f = &askFlags{name: "claude", codemode: "on", tools: true, profile: "dev"}
 	if err := replayCodemode(f); err != nil || f.codemode != "on" {
 		t.Errorf("non-replay run rechecked: %v %q", err, f.codemode)
+	}
+}
+
+func TestRunnerFlagValidatesAndCarries(t *testing.T) {
+	if err := runnerCheck(&askFlags{runner: "bogus"}); err == nil {
+		t.Fatal("--runner bogus accepted")
+	}
+	if err := runnerCheck(&askFlags{runner: "own"}); err != nil {
+		t.Fatalf("--runner own: %v", err)
+	}
+	ctx, err := carryOverlay(context.Background(), agentconfig.Overlay{Runner: "own"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil); ov.Runner != agentconfig.RunnerOwn {
+		t.Fatalf("carried runner = %q, want own", ov.Runner)
+	}
+}
+
+func TestPiRunnerOwnsCodemode(t *testing.T) {
+	if got, _, _ := validateCodemode("on", "codex", agentconfig.RunnerOwn, true, false); got != "off" {
+		t.Errorf("codex --runner own code mode = %q, want off", got)
+	}
+	if got, _, _ := validateCodemode("on", "opencode", "", true, false); got != "on" {
+		t.Errorf("opencode --codemode on = %q, want its own row to keep on", got)
+	}
+	if piRunnerLeads("codex", "", true) || piRunnerLeads("claude", "", false) {
+		t.Error("a direct route or an agent with its own code-mode row must not be pi-led")
+	}
+}
+
+// The vault CODEMODE turns code mode on for an agent with its own row, never for another agent's pi-runner ask.
+func TestVaultCodemodeDoesNotLeadPiRunner(t *testing.T) {
+	vaulttest.Use(t)
+	if err := providers.SetCustomEnv(rtkwrap.CodemodeEnv, "on"); err != nil {
+		t.Fatal(err)
+	}
+	if got, why, err := validateCodemode("", "codex", "", true, false); got != "" || why != "" || err != nil {
+		t.Errorf("untyped codex = %q %q %v, want no code mode", got, why, err)
+	}
+	if got, _, _ := validateCodemode("", agentid.Pi, "", true, false); got != "on" {
+		t.Errorf("untyped pi = %q, want the vault's on", got)
 	}
 }

@@ -845,24 +845,31 @@ func leafAgentType(in *core.Input) string {
 var externalTypes = func() map[string]bool {
 	m := map[string]bool{}
 	for _, n := range agentid.External() {
-		m[n] = true
+		m[agentid.SubagentType(n)] = true
 	}
+	m[agentid.Pi] = true // an in-flight leaf typed with the old bare "pi" still passes the relay gate
 	return m
 }()
+
+// typeAgent is the roster agent an external leaf type runs: its own name for the old bare "pi" alias.
+func typeAgent(st string) string { return cmp.Or(agentid.AgentOfType(st), st) }
+
+// externalAgent reports name as an external roster agent: a CLI word or an Agent: line name, never a type.
+func externalAgent(name string) bool { return slices.Contains(agentid.External(), name) }
 
 // isRelay is a leaf of an external type (reachable through the type gate's fallback).
 func isRelay(in *core.Input) bool { return externalTypes[leafAgentType(in)] }
 
-// relayAgent is the external leaf type, else claude.
+// relayAgent is the external agent the leaf's type dispatches, else claude.
 func relayAgent(in *core.Input) string {
 	if st := leafAgentType(in); externalTypes[st] {
-		return st
+		return typeAgent(st)
 	}
 	return agentid.Claude
 }
 
-// labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
-func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
+// labelAgent is true for an agent a dispatch label may name: claude or an external roster agent.
+func labelAgent(name string) bool { return name == agentid.Claude || externalAgent(name) }
 
 // ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, attaches or notes, and never drops the report.
 func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
@@ -1002,7 +1009,7 @@ func askTask(seg string) (name, task string) {
 		return "", ""
 	}
 	name, task = a.Value("agent"), a.Prompt()
-	if name == "" && externalTypes[words[0]] {
+	if name == "" && externalAgent(words[0]) {
 		name = words[0]
 	}
 	if file != "" {

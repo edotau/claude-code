@@ -543,7 +543,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if err != nil {
 		return c, pick, err
 	}
-	return withPiRunner(ctx, q, c), pick, nil
+	return withOwnHopCodemodeNote(q, withPiRunner(ctx, q, c)), pick, nil
 }
 
 // noted is c with one preflight note; the chain itself is unchanged.
