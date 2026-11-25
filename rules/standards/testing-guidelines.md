@@ -81,12 +81,14 @@ See `rules/standards/quality.md` for size caps.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
   feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
   decide; judge proposals by speed first, then teeth, then no overlap. The implementer writes its feature's basic tests.
-- **Fake credentials and hosts look nothing like real ones** — a token, key or secret fixture never starts with a vendor
-  prefix (`dapi`, `dose`, `ghp_`, `github_pat_`, `sk-`, `tskey-`, `AKIA`, `xox`, `eyJ` …) or matches its length and
-  alphabet: scanners such as GitHub's flag a fake as an exposed secret. Use plain gibberish with no prefix (a random
-  mash of letters, a new one per test); prefer tests that never need a credential's shape. When the code under test
-  checks the shape, build the value at runtime from the code's own prefix constant plus filler (`prefix +
-  strings.Repeat("x", n)`), so no literal is in the source; keep such tests few and shallow. Hosts are made-up names
+- **No credential-shaped value in a test, at all** — no test holds or builds a token, key or secret that starts with
+  a vendor prefix (`dapi`, `dose`, `ghp_`, `github_pat_`, `sk-`, `tskey-`, `AKIA`, `xox`, `eyJ` …) or matches its
+  length and alphabet: not as a literal, and not assembled at runtime from parts either. Such tests are not allowed
+  for the foreseeable future (owner, 2026-11-25): a scanner flagged a fake as an exposed secret and blocked every
+  push, and the owner denies every request to allow one. A test that needs a credential's shape to pass is rewritten
+  to test something else or removed; where a value must merely be secret-like, use plain gibberish with no prefix (a
+  random mash of letters). Code that recognises a vendor's token shape is checked live, not by a test. Hosts are
+  made-up names
   (`devhost`) on documentation addresses (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32), never a real
   host name, login, tailnet name or address.
 - **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash or
