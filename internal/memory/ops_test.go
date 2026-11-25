@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -489,4 +490,205 @@ func toFloat(v any) float64 {
 		return n
 	}
 	return 0
+}
+
+func TestValidateRejectsUpgradeOnlyOps(t *testing.T) {
+	for _, name := range upgradeOnlyOps {
+		err := Batch{Ops: []Op{{Op: name}}}.Validate()
+		if err == nil || !strings.Contains(err.Error(), "upgrade-only") || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+const legacyB = "## 2026-11-24 — ~~b~~ <!-- id:1a1b2c3d -->\nReplaced by 0a1b2c3d.\n\nbody b\n"
+
+func closeLegacy(t *testing.T, tail, by string) (string, OpResult) {
+	t.Helper()
+	in := strings.Replace(datedIn, "## 2026-11-24 — b <!-- id:1a1b2c3d -->\n\nbody b\n", tail, 1)
+	d := ParseDoc("decisionLog.md", []byte(in))
+	o := Op{Op: "close", ID: "1a1b2c3d", Read: contentRef(d.Entries[len(d.Entries)-1].block()), Reason: "superseded-by", By: by}
+	out, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	return string(out.Render()), rs[0]
+}
+
+func TestCloseRetypesLegacyPointer(t *testing.T) {
+	got, r := closeLegacy(t, legacyB, "0a1b2c3d")
+	if r.Outcome != DreamOK || !strings.Contains(got, "~~b~~ <!-- id:1a1b2c3d -->\nReplaced by 0a1b2c3d (2026-11-26).\n") || strings.Contains(got, "0a1b2c3d.\n") {
+		t.Errorf("%+v\n%s", r, got)
+	}
+}
+
+func TestCloseAlreadyTypedIsNoop(t *testing.T) {
+	typed := strings.Replace(legacyB, "0a1b2c3d.", "0a1b2c3d (2026-11-20).", 1)
+	got, r := closeLegacy(t, typed, "0a1b2c3d")
+	if r.Outcome != DreamNoop || !strings.Contains(got, typed) {
+		t.Errorf("%+v\n%s", r, got)
+	}
+}
+
+func TestCloseOtherSupersederFails(t *testing.T) {
+	in := strings.Replace(datedIn, "## 2026-11-24 — b <!-- id:1a1b2c3d -->\n\nbody b\n", legacyB+"\n## 2026-11-23 — c <!-- id:2a1b2c3d -->\n\nbody c\n", 1)
+	d := ParseDoc("decisionLog.md", []byte(in))
+	o := Op{Op: "close", ID: "1a1b2c3d", Read: contentRef(d.Entries[1].block()), Reason: "superseded-by", By: "2a1b2c3d"}
+	_, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	if rs[0].Outcome != DreamFailed || rs[0].Reason != "already superseded" {
+		t.Errorf("%+v", rs[0])
+	}
+}
+
+// batchStore is a temp store holding decisionLog.md and conventions.md from the fixtures above.
+func batchStore(t *testing.T) {
+	t.Helper()
+	tempConfig(t)
+	repoRoot(t, "ab")
+	write(t, Path("decisionLog.md"), datedIn)
+	write(t, Path("conventions.md"), bulletsIn)
+}
+
+var batchAdd = Op{Op: "add", Target: "decisionLog", Title: "n", Text: "t"}
+
+func TestApplyBatchWritesChangedFilesOnly(t *testing.T) {
+	batchStore(t)
+	now := testEnv().Now
+	bad := Op{Op: "update", ID: "ffffffff", Read: "z00000000", Text: "x"}
+	add := batchAdd
+	if _, err := ApplyBatch(Batch{Ops: []Op{add, bad}}, nil, now); err == nil {
+		t.Fatal("want error for failing op")
+	}
+	if got := mustRead(t, Path("decisionLog.md")); got != datedIn {
+		t.Errorf("decisionLog changed on failure:\n%s", got)
+	}
+	rs, err := ApplyBatch(Batch{Ops: []Op{add}}, nil, now)
+	if err != nil || len(rs) != 1 || rs[0].Outcome != DreamOK {
+		t.Fatalf("rs=%+v err=%v", rs, err)
+	}
+	if got := mustRead(t, Path("decisionLog.md")); got == datedIn || !strings.Contains(got, " — n <!-- id:") {
+		t.Errorf("decisionLog not written:\n%s", got)
+	}
+	if got := mustRead(t, Path("conventions.md")); got != bulletsIn {
+		t.Errorf("conventions changed:\n%s", got)
+	}
+}
+
+func TestApplyBatchRollsBackOnDivergence(t *testing.T) {
+	batchStore(t)
+	orig := beforeBatchCommit
+	t.Cleanup(func() { beforeBatchCommit = orig })
+	beforeBatchCommit = func() { write(t, Path("conventions.md"), "edited\n") }
+	conv := Op{Op: "add", Target: "conventions", Text: "three"}
+	if _, err := ApplyBatch(Batch{Ops: []Op{batchAdd, conv}}, nil, testEnv().Now); err == nil {
+		t.Fatal("want an error when conventions.md diverges")
+	}
+	if got := mustRead(t, Path("decisionLog.md")); got != datedIn {
+		t.Errorf("decisionLog kept the aborted write:\n%s", got)
+	}
+	if got := mustRead(t, Path("conventions.md")); got != "edited\n" {
+		t.Errorf("the editor's bytes were overwritten:\n%s", got)
+	}
+	if left, _ := filepath.Glob(filepath.Join(JournalDir(), "*.json")); len(left) > 0 {
+		t.Errorf("journal left for replay: %v", left)
+	}
+	// the dirty fixture forces a native capture commit ahead of the batch's; only the batch's may go
+	if head, err := StoreRepo().run("show", "HEAD:decisionLog.md"); err != nil || head+"\n" != datedIn {
+		t.Errorf("HEAD keeps the aborted batch (err %v):\n%s", err, head)
+	}
+}
+
+func TestApplyBatchKeepsCommittedBatchWhenSettleFails(t *testing.T) {
+	batchStore(t)
+	write(t, filepath.Join(JournalDir(), "00000000-stuck.json"), "{") // every settle refuses while it is stuck
+	_, err := ApplyBatch(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+	if err == nil || !strings.Contains(err.Error(), "batch committed") {
+		t.Fatalf("want the settle failure reported after the commit, got %v", err)
+	}
+	head, herr := StoreRepo().run("show", "HEAD:decisionLog.md")
+	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") || herr != nil || head+"\n" != got {
+		t.Errorf("the committed batch was undone or left uncommitted (err %v):\n%s", herr, got)
+	}
+}
+
+func TestApplyBatchReplaysPendingJournalFirst(t *testing.T) {
+	batchStore(t)
+	edited := strings.Replace(datedIn, "body b", "body B", 1)
+	j, err := newJournal(StoreRepo(), "pending", []Change{{Rel: "decisionLog.md", Data: []byte(edited)}})
+	if err == nil {
+		err = j.save()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyBatch(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil {
+		t.Fatalf("pending journal made the apply fail: %v", err)
+	}
+	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, "body B") || !strings.Contains(got, " — n <!-- id:") {
+		t.Errorf("want the journal's edit and the new entry:\n%s", got)
+	}
+}
+
+func TestApplyBatchFillsReadFromBase(t *testing.T) {
+	batchStore(t)
+	ref := contentRef(ParseDoc("decisionLog.md", []byte(datedIn)).Entries[0].block())
+	upd := Op{Op: "update", Target: "decisionLog", ID: "0a1b2c3d", Text: "new body"} // conventions.md shares the id
+	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, map[string]string{"0a1b2c3d": ref}, testEnv().Now); err != nil {
+		t.Fatalf("base did not fill read: %v", err)
+	}
+	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, "new body") {
+		t.Errorf("update not written:\n%s", got)
+	}
+	upd.Read = "z00000000"
+	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, map[string]string{"0a1b2c3d": ref}, testEnv().Now); err == nil ||
+		!strings.Contains(err.Error(), "disagrees") {
+		t.Errorf("a read that disagrees with base: err = %v", err)
+	}
+}
+
+func TestBatchMintAvoidsOtherFilesIDs(t *testing.T) {
+	now := testEnv().Now
+	taken := blockID(freshID("decisionLog.md", 0, "## 2026-11-26 — n", now))
+	docs := map[string]Doc{
+		"decisionLog.md": ParseDoc("decisionLog.md", []byte(datedIn)),
+		"conventions.md": ParseDoc("conventions.md", []byte("# Conv\n\n- x <!-- id:"+taken+" -->\n")),
+	}
+	rs := runBatchOps(docs, Batch{Ops: []Op{batchAdd}}, now)
+	if rs[0].Outcome != DreamOK || rs[0].ID == taken {
+		t.Errorf("minted %+v, an id conventions.md already holds (%s)", rs[0], taken)
+	}
+}
+
+func closeBullet(t *testing.T, in string) (string, OpResult) {
+	t.Helper()
+	d := ParseDoc("conventions.md", []byte(in))
+	o := Op{Op: "close", ID: contentRef(d.Entries[0].block()), Reason: "superseded-by", By: "1a1b2c3d"}
+	out, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	return string(out.Render()), rs[0]
+}
+
+func TestCloseSupersededBulletFails(t *testing.T) {
+	in := "# Conv\n\n- ~~one~~ <!-- id:0a1b2c3d -->\n  Replaced by 1a1b2c3d.\n\n- two <!-- id:1a1b2c3d -->\n"
+	if got, r := closeBullet(t, in); r.Outcome != DreamFailed || r.Reason != "already superseded" || got != in {
+		t.Errorf("%+v\n%s", r, got)
+	}
+}
+
+func TestCloseSupersededWrappedBulletKeepsBytes(t *testing.T) {
+	in := "# Conv\n\n- ~~one long~~\n  ~~wrapped~~ <!-- id:0a1b2c3d -->\n  Replaced by 1a1b2c3d.\n\n- two <!-- id:1a1b2c3d -->\n"
+	if got, r := closeBullet(t, in); r.Outcome != DreamFailed || got != in {
+		t.Errorf("%+v\n%s", r, got)
+	}
+}
+
+func TestApplyBatchLockedUnderHeldLock(t *testing.T) {
+	batchStore(t)
+	shortBankWait(t)
+	err := withFlatLock(BankLockWait, func() error {
+		_, err := applyBatchLocked(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("applyBatchLocked under the held lock: %v", err)
+	}
+	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") {
+		t.Errorf("not written:\n%s", got)
+	}
 }

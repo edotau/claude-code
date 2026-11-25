@@ -1,15 +1,22 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -22,10 +29,13 @@ const (
 	dayLayout   = "2006-01-02"
 )
 
+var datedPointerRe = regexp.MustCompile(`^Replaced by \S+ \(\d{4}-\d{2}-\d{2}\)\.$`)
+
 var (
-	opNames      = []string{"add", "update", "supersede", "close", "noop"}
-	closeReasons = []string{"done", "stale", "superseded-by"}
-	targets      = []string{"activeContext", "progress", "decisionLog", "conventions", "sessionHistory",
+	opNames        = []string{"add", "update", "supersede", "close", "noop"}
+	upgradeOnlyOps = []string{"merge", "identify", "date"}
+	closeReasons   = []string{"done", "stale", "superseded-by"}
+	targets        = []string{"activeContext", "progress", "decisionLog", "conventions", "sessionHistory",
 		"projectContext", "feedback", "note", "techdebt"}
 	sectionsOf = map[string][]string{
 		"activeContext": {"Current Focus", "Open Questions", "Blockers", "Next Steps", "Parked"},
@@ -102,6 +112,8 @@ func (o Op) check() error {
 
 func ruleEnums(o Op) string {
 	switch list := sectionsOf[o.Target]; {
+	case slices.Contains(upgradeOnlyOps, o.Op):
+		return fmt.Sprintf("op %q is upgrade-only", o.Op)
 	case !slices.Contains(opNames, o.Op):
 		return fmt.Sprintf("unknown op %q", o.Op)
 	case o.Target != "" && !slices.Contains(targets, o.Target):
@@ -602,7 +614,7 @@ func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
 	case replaced && !env.live(d, o.By):
 		return d, failed("by is not a live id")
 	case replaced && isSupersededBlock(e.block()):
-		return d, failed("already superseded")
+		return retypeSuperseded(d, i, o, env)
 	}
 	ents := slices.Clone(d.Entries)
 	if d.Grammar == GrammarDated {
@@ -611,6 +623,31 @@ func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
 	} else {
 		ents = removeEntry(ents, i)
 	}
+	d.Entries = ents
+	return d, OpResult{ID: e.refOf(), Outcome: DreamOK}
+}
+
+// retypeSuperseded turns a dated entry's legacy pointer to o.By into the typed form; other grammars stay refused.
+func retypeSuperseded(d Doc, i int, o Op, env Env) (Doc, OpResult) {
+	e := d.Entries[i]
+	ptr := replacedBy(e.block())
+	cur, _ := ParseRef(ptr)
+	by, _ := ParseRef(o.By)
+	if d.Grammar != GrammarDated || ptr == "" || cur.Hex != by.Hex || cur.Derived != by.Derived {
+		return d, failed("already superseded")
+	}
+	same := OpResult{ID: e.refOf(), Outcome: DreamNoop, Reason: "already typed"}
+	if len(e.Lines) > 1 && datedPointerRe.MatchString(strings.TrimSpace(e.Lines[1])) && isSupersededTitle(e.Lines[0]) {
+		return d, same
+	}
+	pre := docEntry(strings.Split(dropPointer(e.block()), "\n"))
+	lines := markLines(pre, o.By, env.Now)
+	if strings.Join(lines, "\n") == e.block() {
+		return d, same
+	}
+	ents := slices.Clone(d.Entries)
+	ents[i] = docEntry(lines)
+	ents[i].Seq = i
 	d.Entries = ents
 	return d, OpResult{ID: e.refOf(), Outcome: DreamOK}
 }
@@ -691,4 +728,210 @@ func jsonString(v any) string {
 		panic(err) // the schema is built from literals; a failure is a programming error
 	}
 	return string(b)
+}
+
+// beforeBatchCommit runs between ApplyBatch's render and its journaled write; tests race an editor there.
+var beforeBatchCommit = func() {}
+
+// ApplyBatch applies b to the bank files under the bank lock; nothing is written unless every op passes.
+func ApplyBatch(b Batch, base map[string]string, now time.Time) ([]OpResult, error) {
+	var results []OpResult
+	err := withFlatLock(BankLockWait, func() error {
+		var err error
+		results, err = applyBatchLocked(b, base, now)
+		return err
+	})
+	return results, err
+}
+
+// applyBatchLocked is ApplyBatch for a caller already holding the bank lock.
+func applyBatchLocked(b Batch, base map[string]string, now time.Time) ([]OpResult, error) {
+	b, err := withBase(b, base)
+	if err == nil {
+		err = b.Validate()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := recoverEach(); err != nil { // replay older journals first so the bytes read below are current
+		return nil, err
+	}
+	docs, raw, err := loadBatchDocs()
+	if err != nil {
+		return nil, err
+	}
+	results := runBatchOps(docs, b, now)
+	if n := countFailedOps(results); n > 0 {
+		return results, fmt.Errorf("%d of %d ops failed: nothing written", n, len(b.Ops))
+	}
+	return results, commitBatchDocs(docs, raw, now)
+}
+
+// withBase fills each op's empty Read from base and refuses a Read that disagrees with it; b is not modified.
+func withBase(b Batch, base map[string]string) (Batch, error) {
+	ops := slices.Clone(b.Ops)
+	for i, o := range ops {
+		want := base[o.ID]
+		switch {
+		case want == "":
+		case o.Read == "":
+			ops[i].Read = want
+		case o.Read != want:
+			return b, fmt.Errorf("op %d: read %s disagrees with base %s", i, o.Read, want)
+		}
+	}
+	return Batch{Ops: ops}, nil // Clone keeps a nil Ops nil, so Validate still reports it missing
+}
+
+// loadBatchDocs reads every bank file; a missing one is an empty doc, any other read error stops the batch.
+func loadBatchDocs() (map[string]Doc, map[string][]byte, error) {
+	docs, raw := map[string]Doc{}, map[string][]byte{}
+	for _, name := range bankFiles {
+		data, err := os.ReadFile(Path(name))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, err
+		}
+		raw[name], docs[name] = data, ParseDoc(name, data)
+	}
+	return docs, raw, nil
+}
+
+func countFailedOps(rs []OpResult) int {
+	return len(slices.DeleteFunc(slices.Clone(rs), func(r OpResult) bool { return r.Outcome != DreamFailed }))
+}
+
+// runBatchOps applies the ops one by one in batch order, each to the file it routes to; every op reports.
+func runBatchOps(docs map[string]Doc, b Batch, now time.Time) []OpResult {
+	results := make([]OpResult, 0, len(b.Ops))
+	for _, o := range b.Ops {
+		name, r := routeBatchOp(docs, o)
+		if name != "" {
+			var rs []OpResult
+			docs[name], rs = Apply(docs[name], Batch{Ops: []Op{o}}, batchEnv(docs, name, now))
+			r = rs[0]
+		}
+		r.Op = o
+		results = append(results, r)
+	}
+	return results
+}
+
+// batchEnv checks liveness and mints ids against every loaded bank doc, not only the one being edited.
+func batchEnv(docs map[string]Doc, name string, now time.Time) Env {
+	live := func(ref string) bool {
+		for _, d := range docs {
+			if _, msg := d.target(Op{ID: ref, Read: ref}); msg == "" || msg == "changed since read" {
+				return true
+			}
+		}
+		return false
+	}
+	newID := func(salt int, first string) string {
+		id := blockID(freshID(name, salt, first, now))
+		for _, d := range docs {
+			if d.hasID(id) {
+				return "" // mint skips an invalid id and tries the next salt
+			}
+		}
+		return id
+	}
+	return Env{Now: now, Live: live, NewID: newID}
+}
+
+// routeBatchOp names the bank file for o; a non-empty name means apply, else the result is final.
+func routeBatchOp(docs map[string]Doc, o Op) (string, OpResult) {
+	switch {
+	case o.Op == "noop":
+		return "", OpResult{Outcome: DreamNoop, Reason: "no change"}
+	case o.Target != "":
+		if name := o.Target + ".md"; slices.Contains(bankFiles, name) {
+			return name, OpResult{}
+		}
+		return "", failed("target %s is not a bank file", o.Target)
+	case !o.editsEntry():
+		return "", failed("add needs a target")
+	}
+	r, _ := ParseRef(o.ID)
+	var hits []string
+	for _, name := range bankFiles {
+		if slices.ContainsFunc(docs[name].Entries, func(e DocEntry) bool { return e.matches(r) }) {
+			hits = append(hits, name)
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return "", failed("unknown id")
+	case 1:
+		return hits[0], OpResult{}
+	}
+	return "", failed("ambiguous id")
+}
+
+// commitBatchDocs commits every changed file as one journaled batch, rolled back on failure, then settles.
+func commitBatchDocs(docs map[string]Doc, raw map[string][]byte, now time.Time) error {
+	changes := batchChanges(docs, raw)
+	if len(changes) == 0 {
+		return nil
+	}
+	beforeBatchCommit()
+	rec, err := commitChangesLocked("settle: "+stateKey(), changes)
+	if errors.Is(err, errDivergent) {
+		err = fmt.Errorf("files changed during apply (%s): %w", strings.Join(rec.Divergent, ", "), err)
+	}
+	if err != nil {
+		return rollbackBatch(raw, rec, err)
+	}
+	// the batch is committed whole; settle only derives files (rotation, index) and the next settle redoes it
+	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
+		return fmt.Errorf("batch committed as %s; settle: %w", rec.Commit, tolerateIndex(err))
+	}
+	return nil
+}
+
+// batchChanges lists a planned write for each bank file whose rendering differs from the bytes read.
+func batchChanges(docs map[string]Doc, raw map[string][]byte) []Change {
+	var changes []Change
+	for _, name := range bankFiles {
+		out := docs[name].Render()
+		if bytes.Equal(out, raw[name]) {
+			continue
+		}
+		sha := ""
+		if raw[name] != nil {
+			sha = textutil.SHA256Hex(raw[name])
+		}
+		changes = append(changes, Change{Rel: name, Data: out, Planned: true, PreSHA256: sha})
+	}
+	return changes
+}
+
+// rollbackBatch drops the batch's journal, restores the files it applied from the bytes read, and undoes its commit.
+func rollbackBatch(raw map[string][]byte, rec Receipt, err error) error {
+	if rec.ID != "" { // a kept journal would replay the aborted write on the next commit
+		if rerr := os.Remove(filepath.Join(JournalDir(), rec.ID+".json")); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			return errors.Join(err, fmt.Errorf("drop the journal: %w", rerr))
+		}
+	}
+	var snaps []fileSnapshot
+	for _, rel := range rec.Applied {
+		snaps = append(snaps, fileSnapshot{path: Path(rel), prev: raw[rel], existed: raw[rel] != nil})
+	}
+	if rerr := restoreSnaps(snaps); rerr != nil { // half restored: keep the commit as the recovery point
+		return errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
+	}
+	return errors.Join(fmt.Errorf("%w (write rolled back)", err), undoBatchCommit(rec.Commit))
+}
+
+// undoBatchCommit moves HEAD off the batch's own commit only while it is still HEAD; a native capture stays.
+func undoBatchCommit(sha string) error {
+	if sha == "" {
+		return nil
+	}
+	repo := StoreRepo()
+	full, err := repo.run("rev-parse", "--verify", sha+"^{commit}") // Commit holds the short form
+	if head, ok := repo.headSHA(); err != nil || !ok || head != full {
+		return fmt.Errorf("batch commit %s is no longer HEAD: left in place", sha)
+	}
+	_, err = repo.run("reset", "--quiet", full+"^")
+	return err
 }
