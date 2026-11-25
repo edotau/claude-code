@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -203,18 +201,7 @@ func TestApplyKeepsInput(t *testing.T) {
 }
 
 func TestApplyEmptyAndNoopKeepBytes(t *testing.T) {
-	root := "/Users/edotau/.claude/memory"
-	files, _ := filepath.Glob(filepath.Join(root, "*.md"))
-	more, _ := filepath.Glob(filepath.Join(root, "archive", "*.md"))
-	files = append(files, more[:min(len(more), 40)]...)
-	if len(files) == 0 {
-		files = []string{"decisionLog.md"}
-	}
-	for _, p := range files {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			data = []byte(datedIn)
-		}
+	for p, data := range storeFixtures(t) {
 		d := ParseDoc(p, data)
 		for _, b := range []Batch{{}, {Ops: []Op{{Op: "noop", Note: "n"}}}} {
 			out, _ := Apply(d, b, testEnv())
