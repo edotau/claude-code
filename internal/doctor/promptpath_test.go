@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -211,18 +212,34 @@ func BenchmarkPromptPathStatic(b *testing.B) {
 	}
 }
 
-func TestPromptsListPrintsOneRowPerText(t *testing.T) {
+func runCaptured(t *testing.T, args ...string) (int, string) {
+	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	saved := os.Stdout
 	os.Stdout = w
-	code := Run([]string{"--prompts", "--list"})
+	code := Run(args)
 	os.Stdout = saved
 	w.Close()
 	out, _ := io.ReadAll(r)
-	rows := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return code, string(out)
+}
+
+func TestPromptsListJSONAccessorsAreArrays(t *testing.T) {
+	code, out := runCaptured(t, "--prompts", "--list", "--format", "json")
+	var rows []struct {
+		Accessors []string `json:"accessors"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || code != 0 || len(rows) != len(assets.Inventory()) || len(rows[0].Accessors) == 0 {
+		t.Fatalf("exit %d, err %v, %d rows", code, err, len(rows))
+	}
+}
+
+func TestPromptsListPrintsOneRowPerText(t *testing.T) {
+	code, out := runCaptured(t, "--prompts", "--list")
+	rows := strings.Split(strings.TrimSpace(out), "\n")
 	if code != 0 || len(rows) != len(assets.Inventory()) || !strings.Contains(rows[0], "files/catalog/ranks.json") {
 		t.Fatalf("exit %d, %d rows, first %q", code, len(rows), rows[0])
 	}

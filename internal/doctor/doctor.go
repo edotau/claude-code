@@ -186,7 +186,7 @@ func listPrompts(o *doctorOpts) int {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", r.Path, r.Family, r.Accessor, cmp.Or(strings.Join(r.Fields, ","), "-"), r.Size)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", r.Path, r.Family, strings.Join(r.Accessors, ","), cmp.Or(strings.Join(r.Fields, ","), "-"), r.Size)
 	}
 	if err := tw.Flush(); err != nil {
 		return helptext.Fail("doctor: %v", err)
