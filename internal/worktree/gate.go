@@ -526,16 +526,10 @@ var gateWaitDelay = 5 * time.Second
 
 const gateCancelGrace = 2 * time.Second
 
-// gateEnv is gitEnv minus the vault master key, with -buildvcs=false added to GOFLAGS (no VCS stamping).
+// gateEnv is gitEnv minus the vault master key, with -buildvcs=false -trimpath in GOFLAGS (shared build-cache keys).
 func gateEnv() []string {
 	env := slices.DeleteFunc(gitEnv(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
-	for i, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
-			env[i] = strings.TrimSpace("GOFLAGS=" + v + " -buildvcs=false")
-			return env
-		}
-	}
-	return append(env, "GOFLAGS=-buildvcs=false")
+	return proc.GoFlagsEnv(env, "-buildvcs=false", "-trimpath")
 }
 
 // scopedGateSource prefixes the source of a gate scopeGate built from independent steps.

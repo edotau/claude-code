@@ -182,6 +182,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	for _, r := range rtkHookRows() {
 		check(r.OK, false, r.Name, r.Detail)
 	}
+	goDetail, goOK := setup.GoCacheDetail()
+	check(goOK, false, "go cache", goDetail)
 	ccOK, ccDetail := pathBinaryStatus()
 	check(ccOK, false, "claude-code on PATH", ccDetail)
 	hookOK, hookDetail := hookBinaryStatus(paths.BinDir())

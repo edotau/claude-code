@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -136,4 +137,24 @@ func TestValueConcurrentContexts(t *testing.T) {
 		}
 	}
 	wg.Wait()
+}
+
+func TestGoFlagsEnv(t *testing.T) {
+	orig := `GOFLAGS=-tags="a b"  -v`
+	got := GoFlagsEnv([]string{"A=1", orig, "B=2"}, "-trimpath", "-v")
+	n := 0
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "GOFLAGS=") {
+			n++
+			if kv != orig+" -trimpath" {
+				t.Fatalf("got %q", kv)
+			}
+		}
+	}
+	if n != 1 || len(got) != 3 {
+		t.Fatalf("want one GOFLAGS entry in %v", got)
+	}
+	if e := GoFlagsEntry(nil, "-trimpath"); e != "GOFLAGS=-trimpath" {
+		t.Fatalf("empty env: %q", e)
+	}
 }

@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -84,11 +83,11 @@ type e2eEnv struct {
 // e2eModuleRoot is the repo root two levels above this file; the build must not run in the temp project.
 func e2eModuleRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
+	wd, err := os.Getwd() // not runtime.Caller: -trimpath rewrites its path
+	if err != nil {
+		t.Fatal(err)
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
 // e2eRun executes the binary with a from-scratch env (no inherited CLAUDE_*, GIT_* or update-child vars).

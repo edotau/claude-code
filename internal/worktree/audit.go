@@ -90,7 +90,8 @@ func StartAudit(main, sha string) string {
 	if err != nil {
 		return "audit: not started: " + err.Error()
 	}
-	if !proc.SpawnDetached("bash", []string{"-c", auditScript, "audit", main, auditCommand, base + ".exit", sha}, main, logFile) {
+	flags := proc.GoFlagsEntry(os.Environ(), "-trimpath") // the snapshot dir is fresh each run; trimmed paths share cache keys
+	if !proc.SpawnDetached("bash", []string{"-c", auditScript, "audit", main, auditCommand, base + ".exit", sha}, main, logFile, flags) {
 		return "audit: not started: cannot spawn bash"
 	}
 	return "audit: started on " + ShortOID(sha) + " (log " + base + ".log)"

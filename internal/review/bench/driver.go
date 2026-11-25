@@ -455,7 +455,7 @@ func (d *driver) gates(ctx context.Context, c *candidate) (string, error) {
 	if err := d.commit(ctx, c); err != nil {
 		return "", err
 	}
-	if _, _, err := d.run(ctx, c.lane, "", "go", "test", "./"+c.Pkg); err != nil {
+	if _, _, err := d.run(ctx, c.lane, "", "go", "test", "-trimpath", "./"+c.Pkg); err != nil {
 		return "gate: go test ./" + c.Pkg + " failed", nil
 	}
 	return "", nil
