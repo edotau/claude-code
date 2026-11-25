@@ -107,7 +107,11 @@ func exportLine(p kv) string {
 }
 
 func caPairs(bundle string) []kv {
-	return []kv{{"SSL_CERT_FILE", bundle}, {"REQUESTS_CA_BUNDLE", bundle}, {"CURL_CA_BUNDLE", bundle}, {"NODE_EXTRA_CA_CERTS", bundle}}
+	out := make([]kv, len(paths.CAEnvNames))
+	for i, name := range paths.CAEnvNames {
+		out[i] = kv{name, bundle}
+	}
+	return out
 }
 
 // replaceBlock swaps the managed block in content for block, or appends it; text outside the block is untouched.

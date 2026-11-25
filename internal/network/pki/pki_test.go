@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func makeCert(t *testing.T, cn string, parent *x509.Certificate, parentKey *ecdsa.PrivateKey) ([]byte, *x509.Certificate, *ecdsa.PrivateKey) {
@@ -101,6 +103,66 @@ func TestPinnedBundle(t *testing.T) {
 	wantErr(t, err, envURL, "vault env set")
 }
 
+func TestDefaultBundlePath(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // the old default must not win
+	fx := newFixture(t)
+	sys := filepath.Join(t.TempDir(), "sys.pem")
+	if err := os.WriteFile(sys, fx.rootPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", sys)
+	oldSystemPaths := systemBundlePaths
+	systemBundlePaths = []string{sys}
+	t.Cleanup(func() { systemBundlePaths = oldSystemPaths })
+
+	out, err := outPath("")
+	if err != nil || out != paths.CABundle() {
+		t.Fatalf("default out = %q, %v; want %q", out, err, paths.CABundle())
+	}
+	override := filepath.Join(t.TempDir(), "override.pem")
+	if got, err := outPath(override); err != nil || got != override {
+		t.Fatalf("--out = %q, %v; want %q", got, err, override)
+	}
+	envFile := filepath.Join(t.TempDir(), "pki.env")
+	var stdout bytes.Buffer
+	if err := run(context.Background(), options{writeEnv: envFile}, fx.get, &stdout, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	block, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCAEnvBlock(t, string(block), stdout.String(), out)
+	checkOwnBundleRerun(t, fx, out)
+}
+
+func checkCAEnvBlock(t *testing.T, block, report, out string) {
+	t.Helper()
+	for _, name := range paths.CAEnvNames {
+		if !strings.Contains(block, "export "+name+"="+out+"\n") || !strings.Contains(report, name) {
+			t.Errorf("missing %s in env block or report", name)
+		}
+	}
+}
+
+func checkOwnBundleRerun(t *testing.T, fx *fixture, out string) {
+	t.Helper()
+	// A re-run must skip its own output as an external system bundle.
+	t.Setenv("SSL_CERT_FILE", out)
+	if !sameFile(os.Getenv("SSL_CERT_FILE"), out) || !bytes.Equal(systemBundle(out), fx.rootPEM) {
+		t.Error("systemBundle did not fall back to the fixture instead of its own output")
+	}
+	var stdout bytes.Buffer
+	if err := run(context.Background(), options{}, fx.get, &stdout, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := os.ReadFile(out); err != nil || bytes.Count(again, fx.rootPEM) != 1 || bytes.Count(again, fx.issPEM) != 1 {
+		t.Errorf("re-run lost or duplicated certificates: %v", err)
+	}
+}
+
 func wantErr(t *testing.T, err error, subs ...string) {
 	t.Helper()
 	if err == nil {
@@ -115,7 +177,11 @@ func wantErr(t *testing.T, err error, subs ...string) {
 
 func siteFixture(t *testing.T) *fixture {
 	fx := newFixture(t)
-	t.Setenv("SSL_CERT_FILE", "")
+	sys := filepath.Join(t.TempDir(), "sys.pem")
+	if err := os.WriteFile(sys, fx.rootPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", sys)
 	resolv := filepath.Join(t.TempDir(), "resolv.conf")
 	if err := os.WriteFile(resolv, []byte("search example.test\nnameserver 192.0.2.10\nnameserver 192.0.2.11\n"), 0o644); err != nil {
 		t.Fatal(err)

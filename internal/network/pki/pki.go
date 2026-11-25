@@ -56,7 +56,7 @@ type options struct {
 
 func addFlags(fs *flag.FlagSet) *options {
 	o := &options{}
-	fs.StringVar(&o.out, "out", "", "bundle path to write (default: the user data dir, certs/corp-ca-bundle.pem)")
+	fs.StringVar(&o.out, "out", "", "bundle path to write (default: state/certs/corp-ca-bundle.pem)")
 	fs.BoolVar(&o.trust, "trust", false, "also install root and issuing CA into the system trust store (Linux, root)")
 	fs.StringVar(&o.nodeServices, "node-services", "", "comma-separated systemd services to point NODE_EXTRA_CA_CERTS at the bundle")
 	fs.StringVar(&o.site, "site", "", "force a site by name from "+envSites+" instead of detecting it from resolv.conf")
@@ -226,15 +226,7 @@ func outPath(flagVal string) (string, error) {
 	if flagVal != "" {
 		return filepath.Abs(paths.ExpandHome(flagVal))
 	}
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "claude-code", "certs", "corp-ca-bundle.pem"), nil
+	return paths.CABundle(), nil
 }
 
 // fetchPinned downloads the root and issuing CA and returns them only if the root pin and chain both check out.
@@ -346,10 +338,12 @@ func (f *fetcher) once(ctx context.Context, rawURL string) ([]byte, error) {
 	return body, nil
 }
 
+// systemBundlePaths is replaceable in tests so they never read a host trust store.
+var systemBundlePaths = []string{"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"}
+
 // systemBundle skips SSL_CERT_FILE when it is our own output, else each re-run after `source .env` re-appends the CAs.
 func systemBundle(out string) []byte {
-	paths := []string{os.Getenv("SSL_CERT_FILE"), "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"}
-	for _, p := range paths {
+	for _, p := range append([]string{os.Getenv("SSL_CERT_FILE")}, systemBundlePaths...) {
 		if p == "" || sameFile(p, out) {
 			continue
 		}
