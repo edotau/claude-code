@@ -74,23 +74,23 @@ func AgentRubricBody(standard, task string) string {
 }
 
 func AgentPersona(in PersonaFrame) string {
-	return renderAgent("persona.tmpl", tmplFields{"Name": in.Name, "Description": in.Description, "Prompt": in.Prompt})
+	return renderAgent("misc/persona", tmplFields{"Name": in.Name, "Description": in.Description, "Prompt": in.Prompt})
 }
 
 func AgentMidRun(who, partial, reconcile, prompt string, edit bool) string {
-	return renderAgent("mid-run.tmpl", tmplFields{
+	return renderAgent("misc/mid-run", tmplFields{
 		"Who": who, "Partial": partial, "Reconcile": reconcile, "Prompt": prompt, "Edit": edit,
 	})
 }
 
 func AgentPartial(block string) string {
-	return renderAgent("partial.tmpl", tmplFields{"Block": block})
+	return renderAgent("misc/partial", tmplFields{"Block": block})
 }
 
-func AgentReconcile(log string) string { return renderAgent("reconcile.tmpl", tmplFields{"Log": log}) }
+func AgentReconcile(log string) string { return renderAgent("misc/reconcile", tmplFields{"Log": log}) }
 
 func AgentHandoff(agentName, block string) string {
-	return renderAgent("handoff.tmpl", tmplFields{"Agent": agentName, "Block": block})
+	return renderAgent("misc/handoff", tmplFields{"Agent": agentName, "Block": block})
 }
 
 func AgentRecovery(in RecoveryFrame) string {
@@ -100,7 +100,7 @@ func AgentRecovery(in RecoveryFrame) string {
 	})
 }
 
-func AgentSchemaInstruction(schema string) string { return renderAgent("schema.tmpl", schema) }
+func AgentSchemaInstruction(schema string) string { return renderAgent("misc/schema", schema) }
 
 func PackPrompt(task, inventory, blocks string) string {
 	return renderAgent("pack-prompt.tmpl", tmplFields{"Task": task, "Inventory": inventory, "Blocks": blocks})
@@ -111,7 +111,7 @@ func PackIndex(index string) string {
 }
 
 func PackCoverageWarning(in PackCoverage) string {
-	return renderAgent("pack-coverage.tmpl", tmplFields{
+	return renderAgent("misc/pack-coverage", tmplFields{
 		"Included": in.Included, "Total": in.Total, "KB": in.KB, "Skipped": in.Skipped, "Reasons": in.Reasons,
 	})
 }
@@ -181,14 +181,14 @@ func AgyToolLessPreamble() string { return string(read("files/agent/agy-toolless
 
 func PiStdinTask() string { return string(read("files/agent/stdin-task.txt")) }
 
-func ClaudeAttachImage(path string) string { return renderAgent("attach-image.tmpl", path) }
+func ClaudeAttachImage(path string) string { return renderAgent("attach/image", path) }
 
 // AttachFile frames one inline attachment; quotedPath is the path already Go-quoted.
 func AttachFile(quotedPath, content string) string {
 	return renderAgent("attach-file.tmpl", tmplFields{"Path": quotedPath, "Data": content})
 }
 
-func AttachRef(path string) string { return renderAgent("attach-ref.tmpl", path) }
+func AttachRef(path string) string { return renderAgent("attach/ref", path) }
 
 // The file stores one trailing newline (git diff --check); the head ends with a blank line.
 func PlanTasksHead() string { return string(read("files/agent/plan-tasks-head.txt")) + "\n" }
