@@ -4,6 +4,7 @@ internal/memory/bank_blocks.go:appendBlocks	unversioned: memory-bank: bank block
 internal/memory/bank_blocks.go:assignFileIDs	unversioned: memory-bank: bank id comments
 internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_commit.go:save	memory-journal
+internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
 internal/memory/bank_fmt.go:formatFiles	unversioned: memory-bank: bank markdown format
 internal/memory/bank_region.go:appendToCatalog	unversioned: memory-bank: memory/index.md entry records, append-only
 internal/memory/bank_region.go:refreshNativeIndex	unversioned: memory-bank: state/harness/memory/memory-md.gen, the last MEMORY.md installed

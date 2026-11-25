@@ -477,17 +477,18 @@ func (r Repo) syncGitignore() error {
 	if first != gitignoreHeader {
 		return nil
 	}
-	want := storeGitignore
-	for _, line := range strings.Split(string(cur), "\n") { // the user's own lines stay; retired harness ones go
+	var want strings.Builder
+	want.WriteString(storeGitignore)
+	for line := range strings.SplitSeq(string(cur), "\n") { // the user's own lines stay; retired harness ones go
 		if line != "" && line != gitignoreHeader && !slices.Contains(retiredGitignore, line) &&
-			!slices.Contains(strings.Split(storeGitignore, "\n"), line) {
-			want += line + "\n"
+			!strings.Contains("\n"+storeGitignore, "\n"+line+"\n") {
+			want.WriteString(line + "\n")
 		}
 	}
-	if string(cur) == want {
+	if string(cur) == want.String() {
 		return nil
 	}
-	return paths.AtomicWrite(dest, []byte(want), 0o644)
+	return paths.AtomicWrite(dest, []byte(want.String()), 0o644)
 }
 
 // retiredGitignore lists lines older binaries wrote under the header; a refresh drops them.
