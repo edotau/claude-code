@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
@@ -431,18 +432,26 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	return doc.print(format, out)
 }
 
-// firstHopOnRoute is ch's hops with hop 0's and the own hop's model set to the peeked route's on that account.
+// firstHopOnRoute is ch's hops with hop 0's model, and the own hop's when still auto, set to the peeked route's.
 func firstHopOnRoute(ch agent.Chain, r agent.ModelRoute) []string {
 	if len(ch.Dispatches) == 0 || r.Model == "" {
 		return ch.Hops()
 	}
 	ch.Dispatches = slices.Clone(ch.Dispatches)
 	for _, i := range []int{0, ch.OwnHop()} {
-		if i >= 0 && !strings.Contains(ch.Dispatches[i].Model, r.Model) && ch.Dispatches[i].Account == r.Account {
+		if i < 0 || i > 0 && resolvedModel(ch.Dispatches[i].Model) {
+			continue // an own hop with a served model id runs that one
+		}
+		if !strings.Contains(ch.Dispatches[i].Model, r.Model) && ch.Dispatches[i].Account == r.Account {
 			ch.Dispatches[i].Model = r.Model
 		}
 	}
 	return ch.Hops()
+}
+
+// resolvedModel reports m as a concrete id, not empty, auto or a family alias.
+func resolvedModel(m string) bool {
+	return m != "" && !agent.IsAuto(m) && !slices.Contains(models.AliasNames, m)
 }
 
 // dryRoute is the first hop's route, from the calls `gateway resolve` makes; ok is false when it cannot resolve.

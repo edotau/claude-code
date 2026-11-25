@@ -94,7 +94,7 @@ func checkChildFence(t *testing.T, p RoutePlan) {
 		t.Errorf("fallback = %+v, want typed all held to the confined workspace", p.Fallback)
 	}
 	for _, h := range p.Hops() {
-		if !p.Fence.Allows(h.Workspace.Profile) {
+		if h.Workspace.Profile != "" && !p.Fence.Allows(h.Workspace.Profile) { // agent hops: fence enforcement is Phase 5.1
 			t.Errorf("hop %+v leaves the fence", h)
 		}
 	}

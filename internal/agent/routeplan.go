@@ -81,6 +81,7 @@ type RoutePlan struct {
 	Fence    route.Fence   `json:"fence"`
 	Fallback router.Policy `json:"fallback"`
 	Barred   string        `json:"barred,omitempty"` // why Runners lacks pi, said once
+	Agents   []PlanHop     `json:"agents,omitempty"` // the other-account and other-agent hops an agents or all policy adds
 }
 
 type planKey struct{}
@@ -127,7 +128,34 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	p.Pool = planPool(rctx, reg, ro, p) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
+	if p.Agents, err = planAgentHops(rctx, ro, p); err != nil {
+		return p, fmt.Errorf("route plan: %w", err)
+	}
 	return p, nil
+}
+
+// planAgentHops is the chain's own ladder tail under an agents or all policy: hops off the pool's accounts.
+func planAgentHops(ctx context.Context, o RunOptions, p RoutePlan) ([]PlanHop, error) {
+	if !p.Fallback.Agents || o.Host != "" {
+		return nil, nil
+	}
+	eng, err := Lookup(o.Agent)
+	if err != nil {
+		return nil, err
+	}
+	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: HopAlias(o.Prompt, router.RuleClassifier{}.Alias),
+		Task: o.Prompt, Profile: o.Provider, Lead: o.Lead, Fallback: p.Fallback.Mode(), WorkDir: o.WorkDir, Native: o.Native,
+		Pinned: true, AutoModel: o.AutoModel, Tools: o.Tools, Engine: eng, Resumed: o.SessionID != "", Opts: o})
+	if err != nil {
+		return nil, err
+	}
+	var out []PlanHop
+	for _, d := range chain.Dispatches {
+		if d.runFor == "" && !slices.ContainsFunc(p.Pool, func(w Workspace) bool { return w.Account == d.Account }) {
+			out = append(out, PlanHop{Runner: Runner{Kind: RunnerOwn, Agent: d.Agent.Name()}, Workspace: Workspace{Account: d.Account}})
+		}
+	}
+	return out, nil
 }
 
 // planFence is the overlay's confinement held to the parent's fence.
@@ -287,7 +315,7 @@ func piAskRunners(o RunOptions, p RoutePlan, onDatabricks bool) []Runner {
 	return append(rs, Runner{Kind: RunnerOwn, Agent: agentid.Claude})
 }
 
-// Hops is p runner-major (D3): pi on every pool workspace, then each own CLI on Pool[0].
+// Hops is p runner-major (D3): pi on every pool workspace, each own CLI on Pool[0], then the agent hops.
 func (p RoutePlan) Hops() []PlanHop {
 	var out []PlanHop
 	for _, r := range p.Runners {
@@ -299,7 +327,7 @@ func (p RoutePlan) Hops() []PlanHop {
 			out = append(out, PlanHop{Runner: r, Workspace: w})
 		}
 	}
-	return out
+	return append(out, p.Agents...)
 }
 
 // engineName is the CLI h launches, as a Dispatch's Agent.Name() spells it.
