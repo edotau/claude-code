@@ -281,3 +281,20 @@ func TestSchemaForTypes(t *testing.T) {
 	}()
 	SchemaFor[genRec]()
 }
+
+func TestDecode(t *testing.T) {
+	type row struct {
+		N int    `json:"n"`
+		S string `json:"s"`
+	}
+	v, notes, err := Decode[row](`{"n":1,"s":"a"}`)
+	if err != nil || v != (row{1, "a"}) || len(notes) != 0 {
+		t.Fatalf("valid: %v %v %v", v, notes, err)
+	}
+	if v, notes, err = Decode[row](`{"n":2,"s":"b","x":1}`); err != nil || v.N != 2 || len(notes) != 1 || notes[0] != "dropped answer.x" {
+		t.Fatalf("extra: %v %v %v", v, notes, err)
+	}
+	if _, _, err = Decode[row](`{"n":"no","s":"b"}`); err == nil {
+		t.Fatal("type violation must error")
+	}
+}

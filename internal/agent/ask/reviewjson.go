@@ -24,9 +24,11 @@ type reviewFinding struct {
 	Claim    string `json:"claim"`
 }
 
-var reviewFindingsSchema = wire.SchemaFor[struct {
+type reviewRows struct {
 	Findings []reviewFinding `json:"findings"`
-}]()
+}
+
+var reviewFindingsSchema = wire.SchemaFor[reviewRows]()
 
 type reviewEnvelope struct {
 	wire.Envelope
@@ -189,7 +191,7 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 	if len(raw) == 0 {
 		raw = json.RawMessage(env.Answer)
 	}
-	checked, _, err := wire.Structured(string(raw), reviewFindingsSchema)
+	rows, _, err := wire.Decode[reviewRows](string(raw))
 	if err != nil {
 		if _, err := fmt.Fprintln(note, "review: invalid findings; keeping prose answer"); err != nil {
 			return env, err
@@ -197,11 +199,11 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 		env.Structured, env.Computed = nil, "unjudged" // schema-invalid findings never pass as SHIP
 		return env, nil
 	}
-	var rows struct{ Findings json.RawMessage }
-	if err := json.Unmarshal(checked, &rows); err != nil {
+	findings, err := json.Marshal(rows.Findings)
+	if err != nil {
 		return env, err
 	}
-	env.Findings, env.Structured = rows.Findings, nil // the findings ride once
+	env.Findings, env.Structured = findings, nil // the findings ride once
 	return env, nil
 }
 

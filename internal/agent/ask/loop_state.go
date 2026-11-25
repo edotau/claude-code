@@ -25,8 +25,8 @@ type loopPart struct {
 
 type loopPlan struct {
 	Done    bool       `json:"done"`
-	Summary string     `json:"summary"`
-	Parts   []loopPart `json:"parts"`
+	Summary string     `json:"summary,omitempty"`
+	Parts   []loopPart `json:"parts,omitempty"`
 }
 
 // loopResult is one part's outcome; Status is the envelope status, or needs_main once the retry also failed.
@@ -54,7 +54,7 @@ type loopFile struct {
 	Goal     string      `json:"goal"`
 	Rounds   []loopRound `json:"rounds"`
 	Tokens   int         `json:"tokens"`
-	Summary  string      `json:"summary"`
+	Summary  string      `json:"summary,omitempty"`
 	Reason   string      `json:"reason,omitempty"`
 	Updated  time.Time   `json:"updated"`
 }
