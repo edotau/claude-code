@@ -343,6 +343,8 @@ func putLaunchDoc(plan *agent.Plan, path string, doc map[string]any) error {
 		plan.Files, plan.Argv[1] = nil, string(data)
 		return nil
 	}
+	path = hashedOverlayPath(path, data)
+	plan.Argv[1] = path
 	plan.Files = []agent.LaunchFile{{Path: path, Data: data}}
 	return nil
 }

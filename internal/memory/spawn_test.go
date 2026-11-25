@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -32,6 +33,25 @@ func captureLaunches(t *testing.T) *[]launch {
 	}
 	t.Cleanup(func() { spawnDetached = orig })
 	return &got
+}
+
+func TestWithoutRouteEnvDropsParentRoute(t *testing.T) {
+	bin, args := withoutRouteEnv("/x/claude-code", []string{"memory", "update"})
+	if runtime.GOOS == "windows" {
+		t.Skip("no env binary")
+	}
+	if filepath.Base(bin) != "env" {
+		t.Fatalf("bin = %s, want env", bin)
+	}
+	got := strings.Join(args, " ")
+	for _, k := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_AUTH_TOKEN"} {
+		if !strings.Contains(got, "-u "+k+" ") {
+			t.Errorf("%s not unset in %s", k, got)
+		}
+	}
+	if !strings.HasSuffix(got, "/x/claude-code memory update") {
+		t.Errorf("command lost: %s", got)
+	}
 }
 
 func TestSpawnSelfLaunchesWithLogUnderStateDir(t *testing.T) {

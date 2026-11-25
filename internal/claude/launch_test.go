@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -144,7 +145,7 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
 		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
 	}
-	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !strings.HasSuffix(overlayFile(p).Path, "overlay-ollama-proxy.json") {
+	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !regexp.MustCompile(`overlay-ollama-proxy-[0-9a-f]{12}\.json$`).MatchString(overlayFile(p).Path) {
 		t.Errorf("overlay %s at %s", overlayFile(p).Data, overlayFile(p).Path)
 	}
 }
@@ -1131,5 +1132,16 @@ func TestChildBasePrefersSettingsEnv(t *testing.T) {
 	}
 	if got := childBase(nil, []string{"ANTHROPIC_BASE_URL=x"}); got != "x" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestHashedOverlayPathByContent(t *testing.T) {
+	base := filepath.Join("state", "overlay-qa-proxy.json")
+	a, b := hashedOverlayPath(base, []byte("{\"apiKeyHelper\":\"x\"}")), hashedOverlayPath(base, []byte("{}"))
+	if a == b || a == base {
+		t.Fatalf("different content must get different files: %s %s", a, b)
+	}
+	if again := hashedOverlayPath(a, []byte("{\"apiKeyHelper\":\"x\"}")); again != a {
+		t.Errorf("rehash of a hashed path = %s, want %s", again, a)
 	}
 }
