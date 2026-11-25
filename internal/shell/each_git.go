@@ -25,7 +25,7 @@ type gitFn func(target, verb string, args []string) bool
 // commandVerb is eachGit's internal verb for a command start; its args are the command's words.
 const commandVerb = "\x00command"
 
-// The PR verbs EachMessage reports: `gh pr create|edit` and `claude-code worktree pr create`; args are the words after.
+// The PR verbs eachMessage reports: `gh pr create|edit` and `claude-code worktree pr create`; args are the words after.
 const (
 	PRCreate         = "pr create"
 	PREdit           = "pr edit"
@@ -35,8 +35,8 @@ const (
 // EachGit calls fn per git invocation in cmd and its target tree, through nesting, wrappers and cd, until fn is true.
 func EachGit(cmd, cwd string, fn gitFn) bool { return eachVerb(cmd, cwd, fn, false) }
 
-// EachMessage is EachGit that also reports each PR-creating or PR-editing call, whose title and body are a message.
-func EachMessage(cmd, cwd string, fn gitFn) bool { return eachVerb(cmd, cwd, fn, true) }
+// eachMessage is EachGit that also reports each PR-creating or PR-editing call, whose title and body are a message.
+func eachMessage(cmd, cwd string, fn gitFn) bool { return eachVerb(cmd, cwd, fn, true) }
 
 func eachVerb(cmd, cwd string, fn gitFn, pr bool) bool {
 	return eachGit(cmd, cwd, func(target, verb string, args []string) bool {
@@ -96,11 +96,11 @@ func HarnessArgs(words []string) []string {
 
 // SecretFlag reports --secret on HarnessArgs h; an agents brief is data, so that group never counts.
 func SecretFlag(h []string) bool {
-	return len(h) > 0 && h[0] != "agents" && BoolFlagOn(h[1:], "secret")
+	return len(h) > 0 && h[0] != "agents" && boolFlagOn(h[1:], "secret")
 }
 
-// BoolFlagOn reports -name, --name or --name=<not false|0> before any `--`, as Go's flag package reads them.
-func BoolFlagOn(args []string, name string) bool {
+// boolFlagOn reports -name, --name or --name=<not false|0> before any `--`, as Go's flag package reads them.
+func boolFlagOn(args []string, name string) bool {
 	for _, a := range args {
 		if a == "--" {
 			return false

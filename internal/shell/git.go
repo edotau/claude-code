@@ -245,7 +245,7 @@ func FooterFileWritten(cmd, cwd string) bool {
 		return false
 	}
 	files := map[string]bool{}
-	EachMessage(cmd, cwd, func(target, verb string, args []string) bool {
+	eachMessage(cmd, cwd, func(target, verb string, args []string) bool {
 		for _, p := range messageFiles(target, verb, args) {
 			files[p] = files[p] || messageVerb(verb)
 		}
@@ -341,7 +341,7 @@ func messageVerb(verb string) bool {
 	return verb == "commit" || verb == "merge" || verb == "tag" || verb == WorktreeCommit || prMessageVerb(verb)
 }
 
-// prMessageVerb reports a verb EachMessage gives for a PR-creating or PR-editing call.
+// prMessageVerb reports a verb eachMessage gives for a PR-creating or PR-editing call.
 func prMessageVerb(verb string) bool {
 	return verb == PRCreate || verb == PREdit || verb == WorktreePRCreate
 }
@@ -383,7 +383,7 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 	dynamic := slices.ContainsFunc(subs, func(s string) bool { return !strings.Contains(s, "<<") })
 	var subjects []string
 	sawCommit := false
-	if EachMessage(cmd, cwd, func(target, verb string, args []string) bool {
+	if eachMessage(cmd, cwd, func(target, verb string, args []string) bool {
 		sawCommit = sawCommit || messageVerb(verb) || verb == Uninspectable
 		return messageVerb(verb) && footerInCall(cmd, target, verb, args, dynamic, &subjects)
 	}) {
