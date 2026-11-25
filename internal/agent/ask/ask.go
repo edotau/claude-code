@@ -434,7 +434,10 @@ func recordRefusal(r *askRun, err error, fallback string) {
 		return
 	}
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
-	req := r.request(prompt)
+	req, rerr := r.request(prompt)
+	if rerr != nil {
+		return
+	}
 	req.Fallback = fallback
 	agent.RecordRefusal(r.ag, req, nil, err)
 }
@@ -545,6 +548,10 @@ func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done 
 	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
 		return o, base, code, true
 	}
+	if err := googleToolsCheck(f); err != nil { // batchBase reads the list without a parse error; check it here
+		code, done = r.fail(err, 2)
+		return o, base, code, done
+	}
 	o = batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as, Swap: r.swap, Pending: map[string]int{}}
 	if r.auto != "" {
 		o.Reg, _ = providers.Load() // a failed load keeps the batch's shared pick
@@ -557,7 +564,12 @@ func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done 
 	if code, done := r.export(); done {
 		return o, base, code, true
 	}
-	return o, r.batchBase().ApplyOverlay(r.ctx, ov), 0, false
+	base, err = r.batchBase()
+	if err != nil {
+		code, done = r.fail(err, 2)
+		return o, base, code, done
+	}
+	return o, base.ApplyOverlay(r.ctx, ov), 0, false
 }
 
 // runBatch runs --batch to completion; every path ends the run.
@@ -579,13 +591,17 @@ func batchOnlyFlags(fs *flag.FlagSet) error {
 	return nil
 }
 
-func (r *askRun) batchBase() agent.RunOptions {
+func (r *askRun) batchBase() (agent.RunOptions, error) {
 	f := r.f
+	googleTools, err := googleToolNames(f.googleTools)
+	if err != nil {
+		return agent.RunOptions{}, err
+	}
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: f.runner, GoogleTools: googleToolNames(f.googleTools), EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: f.runner, GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}, nil
 }
 
 // fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.
@@ -732,16 +748,19 @@ func (r *askRun) askState() *askState {
 }
 
 // request is batchBase plus the single-task fields.
-func (r *askRun) request(prompt string) agent.RunOptions {
+func (r *askRun) request(prompt string) (agent.RunOptions, error) {
 	f := r.f
 	if f.retry == "" && f.job == "" { // a replayed record keeps its own verify
 		f.verify = cmp.Or(f.verify, r.carryVerify)
 	}
-	o := r.batchBase()
+	o, err := r.batchBase()
+	if err != nil {
+		return o, err
+	}
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
 	o.AutoArm, o.Verify = r.auto != "", f.verify
-	return o
+	return o, nil
 }
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.

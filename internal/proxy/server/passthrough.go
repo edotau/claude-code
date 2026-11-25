@@ -933,26 +933,50 @@ func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, 
 	return "v1beta/models/" + model + ":" + m[2], query, model, nil
 }
 
-// googleToolsHeader joins every header line, so a repeated X-Claude-Code-Google-Tools keeps all its tools.
+// googleToolsHeader joins the tool tokens; a model= token limits them to that model (agy's title tier gets none).
 func googleToolsHeader(in *http.Request) string {
-	return strings.Join(in.Header.Values(translate.GoogleToolsHeader), ",")
+	var tools []string
+	named := ""
+	for _, tok := range textutil.SplitCSV(strings.Join(in.Header.Values(translate.GoogleToolsHeader), ",")) {
+		if m, ok := strings.CutPrefix(tok, translate.GoogleToolsModelPrefix); ok {
+			named = m
+		} else {
+			tools = append(tools, tok)
+		}
+	}
+	if named != "" && named != geminiPathModel(in.URL.Path, providers.ProtocolGemini) {
+		return ""
+	}
+	return strings.Join(tools, ",")
 }
 
 // servesGoogleTools is false when p's probed list lacks a tool the request asked for; unprobed serves any.
 func servesGoogleTools(p *providers.Provider, header string) bool {
 	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
-	if err != nil || p.Options.GoogleTools == nil {
+	if err != nil {
+		return false
+	}
+	if p.Options.GoogleTools == nil {
 		return true
 	}
 	ok, _ := translate.ParseGoogleTools(p.Options.GoogleTools)
 	return len(translate.Unserved(ok, asked)) == 0
 }
 
+// errGoogleToolsBody refuses a google-tools request whose body cannot carry tools[], never sending it ungrounded.
+var errGoogleToolsBody = errors.New("proxy: google tools need a JSON body with tools[]")
+
 // withGoogleTools appends the header's built-in tools to a native generateContent tools[]; unserved is an error.
 func (b proxyBody) withGoogleTools(header string, served []string) ([]byte, error) {
 	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
-	if err != nil || len(asked) == 0 || b.top == nil {
-		return b.raw, err
+	if err != nil {
+		return nil, err
+	}
+	if len(asked) == 0 {
+		return b.raw, nil
+	}
+	if b.top == nil {
+		return nil, errGoogleToolsBody
 	}
 	if served != nil { // nil = unprobed row: send as asked, the upstream answers
 		ok, _ := translate.ParseGoogleTools(served)
@@ -963,7 +987,7 @@ func (b proxyBody) withGoogleTools(header string, served []string) ([]byte, erro
 	}
 	var have []map[string]json.RawMessage
 	if raw, ok := b.top["tools"]; ok && json.Unmarshal(raw, &have) != nil {
-		return b.raw, nil
+		return nil, errGoogleToolsBody
 	}
 	for _, t := range asked {
 		key := translate.GoogleWireKey(t)

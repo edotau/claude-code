@@ -204,7 +204,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		runCtx = withTriedPicks(runCtx, *p) // an earlier hop's refused picks stay excluded
 	}
 	noteDropped1M(disp.Agent.Name(), lreq, notify)
-	lreq = hopCodemode(disp.Agent.Name(), lreq) // this hop's own mode: the request's stays on the record
+	lreq = hopGoogleTools(disp.Agent.Name(), hopCodemode(disp.Agent.Name(), lreq), notify) // this hop's own modes
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)

@@ -884,7 +884,7 @@ func TestNewAgyRequestWebHint(t *testing.T) {
 func TestAgyGoogleToolsHeader(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Options: providers.Options{GoogleTools: []string{"url", "code"}}}
 	const base = "databricks-gemini-3-8-flash"
-	if got, err := agyGoogleToolsHeader(p, base, []string{"url"}); err != nil || got != "X-Claude-Code-Google-Tools: url" {
+	if got, err := agyGoogleToolsHeader(p, base, []string{"url"}); err != nil || got != "X-Claude-Code-Google-Tools: url,model="+base {
 		t.Fatalf("served: got %q, %v", got, err)
 	}
 	_, err := agyGoogleToolsHeader(p, base, []string{"search"})
@@ -895,7 +895,7 @@ func TestAgyGoogleToolsHeader(t *testing.T) {
 	if _, err := agyGoogleToolsHeader(p, "databricks-claude-sonnet-5-5", []string{"url"}); err == nil {
 		t.Fatal("foreign model must be refused")
 	}
-	if got, err := agyGoogleToolsHeader(&providers.Provider{Name: "x"}, base, []string{"search"}); err != nil || !strings.HasSuffix(got, ": search") {
+	if got, err := agyGoogleToolsHeader(&providers.Provider{Name: "x"}, base, []string{"search"}); err != nil || !strings.HasSuffix(got, ": search,model="+base) {
 		t.Fatalf("unprobed: got %q, %v", got, err)
 	}
 }

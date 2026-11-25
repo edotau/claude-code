@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -41,11 +42,19 @@ func (r *askRun) execute() int {
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
-	req, run := r.request(join()), r.armRun()
+	req, err := r.request(join())
+	if err != nil {
+		return failAsk(f.format, f.name, err)
+	}
+	return r.prepareAndRun(ctx, req)
+}
+
+// prepareAndRun arms and probes req, then prepares and runs the dispatch.
+func (r *askRun) prepareAndRun(ctx context.Context, req agent.RunOptions) int {
+	f, run := r.f, r.armRun()
 	req = agent.MarkReviewLoop(req)
-	prompt = req.Prompt
 	if run != nil {
 		req = run.probe(req)
 	}
-	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
+	return askPrepareAndRun(r.dryCtx(ctx, req.Prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }

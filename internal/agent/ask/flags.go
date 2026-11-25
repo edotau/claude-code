@@ -384,7 +384,7 @@ func googleToolsCheck(f *askFlags) error {
 	if f.name != "" && f.name != agentid.Gemini {
 		return fmt.Errorf("--google-tools is gemini only, not %s", f.name)
 	}
-	_, err := translate.ParseGoogleTools(strings.Split(f.googleTools, ","))
+	_, err := googleToolNames(f.googleTools)
 	return err
 }
 
@@ -409,13 +409,13 @@ func dropGoogleTools(name string, tools *[]string) {
 }
 
 // googleToolNames is the validated --google-tools list, ready for RunOptions.
-func googleToolNames(csv string) []string {
-	tools, _ := translate.ParseGoogleTools(strings.Split(csv, ","))
+func googleToolNames(csv string) ([]string, error) {
+	tools, err := translate.ParseGoogleTools(strings.Split(csv, ","))
 	out := make([]string, len(tools))
 	for i, t := range tools {
 		out[i] = string(t)
 	}
-	return out
+	return out, err
 }
 
 // runnerCheck refuses a --runner outside agentconfig.Runners.

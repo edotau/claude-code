@@ -104,6 +104,18 @@ func ownCLICodemodeOff(name string) bool {
 // ownCLIReason is why an own-CLI hop runs code mode off.
 const ownCLIReason = "own CLI has no code mode; it runs on the pi runner hop only"
 
+// hopGoogleTools drops a google-tools list on a non-gemini hop, with a note.
+func hopGoogleTools(name string, req RunOptions, notify func(string)) RunOptions {
+	if len(req.GoogleTools) == 0 || name == agentid.Gemini {
+		return req
+	}
+	if notify != nil {
+		notify(name + ": google-tools dropped (gemini only)")
+	}
+	req.GoogleTools = nil
+	return req
+}
+
 // hopCodemode is req for one hop: an own CLI with no code-mode row runs it off, the shared record untouched.
 func hopCodemode(name string, req RunOptions) RunOptions {
 	if rtkwrap.CodemodeOn(req.Codemode) && ownCLICodemodeOff(name) {

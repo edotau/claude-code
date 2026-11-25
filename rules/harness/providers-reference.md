@@ -364,7 +364,8 @@ print). System tables are dropped: `usage --cost` stays an estimate, never reque
 use the paired SPs.
 
 **Gemini built-in tools.** `claude-code configure provider <p> options.google_tools=url,code` records the built-ins a
-Databricks row serves, from a probe (`search|url|code`; empty clears it). Unset means unprobed: the proxy warns and
-sends what the caller asked. The dev probe served `url` and `code`; `search` (googleSearch) is refused with
+Databricks row serves, from a probe (`search|url|code`; empty clears it). Unset means unprobed: the proxy sends
+what the caller asked (no warning) and the upstream answers. Chat routes strip and ignore the Google tools
+header. The dev probe served `url` and `code`; `search` (googleSearch) is refused with
 "cross-region processing is disabled", so web search stays Tavily
 (`/Users/edotau/.claude/internal/proxy/server/websearch.go`). The dev, qa and prod rows are set to `url,code`.

@@ -1,7 +1,6 @@
 package translate
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,6 +19,9 @@ const (
 
 // GoogleToolsHeader carries a gemini dispatch's tools from agy to the proxy; never forwarded upstream.
 const GoogleToolsHeader = "X-Claude-Code-Google-Tools"
+
+// GoogleToolsModelPrefix marks the header token that names the model the tools are for (agy's title tier gets none).
+const GoogleToolsModelPrefix = "model="
 
 // GoogleTools lists the tools --google-tools accepts, in help order.
 var GoogleTools = []GoogleTool{GoogleSearch, GoogleURL, GoogleCode}
@@ -58,15 +60,6 @@ func JoinGoogleTools(tools []GoogleTool) string {
 // Unserved is the asked tools missing from served, in asked order.
 func Unserved(served, asked []GoogleTool) []GoogleTool {
 	return slices.DeleteFunc(slices.Clone(asked), func(t GoogleTool) bool { return slices.Contains(served, t) })
-}
-
-// GoogleToolEntries is one generateContent tools[] object per tool, e.g. {"urlContext":{}}.
-func GoogleToolEntries(tools []GoogleTool) []json.RawMessage {
-	out := make([]json.RawMessage, 0, len(tools))
-	for _, t := range tools {
-		out = append(out, json.RawMessage(`{"`+googleWireKey[t]+`":{}}`))
-	}
-	return out
 }
 
 // GoogleWireKey is t's generateContent tools[] key.
