@@ -217,14 +217,17 @@ func (clientUsageError) ExitCode() int { return 2 }
 
 // route is Resolve on o: o.Provider is a pinned backend, o.Lead a resolved lead, --host one remote dispatch.
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
-	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt), Task: o.Prompt,
+	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(ctx, o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
 		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools,
 		FallbackDefaulted: o.FallbackDefaulted, Opts: o})
 	return chain, err
 }
 
-func (c *Client) alias(prompt string) string {
+func (c *Client) alias(ctx context.Context, prompt string) string {
+	if alias := tierAlias(ctx, prompt); alias != "" {
+		return alias
+	}
 	return HopAlias(prompt, c.Alias)
 }
 

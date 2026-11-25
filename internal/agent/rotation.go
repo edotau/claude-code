@@ -186,7 +186,7 @@ func rotateRole(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 	if err != nil || overlayRoutes(ov) {
 		return ctx, o, roleNote{}, nil
 	}
-	now, role := time.Now(), dispatchRole(o.Prompt)
+	now, role := time.Now(), dispatchRole(ctx, o.Prompt)
 	// where today's untyped route starts (session, record profile, default): no ready cell keeps it, never an excluded one
 	session := cmp.Or(providers.SessionLeadContext(ctx, reg, true), reg.Default)
 	cells, scope := dispatchCells(ctx, reg, ov.ProviderMode, o.Prompt, session)
@@ -287,8 +287,8 @@ func overlayRoutes(ov agentconfig.Overlay) bool {
 }
 
 // dispatchRole uses the brief's tier: deep is an owner, fast and standard are fleet.
-func dispatchRole(prompt string) router.Role {
-	if alias, _ := TaskTier(prompt); alias == models.Opus {
+func dispatchRole(ctx context.Context, prompt string) router.Role {
+	if tierAlias(ctx, prompt) == models.Opus {
 		return router.RoleOwner
 	}
 	return router.RoleFleet
@@ -296,7 +296,7 @@ func dispatchRole(prompt string) router.Role {
 
 // dispatchCells keeps only the brief's tier model; an empty brief defaults to sonnet.
 func dispatchCells(ctx context.Context, reg *providers.Registry, modes map[string]string, prompt, session string) ([]router.RoleCell, modeScope) {
-	cells, scope := modeCells(reg, modes, dispatchRole(prompt), session)
+	cells, scope := modeCells(reg, modes, dispatchRole(ctx, prompt), session)
 	alias := cmp.Or(tierAlias(ctx, prompt), models.Sonnet)
 	return slices.DeleteFunc(cells, func(c router.RoleCell) bool { return c.Model != alias }), scope
 }

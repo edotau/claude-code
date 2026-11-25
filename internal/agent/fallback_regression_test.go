@@ -101,11 +101,11 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 
 func TestDispatchRequestCellModelOnEveryHop(t *testing.T) {
 	for _, first := range []bool{true, false} {
-		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "gpt-6-sol"}, first); !req.CellModel {
+		if req := dispatchRequest(context.Background(), RunOptions{}, Dispatch{Model: "gpt-6-sol"}, first); !req.CellModel {
 			t.Errorf("first=%v: a router cell model must re-resolve against its row", first)
 		}
 		row := route.Route{Provider: "databricks", Profile: "dev"}
-		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "opus", Route: row}, first); req.CellModel || req.CellRoute != row || req.Model != "opus" {
+		if req := dispatchRequest(context.Background(), RunOptions{}, Dispatch{Model: "opus", Route: row}, first); req.CellModel || req.CellRoute != row || req.Model != "opus" {
 			t.Errorf("first=%v: a cell pinned to its row is not a bare cell model: %+v", first, req)
 		}
 	}
@@ -124,7 +124,7 @@ func TestDispatchRequestTypedOneMReachesTarget(t *testing.T) {
 		{"typed on a row that cannot serve 1M", "claude-sonnet-4-6[1m]", "claude-sonnet-4.6", "aueric_boehcp", models.ContextWindowStd},
 	} {
 		d := Dispatch{Model: c.cell, Route: route.Route{Provider: reg.Providers[c.row].Provider, Profile: c.row}}
-		req := dispatchRequest(RunOptions{Agent: "pi", Model: c.typed, ModelTyped: true}, d, true)
+		req := dispatchRequest(context.Background(), RunOptions{Agent: "pi", Model: c.typed, ModelTyped: true}, d, true)
 		_, tgt, err := resolveIn(reg, req)
 		if err != nil || tgt.ContextTokens != c.want || tgt.Model != c.cell && c.row == "dev" {
 			t.Errorf("%s: window %d model %q err %v, want %d", c.name, tgt.ContextTokens, tgt.Model, err, c.want)

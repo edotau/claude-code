@@ -299,7 +299,7 @@ func TestDispatchRoleTierModels(t *testing.T) {
 		{"empty defaults to sonnet", "", router.RoleFleet, models.Sonnet},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := dispatchRole(tc.prompt); got != tc.role {
+			if got := dispatchRole(context.Background(), tc.prompt); got != tc.role {
 				t.Errorf("dispatchRole(%q) = %s, want %s", tc.prompt, got, tc.role)
 			}
 			for _, mode := range []struct {

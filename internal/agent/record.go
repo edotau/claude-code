@@ -292,7 +292,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens,
-		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req), Role: string(dispatchRole(req.Prompt))}
+		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req), Role: string(dispatchRole(context.Background(), req.Prompt))}
 }
 
 // Experimenter is an optional Driver method: the trial a run of req carries, for the record.
@@ -1153,6 +1153,7 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 		rec = *jobRec
 	} else {
 		rec = NewRecord(name, req, time.Now())
+		rec.Role = string(dispatchRole(ctx, req.Prompt))
 	}
 	maxDepth := DefaultMaxDispatchDepth // a legacy job record carries no cap
 	if rec.MaxDepth != nil {

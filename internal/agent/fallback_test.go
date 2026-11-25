@@ -899,22 +899,22 @@ func TestClaudeTierOnUntypedDispatch(t *testing.T) {
 	vaulttest.Use(t)
 	d := Dispatch{Agent: labelEngine{stubEngine{name: "claude"}}, keepCaller: true, unroutedDispatch: true}
 	brief := "Fix the typo in internal/agent/label.go."
-	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true).Model; got != "haiku" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief}, d, true).Model; got != "haiku" {
 		t.Errorf("untyped claude model = %q, want the task tier haiku", got)
 	}
 	for _, req := range []RunOptions{{Prompt: brief, Model: "opus"}, {Prompt: brief, Host: "h"}} {
-		if got := dispatchRequest(req, d, true).Model; got != req.Model {
+		if got := dispatchRequest(context.Background(), req, d, true).Model; got != req.Model {
 			t.Errorf("%+v ran %q, want %q unchanged", req, got, req.Model)
 		}
 	}
 	vaulttest.SetRecord(t, "claude", "model", "opus")
-	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true).Model; got != "" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief}, d, true).Model; got != "" {
 		t.Errorf("pinned claude model = %q, want the pin left to the launch", got)
 	}
 	// A kept family word uses the resolved cell; a concrete model stays as typed.
 	cell := Dispatch{Model: "gpt-6-2-sol", keepCaller: true}
 	for asked, want := range map[string]string{"sol": "gpt-6-2-sol", "gpt-6.1-sol": "gpt-6.1-sol"} {
-		if got := dispatchRequest(RunOptions{Model: asked}, cell, true).Model; got != want {
+		if got := dispatchRequest(context.Background(), RunOptions{Model: asked}, cell, true).Model; got != want {
 			t.Errorf("typed %s sent %q, want %s", asked, got, want)
 		}
 	}

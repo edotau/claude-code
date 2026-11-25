@@ -731,7 +731,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	if replacement && s.req.Repicks >= MaxAutoRepicks {
 		return true
 	}
-	lreq := dispatchRequest(s.req, disp, c.leads(i) && disp.Agent.Name() == c.Want)
+	lreq := dispatchRequest(ctx, s.req, disp, c.leads(i) && disp.Agent.Name() == c.Want)
 	ctx, disp = freezeCopilot(ctx, disp, lreq) // the gate's actual target precedes the permit and cooldown key
 	disp = ownLoginActual(disp, lreq)
 	key := cmp.Or(disp.Account, disp.Agent.Name()+"·own")
@@ -1035,7 +1035,7 @@ func skipAutoModel(ctx context.Context, disp Dispatch, requested, ran string) bo
 }
 
 // dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.
-func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
+func dispatchRequest(ctx context.Context, req RunOptions, disp Dispatch, first bool) RunOptions {
 	if disp.note != "" {
 		fmt.Fprintln(os.Stderr, disp.note)
 	}
@@ -1044,14 +1044,14 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Values = req.Values.Merge(nil)
 	}
 	if disp.unroutedDispatch {
-		return claudeTier(out, disp)
+		return claudeTier(ctx, out, disp)
 	}
 	if !first {
 		out.Provider, out.SessionID = "", ""
 	}
 	out = cellRequest(out, req, disp)
 	if disp.Agent != nil {
-		out = autoRunEffort(out, disp.Agent.Name(), "")
+		out = autoRunEffort(ctx, out, disp.Agent.Name(), "")
 	}
 	if out.Effort == "" {
 		out.Effort = disp.Effort
@@ -1079,7 +1079,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 }
 
 // claudeTier gives an untyped local claude dispatch its task tier unless a concrete claude pin decides.
-func claudeTier(out RunOptions, disp Dispatch) RunOptions {
+func claudeTier(ctx context.Context, out RunOptions, disp Dispatch) RunOptions {
 	if out.Model != "" || out.Host != "" || disp.Agent == nil || !VaultAgentIsClaude(disp.Agent.Name()) {
 		return out
 	}
@@ -1087,14 +1087,14 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 	pinAuto := pinsAuto(out.Values, agentid.Claude)
 	alias := ""
 	if auto := out.AutoModel || pinAuto; auto || pin == "" {
-		alias, _ = TaskTier(preRecall(out.Prompt))
+		alias = tierAlias(ctx, preRecall(out.Prompt))
 		out.Model = alias
 		if auto {
 			alias = cmp.Or(alias, untieredAuto(agentid.Claude))
 			out.Model = alias
 		}
 	}
-	return autoRunEffort(out, agentid.Claude, alias)
+	return autoRunEffort(ctx, out, agentid.Claude, alias)
 }
 
 // pinsAuto reports whether agentName's model pin, under values' env, is auto.
@@ -1111,12 +1111,12 @@ func engineName(d Dispatch) string {
 }
 
 // autoRunEffort gives an auto run its tier's effort unless --effort or the record names one; alias "" computes it.
-func autoRunEffort(out RunOptions, agentName, alias string) RunOptions {
+func autoRunEffort(ctx context.Context, out RunOptions, agentName, alias string) RunOptions {
 	if out.Effort != "" || !out.AutoModel && !pinsAuto(out.Values, agentName) {
 		return out
 	}
 	if alias == "" {
-		alias, _ = TaskTier(preRecall(out.Prompt))
+		alias = tierAlias(ctx, preRecall(out.Prompt))
 	}
 	out.Effort = autoEffort("", agentName, autoNeed{mode: autoAsked, tier: rotationTiers[cmp.Or(alias, models.Opus)]})
 	return out

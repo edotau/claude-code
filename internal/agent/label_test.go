@@ -439,17 +439,17 @@ func TestDispatchRequestAutoCell(t *testing.T) {
 	vaulttest.Use(t)
 	d := Dispatch{Agent: labelEngine{stubEngine{name: "opencode"}}, Model: "databricks-claude-sonnet-5-5", Route: route.Route{Provider: "databricks", Profile: "qa"}}
 	brief := deepBrief
-	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != AutoModel || got.CellRoute != d.Route || got.Effort != "high" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != AutoModel || got.CellRoute != d.Route || got.Effort != "high" {
 		t.Errorf("auto hop = model %q on %+v effort %q, want auto on qa at the deep tier's effort", got.Model, got.CellRoute, got.Effort)
 	}
-	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true, Effort: "low"}, d, true); got.Effort != "low" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief, AutoModel: true, Effort: "low"}, d, true); got.Effort != "low" {
 		t.Errorf("typed effort became %q under auto", got.Effort)
 	}
-	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true); got.Model != d.Model || got.Effort != "" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief}, d, true); got.Model != d.Model || got.Effort != "" {
 		t.Errorf("untyped hop = %q effort %q, want the cell as is", got.Model, got.Effort)
 	}
 	d.Model, d.Route = "sonnet", route.Route{}
-	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "sonnet" || !got.CellModel {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "sonnet" || !got.CellModel {
 		t.Errorf("auto alias cell = %+v, want the bare alias cell", got)
 	}
 }
@@ -489,7 +489,7 @@ func TestClaudeTierPinnedAuto(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.SetRecord(t, "claude", "model", "auto")
 	d := Dispatch{Agent: labelEngine{stubEngine{name: "claude"}}, keepCaller: true, unroutedDispatch: true}
-	if got := dispatchRequest(RunOptions{Prompt: fastBrief}, d, true); got.Model != "haiku" || got.Effort != "low" {
+	if got := dispatchRequest(context.Background(), RunOptions{Prompt: fastBrief}, d, true); got.Model != "haiku" || got.Effort != "low" {
 		t.Errorf("pinned-auto claude = model %q effort %q, want haiku at low", got.Model, got.Effort)
 	}
 }
@@ -525,7 +525,7 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 			}
 			hop, _, err := labelHop(reg, q, agentModelPinContext(ctx, agentName), d)
 			label, lerr := ResolveRun(reg, QueryFor(PeekContext(ctx), hop), time.Now())
-			lreq := dispatchRequest(RunOptions{Agent: agentName, Prompt: standardBrief, AutoModel: tc.typed}, d, true)
+			lreq := dispatchRequest(context.Background(), RunOptions{Agent: agentName, Prompt: standardBrief, AutoModel: tc.typed}, d, true)
 			run, _, _, rerr := SchemaFor(agentName).targetNote(lreq)
 			if err = cmp.Or(err, lerr, rerr); err != nil {
 				t.Fatalf("%s %s: %v", agentName, tc.name, err)

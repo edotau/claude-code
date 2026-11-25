@@ -181,7 +181,7 @@ func TestArmClaudeHopRunsOnItsProfile(t *testing.T) {
 	armRegistry(t)
 	claude := &fakeRunner{name: "claude"}
 	for prof, fatal := range map[string]bool{"ultra": false, "qa": true} {
-		req := dispatchRequest(RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: "sonnet", Route: rowRoute(loadRegistryWarn(), prof)}, false)
+		req := dispatchRequest(context.Background(), RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: "sonnet", Route: rowRoute(loadRegistryWarn(), prof)}, false)
 		if req.Provider != prof || req.Model != "sonnet" {
 			t.Errorf("%s hop: provider %q model %q, want %q and sonnet", prof, req.Provider, req.Model, prof)
 		}
@@ -216,7 +216,7 @@ func TestArmPickAdmitsOnlyGuardAllowedHops(t *testing.T) {
 					t.Fatalf("chain = %+v, %v; want admitted hops", chain, err)
 				}
 				for i, d := range chain.Dispatches {
-					req := dispatchRequest(RunOptions{Prompt: "p"}, d, i == 0 && d.Agent.Name() == want)
+					req := dispatchRequest(context.Background(), RunOptions{Prompt: "p"}, d, i == 0 && d.Agent.Name() == want)
 					gp, err := guardProvider(d.Agent, req)
 					if err == nil {
 						err = guardArm("dev", d.Agent, gp)
@@ -263,7 +263,7 @@ func TestLaunchedModelRecordsAsAsked(t *testing.T) {
 	if got := launchedModel(ctx, disp, RunOptions{Model: "opus", ModelTyped: true}); got != "opus" {
 		t.Errorf("typed alias recorded %q, want opus", got)
 	}
-	req := dispatchRequest(RunOptions{Agent: "copilot", Values: proc.Values{}.With("COPILOT_MODEL", "auto")}, Dispatch{Agent: disp.Agent, Model: "claude-sonnet-5.5"}, true)
+	req := dispatchRequest(context.Background(), RunOptions{Agent: "copilot", Values: proc.Values{}.With("COPILOT_MODEL", "auto")}, Dispatch{Agent: disp.Agent, Model: "claude-sonnet-5.5"}, true)
 	if got := launchedModel(ctx, disp, req); got != AutoModel {
 		t.Errorf("pinned auto recorded %q, want %q", got, AutoModel)
 	}
