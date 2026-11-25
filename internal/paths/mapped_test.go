@@ -3,8 +3,10 @@ package paths
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeBlob(tb testing.TB, size int) string {
@@ -71,6 +73,46 @@ func TestMappedSurvivesRenameReplace(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatal("mapping changed after rename replace")
+	}
+}
+
+func TestMappedRefusesNonRegular(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]string{"dir": dir}
+	fifo := filepath.Join(dir, "fifo")
+	if err := exec.Command("mkfifo", fifo).Run(); err == nil {
+		cases["fifo"] = fifo
+	}
+	for name, p := range cases {
+		done := make(chan error, 1)
+		go func() {
+			_, release, err := ReadMapped(p)
+			release()
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatalf("%s: no error", name)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: ReadMapped blocked", name)
+		}
+	}
+}
+
+func TestMappedReleaseIdempotentAndDataMatches(t *testing.T) {
+	p := writeBlob(t, 1<<14)
+	want, _ := os.ReadFile(p)
+	got, release, err := ReadMapped(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := append([]byte(nil), got...)
+	release()
+	release()
+	if !bytes.Equal(copied, want) {
+		t.Fatal("data read before release differs from ReadFile")
 	}
 }
 
