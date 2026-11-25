@@ -102,6 +102,66 @@ func ExportConfigDir() {
 	}
 }
 
+// CAEnvNames are the CA bundle variables a harness launch exports and `network pki` writes.
+var CAEnvNames = []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"}
+
+const caBundleName = "corp-ca-bundle.pem"
+
+// CertsDir holds every certificate the harness writes or fetches.
+func CertsDir() string { return filepath.Join(ConfigDir(), "state", "certs") }
+
+// CABundle is the corporate CA bundle `network pki` writes beside root.pem and issuing.pem.
+func CABundle() string { return filepath.Join(CertsDir(), caBundleName) }
+
+// ExportCA points each unset CA variable at CABundle when it exists; one the user set wins.
+func ExportCA() {
+	bundle := CABundle()
+	if !IsFile(bundle) && (!ConfigDirIsInstall() || !migrateCerts(legacyCertsDir(), CertsDir())) {
+		return
+	}
+	for _, name := range CAEnvNames {
+		if os.Getenv(name) == "" {
+			_ = proc.Setenv(name, bundle)
+		}
+	}
+}
+
+// legacyCertsDir is pki's pre-state default: $XDG_DATA_HOME or ~/.local/share, then claude-code/certs.
+func legacyCertsDir() string {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home := homeDir()
+		if home == "" {
+			return ""
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "claude-code", "certs")
+}
+
+// migrateCerts copies the bundle, root.pem and issuing.pem from old once; old is never removed.
+func migrateCerts(old, dir string) bool {
+	if old == "" || !IsFile(filepath.Join(old, caBundleName)) {
+		return false
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	for _, name := range []string{"root.pem", "issuing.pem", caBundleName} { // bundle last: its presence marks done
+		data, err := os.ReadFile(filepath.Join(old, name))
+		if err != nil {
+			if name == caBundleName {
+				return false
+			}
+			continue
+		}
+		if AtomicWrite(filepath.Join(dir, name), data, 0o644) != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 

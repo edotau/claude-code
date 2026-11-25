@@ -608,3 +608,58 @@ func TestTryFileLockRetriesOnReplacedPath(t *testing.T) {
 		t.Fatalf("err=%v ran=%v called=%v nested=%v opens=%d", err, ran, called, nested, opens)
 	}
 }
+
+func TestExportCASetsOnlyUnsetVars(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, n := range CAEnvNames {
+		t.Setenv(n, "")
+	}
+	ExportCA()
+	for _, n := range CAEnvNames {
+		if os.Getenv(n) != "" {
+			t.Fatalf("%s set without a bundle", n)
+		}
+	}
+	if err := os.MkdirAll(CertsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CABundle(), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", "/x")
+	ExportCA()
+	if got := os.Getenv("SSL_CERT_FILE"); got != "/x" {
+		t.Fatalf("SSL_CERT_FILE = %q, want /x", got)
+	}
+	for _, n := range CAEnvNames[1:] {
+		if got := os.Getenv(n); got != CABundle() {
+			t.Fatalf("%s = %q, want %q", n, got, CABundle())
+		}
+	}
+}
+
+func TestMigrateCertsCopiesOnce(t *testing.T) {
+	old, dir := t.TempDir(), filepath.Join(t.TempDir(), "certs")
+	if migrateCerts(old, dir) {
+		t.Fatal("migrated without a bundle")
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatal("dir created without a bundle")
+	}
+	for _, n := range []string{"root.pem", "issuing.pem", caBundleName} {
+		if err := os.WriteFile(filepath.Join(old, n), []byte(n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !migrateCerts(old, dir) {
+		t.Fatal("migrate failed")
+	}
+	for _, n := range []string{"root.pem", "issuing.pem", caBundleName} {
+		for _, d := range []string{old, dir} {
+			if b, err := os.ReadFile(filepath.Join(d, n)); err != nil || string(b) != n {
+				t.Fatalf("%s/%s: %q %v", d, n, b, err)
+			}
+		}
+	}
+}
