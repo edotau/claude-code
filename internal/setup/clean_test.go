@@ -128,6 +128,7 @@ func seedDebris(t *testing.T) string {
 	t.Helper()
 	dir := vaulttest.Use(t)
 	t.Setenv("TMPDIR", t.TempDir()) // the sandbox target sweeps the temp dir; never the real one
+	t.Setenv("GOCACHE", t.TempDir()) // the go-cache target runs go clean -cache; never on the real cache
 	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
 	oldOpen := openMemoryFiles
 	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
