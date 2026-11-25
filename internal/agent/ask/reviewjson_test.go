@@ -148,7 +148,7 @@ func TestSchemaInvalidFindingsAreUnjudged(t *testing.T) {
 func TestGeneratedSchemasMatchContract(t *testing.T) {
 	for name, tc := range map[string]struct{ got, want string }{
 		"review": {reviewFindingsSchema, `{"type":"object","additionalProperties":false,"required":["findings"],"properties":{"findings":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["file","line","severity","claim"],"properties":{"file":{"type":"string"},"line":{"type":"integer"},"severity":{"type":"string","enum":["CRITICAL","HIGH","MEDIUM","LOW"]},"claim":{"type":"string"}}}}}}`},
-		"loop":   {loopPlanSchema, `{"type":"object","additionalProperties":false,"required":["done","summary","parts"],"properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"parts":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","prompt"],"properties":{"id":{"type":"string"},"prompt":{"type":"string"},"agent":{"type":"string"},"model":{"type":"string"},"owns":{"type":"array","items":{"type":"string"}},"timeout":{"type":"string"}}}}}}`},
+		"loop":   {loopPlanSchema, `{"type":"object","additionalProperties":false,"required":["done"],"properties":{"done":{"type":"boolean"},"summary":{"type":"string"},"parts":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","prompt"],"properties":{"id":{"type":"string"},"prompt":{"type":"string"},"agent":{"type":"string"},"model":{"type":"string"},"owns":{"type":"array","items":{"type":"string"}},"timeout":{"type":"string"}}}}}}`},
 	} {
 		var a, b any
 		if json.Unmarshal([]byte(tc.got), &a) != nil || json.Unmarshal([]byte(tc.want), &b) != nil || !reflect.DeepEqual(a, b) {
@@ -170,5 +170,19 @@ func TestExtraKeysDroppedNotFatal(t *testing.T) {
 	env, err := reviewFindings(reviewEnvelope{Structured: json.RawMessage(`{"findings":[` + row + `],"notes":"x"}`)}, io.Discard)
 	if err != nil || env.Computed == "unjudged" || !strings.Contains(string(env.Findings), `"claim":"c"`) {
 		t.Fatalf("findings=%s computed=%q err=%v", env.Findings, env.Computed, err)
+	}
+}
+
+func TestParseLoopPlanLenient(t *testing.T) {
+	p, _, err := wire.Decode[loopPlan](`{"done":true}`)
+	if err != nil || !p.Done {
+		t.Fatalf("done only: %v %v", p, err)
+	}
+	p, notes, err := wire.Decode[loopPlan](`{"done":false,"parts":[{"id":"a","prompt":"p","agent":null}]}`)
+	if err != nil || len(p.Parts) != 1 || len(notes) != 1 {
+		t.Fatalf("null optional: %v %v %v", p, notes, err)
+	}
+	if _, _, err = wire.Decode[loopPlan](`{"done":null}`); err == nil {
+		t.Fatal("null required must error")
 	}
 }

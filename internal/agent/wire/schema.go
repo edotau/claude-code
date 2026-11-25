@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
@@ -67,9 +68,32 @@ func Structured(answer, schema string) (raw json.RawMessage, unchecked []string,
 	return json.RawMessage(span), slices.Sorted(maps.Keys(skipped)), nil
 }
 
+var decodeSchemas sync.Map // reflect.Type -> schema string
+
+// Decode checks answer against SchemaFor[T]() via Structured and unmarshals the checked document into T.
+func Decode[T any](answer string) (T, []string, error) {
+	var v T
+	t := reflect.TypeFor[T]()
+	s, ok := decodeSchemas.Load(t)
+	if !ok {
+		s, _ = decodeSchemas.LoadOrStore(t, SchemaFor[T]())
+	}
+	raw, unchecked, err := Structured(answer, s.(string))
+	if err != nil {
+		return v, nil, err
+	}
+	return v, unchecked, json.Unmarshal(raw, &v)
+}
+
 func encodeExact(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
+}
+
+// optionalNull reports a null value on a declared property that is not required; it counts as absent.
+func optionalNull(m, props map[string]any, k string, val any) bool {
+	req, _ := m["required"].([]any)
+	return val == nil && props[k] != nil && !slices.Contains(req, any(k))
 }
 
 // pruneExtras returns v without the keys an additionalProperties:false object does not declare; dropped names them.
@@ -80,6 +104,10 @@ func pruneExtras(path string, v, sch any, dropped *[]string) any {
 		props, _ := m["properties"].(map[string]any)
 		out := make(map[string]any, len(x))
 		for k, val := range x {
+			if optionalNull(m, props, k, val) {
+				*dropped = append(*dropped, path+"."+k+" (null)")
+				continue
+			}
 			if _, declared := props[k]; !declared && m["additionalProperties"] == false {
 				*dropped = append(*dropped, path+"."+k)
 				continue

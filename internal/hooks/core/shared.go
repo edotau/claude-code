@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,8 +13,24 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+var defaultHandlerBudget = 5 * time.Second
+
+// BudgetOf is a handler's time budget; leave gates time to render their refusal before the host deadline.
+func BudgetOf(s settings.EventSpec) time.Duration {
+	budget := s.Budget
+	if budget <= 0 {
+		budget = defaultHandlerBudget
+	}
+	if s.Blocks {
+		budget -= min(HookMargin/2, budget/2)
+	}
+	return budget
+}
 
 // GitCommitCmd matches a shell segment that runs `git commit`; text without "commit" never compiles it.
 func GitCommitCmd() *Gated { return gitCommitCmd }
@@ -161,4 +178,32 @@ func appendIfNew(file, key string) (bool, error) {
 	}
 	_, werr := f.WriteString(key + "\n")
 	return true, errors.Join(werr, f.Close())
+}
+
+// DirtyPaths is every uncommitted path under top.
+func DirtyPaths(top string) []string {
+	raw, err := proc.RunGit(context.Background(), top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range proc.StatusEntries(raw) {
+		out = append(out, e.Path)
+	}
+	return out
+}
+
+// MainSibling is the claude-code binary next to this executable; a var so tests can stub it.
+var MainSibling = findMainSibling
+
+func findMainSibling() (string, bool) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	if real, err := filepath.EvalSymlinks(self); err == nil { // a symlink elsewhere still finds its own siblings
+		self = real
+	}
+	full := filepath.Join(filepath.Dir(self), "claude-code")
+	return full, paths.IsFile(full)
 }

@@ -860,19 +860,20 @@ func TestDirectPanicStderrBackpressureReturns(t *testing.T) {
 	}
 }
 
-// A held-job hint names the route as one --overlay object, the profile's provider from the registry.
-func TestOverlayArgsCarriesTheWholeRoute(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
-	want := `{"provider":"databricks","profile":"qa","model":"sonnet"}`
-	if got := OverlayArgs("qa", "sonnet", "", "acct"); !slices.Equal(got, []string{"--overlay", want}) {
-		t.Errorf("OverlayArgs(qa, sonnet) = %q, want --overlay %s", got, want)
+// The review-simplicity module renders its advisory as PostToolUse JSON on stdout through the registry.
+func TestReviewSimplicityModuleEmitsPostToolUse(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := filepath.Join(t.TempDir(), "a.go")
+	if err := os.WriteFile(p, []byte("package fx\n\n// one\n// two\nfunc Z() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	pool := []string{"--overlay", `{"provider":"databricks","profile":"auto"}`}
-	if got := OverlayArgs("databricks", "", "", ""); !slices.Equal(got, pool) {
-		t.Errorf("OverlayArgs(databricks) = %q, want %q", got, pool)
+	payload := fmt.Sprintf(`{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":%q,"tool_input":{"file_path":%q}}`,
+		filepath.Dir(p), p)
+	var out bytes.Buffer
+	if code := RunArgs("PostToolUse", []string{"--review-simplicity"}, strings.NewReader(payload), &out, &bytes.Buffer{}); code != core.ExitProceed {
+		t.Fatalf("exit %d", code)
 	}
-	if got := OverlayArgs("nope", "m", "", ""); !slices.Equal(got, []string{"--profile", "nope", "--overlay", `{"model":"m"}`}) {
-		t.Errorf("OverlayArgs(unknown row) = %q", got)
+	if !strings.Contains(out.String(), `"hookEventName":"PostToolUse"`) || !strings.Contains(out.String(), "long_comment") {
+		t.Errorf("stdout = %q, want PostToolUse JSON naming long_comment", out.String())
 	}
 }

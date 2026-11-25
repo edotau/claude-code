@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 )
 
 // reviewBudget is the most chars (prompt + diff) one review call carries; codex rejects input over 1,048,576.
@@ -292,7 +292,7 @@ func judgeAll(answers []string) []judged {
 // mergeJudged reduces the deduped findings of all answers; a missing, blank or unreadable part leaves it unjudged.
 func mergeJudged(js []judged, short bool) judged {
 	m := judged{Unjudged: short}
-	seen := map[hooks.Finding]bool{}
+	seen := map[quality.Finding]bool{}
 	for _, j := range js {
 		m.Unjudged = m.Unjudged || j.Unjudged
 		if verdictRank[j.Stated] > verdictRank[m.Stated] {

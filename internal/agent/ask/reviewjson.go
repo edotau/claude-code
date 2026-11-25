@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 )
 
 // reviewFinding is one structured finding row; its schema is generated from it.
@@ -24,9 +24,11 @@ type reviewFinding struct {
 	Claim    string `json:"claim"`
 }
 
-var reviewFindingsSchema = wire.SchemaFor[struct {
+type reviewRows struct {
 	Findings []reviewFinding `json:"findings"`
-}]()
+}
+
+var reviewFindingsSchema = wire.SchemaFor[reviewRows]()
 
 type reviewEnvelope struct {
 	wire.Envelope
@@ -43,19 +45,19 @@ type reviewVerdict struct {
 }
 
 // reduceFindings: CRITICAL is BLOCK, HIGH FIX REQUIRED, only MEDIUM/LOW FIX REQUIRED but mergeable, none SHIP.
-func reduceFindings(fs []hooks.Finding, unjudged bool) reviewVerdict {
+func reduceFindings(fs []quality.Finding, unjudged bool) reviewVerdict {
 	v := reviewVerdict{Computed: "SHIP", Counts: map[string]int{"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}}
 	for _, f := range fs {
 		v.Counts[f.Severity]++
 	}
-	v.Computed, v.Mergeable = hooks.ComputeVerdict(fs, unjudged)
+	v.Computed, v.Mergeable = quality.ComputeVerdict(fs, unjudged)
 	return v
 }
 
 // judged is one report's findings, the verdict they compute and the verdict word the model stated.
 type judged struct {
 	reviewVerdict
-	Findings []hooks.Finding
+	Findings []quality.Finding
 	Stated   string
 	Unjudged bool
 }
@@ -64,7 +66,7 @@ var severityWord = regexp.MustCompile(`(?i)\b(?:CRITICAL|HIGH|MEDIUM|LOW)\b`)
 
 // judgeReport reduces a prose report; findings it cannot parse leave it unjudged, never SHIP.
 func judgeReport(answer string) judged {
-	j := judged{Findings: hooks.ParseFindings(answer), Stated: hooks.StatedVerdict(answer)}
+	j := judged{Findings: quality.ParseFindings(answer), Stated: quality.StatedVerdict(answer)}
 	if t := strings.TrimSpace(answer); len(j.Findings) == 0 && !strings.Contains(t, cleanVerdict) {
 		j.Unjudged = j.Stated != "SHIP" || severityWord.MatchString(t)
 	}
@@ -103,12 +105,12 @@ func envJudged(env reviewEnvelope) judged {
 		return j
 	}
 	var rows []reviewFinding
-	j := judged{Stated: hooks.StatedVerdict(env.Answer)}
+	j := judged{Stated: quality.StatedVerdict(env.Answer)}
 	if err := json.Unmarshal(env.Findings, &rows); err != nil {
 		j.Unjudged = true
 	}
 	for _, r := range rows {
-		j.Findings = append(j.Findings, hooks.Finding{Severity: r.Severity, File: r.File, Line: r.Line, Text: r.Claim})
+		j.Findings = append(j.Findings, quality.Finding{Severity: r.Severity, File: r.File, Line: r.Line, Text: r.Claim})
 	}
 	j.reviewVerdict = reduceFindings(j.Findings, j.Unjudged)
 	return j
@@ -189,7 +191,7 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 	if len(raw) == 0 {
 		raw = json.RawMessage(env.Answer)
 	}
-	checked, _, err := wire.Structured(string(raw), reviewFindingsSchema)
+	rows, _, err := wire.Decode[reviewRows](string(raw))
 	if err != nil {
 		if _, err := fmt.Fprintln(note, "review: invalid findings; keeping prose answer"); err != nil {
 			return env, err
@@ -197,11 +199,11 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 		env.Structured, env.Computed = nil, "unjudged" // schema-invalid findings never pass as SHIP
 		return env, nil
 	}
-	var rows struct{ Findings json.RawMessage }
-	if err := json.Unmarshal(checked, &rows); err != nil {
+	findings, err := json.Marshal(rows.Findings)
+	if err != nil {
 		return env, err
 	}
-	env.Findings, env.Structured = rows.Findings, nil // the findings ride once
+	env.Findings, env.Structured = findings, nil // the findings ride once
 	return env, nil
 }
 

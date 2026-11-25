@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -76,7 +77,7 @@ func fromRecords(recs [][2]string) *Matcher {
 	m := &Matcher{origins: map[string]Origin{}}
 	for _, rec := range recs {
 		for _, leaf := range leaves(rec[1]) {
-			if !eligible(leaf.text) {
+			if !eligible(leaf.text) || IsModelID(leaf.text) {
 				m.Skipped++
 				continue
 			}
@@ -85,6 +86,11 @@ func fromRecords(recs [][2]string) *Matcher {
 	}
 	m.sortNeedles()
 	return m
+}
+
+// IsModelID reports exactly a catalog model id, alias or wire spelling: a misfiled pin, never a credential.
+func IsModelID(v string) bool {
+	return models.IsKnownSpelling(v)
 }
 
 func (m *Matcher) add(record, field, text, rawForm string) {

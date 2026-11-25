@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -54,9 +55,9 @@ func TestHookMainFallsBackWhenMainCannotExecute(t *testing.T) {
 	if err := os.WriteFile(main, []byte("not executable"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := mainSibling
-	mainSibling = func() (string, bool) { return main, true }
-	t.Cleanup(func() { mainSibling = old })
+	old := core.MainSibling
+	core.MainSibling = func() (string, bool) { return main, true }
+	t.Cleanup(func() { core.MainSibling = old })
 	if got := Main([]string{paths.HookBinaryName, "PreToolUse", "--phase69-probe"}); got != 1 {
 		t.Fatalf("failed hand-over returned %d, want local unknown-module exit 1", got)
 	}

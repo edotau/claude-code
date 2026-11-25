@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
+	secretredact "github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -28,6 +29,7 @@ func vaultChecks(reg *providers.Registry) []vaultCheck {
 	out = append(out, checkMasterKey()...)
 	out = append(out, checkRetiredKeys()...)
 	out = append(out, checkKeyNames(reg)...)
+	out = append(out, checkMisfiled()...)
 	return append(out, checkKeyringTool())
 }
 
@@ -164,4 +166,20 @@ func checkKeyringTool() vaultCheck {
 		return vaultCheck{Name: "keyring tool", OK: true, Detail: vault.KeyringTool() + " on PATH"}
 	}
 	return vaultCheck{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
+}
+
+// checkMisfiled names credential records holding a model id; redaction skips them, so they are never masked.
+func checkMisfiled() []vaultCheck {
+	recs, err := secretredact.VaultRecords()
+	if err != nil { // the master key row reports an unreadable vault
+		return nil
+	}
+	var out []vaultCheck
+	for _, name := range slices.Sorted(maps.Keys(recs)) {
+		if secretredact.IsModelID(recs[name]) {
+			out = append(out, vaultCheck{Name: "misfiled: " + name, Detail: name + " holds a model id, not a secret " +
+				"(move it: claude-code vault env set " + name + " <value> or configure agents …)"})
+		}
+	}
+	return out
 }

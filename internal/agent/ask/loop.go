@@ -607,7 +607,8 @@ func parseLoopPlan(b []byte, rc int) (loopPlan, wire.Usage, error) {
 	case env.Status != wire.StatusOK || len(env.Structured) == 0:
 		return p, u, fmt.Errorf("status %q with no structured plan", env.Status)
 	}
-	return p, u, json.Unmarshal(env.Structured, &p)
+	p, _, err := wire.Decode[loopPlan](string(env.Structured))
+	return p, u, err
 }
 
 // loopRunner runs a round's parts on the batch pool; a retry moves them to claude with the base route cleared.

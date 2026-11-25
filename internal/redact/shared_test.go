@@ -149,3 +149,29 @@ func TestSharedMasksEnvMasterKeyIneligibleForms(t *testing.T) {
 		}
 	}
 }
+
+func TestMatcherSkipsModelIDs(t *testing.T) {
+	secret := strings.Repeat("qzx", 4) + "k7Rw9mPv"
+	m := FromValues([]string{"databricks-claude-sonnet-5-5", secret})
+	out := m.String("model databricks-claude-sonnet-5-5 key " + secret)
+	if !strings.Contains(out, "databricks-claude-sonnet-5-5") || strings.Contains(out, secret) {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestIsModelIDExactOnly(t *testing.T) {
+	fill := strings.Repeat("qzx", 3) + "k7Rw9"
+	for _, v := range []string{"databricks-claude-sonnet-5-5", "Sonnet", "gpt-5"} {
+		if !IsModelID(v) {
+			t.Errorf("%q should be a model id", v)
+		}
+	}
+	for _, v := range []string{"prefix databricks-claude-sonnet-5-5 suffix", "sonnet-4-" + fill, fill + "/gpt-5", "claude-opus-5-5" + fill} {
+		if IsModelID(v) {
+			t.Errorf("%q must not be a model id", v)
+		}
+		if m := FromValues([]string{v}); m.String(v) == v {
+			t.Errorf("%q left unmasked", v)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -346,6 +347,11 @@ func sessionPrompts(root string) []string {
 
 // missingPaths returns one finding per absolute or ~ path the hook context names that does not exist.
 func missingPaths(hook, ctx string) []string {
+	return missingPathsOn(hook, ctx, runtime.GOOS, paths.ExpandHome("~"))
+}
+
+// missingPathsOn is missingPaths with the OS and this machine's home root passed in, so tests can drive both.
+func missingPathsOn(hook, ctx, goos, home string) []string {
 	var out []string
 	for _, ix := range namedPath().FindAllStringSubmatchIndex(ctx, -1) {
 		name := ctx[ix[2]:ix[3]]
@@ -357,6 +363,9 @@ func missingPaths(hook, ctx string) []string {
 			out = append(out, fmt.Sprintf("%s:1: context names %s but the home directory cannot be resolved", hook, name))
 			continue
 		}
+		if foreignHome(p, home, goos) {
+			continue // a shared memory bank names the other OS's home (WSL /home on macOS, /Users on Linux)
+		}
 		if top, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); func() bool { _, err := os.Stat("/" + top); return err != nil }() {
 			continue // a URL route like /serving-endpoints or /chat/completions, not a filesystem path
 		}
@@ -365,6 +374,22 @@ func missingPaths(hook, ctx string) []string {
 		}
 	}
 	return out
+}
+
+// foreignHome reports an absolute path under another OS's home root and outside this machine's home.
+func foreignHome(p, home, goos string) bool {
+	if !strings.HasPrefix(p, "/") || (home != "~" && home != "" && strings.HasPrefix(p, strings.TrimSuffix(home, "/")+"/")) {
+		return false
+	}
+	switch goos {
+	case "darwin":
+		return strings.HasPrefix(p, "/home/")
+	case "linux":
+		return strings.HasPrefix(p, "/Users/")
+	case "windows":
+		return strings.HasPrefix(p, "/home/") || strings.HasPrefix(p, "/Users/")
+	}
+	return false
 }
 
 // pathToken is the whole path word at the start of s; namedPath stops at the first placeholder character.

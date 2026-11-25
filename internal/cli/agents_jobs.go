@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -318,7 +318,7 @@ func cmdAgentsResult(args []string) int {
 
 // resultHeld follows each job id the hook state holds for leaf agentID, stopping at the first failure.
 func resultHeld(o resultFlags) int {
-	ids := hooks.ReadHeldJobs(o.held)
+	ids := dispatchhook.ReadHeldJobs(o.held)
 	if len(ids) == 0 {
 		return helptext.Fail("agents result: no held jobs saved for leaf %q", o.held)
 	}

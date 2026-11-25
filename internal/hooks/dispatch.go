@@ -16,10 +16,15 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/pi"
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/safety"
+	"github.com/edotau/claude-code/internal/hooks/secrets"
+	"github.com/edotau/claude-code/internal/hooks/web"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/settings"
@@ -62,22 +67,8 @@ type runError struct{ msg, outcome string }
 
 func (e *runError) Error() string { return e.msg }
 
-var defaultHandlerBudget = 5 * time.Second
-
-// Leave gates time to render their refusal before the host deadline.
-func budgetOf(s settings.EventSpec) time.Duration {
-	budget := s.Budget
-	if budget <= 0 {
-		budget = defaultHandlerBudget
-	}
-	if s.Blocks {
-		budget -= min(core.HookMargin/2, budget/2)
-	}
-	return budget
-}
-
 // Keep direct calls and dispatched handlers on the same budget policy.
-var gateDeadline = budgetOf
+var gateDeadline = core.BudgetOf
 
 // runBudgeted runs f with panic recovery; wait yields its value or a panic/overrun error. budget <= 0 never expires.
 func runBudgeted[T any](f func() T, budget time.Duration, wg *sync.WaitGroup) (wait func() (T, time.Duration, error)) {
@@ -264,7 +255,7 @@ func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (step
 			steps = append(steps, step{b: b, block: unreadable(b.Spec.Name, problem)})
 		case hit:
 			run := b.Run // Capture only the runner so the full Bound stays on the stack.
-			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return run(in) }, budgetOf(b.Spec), wg)})
+			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return run(in) }, core.BudgetOf(b.Spec), wg)})
 		}
 	}
 	return steps
@@ -424,44 +415,44 @@ func drain(wg *sync.WaitGroup, log io.Writer) {
 var native = map[string]core.Runner{
 	"safety-scan":          safety.Scan,
 	"rtk-rewrite":          safety.RTKRewrite,
-	"review-grep-exit":     GrepExit,
-	"bash-timeout":         BashTimeout,
+	"review-grep-exit":     quality.GrepExit,
+	"bash-timeout":         dispatchhook.BashTimeout,
 	"docs-placement":       placementRun,
-	"memory-start":         WithDispatchLabels(memhook.Start),
-	"memory-recall":        WithDispatchLabels(memhook.Recall),
+	"memory-start":         dispatchhook.WithDispatchLabels(memhook.Start),
+	"memory-recall":        dispatchhook.WithDispatchLabels(memhook.Recall),
 	"paths-resolve":        docs.ResolvePaths,
 	"memory-update":        memhook.Stop,
 	"review-simplicity":    quality.ReviewSimplicity,
-	"review-handback":      ReviewHandback,
-	"review-notified":      ReviewHandback,
-	"review-decide":        ReviewDecide,
+	"review-handback":      quality.ReviewHandback,
+	"review-notified":      quality.ReviewHandback,
+	"review-decide":        quality.ReviewDecide,
 	"format-stop":          quality.StopFormat,
 	"memory-end":           memhook.End,
-	"dispatch-effort":      EffortSpawn,
-	"codex-agent-route":    CodexAgentRoute,
-	"codex-routing-start":  CodexRoutingStart,
-	"codex-routing-result": CodexRoutingResult,
-	"codex-subagent-start": CodexSubagentStart,
-	"dispatch-failure":     Release,
-	"dispatch-workflow":    AfterTool,
+	"dispatch-effort":      dispatchhook.EffortSpawn,
+	"codex-agent-route":    dispatchhook.CodexAgentRoute,
+	"codex-routing-start":  dispatchhook.CodexRoutingStart,
+	"codex-routing-result": dispatchhook.CodexRoutingResult,
+	"codex-subagent-start": dispatchhook.CodexSubagentStart,
+	"dispatch-failure":     dispatchhook.Release,
+	"dispatch-workflow":    dispatchhook.AfterTool,
 	"docs-plan-tick":       docs.TickOrBench,
-	"docs-plan-reminder":   reminderWatched,
+	"docs-plan-reminder":   dispatchhook.ReminderWatched,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),
 	"docs-plan-save":       viaStderr(docs.Save),
-	"dispatch-stop":        Stop,
-	"dispatch-handback":    Handback,
+	"dispatch-stop":        dispatchhook.Stop,
+	"dispatch-handback":    dispatchhook.Handback,
 	"memory-compact":       memhook.Compact,
 	"worktree-create":      wthook.Create,
 	"worktree-remove":      viaStderr(wthook.Remove),
-	"worktree-busy":        busyWatched,
+	"worktree-busy":        dispatchhook.BusyWatched,
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": claimCheckRun,
 	"worktree-clean-end":   wthook.CleanEnd,
-	"lane-land":            LaneLand,
-	"lane-land-queue":      LaneLandQueue,
-	"secrets-out":          SecretsOut,
-	"secrets-end":          SecretsEnd,
-	"web-tavily":           WebTavily,
+	"lane-land":            lane.Land,
+	"lane-land-queue":      lane.Queue,
+	"secrets-out":          secrets.Out,
+	"secrets-end":          secrets.End,
+	"web-tavily":           web.Tavily,
 }
 
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
@@ -603,8 +594,8 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 		return unknownHook(event, "unknown hook event", stderr)
 	}
 	switch {
-	case len(flags) > 0 && flags[0] == secretsJobFlag:
-		return runSecretsJob(event, flags[1:])
+	case len(flags) > 0 && flags[0] == secrets.JobFlag:
+		return secrets.RunJob(event, flags[1:])
 	case len(flags) == 0:
 		return runEvent(event, "", stdin, stdout, stderr)
 	case len(flags) == 1 && (flags[0] == settings.AllFlag || flags[0] == settings.AsyncFlag):
@@ -618,8 +609,8 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 
 // runModule runs one module on its declared event.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if name == piGuardName && event == settings.EventPreToolUse {
-		return runPiGuard(stdin, stdout, stderr)
+	if name == pi.GuardName && event == settings.EventPreToolUse {
+		return pi.Guard(stdin, stdout, stderr, piModules)
 	}
 	if _, ok := native[name]; !ok || eventOf(name) != event {
 		return unknownModule(event, name, stderr)
@@ -656,4 +647,52 @@ func unknownHook(name, what string, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "claude-code hook: %s %q%s\n", what, name, hint)
 	return code
+}
+
+// piModules runs the PreToolUse modules Pi sessions load against one tool call; "" allows.
+func piModules(tool string, payload []byte) string {
+	return piModulesBlock(settings.SpecsFor("pi", "plugin"), tool, payload)
+}
+
+// piModulesBlock runs the PreToolUse modules matching tool; fail closed: none judging the call blocks.
+func piModulesBlock(specs []settings.EventSpec, tool string, payload []byte) string {
+	judged := 0
+	for _, s := range specs {
+		if s.Event != settings.EventPreToolUse || !matchTool(s.Matcher, tool) {
+			continue
+		}
+		judged++
+		if reason := piModuleBlock(s, payload); reason != "" {
+			return reason
+		}
+	}
+	if judged == 0 {
+		return "pi guard: no guard module matched " + tool + "; blocked"
+	}
+	return ""
+}
+
+// piModuleBlock is one module's block reason ("" allows); fail closed: a missing, failed or asking module blocks.
+func piModuleBlock(s settings.EventSpec, payload []byte) string {
+	run, ok := native[s.Name]
+	if !ok {
+		return "pi guard: " + s.Name + " is not available; blocked"
+	}
+	o := invokeDirect(s.Name, run, bytes.NewReader(payload), s)
+	switch {
+	case o.res.Decision == core.Block:
+		return reasonOr(o.res.Reason, "pi guard: "+s.Name+" blocked the call")
+	case o.res.Decision == core.Ask:
+		return reasonOr(o.res.Reason, "approval required; blocked") // no one to ask
+	case o.err != nil:
+		return "pi guard: " + s.Name + " did not complete (" + o.err.Error() + "); blocked"
+	}
+	return ""
+}
+
+func reasonOr(reason, fallback string) string {
+	if strings.TrimSpace(reason) == "" {
+		return fallback
+	}
+	return reason
 }
