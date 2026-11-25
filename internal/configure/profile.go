@@ -77,7 +77,7 @@ func profileKey(rt route.Route) string {
 	switch {
 	case rt.Account != "":
 		return ""
-	case rt.Provider == "databricks" && rt.Profile == "auto":
+	case rt.Provider == providers.GroupDatabricks && rt.Profile == route.AutoArm:
 		return "databricks"
 	}
 	return rt.Profile
@@ -105,19 +105,19 @@ func ValidProfile(agents []string, profile string) error {
 
 // SwitchTargets moves claude and fixed pins on profile's provider; off, pool, own-login and other pins stay.
 func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off, kept []string) {
-	target := reg.Providers[profile]
+	target, _ := reg.Get(profile)
 	for _, spec := range agentpkg.Roster() {
 		rt := recs[spec.Name].EffectiveRoute()
-		ok, _ := agentpkg.Serves(spec.Name, target, "")
 		switch {
-		case !spec.External():
+		case switchAlreadyOn(reg, rt, target):
+			kept = append(kept, spec.Name)
+		case target != nil && !spec.External():
 			move = append(move, spec.Name)
-		case !ok:
 		case rt.Account != "":
 			kept = append(kept, spec.Name)
 		case profileKey(rt) == "":
 			off = append(off, spec.Name)
-		case movesOnSwitch(reg, spec.Name, rt, target):
+		case switchServes(spec.Name, target) && movesOnSwitch(reg, spec.Name, rt, target):
 			move = append(move, spec.Name)
 		default:
 			kept = append(kept, spec.Name)
@@ -126,16 +126,26 @@ func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, p
 	return move, off, kept
 }
 
-// movesOnSwitch is true for a fixed (not pool, not own-login) profile on target's provider.
-func movesOnSwitch(reg *providers.Registry, name string, rt route.Route, target *providers.Provider) bool {
-	if target == nil || rt.Profile == "" || rt.Profile == route.AutoArm || agentpkg.OwnLogin(reg, name, rt.Profile) {
+func switchAlreadyOn(reg *providers.Registry, rt route.Route, target *providers.Provider) bool {
+	return target != nil && !rt.IsZero() && providers.CompleteRoute(reg, rt) == RouteIn(reg, target.Name)
+}
+
+func switchServes(name string, target *providers.Provider) bool {
+	if target == nil {
 		return false
 	}
-	cur := rt.Provider
-	if row := reg.Row(rt.Profile); cur == "" && row != nil {
-		cur = row.Provider
+	ok, _ := agentpkg.Serves(name, target, "")
+	return ok
+}
+
+// movesOnSwitch is true for a fixed (not pool, not own-login) profile on target's provider.
+func movesOnSwitch(reg *providers.Registry, name string, rt route.Route, target *providers.Provider) bool {
+	rt = providers.CompleteRoute(reg, rt)
+	if target == nil || rt.Profile == "" ||
+		(rt.Provider == providers.GroupDatabricks && rt.Profile == route.AutoArm) || agentpkg.OwnLogin(reg, name, rt.Profile) {
+		return false
 	}
-	return cur == target.Provider
+	return rt.Provider == target.Provider
 }
 
 // PinLabel is the profile an agent's record is pinned as; an account route reads as its account.
@@ -149,21 +159,33 @@ func PinLabel(rec vault.AgentRecord) string {
 
 // SwitchRecords sets profile on every SwitchTargets mover in m (the dry-run view of SwitchProfile).
 func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
+	target, err := reg.Get(profile)
+	if err != nil {
+		return
+	}
+	profile = target.Name
 	move, _, _ := SwitchTargets(reg, m, profile)
 	for _, name := range move {
 		m[name] = WithProfile(m[name], RouteIn(reg, profile), profile)
 	}
 }
 
-// SwitchProfile moves claude and every on agent that serves profile onto it, and audits it.
+// SwitchProfile selects and replaces eligible fixed pins in one vault transaction, then audits it.
 func SwitchProfile(reg *providers.Registry, profile string) error {
-	recs, err := vault.ReadAgentRecords(agentpkg.RosterNames())
+	return switchProfile(reg, profile, vault.UpdateAgentRecords)
+}
+
+// switchProfile accepts the transaction runner so tests can interleave a writer at the transaction boundary.
+func switchProfile(reg *providers.Registry, profile string, update func(func(map[string]vault.AgentRecord)) error) error {
+	target, err := reg.Get(profile)
 	if err != nil {
-		return fmt.Errorf("switch profile: %w", err)
-	}
-	move, _, _ := SwitchTargets(reg, recs, profile)
-	if _, err := ApplyProfile(move, profile); err != nil {
 		return err
+	}
+	profile = target.Name
+	if err := update(func(recs map[string]vault.AgentRecord) {
+		SwitchRecords(reg, recs, profile)
+	}); err != nil {
+		return fmt.Errorf("switch profile: %w", err)
 	}
 	providers.AuditSwitch(profile)
 	return nil

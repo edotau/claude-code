@@ -183,12 +183,12 @@ func listLive(p *providers.Provider, format string) int {
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
 	About: "Sets the profile on claude and each other agent pinned to a fixed profile of the same provider; pool pins, " +
-		"own-login pins and other providers are kept. Relaunch to apply. " +
+		"own-login, account and off pins, and other providers are kept. Relaunch to apply. " +
 		"One launch only: claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
 
-// cmdSwitch is the switch verb: it pins the session profile on every agent that can serve it.
+// cmdSwitch moves claude and eligible fixed same-provider pins; other routes are retained.
 func cmdSwitch(args []string) int {
 	dryRun, args := helptext.ExtractBool(args, "dry-run")
 	if len(args) == 0 && !dryRun || len(args) > 0 && isHelpVerb(args[0]) {
@@ -203,37 +203,54 @@ func cmdSwitch(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if err := switchTarget(reg, args[0]); err != nil {
+	profile, err := switchTarget(reg, args[0])
+	if err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if dryRun {
-		return previewSwitchProfile(reg, args[0])
+		return previewSwitchProfile(reg, profile)
 	}
-	if err := configure.SwitchProfile(reg, args[0]); err != nil {
+	return applySwitchProfile(reg, profile)
+}
+
+func applySwitchProfile(reg *providers.Registry, profile string) int {
+	if err := configure.SwitchProfile(reg, profile); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
+	if err := stdoutf("switch", "profile pinned: %s (relaunch to apply)\n", profile); err != nil {
+		return helptext.Fail("%v", err)
+	}
 	preflight.Warm(context.Background(), os.Stdout, reg, time.Now())
 	return 0
 }
 
 // switchTarget rejects the pool name with a hint, else an unknown profile.
-func switchTarget(reg *providers.Registry, name string) error {
+func switchTarget(reg *providers.Registry, name string) (string, error) {
 	if name == agent.PoolPin {
-		return fmt.Errorf("%q is the pool, not a profile: name one (%s); pool-pinned agents already rotate",
+		if len(reg.ProfilesOf(providers.GroupDatabricks)) == 0 {
+			return "", fmt.Errorf("%q is the pool, not a profile: configure a Databricks profile first", name)
+		}
+		return "", fmt.Errorf("%q is the pool, not a profile: name one (%s); pool-pinned agents already rotate",
 			name, strings.Join(reg.ProfilesOf(providers.GroupDatabricks), ", "))
 	}
-	_, err := reg.Get(name)
-	return err
+	p, err := reg.Get(name)
+	if err != nil {
+		return "", err
+	}
+	return p.Name, nil
 }
 
 func previewSwitchProfile(reg *providers.Registry, profile string) int {
-	apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, profile) }
 	recs, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
 		return helptext.Fail("switch preview: %v", err)
 	}
-	return printRecordDiff(apply, keptLines(reg, recs, profile))
+	after := maps.Clone(recs)
+	configure.SwitchRecords(reg, after, profile)
+	if err := printLines(providers.DryRunLines(recs, after, keptLines(reg, recs, profile))); err != nil {
+		return helptext.Fail("switch preview: %v", err)
+	}
+	return 0
 }
 
 // switchUsage prints switch's page; helptext.ExtractBool pulls its one flag out, so this FlagSet only renders it.
@@ -489,12 +506,14 @@ func keptLines(reg *providers.Registry, recs map[string]vault.AgentRecord, profi
 		lines = append(lines, n+": off (kept)")
 	}
 	for _, n := range kept {
-		lines = append(lines, n+": "+configure.PinLabel(recs[n])+" (kept)")
+		rec := recs[n]
+		rec.Route = providers.CompleteRoute(reg, rec.EffectiveRoute())
+		lines = append(lines, n+": "+configure.PinLabel(rec)+" (kept)")
 	}
 	return lines
 }
 
-// printRecordDiff is the shared --dry-run body for switch and models.
+// printRecordDiff previews model-pin changes; switch uses one snapshot for both its diff and kept notes.
 func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
 	before, err := vault.ReadAgentRecords(agent.RosterNames())
 	if err != nil {
