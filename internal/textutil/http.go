@@ -22,11 +22,11 @@ func HeaderRetryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 	if ms, err := strconv.ParseInt(strings.TrimSpace(h.Get("Retry-After-Ms")), 10, 64); err == nil {
 		return time.Duration(max(0, min(ms, int64(maxRetrySeconds)*1000))) * time.Millisecond, true
 	}
-	return ParseRetryAfter(h.Get("Retry-After"), now)
+	return parseRetryAfter(h.Get("Retry-After"), now)
 }
 
-// ParseRetryAfter parses seconds or an HTTP-date; callers decide how to handle nonpositive durations.
-func ParseRetryAfter(v string, now time.Time) (time.Duration, bool) {
+// parseRetryAfter parses seconds or an HTTP-date; callers decide how to handle nonpositive durations.
+func parseRetryAfter(v string, now time.Time) (time.Duration, bool) {
 	v = strings.TrimSpace(v)
 	if seconds, err := strconv.Atoi(v); err == nil {
 		return time.Duration(max(-maxRetrySeconds, min(seconds, maxRetrySeconds))) * time.Second, true
@@ -54,8 +54,8 @@ var RetrySleep = func(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// RetryDelay is the wait before retry number attempt (1-based): full-jitter exponential from base, never under Retry-After.
-func RetryDelay(attempt int, base time.Duration, h http.Header, now time.Time) time.Duration {
+// retryDelay is the wait before retry number attempt (1-based): full-jitter exponential, never under Retry-After.
+func retryDelay(attempt int, base time.Duration, h http.Header, now time.Time) time.Duration {
 	backoff := min(base<<min(max(attempt-1, 0), 20), backoffCap)
 	wait := time.Duration(rand.Int64N(int64(max(backoff, 0)) + 1))
 	if d, ok := HeaderRetryAfter(h, now); ok {
@@ -67,7 +67,7 @@ func RetryDelay(attempt int, base time.Duration, h http.Header, now time.Time) t
 // WaitRetry sleeps RetryDelay on ctx; if ctx ends first it returns last (the final failed response) wrapped with
 // the context error, or the bare context error when last is nil.
 func WaitRetry(ctx context.Context, attempt int, base time.Duration, h http.Header, last error) error {
-	err := RetrySleep(ctx, RetryDelay(attempt, base, h, time.Now()))
+	err := RetrySleep(ctx, retryDelay(attempt, base, h, time.Now()))
 	if err == nil || last == nil {
 		return err
 	}

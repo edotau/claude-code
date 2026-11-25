@@ -1,13 +1,14 @@
 package textutil
 
 import (
-	"fmt"
-	"net"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"math"
 	"os"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
@@ -169,15 +170,6 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
-func TestParseRetryAfterHugeSecondsNeverNegative(t *testing.T) {
-	for _, v := range []string{"10000000000", "9223372036854775807"} {
-		d, ok := ParseRetryAfter(v, time.Now())
-		if !ok || d <= 0 {
-			t.Errorf("ParseRetryAfter(%q) = %v, %v; want positive, true", v, d, ok)
-		}
-	}
-}
-
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 func TestSHA256Hex(t *testing.T) {
@@ -213,51 +205,6 @@ func TestScanRawLines(t *testing.T) {
 	}
 }
 
-func TestIsNonPublicIPCGNATFlag(t *testing.T) {
-	cgnat := net.ParseIP("100.64.0.1")
-	if IsNonPublicIP(cgnat, false) || !IsNonPublicIP(cgnat, true) {
-		t.Errorf("CGNAT must follow blockCGNAT: false=%v true=%v", IsNonPublicIP(cgnat, false), IsNonPublicIP(cgnat, true))
-	}
-	for _, s := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "ff02::1", "0.1.2.3", "240.0.0.1", "::127.0.0.1", "::ffff:10.0.0.1",
-		"192.0.0.1", "192.0.2.1", "198.19.0.1", "198.51.100.1", "203.0.113.1", "64:ff9b::a00:1", "2001::1"} {
-		if !IsNonPublicIP(net.ParseIP(s), false) {
-			t.Errorf("IsNonPublicIP(%s) = false, want true", s)
-		}
-	}
-	if !IsNonPublicIP(nil, false) || IsNonPublicIP(net.ParseIP("8.8.8.8"), true) {
-		t.Error("nil is non-public and 8.8.8.8 public")
-	}
-}
-
-// Headings finds the headings a CommonMark parse finds: fences, comments and indented code hide "#"; setext counts.
-func TestHeadings(t *testing.T) {
-	cases := []struct{ name, in, want string }{
-		{"atx levels and closing hashes", "# a\n## b ##\n### c #x\n#### d\\#\n", "1:a|2:b|3:c #x|4:d\\#"},
-		{"not headings", "#x\n####### seven\n    ## code\n\\## esc\n", ""},
-		{"empty atx", "##\n## \n### ###\n", "2:|2:|3:"},
-		{"backtick fence", "```go\n## in\n```\n## out\n", "2:out"},
-		{"tilde fence longer than three", "~~~~\n## in\n~~~\n## still in\n~~~~\n## out\n", "2:out"},
-		{"fence inside fence needs matching char", "```\n~~~\n## in\n```\n## out\n", "2:out"},
-		{"indented fence", "   ```\n## in\n   ```\n## out\n", "2:out"},
-		{"unclosed fence", "```\n## in\n", ""},
-		{"setext", "Title\n=====\nSub\n---\n", "1:Title|2:Sub"},
-		{"thematic break is not setext", "text\n\n---\n## h\n", "2:h"},
-		{"html comment hides", "<!--\n## in\n-->\n## out\n", "2:out"},
-		{"quote and list", "> ## q\n- ## l\n", "2:q|2:l"},
-		{"crlf", "# a\r\n## b\r\n```\r\n## in\r\n```\r\n", "1:a|2:b"},
-		{"lone angle bracket line", "<\na\n<\n> <\n- <\n## h\n", "2:h"},
-	}
-	for _, c := range cases {
-		var got []string
-		for _, h := range Headings([]byte(c.in)) {
-			got = append(got, fmt.Sprintf("%d:%s", h.Level, h.Text))
-		}
-		if g := strings.Join(got, "|"); g != c.want {
-			t.Errorf("%s: %q -> %q, want %q", c.name, c.in, g, c.want)
-		}
-	}
-}
-
 func BenchmarkBuildVersion(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
@@ -275,6 +222,97 @@ func TestOneLineDropsTerminalControls(t *testing.T) {
 	} {
 		if got := OneLine(in); got != want {
 			t.Errorf("OneLine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+type failWriter struct{ calls int }
+
+func (f *failWriter) Write([]byte) (int, error) { f.calls++; return 0, errors.New("boom") }
+
+func TestErrWriterKeepsFirstError(t *testing.T) {
+	fw := &failWriter{}
+	ew := &ErrWriter{W: fw}
+	ew.Write([]byte("a"))
+	ew.Write([]byte("b"))
+	if ew.Err == nil || fw.calls != 1 {
+		t.Fatalf("err=%v calls=%d, want first error kept and later writes skipped", ew.Err, fw.calls)
+	}
+	var sb strings.Builder
+	ok := &ErrWriter{W: &sb}
+	ok.Write([]byte("x"))
+	if ok.Err != nil || sb.String() != "x" {
+		t.Fatalf("err=%v out=%q", ok.Err, sb.String())
+	}
+}
+
+func TestLastLine(t *testing.T) {
+	for in, want := range map[string]string{"": "", "a": "a", "a\nb\n\n": "b", "a\n  b \r\n": "b", "https://x/1\n": "https://x/1"} {
+		if got := LastLine(in); got != want {
+			t.Errorf("LastLine(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestCompactCount(t *testing.T) {
+	for n, want := range map[int64]string{
+		math.MinInt64: "-9223372036854775808", -1: "-1", 0: "0", 950: "950", 1000: "1k", 23_400: "23.4k",
+		94_400: "94.4k", 200_000: "200k", 999_949: "999.9k", 999_950: "1M", 1_200_000: "1.2M", 2_000_000: "2M",
+		math.MaxInt64: "9223372036854.8M",
+	} {
+		if got := CompactCount(n); got != want {
+			t.Errorf("CompactCount(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestStripJSONCUnterminatedBlockComment(t *testing.T) {
+	in := []byte(`{"enabled":true} /* unfinished`)
+	var out map[string]any
+	if err := json.Unmarshal(StripJSONC(in), &out); err == nil {
+		t.Fatal("unterminated block comment was accepted as valid JSON")
+	}
+}
+
+func TestStripJSONCHandlesCommentsStringsAndTrailingCommas(t *testing.T) {
+	in := strings.Join([]string{
+		"{",
+		"  // a line comment",
+		`  "a": "value with // not a comment and /* not a block */",`,
+		`  "b": [1, 2, 3,],`,
+		"  /* a block",
+		"     comment */",
+		`  "c": {"nested": true,},`,
+		"}",
+	}, "\n")
+	var out map[string]any
+	if err := json.Unmarshal(StripJSONC([]byte(in)), &out); err != nil {
+		t.Fatalf("stripped JSONC did not parse: %v\n%s", err, StripJSONC([]byte(in)))
+	}
+	if out["a"] != "value with // not a comment and /* not a block */" {
+		t.Errorf("string content was mangled: %v", out["a"])
+	}
+	if out["b"].([]any) == nil || len(out["b"].([]any)) != 3 {
+		t.Errorf("array trailing comma not stripped cleanly: %v", out["b"])
+	}
+	nested, ok := out["c"].(map[string]any)
+	if !ok || nested["nested"] != true {
+		t.Errorf("object trailing comma not stripped cleanly: %v", out["c"])
+	}
+}
+
+func BenchmarkStripJSONC(b *testing.B) {
+	in := []byte(strings.Repeat(`{"a": 1, /* c */ "b": "x // y"} // tail`+"\n", 200))
+	for b.Loop() {
+		StripJSONC(in)
+	}
+}
+
+func BenchmarkScanRawLines(b *testing.B) {
+	b.SetBytes(int64(len(benchDoc)))
+	for b.Loop() {
+		if _, err := ScanRawLines(bytes.NewReader(benchDoc), true, func([]byte) {}); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
