@@ -21,7 +21,7 @@ const (
 	defaultURL = "http://127.0.0.1:11401"
 	urlEnv     = "HARNESS_JEV_URL"
 	maxBrief   = 3500
-	timeout    = 2 * time.Second
+	timeout    = 15 * time.Second // shadow only: never delays a launch; a loaded Mac answers in 4-6 s
 	maxBody    = 1 << 16
 )
 
@@ -68,7 +68,7 @@ type answer struct {
 	Probabilities map[string]float64 `json:"probabilities"`
 }
 
-// Tier classifies the first 3500 characters of brief; it always returns within 2 s.
+// Tier classifies the first 3500 characters of brief; it always returns within the timeout.
 func Tier(ctx context.Context, brief string) (Result, error) {
 	base := strings.TrimRight(proc.Value(ctx, urlEnv), "/")
 	if base == "off" || base == "" && testing.Testing() { // a test binary never reaches the real server
