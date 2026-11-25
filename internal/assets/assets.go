@@ -15,11 +15,14 @@ var files embed.FS
 // tmplFields is a template's named inputs; a missing name panics like missingkey=error.
 type tmplFields map[string]any
 
+// parseRoot names the file's own tree while parsing, so a define named like the file stays a distinct tree.
+const parseRoot = "\x00file"
+
 // Parse-only on purpose: executing text/template links MethodByName, keeping all methods (+11 MB hookd).
 func parseTrees(name string, src []byte) map[string]*parse.Tree {
-	trees, err := parse.Parse(name, string(src), "", "")
+	trees, err := parse.Parse(parseRoot, string(src), "", "")
 	if err != nil {
-		panic("assets: " + name + ": " + err.Error())
+		panic("assets: " + name + ": " + strings.ReplaceAll(err.Error(), parseRoot, name))
 	}
 	return trees
 }
@@ -27,14 +30,14 @@ func parseTrees(name string, src []byte) map[string]*parse.Tree {
 // parseTemplates keys a file's trees: the file by name (unless only defines), each define as "<stem>/<block>".
 func parseTemplates(name string, src []byte) map[string]*parse.ListNode {
 	trees := parseTrees(name, src)
-	if strings.Contains(string(src), `define "`+name+`"`) {
+	if _, shadow := trees[name]; shadow {
 		panic("assets: " + name + ": a define may not reuse its file name")
 	}
 	stem := templateStem(name)
 	roots := make(map[string]*parse.ListNode, len(trees))
 	for key, tree := range trees {
 		switch {
-		case key != name:
+		case key != parseRoot:
 			roots[stem+"/"+key] = tree.Root
 		case len(trees) == 1 || !parse.IsEmptyTree(tree.Root):
 			roots[name] = tree.Root
@@ -54,8 +57,11 @@ func templateStem(name string) string {
 // maxTemplateDepth bounds {{template}} nesting so a recursive block panics instead of overflowing the stack.
 const maxTemplateDepth = 16
 
-// renderedKey, set only by tests, sees every template key executed.
-var renderedKey func(key string)
+// renderedKey and renderedBranch are test seams (executed key; {{if}} branch run), set serially: no t.Parallel render.
+var (
+	renderedKey    func(key string)
+	renderedBranch func(key string, n *parse.IfNode, then bool)
+)
 
 // tmplExec is one render's invariant state: the output builder and the file set being executed.
 type tmplExec struct {
@@ -75,7 +81,11 @@ func (t tmplExec) execTemplate(name string, list *parse.ListNode, dot any, depth
 		case *parse.ActionNode:
 			fmt.Fprint(t.out, templateValue(name, n.Pipe, dot))
 		case *parse.IfNode:
-			if templateTruth(name, templateValue(name, n.Pipe, dot)) {
+			then := templateTruth(name, templateValue(name, n.Pipe, dot))
+			if renderedBranch != nil {
+				renderedBranch(name, n, then)
+			}
+			if then {
 				t.execTemplate(name, n.List, dot, depth)
 			} else {
 				t.execTemplate(name, n.ElseList, dot, depth)

@@ -37,3 +37,16 @@ func TestWorkflowBlockBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowSkeletonKeysDistinct(t *testing.T) {
+	keys := map[string]bool{}
+	renderedKey = func(key string) { keys[key] = true }
+	defer func() { renderedKey = nil }()
+	WorkflowPipelineSkeleton("n")
+	WorkflowParallelSkeleton("n")
+	WorkflowEvaluatorSkeleton("n")
+	WorkflowOrchestratorSkeleton("n")
+	if len(keys) != 4 {
+		t.Errorf("skeletons rendered under %d keys, want 4: %v", len(keys), keys)
+	}
+}

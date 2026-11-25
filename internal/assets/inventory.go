@@ -169,11 +169,11 @@ var inventory = []struct {
 
 // PromptRow is one inventory row: an embedded file, its accessor, its template inputs and size.
 type PromptRow struct {
-	Path     string   `json:"path"`
-	Family   string   `json:"family"`
-	Accessor string   `json:"accessor"`
-	Fields   []string `json:"fields"`
-	Size     int      `json:"size"`
+	Path      string   `json:"path"`
+	Family    string   `json:"family"`
+	Accessors []string `json:"accessors"`
+	Fields    []string `json:"fields"`
+	Size      int      `json:"size"`
 }
 
 // Inventory lists every embedded file; Fields are the template's named inputs ("." for the bare value), empty for text.
@@ -181,7 +181,7 @@ func Inventory() []PromptRow {
 	rows := make([]PromptRow, 0, len(inventory))
 	for _, e := range inventory {
 		src := read(e.path)
-		row := PromptRow{Path: e.path, Family: strings.Split(e.path, "/")[1], Accessor: e.reader, Fields: []string{}, Size: len(src)}
+		row := PromptRow{Path: e.path, Family: strings.Split(e.path, "/")[1], Accessors: strings.Split(e.reader, ","), Fields: []string{}, Size: len(src)}
 		if strings.HasSuffix(e.path, ".tmpl") {
 			row.Fields = append(row.Fields, templateFields(path.Base(e.path), src)...)
 		}

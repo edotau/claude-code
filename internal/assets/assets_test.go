@@ -3,6 +3,7 @@ package assets
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -40,6 +41,7 @@ func readers(t *testing.T) map[string][]string {
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
 	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/", "renderBriefText": "files/brief/", "renderSafety": "files/safety/", "renderRtk": "files/rtk/",
+	"renderSkeleton": "files/workflows/skeletons/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {
@@ -402,9 +404,10 @@ func TestRendersGolden(t *testing.T) {
 	for _, set := range [][]renderCase{agentRenderCases(), hookRenderCases(), planHookRenderCases(), briefRenderCases(), memoryRenderCases()} {
 		cases = append(cases, set...)
 	}
-	rendered := map[string]bool{}
+	rendered, branches := map[string]bool{}, map[string]bool{}
 	renderedKey = func(key string) { rendered[key] = true }
-	defer func() { renderedKey = nil }()
+	renderedBranch = func(key string, n *parse.IfNode, then bool) { branches[branchID(key, n, then)] = true }
+	defer func() { renderedKey, renderedBranch = nil, nil }()
 	var got strings.Builder
 	for _, c := range cases {
 		label := c.acc
@@ -416,6 +419,9 @@ func TestRendersGolden(t *testing.T) {
 	missing := unrenderedKeys(rendered)
 	if len(missing) != 0 {
 		t.Fatalf("templates never rendered by TestRendersGolden: %v", missing)
+	}
+	for _, gap := range untakenBranches(branches) {
+		t.Log("branch never taken by a golden case: " + gap)
 	}
 	const golden = "testdata/renders.golden"
 	if *updateGolden {
@@ -433,10 +439,15 @@ func TestRendersGolden(t *testing.T) {
 	}
 }
 
+// templateSets is every loaded embedded template set.
+func templateSets() []func() map[string]*parse.ListNode {
+	return []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates, skeletonTemplates}
+}
+
 // unrenderedKeys lists every loaded template key (all sets, block keys included) absent from rendered.
 func unrenderedKeys(rendered map[string]bool) []string {
 	var missing []string
-	for _, load := range []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates} {
+	for _, load := range templateSets() {
 		for key := range load() {
 			if !rendered[key] {
 				missing = append(missing, key)
@@ -445,6 +456,37 @@ func unrenderedKeys(rendered map[string]bool) []string {
 	}
 	slices.Sort(missing)
 	return missing
+}
+
+func branchID(key string, n *parse.IfNode, then bool) string {
+	return fmt.Sprintf("%s@%d/%t", key, n.Pos, then)
+}
+
+// untakenBranches lists each {{if}} then or else branch (absent else counts) no golden ran; ranges untracked.
+func untakenBranches(taken map[string]bool) []string {
+	var gaps []string
+	for _, load := range templateSets() {
+		for key, root := range load() {
+			walkIfs(root, func(n *parse.IfNode) {
+				for _, then := range []bool{true, false} {
+					if id := branchID(key, n, then); !taken[id] {
+						gaps = append(gaps, id)
+					}
+				}
+			})
+		}
+	}
+	slices.Sort(gaps)
+	return gaps
+}
+
+func walkIfs(n parse.Node, visit func(*parse.IfNode)) {
+	if i, ok := n.(*parse.IfNode); ok {
+		visit(i)
+	}
+	for _, c := range templateChildren(n) {
+		walkIfs(c, visit)
+	}
 }
 
 func TestTemplateBlocks(t *testing.T) {
@@ -486,7 +528,15 @@ func TestTemplateRecursionLimit(t *testing.T) {
 }
 
 func TestTemplateDefineShadowsFile(t *testing.T) {
-	mustPanic(t, "may not reuse its file name", func() { parseTemplates("lane.tmpl", []byte(`{{define "lane.tmpl"}}x{{end}}`)) })
+	for _, src := range []string{`{{define "lane.tmpl"}}x{{end}}`, `{{define  "lane.tmpl"}}x{{end}}`,
+		`{{- define "lane.tmpl" -}}x{{end}}`, "{{define `lane.tmpl`}}x{{end}}", `a{{define "lane.tmpl"}}x{{end}}`} {
+		mustPanic(t, "may not reuse its file name", func() { parseTemplates("lane.tmpl", []byte(src)) })
+	}
+	for _, src := range []string{`prose: define "lane.tmpl" here`, `{{/* define "lane.tmpl" */}}ok`} {
+		if got := parseTemplates("lane.tmpl", []byte(src)); got["lane.tmpl"] == nil {
+			t.Errorf("%q: false shadow panic or lost file root: %v", src, got)
+		}
+	}
 }
 
 func TestStandaloneTemplateBlocks(t *testing.T) {

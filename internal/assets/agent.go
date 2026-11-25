@@ -49,9 +49,14 @@ func renderAgent(name string, input any) string { return renderFrom(agentTemplat
 func renderHook(name string, input any) string { return renderFrom(hookTemplates(), name, input) }
 
 func renderFrom(set map[string]*parse.ListNode, name string, input any) string {
+	return renderSet(set, "template", name, input)
+}
+
+// renderSet executes set[name]; kind labels the panic for a missing name.
+func renderSet(set map[string]*parse.ListNode, kind, name string, input any) string {
 	root, ok := set[name]
 	if !ok {
-		panic("assets: no template " + name)
+		panic("assets: no " + kind + " " + name)
 	}
 	if renderedKey != nil {
 		renderedKey(name)
