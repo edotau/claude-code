@@ -3,6 +3,7 @@ package catalog
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -32,8 +33,34 @@ type rotationRule struct {
 	DeferTurns int `json:"defer_turns,omitempty"`
 }
 
+// LocalRule is the staged rollout of the local last-resort model: stage off|shadow|last, the tiers it may serve.
+type LocalRule struct {
+	Stage     string   `json:"stage"`
+	Tiers     []string `json:"tiers"`
+	LeadEvery int      `json:"lead_every"` // 0 = fallback only; N = one in N healthy fast pi dispatches leads
+	MaxPrompt int      `json:"max_prompt"` // largest prompt, in tokens, the local hop takes
+}
+
+var localStages = []string{"off", "shadow", "last"}
+
+func (r LocalRule) validate(tiers map[string]int) error {
+	if !slices.Contains(localStages, r.Stage) {
+		return fmt.Errorf("local.stage %q: want one of %s", r.Stage, strings.Join(localStages, ", "))
+	}
+	for _, t := range r.Tiers {
+		if _, ok := tiers[t]; !ok {
+			return fmt.Errorf("local.tiers %q: not a tier in ranks.json", t)
+		}
+	}
+	if r.LeadEvery < 0 || r.MaxPrompt <= 0 {
+		return fmt.Errorf("local: lead_every %d, max_prompt %d out of range", r.LeadEvery, r.MaxPrompt)
+	}
+	return nil
+}
+
 type rankTable struct {
 	Tiers    map[string]int          `json:"tiers"` // tier -> the least capability it needs
+	Local    LocalRule               `json:"local"`
 	Rotation map[string]rotationRule `json:"rotation"`
 	Families []Rank                  `json:"families"`
 }
@@ -42,6 +69,9 @@ type rankTable struct {
 var loadRanks = sync.OnceValue(func() rankTable {
 	var t rankTable
 	if err := json.Unmarshal(assets.RankTable(), &t); err != nil {
+		panic("catalog: ranks.json: " + err.Error())
+	}
+	if err := t.Local.validate(t.Tiers); err != nil {
 		panic("catalog: ranks.json: " + err.Error())
 	}
 	for i := range t.Families {
@@ -53,6 +83,9 @@ var loadRanks = sync.OnceValue(func() rankTable {
 	}
 	return t
 })
+
+// Local is the local last-resort rule from ranks.json.
+func Local() LocalRule { return loadRanks().Local }
 
 // RankOf is id's family rank: the first pattern matching its canonical id; an unknown id sorts after every family.
 func RankOf(id string) Rank {
