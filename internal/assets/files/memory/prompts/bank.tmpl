@@ -1,6 +1,6 @@
-{{define "head"}}Search: `claude-code memory search <terms>`
+{{define "head"}}{{/* fields: Folders Router */}}Search: `claude-code memory search <terms>`
 Layout: one bank for every workspace; {{.Folders}}/ (see {{.Router}}){{end}}
 
-{{define "heading"}}<!-- MEMORY ({{.}}) -->{{end}}
+{{define "heading"}}{{/* fields: . */}}<!-- MEMORY ({{.}}) -->{{end}}
 
-{{define "load"}}{{if .}}{{.}} {{end}}Session memory bank loaded below; auto-saves at session end (`claude-code memory update` = manual).{{end}}
+{{define "load"}}{{/* fields: . */}}{{if .}}{{.}} {{end}}Session memory bank loaded below; auto-saves at session end (`claude-code memory update` = manual).{{end}}

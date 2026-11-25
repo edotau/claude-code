@@ -20,8 +20,10 @@ const parseRoot = "\x00file"
 
 // Parse-only on purpose: executing text/template links MethodByName, keeping all methods (+11 MB hookd).
 func parseTrees(name string, src []byte) map[string]*parse.Tree {
-	trees, err := parse.Parse(parseRoot, string(src), "", "")
-	if err != nil {
+	trees := map[string]*parse.Tree{}
+	root := parse.New(parseRoot)
+	root.Mode = parse.ParseComments
+	if _, err := root.Parse(string(src), "", "", trees); err != nil {
 		panic("assets: " + name + ": " + strings.ReplaceAll(err.Error(), parseRoot, name))
 	}
 	return trees
@@ -57,9 +59,10 @@ func templateStem(name string) string {
 // maxTemplateDepth bounds {{template}} nesting so a recursive block panics instead of overflowing the stack.
 const maxTemplateDepth = 16
 
-// renderedKey and renderedBranch are test seams (executed key; {{if}} branch run), set serially: no t.Parallel render.
+// renderedKey, renderedFields and renderedBranch are test seams (executed key; its top-level dot; {{if}} branch run).
 var (
 	renderedKey    func(key string)
+	renderedFields func(key string, dot any)
 	renderedBranch func(key string, n *parse.IfNode, then bool)
 )
 
@@ -78,18 +81,11 @@ func (t tmplExec) execTemplate(name string, list *parse.ListNode, dot any, depth
 		switch n := node.(type) {
 		case *parse.TextNode:
 			t.out.Write(n.Text)
+		case *parse.CommentNode:
 		case *parse.ActionNode:
 			fmt.Fprint(t.out, templateValue(name, n.Pipe, dot))
 		case *parse.IfNode:
-			then := templateTruth(name, templateValue(name, n.Pipe, dot))
-			if renderedBranch != nil {
-				renderedBranch(name, n, then)
-			}
-			if then {
-				t.execTemplate(name, n.List, dot, depth)
-			} else {
-				t.execTemplate(name, n.ElseList, dot, depth)
-			}
+			t.ifTemplate(name, n, dot, depth)
 		case *parse.RangeNode:
 			t.rangeTemplate(name, n, dot, depth)
 		case *parse.TemplateNode:
@@ -97,6 +93,18 @@ func (t tmplExec) execTemplate(name string, list *parse.ListNode, dot any, depth
 		default:
 			panic("assets: " + name + ": unsupported template node " + node.String())
 		}
+	}
+}
+
+func (t tmplExec) ifTemplate(name string, n *parse.IfNode, dot any, depth int) {
+	then := templateTruth(name, templateValue(name, n.Pipe, dot))
+	if renderedBranch != nil {
+		renderedBranch(name, n, then)
+	}
+	if then {
+		t.execTemplate(name, n.List, dot, depth)
+	} else {
+		t.execTemplate(name, n.ElseList, dot, depth)
 	}
 }
 

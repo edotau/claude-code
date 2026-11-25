@@ -1,3 +1,3 @@
-{{define "header"}}<!-- memory-recall{{if .}}; expand: claude-code memory search <id>{{end}} -->{{end}}
+{{define "header"}}{{/* fields: . */}}<!-- memory-recall{{if .}}; expand: claude-code memory search <id>{{end}} -->{{end}}
 
-{{define "line"}}- {{if .Label}}[{{.File}}] {{end}}{{.Text}}{{end}}
+{{define "line"}}{{/* fields: File Label Text */}}- {{if .Label}}[{{.File}}] {{end}}{{.Text}}{{end}}

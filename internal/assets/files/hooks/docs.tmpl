@@ -1,10 +1,10 @@
-{{define "placement"}}docs-placement: BLOCKED — {{.Base}} would land in {{.Where}}.
+{{define "placement"}}{{/* fields: Base Dest Handoffs Home Reports Where */}}docs-placement: BLOCKED — {{.Base}} would land in {{.Where}}.
 {{if .Dest}}Re-issue the write to {{.Dest}}.{{else}}Plans belong in {{.Home}}, reports in {{.Reports}}, handoffs in {{.Handoffs}}; re-issue the write there.{{end}} A genuine repo doc the user
 asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.
 Or launch with HARNESS_HOOK_SKIP=docs-placement.
 -> rules/harness/docs-placement.md
 {{end}}
 
-{{define "retired"}}{{.}} (retired: handoffs and reports live in the memory store){{end}}
+{{define "retired"}}{{/* fields: . */}}{{.}} (retired: handoffs and reports live in the memory store){{end}}
 
-{{define "where"}}{{if .Docs}}{{.Dir}}, which this repo gitignores — it vanishes on a fresh clone{{else}}the repo root ({{.Dir}}){{end}}{{end}}
+{{define "where"}}{{/* fields: Dir Docs */}}{{if .Docs}}{{.Dir}}, which this repo gitignores — it vanishes on a fresh clone{{else}}the repo root ({{.Dir}}){{end}}{{end}}

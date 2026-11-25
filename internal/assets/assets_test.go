@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -119,6 +120,15 @@ func TestInventoryClosed(t *testing.T) {
 	}
 }
 
+// withoutFieldsHeader drops a leading {{/* fields: ... */}} comment, which renders nothing.
+func withoutFieldsHeader(src []byte) []byte {
+	if !bytes.HasPrefix(src, []byte("{{/* fields:")) {
+		return src
+	}
+	_, rest, _ := bytes.Cut(src, []byte("*/}}"))
+	return rest
+}
+
 func TestInventoryOneReaderEach(t *testing.T) {
 	byPath := map[string][]string{}
 	for name, paths := range readers(t) {
@@ -133,7 +143,8 @@ func TestInventoryOneReaderEach(t *testing.T) {
 			t.Errorf("%s: readers %v, want [%s]", e.path, got, e.reader)
 		}
 		want, err := files.ReadFile(e.path)
-		if err != nil || !inventoryBytesMatch(e.read, e.kind, e.reader, want) {
+		if err != nil || !inventoryBytesMatch(e.read, e.kind, e.reader, want) &&
+			!inventoryBytesMatch(e.read, e.kind, e.reader, withoutFieldsHeader(want)) {
 			t.Errorf("%s: %s() does not return the embedded bytes (%v)", e.path, e.reader, err)
 		}
 		delete(byPath, e.path)
@@ -407,10 +418,12 @@ func TestRendersGolden(t *testing.T) {
 	rendered, branches := map[string]bool{}, map[string]bool{}
 	renderedKey = func(key string) { rendered[key] = true }
 	renderedBranch = func(key string, n *parse.IfNode, then bool) { branches[branchID(key, n, then)] = true }
-	defer func() { renderedKey, renderedBranch = nil, nil }()
+	var label string
+	renderedFields = func(key string, dot any) { checkCallerFields(t, label, key, dot) }
+	defer func() { renderedKey, renderedFields, renderedBranch = nil, nil, nil }()
 	var got strings.Builder
 	for _, c := range cases {
-		label := c.acc
+		label = c.acc
 		if c.variant != "" {
 			label += " (" + c.variant + ")"
 		}
@@ -456,6 +469,165 @@ func unrenderedKeys(rendered map[string]bool) []string {
 	}
 	slices.Sort(missing)
 	return missing
+}
+
+// declaredFields reads a template's leading {{/* fields: A B */}} header; "-" declares none.
+func declaredFields(root *parse.ListNode) ([]string, bool) {
+	if root == nil || len(root.Nodes) == 0 {
+		return nil, false
+	}
+	c, ok := root.Nodes[0].(*parse.CommentNode)
+	if !ok {
+		return nil, false
+	}
+	body, found := strings.CutPrefix(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(c.Text, "/*"), "*/")), "fields:")
+	if !found {
+		return nil, false
+	}
+	names := strings.Fields(body)
+	if len(names) == 1 && names[0] == "-" {
+		names = nil
+	}
+	return names, true
+}
+
+// usedFields is what key reads of its dot, blocks handed the dot included; a range body (dot = item) is skipped.
+func usedFields(set map[string]*parse.ListNode, key string) map[string]bool {
+	used := map[string]bool{}
+	var walk func(n parse.Node)
+	walk = func(n parse.Node) {
+		switch n := n.(type) {
+		case *parse.FieldNode:
+			used[strings.Join(n.Ident, ".")] = true
+		case *parse.DotNode:
+			used["."] = true
+		case *parse.RangeNode:
+			walk(n.Pipe)
+			walk(n.ElseList)
+		case *parse.TemplateNode:
+			if name, bare := passesDot(n); bare {
+				maps.Copy(used, usedFields(set, calleeKey(set, key, name)))
+			} else if n.Pipe != nil {
+				walk(n.Pipe)
+			}
+		default:
+			for _, c := range templateChildren(n) {
+				walk(c)
+			}
+		}
+	}
+	walk(set[key])
+	return used
+}
+
+// passesDot reports a {{template "x" .}} call and the block name it targets.
+func passesDot(n *parse.TemplateNode) (string, bool) {
+	if n.Pipe == nil || len(n.Pipe.Cmds) != 1 || len(n.Pipe.Cmds[0].Args) != 1 {
+		return n.Name, false
+	}
+	_, isDot := n.Pipe.Cmds[0].Args[0].(*parse.DotNode)
+	return n.Name, isDot
+}
+
+// calleeKey resolves a block name the way callTemplate does.
+func calleeKey(set map[string]*parse.ListNode, from, name string) string {
+	if _, ok := set[templateStem(from)+"/"+name]; ok {
+		return templateStem(from) + "/" + name
+	}
+	return name
+}
+
+// declarationProblems lists how key's header, body fields and nothing else disagree.
+func declarationProblems(set map[string]*parse.ListNode, key string) []string {
+	declared, ok := declaredFields(set[key])
+	if !ok {
+		return []string{key + ": no {{/* fields: ... */}} header as the first node"}
+	}
+	var out []string
+	used := usedFields(set, key)
+	for name := range used {
+		if !slices.Contains(declared, name) {
+			out = append(out, key+": uses "+name+" but does not declare it")
+		}
+	}
+	for _, name := range declared {
+		if !used[name] {
+			out = append(out, key+": declares "+name+" but never uses it")
+		}
+	}
+	if !slices.IsSorted(declared) {
+		out = append(out, key+": declared fields are not sorted")
+	}
+	slices.Sort(out)
+	return out
+}
+
+func TestTemplateFieldsDeclared(t *testing.T) {
+	for _, load := range templateSets() {
+		set := load()
+		for key := range set {
+			for _, p := range declarationProblems(set, key) {
+				t.Error(p)
+			}
+		}
+	}
+}
+
+// TestReviewBriefFieldsDeclared holds the text/template review briefs to the same header and to their input struct.
+func TestReviewBriefFieldsDeclared(t *testing.T) {
+	for path, input := range map[string]any{
+		"files/review/bench/briefs/fix.tmpl":    BenchFixInput{},
+		"files/review/bench/briefs/review.tmpl": BenchReviewInput{},
+		"files/review/autofix/briefs/fix.tmpl":  AutofixInput{},
+	} {
+		trees := map[string]*parse.Tree{}
+		root := parse.New("brief")
+		root.Mode = parse.ParseComments
+		if _, err := root.Parse(string(read(path)), "", "", trees, templateFuncs); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		set := map[string]*parse.ListNode{path: trees["brief"].Root}
+		for _, p := range declarationProblems(set, path) {
+			t.Error(p)
+		}
+		declared, _ := declaredFields(set[path])
+		for _, name := range declared {
+			if _, ok := reflect.TypeOf(input).FieldByName(name); !ok {
+				t.Errorf("%s: declares %s, which %T lacks", path, name, input)
+			}
+		}
+	}
+}
+
+func TestTemplateFieldsNegativeControl(t *testing.T) {
+	for _, c := range []struct{ name, src, want string }{
+		{"omitted", `{{/* fields: A */}}{{.A}}{{.B}}`, "neg.tmpl: uses B but does not declare it"},
+		{"unused", `{{/* fields: A B */}}{{.A}}`, "neg.tmpl: declares B but never uses it"},
+		{"headerless", `{{.A}}`, "neg.tmpl: no {{/* fields"},
+		{"unsorted", `{{/* fields: B A */}}{{.A}}{{.B}}`, "neg.tmpl: declared fields are not sorted"},
+		{"through-block", `{{/* fields: - */}}{{template "x" .}}{{define "x"}}{{/* fields: A */}}{{.A}}{{end}}`, "neg.tmpl: uses A but does not declare it"},
+	} {
+		got := declarationProblems(parseTemplates("neg.tmpl", []byte(c.src)), "neg.tmpl")
+		if !slices.ContainsFunc(got, func(p string) bool { return strings.HasPrefix(p, c.want) }) {
+			t.Errorf("%s: problems %q lack %q", c.name, got, c.want)
+		}
+	}
+}
+
+// checkCallerFields fails a render whose tmplFields carries a key the executed template does not declare.
+func checkCallerFields(t *testing.T, label, key string, dot any) {
+	fields, ok := dot.(tmplFields)
+	if !ok {
+		return
+	}
+	for _, load := range templateSets() {
+		declared, found := declaredFields(load()[key])
+		for name := range fields {
+			if found && !slices.Contains(declared, name) {
+				t.Errorf("%s passes %s to %s, which does not declare it", label, name, key)
+			}
+		}
+	}
 }
 
 func branchID(key string, n *parse.IfNode, then bool) string {

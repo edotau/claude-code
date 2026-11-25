@@ -1,4 +1,4 @@
-{{define "header"}}review-simplicity: {{.N}} new finding(s) in {{.Rel}}:{{end}}
+{{define "header"}}{{/* fields: N Rel */}}review-simplicity: {{.N}} new finding(s) in {{.Rel}}:{{end}}
 
-{{define "more"}}
+{{define "more"}}{{/* fields: Count */}}
 (+{{.Count}} more){{end}}

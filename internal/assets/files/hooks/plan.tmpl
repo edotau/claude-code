@@ -1,11 +1,11 @@
-{{define "agent-write"}}docs-placement: BLOCKED — the Plan agent writes only its plan under {{.}}/{{end}}
+{{define "agent-write"}}{{/* fields: . */}}docs-placement: BLOCKED — the Plan agent writes only its plan under {{.}}/{{end}}
 
-{{define "path-choose"}}plan-path: cannot choose a dated plans path: {{.}}{{end}}
+{{define "path-choose"}}{{/* fields: . */}}plan-path: cannot choose a dated plans path: {{.}}{{end}}
 
-{{define "path-moved"}}plan-path: {{.From}} → {{.Dest}} (dated plans home){{end}}
+{{define "path-moved"}}{{/* fields: Dest From */}}plan-path: {{.From}} → {{.Dest}} (dated plans home){{end}}
 
-{{define "path-redirect"}}plan-path: {{.From}} is not the plans home; resend this write with file_path {{.Dest}}. A real repo doc: create it empty first (`touch {{.From}}`), then re-issue.{{end}}
+{{define "path-redirect"}}{{/* fields: Dest From */}}plan-path: {{.From}} is not the plans home; resend this write with file_path {{.Dest}}. A real repo doc: create it empty first (`touch {{.From}}`), then re-issue.{{end}}
 
-{{define "template-block"}}plan-template: BLOCKED — {{.Name}} is missing {{.Missing}} from the plan template.
+{{define "template-block"}}{{/* fields: Headings Missing Name Tpl */}}plan-template: BLOCKED — {{.Name}} is missing {{.Missing}} from the plan template.
 {{if .Tpl}}Write the full template from {{.Tpl}}{{else}}Use the plan template (`docs/templates/plan.md` in the harness repo){{end}} before filing a draft; required headings:
 {{.Headings}}{{end}}

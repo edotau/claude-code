@@ -61,6 +61,9 @@ func renderSet(set map[string]*parse.ListNode, kind, name string, input any) str
 	if renderedKey != nil {
 		renderedKey(name)
 	}
+	if renderedFields != nil {
+		renderedFields(name, input)
+	}
 	var out strings.Builder
 	tmplExec{&out, set}.execTemplate(name, root, input, 0)
 	return out.String()

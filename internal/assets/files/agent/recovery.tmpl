@@ -1,4 +1,4 @@
-{{.Prompt}}
+{{/* fields: Cutoff Files HasFiles ID Log Prompt Status */}}{{.Prompt}}
 
 An earlier attempt (dispatch {{.ID}}, status {{.Status}}{{if .Cutoff}}, cutoff {{.Cutoff}}{{end}}) stopped before it finished. The log below is what it did.{{if .HasFiles}} Files it changed: {{.Files}}.{{end}} Check the working tree before redoing any step, then continue from where it stopped and finish with the report the brief asked for.
 

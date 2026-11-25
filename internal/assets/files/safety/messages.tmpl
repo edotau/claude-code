@@ -1,3 +1,3 @@
-{{define "arg-missing"}}{{.Tool}} call has no {{.Key}} string; blocked{{end}}
+{{define "arg-missing"}}{{/* fields: Key Tool */}}{{.Tool}} call has no {{.Key}} string; blocked{{end}}
 
-{{define "no-ask"}} (no ask decision on {{.Agent}}){{end}}
+{{define "no-ask"}}{{/* fields: Agent */}} (no ask decision on {{.Agent}}){{end}}

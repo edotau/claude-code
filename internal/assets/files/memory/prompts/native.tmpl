@@ -1,11 +1,11 @@
-{{define "context"}}<!-- MEMORY.md (native link missing or blocked) -->
+{{define "context"}}{{/* fields: . */}}<!-- MEMORY.md (native link missing or blocked) -->
 {{.}}{{end}}
 
-{{define "folder"}}
+{{define "folder"}}{{/* fields: . */}}
 ### {{.}}/
 
 {{end}}
 
-{{define "unparsed"}}
+{{define "unparsed"}}{{/* fields: . */}}
 {{.}} note(s) listed by file name: front matter did not parse.
 {{end}}

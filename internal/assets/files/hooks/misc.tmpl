@@ -1,3 +1,3 @@
-{{define "busy-peer"}}Peer session ({{.Comm}} pid {{.PID}}) is editing this checkout ({{.Branch}}); {{if .Lanes}}work in a lane: claude-code worktree create <slug>.{{else}}ask about a linked worktree before editing.{{end}}{{end}}
+{{define "busy-peer"}}{{/* fields: Branch Comm Lanes PID */}}Peer session ({{.Comm}} pid {{.PID}}) is editing this checkout ({{.Branch}}); {{if .Lanes}}work in a lane: claude-code worktree create <slug>.{{else}}ask about a linked worktree before editing.{{end}}{{end}}
 
-{{define "diverged"}}local {{.Branch}} diverged from {{.Up}} (ahead {{.Ahead}}, behind {{.Behind}}): {{if .Rewritten}}a commit was rewritten; do not commit until it is reconciled{{else}}both sides have new commits; merge {{.Up}} before committing on top{{end}}{{end}}
+{{define "diverged"}}{{/* fields: Ahead Behind Branch Rewritten Up */}}local {{.Branch}} diverged from {{.Up}} (ahead {{.Ahead}}, behind {{.Behind}}): {{if .Rewritten}}a commit was rewritten; do not commit until it is reconciled{{else}}both sides have new commits; merge {{.Up}} before committing on top{{end}}{{end}}
