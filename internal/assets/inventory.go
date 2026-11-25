@@ -67,7 +67,6 @@ var inventory = []struct {
 	{"files/memory/prompts/dream.md", "md", "MemoryDreamProcedure", func() []byte { return read("files/memory/prompts/dream.md") }},
 	{"files/memory/prompts/init.md", "md", "MemoryInitProcedure", func() []byte { return read("files/memory/prompts/init.md") }},
 	{"files/memory/prompts/promote.md", "md", "MemoryPromoteProcedure", func() []byte { return read("files/memory/prompts/promote.md") }},
-	{"files/memory/prompts/review.md", "md", "MemoryReviewProcedure", func() []byte { return read("files/memory/prompts/review.md") }},
 	{"files/memory/prompts/update.md", "md", "MemoryUpdateProcedure", func() []byte { return read("files/memory/prompts/update.md") }},
 	{"files/memory/prompts/update-opening.tmpl", "tmpl", "MemoryUpdateWorker", func() []byte { return read("files/memory/prompts/update-opening.tmpl") }},
 	{"files/memory/prompts/dream-opening.tmpl", "tmpl", "MemoryDreamWorker", func() []byte { return read("files/memory/prompts/dream-opening.tmpl") }},

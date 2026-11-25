@@ -1,40 +1,21 @@
 # `memory promote --to rules|skill|claude-md` — Judgment Residue: Target, Wording, Gate
 
-> The daily background `claude-code memory dream` also prints this during its cross-pollination step.
+> The daily background `claude-code memory dream` also prints this during its reflection step (Phase 6).
 
-`claude-code memory promote <id> --to home|rules|skill|claude-md` locates the entry. `home` moves it
-to the home bank (no link back) and settles; `rules`, `skill` and `claude-md` only print the block, its target and
-this procedure, and you edit the target by hand. What the verb cannot do is **pick the right target**, **word a
+`claude-code memory promote <id> --to rules|skill|claude-md` locates the entry and prints the block, its target and
+this procedure; you edit the target by hand. What the verb cannot do is **pick the right target**, **word a
 rule or skill so it stands alone**, or **gate `claude-md`**. That's this reference.
 
 ## The promotion gradient
 
-Full ladder: `rules/workflows/memory-bank.md` → Promotion ladder. In short: `home` (cross-project bank) → `rules`
+Full ladder: `rules/workflows/memory-bank.md` → Promotion ladder. In short: `rules`
 (`rules/standards/` or `rules/software/<lang>/`, enforced) or `skill` (`skills/<name>/SKILL.md`, how-to) → `claude-md`
 (`CLAUDE.md` → Hard rules, always on).
 
-**`--to claude-md` is dream-gated:** the verb refuses outside `memory dream`'s cross-pollination step, which
+**`--to claude-md` is dream-gated:** the verb refuses outside `memory dream`'s reflection step, which
 requires 3+ memory entries AND a hard prohibition. Elsewhere, route a CLAUDE.md-worthy entry to `rules/standards/`
 instead and note that the dream gate will consider it later. `promote` also never targets `rules/workflows/`
 (human-authored process).
-
-## `--to home`: durable + cross-project
-
-1. **Resolve the store** — `claude-code memory path` prints the store root; every file is a bare name
-   there (`decisionLog.md`, `notes/<name>.md`). Never hardcode the path.
-2. **Read the local files** — `conventions.md` and `decisionLog.md` are the two append-only files
-   that accumulate durable lessons; `activeContext.md`/`progress.md`/`sessionHistory.md` are
-   session state and never promote.
-3. **Judge each candidate entry** — promote ONLY if it is:
-   - **durable + cross-project** — a truth that holds beyond this one repo (not project state
-     like "this repo's build is flaky", which stays local);
-   - **not already** present in the home bank (`grep` it there first).
-   Drop anything project-specific, one-off, or already captured in the home bank.
-4. **Run** `claude-code memory promote <id> --to home`, then `claude-code memory index`.
-
-**Promote** when the lesson would help a session in a *different* repo, or is infrastructure
-doctrine (a provider quirk, a router behavior, a hook contract) rather than this repo's state.
-**Don't** promote anything still mid-change, or specific to this repo's own code.
 
 ## `--to rules`: durable, enforceable doctrine
 
@@ -138,7 +119,7 @@ are allowed but must scope themselves in the description. Naming anti-patterns:
 
 The native memory entry is **retained** — the skill is portable, the memory note is the local
 breadcrumb, unless the entry is now fully redundant with the skill (then flag it as a
-`--to home`/cleanup candidate, but don't delete it here).
+cleanup candidate, but don't delete it here).
 
 ## Step N (every target): remove the entry from native memory
 
@@ -159,7 +140,7 @@ This frees `MEMORY.md` space (caps: `rules/workflows/memory-bank.md` → Caps) a
 
 ```text
 Promoted: "<distilled rule / entry title>"
-  → <target> (home bank | rules/<file> §<section> | skills/<name>/SKILL.md)
+  → <target> (rules/<file> §<section> | skills/<name>/SKILL.md)
 Removed from native memory: <slug>.md  +  MEMORY.md index line
 MEMORY.md: N index lines remaining (of 200)
 

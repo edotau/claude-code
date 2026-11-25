@@ -34,7 +34,16 @@ func MemoryInitProcedure() string { return memoryProcedure(read("files/memory/pr
 
 func MemoryPromoteProcedure() string { return memoryProcedure(read("files/memory/prompts/promote.md")) }
 
-func MemoryReviewProcedure() string { return memoryProcedure(read("files/memory/prompts/review.md")) }
+// MemoryReviewProcedure is dream's Phase 6, so `review --candidates` and dream share one scoring rubric.
+func MemoryReviewProcedure() string {
+	dream := MemoryDreamProcedure()
+	start := strings.Index(dream, "## Phase 6: Reflection")
+	if start < 0 {
+		panic("assets: dream.md lacks its Phase 6 reflection")
+	}
+	body, _, _ := strings.Cut(dream[start:], "## Phase 7")
+	return strings.TrimSpace(body)
+}
 
 func MemoryUpdateProcedure() string { return memoryProcedure(read("files/memory/prompts/update.md")) }
 

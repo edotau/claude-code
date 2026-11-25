@@ -95,7 +95,7 @@ func TestPromoteUnknownTargetErrors(t *testing.T) {
 	}
 }
 
-// TestPromoteUnknownIDErrors: a --to home on a nonexistent id is refused rather than silently no-op.
+// TestPromoteUnknownIDErrors: a --to rules on a nonexistent id is refused rather than silently no-op.
 func TestPromoteUnknownIDErrors(t *testing.T) {
 	tempConfig(t)
 	repoRoot(t, "proj") // scaffolds the bank; the id below is deliberately wrong
