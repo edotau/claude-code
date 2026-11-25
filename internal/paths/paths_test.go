@@ -55,6 +55,7 @@ func TestConfigPathPrecedence(t *testing.T) {
 		}
 	}
 	t.Setenv("CODEX_HOME", "")
+	t.Setenv("HOME", t.TempDir())
 	defaultHome, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)

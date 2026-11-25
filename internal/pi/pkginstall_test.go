@@ -377,6 +377,7 @@ func TestRemoveSlotRefusesOutsideTheStore(t *testing.T) {
 			t.Errorf("removeSlot(%q) accepted", slot)
 		}
 	}
+	t.Setenv("HOME", t.TempDir())
 	for _, root := range []string{"/", "relative"} {
 		if err := removeSlot(root, filepath.Join(root, "npm-0123456789abcdef")); err == nil {
 			t.Errorf("store %q accepted", root)
