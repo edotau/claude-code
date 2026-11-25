@@ -122,6 +122,7 @@ type Chain struct {
 	Dispatches []Dispatch
 	Skipped    []string
 	Preflight  *Preflight   // nil when the preflight failed nothing and skipped no check
+	Plan       *RoutePlan   // the shadow route plan; nil until Client.Plan builds one
 	requested  route.Target // the requested target when it is a dispatch of this chain (Model: the account when none)
 }
 
