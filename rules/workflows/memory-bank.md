@@ -131,8 +131,8 @@ the rest is input. Once the hash fails, the lines between the longest head and t
 `memory-md.gen` (in the memory state folder, `state/harness/memory/`; the last text installed, proven by its own end
 line) are input; without that proof every line is.
 A refresh, under the bank lock, first refuses with nothing changed when `index.md`, `MEMORY.md`, `catalog.md` or the
-kept copy `memory-md.prev` (state folder) is a symlink, not a regular file, or one file under two names. Then it (1) folds the kept copy `memory-md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the
-new text to a temp file and renames `MEMORY.md` to the kept copy (a rename across volumes fails: the refresh refuses,
+kept copy `memory-md.prev` (state folder) is a symlink, not a regular file, or one file under two names. Then it (1) folds the kept copy
+`memory-md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the new text to a temp file and renames `MEMORY.md` to the kept copy (a rename across volumes fails: the refresh refuses,
 `MEMORY.md` unchanged); (3) appends the copy's input to `index.md`; (4) places the temp file as
 `MEMORY.md` only where none exists (`os.Link`, else an `O_EXCL` create where hard links fail), else leaves the writer's
 file to the next refresh; if placing fails it puts the moved text back the same way. Interleavings: a write by path
