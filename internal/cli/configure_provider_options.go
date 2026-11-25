@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,10 +25,7 @@ func configureProviderOptions(o *configureOpts, pos []string) int {
 		return helptext.Fail("configure provider: %v", err)
 	}
 	p := reg.Providers[pos[0]]
-	if p.Preset != providers.PresetDatabricks {
-		return helptext.FailUsage("configure provider: cost options need a Databricks preset profile")
-	}
-	opts, err := providerOptionPairs(p.Options, pos[1:])
+	opts, err := checkedProviderOptions(p, pos[1:])
 	if err != nil {
 		return helptext.FailUsage("configure provider: %v", err)
 	}
@@ -38,6 +36,28 @@ func configureProviderOptions(o *configureOpts, pos []string) int {
 		return helptext.Fail("configure provider: %v", err)
 	}
 	return helptext.WriteJSONOrFail("configure provider", opts)
+}
+
+// checkedProviderOptions applies pairs to p's options; cost options need a preset, last_resort a fit row.
+func checkedProviderOptions(p *providers.Provider, pairs []string) (providers.Options, error) {
+	if p.Preset != providers.PresetDatabricks && !onlyLastResort(pairs) {
+		return p.Options, errors.New("cost options need a Databricks preset profile")
+	}
+	opts, err := providerOptionPairs(p.Options, pairs)
+	if err == nil && opts.LastResort {
+		err = providers.CheckLastResort(p.Name, *p)
+	}
+	return opts, err
+}
+
+// onlyLastResort is true when every pair sets options.last_resort, the one option a non-preset row takes.
+func onlyLastResort(pairs []string) bool {
+	for _, pair := range pairs {
+		if !strings.HasPrefix(pair, "options.last_resort=") {
+			return false
+		}
+	}
+	return true
 }
 
 func providerOptionPairs(opts providers.Options, pairs []string) (providers.Options, error) {
@@ -57,8 +77,15 @@ func providerOptionPairs(opts providers.Options, pairs []string) (providers.Opti
 			opts.Prices = prices
 		case "options.google_tools":
 			opts.GoogleTools = textutil.SplitCSV(value)
+		case "options.last_resort":
+			b, err := strconv.ParseBool(value)
+			if err != nil || value != strconv.FormatBool(b) {
+				return opts, fmt.Errorf("options.last_resort %q: use true or false", value)
+			}
+			opts.LastResort = b
 		default:
-			return opts, fmt.Errorf("unknown key %q; use options.warehouse_id, options.prices or options.google_tools", key)
+			return opts, fmt.Errorf("unknown key %q; use options.warehouse_id, options.prices, options.google_tools "+
+				"or options.last_resort", key)
 		}
 	}
 	return opts, opts.Validate()

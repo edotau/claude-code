@@ -140,6 +140,13 @@
       "local": {
         "protocol": "openai",
         "base_url": "http://127.0.0.1:10100/inference/v1",
+        "routes": {
+          "anthropic": "http://127.0.0.1:10100/inference/anthropic"
+        },
+        "concurrency": 1,
+        "options": {
+          "last_resort": true
+        },
         "auth": {
           "type": "key",
           "command": "echo local"

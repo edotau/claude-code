@@ -317,6 +317,8 @@ type Options struct {
 	Prices      map[string]Price `json:"prices,omitempty"`
 	// GoogleTools are the Gemini built-in tools this row serves, from a probe; nil = unprobed.
 	GoogleTools []string `json:"google_tools,omitempty"`
+	// LastResort marks the local row dispatch may fall to when every hosted route failed.
+	LastResort bool `json:"last_resort,omitempty"`
 }
 
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.

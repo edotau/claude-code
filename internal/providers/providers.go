@@ -438,6 +438,7 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	errs = append(errs, validateAuthKind(n, p)...)
 	errs = append(errs, validateAuthType(n, p)...)
 	errs = append(errs, validatePreset(n, p)...)
+	errs = append(errs, validateLastResort(n, p)...)
 	errs = append(errs, validateEnv(n, p.Env)...)
 	if p.OpencodeFallback == "auto" {
 		errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
