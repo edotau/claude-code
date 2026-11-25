@@ -159,7 +159,7 @@ func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, 
 
 // runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
 func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, replacement bool, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
-	release, aerr := admitHop(ctx, i >= len(c.Dispatches), key, &lreq, notify)
+	release, aerr := admitHop(ctx, i >= len(c.Dispatches), key, &lreq)
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
 		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: invokedModel(lreq), NotStarted: true}, ce

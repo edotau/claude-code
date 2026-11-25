@@ -282,8 +282,7 @@ func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts a
 		if !ok {
 			break
 		}
-		res, err := run(ctx, hopOptions(opts, hop))
-		release()
+		res, err := func() (wire.Result, error) { defer release(); return run(ctx, hopOptions(opts, hop)) }()
 		who = memoryWho(res, local)
 		if err == nil {
 			memory.AnswerJob(ctx, answerText(res))

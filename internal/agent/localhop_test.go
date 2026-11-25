@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,7 @@ func TestPlanLocal(t *testing.T) {
 		{name: "tier", stage: "last", reg: withRow, p: with(func(p *RoutePlan) { p.Tier.Asked = models.Opus }), barred: "tier deep"},
 		{name: "cap", stage: "last", reg: withRow, p: open, o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)},
 			barred: "max_prompt"},
+		{name: "typed provider", stage: "last", reg: withRow, p: open, o: RunOptions{Provider: "databricks:dev"}, barred: "--provider"},
 		{name: "shadow", stage: "shadow", reg: withRow, p: open},
 		{name: "last", stage: "last", reg: withRow, p: open, hop: true},
 	}
@@ -76,6 +78,9 @@ func checkLocalHop(t *testing.T, l *LocalHop, barred string, wantHop bool) {
 	if h, ok := l.hop("claude"); ok != wantHop || ok && (h.Runner.Kind != RunnerPi || h.Workspace.Profile != "local") {
 		t.Errorf("hop = %+v %v, want %v (pi on local)", h, ok, wantHop)
 	}
+	if got := l.carries(Dispatch{Account: "magnitude·local"}); got != wantHop {
+		t.Errorf("carries = %v, want %v: only an admitted hop is the chain's local hop", got, wantHop)
+	}
 }
 
 func TestLocalHopTakesOver(t *testing.T) {
@@ -86,9 +91,24 @@ func TestLocalHopTakesOver(t *testing.T) {
 	prevGate, prevNote := localGate, noteLocalFallback
 	t.Cleanup(func() { localGate, noteLocalFallback = prevGate, prevNote })
 	noteLocalFallback = func(kind, _ string) { noted = kind }
-	for _, refuse := range []bool{false, true} {
-		localGate = func(context.Context, func(string)) (func(), error) {
-			if refuse {
+	rows := []struct {
+		name   string
+		refuse bool
+		o      RunOptions
+		want   bool // the local hop ran
+	}{
+		{name: "up", o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
+		{name: "down", o: RunOptions{Prompt: "p"}, refuse: true},
+		{name: "pinned backend", o: RunOptions{Prompt: "p", Provider: "databricks:dev"}},
+		{name: "wrapped prompt over the cap", o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)}},
+	}
+	for _, r := range rows {
+		noted = ""
+		var lines []string
+		var bounded bool
+		localGate = func(ctx context.Context, _ func(string)) (func(), error) {
+			_, bounded = ctx.Deadline()
+			if r.refuse {
 				return func() {}, errors.New("local model down: connection refused")
 			}
 			return func() {}, nil
@@ -98,9 +118,13 @@ func TestLocalHopTakesOver(t *testing.T) {
 		c := chainOf([]Engine{hosted})
 		c.Dispatches = append(c.Dispatches, Dispatch{Agent: local, Account: "magnitude·local"})
 		c.Plan = &RoutePlan{Agent: "codex", Local: &LocalHop{Workspace: Workspace{Profile: "local", Account: "magnitude·local"}}}
-		res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
-		if refuse != (err != nil) || !refuse && (res.FallbackKind != "rate limited" || noted != "rate limited") || refuse && len(local.seen) != 0 {
-			t.Errorf("refuse=%v: res=%+v err=%v noted=%q local runs=%d", refuse, res.FallbackKind, err, noted, len(local.seen))
+		res, err := runWithFallback(context.Background(), c, r.o, wire.Discard, func(l string) { lines = append(lines, l) })
+		announced := slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "fallback ") })
+		if r.want != (err == nil) || r.want != (len(local.seen) == 1) || announced != r.want {
+			t.Errorf("%s: err=%v local runs=%d announced=%v lines=%q", r.name, err, len(local.seen), announced, lines)
+		}
+		if r.want && (res.FallbackKind != "rate limited" || noted != "rate limited" || !bounded) {
+			t.Errorf("%s: kind=%q noted=%q slot wait bounded by the timeout=%v", r.name, res.FallbackKind, noted, bounded)
 		}
 	}
 }

@@ -46,8 +46,11 @@ func (h *LocalHop) hop(agent string) (PlanHop, bool) {
 	return PlanHop{Runner: Runner{Kind: RunnerPi, Agent: agent}, Workspace: h.Workspace}, true
 }
 
-// carries reports d as h's hop: it bills the last-resort row's account.
-func (h *LocalHop) carries(d Dispatch) bool { return h != nil && d.Account == h.Workspace.Account }
+// carries reports d as h's admitted hop: it bills the last-resort row's account.
+func (h *LocalHop) carries(d Dispatch) bool {
+	_, ok := h.hop("")
+	return ok && d.Account == h.Workspace.Account
+}
 
 // planLocal is reg's last-resort row as p's local hop, Barred with the first reason against it; nil with no row.
 func planLocal(_ context.Context, reg *providers.Registry, o RunOptions, p RoutePlan) *LocalHop {
@@ -76,6 +79,8 @@ func policyBar(p RoutePlan, row string) string {
 // requestBar is why o itself must not be swapped onto row: a typed model (R8) or a run tied to its own CLI.
 func requestBar(o RunOptions, row string) string {
 	switch {
+	case explicitBackend(o):
+		return "--provider pins the backend"
 	case o.ModelTyped && o.Model != "" && !IsAuto(o.Model):
 		return "a typed model is never swapped (R8)"
 	case o.Native:
@@ -95,13 +100,18 @@ func requestBar(o RunOptions, row string) string {
 // briefBar is why the brief is beyond the local model: its typed tier, a security review (R17), or its size.
 func briefBar(o RunOptions, p RoutePlan, rule localRules) string {
 	tier := rotationTiers[p.Tier.Asked] // an untiered brief names no tier to bar
-	tokens := len(o.Prompt) / 4
 	switch {
 	case tier != "" && !slices.Contains(rule.Tiers, tier):
 		return "tier " + tier + " is not in local.tiers"
 	case o.Rubric != "" && securityBrief().MatchString(o.Prompt):
 		return "a security review (R17)"
-	case tokens > rule.MaxPrompt:
+	}
+	return promptBar(o.Prompt, rule)
+}
+
+// promptBar is why prompt, as sent, is over the local model's token cap.
+func promptBar(prompt string, rule localRules) string {
+	if tokens := len(prompt) / 4; tokens > rule.MaxPrompt {
 		return fmt.Sprintf("prompt ~%d tokens is over local.max_prompt %d", tokens, rule.MaxPrompt)
 	}
 	return ""
@@ -149,9 +159,6 @@ func splitLocal(ctx context.Context, c Chain) (Chain, context.Context) {
 	if n < 2 || c.Plan == nil || !c.Plan.Local.carries(c.Dispatches[n-1]) {
 		return c, ctx
 	}
-	if _, ok := c.Plan.Local.hop(c.Plan.Agent); !ok {
-		return c, ctx
-	}
 	d := c.Dispatches[n-1]
 	c.Dispatches = c.Dispatches[:n-1]
 	return c, context.WithValue(ctx, localHop{}, d)
@@ -185,12 +192,17 @@ func (s *fallbackState) runLocal(ctx context.Context, c Chain, sink wire.Sink, n
 	d, has := ctx.Value(localHop{}).(Dispatch)
 	kind, falls := localKind(s.res, s.err)
 	switch {
-	case !falls || c.yieldsFallback(s.req, s.res, s.err) || ctx.Err() != nil:
+	case !falls || c.yieldsFallback(s.req, s.res, s.err) || ctx.Err() != nil || explicitBackend(s.req):
 		return nil
 	case !has:
 		noteLocalBar(c, notify)
 		return nil
 	}
+	slot, ok := s.admitFirst(ctx, notify)
+	if !ok {
+		return nil
+	}
+	defer slot()
 	keep, i := *s, len(c.Dispatches)
 	if herr := s.handOff(i, d, false, sink, notify); herr != nil {
 		return herr
@@ -202,6 +214,23 @@ func (s *fallbackState) runLocal(ctx context.Context, c Chain, sink wire.Sink, n
 	}
 	s.fell = kind
 	return nil
+}
+
+// admitFirst bars an over-cap prompt as sent (rubric included), then takes the local slot within req.Timeout.
+func (s *fallbackState) admitFirst(ctx context.Context, notify func(string)) (func(), bool) {
+	if why := promptBar(s.req.Prompt, localRuleOf()); why != "" {
+		if notify != nil {
+			notify("local: barred (" + why + ")")
+		}
+		return nil, false
+	}
+	if s.req.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.req.Timeout)
+		defer cancel()
+	}
+	slot, err := localGate(ctx, notify)
+	return slot, err == nil
 }
 
 // noteLocalBar says once why a failure that would fall to local at stage last did not.
@@ -240,23 +269,12 @@ func admit(ctx context.Context, key string, req *RunOptions) (func(), error) {
 	return release, err
 }
 
-// admitHop is admit; the local hop (past the chain's end) is slimmed, then probed and given the one local slot first.
-func admitHop(ctx context.Context, past bool, key string, req *RunOptions, notify func(string)) (func(), error) {
-	d, has := ctx.Value(localHop{}).(Dispatch)
-	if !has || !past {
-		return admit(ctx, key, req)
+// admitHop is admit; the local hop (past the chain's end) is slimmed first, its slot already held by runLocal.
+func admitHop(ctx context.Context, past bool, key string, req *RunOptions) (func(), error) {
+	if d, has := ctx.Value(localHop{}).(Dispatch); has && past {
+		*req = slimForLocal(d, *req)
 	}
-	*req = slimForLocal(d, *req)
-	slot, err := localGate(ctx, notify)
-	if err != nil {
-		return slot, err
-	}
-	release, err := admit(ctx, key, req)
-	if err != nil {
-		slot()
-		return release, err
-	}
-	return func() { release(); slot() }, nil
+	return admit(ctx, key, req)
 }
 
 // admitLocal probes the last-resort row and takes its slot, saying once when it waits; a refusal is the hop's error.
