@@ -12,7 +12,7 @@ import (
 
 func TestShadowPlanLogsOnlyDivergence(t *testing.T) {
 	setConfigDir(t)
-	log := filepath.Join(paths.StateDir(), "harness", "agent", "routeplan-shadow.jsonl")
+	log := filepath.Join(paths.StateDir(), "agent", "routeplan-shadow.jsonl")
 	logDivergence(context.Background(), "codex", nil)
 	if _, err := os.Stat(log); err == nil {
 		t.Fatal("a matching plan wrote a log line")
