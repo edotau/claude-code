@@ -339,8 +339,10 @@ func hookRenderCases() []renderCase {
 		{"HookPathMapped", "", func() string { return HookPathMapped(`C:\x`, "/mnt/x", "d") }},
 		{"HookPathDetail", "", func() string { return HookPathDetail("/p", "d") }},
 		{"HookPathsContext", "", func() string { return HookPathsContext(two, "img") }},
-		{"HookBusyPeer", "lanes", func() string { return HookBusyPeer("claude", 42, "main", true) }},
-		{"HookBusyPeer", "nolanes", func() string { return HookBusyPeer("claude", 42, "main", false) }},
+		{"HookBusyPeer", "lanes", func() string {
+			return HookBusyPeer(BusyPeer{Comm: "claude", Name: "claude-7", PID: 42, Branch: "main", Files: "/a, /b", Lanes: true})
+		}},
+		{"HookBusyPeer", "nolanes", func() string { return HookBusyPeer(BusyPeer{Comm: "claude", PID: 42, Branch: "main"}) }},
 		{"HookNoticeLine", "", func() string { return HookNoticeLine("peer", "text") }},
 		{"HookNoticeDrainWarn", "", func() string { return HookNoticeDrainWarn("e") }},
 		{"HookNoticeDivergeWarn", "", func() string { return HookNoticeDivergeWarn("e") }},

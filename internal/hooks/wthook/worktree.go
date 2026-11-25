@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -148,6 +149,7 @@ type hookRun struct {
 	dir      string
 	checkout func() checkoutInfo
 	peers    func() ([]worktree.Proc, error)
+	dirty    func() (map[string]bool, error)
 }
 
 func newRun(ctx context.Context, in *core.Input) *hookRun {
@@ -162,6 +164,10 @@ func newRun(ctx context.Context, in *core.Input) *hookRun {
 	r.peers = sync.OnceValues(func() ([]worktree.Proc, error) {
 		c := r.checkout()
 		return worktree.PeersOf(ctx, c.top, c.nested)
+	})
+	r.dirty = sync.OnceValues(func() (map[string]bool, error) {
+		_, d, err := worktree.ReadDirty(ctx, r.checkout().top)
+		return d, err
 	})
 	return r
 }
@@ -193,7 +199,54 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 	if !first || len(peers) == 0 {
 		return "", err
 	}
-	return assets.HookBusyPeer(peers[0].Comm, peers[0].PID, branch, worktreeLanes()), err
+	p := assets.BusyPeer{Comm: peers[0].Comm, PID: peers[0].PID, Branch: branch, Lanes: worktreeLanes(), Name: peerName(peers[0].PID)}
+	p.Files = peerFiles(run, top, peers[0].PID)
+	return assets.HookBusyPeer(p), err
+}
+
+// peerName is the peer's Claude Code session name (<config>/sessions/<pid>.json), "" when unrecorded.
+func peerName(pid int) string {
+	b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "sessions", strconv.Itoa(pid)+".json"))
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(b, &s) != nil {
+		return ""
+	}
+	return s.Name
+}
+
+// peerFiles lists up to claimShown sorted paths pid's claims hold that are still dirty in top, then "+N more".
+func peerFiles(run *hookRun, top string, pid int) string {
+	held := map[string]bool{}
+	_ = worktree.ScanClaims(claimAlive, func(p int, _ string, c worktree.Claim) {
+		if p == pid {
+			held[c.Path] = true
+		}
+	})
+	if len(held) == 0 {
+		return ""
+	}
+	dirty, err := run.dirty()
+	if err != nil {
+		return ""
+	}
+	var rel []string
+	for p := range held {
+		if r, err := filepath.Rel(top, p); dirty[p] && err == nil {
+			rel = append(rel, r)
+		}
+	}
+	sort.Strings(rel)
+	more := len(rel) - min(len(rel), claimShown)
+	out := strings.Join(rel[:len(rel)-more], ", ")
+	if more > 0 {
+		out += " +" + strconv.Itoa(more) + " more"
+	}
+	return out
 }
 
 // notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.

@@ -145,9 +145,9 @@ line one
 line two
 Image path(s) referenced but NOT attached — Read the path to view the image: img
 == HookBusyPeer (lanes) ==
-Peer session (claude pid 42) is editing this checkout (main); work in a lane: claude-code worktree create <slug>.
+Peer session (claude claude-7 pid 42) is editing this checkout (main) and holds /a, /b; message claude-7 (SendMessage) before editing a file it holds: say what you plan, what it holds and when it lands, then re-plan around its answer instead of waiting. Otherwise work in a lane: claude-code worktree create <slug>.
 == HookBusyPeer (nolanes) ==
-Peer session (claude pid 42) is editing this checkout (main); ask about a linked worktree before editing.
+Peer session (claude pid 42) is editing this checkout (main); message it (find its name with ListAgents) before editing a file it holds: say what you plan, what it holds and when it lands, then re-plan around its answer instead of waiting. Otherwise ask about a linked worktree before editing.
 == HookNoticeLine ==
 notice (peer): text
 == HookNoticeDrainWarn ==

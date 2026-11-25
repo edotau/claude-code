@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -276,6 +277,38 @@ func TestWorktreeBusyMode(t *testing.T) {
 	peers = nil
 	if got := Busy(in).Context; got != "" {
 		t.Fatalf("no peers: %q", got)
+	}
+}
+
+// TestBusyLineNamesPeerFiles: a peer's dirty claimed files and recorded session name reach the line; none, no list.
+func TestBusyLineNamesPeerFiles(t *testing.T) {
+	repo := claimFixture(t)
+	t.Setenv(worktreeModeEnv, "")
+	old := worktree.PeerScan
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
+		return []worktree.Proc{{PID: liveOwner, Comm: "claude"}}, nil
+	}
+	t.Cleanup(func() { worktree.PeerScan = old })
+	in := &core.Input{SessionID: "s1", CWD: repo}
+	line, _ := busyLine(in, newRun(context.Background(), in))
+	if strings.Contains(line, " and holds ") || !strings.Contains(line, "find its name with ListAgents") {
+		t.Fatalf("no claim data: %q", line)
+	}
+	sessions := filepath.Join(paths.ConfigDir(), "sessions")
+	if err := os.MkdirAll(sessions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessions, strconv.Itoa(liveOwner)+".json"), []byte(`{"name":"claude-9"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claimEdit(t, repo, liveOwner, "S1", "b.txt")
+	claimEdit(t, repo, liveOwner, "S1", "a.txt")
+	in = &core.Input{SessionID: "s2", CWD: repo}
+	line, _ = busyLine(in, newRun(context.Background(), in))
+	for _, want := range []string{"claude-9 pid 100", "holds a.txt, b.txt;", "message claude-9 (SendMessage)", "re-plan around its answer"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line missing %q: %q", want, line)
+		}
 	}
 }
 

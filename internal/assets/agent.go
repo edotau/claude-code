@@ -189,8 +189,16 @@ func HookPathsContext(lines, images string) string {
 	return renderHook("paths/context", tmplFields{"Lines": lines, "Images": images})
 }
 
-func HookBusyPeer(comm string, pid int, branch string, lanes bool) string {
-	return renderHook("misc/busy-peer", tmplFields{"Comm": comm, "PID": pid, "Branch": branch, "Lanes": lanes})
+// BusyPeer is HookBusyPeer's input: Name and Files (a ready list) are empty when unknown.
+type BusyPeer struct {
+	Comm, Name, Branch, Files string
+	PID                       int
+	Lanes                     bool
+}
+
+func HookBusyPeer(p BusyPeer) string {
+	return renderHook("misc/busy-peer", tmplFields{"Comm": p.Comm, "Name": p.Name, "PID": p.PID, "Branch": p.Branch,
+		"Files": p.Files, "Lanes": p.Lanes})
 }
 
 func HookNoticeLine(who, text string) string {

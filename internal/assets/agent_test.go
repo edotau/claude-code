@@ -95,10 +95,14 @@ func TestHookTextMatchesOldLiterals(t *testing.T) {
 		{"paths", HookPathsContext("  a\n  b", ""), "Paths:\n  a\n  b"},
 		{"paths-images", HookPathsContext("  a", "/i, /j"), "Paths:\n  a\nImage path(s) referenced but NOT attached " +
 			"\u2014 Read the path to view the image: /i, /j"},
-		{"busy-ask", HookBusyPeer("claude", 42, "main", false), "Peer session (claude pid 42) is editing this checkout " +
-			"(main); ask about a linked worktree before editing."},
-		{"busy-lane", HookBusyPeer("claude", 42, "main", true), "Peer session (claude pid 42) is editing this checkout " +
-			"(main); work in a lane: claude-code worktree create <slug>."},
+		{"busy-ask", HookBusyPeer(BusyPeer{Comm: "claude", PID: 42, Branch: "main"}), "Peer session (claude pid 42) is editing this " +
+			"checkout (main); message it (find its name with ListAgents) before editing a file it holds: say what you plan, what it " +
+			"holds and when it lands, then re-plan around its answer instead of waiting. Otherwise ask about a linked worktree " +
+			"before editing."},
+		{"busy-lane", HookBusyPeer(BusyPeer{Comm: "claude", Name: "claude-7", PID: 42, Branch: "main", Files: "/a, /b +2 more", Lanes: true}),
+			"Peer session (claude claude-7 pid 42) is editing this checkout (main) and holds /a, /b +2 more; message claude-7 " +
+				"(SendMessage) before editing a file it holds: say what you plan, what it holds and when it lands, then re-plan " +
+				"around its answer instead of waiting. Otherwise work in a lane: claude-code worktree create <slug>."},
 		{"notice", HookNoticeLine("kind", "txt"), "notice (kind): txt"},
 		{"drain", HookNoticeDrainWarn("e"), "notices: WARNING \u2014 could not drain this session's inbox (e); notices may " +
 			"be missing or repeat"},
@@ -132,7 +136,7 @@ func TestInventoryListing(t *testing.T) {
 		byPath[r.Path] = r
 	}
 	if r := byPath["files/hooks/misc.tmpl"]; r.Family != "hooks" || !slices.Equal(r.Accessors, []string{"HookBusyPeer", "HookDiverged"}) || r.Size == 0 ||
-		!slices.Equal(r.Fields, []string{"Ahead", "Behind", "Branch", "Comm", "Lanes", "PID", "Rewritten", "Up"}) {
+		!slices.Equal(r.Fields, []string{"Ahead", "Behind", "Branch", "Comm", "Files", "Lanes", "Name", "PID", "Rewritten", "Up"}) {
 		t.Errorf("busy-peer row: %+v", r)
 	}
 	if r := byPath["files/hooks/claim-bare-hint.txt"]; len(r.Fields) != 0 {
