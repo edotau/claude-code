@@ -39,12 +39,6 @@ func askSchema() askspec.Schema {
 	})
 }
 
-// SpecArgv reads a --spec value (file, inline JSON or -) into ask argv and the spec's prompt.
-func SpecArgv(value string, stdin io.Reader) ([]string, string, error) {
-	argv, prompt, _, err := specParts(value, stdin)
-	return argv, prompt, err
-}
-
 func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, error) {
 	raw, err := agentconfig.ReadJSONSource("spec", value, stdin)
 	if err != nil {

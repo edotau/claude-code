@@ -185,14 +185,14 @@ func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 	}
 }
 
-// RunStream carries a structured-only answer: no text is not an empty answer when the schema output arrived.
+// RunStreamWith carries a structured-only answer: no text is not an empty answer when the schema output arrived.
 func TestRunStreamKeepsStructured(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh")
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
 	parse := func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 		return wire.Result{Structured: json.RawMessage(`{"ok":true}`)}, nil
 	}
-	res, err := RunStream(context.Background(), "x", cmd, tail, wire.Result{}, wire.Discard, parse)
+	res, err := RunStreamWith(context.Background(), "x", cmd, tail, wire.Result{}, wire.Discard, parse, StreamOpts{})
 	if err != nil || string(res.Structured) != `{"ok":true}` {
 		t.Fatalf("res=%+v err=%v; want Structured kept and no empty-answer error", res, err)
 	}

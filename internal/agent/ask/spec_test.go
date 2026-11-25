@@ -98,7 +98,7 @@ func appendDryRun(args []string) []string {
 }
 
 func TestSpecArgsParsedNotScanned(t *testing.T) {
-	_, _, err := SpecArgv(`{"prompt":"x"}}`, nil)
+	_, _, _, err := specParts(`{"prompt":"x"}}`, nil)
 	if err == nil {
 		t.Fatal("trailing data accepted")
 	}
@@ -119,7 +119,7 @@ func TestSpecFileRefusals(t *testing.T) {
 	}
 	link := filepath.Join(dir, "l.json")
 	if err := os.Symlink(real, link); err == nil {
-		if _, _, err := SpecArgv(link, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+		if _, _, _, err := specParts(link, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
 			t.Fatalf("symlink err = %v", err)
 		}
 	}
@@ -127,7 +127,7 @@ func TestSpecFileRefusals(t *testing.T) {
 	if err := os.WriteFile(big, []byte(`{"prompt":"`+strings.Repeat("a", 70<<10)+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := SpecArgv(big, nil); err == nil || !strings.Contains(err.Error(), "over") {
+	if _, _, _, err := specParts(big, nil); err == nil || !strings.Contains(err.Error(), "over") {
 		t.Fatalf("big err = %v", err)
 	}
 }

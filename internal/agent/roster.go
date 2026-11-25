@@ -435,9 +435,6 @@ func VaultAgentNames(vs map[string]any) []string {
 	return names
 }
 
-// IsExternal reports whether name is a roster agent that runs an external CLI.
-func IsExternal(name string) bool { return slices.Contains(agentid.External(), name) }
-
 // VaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
 func VaultAgentIsClaude(name string) bool {
 	s, ok := lookupRow(name)

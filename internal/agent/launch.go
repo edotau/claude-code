@@ -218,11 +218,6 @@ func IsDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool);
 
 type launchDryKey struct{}
 
-// WithDryRun marks ctx as a --print-env preview.
-func WithDryRun(ctx context.Context) context.Context {
-	return context.WithValue(ctx, launchDryKey{}, true)
-}
-
 // IsDryRun is true on a --print-env preview; an engine's Wire reads it to leave no per-run files behind.
 func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(bool); return v }
 

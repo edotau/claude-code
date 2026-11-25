@@ -188,7 +188,7 @@ func TestReadOnlyFlagIsGone(t *testing.T) {
 	if err := fs.Parse([]string{"--read-only"}); err == nil {
 		t.Error("ask accepted --read-only")
 	}
-	if argv, _, err := SpecArgv(`{"read-only":true,"prompt":"x"}`, strings.NewReader("")); err == nil {
+	if argv, _, _, err := specParts(`{"read-only":true,"prompt":"x"}`, strings.NewReader("")); err == nil {
 		t.Errorf("spec accepted read-only: %v", argv)
 	}
 	lines, err := readTaskLines(strings.NewReader(`{"prompt":"p","read-only":true}` + "\n"))

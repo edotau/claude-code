@@ -327,13 +327,7 @@ func EmptyAnswer(name string) error {
 	return retry.Fatal(name, errors.New("the CLI exited 0 with an empty answer (model returned no text)"))
 }
 
-// RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result, sink wire.Sink,
-	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error)) (wire.Result, error) {
-	return RunStreamWith(ctx, name, cmd, tail, res, sink, parse, StreamOpts{})
-}
-
-// RunStreamWith is RunStream with stream options, such as an idle watch.
+// RunStreamWith reads a CLI's JSON event stream (answer, session, usage, errors) with options such as an idle watch.
 func RunStreamWith(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result, sink wire.Sink,
 	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error), opts StreamOpts) (wire.Result, error) {
 	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, opts)

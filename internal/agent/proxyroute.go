@@ -121,16 +121,6 @@ func routeCands(ctx context.Context) []routeCand {
 	return out
 }
 
-// ProxyRoutes is the ordered scope list for this dispatch, one entry per team.
-func ProxyRoutes(ctx context.Context) []proxy.Scope {
-	cands := routeCands(ctx)
-	out := make([]proxy.Scope, len(cands))
-	for i, c := range cands {
-		out[i] = c.scope
-	}
-	return out
-}
-
 func (c routeCand) label() string {
 	if c.scope.ID != "" {
 		return c.team.Name + ":" + c.scope.ID

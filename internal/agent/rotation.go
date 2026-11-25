@@ -518,12 +518,7 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 	return rows
 }
 
-// RotationModel is agent's next rotation model at alias across its rows; stamp records the pick, else it only peeks.
-func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
-	return rotationModelOn(context.Background(), rotationRows(reg, agentName), agentName, alias, stamp, false, nil, now)
-}
-
-// rotationModelOn is RotationModel over the given rows.
+// rotationModelOn is agent's next rotation model at alias across rows; stamp records the pick, else it only peeks.
 func rotationModelOn(ctx context.Context, rows []*providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
 	if len(rows) == 0 {
 		return "", "", nil
@@ -737,43 +732,6 @@ func rotationNote(m, alias string, n int, verb string) string {
 		note += "; R5: full read and a capability-5 other-family review"
 	}
 	return note
-}
-
-// RotationFreeze freezes the launch's tool-aware rotation pick: its serving profile, plain model id and note.
-func RotationFreeze(ctx context.Context, agentName, brief, model string) (profile, id, note string) {
-	ctx, _ = RunValues(ctx, nil)
-	o, err := agentconfig.LoadOverlayContext(ctx, "", nil)
-	if err != nil || o.Host != "" || o.Remote != "" {
-		return "", "", ""
-	}
-	model = cmp.Or(model, o.Model)
-	if !IsAuto(cmp.Or(model, agentModelPinContext(ctx, agentName), AutoModel)) {
-		return "", "", ""
-	}
-	reg, err := providers.LoadShared()
-	if err != nil {
-		return "", "", ""
-	}
-	q := ModelQuery{Agent: agentName, Model: model, Task: brief, Tools: IsReadOnlyBrief(brief) && agentName != agentid.Codex,
-		Profile: o.Profile, Provider: o.Provider, Account: o.Account, Effort: o.Effort, Identity: o.Identity, Fallback: o.Fallback}
-	q.Default, _ = TaskTier(brief)
-	return freezeQuery(ctx, reg, q, agentName, brief)
-}
-
-// freezeQuery resolves q as the launch would and returns the rotation pick's profile, model id and note.
-func freezeQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, agentName, brief string) (string, string, string) {
-	q, note, err := RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(brief))
-	if err != nil || q.Agent != agentName {
-		return "", "", "rotation route unavailable; the run picks at launch"
-	}
-	r, choice, err := ExplainRun(reg, QueryFor(ctx, q), time.Now())
-	if err != nil {
-		return "", "", "rotation state unavailable; the run picks at launch"
-	}
-	if choice == nil || choice.Criterion != "rotation" || r.Profile == "" {
-		return "", "", ""
-	}
-	return r.Profile, r.Model, joinNotes(note, r.Note)
 }
 
 // RotationSummary is a rotation pin's doctor detail: the pool size per tier, then the last 7 days' runs by model.
