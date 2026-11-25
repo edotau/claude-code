@@ -56,7 +56,7 @@
     {"match": "qwen35-122b*", "capability": 2, "speed": 3, "cost": 1},
     {"match": "qwen3-8-flash*", "capability": 2, "speed": 4, "cost": 1},
     {"match": "qwen3-next-80b*", "capability": 1, "speed": 4, "cost": 1},
-    {"match": "qwen3-8-27b*", "capability": 2, "speed": 3, "cost": 1},
+    {"match": "qwen3-8-27b*", "capability": 2, "speed": 3, "cost": 1, "rotate": false},
     {"match": "llama-4-maverick*", "capability": 2, "speed": 4, "cost": 1, "rotate": false},
     {"match": "meta-llama-3-*", "capability": 1, "speed": 4, "cost": 1, "rotate": false},
     {"match": "gemma-3-*", "capability": 1, "speed": 5, "cost": 1, "rotate": false}

@@ -391,6 +391,7 @@ func (r *Registry) validate() error {
 		"%s and %s both claim opencodeID %q; one profile owns it")...)
 	secret := func(p *Provider) string { return cmp.Or(AuthSecretName(p), keySecretName(p)) }
 	errs = append(errs, uniqueOwner(r, secret, "%s and %s would share sealed secret %s; rename one")...)
+	errs = append(errs, validateOneLastResort(r)...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
 	errs = append(errs, validateLadders(r)...)

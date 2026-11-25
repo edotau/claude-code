@@ -25,7 +25,7 @@ func configureProviderOptions(o *configureOpts, pos []string) int {
 		return helptext.Fail("configure provider: %v", err)
 	}
 	p := reg.Providers[pos[0]]
-	opts, err := checkedProviderOptions(p, pos[1:])
+	opts, err := checkedProviderOptions(reg, p, pos[1:])
 	if err != nil {
 		return helptext.FailUsage("configure provider: %v", err)
 	}
@@ -39,19 +39,22 @@ func configureProviderOptions(o *configureOpts, pos []string) int {
 }
 
 // checkedProviderOptions applies pairs to p's options; cost options need a preset, last_resort a fit row.
-func checkedProviderOptions(p *providers.Provider, pairs []string) (providers.Options, error) {
+func checkedProviderOptions(reg *providers.Registry, p *providers.Provider, pairs []string) (providers.Options, error) {
 	if p.Preset != providers.PresetDatabricks && !onlyLastResort(pairs) {
 		return p.Options, errors.New("cost options need a Databricks preset profile")
 	}
 	opts, err := providerOptionPairs(p.Options, pairs)
 	if err == nil && opts.LastResort {
-		err = providers.CheckLastResort(p.Name, *p)
+		err = providers.CheckLastResort(reg, p.Name, *p)
 	}
 	return opts, err
 }
 
-// onlyLastResort is true when every pair sets options.last_resort, the one option a non-preset row takes.
+// onlyLastResort is true when every pair (at least one) sets options.last_resort, the one non-preset option.
 func onlyLastResort(pairs []string) bool {
+	if len(pairs) == 0 {
+		return false
+	}
 	for _, pair := range pairs {
 		if !strings.HasPrefix(pair, "options.last_resort=") {
 			return false

@@ -49,6 +49,20 @@ func TestLocalRule(t *testing.T) {
 	}
 }
 
+// The local qwen row ranks but never joins a rotation pool while the local rule is staged at shadow.
+func TestLocalQwenNotRotated(t *testing.T) {
+	if Local().Stage != "shadow" {
+		t.Fatalf("local.stage = %q, want shadow", Local().Stage)
+	}
+	for _, tier := range []string{"fast", "standard", "deep"} {
+		for _, tools := range []bool{false, true} {
+			if got := RotationPool([]Candidate{{Model: "qwen3.8-27b:gguf:q6", Tools: "yes"}}, tier, tools); len(got) != 0 {
+				t.Errorf("RotationPool(%s, tools=%v) = %v, want none", tier, tools, got)
+			}
+		}
+	}
+}
+
 // A pattern every id of which an earlier pattern already matches never ranks anything (first match wins).
 func TestRanksNoShadowedPattern(t *testing.T) {
 	fam := loadRanks().Families

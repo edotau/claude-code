@@ -39,6 +39,29 @@ func TestConfigureLastResortOption(t *testing.T) {
 	if code, stderr := setLastResort(t, "local", "maybe"); code == 0 || !strings.Contains(stderr, "true or false") {
 		t.Fatalf("maybe: exit %d stderr %q", code, stderr)
 	}
+}
+
+func loopbackRow(url string) map[string]any {
+	return map[string]any{"protocol": "openai", "base_url": url, "concurrency": 1,
+		"routes": map[string]any{"anthropic": url}, "auth": map[string]any{"type": "none"}}
+}
+
+func TestConfigureLastResortGuards(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	if err := providers.SetProviderFields("second", loopbackRow("http://127.0.0.1:2/v1")); err != nil {
+		t.Fatal(err)
+	}
+	if code, stderr := setLastResort(t, "second", "true"); code == 0 || !strings.Contains(stderr, "local") ||
+		lastResortOf(t, "second") {
+		t.Fatalf("second holder: exit %d stderr %q, stored %v", code, stderr, lastResortOf(t, "second"))
+	}
+}
+
+func TestConfigureLastResortRefusals(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	if code, _ := setLastResort(t, "local", "false"); code != 0 {
+		t.Fatal("release local failed")
+	}
 	err := providers.SetProviderFields("bare", map[string]any{
 		"protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "auth": map[string]any{"type": "none"},
 	})
@@ -48,5 +71,23 @@ func TestConfigureLastResortOption(t *testing.T) {
 	if code, stderr := setLastResort(t, "bare", "true"); code == 0 || !strings.Contains(stderr, "routes.anthropic") ||
 		lastResortOf(t, "bare") {
 		t.Fatalf("bare true: exit %d stderr %q, stored %v", code, stderr, lastResortOf(t, "bare"))
+	}
+}
+
+func TestConfigureLastResortRemote(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	if code, _ := setLastResort(t, "local", "false"); code != 0 {
+		t.Fatal("release local failed")
+	}
+	if err := providers.SetProviderFields("remote", loopbackRow("https://remote.example/v1")); err != nil {
+		t.Fatal(err)
+	}
+	if code, stderr := setLastResort(t, "remote", "true"); code == 0 || !strings.Contains(stderr, "loopback") ||
+		lastResortOf(t, "remote") {
+		t.Fatalf("remote url: exit %d stderr %q, stored %v", code, stderr, lastResortOf(t, "remote"))
+	}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return configureProviderOptions(&configureOpts{}, []string{"remote"}) })
+	if code == 0 || !strings.Contains(stderr, "Databricks preset") {
+		t.Fatalf("no pairs on a non-preset row: exit %d stderr %q", code, stderr)
 	}
 }
