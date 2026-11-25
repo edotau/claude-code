@@ -269,6 +269,13 @@ vendor CLI untouched.
 
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
+  `--google-tools search|url|code` (comma list, gemini only: other agents exit 2) turns on Gemini built-ins. On a
+  Databricks row agy sends them in `X-Claude-Code-Google-Tools`; the proxy strips the header, adds
+  `{"urlContext":{}}` / `{"codeExecution":{}}` to a generateContent `tools[]`, and refuses an unserved tool with 400.
+  Preflight refuses first, naming the row's served tools (`options.google_tools`; unset = unprobed: a warning, sent as
+  asked). agy's own Google login refuses every tool: agy has no settings key for them. `computer` and `file` are held.
+  `--retry`/`--job` replay the list; a retry that moves off gemini drops it with a note. Code:
+  `/Users/edotau/.claude/internal/proxy/translate/googletools.go`.
 
 ## Proxy routes
 
