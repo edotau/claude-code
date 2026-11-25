@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,6 +158,40 @@ func fitDoctorDetail() string {
 		ran = "daily job ran " + fi.ModTime().Local().Format("2006-01-02 15:04")
 	}
 	return fmt.Sprintf("%s; folded through %s, %d cells", ran, f.Folded.Local().Format("2006-01-02 15:04"), len(f.Cells))
+}
+
+// memoryStoreRow reads the stamp directly so an old or unknown store is never initialised.
+func memoryStoreRow() check {
+	row := check{Name: "memory store"}
+	raw, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
+	if err != nil {
+		row.Detail = ".layout unreadable"
+		if errors.Is(err, fs.ErrNotExist) {
+			row.Detail = ".layout missing"
+		}
+		return row
+	}
+	fields := strings.Fields(string(raw))
+	row.Detail = ".layout unparseable"
+	if len(fields) != 2 || fields[0] != "flat" {
+		return row
+	}
+	version, err := strconv.Atoi(fields[1])
+	if err != nil || version < 1 || strings.HasPrefix(fields[1], "+") {
+		return row
+	}
+	code := memory.StoreVersion()
+	switch {
+	case version < code:
+		row.Detail = fmt.Sprintf("warn v%d<%d; claude-code memory upgrade --dry-run", version, code)
+	case version > code:
+		row.Hard = true
+		row.Detail = fmt.Sprintf("v%d>%d; binary older than store; writes refused", version, code)
+	default:
+		row.OK = true
+		row.Detail = fmt.Sprintf("flat %d matches code", code)
+	}
+	return row
 }
 
 // memorySyncRows reads only the opt-in and sync.json (via SyncReport); the off row costs one env or vault read.

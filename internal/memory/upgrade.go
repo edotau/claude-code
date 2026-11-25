@@ -7,6 +7,9 @@ import (
 
 const storeVersion = 4 // the "flat N" this binary writes
 
+// StoreVersion is the layout version this binary writes.
+func StoreVersion() int { return storeVersion }
+
 // upgradeStep takes a store from From to From+1; Plan is pure, uses no model and must be idempotent.
 type upgradeStep struct {
 	From int

@@ -170,6 +170,8 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
 	check(true, false, "routing fit", fitDoctorDetail())
+	store := memoryStoreRow()
+	check(store.OK, store.Hard, store.Name, store.Detail)
 	for _, r := range memorySyncRows() {
 		check(r.OK, false, r.Name, r.Detail)
 	}

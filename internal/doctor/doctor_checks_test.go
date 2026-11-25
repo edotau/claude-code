@@ -3,6 +3,7 @@ package doctor
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -205,7 +207,7 @@ func testVaultDoctorSecrets(t *testing.T) {
 	hermetic(t)
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	vaulttest.Keyring(t)
-	vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
+	vaulttest.Secret(t, "FOO_API_KEY", "qzvkwmpljrtxhbnd")
 	if _, _, err := vault.RotateKey(false); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +220,7 @@ func testVaultDoctorSecrets(t *testing.T) {
 			t.Errorf("detail %q lacks %q", c.Detail, want)
 		}
 	}
-	if strings.Contains(c.Detail, "sk-test") {
+	if strings.Contains(c.Detail, "qzvkwmpljrtxhbnd") {
 		t.Error("doctor printed a secret")
 	}
 }
@@ -241,7 +243,7 @@ func testVaultDoctorSingleRow(t *testing.T) {
 	hermetic(t)
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	vaulttest.Keyring(t)
-	vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
+	vaulttest.Secret(t, "FOO_API_KEY", "qzvkwmpljrtxhbnd")
 	n := 0
 	for _, c := range vaultDoctorChecks() {
 		if c.Name == "vault" || c.Name == "vault master key" {
@@ -272,6 +274,55 @@ func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	formats := findCheck([]check{formatsCheck()}, "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
+	}
+}
+
+func TestMemoryStoreRowFlagsSkew(t *testing.T) {
+	version := memory.StoreVersion()
+	cases := []struct {
+		name, stamp, mark, want string
+		pass, hard              bool
+	}{
+		{"equal", fmt.Sprintf("flat %d\n", version), "✓", fmt.Sprintf("flat %d", version), true, false},
+		{"older", fmt.Sprintf("flat %d\n", version-1), "⚠", "claude-code memory upgrade --dry-run", false, false},
+		{"newer", fmt.Sprintf("flat %d\n", version+1), "✗", "binary older than store; writes refused", false, true},
+		{"missing", "", "✗", ".layout missing", false, false},
+		{"unparseable", "flat nope", "✗", ".layout unparseable", false, false},
+		{"extra token", "flat 4 extra", "✗", ".layout unparseable", false, false},
+		{"signed", "flat +4", "✗", ".layout unparseable", false, false},
+		{"unreadable", "directory", "✗", ".layout unreadable", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			seedMemoryLayout(t, tc.stamp)
+			row := memoryStoreRow()
+			if row.Name != "memory store" || row.OK != tc.pass || row.Hard != tc.hard {
+				t.Fatalf("row = %+v, want memory store (ok=%t, hard=%t)", row, tc.pass, tc.hard)
+			}
+			var out bytes.Buffer
+			printCheckLines(&out, []check{row})
+			line := strings.TrimSuffix(out.String(), "\n")
+			if !strings.HasPrefix(line, tc.mark+" ") || !strings.Contains(line, tc.want) {
+				t.Errorf("rendered row = %q, want %s and %q", line, tc.mark, tc.want)
+			}
+			if strings.ContainsAny(line, "\r\n") || textutil.DisplayWidth(line) > 80 {
+				t.Errorf("row is not one line of at most 80 columns: %q", line)
+			}
+		})
+	}
+}
+
+func seedMemoryLayout(t *testing.T, stamp string) {
+	t.Helper()
+	switch stamp {
+	case "": // leave the stamp missing
+	case "directory":
+		if err := os.MkdirAll(filepath.Join(paths.MemoryStoreDir(), ".layout"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", stamp)
 	}
 }
 
