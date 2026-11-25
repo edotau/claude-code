@@ -12,3 +12,6 @@ func Alive(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || err == syscall.EPERM
 }
+
+// GroupAlive reports whether process group pgid still has a member (signal-0 probe of the group).
+func GroupAlive(pgid int) bool { return pgid > 1 && Alive(-pgid) }

@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
@@ -157,7 +157,7 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	}
 	pgid := cmd.Process.Pid
 	for end := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+		if !proc.GroupAlive(pgid) {
 			return
 		}
 		if time.Now().After(end) {
