@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -47,13 +48,24 @@ type ModelResult struct {
 	Snapshot *serving.Snapshot     `json:"-"` // Verified and Refresh only: the snapshot a caller may seal
 }
 
+// CanDiscover reports whether DiscoverModels serves agent.
+func CanDiscover(agent string) bool {
+	return slices.Contains([]string{agentid.Codex, agentid.Copilot, agentid.OpenCode, agentid.Gemini}, agent)
+}
+
 // DiscoverModels lists q.Agent's models on q.Profile: one query and one result shape for every agent.
 func DiscoverModels(ctx context.Context, q ModelQuery) (ModelResult, error) {
 	res := ModelResult{Agent: q.Agent}
-	if !slices.Contains([]string{agentid.Codex, agentid.Copilot, agentid.OpenCode}, q.Agent) {
+	if !CanDiscover(q.Agent) {
 		return res, fmt.Errorf("discovery: unknown agent %q", q.Agent)
 	}
 	p, err := catalog.Profile(ctx, q.Agent, q.Profile)
+	if q.Agent == agentid.Gemini { // agy lists its own models; a pinned gateway profile lists its served ones
+		if err != nil {
+			return res, fmt.Errorf("gemini profile: %w", err)
+		}
+		return geminiModels(ctx, res, p, q.Mode == RefreshModels)
+	}
 	if err != nil {
 		return res, profileErr(q, err)
 	}
@@ -62,6 +74,18 @@ func DiscoverModels(ctx context.Context, q ModelQuery) (ModelResult, error) {
 	}
 	res.Provider, res.Profile = p, p.Name
 	return serve(ctx, res, q.Mode, agent.SchemaFor(q.Agent).CLI.Dialects)
+}
+
+// geminiModels is agy's model list (p may be nil: no pinned profile).
+func geminiModels(ctx context.Context, res ModelResult, p *providers.Provider, refresh bool) (ModelResult, error) {
+	ids, err := gemini.AgyModels(ctx, p, refresh)
+	if p != nil {
+		res.Provider, res.Profile = p, p.Name
+	}
+	for _, id := range ids {
+		res.Models = append(res.Models, DiscoveredModel{ID: id})
+	}
+	return res, err
 }
 
 // profileErr keeps opencode sync's one-line resolve failure; every other read returns the cause.

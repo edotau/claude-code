@@ -407,3 +407,24 @@ func TestWriteAgentFieldRefusesUnservedModel(t *testing.T) {
 		t.Errorf("model %q written, want nothing", got)
 	}
 }
+
+// The Model picker lists default, the discovered ids and the typed row (width-checked); a pick writes MODEL.
+func TestModelPickerListsDiscoveredAndWrites(t *testing.T) {
+	reg := menuTestEnv(t)
+	vaulttest.SetRecord(t, "claude", "profile", "")
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
+	orig := discoverModels
+	t.Cleanup(func() { discoverModels = orig })
+	discoverModels = func(context.Context, configure.ModelQuery) (configure.ModelResult, error) {
+		return configure.ModelResult{Models: []configure.DiscoveredModel{{ID: "gpt-x"}, {ID: "gpt-y"}}}, nil
+	}
+	ids, _ := modelIDs(&dialog{reg: reg}, "codex", "chatgpt", configure.RecallModels)
+	assertFitsEighty(t, "model picker", modelPickRows(ids, "gpt-y", true))
+	out := &bytes.Buffer{}
+	in := strings.NewReader("3\n")
+	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: out}
+	recordModelRow(d, "codex").run()
+	if !strings.Contains(out.String(), "gpt-x") || vault.GetAgentRecord("codex").Model != "gpt-y" {
+		t.Errorf("picker %q, model %q, want gpt-x listed and gpt-y written", out.String(), vault.GetAgentRecord("codex").Model)
+	}
+}
