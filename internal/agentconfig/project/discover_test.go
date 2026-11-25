@@ -250,7 +250,7 @@ func TestNoStaleReferencesToRemovedAgents(t *testing.T) {
 	if _, err := os.Stat(agentsDir); err != nil {
 		t.Skip("no agents/ dir — not the harness checkout")
 	}
-	removed := []string{"agents/sonnet.md", "agents/documentation.md", "agents/reflection.md", "agents/coworker.md"}
+	removed := []string{"agents/sonnet.md", "agents/documentation.md", "agents/reflection.md", "agents/code-mode.md", "commands/pi.md"}
 	for _, stale := range removed {
 		if _, err := os.Stat(filepath.Join(root, stale)); err == nil {
 			t.Fatalf("%s still exists — update the removed list, not this guard", stale)
@@ -357,7 +357,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "code-mode", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "codex", "copilot", "coworker", "gemini", "opencode"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
@@ -365,12 +365,12 @@ func TestAgentFilesTie(t *testing.T) {
 // Each external worker type bakes its one typed ask, --agent matching the file: nobody composes the line.
 func TestExternalTypesBakeTheirAsk(t *testing.T) {
 	root := repoRoot(t)
-	cases := []struct{ file, agent, flags string }{ // code-mode is Pi in code mode; gemini runs agy on its Google pin
+	cases := []struct{ file, agent, flags string }{ // coworker is Pi in code mode; gemini runs agy on its Google pin
 		{"codex", "codex", " --codemode on --provider databricks --tools"},
 		{"copilot", "copilot", " --codemode on --provider databricks --tools"},
 		{"gemini", "gemini", " --tools"},
 		{"opencode", "opencode", " --provider databricks --tools"},
-		{"code-mode", "pi", " --provider databricks --tools --codemode on"},
+		{"coworker", "pi", " --provider databricks --tools --codemode on"},
 	}
 	for _, c := range cases {
 		data, err := os.ReadFile(filepath.Join(root, "agents", c.file+".md"))
@@ -388,13 +388,13 @@ func TestExternalTypesBakeTheirAsk(t *testing.T) {
 
 func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "opencode", "pi"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "coworker"} {
 		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		ask, tail := "agents ask --carry --background --agent "+name, "--tools - < <that path>"
-		if name == "pi" { // --carry refuses pi: a plain ask
+		if name == "coworker" { // pi in code mode; --carry refuses pi: a plain ask
 			ask, tail = "agents ask --background --agent pi", "--tools --autonomous - < <that path>"
 		}
 		for _, want := range []string{ask, tail} {

@@ -88,7 +88,7 @@ lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's 
 
 ## dispatch-effort
 
-Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
+Gates type (a stale `pi` or `code-mode` is rewritten to `coworker`, any brief); for a type with no `model:`
 line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
 (effort only when neither the call nor the agent file sets one); claims
 slots, recalls context and labels the row, for Codex-spawned children too. Recall rides `additionalContext`

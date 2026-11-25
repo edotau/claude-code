@@ -35,13 +35,13 @@ func Projected() []string {
 	return slices.DeleteFunc(External(), func(n string) bool { return facts(n).NoProjection })
 }
 
-// CodeModeType is the Claude subagent type that runs Pi in code mode; Pi has no type under its own name.
-const CodeModeType = "code-mode"
+// CoworkerType is the type of a Pi code-mode run: its subagent type, --agent value and record type; Pi has none.
+const CoworkerType = "coworker"
 
-// SubagentType is the Claude subagent type that dispatches agent: code-mode for Pi, else the agent's own name.
+// SubagentType is the Claude subagent type that dispatches agent: coworker for Pi, else the agent's own name.
 func SubagentType(agent string) string {
 	if agent == Pi {
-		return CodeModeType
+		return CoworkerType
 	}
 	return agent
 }
@@ -116,7 +116,7 @@ type CodeModeRow struct {
 	ViaSettings bool
 	// DirectOnly refuses the mode on any gateway or cloud-provider route.
 	DirectOnly bool
-	// TypedByMode: the agent's type names its code-mode runs; a run with code mode off is typed by its model.
+	// TypedByMode: the agent's code-mode runs are typed coworker; a run with code mode off is typed by its model.
 	TypedByMode bool
 }
 

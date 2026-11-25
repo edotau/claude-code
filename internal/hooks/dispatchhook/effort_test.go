@@ -413,7 +413,7 @@ func TestDispatchLabelAutoModeRewrites(t *testing.T) {
 	}
 }
 
-// A brief's wrong label and coworker type are fixed in one updatedInput, any mode; its prompt is byte-identical.
+// A brief's wrong label is fixed in one updatedInput, any mode; its prompt is byte-identical.
 func TestDispatchBriefFixedNotDenied(t *testing.T) {
 	useAgentsDir(t, "claude")
 	stubLabelModels(t, "claude-sonnet-5.5")
@@ -425,16 +425,14 @@ func TestDispatchBriefFixedNotDenied(t *testing.T) {
 		{"default", "claude", "opus: fix it", 1},
 		{"default", "claude", "sonnet: fix it", 0}, // an equivalent label is accepted as typed
 		{"default", "claude", "fix it", 1},
-		{"default", "coworker:claude", "databricks-gpt-6-1-sol: fix it", 2},
 		{"default", "claude", "claude-sonnet-5.5: fix it", 0},
 		{"auto", "claude", "fix it", 1},
-		{"auto", "coworker:claude", "databricks-gpt-6-1-sol: fix it", 2},
 		{"auto", "claude", "claude-sonnet-5.5: fix it", 0},
 	} {
 		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": tc.mode,
 			"tool_input": map[string]any{"subagent_type": tc.st, "model": "claude-sonnet-5.5", "effort": "medium", "prompt": brief, "description": tc.desc}})
 		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
-		if tc.mode == "auto" && tc.notes > 0 && !strings.HasPrefix(tc.st, "coworker:") {
+		if tc.mode == "auto" && tc.notes > 0 {
 			assertAutoResend(t, r, tc.st, tc.desc, tc.notes)
 			continue
 		}

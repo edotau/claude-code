@@ -338,9 +338,9 @@ func jobAncestry(ctx context.Context, job string) (context.Context, error) {
 	return ancestorContext(ctx), nil
 }
 
-// codeModeType turns code mode on for the code-mode type, through the flag set so the canonical argv carries it.
+// codeModeType turns code mode on for the coworker type, through the flag set so the canonical argv carries it.
 func codeModeType(fs *flag.FlagSet, ref string, f *askFlags) {
-	if ref == agentid.CodeModeType && f.codemode == "" {
+	if ref == agentid.CoworkerType && f.codemode == "" {
 		_ = fs.Set("codemode", "on")
 	}
 }

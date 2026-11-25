@@ -61,7 +61,7 @@ func projectAgentsDir() string {
 }
 
 // typeBlock denies a spawn whose subagent_type is not allowed, naming the type to use instead; "" runs general-purpose.
-func typeBlock(st, task string) *core.Result {
+func typeBlock(st string) *core.Result {
 	if st == "" {
 		return nil
 	}
@@ -70,10 +70,10 @@ func typeBlock(st, task string) *core.Result {
 		return nil
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster (%s); %s",
-		st, strings.Join(allowed, ", "), typeSuggestion(st, task))}
+		st, strings.Join(allowed, ", "), typeSuggestion(st))}
 }
 
-// retype swaps a coworker subagent_type for the one roster agent it wraps, on every brief.
+// retype swaps a stale or code-mode-mismatched subagent_type for the one it runs as, on every brief.
 func (e *effortPlan) retype(in *core.Input, to string) {
 	if to == "" {
 		return
@@ -85,66 +85,56 @@ func (e *effortPlan) retype(in *core.Input, to string) {
 	e.fix(e.systemMessage)
 }
 
-// coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.
-func coworkerTarget(st, task string) string {
-	if to := agentid.SubagentType(coworkerAgent(st, task)); slices.Contains(dispatchTypes(), to) {
-		return to
-	}
-	return ""
-}
-
-// coworkerAgent is the agent a coworker type names (or its brief's Agent: line), "" for any other type.
-func coworkerAgent(st, task string) string {
-	agent, isCoworker := strings.CutPrefix(st, "coworker:")
-	if st == "coworker" || isCoworker && agent == "databricks" {
-		return briefExternal(task)
-	}
-	if isCoworker {
-		return agent
-	}
-	return ""
-}
-
-// typeSuggestion is the redirect: a coworker type to the roster agent it wraps, anything else to general-purpose.
-func typeSuggestion(st, task string) string {
+// typeSuggestion is the redirect: a retired coworker:<agent> to that agent's type, anything else to general-purpose.
+func typeSuggestion(st string) string {
+	agent, isCoworker := strings.CutPrefix(st, agentid.CoworkerType+":")
 	switch {
 	case st == "Plan":
 		return `use "claude" and state read-only in the brief`
-	case st != "coworker" && !strings.HasPrefix(st, "coworker:"):
-		return `use "general-purpose"` // the host-wide agent with every tool
-	}
-	if agent := coworkerAgent(st, task); agent != "" {
+	case isCoworker && agentid.Known(agent):
 		return fmt.Sprintf("use %q", agentid.SubagentType(agent))
 	}
-	return "name one roster agent"
+	return `use "general-purpose"` // the host-wide agent with every tool
 }
 
-// staleTypeTarget is the subagent type a roster agent's bare name (pi) is rewritten to; "" for any other type.
+// retiredCodeModeType is the old name of the coworker type; a dispatch naming it is redirected.
+const retiredCodeModeType = "code-mode"
+
+// staleTypeTarget is the type a roster agent's bare name (pi) or the retired code-mode is rewritten to; "" otherwise.
 func staleTypeTarget(st string) string {
+	if st == retiredCodeModeType {
+		st = agentid.Pi
+	}
 	if to := agentid.SubagentType(st); agentid.Known(st) && to != st && slices.Contains(dispatchTypes(), to) {
 		return to
 	}
 	return ""
 }
 
-// codemodeTarget retypes code-mode off to claude and claude's code-mode pi run to code-mode; "" for none.
+// codemodeTarget retypes coworker with code mode off to claude and a claude brief naming pi to coworker; "" for none.
 func codemodeTarget(st, task string) string {
 	m := codemodeRe().FindStringSubmatch(briefHeader(task))
-	if m == nil {
-		return ""
-	}
-	on := !strings.EqualFold(m[1], "off")
+	off := m != nil && strings.EqualFold(m[1], "off")
 	to := ""
 	switch {
-	case agentid.Routing(agentid.AgentOfType(st)).CodeMode.TypedByMode && !on:
+	case agentid.Routing(agentid.AgentOfType(st)).CodeMode.TypedByMode && off:
 		to = agentid.Claude
-	case st == agentid.Claude && on:
-		if a := briefExternal(task); agentid.Routing(a).CodeMode.TypedByMode {
-			to = agentid.SubagentType(a)
-		}
+	case st == agentid.Claude && !off:
+		to = briefPiType(task)
 	}
 	if slices.Contains(dispatchTypes(), to) {
 		return to
+	}
+	return ""
+}
+
+// briefPiType is coworker when the brief's Agent: line names pi or the retired code-mode alone; "" otherwise.
+func briefPiType(task string) string {
+	if a := briefExternal(task); agentid.Routing(a).CodeMode.TypedByMode {
+		return agentid.SubagentType(a)
+	}
+	if m := agentLineRe().FindStringSubmatch(briefHeader(task)); m != nil && strings.EqualFold(strings.TrimSpace(m[1]), retiredCodeModeType) {
+		return agentid.CoworkerType
 	}
 	return ""
 }

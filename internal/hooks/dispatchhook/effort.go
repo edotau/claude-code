@@ -163,7 +163,7 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 // keepPiAgent adds an `Agent: pi` header line to a brief retyped from a Pi type to claude, so the leaf still runs Pi.
 func (e *effortPlan) keepPiAgent(in *core.Input, fixType, promptField, task string) string {
 	st := in.Nested("tool_input", "subagent_type")
-	piType := agentid.AgentOfType(st) == agentid.Pi || coworkerAgent(st, task) == agentid.Pi || staleTypeTarget(st) != ""
+	piType := agentid.AgentOfType(st) == agentid.Pi || staleTypeTarget(st) != ""
 	if fixType != agentid.Claude || !piType || promptField != "prompt" || agentLineRe().MatchString(briefHeader(task)) {
 		return task
 	}
@@ -178,17 +178,14 @@ func (e *effortPlan) retyped(st string) bool {
 	return got != st
 }
 
-// effortDenial is the call's type denial, else the coworker or code-mode type to retype to ("" for none).
+// effortDenial is the call's type denial, else the type to retype to: a stale name's, or code mode's ("" for none).
 func effortDenial(in *core.Input) (fixType string, deny *core.Result) {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
-	if to := staleTypeTarget(st); to != "" { // a bare "pi" type is the code-mode type now
+	if to := staleTypeTarget(st); to != "" { // a bare "pi" or the old "code-mode" is the coworker type now
 		return cmp.Or(codemodeTarget(to, prompt), to), nil
 	}
-	if deny = typeBlock(st, prompt); deny != nil {
-		if fixType = coworkerTarget(st, prompt); fixType == "" {
-			return "", deny
-		}
-		return cmp.Or(codemodeTarget(fixType, prompt), fixType), nil
+	if deny = typeBlock(st); deny != nil {
+		return "", deny
 	}
 	return codemodeTarget(st, prompt), nil
 }

@@ -35,7 +35,7 @@ Task:
 {{end}}- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
-- Code leaves run on the Databricks arm (`/coworker`'s default overlay `{"provider":"databricks","profile":"auto",
+- Code leaves run on the Databricks arm (the coworker overlay `{"provider":"databricks","profile":"auto",
   "remote":"auto"}`), spread over dev/qa/prod; docs leaves on claude sonnet.
 
 ## Reporting contract

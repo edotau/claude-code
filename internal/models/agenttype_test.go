@@ -8,7 +8,7 @@ func TestAgentType(t *testing.T) {
 		code         bool
 		want         Type
 	}{
-		{"", "claude-opus-5-5", true, TypePi},
+		{"", "claude-opus-5-5", true, TypeCoworker},
 		{"github", "claude-opus-5-5", false, TypeCopilot},
 		{"databricks", "claude-opus-5-5", false, TypeClaude},
 		{"", "databricks-claude-sonnet-5-5", false, TypeClaude},
@@ -27,7 +27,7 @@ func TestAgentType(t *testing.T) {
 		{"", "gemma-3-12b", false, "gemma"},
 		{"", "", false, ""},
 		{"", "4-7", false, ""},
-		{"", "", true, TypePi},
+		{"", "", true, TypeCoworker},
 	}
 	for _, c := range cases {
 		if got := AgentType(c.route, c.model, c.code); got != c.want {

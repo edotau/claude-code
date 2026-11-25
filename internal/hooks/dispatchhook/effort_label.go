@@ -227,7 +227,7 @@ func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier st
 	return " effort=" + tier
 }
 
-// effectiveType is the subagent_type the dispatch will run as, after any coworker retype.
+// effectiveType is the subagent_type the dispatch will run as, after any retype.
 func effectiveType(updated map[string]any) string {
 	st, _ := updated["subagent_type"].(string)
 	return st

@@ -36,7 +36,7 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
 		"coworker:copilot":                          {"do it", `use "copilot"`},
 		"coworker:opencode":                         {"do it", `use "opencode"`},
-		"coworker":                                  {"do it", "name one roster agent"},
+		"coworker":                                  {"Agent: codex\n\ndo it", `use "general-purpose"`},
 	} {
 		want := fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
 		if r := blocked(st, c.brief); r != want {
@@ -66,12 +66,12 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "code-mode", "codex", "copilot", "gemini", "general-purpose", "opencode", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "codex", "copilot", "coworker", "gemini", "general-purpose", "opencode", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all
 	listAgents = orig
-	if r := typeBlock("gemini", ""); r != nil {
+	if r := typeBlock("gemini"); r != nil {
 		t.Errorf("gemini with no agents dir blocked: %s", r.Reason)
 	}
 }
@@ -90,40 +90,42 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 }
 
-// A coworker type naming exactly one roster agent is rewritten; an ambiguous one stays denied.
-func TestDispatchCoworkerTypeRewrite(t *testing.T) {
+// coworker is a real type: it runs as sent; the retired coworker:<agent> is denied with the agent's type, any mode.
+func TestDispatchCoworkerTypeIsReal(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "coworker")
 	payload := func(mode, st string) core.Result {
 		return pre(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"subagent_type":%q,"prompt":"do it","description":"do it"}}`, mode, st))
 	}
-	r := payload("default", "coworker:claude")
-	if r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "claude" || !strings.Contains(r.SystemMessage, `"claude"`) {
-		t.Errorf("coworker:claude = %+v, want subagent_type rewritten to claude with a message", r)
+	if r := payload("default", "coworker"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "coworker" {
+		t.Errorf("coworker = %+v, want it to run as coworker", r)
 	}
-	if r := payload("default", "coworker"); r.Decision != core.Block {
-		t.Errorf("ambiguous coworker = %+v, want a block", r)
-	}
-	if r := payload("auto", "coworker:claude"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "claude" {
-		t.Errorf("auto coworker:claude = %+v, want the same rewrite as default mode", r)
+	for _, mode := range []string{"default", "auto"} {
+		if r := payload(mode, "coworker:codex"); r.Decision != core.Block || !strings.HasSuffix(r.Reason, `use "codex"`) {
+			t.Errorf("%s coworker:codex = %+v, want a block naming codex", mode, r)
+		}
 	}
 }
 
-// A coworker type rewritten to its roster agent pins model and effort exactly as a direct dispatch of that agent.
-func TestDispatchCoworkerRetypeMatchesDirect(t *testing.T) {
+// A retired name retyped to coworker pins model and effort exactly as a direct coworker dispatch.
+func TestDispatchStaleRetypeMatchesDirect(t *testing.T) {
 	dispatchEnv(t)
 	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
 	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body := "---\nname: claude\nmodel: sonnet\neffort: medium\n---\n"
-	if err := os.WriteFile(filepath.Join(cfg, "agents", "claude.md"), []byte(body), 0o600); err != nil {
+	body := "---\nname: coworker\nmodel: haiku\neffort: low\n---\n"
+	if err := os.WriteFile(filepath.Join(cfg, "agents", "coworker.md"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run := func(st string) core.Result {
 		return pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"fix a typo","description":"fix a typo"}}`, st))
 	}
-	direct, retyped := run("claude"), run("coworker:claude")
+	direct, retyped := run("coworker"), run("code-mode")
+	if retyped.UpdatedInput["subagent_type"] != "coworker" {
+		t.Fatalf("code-mode = %+v, want a retype to coworker", retyped)
+	}
 	for _, k := range []string{"model", "effort"} {
 		if direct.UpdatedInput[k] != retyped.UpdatedInput[k] {
 			t.Errorf("%s: retyped %v, direct %v, want equal (the agent file pins both)", k, retyped.UpdatedInput[k], direct.UpdatedInput[k])
@@ -137,14 +139,18 @@ func TestDispatchCoworkerRetypeMatchesDirect(t *testing.T) {
 func TestDispatchCodemodeRetype(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
-	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "coworker")
 	for _, c := range []struct{ st, brief, want string }{
-		{"code-mode", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
-		{"claude", "Agent: pi\\nCodemode: on\\n\\nbody", "code-mode"},
-		{"code-mode", "Agent: pi\\n\\nbody", "code-mode"},
-		{"pi", "Agent: pi\\n\\nbody", "code-mode"},
+		{"coworker", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
+		{"claude", "Agent: pi\\nCodemode: on\\n\\nbody", "coworker"},
+		{"coworker", "Agent: pi\\n\\nbody", "coworker"},
+		{"pi", "Agent: pi\\n\\nbody", "coworker"},
 		{"pi", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
-		{"claude", "Agent: pi\\nrun --codemode on\\n\\nbody", "claude"},
+		{"code-mode", "body", "coworker"},
+		{"claude", "Agent: pi\\nrun --codemode off\\n\\nbody", "coworker"}, // prose is not the Codemode: line
+		{"claude", "Agent: code-mode\\n\\nbody", "coworker"},
+		{"claude", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
+		{"claude", "Agent: codex\\n\\nbody", "claude"},
 	} {
 		r := pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"%s","description":"x"}}`, c.st, c.brief))
 		got, _ := r.UpdatedInput["subagent_type"].(string)
@@ -154,28 +160,17 @@ func TestDispatchCodemodeRetype(t *testing.T) {
 	}
 }
 
-func TestDispatchCoworkerPiRetypesToCodeMode(t *testing.T) {
-	dispatchEnv(t)
-	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
-	for _, c := range []struct{ st, brief string }{
-		{"coworker:pi", "do it"},
-		{"coworker", "Agent: pi\\n\\nbody"},
-	} {
-		r := pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"%s","description":"x"}}`, c.st, c.brief))
-		if got, _ := r.UpdatedInput["subagent_type"].(string); r.Decision == core.Block || got != "code-mode" {
-			t.Errorf("%s %q = %+v, want a retype to code-mode", c.st, c.brief, r)
-		}
-	}
-	if got := typeSuggestion("coworker:pi", ""); got != `use "code-mode"` {
-		t.Errorf("suggestion = %q, want code-mode", got)
+func TestDispatchCoworkerPiSuggestsCoworker(t *testing.T) {
+	if got := typeSuggestion("coworker:pi"); got != `use "coworker"` {
+		t.Errorf("suggestion = %q, want coworker", got)
 	}
 }
 
 func TestDispatchCodeModeOffKeepsPiAgentLine(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
-	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "code-mode")
-	r := pre(`{"tool_name":"Agent","tool_input":{"subagent_type":"code-mode","prompt":"Codemode: off\n\nbody","description":"x"}}`)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "coworker")
+	r := pre(`{"tool_name":"Agent","tool_input":{"subagent_type":"coworker","prompt":"Codemode: off\n\nbody","description":"x"}}`)
 	p, _ := r.UpdatedInput["prompt"].(string)
 	if got, _ := r.UpdatedInput["subagent_type"].(string); got != "claude" || !strings.HasPrefix(p, "Agent: pi\n") {
 		t.Errorf("type %q prompt %q, want claude with an Agent: pi header line", got, p)

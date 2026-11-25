@@ -39,14 +39,14 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   [--effort <e>] [--fallback <mode>] <task>` — the session
   runs `agents ask --carry --background --agent <type> [flags] --tools - < brief`,
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
-  `/pi` (same flags) runs the same ask plain, without `--carry` (which refuses pi). There is no `/claude`: the name
-  could collide.
-- `/coworker --agent <codex|copilot|gemini|opencode|claude|pi> [--overlay <json|file>] [--model <m>] <task>` — the
-  same direct ask (claude and pi plain), run here on the Databricks arm with its requests sent through
-  the other machine (default overlay `{"provider":"databricks","profile":"auto","remote":"auto"}`;
-  `--overlay` replaces it). Not a new agent type. The route travels whole (provider, profile, host, remote);
-  workflow steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;
-  what `auto` resolves to: `rules/harness/network.md`.
+  There is no `/claude`: the name could collide.
+- `/coworker` (same flags plus `[--codemode on|only]`) — Pi in code mode: the session runs `agents ask --background
+  --agent pi --provider databricks --codemode on [flags] --tools --autonomous - < brief` plain (`--carry` refuses
+  pi), then `agents result -f <id>`; `--provider`/`--profile` replace the Databricks default. The run is typed
+  `coworker` (receipt `coworker via pi`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
+  There is no `/pi`. A route that travels whole (provider, profile, host, remote) is `agents ask --overlay`; workflow
+  steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`; what
+  `auto` resolves to: `rules/harness/network.md`.
 - `--model auto` (or overlay `model: auto`, a record pin `auto`; model strings carry no profile: `providers.md`)
   ranks the models that one profile serves by the brief's tier from `internal/assets/files/catalog/ranks.json`, over a
   pinned model; the label shows the pick.
@@ -56,7 +56,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - External work agents run directly from the main session via carried asks
   (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20), or as the Agent tool's
-  `codex`, `copilot`, `gemini`, `opencode` types: a Haiku worker that runs the one typed
+  `codex`, `copilot`, `gemini`, `opencode`, `coworker` types: a Haiku worker that runs the one typed
   `agents ask --agent <type> --provider databricks` its file bakes, waits and checks the result; the vendor verbs
   (`claude-code codex …`) and overlay `{"runner":"own"}` keep each CLI on its own login;
   an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
@@ -86,7 +86,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   `claude`.
 - **Model:** an alias, never a dated id (`rules/harness/providers.md` → Model selection): `sonnet` for leaves
   (`claude` has no pin: the hook picks haiku/sonnet/opus by brief tier), `Plan` inherits the session model (Opus on
-  Databricks), the relay types (`codex`, `copilot`, `gemini`, `opencode`, `code-mode`) to `haiku`; raise one call with
+  Databricks), the relay types (`codex`, `copilot`, `gemini`, `opencode`, `coworker`) to `haiku`; raise one call with
   the Agent tool's `model`. `inherit` in a file means the session model (the hook pins nothing);
   `model: inherit` on a call reads as unset. **Tools:** list the ones the role needs.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields

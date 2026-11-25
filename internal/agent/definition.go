@@ -169,12 +169,12 @@ func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Sche
 	if _, ok := LookupSchema(ref); ok {
 		return ref, nil, nil
 	}
+	if ref == agentid.CoworkerType { // the coworker type is pi, not agents/coworker.md's relay; ask turns code mode on
+		return agentid.Pi, nil, nil
+	}
 	names := RosterNames()
 	if def, ok := agents[ref]; ok {
 		return cmp.Or(def.Agent, "claude"), def, nil
-	}
-	if ref == agentid.CodeModeType { // the code-mode type is pi; ask turns code mode on
-		return agentid.Pi, nil, nil
 	}
 	if v, name, ok := strings.Cut(ref, ":"); ok {
 		if !slices.Contains(names, v) {

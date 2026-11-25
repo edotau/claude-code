@@ -39,7 +39,7 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | `general-purpose`                           | Built-in work when no named role fits                                                                                                                                                                                                                                                            | Brief's requested report              |
 | `web-fetch`                                 | Host built-in page fetch, only where the host offers it (else `general-purpose`)                                                                                                                                                                                                                 | The answer                            |
 | `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf (a relay): a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict  |
-| `code-mode`                                 | Script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run                                                                                               | `ask: ran on` line, then the verdict  |
+| `coworker`                                  | Pi in code mode, script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk off; receipt `coworker via pi`                                                                    | `ask: ran on` line, then the verdict  |
 | `claude-code-guide`                         | Host built-in: questions about Claude Code, the Agent SDK and the Claude API                                                                                                                                                                                                                     | The answer                            |
 | `statusline-setup`                          | Host built-in: configures the status line setting                                                                                                                                                                                                                                                | The settings edit                     |
 
@@ -71,8 +71,9 @@ claude-code agents result -f <id>
 The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
 ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
 `agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase instead of `quiet`; the idle limit applies.
-**Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line (or names `Agent: pi`, which a wave or
-plan line must) runs the task as a Pi ask first; review, docs and gate leaves stay in-context. A Pi refusal or failed
+**Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line runs the task as a Pi ask first; review,
+docs and gate leaves stay in-context. A brief naming `Agent: pi` (or the type `pi` or `code-mode`) is retyped to
+`coworker`; with `Codemode: off` it stays a `claude` leaf running a plain Pi ask. A Pi refusal or failed
 start (not on the profile's menu, no Databricks route, guard did not load) is the one refusal below: it does the task
 in-context, `Ran on:` naming the failed Pi attempt and what then ran. A brief needing the Agent tool, skills or MCP
 says `Agent: in-context`; `Agent: claude` in a wave plan runs a headless claude ask.
@@ -85,7 +86,7 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
 `claude` workflow stage; the wait, hand-back and receipt rules bind both:
 
 - Run the prescribed ask once: `claude-code agents ask --carry --agent <a> …`, the plain ask for `claude`/`pi`, or,
-  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `code-mode.md`), the one
+  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `coworker.md`), the one
   non-carry typed `agents ask --background --agent <type> --tools - < PATH` its file prints (Databricks baked, gemini
   excepted; pi adds `--codemode on`); copy it as printed, add `--workdir <dir>` only for a `Workdir:` line, and
   never add `--profile` or `--model`:
@@ -112,7 +113,7 @@ For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` �
      poll again.
 - The final answer always goes through `SubagentHandback`, never plain text. An unattributed note is not fixed by
   retrying: hand back once, with the id and `agents result -f <id>` in your text.
-- **A relay type never commits** (`codex`, `copilot`, `gemini`, `opencode`, `code-mode`; `isolation: worktree` makes it
+- **A relay type never commits** (`codex`, `copilot`, `gemini`, `opencode`, `coworker`; `isolation: worktree` makes it
   edit in a lane). Its shell is `claude-code` asks, read-only commands and the `go build|vet|test` and `gofmt -l`
   gates, so `git add` is refused (`not a claude-code command`) and so is `worktree commit` (`a relay does not commit;
   the dispatched agent or the main session commits`). It hands back uncommitted; the main session commits and lands

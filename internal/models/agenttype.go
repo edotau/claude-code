@@ -10,7 +10,8 @@ const (
 	TypeCodex   Type = "codex"
 	TypeCopilot Type = "copilot"
 	TypeGemini  Type = "gemini"
-	TypePi      Type = "pi"
+	// TypeCoworker is a Pi code-mode run, shown "coworker via pi".
+	TypeCoworker Type = "coworker"
 )
 
 // openWeightsGPT is the one GPT-prefixed family that is not OpenAI's GPT and keeps its own name.
@@ -20,7 +21,7 @@ const openWeightsGPT = "gpt-oss"
 func AgentType(routeProvider, model string, codeMode bool) Type {
 	switch {
 	case codeMode:
-		return TypePi
+		return TypeCoworker
 	case routeProvider == "github" || routeProvider == "copilot":
 		return TypeCopilot
 	}

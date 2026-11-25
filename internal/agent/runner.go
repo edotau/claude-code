@@ -43,7 +43,7 @@ func stampRunner(rec Record, res wire.Result) wire.Result {
 	if carriedByPi(rec, res, engine) {
 		res.Asked, res.Runner = rec.Agent, engine
 	}
-	// the pi label is for a pi code-mode run only: a claude or opencode one keeps its own name
+	// the coworker type is for a pi code-mode run only: a claude or opencode one keeps its own name
 	codeMode := rtkwrap.CodemodeOn(rec.Request.Codemode) && agentid.Routing(engine).CodeMode.TypedByMode
 	typedByMode := agentid.Routing(rec.Agent).CodeMode.TypedByMode
 	if !typedByMode && !codeMode {

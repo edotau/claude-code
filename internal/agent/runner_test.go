@@ -91,10 +91,11 @@ func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	}
 	rec := Record{Agent: "pi"}
 	rec.Request.Codemode = "on"
-	if got := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"}); got.Type != "pi" || got.Runner != "" {
-		t.Fatalf("code mode: runner %q type %q", got.Runner, got.Type)
+	got := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
+	if label := wire.RunLabel(got.Type, got.Runner); label != "coworker via pi" {
+		t.Fatalf("code mode: label %q, want coworker via pi", label)
 	}
-	got := stampRunner(Record{Agent: "pi"}, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
+	got = stampRunner(Record{Agent: "pi"}, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
 	if got.Type != "kimi" || got.Runner != "pi" || got.Asked != "" {
 		t.Fatalf("pi ask: runner %q type %q asked %q", got.Runner, got.Type, got.Asked)
 	}
@@ -106,7 +107,7 @@ func TestStampRunnerCodeModeLabelIsPiOnly(t *testing.T) {
 		t.Fatalf("claude code-mode run typed %q", res.Type)
 	}
 	res := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-gpt-6-sol", Hops: []wire.Hop{{Agent: "pi"}}})
-	if res.Type != "pi" {
+	if res.Type != "coworker" {
 		t.Fatalf("pi code-mode run typed %q", res.Type)
 	}
 }

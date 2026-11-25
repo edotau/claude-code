@@ -72,7 +72,7 @@ func TestSelectAgent(t *testing.T) {
 		{"codex:help", "codex", "help"},     // the vendor beats def.Agent
 		{"helper", "claude", "helper"},      // agents/<name>.md with no agent runs on claude
 		{file, "claude", "x"},               // a file path
-		{"code-mode", "pi", ""},             // the code-mode type is pi, not agents/code-mode.md's claude
+		{"coworker", "pi", ""},              // the coworker type is pi, not agents/coworker.md's relay
 	} {
 		v, p, err := SelectAgent(c.ref, agents)
 		if err != nil || v != c.agent || personaName(p) != c.persona {

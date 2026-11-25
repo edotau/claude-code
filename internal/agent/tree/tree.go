@@ -113,7 +113,7 @@ type Dispatch struct {
 	prompt    string    // dispatch prompt; a cwd match must also open with it, so a user's own session survives
 
 	recType   string    // the type the record stored (models.AgentType at the run's end); "" while running
-	codeMode  bool      // the answering run had pi codemode on or only: the row shows pi
+	codeMode  bool      // the answering run had pi codemode on or only: the row shows coworker
 	routeKind string    // the route's provider kind (rec.Provider can be a profile name)
 	carry     bool      // the outer record of a carried dispatch: its row folds in the child doing the work
 	takeover  bool      // a Pi takeover that finished a cut-off carried child

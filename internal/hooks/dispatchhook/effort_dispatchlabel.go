@@ -57,7 +57,7 @@ func dispatchLabel(ctx context.Context, in LabelInput) (label, model, blocked st
 
 // dispatchLabelNote is dispatchLabel plus the label's note: the route's substitution, or why none resolved.
 func dispatchLabelNote(ctx context.Context, in LabelInput) (label, model, blocked, note string) {
-	if deny := typeBlock(in.Type, in.Brief); deny != nil {
+	if deny := typeBlock(in.Type); deny != nil {
 		return "", "", deny.Reason, ""
 	}
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{
@@ -99,7 +99,7 @@ type LabelRow struct {
 
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
-	in.Type = cmp.Or(staleTypeTarget(in.Type), in.Type) // a bare "pi" labels as its code-mode type
+	in.Type = cmp.Or(staleTypeTarget(in.Type), in.Type) // a bare "pi" or "code-mode" labels as coworker
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
 	if in.Brief == "" && in.Model == "" && !agentPinsModel(newDispatchRun(func() string { return in.SessionModel }), in.Type) {
 		if tiers := dispatchTierLabels(in.Type, in.SessionModel); tiers != "" { // the hook picks the tier from the brief
