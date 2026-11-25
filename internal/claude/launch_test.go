@@ -224,11 +224,19 @@ func TestClaudePassthrough(t *testing.T) {
 	if slices.Contains(h.Unset, oauthKey) {
 		t.Error("headless passthrough must keep CLAUDE_CODE_OAUTH_TOKEN")
 	}
+	assertEntrypointUnset(t, p, h)
 	// The built-in fallback does not route a login: a loopback base URL would disable Remote Control.
 	if _, ok := p.Set["ANTHROPIC_BASE_URL"]; ok || p.Set["ANTHROPIC_CUSTOM_HEADERS"] != "" {
 		t.Errorf("passthrough must launch direct: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
 	}
 	t.Run("reject vendor login", testClaudeRejectsVendorLogin)
+}
+
+func assertEntrypointUnset(t *testing.T, interactive, headless agent.Plan) {
+	t.Helper()
+	if !slices.Contains(headless.Unset, "CLAUDE_CODE_ENTRYPOINT") || slices.Contains(interactive.Unset, "CLAUDE_CODE_ENTRYPOINT") {
+		t.Error("headless must drop CLAUDE_CODE_ENTRYPOINT, interactive must keep it")
+	}
 }
 
 func testClaudeRejectsVendorLogin(t *testing.T) {

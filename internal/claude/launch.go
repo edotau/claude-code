@@ -83,9 +83,17 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	}
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
+	dropHeadlessEntrypoint(&plan, args)
 	keepShellEndpoint(ctx, &plan, o)
 	injectVaultKey(ctx, &plan)
 	return plan, mergeUserSettings(&plan)
+}
+
+// dropHeadlessEntrypoint: an inherited IDE entrypoint would make claude record a headless run as interactive.
+func dropHeadlessEntrypoint(plan *agent.Plan, args []string) {
+	if agent.IsHeadless(args) {
+		plan.Unset = append(plan.Unset, "CLAUDE_CODE_ENTRYPOINT")
+	}
 }
 
 // warnLostRemoteControl notes a proxied interactive login session: only it had Remote Control to lose.
