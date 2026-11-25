@@ -1,16 +1,9 @@
-# mdsmith (make lint-docs): tracked harness markdown, tuned to rules/standards (120-col lines, fenced languages).
+# mdsmith (make lint-docs): the gate twin of .markdownlint.json; mdlint.Parity fails on drift.
 front-matter: true
 files:
-  - "*.md"
-  - "agents/**/*.md"
-  - "commands/**/*.md"
-  - "rules/**/*.md"
-  - "skills/**/*.md"
-  - "docs/**/*.md"
-  - "theme/**/*.md"
-  - "vscode/**/*.md"
-  - ".github/**/*.md"
-  - "internal/assets/files/memory/templates/*.md"
+  - "**/*.md"
+ignore:
+  - "internal/**/testdata/**"
 overrides:
   - glob: [".github/**/*.md"] # GitHub templates: title is the issue/PR form itself, sections hold an HTML-comment prompt
     rules:
@@ -29,8 +22,13 @@ overrides:
       no-undefined-reference-labels: false # generated rows end in [<entry id>], not a link label
       heading-increment: false # MEMORY.md has no H1: it would load into every session
       code-block-style: false # index.md records are 4-space indented on purpose, so no entry line reads as structure
+  - glob: ["memory/**/*.md"] # the store's generated bank files keep 4-space indented records
+    rules:
+      code-block-style: false
 rules:
-  # Mirrors .markdownlint-cli2.jsonc (converted with bin/mdsmith init --from-markdownlint) so make lint matches VS Code.
+  # Rules: converted from .markdownlint.json, then the deliberate differences in internal/mdlint/parity.go.
+  # Deliberate: list-indent off (MD007 off; MD005 hand-checked), MD010 code_blocks and MD024 siblings_only have no
+  # mdsmith option, mdsmith-only rules below are gate-only (D6).
   code-block-style:
     style: fenced
   commands-show-output: false
@@ -51,8 +49,11 @@ rules:
   ambiguous-emphasis: true
   no-space-in-code-spans: true
   no-space-in-link-text: true
+  table-format:
+    style: leading_and_trailing
   line-length:
     max: 120
+    stern: true
     exclude: [code-blocks, tables, urls]
   heading-increment: true
   fenced-code-language: true
@@ -67,7 +68,6 @@ rules:
   # Style choices the harness docs don't follow; off rather than churn every file.
   paragraph-readability: false
   no-duplicate-headings: false # per-section repeats ("Verification Steps") are intentional structure
-  table-format: false
   table-readability: false
   list-indent: false
   no-emphasis-as-heading: false
