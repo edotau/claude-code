@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
@@ -167,7 +168,14 @@ func runPrompts(o *doctorOpts) int {
 	for _, c := range checks {
 		ok = ok && c.OK
 	}
-	return printChecks(o, checks, ok)
+	use := usageReport(filepath.Join(paths.ConfigDir(), "projects"), time.Now(), usageBudget)
+	if *o.format == helptext.JSON {
+		checks = append(checks, check{Name: "H8 utilization", OK: true, Detail: strings.Join(use, "\n")})
+		return printChecks(o, checks, ok)
+	}
+	code := printChecks(o, checks, ok)
+	fmt.Fprintln(os.Stdout, strings.Join(use, "\n"))
+	return code
 }
 
 // listPrompts prints one row per embedded text: path, family, accessor, template fields, bytes.
