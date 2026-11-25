@@ -329,6 +329,35 @@ func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
 	}
 }
 
+// Gate passes the run's req.Fallback, so a typed none refuses a move off an explicit account.
+func TestCopilotEngineGateHonoursRunFallback(t *testing.T) {
+	macFallbackScratch(t)
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "biz" }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
+		`"free":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"free","auth":{"type":"cli","login":"copilot"}},`+
+		`"biz":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"biz","auth":{"type":"cli","login":"copilot"}}}}}`)
+	vaulttest.SetRecord(t, "copilot", "profile", "biz")
+	hosts := "github.com:\n    users:\n        biz:\n            oauth_token: x\n    user: biz\n"
+	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed := providers.Target{Provider: reg.Providers["free"], Model: "claude-opus-5.5"}
+	_, _, err = copilotEngine{}.Gate(t.Context(), agent.RunOptions{Fallback: "none"}, reg, typed)
+	if err == nil || !strings.Contains(err.Error(), "named explicitly") {
+		t.Fatalf("none: err = %v, want a refusal naming the explicit account", err)
+	}
+	got, _, err := copilotEngine{}.Gate(t.Context(), agent.RunOptions{Fallback: "pin"}, reg, typed)
+	if err != nil || got.Provider.Name != "biz" {
+		t.Fatalf("pin: got %+v err %v, want the business pin", got.Provider, err)
+	}
+}
+
 func TestModelEffort(t *testing.T) {
 	old := effortModels
 	t.Cleanup(func() { effortModels = old })

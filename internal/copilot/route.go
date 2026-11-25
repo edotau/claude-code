@@ -66,9 +66,6 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 
 // fallbackMode is the run's AGENT_ERROR_FALLBACK mode (process, run values, then vault env).
 func fallbackMode(ctx context.Context) string {
-	if v := strings.TrimSpace(proc.Value(ctx, router.EnvFallback)); v != "" {
-		return router.ParseFallback(v)
-	}
 	mode, _ := router.FallbackSetting(ctx, "")
 	return router.ParseFallback(mode)
 }

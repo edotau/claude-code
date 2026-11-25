@@ -385,7 +385,7 @@ func (copilotEngine) Gate(ctx context.Context, req agent.RunOptions, reg *provid
 	if err != nil {
 		return t, "", err
 	}
-	return copilotGate(ctx, reg, t, typedOffPin(t), "")
+	return copilotGate(ctx, reg, t, typedOffPin(t), req.Fallback)
 }
 
 // overlayAccount moves t to the GitHub row the overlay's account key names, with the model spelled on it.
