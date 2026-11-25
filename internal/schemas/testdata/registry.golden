@@ -53,6 +53,7 @@ desktop-state | record | 1 | <fixed at init> | internal/desktop | keep
 dispatch-cutoffs | cache | 1 | state/harness/agent/cutoffs.json | internal/agent | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent/wire | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
+land-attempts | log | 1 | state/harness/worktree/land-attempts.jsonl | internal/worktree | keep
 land-queue | record | 1 | state/harness/worktree/land-queue.json | internal/worktree | keep
 live-request | wire | 1 | - | internal/agent/wire | keep
 login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/providers | keep
