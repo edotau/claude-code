@@ -179,6 +179,24 @@ func TestStructuredAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestSchemaForDescription(t *testing.T) {
+	type rec struct {
+		K string `json:"k" jsonschema:"description=the kind of thing,enum=p|q"`
+	}
+	const want = `{"type":"object","additionalProperties":false,"required":["k"],"properties":{"k":` +
+		`{"type":"string","description":"the kind of thing","enum":["p","q"]}}}`
+	var a, b any
+	if err := json.Unmarshal([]byte(SchemaFor[rec]()), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &b); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("got %s", SchemaFor[rec]())
+	}
+}
+
 func TestSchemaForMatchesHandWritten(t *testing.T) {
 	type part struct {
 		ID    string   `json:"id"`

@@ -506,6 +506,8 @@ func fieldSchema(f reflect.StructField, path map[reflect.Type]bool) map[string]a
 	for opt := range strings.SplitSeq(f.Tag.Get("jsonschema"), ",") {
 		if vals, ok := strings.CutPrefix(opt, "enum="); ok {
 			p["enum"] = strings.Split(vals, "|")
+		} else if desc, ok := strings.CutPrefix(opt, "description="); ok {
+			p["description"] = desc
 		}
 	}
 	return p
