@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -202,6 +203,81 @@ func memorySyncPeerRow(r memory.SyncRow) check {
 	}
 	row.Detail = strings.Join(parts, "; ")
 	return row
+}
+
+const dreamStale = 48 * time.Hour
+const dreamResultsScan = 200 // match the retained result history so skipped invocations cannot hide a real run
+
+// memoryDreamRow fails when the newest dream failed or no ok/noop dream finished within 48 hours.
+func memoryDreamRow(now time.Time) check {
+	row := check{Name: "memory dream"}
+	rs, err := memory.LastDreamResults(dreamResultsScan)
+	if err != nil {
+		row.Detail = textutil.TruncateCells("cannot read dream results: "+err.Error(), 80, "…")
+		return row
+	}
+	if len(rs) == 0 {
+		row.Detail = "no record yet (memory dream --force)"
+		return row
+	}
+	at := func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
+	for _, r := range rs {
+		if !dreamCompleted(r) {
+			continue
+		}
+		if r.Outcome == memory.DreamFailed {
+			row.Detail = dreamFailureDetail(r)
+			return row
+		}
+		if now.Sub(r.At) > dreamStale {
+			row.Detail = "no ok run since " + at(r.At) + " (>48h)"
+			return row
+		}
+		row.OK = true
+		row.Detail = "last ok " + at(r.At) + " on " + dreamRoute(r) + " (" + r.Trigger + ")"
+		if r.Local {
+			row.Detail += ", local model"
+		}
+		row.Detail = textutil.TruncateCells(row.Detail, 80, "…")
+		return row
+	}
+	row.Detail = "no ok run yet (memory dream --force)"
+	return row
+}
+
+// dreamCompleted ignores skipped attempts; only runs that actually finished count toward health.
+func dreamCompleted(r memory.DreamResult) bool {
+	return r.Outcome == memory.DreamFailed || r.Outcome == memory.DreamOK ||
+		(r.Outcome == memory.DreamNoop && r.Reason != "not due")
+}
+
+// dreamFailureDetail includes the recorded reason and the log name without printing an unbounded line.
+func dreamFailureDetail(r memory.DreamResult) string {
+	detail := "last run failed " + r.At.Local().Format("2006-01-02 15:04") + ": "
+	suffix := ""
+	if r.Log != "" {
+		suffix = "; see " + textutil.TruncateCells(filepath.Base(r.Log), 22, "…")
+	}
+	if r.Local {
+		suffix += ", local model"
+	}
+	reason, _, _ := strings.Cut(strings.TrimSpace(r.Reason), "\n")
+	if reason == "" {
+		reason = "error"
+	}
+	room := 80 - textutil.DisplayWidth(detail) - textutil.DisplayWidth(suffix)
+	return detail + textutil.TruncateCells(reason, room, "…") + suffix
+}
+
+// dreamRoute names the recorded agent and profile without inventing a route for skipped dreams.
+func dreamRoute(r memory.DreamResult) string {
+	if r.Agent == "" {
+		return "unknown route"
+	}
+	if r.Profile == "" {
+		return r.Agent
+	}
+	return r.Agent + "·" + r.Profile
 }
 
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.

@@ -173,6 +173,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	for _, r := range memorySyncRows() {
 		check(r.OK, false, r.Name, r.Detail)
 	}
+	dream := memoryDreamRow(time.Now())
+	check(dream.OK, false, dream.Name, dream.Detail)
 	proxyDetail, proxyBad := proxyStatus(ctx)
 	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()

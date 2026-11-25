@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,66 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestMemoryDreamRowFlagsFailedAndStale(t *testing.T) {
+	now := time.Date(2026, 11, 25, 14, 2, 0, 0, time.Local)
+	ok := memory.DreamResult{At: now.Add(-time.Hour), Outcome: memory.DreamOK,
+		Agent: "claude", Profile: "dev", Trigger: "schedule"}
+	cases := []struct {
+		name, detail string
+		pass         bool
+		runs         []memory.DreamResult
+	}{
+		{"last failed beats recent success", "last run failed 2026-11-25 14:02: auth; see dream-20261125.log, local model", false,
+			[]memory.DreamResult{ok, {At: now, Outcome: memory.DreamFailed, Reason: "auth", Log: "/tmp/dream-20261125.log", Local: true}}},
+		{"stale noop", "no ok run since 2026-11-23 13:02 (>48h)", false,
+			[]memory.DreamResult{{At: now.Add(-49 * time.Hour), Outcome: memory.DreamNoop}}},
+		{"recent local noop", "last ok 2026-11-25 13:02 on claude·dev (schedule), local model", true,
+			[]memory.DreamResult{{At: ok.At, Outcome: memory.DreamNoop, Agent: ok.Agent, Profile: ok.Profile, Trigger: ok.Trigger, Local: true}}},
+		{"skipped is not success", "no ok run yet (memory dream --force)", false,
+			[]memory.DreamResult{{At: now, Outcome: memory.DreamNoop, Reason: "not due"}}},
+		{"skipped after failure", "last run failed 2026-11-25 14:02: auth", false,
+			[]memory.DreamResult{{At: now, Outcome: memory.DreamFailed, Reason: "auth"},
+				{At: now, Outcome: memory.DreamNoop, Reason: "not due"}}},
+		{"skips do not hide success", "last ok 2026-11-25 13:02 on claude·dev (schedule)", true,
+			append([]memory.DreamResult{ok}, repeatedDreamSkips(now, 60)...)},
+		{"no record", "no record yet (memory dream --force)", false, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			writeDreamResults(t, tc.runs...)
+			row := memoryDreamRow(now)
+			if row.Name != "memory dream" || row.OK != tc.pass || row.Hard || row.Detail != tc.detail {
+				t.Fatalf("row = %+v, want %q (ok=%t)", row, tc.detail, tc.pass)
+			}
+		})
+	}
+}
+
+func repeatedDreamSkips(at time.Time, n int) []memory.DreamResult {
+	rs := make([]memory.DreamResult, n)
+	for i := range rs {
+		rs[i] = memory.DreamResult{At: at, Outcome: memory.DreamNoop, Reason: "not due"}
+	}
+	return rs
+}
+
+func writeDreamResults(t *testing.T, rs ...memory.DreamResult) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if len(rs) == 0 {
+		return
+	}
+	var lines []byte
+	for _, r := range rs {
+		b, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(append(lines, b...), '\n')
+	}
+	seedHarness(t, "memory/dream-results.jsonl", string(lines))
+}
 
 func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 	home := t.TempDir()
