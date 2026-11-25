@@ -1,0 +1,9 @@
+{{define "context"}}Paths:
+{{.Lines}}{{if .Images}}
+Image path(s) referenced but NOT attached — Read the path to view the image: {{.Images}}{{end}}{{end}}
+
+{{define "detail"}}  {{.Path}} ({{.Detail}}){{end}}
+
+{{define "failed"}}  {{.Path}} (client-only path, fetch failed: {{.Err}}){{end}}
+
+{{define "mapped"}}  {{.Win}} -> {{.Path}} ({{.Detail}}){{end}}

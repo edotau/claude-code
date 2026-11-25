@@ -116,54 +116,54 @@ func PackCoverageWarning(in PackCoverage) string {
 func PackNoFiles() string { return string(read("files/agent/pack-no-files.txt")) }
 
 func HookSimplicityHeader(n int, rel string) string {
-	return renderHook("simplicity-header.tmpl", tmplFields{"N": n, "Rel": rel})
+	return renderHook("simplicity/header", tmplFields{"N": n, "Rel": rel})
 }
 
 func HookSimplicityMore(count int) string {
-	return renderHook("simplicity-more.tmpl", tmplFields{"Count": count})
+	return renderHook("simplicity/more", tmplFields{"Count": count})
 }
 
 func HookPathFailed(path, err string) string {
-	return renderHook("paths-failed.tmpl", tmplFields{"Path": path, "Err": err})
+	return renderHook("paths/failed", tmplFields{"Path": path, "Err": err})
 }
 
 func HookPathMapped(win, path, detail string) string {
-	return renderHook("paths-mapped.tmpl", tmplFields{"Win": win, "Path": path, "Detail": detail})
+	return renderHook("paths/mapped", tmplFields{"Win": win, "Path": path, "Detail": detail})
 }
 
 func HookPathDetail(path, detail string) string {
-	return renderHook("paths-detail.tmpl", tmplFields{"Path": path, "Detail": detail})
+	return renderHook("paths/detail", tmplFields{"Path": path, "Detail": detail})
 }
 
 func HookPathsContext(lines, images string) string {
-	return renderHook("paths-context.tmpl", tmplFields{"Lines": lines, "Images": images})
+	return renderHook("paths/context", tmplFields{"Lines": lines, "Images": images})
 }
 
 func HookBusyPeer(comm string, pid int, branch string, lanes bool) string {
-	return renderHook("busy-peer.tmpl", tmplFields{"Comm": comm, "PID": pid, "Branch": branch, "Lanes": lanes})
+	return renderHook("misc/busy-peer", tmplFields{"Comm": comm, "PID": pid, "Branch": branch, "Lanes": lanes})
 }
 
 func HookNoticeLine(who, text string) string {
-	return renderHook("notice-line.tmpl", tmplFields{"Who": who, "Text": text})
+	return renderHook("notice/line", tmplFields{"Who": who, "Text": text})
 }
 
 func HookNoticeDrainWarn(err string) string {
-	return renderHook("notice-drain-warn.tmpl", tmplFields{"Err": err})
+	return renderHook("notice/drain-warn", tmplFields{"Err": err})
 }
 
 func HookNoticeDivergeWarn(err string) string {
-	return renderHook("notice-diverge-warn.tmpl", tmplFields{"Err": err})
+	return renderHook("notice/diverge-warn", tmplFields{"Err": err})
 }
 
 func HookDiverged(branch, up string, ahead, behind int, rewritten bool) string {
-	return renderHook("diverged.tmpl", tmplFields{
+	return renderHook("misc/diverged", tmplFields{
 		"Branch": branch, "Up": up, "Ahead": ahead, "Behind": behind, "Rewritten": rewritten,
 	})
 }
 
-func HookClaimHowTo() string { return renderHook("claim-how-to.tmpl", nil) }
+func HookClaimHowTo() string { return renderHook("claim/how-to", nil) }
 
-func HookClaimStageHint() string { return renderHook("claim-stage-hint.tmpl", nil) }
+func HookClaimStageHint() string { return renderHook("claim/stage-hint", nil) }
 
 func HookClaimCommitHint() string { return string(read("files/hooks/claim-commit-hint.txt")) }
 
@@ -197,45 +197,45 @@ func PlanCloseout() []string {
 	return strings.Split(strings.TrimRight(string(read("files/agent/plan-closeout.txt")), "\n"), "\n")
 }
 
-func HookPlanPathChoose(err string) string { return renderHook("plan-path-choose.tmpl", err) }
+func HookPlanPathChoose(err string) string { return renderHook("plan/path-choose", err) }
 
 func HookPlanPathRedirect(from, quotedDest string) string {
-	return renderHook("plan-path-redirect.tmpl", tmplFields{"From": from, "Dest": quotedDest})
+	return renderHook("plan/path-redirect", tmplFields{"From": from, "Dest": quotedDest})
 }
 
 func HookPlanPathMoved(from, dest string) string {
-	return renderHook("plan-path-moved.tmpl", tmplFields{"From": from, "Dest": dest})
+	return renderHook("plan/path-moved", tmplFields{"From": from, "Dest": dest})
 }
 
 // HookPlanTemplateBlock names the headings a draft lacks; tpl is the user's template path, "" for the repo's.
 func HookPlanTemplateBlock(name, missing, tpl, headings string) string {
-	return renderHook("plan-template-block.tmpl", tmplFields{
+	return renderHook("plan/template-block", tmplFields{
 		"Name": name, "Missing": missing, "Tpl": tpl, "Headings": headings,
 	})
 }
 
-func HookPlanAgentWrite(home string) string { return renderHook("plan-agent-write.tmpl", home) }
+func HookPlanAgentWrite(home string) string { return renderHook("plan/agent-write", home) }
 
 type DocsPlacement struct{ Base, Where, Dest, Home, Reports, Handoffs string }
 
 func HookDocsPlacement(in DocsPlacement) string {
-	return renderHook("docs-placement.tmpl", tmplFields{
+	return renderHook("docs/placement", tmplFields{
 		"Base": in.Base, "Where": in.Where, "Dest": in.Dest, "Home": in.Home, "Reports": in.Reports, "Handoffs": in.Handoffs,
 	})
 }
 
 func HookDocsWhere(dir string, docs bool) string {
-	return renderHook("docs-where.tmpl", tmplFields{"Dir": dir, "Docs": docs})
+	return renderHook("docs/where", tmplFields{"Dir": dir, "Docs": docs})
 }
 
-func HookDocsRetired(dir string) string { return renderHook("docs-retired.tmpl", dir) }
+func HookDocsRetired(dir string) string { return renderHook("docs/retired", dir) }
 
 func HookMemoryNotePath(from, dest string) string {
-	return renderHook("memory-note-path.tmpl", tmplFields{"From": from, "Dest": dest})
+	return renderHook("memory/note-path", tmplFields{"From": from, "Dest": dest})
 }
 
 func HookMemoryStoreName(from, dest string) string {
-	return renderHook("memory-store-name.tmpl", tmplFields{"From": from, "Dest": dest})
+	return renderHook("memory/store-name", tmplFields{"From": from, "Dest": dest})
 }
 
 func HookReviewFixHead() string { return string(read("files/hooks/review-fix-head.txt")) }

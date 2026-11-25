@@ -126,17 +126,10 @@ var inventory = []struct {
 	{"files/agent/pack-index.tmpl", "tmpl", "PackIndex", func() []byte { return read("files/agent/pack-index.tmpl") }},
 	{"files/agent/pack-coverage.tmpl", "tmpl", "PackCoverageWarning", func() []byte { return read("files/agent/pack-coverage.tmpl") }},
 	{"files/agent/pack-no-files.txt", "txt", "PackNoFiles", func() []byte { return read("files/agent/pack-no-files.txt") }},
-	{"files/hooks/simplicity-header.tmpl", "tmpl", "HookSimplicityHeader", func() []byte { return read("files/hooks/simplicity-header.tmpl") }},
-	{"files/hooks/simplicity-more.tmpl", "tmpl", "HookSimplicityMore", func() []byte { return read("files/hooks/simplicity-more.tmpl") }},
-	{"files/hooks/paths-failed.tmpl", "tmpl", "HookPathFailed", func() []byte { return read("files/hooks/paths-failed.tmpl") }},
-	{"files/hooks/paths-mapped.tmpl", "tmpl", "HookPathMapped", func() []byte { return read("files/hooks/paths-mapped.tmpl") }},
-	{"files/hooks/paths-detail.tmpl", "tmpl", "HookPathDetail", func() []byte { return read("files/hooks/paths-detail.tmpl") }},
-	{"files/hooks/paths-context.tmpl", "tmpl", "HookPathsContext", func() []byte { return read("files/hooks/paths-context.tmpl") }},
-	{"files/hooks/busy-peer.tmpl", "tmpl", "HookBusyPeer", func() []byte { return read("files/hooks/busy-peer.tmpl") }},
-	{"files/hooks/notice-line.tmpl", "tmpl", "HookNoticeLine", func() []byte { return read("files/hooks/notice-line.tmpl") }},
-	{"files/hooks/notice-drain-warn.tmpl", "tmpl", "HookNoticeDrainWarn", func() []byte { return read("files/hooks/notice-drain-warn.tmpl") }},
-	{"files/hooks/notice-diverge-warn.tmpl", "tmpl", "HookNoticeDivergeWarn", func() []byte { return read("files/hooks/notice-diverge-warn.tmpl") }},
-	{"files/hooks/diverged.tmpl", "tmpl", "HookDiverged", func() []byte { return read("files/hooks/diverged.tmpl") }},
+	{"files/hooks/simplicity.tmpl", "tmpl", "HookSimplicityHeader,HookSimplicityMore", func() []byte { return read("files/hooks/simplicity.tmpl") }},
+	{"files/hooks/paths.tmpl", "tmpl", "HookPathDetail,HookPathFailed,HookPathMapped,HookPathsContext", func() []byte { return read("files/hooks/paths.tmpl") }},
+	{"files/hooks/misc.tmpl", "tmpl", "HookBusyPeer,HookDiverged", func() []byte { return read("files/hooks/misc.tmpl") }},
+	{"files/hooks/notice.tmpl", "tmpl", "HookNoticeDivergeWarn,HookNoticeDrainWarn,HookNoticeLine", func() []byte { return read("files/hooks/notice.tmpl") }},
 	{"files/agent/agy-toolless.txt", "txt", "AgyToolLessPreamble", func() []byte { return read("files/agent/agy-toolless.txt") }},
 	{"files/agent/stdin-task.txt", "txt", "PiStdinTask", func() []byte { return read("files/agent/stdin-task.txt") }},
 	{"files/agent/attach-image.tmpl", "tmpl", "ClaudeAttachImage", func() []byte { return read("files/agent/attach-image.tmpl") }},
@@ -145,22 +138,13 @@ var inventory = []struct {
 	{"files/agent/plan-tasks-head.txt", "txt", "PlanTasksHead", func() []byte { return read("files/agent/plan-tasks-head.txt") }},
 	{"files/agent/plan-tasks-empty.txt", "txt", "PlanTasksEmpty", func() []byte { return read("files/agent/plan-tasks-empty.txt") }},
 	{"files/agent/plan-closeout.txt", "txt", "PlanCloseout", func() []byte { return read("files/agent/plan-closeout.txt") }},
-	{"files/hooks/plan-path-choose.tmpl", "tmpl", "HookPlanPathChoose", func() []byte { return read("files/hooks/plan-path-choose.tmpl") }},
-	{"files/hooks/plan-path-redirect.tmpl", "tmpl", "HookPlanPathRedirect", func() []byte { return read("files/hooks/plan-path-redirect.tmpl") }},
-	{"files/hooks/plan-path-moved.tmpl", "tmpl", "HookPlanPathMoved", func() []byte { return read("files/hooks/plan-path-moved.tmpl") }},
-	{"files/hooks/plan-template-block.tmpl", "tmpl", "HookPlanTemplateBlock", func() []byte { return read("files/hooks/plan-template-block.tmpl") }},
-	{"files/hooks/plan-agent-write.tmpl", "tmpl", "HookPlanAgentWrite", func() []byte { return read("files/hooks/plan-agent-write.tmpl") }},
-	{"files/hooks/docs-placement.tmpl", "tmpl", "HookDocsPlacement", func() []byte { return read("files/hooks/docs-placement.tmpl") }},
-	{"files/hooks/docs-where.tmpl", "tmpl", "HookDocsWhere", func() []byte { return read("files/hooks/docs-where.tmpl") }},
-	{"files/hooks/docs-retired.tmpl", "tmpl", "HookDocsRetired", func() []byte { return read("files/hooks/docs-retired.tmpl") }},
-	{"files/hooks/memory-note-path.tmpl", "tmpl", "HookMemoryNotePath", func() []byte { return read("files/hooks/memory-note-path.tmpl") }},
-	{"files/hooks/memory-store-name.tmpl", "tmpl", "HookMemoryStoreName", func() []byte { return read("files/hooks/memory-store-name.tmpl") }},
+	{"files/hooks/plan.tmpl", "tmpl", "HookPlanAgentWrite,HookPlanPathChoose,HookPlanPathMoved,HookPlanPathRedirect,HookPlanTemplateBlock", func() []byte { return read("files/hooks/plan.tmpl") }},
+	{"files/hooks/docs.tmpl", "tmpl", "HookDocsPlacement,HookDocsRetired,HookDocsWhere", func() []byte { return read("files/hooks/docs.tmpl") }},
+	{"files/hooks/memory.tmpl", "tmpl", "HookMemoryNotePath,HookMemoryStoreName", func() []byte { return read("files/hooks/memory.tmpl") }},
 	{"files/hooks/review-fix-head.txt", "txt", "HookReviewFixHead", func() []byte { return read("files/hooks/review-fix-head.txt") }},
 	{"files/hooks/review-no-line.txt", "txt", "HookReviewNoLine", func() []byte { return read("files/hooks/review-no-line.txt") }},
 	{"files/memory/prompts/replacement-unavailable.txt", "txt", "MemoryReplacementUnavailable", func() []byte { return read("files/memory/prompts/replacement-unavailable.txt") }},
-	{"files/hooks/lane-queue-line.tmpl", "tmpl", "HookLaneQueueLine", func() []byte { return read("files/hooks/lane-queue-line.tmpl") }},
-	{"files/hooks/lane-queue-more.tmpl", "tmpl", "HookLaneQueueMore", func() []byte { return read("files/hooks/lane-queue-more.tmpl") }},
-	{"files/hooks/lane-landed.tmpl", "tmpl", "HookLaneLanded", func() []byte { return read("files/hooks/lane-landed.tmpl") }},
+	{"files/hooks/lane.tmpl", "tmpl", "HookLaneLanded,HookLaneQueueLine,HookLaneQueueMore", func() []byte { return read("files/hooks/lane.tmpl") }},
 	{"files/brief/brief.tmpl", "tmpl", "BriefBody", func() []byte { return read("files/brief/brief.tmpl") }},
 	{"files/brief/review-loop.txt", "txt", "ReviewLoop", func() []byte { return read("files/brief/review-loop.txt") }},
 	{"files/brief/loop-planner.tmpl", "tmpl", "LoopPlanner", func() []byte { return read("files/brief/loop-planner.tmpl") }},
@@ -199,8 +183,7 @@ var inventory = []struct {
 	{"files/ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
 	{"files/pi/system-prompt.txt", "txt", "PiSystemPrompt", func() []byte { return read("files/pi/system-prompt.txt") }},
 	{"files/pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
-	{"files/hooks/claim-how-to.tmpl", "tmpl", "HookClaimHowTo", func() []byte { return read("files/hooks/claim-how-to.tmpl") }},
-	{"files/hooks/claim-stage-hint.tmpl", "tmpl", "HookClaimStageHint", func() []byte { return read("files/hooks/claim-stage-hint.tmpl") }},
+	{"files/hooks/claim.tmpl", "tmpl", "HookClaimHowTo,HookClaimStageHint", func() []byte { return read("files/hooks/claim.tmpl") }},
 	{"files/hooks/claim-commit-hint.txt", "txt", "HookClaimCommitHint", func() []byte { return read("files/hooks/claim-commit-hint.txt") }},
 	{"files/hooks/claim-bare-hint.txt", "txt", "HookClaimBareHint", func() []byte { return read("files/hooks/claim-bare-hint.txt") }},
 	{"files/hooks/claim-nest-hint.txt", "txt", "HookClaimNestHint", func() []byte { return read("files/hooks/claim-nest-hint.txt") }},
@@ -253,7 +236,9 @@ func templateFields(name string, src []byte) []string {
 			walk(c)
 		}
 	}
-	walk(trees[name].Root)
+	for _, tree := range trees {
+		walk(tree.Root)
+	}
 	return slices.Sorted(maps.Keys(set))
 }
 

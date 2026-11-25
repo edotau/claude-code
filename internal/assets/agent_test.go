@@ -131,8 +131,8 @@ func TestInventoryListing(t *testing.T) {
 	for _, r := range rows {
 		byPath[r.Path] = r
 	}
-	if r := byPath["files/hooks/busy-peer.tmpl"]; r.Family != "hooks" || r.Accessor != "HookBusyPeer" || r.Size == 0 ||
-		!slices.Equal(r.Fields, []string{"Branch", "Comm", "Lanes", "PID"}) {
+	if r := byPath["files/hooks/misc.tmpl"]; r.Family != "hooks" || r.Accessor != "HookBusyPeer,HookDiverged" || r.Size == 0 ||
+		!slices.Equal(r.Fields, []string{"Ahead", "Behind", "Branch", "Comm", "Lanes", "PID", "Rewritten", "Up"}) {
 		t.Errorf("busy-peer row: %+v", r)
 	}
 	if r := byPath["files/hooks/claim-bare-hint.txt"]; len(r.Fields) != 0 {

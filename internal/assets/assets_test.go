@@ -56,6 +56,9 @@ func readPaths(fn *ast.FuncDecl) []string {
 		}
 		if dir, known := readerDirs[id.Name]; known {
 			p, _ := strconv.Unquote(lit.Value)
+			if stem, _, block := strings.Cut(p, "/"); block && dir != "" {
+				p = stem + ".tmpl"
+			}
 			paths = append(paths, dir+p)
 		}
 		return true
@@ -122,8 +125,10 @@ func TestInventoryOneReaderEach(t *testing.T) {
 		}
 	}
 	for _, e := range inventory {
-		if got := byPath[e.path]; len(got) != 1 || got[0] != e.reader {
-			t.Errorf("%s: readers %v, want exactly [%s]", e.path, got, e.reader)
+		got := slices.Clone(byPath[e.path])
+		slices.Sort(got)
+		if strings.Join(got, ",") != e.reader {
+			t.Errorf("%s: readers %v, want [%s]", e.path, got, e.reader)
 		}
 		want, err := files.ReadFile(e.path)
 		if err != nil || !inventoryBytesMatch(e.read, e.kind, e.reader, want) {

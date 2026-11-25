@@ -1,0 +1,6 @@
+{{define "line"}}notice ({{.Who}}): {{.Text}}{{end}}
+
+{{define "drain-warn"}}notices: WARNING — could not drain this session's inbox ({{.Err}}); notices may be missing or repeat{{end}}
+
+{{define "diverge-warn"}}
+notices: WARNING — could not check branch divergence ({{.Err}}); skipped{{end}}
