@@ -41,6 +41,8 @@ var planRouteRows = []planRouteRow{
 	{name: "resumed session", o: RunOptions{Agent: "codex", Prompt: "Reply ok", SessionID: "s-1", Fallback: "all"},
 		check: checkResumed},
 	{name: "resolve and dry-run share one workspace", o: RunOptions{Agent: "codex"}, check: checkResolveWorkspace},
+	{name: "untyped claude pool leads with the rotation pick", session: "prod",
+		o: RunOptions{Agent: "claude", Prompt: "Reply ok", Fallback: "all"}, check: checkRotationLead},
 	{name: "standard tier carries no deep alias", o: RunOptions{Agent: "codex", Prompt: "Reply ok"}, check: checkStandardAlias},
 }
 
@@ -69,6 +71,12 @@ func checkAutoPick(t *testing.T, p RoutePlan) {
 	}
 	if p.Fallback.Kind != router.PolicyNone || p.Fallback.Source != router.PolicyDefault {
 		t.Errorf("fallback = %+v, want none from the default", p.Fallback)
+	}
+}
+
+func checkRotationLead(t *testing.T, p RoutePlan) {
+	if len(p.Pool) == 0 || p.Pool[0].Profile == "prod" {
+		t.Errorf("pool = %+v, want the rotation pick to lead, not the session profile prod", p.Pool)
 	}
 }
 

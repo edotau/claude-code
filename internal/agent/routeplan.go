@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -23,6 +24,28 @@ const (
 	RunnerPi  RunnerKind = iota + 1 // Pi on the workspace, the asked agent's model
 	RunnerOwn                       // the agent's own CLI
 )
+
+func (k RunnerKind) MarshalText() ([]byte, error) {
+	switch k {
+	case RunnerPi:
+		return []byte("pi"), nil
+	case RunnerOwn:
+		return []byte("own"), nil
+	}
+	return nil, fmt.Errorf("runner kind %d", k)
+}
+
+func (k *RunnerKind) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case "pi":
+		*k = RunnerPi
+	case "own":
+		*k = RunnerOwn
+	default:
+		return fmt.Errorf("runner kind %q", b)
+	}
+	return nil
+}
 
 // Runner is one CLI a hop can run on; Agent is the asked agent, or claude for a cross-agent backstop.
 type Runner struct {
@@ -84,7 +107,11 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if p.Fallback, err = planPolicy(ctx, o, ov.Fallback); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
-	p.Pool = planPool(ctx, reg, o, p) // before tier and runners: both read Pool[0]
+	rctx, ro, _, err := rotateRole(ctx, o) // peeked: the pick the chain leads with, nothing stamped
+	if err != nil {
+		return p, fmt.Errorf("route plan: %w", err)
+	}
+	p.Pool = planPool(rctx, reg, ro, p) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
 	return p, nil
@@ -136,8 +163,9 @@ func planPool(ctx context.Context, reg *providers.Registry, o RunOptions, p Rout
 	if p.Fallback.Kind != router.PolicyAnyInFence || agentid.Routing(p.Agent).NoWorkspaceFallback || !databricksRow(reg, head) {
 		return pool
 	}
+	drop := router.RotatedLeadOf(ctx).Drop
 	for _, ws := range router.WorkspaceRows(reg, head) {
-		if p.Fence.Allows(ws) {
+		if p.Fence.Allows(ws) && !slices.Contains(drop, ws) {
 			pool = append(pool, Workspace{Profile: ws, Account: workspaceAccount(reg, ws)})
 		}
 	}
