@@ -47,6 +47,7 @@ var problemCases = []struct {
 	{"no shared", func(c *Config) { c.Teams[0].Host, c.Teams[0].Lifetime = HostAsk, LifetimeAsk }, "lifetime", "have 0"},
 	{"two shared", func(c *Config) { c.Teams[1].Host, c.Teams[1].Lifetime = HostDaemon, LifetimeShared }, "lifetime", "have 2"},
 	{"negative reserved", func(c *Config) { c.Teams[2].Reserved = -1 }, "reserved", "negative"},
+	{"reserved over cap", func(c *Config) { c.Teams[2].Reserved = MaxReserved + 1 }, "reserved", "over the cap"},
 	{"zero reserved on shared", func(c *Config) { c.Teams[0].Reserved = 0 }, "reserved", "shared team"},
 	{"host and lifetime unpaired", func(c *Config) { c.Teams[2].Lifetime = LifetimeAsk }, "lifetime", "runs with"},
 	{"empty fallback", func(c *Config) { c.Teams[2].Fallback = nil }, "fallback", "empty"},
