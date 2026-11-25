@@ -492,3 +492,50 @@ func landedRange(ctx context.Context, cwd, cmd string) (before, after, dir strin
 	}
 	return "", "", ""
 }
+
+// BriefTask is the first candidate plan's open task a hand-back worked: the dispatch's plan_task, else its Task: line.
+func BriefTask(cwd, brief, planTask string) (plans.Task, bool) {
+	for _, c := range planCands(cwd, briefPlan(brief)) {
+		if t, ok := PlanBriefTask(c.parsed, brief, planTask); ok {
+			return t, true
+		}
+	}
+	return plans.Task{}, false
+}
+
+// PlanBriefTask is BriefTask over an already parsed active plan.
+func PlanBriefTask(parsed plans.Plan, brief, planTask string) (plans.Task, bool) {
+	if planTask != "" {
+		return matchTaskByID(parsed, normTask(planTask))
+	}
+	if m := briefTaskRe().FindStringSubmatch(brief); m != nil {
+		return matchTaskByID(parsed, normTask(m[1]))
+	}
+	return plans.Task{}, false
+}
+
+var (
+	briefPlanRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(~?/\S*plans/\S+?\.md)`) })
+	taskOfRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bTask\s+([\w.]+)\s+of\b`) })
+)
+
+// NamedPlanTask is the open task of the plan a brief names, never another plan's; named is false if none.
+func NamedPlanTask(brief, planTask string) (planPath string, task plans.Task, named, ok bool) {
+	m := briefPlanRe().FindStringSubmatch(brief)
+	if m == nil {
+		return "", plans.Task{}, false, false
+	}
+	planPath = paths.ExpandHome(m[1])
+	parsed, err := plans.Parse(planPath)
+	if err != nil {
+		return planPath, plans.Task{}, true, false
+	}
+	id := planTask
+	if t := briefTaskRe().FindStringSubmatch(brief); t != nil {
+		id = t[1]
+	} else if t := taskOfRe().FindStringSubmatch(brief); t != nil {
+		id = t[1]
+	}
+	task, ok = matchTaskByID(parsed, normTask(id))
+	return planPath, task, true, ok
+}
