@@ -219,7 +219,7 @@ func cliCacheTargets() []target {
 			optIn: true,
 		},
 		{
-			name: "go-cache", doc: "Go build cache (go clean -cache) when over the size cap; age is ignored",
+			name: "go-cache", doc: "Go build cache trimmed (entries over 1h old, oldest first) when over the size cap",
 			globs: func() []string { return nil }, sweep: sweepGoCache,
 		},
 		{

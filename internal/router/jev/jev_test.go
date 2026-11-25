@@ -1,6 +1,8 @@
 package jev
 
 import (
+	_ "github.com/edotau/claude-code/internal/nonet"
+
 	"context"
 	"net/http"
 	"net/http/httptest"

@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// GoCacheCap is the GOCACHE size past which `clean` runs `go clean -cache` (Go trims only after 5 idle days).
+// GoCacheCap is the GOCACHE size past which `clean` trims it to half (Go trims only after 5 idle days).
 var GoCacheCap int64 = 50 << 30
 
 // GoCacheDir is `go env GOCACHE`, "" when go is missing or fails.
@@ -67,7 +69,47 @@ func GoCacheDetail() (detail string, ok bool) {
 	return fmt.Sprintf("%s %s (cap %s)", dir, textutil.HumanBytes(size), cp), true
 }
 
-// sweepGoCache clears the whole Go build cache when it is over GoCacheCap; the cache is rebuildable, so age is moot.
+// goCacheMinAge keeps entries a live build may still read; Go touches cache entries on use.
+const goCacheMinAge = time.Hour
+
+type cacheFile struct {
+	path  string
+	size  int64
+	mtime time.Time
+}
+
+// trimGoCache deletes files older than minAge, oldest first, until the total is <= target; returns bytes freed.
+func trimGoCache(dir string, total, target int64, minAge time.Duration, apply bool) (freed int64, failed int) {
+	cutoff := time.Now().Add(-minAge)
+	var files []cacheFile
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // an unreadable subtree contributes 0
+		}
+		switch d.Name() {
+		case "README", "trim.txt", "testexpire.txt":
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
+			files = append(files, cacheFile{p, info.Size(), info.ModTime()})
+		}
+		return nil
+	})
+	sort.Slice(files, func(i, j int) bool { return files[i].mtime.Before(files[j].mtime) })
+	for _, f := range files {
+		if total-freed <= target {
+			break
+		}
+		if apply && os.Remove(f.path) != nil {
+			failed++
+			continue
+		}
+		freed += f.size
+	}
+	return freed, failed
+}
+
+// sweepGoCache trims the Go build cache to half of GoCacheCap once over it; never `go clean -cache` (live builds).
 func sweepGoCache(errw io.Writer, apply bool, tot *sweepTotals) {
 	dir := GoCacheDir()
 	if dir == "" {
@@ -77,15 +119,13 @@ func sweepGoCache(errw io.Writer, apply bool, tot *sweepTotals) {
 	if size <= GoCacheCap {
 		return
 	}
-	if apply {
-		if out, err := exec.CommandContext(context.Background(), "go", "clean", "-cache").CombinedOutput(); err != nil {
-			fmt.Fprintf(errw, "%-16s go clean -cache failed: %v: %s\n", "go-cache", err, strings.TrimSpace(string(out)))
-			tot.failed++
-			return
-		}
+	freed, failed := trimGoCache(dir, size, GoCacheCap/2, goCacheMinAge, apply)
+	tot.failed += failed
+	if freed == 0 {
+		return
 	}
 	tot.files++
-	tot.bytes += size
-	fmt.Fprintf(errw, "%-16s %s %s (%s over the %s cap)\n", "go-cache", removeVerb(apply), dir,
-		textutil.HumanBytes(size), textutil.HumanBytes(GoCacheCap))
+	tot.bytes += freed
+	fmt.Fprintf(errw, "%-16s %s %s (%s over the %s cap, %s freed)\n", "go-cache", removeVerb(apply), dir,
+		textutil.HumanBytes(size), textutil.HumanBytes(GoCacheCap), textutil.HumanBytes(freed))
 }
