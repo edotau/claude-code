@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"os/user"
@@ -188,6 +189,57 @@ func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) erro
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		return errors.Join(err, os.Remove(tmp))
+	}
+	return nil
+}
+
+// NoReplaceWrite and NoReplaceLink are the write and link steps of WriteNoReplace; tests swap them to inject failures.
+var (
+	NoReplaceWrite = func(f *os.File, data []byte) error { _, err := f.Write(data); return err }
+	NoReplaceLink  = os.Link
+)
+
+// WriteNoReplace writes data to a new dest, never replacing an existing or racing file; false when it exists.
+func WriteNoReplace(dest string, data []byte, mode os.FileMode) (created bool, err error) {
+	tmp, err := StageFile(dest, data, mode)
+	if err != nil {
+		return false, err
+	}
+	return PlaceNoReplace(tmp, dest, data, mode)
+}
+
+// StageFile writes data to a synced temp file beside dest and returns its path.
+func StageFile(dest string, data []byte, mode os.FileMode) (string, error) {
+	f, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".tmp-*")
+	if err != nil {
+		return "", err
+	}
+	if err := errors.Join(NoReplaceWrite(f, data), f.Chmod(mode), f.Sync(), f.Close()); err != nil {
+		return "", errors.Join(err, os.Remove(f.Name()))
+	}
+	return f.Name(), nil
+}
+
+// PlaceNoReplace links staged tmp to dest, else creates it exclusively, then removes tmp; false when dest exists.
+func PlaceNoReplace(tmp, dest string, data []byte, mode os.FileMode) (bool, error) {
+	lerr := NoReplaceLink(tmp, dest) // link(2) on Unix, CreateHardLinkW on Windows: neither replaces
+	if lerr != nil && !errors.Is(lerr, fs.ErrExist) {
+		lerr = createExclusive(dest, data, mode) // no hard links here (FAT, FUSE, network mounts)
+	}
+	rerr := os.Remove(tmp)
+	if errors.Is(lerr, fs.ErrExist) {
+		return false, rerr
+	}
+	return lerr == nil, errors.Join(lerr, rerr)
+}
+
+func createExclusive(dest string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	if err := errors.Join(NoReplaceWrite(f, data), f.Sync(), f.Close()); err != nil {
+		return errors.Join(err, os.Remove(dest)) // a part-written file is neither the old text nor the new
 	}
 	return nil
 }

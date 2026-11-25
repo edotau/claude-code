@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestBankFilesReturnsIndependentSlice(t *testing.T) {
@@ -33,12 +35,12 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	orig := writeBody
-	writeBody = func(f *os.File, body string) error { // half the body lands, then the disk fills
-		_, _ = f.WriteString(body[:len(body)/2])
+	orig := paths.NoReplaceWrite
+	paths.NoReplaceWrite = func(f *os.File, body []byte) error { // half the body lands, then the disk fills
+		_, _ = f.Write(body[:len(body)/2])
 		return errors.New("no space left on device")
 	}
-	t.Cleanup(func() { writeBody = orig })
+	t.Cleanup(func() { paths.NoReplaceWrite = orig })
 	if _, err = Init(); err == nil {
 		t.Fatal("Init succeeded although every write failed")
 	}
@@ -72,10 +74,10 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 // createExcl's write failing midway (disk full, file-size limit) removes the partial file, so a retry lands the body.
 func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "projectContext.md")
-	orig := writeBody
-	t.Cleanup(func() { writeBody = orig })
-	writeBody = func(f *os.File, body string) error {
-		_, _ = f.WriteString(body[:len(body)/2])
+	orig := paths.NoReplaceWrite
+	t.Cleanup(func() { paths.NoReplaceWrite = orig })
+	paths.NoReplaceWrite = func(f *os.File, body []byte) error {
+		_, _ = f.Write(body[:len(body)/2])
 		return errors.New("file too large")
 	}
 	if err := createExcl(path, "partial scaffold\n", 0o600); err == nil {
@@ -84,7 +86,7 @@ func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("failed fallback left a partial file: %v", err)
 	}
-	writeBody = orig
+	paths.NoReplaceWrite = orig
 	if err := createExcl(path, "retry\n", 0o600); err != nil {
 		t.Fatal(err)
 	}
