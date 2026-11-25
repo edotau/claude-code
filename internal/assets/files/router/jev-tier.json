@@ -1,0 +1,5 @@
+{"type":"choice","instructions":"Pick the cheapest model tier that will do this coding-agent task well. Judge by how much reasoning the task needs, not by the topic words it mentions.",
+ "criteria":{
+  "fast":"Little or no reasoning: reply with fixed text, a greeting, fetch a page or compute a value and report it, run a named command and report the output, summarize a single page, fix a typo, rename or move a symbol or file in one or two named files.",
+  "standard":"Routine engineering judgment: implement or fix a clearly scoped change, add a flag or test, review a diff, run a gate and fix what fails, land or verify a lane.",
+  "deep":"Hard reasoning where a weaker model would likely be wrong: security or concurrency analysis, finding an unknown root cause such as a flaky test, architecture or design decisions, audits across many files, multi-step plans."}}

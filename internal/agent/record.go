@@ -102,6 +102,7 @@ type Record struct {
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 	TakeoverOf     string      `json:"takeover_of,omitempty"`     // a --carry takeover: the cut-off child dispatch this run finished
 	Report         string      `json:"report,omitempty"`          // absolute path of the report `memory report --job` stored
+	Jev            *JevShadow  `json:"jev,omitempty"`             // shadow tier pick of Open-Jev beside the keyword one; routes nothing
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -637,6 +638,9 @@ func (r Record) LogLine() string {
 // Finish records the outcome of the run.
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.FailKind, r.Cutoff = "", ""
+	if j := takeJev(r.ID); j != nil {
+		r.Jev = j
+	}
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked, r.Reported = res.Invoked, res.Reported
 	r.Usage = nil

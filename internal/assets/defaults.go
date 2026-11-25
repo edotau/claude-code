@@ -9,6 +9,9 @@ func ModelCatalog() []byte { return read("files/models/catalog.json") }
 // RouteTable is the built-in routing table source.
 func RouteTable() []byte { return read("files/router/table.json") }
 
+// JevTier is the Open-Jev tier question sent by the shadow router signal.
+func JevTier() []byte { return read("files/router/jev-tier.json") }
+
 // ProxyTeams is the built-in proxy team schema source.
 func ProxyTeams() []byte { return read("files/proxy/teams.json") }
 
