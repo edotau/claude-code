@@ -290,11 +290,22 @@ func allConfigured(string, router.Cell) error { return nil }
 
 var now0 = time.Date(2026, 10, 25, 2, 6, 0, 0, time.Local)
 
-const secret = "sk-SECRET-123"
+const secret = "test-SECRET-123"
 
-// fakeJWT is an unsigned token whose iss claim is https://<iss>.
-func fakeJWT(iss string) string {
-	return hosttest.UnsignedJWT(`{"iss":"https://` + iss + `"}`)
+// wrongHostCred is the credential stubHostMismatch reports as issued for another host than its route.
+const wrongHostCred = "wrong-host-credential"
+
+// stubHostMismatch fails wrongHostCred's route-host check, so no test builds a JWT to get a mismatch.
+func stubHostMismatch(t *testing.T) {
+	t.Helper()
+	orig := CheckRouteHost
+	CheckRouteHost = func(p *providers.Provider, v string) error {
+		if v == wrongHostCred {
+			return fmt.Errorf("%s: credential issued for another host: %w", p.Name, &providers.HostMismatchError{})
+		}
+		return orig(p, v)
+	}
+	t.Cleanup(func() { CheckRouteHost = orig })
 }
 
 // stubEngine is the Name/Caps/Available base for runner stubs; embed it and add Run.
@@ -426,7 +437,8 @@ func assertUnknownTargetRewrite(t *testing.T, model string) {
 // The host mismatch of a cell-routed vendor request fails as auth and the agent never starts.
 func TestRunCellRoutedHostMismatchFailsAuth(t *testing.T) {
 	hmProfile(t, "true")
-	t.Setenv("HM_KEY", fakeJWT("adb-2.azuredatabricks.net"))
+	stubHostMismatch(t)
+	t.Setenv("HM_KEY", wrongHostCred)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
@@ -442,7 +454,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	fastDefaultBackoff(t)
 	flag := filepath.Join(t.TempDir(), "seen")
 	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
-	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, fakeJWT("adb-1.azuredatabricks.net")))
+	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, "fixture-token"))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	res, err := Run(context.Background(), r, RunOptions{Prompt: "p", Provider: name}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
@@ -511,6 +523,24 @@ func TestClientRecordSkipsRouting(t *testing.T) {
 	rec, err := c.Record(t.Context(), o, nil)
 	if err != nil || rec.Agent != "codex" {
 		t.Fatalf("Record = agent %q, err %v; want codex and no error", rec.Agent, err)
+	}
+}
+
+// A Prepare that fails after planning hands back the plan through PrepareError; one that fails before does not.
+func TestPrepareErrorKeepsPlan(t *testing.T) {
+	setConfigDir(t)
+	c := NewClient(nil, nil, nil)
+	_, err := c.Prepare(t.Context(), RunOptions{Agent: "codex", Prompt: "x", Fallback: "none", Rubric: "/nonexistent/rubric.md"}, nil)
+	plan, ok := PlanOfError(err)
+	if err == nil || !ok || plan == nil {
+		t.Fatalf("PlanOfError(%v) = %v, %v; want the plan", err, plan, ok)
+	}
+	if _, ok := PlanOfError(errors.New("x")); ok {
+		t.Fatal("a plain error carries no plan")
+	}
+	_, err = c.Prepare(t.Context(), RunOptions{Agent: "no-such-agent", Prompt: "x"}, nil)
+	if _, ok := PlanOfError(err); err == nil || ok {
+		t.Fatalf("a failure before planning must yield false: %v, %v", err, ok)
 	}
 }
 

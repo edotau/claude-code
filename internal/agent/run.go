@@ -60,7 +60,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	}
 	o, r, ch, err := c.Plan(ctx, o)
 	if err != nil {
-		return nil, err
+		return nil, keepPlan(ch.Plan, err)
 	}
 	ctx, _ = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
@@ -72,12 +72,38 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 		p.remote = r
 	}
 	if o, err = withRubric(o); err != nil {
-		return nil, err
+		return nil, keepPlan(ch.Plan, err)
 	}
 	if err := c.finishPrepare(ctx, p, o, claim); err != nil {
-		return nil, err
+		return nil, keepPlan(ch.Plan, err)
 	}
 	return p, nil
+}
+
+// PrepareError is a Prepare failure that kept the route plan built before it.
+type PrepareError struct {
+	Plan *RoutePlan
+	Err  error
+}
+
+func (e *PrepareError) Error() string { return e.Err.Error() }
+
+func (e *PrepareError) Unwrap() error { return e.Err }
+
+// PlanOfError is the route plan a failed Prepare built, if any.
+func PlanOfError(err error) (*RoutePlan, bool) {
+	if pe, ok := errors.AsType[*PrepareError](err); ok && pe.Plan != nil {
+		return pe.Plan, true
+	}
+	return nil, false
+}
+
+// keepPlan wraps err with plan when one was built.
+func keepPlan(plan *RoutePlan, err error) error {
+	if plan == nil {
+		return err
+	}
+	return &PrepareError{Plan: plan, Err: err}
 }
 
 // Plan is Prepare's routing half: defaults, model word, direct refusal, engine and chain; it claims nothing.

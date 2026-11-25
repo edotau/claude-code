@@ -19,6 +19,7 @@ func (c *Client) planChain(ctx context.Context, r Engine, o RunOptions) (Chain, 
 	}
 	ch, err := c.route(withPlan(ctx, p), r, o)
 	if err != nil {
+		ch.Plan = &p // the plan was built before the route failed: Prepare hands it back through PrepareError
 		return ch, err
 	}
 	p.Fallback = executablePolicy(p.Fallback)
