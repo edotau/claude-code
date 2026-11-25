@@ -204,6 +204,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		runCtx = withTriedPicks(runCtx, *p) // an earlier hop's refused picks stay excluded
 	}
 	noteDropped1M(disp.Agent.Name(), lreq, notify)
+	lreq = hopCodemode(disp.Agent.Name(), lreq) // this hop's own mode: the request's stays on the record
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
@@ -371,7 +372,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: ranAccount(disp.Account, res.Provider), Profile: cmp.Or(res.Provider, req.Provider),
-		Model: cmp.Or(res.Model, req.Model), Reported: res.Reported, NotStarted: res.NotStarted}
+		Model: cmp.Or(res.Model, req.Model), Reported: res.Reported, NotStarted: res.NotStarted, Codemode: req.Codemode, CodemodeReason: req.CodemodeReason}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {

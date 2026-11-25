@@ -144,7 +144,7 @@ const (
 )
 
 // treeDiffStat counts the branch's lines (committed + uncommitted vs its base, + untracked) and names the base's
-// kind ("pin", "fork", "up" or ""); ok=false means "no repo".
+// kind ("pin", "fork" or ""); ok=false means "no repo".
 func treeDiffStat(cwd string) (adds, dels int, kind string, ok bool) {
 	if cwd == "" {
 		cwd = "."
@@ -194,7 +194,7 @@ func branchBase(ctx context.Context, cwd string) (base, kind string) {
 	up := gitLine(ctx, cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	if up != "" && strings.TrimPrefix(up, "origin/") != strings.TrimPrefix(def, "origin/") {
 		if sha := resolveCommit(ctx, cwd, up); sha != "" {
-			return sha, "up"
+			return sha, "" // an upstream base carries no marker (owner: no ·up)
 		}
 	}
 	return gitLine(ctx, cwd, "merge-base", "HEAD", def), ""

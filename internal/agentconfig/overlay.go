@@ -75,7 +75,7 @@ var routeKeys = []routeKey{
 		"want " + strings.Join(agentid.EffortNames(), ", ")},
 	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, in(router.FallbackModes),
 		"want " + strings.Join(router.FallbackModes, ", ")},
-	{"runner", "", func(o Overlay) string { return o.Runner }, in(Runners), "want " + strings.Join(Runners, ", ")},
+	{"runner", "runner", func(o Overlay) string { return o.Runner }, in(Runners), "want " + strings.Join(Runners, ", ")},
 	{"host", "host", func(o Overlay) string { return o.Host }, sshHost, "not a valid ssh host"},
 	{"remote", "", func(o Overlay) string { return o.Remote }, sshHost, "not a valid ssh host"},
 	{"account", "", func(o Overlay) string { return o.Account }, nil, ""},

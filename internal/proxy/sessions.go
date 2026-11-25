@@ -205,7 +205,7 @@ func postWithState(ctx context.Context, st State, path string, body SessionReque
 }
 
 // sessionClient never follows a redirect, so the router secret stays on the loopback proxy.
-var sessionClient = &http.Client{CheckRedirect: httpx.SameOriginRedirect}
+var sessionClient = &http.Client{Timeout: 30 * time.Second, CheckRedirect: httpx.SameOriginRedirect}
 
 // sendSession POSTs body with the router secret to url; a non-2xx answer is an error naming path.
 func sendSession(ctx context.Context, url, path, secret string, body SessionRequest, out *SessionResponse) error {

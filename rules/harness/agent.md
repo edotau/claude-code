@@ -123,7 +123,9 @@ paths:
   off the direct route, or `--tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
   recorded as `codemode_reason`; only a misspelled value exits 2. The guard allows pi's one tool only from
   `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
-  experiments, rule 4).
+  experiments, rule 4). The type `code-mode` means Pi in code mode: `CodeModeRow.TypedByMode` on Pi's row
+  (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi run with code mode off by its
+  model (`claude`, runner `pi`).
   Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
   `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
@@ -267,6 +269,13 @@ vendor CLI untouched.
 
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
+  `--google-tools search|url|code` (comma list, gemini only: other agents exit 2) turns on Gemini built-ins. On a
+  Databricks row agy sends them in `X-Claude-Code-Google-Tools`; the proxy strips the header, adds
+  `{"urlContext":{}}` / `{"codeExecution":{}}` to a generateContent `tools[]`, and refuses an unserved tool with 400.
+  Preflight refuses first, naming the row's served tools (`options.google_tools`; unset = unprobed: a warning, sent as
+  asked). agy's own Google login refuses every tool: agy has no settings key for them. `computer` and `file` are held.
+  `--retry`/`--job` replay the list; a retry that moves off gemini drops it with a note. Code:
+  `/Users/edotau/.claude/internal/proxy/translate/googletools.go`.
 
 ## Proxy routes
 

@@ -33,7 +33,7 @@ func askSchema() askspec.Schema {
 	fs, _ := askFlagSet()
 	return askspec.FromFlagSet(fs, askspec.Opts{
 		Choices: map[string][]string{"fallback": router.FallbackModes,
-			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes, "tier": agent.TierNames()},
+			"format": agent.Formats, "effort": agentid.EffortNames(), "as": {"auto", "user", "sp"}, "codemode": pi.CodemodeModes, "runner": agentconfig.Runners, "tier": agent.TierNames()},
 		JSON: []string{"overlay", "agents", "output-schema"},
 	})
 }
@@ -106,7 +106,7 @@ func briefTarget(argv []string) (briefFlags, error) {
 			name = ag
 		}
 	}
-	mode, _, _ := validateCodemode(f.codemode, name, f.tools, directRoute(f.provider, f.profile))
+	mode, _, _ := validateCodemode(f.codemode, name, "", f.tools, directRoute(f.provider, f.profile))
 	return briefFlags{name: name, planTask: f.planTask, tier: f.tier, workdir: f.workdir, codeMode: mode != "" && mode != "off"}, nil
 }
 

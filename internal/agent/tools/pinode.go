@@ -52,7 +52,7 @@ func nodeOK(ctx context.Context, node string) bool {
 		real = node
 	}
 	line := ProbedVersionLine(real, func(p string) string { return versionOutput(ctx, p, versionProbeTimeout, "--version") })
-	c, ok := textutil.CompareVersions(parseVersion(line), piMinNode)
+	c, ok := textutil.CompareVersions(textutil.FirstVersion(line), piMinNode)
 	return ok && c >= 0
 }
 

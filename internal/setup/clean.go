@@ -51,6 +51,8 @@ type target struct {
 	keep func(path string) bool
 	// note, when set, names why a kept match stays; a dry run lists those as "kept: <reason>".
 	note func(path string) string
+	// sweep, when set, replaces the glob prune (a target that is not a set of files).
+	sweep func(errw io.Writer, apply bool, tot *sweepTotals)
 }
 
 // cfgPath and statePath join under the config and state dirs; the target lists below resolve them fresh per call.
@@ -217,6 +219,10 @@ func cliCacheTargets() []target {
 			optIn: true,
 		},
 		{
+			name: "go-cache", doc: "Go build cache (go clean -cache) when over the size cap; age is ignored",
+			globs: func() []string { return nil }, sweep: sweepGoCache,
+		},
+		{
 			name: "cli-caches", doc: "CLI rebuildable caches and logs: cache, debug, logs, statsig...",
 			globs: func() []string {
 				return []string{
@@ -343,6 +349,10 @@ func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
 
 // sweepTarget prunes one target past its cutoff (ageless targets go at any age) and reports it.
 func sweepTarget(errw io.Writer, t target, cutoff time.Time, apply bool, tot *sweepTotals) {
+	if t.sweep != nil {
+		t.sweep(errw, apply, tot)
+		return
+	}
 	tcut := cutoff
 	if t.ageless {
 		tcut = time.Now().Add(time.Hour)

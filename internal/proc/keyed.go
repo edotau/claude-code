@@ -82,3 +82,23 @@ func Value(ctx context.Context, name string) string {
 	}
 	return os.Getenv(name)
 }
+
+// GoFlagsEntry is the GOFLAGS=... entry of env with each missing flag appended to the original value (kept verbatim).
+func GoFlagsEntry(env []string, flags ...string) string {
+	cur := ValuesFromEnv(env)["GOFLAGS"]
+	have := strings.Fields(cur)
+	for _, f := range flags {
+		if !slices.Contains(have, f) {
+			cur = strings.TrimSpace(cur + " " + f)
+			have = append(have, f)
+		}
+	}
+	return "GOFLAGS=" + cur
+}
+
+// GoFlagsEnv returns a copy of env whose single GOFLAGS entry carries the flags (see GoFlagsEntry).
+func GoFlagsEnv(env []string, flags ...string) []string {
+	entry := GoFlagsEntry(env, flags...)
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "GOFLAGS=") })
+	return append(out, entry)
+}

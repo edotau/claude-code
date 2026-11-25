@@ -505,7 +505,7 @@ func postEmbeddings(ctx context.Context, url string, texts []string, authorize f
 	if err := authorize(req.Header); err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := embedClient().Do(req)
 	if err != nil {
 		return nil, err
 	}

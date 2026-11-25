@@ -188,6 +188,8 @@ var Registry = []Group{
 		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 		// A leaf's report with unfixed findings or owner decisions: the main session is told to fix them now (R28).
 		{Name: "review-handback", Event: EventPostToolUse, Matcher: "Agent|Task|TaskOutput", Budget: 5 * sec},
+		// A Bash call that fails with exit 1 from a last-stage grep gets a note: no matches, do not re-run (never blocks).
+		{Name: "review-grep-exit", Event: EventPostToolUseFailure, Matcher: "Bash", Budget: 2 * sec},
 		// A background leaf's report arrives as a task-notification prompt.
 		{Name: "review-notified", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// The main session's last message asks the owner to decide a fix or finding: block the stop once (R28).

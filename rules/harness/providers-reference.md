@@ -361,3 +361,9 @@ for a model with no price, a HIT column (cache reads over reads, writes and unca
 for reads with no uncached input), and one hint line naming `options.prices` when no profile has prices (rows still
 print). System tables are dropped: `usage --cost` stays an estimate, never request grants, and Databricks needs
 use the paired SPs.
+
+**Gemini built-in tools.** `claude-code configure provider <p> options.google_tools=url,code` records the built-ins a
+Databricks row serves, from a probe (`search|url|code`; empty clears it). Unset means unprobed: the proxy warns and
+sends what the caller asked. The dev probe served `url` and `code`; `search` (googleSearch) is refused with
+"cross-region processing is disabled", so web search stays Tavily
+(`/Users/edotau/.claude/internal/proxy/server/websearch.go`). The dev, qa and prod rows are set to `url,code`.

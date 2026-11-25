@@ -51,7 +51,34 @@ func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 	if p := tools.VersionProblem(spec.CLI, v); p != "" {
 		return false, "warn " + v + " " + p
 	}
+	if spec.CLI.Verified != "" && !agent.SameMinor(v, spec.CLI.Verified) {
+		return false, "warn " + v + " differs from verified " + spec.CLI.Verified
+	}
+	if w := pathCopyDrift(spec, v); w != "" {
+		return false, "warn " + v + " " + w
+	}
 	return true, "ok " + v
+}
+
+// pathCopyDrift names the exec'd binary and a PATH copy of a verified-version row whose major.minor differs, else "".
+func pathCopyDrift(spec agent.Schema, v string) string {
+	if spec.CLI.Verified == "" {
+		return ""
+	}
+	exe, err := paths.AgentBin(spec.CLI.Binary)
+	if err != nil {
+		return ""
+	}
+	first := paths.ExecutableRealPath(exe)
+	for _, c := range toolPATHCopies(spec.CLI.Binary) {
+		if paths.ExecutableRealPath(c) == first {
+			continue
+		}
+		if cv := textutil.FirstVersion(toolPATHVersion(context.Background(), c)); !agent.SameMinor(cv, v) {
+			return fmt.Sprintf("(%s) differs from PATH %s %s", exe, c, cv)
+		}
+	}
+	return ""
 }
 
 // helpProbeTimeout bounds one `<cli> --help`; the probes run concurrently, so doctor waits for the slowest.

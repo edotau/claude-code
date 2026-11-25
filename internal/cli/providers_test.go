@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
@@ -839,7 +840,15 @@ func TestResolveProxyArmedTokenHeldToFence(t *testing.T) {
 		return proxy.SessionClaims{Profiles: []string{"dev", "qa"}}, true
 	}
 	stubSessionInvalid(t, errors.New("session token expired"))
-	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
+	secret, err := proxy.ClientSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := proxy.SignSessionToken(secret, proxy.SessionClaims{Profiles: []string{"dev", "qa"}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(claude.ProxyKeyEnv, stale) // readable claims keep the launch key in play for --profile dev
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/dev")
 	check("armed claims [dev qa] under a dev fence", "dev", nil)
 	stubSessionInvalid(t, nil) // a still-valid token is held to the fence too
@@ -851,11 +860,11 @@ func TestResolveProxyArmedTokenHeldToFence(t *testing.T) {
 	check("refused armed [dev] with failover under a dev fence", "dev", []string{"dev"})
 	authenticClaims = func(string) (proxy.SessionClaims, bool) { return proxy.SessionClaims{}, false }
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/qa")
-	check("unverifiable token, route qa under a dev fence", "dev", nil)
+	check("unverifiable token, explicit dev beats route qa under a dev fence", "dev", []string{"dev"})
 }
 
-// An unverifiable armed token re-mints for its route only: --profile never moves the scope, and no route means no mint.
-func TestResolveProxyUnverifiableRemintIgnoresProfileFlag(t *testing.T) {
+// An unverifiable armed token re-mints for its route only, and no route means no mint.
+func TestResolveProxyUnverifiableRemintUsesRouteOnly(t *testing.T) {
 	cliScratch(t)
 	origF, origA := resolveProxyTokenFailover, authenticClaims
 	t.Cleanup(func() { resolveProxyTokenFailover, authenticClaims = origF, origA })
@@ -868,13 +877,13 @@ func TestResolveProxyUnverifiableRemintIgnoresProfileFlag(t *testing.T) {
 	stubSessionInvalid(t, errors.New("session token expired"))
 	t.Setenv(claude.ProxyKeyEnv, "cct_STALE")
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/d/x/p/routeA")
-	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy", "--profile", "B"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
 	if code != 0 || len(scopes) != 1 || !slices.Equal(scopes[0], []string{"routeA"}) {
-		t.Fatalf("route A with --profile B: exit %d, mints %v, want one for [routeA]", code, scopes)
+		t.Fatalf("route A: exit %d, mints %v, want one for [routeA]", code, scopes)
 	}
 	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1")
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy", "--profile", "B"}) }); code == 0 || len(scopes) != 1 {
-		t.Fatalf("no route with --profile B: exit %d, mints %v, want a refusal and no mint", code, scopes)
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) }); code == 0 || len(scopes) != 1 {
+		t.Fatalf("no route: exit %d, mints %v, want a refusal and no mint", code, scopes)
 	}
 }
 
@@ -940,4 +949,34 @@ func TestModelsDiscoverDropPreviewReportsAndWritesNothing(t *testing.T) {
 	if code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdModels([]string{"discover", "--drop", "a", "--undrop", "b"}) }); code != 2 {
 		t.Errorf("--drop with --undrop exit=%d out=%q, want usage error 2", code, out)
 	}
+}
+
+// --profile outside an armed launch's token scope mints a scoped token instead of returning the launch key.
+func TestResolveProxyProfileOutsideLaunchScopeMints(t *testing.T) {
+	check := resolveFence(t)
+	secret, err := proxy.ClientSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch, err := proxy.SignSessionToken(secret, proxy.SessionClaims{Profiles: []string{"dev"}, Open: true}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(claude.ProxyKeyEnv, launch)
+	t.Setenv(route.OverlayVar, "")
+	check("qa outside dev launch", "qa", []string{"qa"})
+	t.Setenv(claude.ProxyKeyEnv, "cct_UNREADABLE")
+	check("unreadable launch key", "qa", []string{"qa"})
+	multi, err := proxy.SignSessionToken(secret, proxy.SessionClaims{Profiles: []string{"dev", "qa", "typo"}, Open: true}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(claude.ProxyKeyEnv, multi)
+	check("unknown profile in key scope", "typo", nil)
+	stubSessionInvalid(t, errors.New("session token expired"))
+	authenticClaims = func(string) (proxy.SessionClaims, bool) {
+		return proxy.SessionClaims{Profiles: []string{"dev", "qa"}, Open: true}, true
+	}
+	t.Setenv(proc.EnvAnthropicBaseURL, "http://127.0.0.1:1/p/dev")
+	check("refused multi-profile key, explicit qa beats the dev route", "qa", []string{"qa"})
 }

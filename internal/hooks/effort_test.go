@@ -298,8 +298,8 @@ func stubResolve(t *testing.T, f func(agentpkg.ModelQuery) string) {
 	t.Helper()
 	orig, origRun := resolveModel, runQuery
 	t.Cleanup(func() { resolveModel, runQuery = orig, origRun })
-	resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
-		return agentpkg.ModelRoute{Agent: q.Agent, Model: f(q)}, nil
+	resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, *agentpkg.AutoChoice, error) {
+		return agentpkg.ModelRoute{Agent: q.Agent, Model: f(q)}, nil, nil
 	}
 	runQuery = func(_ context.Context, _ *providers.Registry, q agentpkg.ModelQuery, _ string) (agentpkg.ModelQuery, string, error) {
 		return q, "", nil

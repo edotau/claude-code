@@ -129,6 +129,9 @@ func (e geminiEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 		return env, argv, emulated, cleanup, err
 	}
 	argv, emulated, err = agyEffortArgv(s, argv, emulated)
+	if err == nil && !agent.GeminiGatewayRow(s.Target.Provider) {
+		err = agyLoginGoogleTools(s.Target.Provider, s.Target.Model, s.GoogleTools)
+	}
 	return env, argv, emulated, cleanup, err
 }
 

@@ -2,7 +2,7 @@
 name: copilot
 description: |
   Test repair, mechanical edits, review and authorized LAST-MILE landings as copilot: a scoped terminal leaf whose work
-  runs as one typed `claude-code agents ask --agent copilot` on the Databricks route.
+  runs as one typed `claude-code agents ask --agent copilot --codemode on` on the Databricks route.
 color: cyan
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -28,13 +28,13 @@ The one ask (PATH is the file `claude-code agents brief --path copilot` prints; 
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent copilot --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent copilot --codemode on --provider databricks --tools --timeout 60m - < PATH
 ```
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
 (the receipt reads `copilot via pi`; its own CLI is the fallback hop). The Copilot CLI on its own login stays
-reachable from the main session: `claude-code copilot …`, or overlay `{"runner":"own"}`. Role rotation covers
+reachable from the main session: `claude-code copilot …`, or `agents ask --runner own`. Role rotation covers
 copilot's models too.
 
 ## Owns

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ import (
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
 var noForward = map[string]bool{
 	"Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true, "Host": true, "Accept-Encoding": true,
+	translate.GoogleToolsHeader: true,
 }
 
 // parsePassthrough splits /p/<provider>/<openai|responses|gemini>/<rest>.
@@ -144,7 +146,8 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 	var err error
 	if in.Method == http.MethodPost {
 		var asked string
-		body, asked, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect, dbxGemini)
+		body, asked, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect,
+			googleToolsHeader(in), dbxGemini)
 		if m, _ := in.Context().Value(metaKey{}).(*reqMeta); m != nil {
 			m.asked = modelToken(cmp.Or(geminiPathModel(in.URL.Path, dialect), asked))
 		}
@@ -157,7 +160,7 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 }
 
 // fixPassthroughBody applies the per-dialect fixes; model is the wire model, asked the one before any rewrite.
-func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect string,
+func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect, googleTools string,
 	dbxGemini bool) (out []byte, asked, newModel string, geminiChat bool, err error) {
 	decoded := decodeProxyBody(body)
 	var pend pendingMarshal
@@ -175,19 +178,27 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	}
 	if dbxGemini {
 		decoded.raw = decoded.geminiThinking(model)
+		if decoded.raw, err = decoded.withGoogleTools(googleTools, p.Options.GoogleTools); err != nil {
+			return nil, asked, model, false, err
+		}
 	}
 	if isChatCompletion(dialect, path) {
-		if translate.IsGeminiModel(model) {
-			decoded.raw = decoded.fixGeminiChat()
-			geminiChat = true
-		}
-		decoded.raw = decoded.dropNonFunctionTools()
+		decoded.raw, geminiChat = decoded.chatFixes(model)
 	}
 	if dialect != providers.ProtocolGemini {
 		decoded.raw = decoded.clampOutputTokens(model)
 	}
 	out, err = pend.finish(decoded, body)
 	return out, asked, model, geminiChat, err
+}
+
+// chatFixes applies the chat-completion body fixes; the bool reports a gemini chat body.
+func (b proxyBody) chatFixes(model string) ([]byte, bool) {
+	gemini := translate.IsGeminiModel(model)
+	if gemini {
+		b.raw = b.fixGeminiChat()
+	}
+	return b.dropNonFunctionTools(), gemini
 }
 
 // upstreamNoRetry is true when the upstream answered x-should-retry: false.
@@ -317,7 +328,7 @@ func (r *Router) tpmPassthroughHop(tc *passthroughTPM, cur passthroughHop, why s
 	t, ok := r.tpmHop(providers.Target{Provider: cur.p, Model: cur.model}, func(t providers.Target) bool {
 		var fits bool
 		route, fits = r.siblingRoute(t, tc.origin, cur.model, tc.dialect, tc.tried)
-		return fits
+		return fits && servesGoogleTools(t.Provider, googleToolsHeader(tc.in))
 	})
 	if !ok {
 		return cur, false
@@ -344,7 +355,8 @@ func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, 
 			return p, route, &nextPath, nil, model, false, err
 		}
 	}
-	body, _, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect, dbxGemini)
+	body, _, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect,
+		googleToolsHeader(in), dbxGemini)
 	if err != nil {
 		return p, route, &nextPath, nil, model, false, err
 	}
@@ -387,7 +399,7 @@ func (r *Router) passthroughFallback(in *http.Request, origin, cur *providers.Pr
 	ladder.rankSiblings(0, r.now())
 	for _, t := range ladder.rows {
 		route, ok := r.siblingRoute(t, origin, model, dialect, tried)
-		if !ok {
+		if !ok || !servesGoogleTools(t.Provider, googleToolsHeader(in)) {
 			continue
 		}
 		tried[t.Provider.Name] = true
@@ -911,6 +923,48 @@ func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, 
 		query = "alt=sse"
 	}
 	return "v1beta/models/" + model + ":" + m[2], query, model, nil
+}
+
+// googleToolsHeader joins every header line, so a repeated X-Claude-Code-Google-Tools keeps all its tools.
+func googleToolsHeader(in *http.Request) string {
+	return strings.Join(in.Header.Values(translate.GoogleToolsHeader), ",")
+}
+
+// servesGoogleTools is false when p's probed list lacks a tool the request asked for; unprobed serves any.
+func servesGoogleTools(p *providers.Provider, header string) bool {
+	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
+	if err != nil || p.Options.GoogleTools == nil {
+		return true
+	}
+	ok, _ := translate.ParseGoogleTools(p.Options.GoogleTools)
+	return len(translate.Unserved(ok, asked)) == 0
+}
+
+// withGoogleTools appends the header's built-in tools to a native generateContent tools[]; unserved is an error.
+func (b proxyBody) withGoogleTools(header string, served []string) ([]byte, error) {
+	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
+	if err != nil || len(asked) == 0 || b.top == nil {
+		return b.raw, err
+	}
+	if served != nil { // nil = unprobed row: send as asked, the upstream answers
+		ok, _ := translate.ParseGoogleTools(served)
+		if miss := translate.Unserved(ok, asked); len(miss) > 0 {
+			return nil, fmt.Errorf("google tool %s is not served on this profile; served: %s",
+				translate.JoinGoogleTools(miss), strings.Join(served, ","))
+		}
+	}
+	var have []map[string]json.RawMessage
+	if raw, ok := b.top["tools"]; ok && json.Unmarshal(raw, &have) != nil {
+		return b.raw, nil
+	}
+	for _, t := range asked {
+		key := translate.GoogleWireKey(t)
+		if !slices.ContainsFunc(have, func(e map[string]json.RawMessage) bool { _, ok := e[key]; return ok }) {
+			have = append(have, map[string]json.RawMessage{key: json.RawMessage(`{}`)})
+		}
+	}
+	b.top["tools"], _ = json.Marshal(have)
+	return b.marshalTop(), nil
 }
 
 // geminiThinking fits thinkingConfig to the model; the gemini-4 family rejects thinkingBudget and takes thinkingLevel.

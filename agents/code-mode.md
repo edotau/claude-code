@@ -1,5 +1,5 @@
 ---
-name: pi
+name: code-mode
 description: |
   Script-style work that needs raw tool output, as pi in code mode: a scoped terminal leaf whose work runs as one typed
   `claude-code agents ask --agent pi --codemode on` on the Databricks route, with rtk off inside the run.
@@ -10,20 +10,21 @@ effort: low
 maxTurns: 40
 ---
 
-# pi
+# code-mode
 
 ## Role
 
 Runs one scoped task as the typed Pi code-mode ask below and hands back its verdict; this file defines a terminal leaf,
 the main session owns orchestration. Pick it when the work parses tool output (counts, JSON, file lists, exact bytes)
 or is a script of many calls. Code mode sets `CODEMODE=on`, so the rtk-rewrite hook, the rtkwrap shims and
-`rtkwrap.ForModel` leave every command bare (`rules/standards/rtk.md` → Code mode). Ordinary Pi edits stay a plain
-`--agent pi` ask. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
+`rtkwrap.ForModel` leave every command bare (`rules/standards/rtk.md` → Code mode). The type `code-mode` means Pi in
+code mode (`CodeModeRow.TypedByMode`, `/Users/edotau/.claude/internal/agentid/agentid.go`); an ordinary Pi edit goes as
+a `claude` leaf with `Agent: pi`, not as this agent. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ## Invocation
 
-**In a session** — `Agent` with `subagent_type: pi`, or a dispatch brief. **Headless** — the same ask from the main
-session (`rules/harness/agent.md` → pi code mode).
+**In a session** — `Agent` with `subagent_type: code-mode`, or a dispatch brief. **Headless** — the same ask from the
+main session (`rules/harness/agent.md` → pi code mode).
 
 The one ask (PATH is the file `claude-code agents brief --path pi` prints; add `--workdir <dir>` only when the brief
 has a `Workdir:` line):
@@ -43,7 +44,7 @@ rotation covers Pi's models too. The run's receipt names what ran; its record sh
 
 ## Procedure
 
-Run each step once; prefix every tool description with `pi:`.
+Run each step once; prefix every tool description with `code-mode:`.
 
 1. Run `claude-code agents brief --path pi`; Read the path it prints, then Write the caller's brief to it unchanged.
 2. Run the ask above with `"timeout": 600000`. It prints `job <id> started`; on usage, a refusal or a failed start,

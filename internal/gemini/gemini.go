@@ -68,7 +68,12 @@ func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpti
 	return res, err
 }
 
-func (geminiEngine) Login(_ context.Context, _ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+func (geminiEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+	if h != nil {
+		if err := agyLoginGoogleTools(p, model, h.GoogleTools); err != nil {
+			return nil, nil, err
+		}
+	}
 	return geminiLogin(model, h)
 }
 
@@ -224,6 +229,10 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err := agyCheckGateway(p, base, nil); err != nil {
 		return nil, nil, err
 	}
+	hdr, err := agyGatewayHeader(p, base, h)
+	if err != nil {
+		return nil, nil, err
+	}
 	var rb, tok string
 	if agent.IsDryRun(ctx) {
 		rb, tok = agent.PreviewRouterBase(ctx), "<redacted>"
@@ -246,7 +255,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
 		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,
 		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router
-		"AGY_LLM_GATEWAY_HEADERS": "", "AGY_LLM_GATEWAY_CA_CERT": "", "AGY_LLM_GATEWAY_PROXY_URL": "",
+		"AGY_LLM_GATEWAY_HEADERS": hdr, "AGY_LLM_GATEWAY_CA_CERT": "", "AGY_LLM_GATEWAY_PROXY_URL": "",
 	}
 	if h != nil {
 		return env.Env(), nil, nil // headless argv is runAgy's (prompt over stdin stream-json)

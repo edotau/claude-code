@@ -3,7 +3,6 @@ package ask
 import (
 	"bytes"
 	"cmp"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,8 +16,17 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 )
 
-//go:embed review-findings.schema.json
-var reviewFindingsSchema string
+// reviewFinding is one structured finding row; its schema is generated from it.
+type reviewFinding struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Severity string `json:"severity" jsonschema:"enum=CRITICAL|HIGH|MEDIUM|LOW"`
+	Claim    string `json:"claim"`
+}
+
+var reviewFindingsSchema = wire.SchemaFor[struct {
+	Findings []reviewFinding `json:"findings"`
+}]()
 
 type reviewEnvelope struct {
 	wire.Envelope
@@ -94,10 +102,7 @@ func envJudged(env reviewEnvelope) judged {
 		}
 		return j
 	}
-	var rows []struct {
-		File, Severity, Claim string
-		Line                  int
-	}
+	var rows []reviewFinding
 	j := judged{Stated: hooks.StatedVerdict(env.Answer)}
 	if err := json.Unmarshal(env.Findings, &rows); err != nil {
 		j.Unjudged = true

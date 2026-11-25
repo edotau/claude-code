@@ -162,10 +162,10 @@ func (r *dispatchRun) databricksID(m string) string {
 	return m
 }
 
-// workAgent is the external agent doing the work ("" = Claude): the type, or for claude its Agent: line's one agent.
+// workAgent is the external agent doing the work ("" = Claude): the type's agent, or for claude its Agent: line's one.
 func workAgent(st, task string) string {
 	if externalTypes[st] {
-		return st
+		return typeAgent(st)
 	}
 	if st != agentid.Claude {
 		return ""
@@ -177,7 +177,7 @@ func workAgent(st, task string) string {
 func briefExternal(task string) string {
 	var named []string
 	for _, a := range briefAgents(task) {
-		if externalTypes[a] {
+		if externalAgent(a) {
 			named = append(named, a)
 		}
 	}
@@ -349,6 +349,7 @@ func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
 func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
 	agent := workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Profile: run.profile}
+	q.Provider, q.Profile = askRoute(st, task, q.Profile)
 	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
@@ -363,6 +364,50 @@ func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agen
 		q.Default, _ = agentpkg.TaskTier(q.Task) // the ask runs its pin, else the task tier
 	}
 	return q, true
+}
+
+// askRoute is the agent file's baked --provider and --profile for the leaf's work agent, unless a profile is typed.
+func askRoute(st, task, profile string) (provider, prof string) {
+	agent := workAgent(st, task)
+	if profile != "" || agent == "" {
+		return "", profile
+	}
+	return bakedRoute(agent)
+}
+
+// bakedRoute is the route of the agent's own `agents ask` line in its type's file; the launch repo's dir is read first.
+func bakedRoute(agent string) (provider, profile string) {
+	name := agentid.SubagentType(agent)
+	if _, ok := agentFile(name); !ok {
+		return "", ""
+	}
+	dirs := []string{filepath.Join(paths.ConfigDir(), "agents")}
+	if pdir := projectAgentsDir(); pdir != "" {
+		dirs = slices.Insert(dirs, 0, pdir)
+	}
+	for _, dir := range dirs {
+		raw, err := readAgentFile(filepath.Join(dir, name+".md"))
+		if err != nil {
+			continue
+		}
+		return askLineRoute(string(raw), agent)
+	}
+	return "", ""
+}
+
+// askLineRoute is the route of the first `agents ask --agent <agent>` line in text, continuations joined.
+func askLineRoute(text, agent string) (provider, profile string) {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\\\r\n", " "), "\\\n", " ")
+	for line := range strings.SplitSeq(text, "\n") {
+		words := strings.Fields(line)
+		if len(words) < 4 || words[0] != "claude-code" || words[1] != "agents" || words[2] != "ask" {
+			continue
+		}
+		if a, ok := ParseAskWords(words[3:]); ok && a.Value("agent") == agent {
+			return a.Value("provider"), a.Value("profile")
+		}
+	}
+	return "", ""
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
@@ -384,16 +429,20 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)
 	}
-	r, err = resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
+	r, choice, err := resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: hop.Agent}, false, false, err
 	}
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
-	return r, true, agentpkg.AutoRun(ctx, hop), nil
+	auto = agentpkg.AutoRun(ctx, hop)
+	if auto && choice != nil && choice.Fallback != "" {
+		r.Model = agentpkg.AutoModel // no peek names the pick: never the static pin
+	}
+	return r, true, auto, nil
 }
 
-// resolveModel and runQuery are seams: tests stub them so a label never reads the live vault or route table.
+// resolveModel (ExplainRun) and runQuery are seams: tests stub them so a label never reads the live vault.
 var (
-	resolveModel = agentpkg.ResolveRun
+	resolveModel = agentpkg.ExplainRun
 	runQuery     = agentpkg.RunQuery
 )

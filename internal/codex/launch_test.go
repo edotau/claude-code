@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -231,5 +232,18 @@ func TestCodexReadOnlyGo(t *testing.T) {
 	}
 	if _, got, _, _ := codexReadOnlyGo(nil, []string{"--sandbox", "workspace-write"}); !slices.Contains(got, "workspace-write") {
 		t.Fatalf("a tools run must keep its own sandbox: %q", got)
+	}
+}
+
+func TestCLIVersionDriftOnExecdBinary(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct{ out, want string }{
+		{"codex-cli 0.171.0", ""},
+		{"codex-cli 0.166.0", "codex: CLI 0.166.0 differs from verified 0.171 (warn)"},
+	} {
+		pathstest.FakeVendor(t, "codex", "echo '"+tc.out+"'")
+		if got, pol := agent.CLIVersionDrift(t.Context(), "codex"); got != tc.want || pol != agent.VersionWarn {
+			t.Errorf("%q: got %q, %q; want %q", tc.out, got, pol, tc.want)
+		}
 	}
 }

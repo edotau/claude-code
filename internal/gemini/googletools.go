@@ -1,0 +1,66 @@
+package gemini
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy/translate"
+)
+
+// agyGatewayHeader is the gateway headers value: the google-tools header for a headless run that asked, else "".
+func agyGatewayHeader(p *providers.Provider, base string, h *agent.Headless) (string, error) {
+	if h == nil || len(h.GoogleTools) == 0 {
+		return "", nil
+	}
+	return agyGoogleToolsHeader(p, base, h.GoogleTools)
+}
+
+// agyGoogleToolsHeader is the proxy header for tools; preflight refuses a foreign model or an unserved tool.
+func agyGoogleToolsHeader(p *providers.Provider, base string, names []string) (string, error) {
+	asked, err := translate.ParseGoogleTools(names)
+	if err != nil {
+		return "", err
+	}
+	if agyForeign(base) {
+		return "", fmt.Errorf("gemini: --google-tools needs a Gemini model; %s is not one", base)
+	}
+	if served := p.Options.GoogleTools; served != nil {
+		ok, _ := translate.ParseGoogleTools(served)
+		if miss := translate.Unserved(ok, asked); len(miss) > 0 {
+			return "", &agent.PreflightError{Finding: agent.Finding{Check: "google-tools", Profile: p.Name, Model: base,
+				Detail: fmt.Sprintf("%s does not serve google tool %s; served: %s", p.Name,
+					translate.JoinGoogleTools(miss), strings.Join(served, ","))}}
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "gemini: google tools unprobed on %s; sent as asked\n", p.Name)
+	}
+	return translate.GoogleToolsHeader + ": " + translate.JoinGoogleTools(asked), nil
+}
+
+// agySettingsKey maps a tool to its agy --settings key; Phase 0.1 found none, so every tool is refused.
+var agySettingsKey = map[translate.GoogleTool]string{}
+
+// agyLoginGoogleTools refuses a tool agy's own Google login has no setting for.
+func agyLoginGoogleTools(p *providers.Provider, model string, names []string) error {
+	asked, err := translate.ParseGoogleTools(names)
+	if err != nil {
+		return err
+	}
+	for _, t := range asked {
+		if _, ok := agySettingsKey[t]; !ok {
+			return &agent.PreflightError{Finding: agent.Finding{Check: "google-tools", Profile: profileName(p), Model: model,
+				Detail: "agy's own login has no setting for google tool " + string(t)}}
+		}
+	}
+	return nil
+}
+
+func profileName(p *providers.Provider) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name
+}

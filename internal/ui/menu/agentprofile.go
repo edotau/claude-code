@@ -55,18 +55,81 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 	return append(rows, fallbackRow(d, agent))
 }
 
-// recordModelRow is the Model row for an agent with no catalog picker: it types the record's model, empty clears it.
+// recordModelRow is the Model row for an agent with no catalog picker: it picks the record's model.
 func recordModelRow(d *dialog, agent string) billingRow {
 	model := cmp.Or(vault.GetAgentRecord(agent).Model, "default")
 	return billingRow{label: "Model", desc: textutil.TruncateCells(model, 40, "…"),
-		run: func() bool {
-			val := strings.TrimSpace(d.shell().Line("Model for " + agent + " (empty clears): "))
-			changed, err := writeAgentField(d, agent, "MODEL", val)
-			if err != nil {
-				d.printf("%s: %v\n", agent, err)
+		run: func() bool { return pickRecordModel(d, agent) }}
+}
+
+// discoverModels is the discovery seam; tests replace it.
+var discoverModels = configure.DiscoverModels
+
+// modelIDs is the ids agent serves on profile in mode, else its tier-map ids; err is the discovery failure.
+func modelIDs(d *dialog, agent, profile string, mode configure.ModelMode) (ids []string, err error) {
+	if configure.CanDiscover(agent) {
+		var res configure.ModelResult
+		if res, err = discoverModels(context.Background(), configure.ModelQuery{Agent: agent, Profile: profile, Mode: mode}); err == nil {
+			for _, m := range res.Models {
+				ids = append(ids, m.ID)
 			}
-			return changed
-		}}
+		}
+	}
+	if len(ids) == 0 && d.reg != nil && d.reg.Providers[profile] != nil {
+		ids = slices.Compact(slices.Sorted(maps.Values(d.reg.Providers[profile].Models)))
+	}
+	return ids, err
+}
+
+// modelPickRows is the picker table: default, ids (cur marked), then Refresh when live and the typed-id row.
+func modelPickRows(ids []string, cur string, live bool) [][2]string {
+	rows := [][2]string{{"default (clear)", mark(cur == "")}}
+	for _, id := range ids {
+		rows = append(rows, [2]string{textutil.TruncateCells(id, 60, "…"), mark(id == cur)})
+	}
+	if live {
+		rows = append(rows, [2]string{"Refresh (discover live)", ""})
+	}
+	return append(rows, [2]string{"Other… (type an id)", ""})
+}
+
+// pickRecordModel picks MODEL from default, served ids, a live refresh and a typed id.
+func pickRecordModel(d *dialog, agent string) bool {
+	profile := configure.AgentField(vault.GetAgentRecord(agent), "PROFILE")
+	ids, err := modelIDs(d, agent, profile, configure.RecallModels)
+	if err != nil {
+		d.printf("%s: %v\n", agent, err)
+	}
+	live := configure.CanDiscover(agent)
+	for {
+		cur := vault.GetAgentRecord(agent).Model
+		start := slices.Index(ids, cur) + 1
+		idx, err := d.shell().Pick(displayLabel(agent)+" — model", modelPickRows(ids, cur, live), start)
+		switch {
+		case err != nil || idx < 0:
+			return false
+		case idx == 0:
+			return setModel(d, agent, "")
+		case idx <= len(ids):
+			return setModel(d, agent, ids[idx-1])
+		case live && idx == len(ids)+1:
+			var rerr error
+			if ids, rerr = modelIDs(d, agent, profile, configure.RefreshModels); rerr != nil {
+				d.printf("%s: %v\n", agent, rerr)
+			}
+		default:
+			return setModel(d, agent, strings.TrimSpace(d.shell().Line("Model for "+agent+" (empty clears): ")))
+		}
+	}
+}
+
+// setModel writes agent's MODEL and prints a failure.
+func setModel(d *dialog, agent, val string) bool {
+	changed, err := writeAgentField(d, agent, "MODEL", val)
+	if err != nil {
+		d.printf("%s: %v\n", agent, err)
+	}
+	return changed
 }
 
 // fallbackRow is the Fallback row: the profile agent falls back to when its own is unavailable, none when empty.

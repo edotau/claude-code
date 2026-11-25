@@ -2,7 +2,7 @@
 name: codex
 description: |
   Cross-family review, plan vetting, delegated edits and scoped verification as codex: a scoped terminal leaf whose
-  work runs as one typed `claude-code agents ask --agent codex` on the Databricks route.
+  work runs as one typed `claude-code agents ask --agent codex --codemode on` on the Databricks route.
 color: red
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -27,13 +27,13 @@ The one ask (PATH is the file `claude-code agents brief --path codex` prints; ad
 has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent codex --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent codex --codemode on --provider databricks --tools --timeout 60m - < PATH
 ```
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
 (the receipt reads `codex via pi`; its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
-main session: `claude-code codex …`, or overlay `{"runner":"own"}`. Role rotation covers codex's models too.
+main session: `claude-code codex …`, or `agents ask --runner own`. Role rotation covers codex's models too.
 
 ## Owns
 

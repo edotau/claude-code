@@ -329,7 +329,7 @@ func askVerb(words []string) string {
 	if words[0] == "agents" && slices.Contains([]string{"ask", "result"}, words[1]) {
 		return words[1]
 	}
-	if externalTypes[words[0]] && words[1] == "ask" {
+	if externalAgent(words[0]) && words[1] == "ask" {
 		return "ask"
 	}
 	return ""
@@ -338,7 +338,7 @@ func askVerb(words []string) string {
 // reviewVerb is `claude-code <external agent> review`: a vendor run that is no ask, so no job id is waited on.
 func reviewVerb(words []string) bool {
 	words = agentCommand(words)
-	return len(words) > 1 && externalTypes[words[0]] && words[1] == "review"
+	return len(words) > 1 && externalAgent(words[0]) && words[1] == "review"
 }
 
 // relayInput permits only literal argv and one stdin file redirect; no expansions or shell execution.

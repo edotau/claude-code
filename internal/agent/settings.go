@@ -29,6 +29,7 @@ type Settings struct {
 	Tools, Autonomous bool
 	Headless          bool // false for an interactive launch
 	WorkDir           string
+	GoogleTools       []string // gemini: --google-tools
 }
 
 // ResolveSettings merges agentName's checked record with req; a bad one errs with built-in Settings (none: Agent "").
@@ -68,6 +69,7 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	st.Effort = cmp.Or(req.Effort, rec.Effort)
 	st.Tools, st.Autonomous = req.Tools, req.Autonomous
 	st.Headless, st.WorkDir = headless, req.WorkDir
+	st.GoogleTools = req.GoogleTools
 	if req.Values != nil {
 		st.Values = req.Values.Merge(nil)
 	}

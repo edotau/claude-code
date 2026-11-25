@@ -234,7 +234,8 @@ var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
 	About: "Resolves the session profile's credential and prints it redacted; --secret prints the value " +
 		"(the apiKeyHelper Claude Code calls). --proxy selects a scoped proxy session token, never the " +
-		"client secret: the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
+		"client secret: the launch's HARNESS_PROXY_API_KEY (unless --profile is outside its scope), else one minted " +
+		"for the calling process and cached; it dies with that process, so avoid $(...) subshells.",
 }
 
 // cmdResolve is the apiKeyHelper: --proxy selects the armed session token, else a token scoped to the parent process.
@@ -262,7 +263,10 @@ func cmdResolve(args []string) int {
 func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) {
 	if proxy {
 		pid := os.Getppid()
-		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" { // an armed launch's session token, confined to its profile
+		if err := checkProfile(profile); err != nil {
+			return "", err
+		}
+		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" && launchScopeCovers(tok, profile) { // armed, confined to its profile
 			if refresh {
 				return "", errors.New("resolve --refresh: an armed launch's token cannot be renewed here")
 			}
@@ -285,6 +289,28 @@ func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) 
 	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
 }
 
+// checkProfile refuses a --profile the registry does not know; "" is the session profile.
+func checkProfile(profile string) error {
+	if profile == "" {
+		return nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	_, err = providers.Select(reg, profile)
+	return err
+}
+
+// launchScopeCovers: the launch token serves profile ("" or in its readable scope).
+func launchScopeCovers(tok, profile string) bool {
+	if profile == "" {
+		return true
+	}
+	c, ok := proxy.PeekSessionClaims(tok)
+	return ok && slices.Contains(c.Profiles, profile)
+}
+
 // resolveProxyToken, refreshProxyToken and sessionInvalid are the mint, cache and check seams of resolve --proxy.
 var (
 	resolveProxyToken         = proxy.ResolveProxyToken
@@ -303,12 +329,12 @@ func armedProxyToken(tok, profile string, pid int) (string, error) {
 			return "", err
 		}
 	}
-	remint, ok := armedRemint(tok, cmp.Or(route, profile), pid)
+	remint, ok := armedRemint(tok, cmp.Or(profile, route), pid) // an explicit --profile beats the route
 	if ok {
-		return remintArmed(c, signed, route, remint)
+		return remintArmed(c, signed, cmp.Or(profile, route), profile != "", remint)
 	}
 	if !signed { // an unsigned token is still held to the env's fence
-		if err := withinFence(nil, []string{cmp.Or(route, profile)}); err != nil {
+		if err := withinFence(nil, []string{cmp.Or(profile, route)}); err != nil {
 			return "", err
 		}
 	}
@@ -316,10 +342,13 @@ func armedProxyToken(tok, profile string, pid int) (string, error) {
 }
 
 // remintArmed re-mints a refused armed token for pid inside its own scope, failover and fence.
-func remintArmed(c proxy.SessionClaims, signed bool, route string, pid int) (string, error) {
+func remintArmed(c proxy.SessionClaims, signed bool, route string, explicit bool, pid int) (string, error) {
 	profiles, failover, ctx := []string{route}, "", context.Background()
 	if signed { // keep the launch's own scope, failover and fence, never the registry's
 		profiles, failover = c.Profiles, c.Failover
+		if explicit {
+			profiles = []string{route}
+		}
 		if c.Open || len(c.Fence) > 0 {
 			ctx = proxy.WithFence(ctx, c.Fence, c.Open)
 		}

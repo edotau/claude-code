@@ -136,3 +136,13 @@ func TestCodemodeOffDropsEnvAndSetsReason(t *testing.T) {
 		t.Fatalf("%+v", req)
 	}
 }
+
+func TestWithCodemodeEnvOwnCLIRunsOff(t *testing.T) {
+	req := withCodemodeEnv("codex", RunOptions{Codemode: "on", Tools: true, Env: []string{"A=1", "CODEMODE=on"}})
+	if req.Codemode != "off" || req.CodemodeReason == "" || !slices.Equal(req.Env, []string{"A=1"}) {
+		t.Fatalf("codex own hop = %q %q %v, want off with a reason and no CODEMODE", req.Codemode, req.CodemodeReason, req.Env)
+	}
+	if got := withCodemodeEnv("pi", RunOptions{Codemode: "on", Tools: true}); got.Codemode != "on" {
+		t.Fatalf("pi hop = %q, want on", got.Codemode)
+	}
+}

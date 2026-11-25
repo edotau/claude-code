@@ -297,6 +297,7 @@ func (rc routeCtx) finishChain(c Chain, pick router.PickResult) Chain {
 	if len(c.Dispatches) > 0 && databricksDispatch(rc.reg, c.Dispatches[0]) {
 		rc.pf.note(proxyNote())
 	}
+	c = guardCLIVersion(rc, c)
 	if len(rc.pf.Failed)+len(rc.pf.Notes) > 0 {
 		if len(c.Dispatches) > 0 {
 			rc.pf.Chosen = hopTarget(c.Dispatches[0])
@@ -304,6 +305,38 @@ func (rc routeCtx) finishChain(c Chain, pick router.PickResult) Chain {
 		c.Preflight = rc.pf
 	}
 	return c
+}
+
+// guardCLIVersion notes each hop's CLI drifting from its verified version; Require drops its dispatches, naming why.
+func guardCLIVersion(rc routeCtx, c Chain) Chain {
+	checked := map[string]bool{}
+	for _, d := range slices.Clone(c.Dispatches) {
+		if d.Agent == nil || checked[d.Agent.Name()] {
+			continue
+		}
+		name := d.Agent.Name()
+		checked[name] = true
+		if f := cliVersionFinding(cmp.Or(rc.ctx, context.Background()), name, rc.pf); f != nil {
+			c.Dispatches = slices.DeleteFunc(c.Dispatches, func(x Dispatch) bool { return x.Agent != nil && x.Agent.Name() == name })
+			c.Skipped = append(c.Skipped, f.Detail)
+		}
+	}
+	return c
+}
+
+// cliVersionFinding notes a drifted CLI in pf (Warn); under Require it is the failed finding, also recorded in pf.
+func cliVersionFinding(ctx context.Context, name string, pf *Preflight) *Finding {
+	note, policy := CLIVersionDrift(ctx, name)
+	switch {
+	case note == "":
+		return nil
+	case policy == VersionRequire:
+		f := Finding{Check: "cli-version", Detail: note}
+		pf.fail(f)
+		return &f
+	}
+	pf.note(note)
+	return nil
 }
 
 var registryWarnOnce sync.Once
@@ -543,7 +576,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if err != nil {
 		return c, pick, err
 	}
-	return withPiRunner(ctx, q, c), pick, nil
+	return withOwnHopCodemodeNote(q, withPiRunner(ctx, q, c)), pick, nil
 }
 
 // noted is c with one preflight note; the chain itself is unchanged.
@@ -663,6 +696,9 @@ func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
 	r, err := explicitEngine(ctx, q, pf)
 	if err != nil {
 		return Chain{}, err
+	}
+	if f := cliVersionFinding(ctx, q.Agent, pf); f != nil {
+		return Chain{}, &PreflightError{Finding: *f}
 	}
 	chain := explicitChain(r, RunOptions{Provider: q.Profile, Model: q.Model})
 	if isHubAgent(q.Agent) && q.Model == "" {

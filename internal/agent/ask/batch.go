@@ -244,6 +244,7 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 
 // lineCapable checks the line's agent can run req; a code mode it cannot give runs off, noted.
 func lineCapable(name string, req *agent.RunOptions) error {
+	dropGoogleTools(name, &req.GoogleTools)
 	if err := agent.CheckCapabilities(name, *req); err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func lineCapable(name string, req *agent.RunOptions) error {
 		return nil
 	}
 	var err error
-	req.Codemode, req.CodemodeReason, err = validateCodemode(req.Codemode, name, req.Tools, directRoute("", req.Provider))
+	req.Codemode, req.CodemodeReason, err = validateCodemode(req.Codemode, name, req.Runner, req.Tools, directRoute("", req.Provider))
 	noteCodemodeOff(name, req.CodemodeReason)
 	return err
 }
@@ -313,6 +314,7 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
 	if ov.Runner != "" { // an explicit runner on the line, seen by the re-pick guards
+		req.Runner = ov.Runner
 		req.Values = req.Values.Merge(nil)
 		req.Values[route.OverlayVar] = withRunner(req.Values[route.OverlayVar], ov.Runner)
 	}

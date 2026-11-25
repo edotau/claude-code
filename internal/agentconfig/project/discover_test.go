@@ -357,7 +357,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode", "pi"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "code-mode", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }
@@ -365,19 +365,22 @@ func TestAgentFilesTie(t *testing.T) {
 // Each external worker type bakes its one typed ask, --agent matching the file: nobody composes the line.
 func TestExternalTypesBakeTheirAsk(t *testing.T) {
 	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "gemini", "opencode", "pi"} {
-		data, err := os.ReadFile(filepath.Join(root, "agents", name+".md"))
+	cases := []struct{ file, agent, flags string }{ // code-mode is Pi in code mode; gemini runs agy on its Google pin
+		{"codex", "codex", " --codemode on --provider databricks --tools"},
+		{"copilot", "copilot", " --codemode on --provider databricks --tools"},
+		{"gemini", "gemini", " --tools"},
+		{"opencode", "opencode", " --provider databricks --tools"},
+		{"code-mode", "pi", " --provider databricks --tools --codemode on"},
+	}
+	for _, c := range cases {
+		data, err := os.ReadFile(filepath.Join(root, "agents", c.file+".md"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		mode := "" // pi is the code-mode type: rtk stays off inside its run
-		if name == "pi" {
-			mode = " --codemode on"
-		}
-		ask := "claude-code agents ask --background --agent " + name + " --provider databricks --tools" + mode + " --timeout 60m - < PATH"
-		for _, want := range []string{ask, "claude-code agents brief --path " + name} {
+		ask := "claude-code agents ask --background --agent " + c.agent + c.flags + " --timeout 60m - < PATH"
+		for _, want := range []string{ask, "claude-code agents brief --path " + c.agent} {
 			if !strings.Contains(string(data), want) {
-				t.Errorf("agents/%s.md lacks %q", name, want)
+				t.Errorf("agents/%s.md lacks %q", c.file, want)
 			}
 		}
 	}

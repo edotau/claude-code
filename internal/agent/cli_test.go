@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
@@ -153,6 +154,15 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})
 	if time.Since(start) >= 30*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
 		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
+	}
+	pgid := cmd.Process.Pid
+	for end := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if !proc.GroupAlive(pgid) {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatalf("process group %d still has a member after Wait: a grandchild escaped the kill", pgid)
+		}
 	}
 }
 

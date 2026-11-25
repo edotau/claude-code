@@ -515,7 +515,7 @@ type simplifyReport struct {
 // runGateCmd runs one gate process in dir with its combined output; list args only, never a shell.
 func runGateCmd(ctx context.Context, dir, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
+	cmd.Dir, cmd.Env = dir, proc.GoFlagsEnv(os.Environ(), "-trimpath")
 	cmd.WaitDelay = proc.ExecWaitDelay
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf

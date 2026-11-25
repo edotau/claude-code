@@ -172,8 +172,8 @@ func TestLabelModelGoogleQuotaNote(t *testing.T) {
 		orig := googleQuotaCheck
 		googleQuotaCheck = func(context.Context, string, time.Time) (gemini.ModelQuota, error) { reads++; return tc.q, tc.err }
 		stubResolve(t, func(agentpkg.ModelQuery) string { return "gemini-4-argon-low" })
-		resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
-			return agentpkg.ModelRoute{Agent: q.Agent, Account: tc.account, Model: "gemini-4-argon-low"}, nil
+		resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, *agentpkg.AutoChoice, error) {
+			return agentpkg.ModelRoute{Agent: q.Agent, Account: tc.account, Model: "gemini-4-argon-low"}, nil, nil
 		}
 		_, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, tc.agent, "do x")
 		googleQuotaCheck = orig
@@ -304,5 +304,51 @@ func TestInheritedFableSessionLabelsOpusOnDatabricks(t *testing.T) {
 	run.profile = "dev"
 	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") {
 		t.Errorf("a typed Fable label lost its refusal note: %q", n)
+	}
+}
+
+// An agent file baking --provider databricks labels through that provider, not the agent's own pin.
+func TestLabelQueryUsesBakedProvider(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(route.OverlayVar, "")
+	old := readAgentFile
+	readAgentFile = func(string) ([]byte, error) {
+		return []byte("```bash\nclaude-code agents ask --agent codex --provider databricks --tools - < PATH\n```\n"), nil
+	}
+	t.Cleanup(func() { readAgentFile = old })
+	var seen agentpkg.ModelQuery
+	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
+	labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "codex", "do x")
+	if seen.Provider != "databricks" {
+		t.Errorf("query provider = %q, want databricks from the baked ask line", seen.Provider)
+	}
+}
+
+// An auto route's label is the peeked pick, else the literal auto, never the static pin.
+func TestLabelModelAutoIsPickNotPin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct {
+		name   string
+		choice *agentpkg.AutoChoice
+		want   string
+	}{
+		{"peeked pick", &agentpkg.AutoChoice{Criterion: "rotation"}, "picked-id"},
+		{"cold fallback", &agentpkg.AutoChoice{Fallback: "no fresh listing"}, "auto"},
+	} {
+		stubResolve(t, func(agentpkg.ModelQuery) string { return "picked-id" })
+		resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, *agentpkg.AutoChoice, error) {
+			return agentpkg.ModelRoute{Agent: q.Agent, Model: "static-pin"}, tc.choice, nil
+		}
+		if tc.choice != nil && tc.choice.Fallback == "" {
+			resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, *agentpkg.AutoChoice, error) {
+				return agentpkg.ModelRoute{Agent: q.Agent, Model: "picked-id"}, tc.choice, nil
+			}
+		}
+		run := newDispatchRun(nil)
+		run.model = agentpkg.AutoModel
+		if got, _ := labelModel(context.Background(), run, map[string]any{}, "opencode", "do x"); got != tc.want {
+			t.Errorf("%s: label = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

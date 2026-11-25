@@ -11,6 +11,8 @@ the prefix yourself (CLAUDE.md guideline 6). Its vetoes (below) pass as typed, a
   misses are `rtk grep -n`, `rtk git diff`, `rtk go test`. One file is the Read tool, never `cat`/`head` (in a
   pipeline `rtk read f`, `--head-lines|--tail-lines N`). A pipeline prefixes its first command
   (`rtk git log --oneline | head`).
+- **grep exit 1 is an answer:** `grep`, `rg` and `git grep` exit 1 on no match, not a failure: never re-run it; end a
+  count or existence check with `|| true` (or use `go list -deps -f`, `git grep -c`).
 - **Truncated or failed output:** a line `[full output: rtk recall <hash>]` means rtk saved the whole output; run that
   command instead of re-running the original. rtk output is condensed but sufficient: run commands normally and batch
   related ones into one call; re-run as `rtk bypass <cmd>` only when the result is unusable (empty where output was

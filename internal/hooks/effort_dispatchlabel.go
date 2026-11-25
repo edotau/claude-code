@@ -99,6 +99,7 @@ type LabelRow struct {
 
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
+	in.Type = cmp.Or(staleTypeTarget(in.Type), in.Type) // a bare "pi" labels as its code-mode type
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
 	if in.Brief == "" && in.Model == "" && !agentPinsModel(newDispatchRun(func() string { return in.SessionModel }), in.Type) {
 		if tiers := dispatchTierLabels(in.Type, in.SessionModel); tiers != "" { // the hook picks the tier from the brief

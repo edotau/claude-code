@@ -575,11 +575,11 @@ func TestShippedWorkflowsAreClean(t *testing.T) {
 		t.Skip("pre-ship tier: runs node linter")
 	}
 	useNode(t)
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate the repo root")
+	wd, err := os.Getwd() // not runtime.Caller: -trimpath rewrites its path
+	if err != nil {
+		t.Fatal(err)
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
+	repoRoot := filepath.Dir(filepath.Dir(wd))
 	if rc, out, errs := lintVerb(repoRoot); rc != 0 || !strings.Contains(out, "script(s) clean") || strings.HasPrefix(out, "workflow lint: 0 ") {
 		t.Fatalf("shipped workflows under %s: rc=%d out=%q\n%s", repoRoot, rc, out, errs)
 	}

@@ -197,6 +197,8 @@ func (r *askRun) config() (int, bool) {
 		return r.fail(err, 2)
 	}
 	r.ov.Fold(r.fs)
+	r.f.runner = cmp.Or(r.f.runner, r.ov.Runner)
+	r.ov.Runner = r.f.runner // carryOverlay hands it to piRunnerAsked
 	return 0, false
 }
 
@@ -291,7 +293,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), runnerCheck(f), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -581,7 +583,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: f.runner, GoogleTools: googleToolNames(f.googleTools), EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted()}
 }
@@ -609,9 +611,11 @@ func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
 	r.prompt = strings.Join(r.pos, " ")
 	r.state = r.askState()
+	typedTools := f.googleTools
 	if rc, done := r.applyRecord(); done {
 		return rc, true
 	}
+	f.googleTools = cmp.Or(typedTools, f.googleTools) // a typed list beats the record's
 	var err error
 	markTyped(r.fs, f) // again: applyRecord loaded the record's flag; a --model on this line beats it
 	resumeModel(f)
@@ -627,7 +631,8 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if err := resolveAskHost(r.ov, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := replayCodemode(f); err != nil {
+	r.ov.Runner = cmp.Or(f.runner, r.ov.Runner) // a replayed record's runner reaches the chain too
+	if err := cmp.Or(finalGoogleTools(f, typedTools), replayCodemode(f)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
@@ -648,7 +653,7 @@ func replayCodemode(f *askFlags) error {
 
 // resolveCodemode settles f.codemode and its reason for the resolved agent and route, noting a fall back to off.
 func resolveCodemode(f *askFlags) (err error) {
-	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.tools, directRoute(f.provider, f.profile))
+	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.runner, f.tools, directRoute(f.provider, f.profile))
 	noteCodemodeOff(f.name, f.codemodeReason)
 	return err
 }
@@ -722,7 +727,7 @@ func (r *askRun) askState() *askState {
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
-		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Verify: &f.verify,
+		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Runner: &f.runner, GoogleTools: &f.googleTools, Verify: &f.verify,
 		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed}
 }
 
