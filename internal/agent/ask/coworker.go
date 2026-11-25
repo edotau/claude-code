@@ -425,7 +425,7 @@ func pickWith(reg *providers.Registry, q armQuery, now time.Time) (string, int, 
 
 // errLeave refuses an overlay provider/profile that differs from the inherited confinement provider[:profile].
 func errLeave(provider, profile string) error {
-	return fmt.Errorf("overlay: a nested dispatch cannot leave %s: drop provider/profile", route.Join(provider, profile))
+	return fmt.Errorf("overlay: cannot leave %s; drop --provider/--profile (parent fence)", route.Join(provider, profile))
 }
 
 // bareArm is the first of profile and the session's profile that names a Databricks row, else "".
@@ -586,4 +586,20 @@ func (r *askRun) pinLacks(model string) bool {
 func ownLoginNative(agentName string, f *askFlags, value string) bool {
 	return f.native || value == "" && agentName == agentid.OpenCode && f.profile == "" && f.provider == "" && f.host == "" &&
 		providers.OpencodeOwnModel(f.model)
+}
+
+// recoveryFence restores the recorded parent's fence before retry flags or overlays can select a route.
+func recoveryFence(ctx context.Context, id string) (context.Context, error) {
+	rec, err := agent.LoadRecord(id)
+	if err != nil {
+		return ctx, err
+	}
+	if rec.Parent == "" {
+		return ctx, nil
+	}
+	parent, err := agent.LoadRecord(rec.Parent)
+	if err != nil {
+		return ctx, fmt.Errorf("recovery parent %s: cannot restore fence: %w", rec.Parent, err)
+	}
+	return ApplyRoute(ctx, parent.Route, "", rec.Agent, "", router.FallbackAgents)
 }

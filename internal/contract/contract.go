@@ -169,21 +169,22 @@ func StageOf(t Term) Stage {
 
 // Contract is one unit of work held by one owner from open to close or fail.
 type Contract struct {
-	Schema   int          `json:"schema"`
-	ID       string       `json:"id"`               // the owner's dispatch id
-	Parent   string       `json:"parent,omitempty"` // the contract that sub-contracted this one
-	Scope    Scope        `json:"scope"`
-	Owner    Party        `json:"owner"`
-	Terms    []Term       `json:"terms"` // fixed at open by TermsFor; never edited after
-	Limits   Limits       `json:"limits"`
-	Records  []TermRecord `json:"records,omitempty"`
-	Result   *Result      `json:"result,omitempty"`
-	Handback *Result      `json:"handback,omitempty"` // the owner's hand-back, held from verify for Close
-	Holders  []string     `json:"holders"`            // dispatch ids that held it; two after a re-assign
-	Children []string     `json:"children,omitempty"` // sub-contract ids
-	Failed   Reason       `json:"failed,omitempty"`
-	Executed bool         `json:"executed_tests,omitempty"` // only an executed run (by go) passes the tests term
-	state    State        // only the transition functions change it; JSON key "state"
+	Schema     int          `json:"schema"`
+	TermPolicy int          `json:"term_policy,omitempty"` // additive verification policy; absent on legacy contracts
+	ID         string       `json:"id"`                    // the owner's dispatch id
+	Parent     string       `json:"parent,omitempty"`      // the contract that sub-contracted this one
+	Scope      Scope        `json:"scope"`
+	Owner      Party        `json:"owner"`
+	Terms      []Term       `json:"terms"` // fixed at open by TermsFor; never edited after
+	Limits     Limits       `json:"limits"`
+	Records    []TermRecord `json:"records,omitempty"`
+	Result     *Result      `json:"result,omitempty"`
+	Handback   *Result      `json:"handback,omitempty"` // the owner's hand-back, held from verify for Close
+	Holders    []string     `json:"holders"`            // dispatch ids that held it; two after a re-assign
+	Children   []string     `json:"children,omitempty"` // sub-contract ids
+	Failed     Reason       `json:"failed,omitempty"`
+	Executed   bool         `json:"executed_tests,omitempty"` // only an executed run (by go) passes the tests term
+	state      State        // only the transition functions change it; JSON key "state"
 }
 
 // Scope is the unit and the files it may touch.

@@ -1,10 +1,12 @@
 package ask
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +56,7 @@ func TestOpenContractObservesLaneAndProxy(t *testing.T) {
 	if !reflect.DeepEqual(got, want) || c.State() != contract.StateWorking {
 		t.Fatalf("state %s, open records %v; want working, %v", c.State(), got, want)
 	}
-	if a, err := abandonContract("d-1", contract.ReasonCancelled); err != nil || a.State() != contract.StateFailed {
+	if a, err := abandonContract("d-1", "d-1", contract.ReasonCancelled); err != nil || a.State() != contract.StateFailed {
 		t.Fatalf("abandon: state %s, %v; want failed", a.State(), err)
 	}
 }
@@ -88,10 +90,10 @@ func TestSettleContractFailsOnRedGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	openSaved(t, contract.Facts{}, "", "")
 	one := 1
-	got, err := settleContract("d-1", contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &one},
+	got, err := settleContract("d-1", "d-1", contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &one},
 		Verify:   &wire.VerifyResult{Exit: 0},
 		Handback: &wire.Handback{Status: "DONE", Summary: "s", Unfixed: []string{}},
-		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: scratchFile(t, paths.MemorySubDir("reports"), "r.md")})
+		Tests:    contract.TestsJudged, Method: contract.MethodSolo, Report: completeReport(t, "r.md")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,5 +112,79 @@ func TestContractRefusalsAndDeadlineEnd(t *testing.T) {
 	}
 	if got := runEndOf(wire.Result{}, context.DeadlineExceeded); got != endDeadline {
 		t.Fatalf("runEndOf = %q", got)
+	}
+}
+
+func completeReport(t *testing.T, name string) string {
+	t.Helper()
+	p := scratchFile(t, paths.MemorySubDir("reports"), name)
+	var body strings.Builder
+	for _, field := range contract.ReportFields() {
+		body.WriteString("## " + field + "\n")
+		if field == "Gross production lines added and deleted" {
+			body.WriteString("Added: 0\nDeleted: 0\nScratch: 1 added (not production).\n")
+		} else {
+			body.WriteString("Proof or an explicit reason this does not apply.\n")
+		}
+	}
+	if err := os.WriteFile(p, []byte(body.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestReportTermChecksRecordedAndRequestedFields(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	recorded := completeReport(t, "recorded.md")
+	requested := scratchFile(t, paths.MemorySubDir("reports"), "requested.md")
+	c := contract.Contract{Scope: contract.Scope{Report: requested}}
+	if got := reportRecord(c, recorded, now); got.Verdict != contract.VerdictFail {
+		t.Fatal("incomplete requested report passed", got)
+	}
+	completeReport(t, "requested.md")
+	if got := reportRecord(c, recorded, now); got.Verdict != contract.VerdictPass || got.Evidence != recorded {
+		t.Fatal("complete reports did not pass with recorded evidence", got)
+	}
+	if err := os.WriteFile(recorded, []byte("# DONE\nA file exists, but no reporting fields."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := reportRecord(c, recorded, now); got.Verdict != contract.VerdictFail {
+		t.Fatal("incomplete Go-recorded report passed", got)
+	}
+	if err := os.Remove(requested); err != nil {
+		t.Fatal(err)
+	}
+	if got := reportRecord(c, completeReport(t, "recorded.md"), now); got.Verdict != contract.VerdictFail {
+		t.Fatal("missing requested report passed", got)
+	}
+}
+
+func TestRequestedReportOutsideBankAndReadLimit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	filed := completeReport(t, "filed.md")
+	body, err := os.ReadFile(filed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := filepath.Join(t.TempDir(), "requested.md")
+	if err := os.WriteFile(requested, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := contract.Contract{Scope: contract.Scope{Report: requested}}
+	if got := reportRecord(c, filed, time.Now()); got.Verdict != contract.VerdictPass {
+		t.Fatal(got)
+	}
+	if got := reportOf(agent.Record{ID: "missing"}, c); got != requested {
+		t.Fatal(got)
+	}
+	if got := reportRecord(c, requested, time.Now()); got.Verdict != contract.VerdictPass {
+		t.Fatal(got)
+	}
+	if err := os.WriteFile(requested, bytes.Repeat([]byte("x"), 1<<20+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readReport(requested); err == nil {
+		t.Fatal("unbounded report read")
 	}
 }

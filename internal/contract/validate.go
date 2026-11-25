@@ -24,6 +24,9 @@ func Validate(c Contract) []Problem {
 	if c.Schema != SchemaVersion {
 		add("schema", "version %d, want %d", c.Schema, SchemaVersion)
 	}
+	if c.TermPolicy != 1 {
+		add("term_policy", "version %d, want 1", c.TermPolicy)
+	}
 	validateScope(c.Scope, add)
 	validateOwner(c.Owner, c.Limits, add)
 	validateLimits(c.Limits, add)
@@ -151,9 +154,9 @@ func validateFailed(c Contract, add func(string, string, ...any)) {
 func entryTerms(s State, c Contract) []Term {
 	switch s {
 	case StateVerified:
-		return verifyTerms
+		return c.verifyTerms()
 	case StateClosed:
-		return append(slices.Clone(verifyTerms), c.closeTerms()...)
+		return c.Terms
 	}
 	return nil
 }

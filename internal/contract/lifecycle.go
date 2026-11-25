@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 var (
@@ -12,7 +14,7 @@ var (
 	ErrState = errors.New("illegal transition")
 	// ErrTerms means a term the transition needs has no pass record.
 	ErrTerms = errors.New("terms not passed")
-	// ErrChildOpen means a sub-contract has not reached closed or failed.
+	// ErrChildOpen means a sub-contract has not successfully closed.
 	ErrChildOpen = errors.New("sub-contract open")
 	// ErrLimit means the depth or leaf budget is spent.
 	ErrLimit = errors.New("limit reached")
@@ -59,7 +61,7 @@ func (c Contract) guard(op string, from ...State) error {
 
 // Open builds an opened contract with the fixed terms for f; on a problem it returns the zero Contract.
 func Open(scope Scope, owner Party, lim Limits, f Facts) (Contract, []Problem) {
-	c := Contract{Schema: SchemaVersion, Scope: scope, Owner: owner, Terms: TermsFor(f), Limits: lim,
+	c := Contract{Schema: SchemaVersion, TermPolicy: 1, Scope: scope, Owner: owner, Terms: TermsFor(f), Limits: lim,
 		Executed: NeedsExecutedTests(f) || scope.Kind == KindTestRepair}.clone()
 	if ps := append(Validate(c), factProblems(scope, f)...); len(ps) > 0 {
 		return Contract{}, ps
@@ -119,18 +121,18 @@ func (c Contract) Reassign(dispatch string) (Contract, error) {
 	return n, nil
 }
 
-// Verify moves working → verified once gate and tests passed and every child in children is terminal.
+// Verify moves working → verified once every non-close term passes and every child successfully closes.
 func (c Contract) Verify(children []Contract) (Contract, error) {
 	if err := c.guard("verify", StateWorking); err != nil {
 		return c, err
 	}
-	if miss := c.missing(verifyTerms...); len(miss) > 0 {
+	if miss := c.missing(c.verifyTerms()...); len(miss) > 0 {
 		return c, refuse("verify", c.state, ErrTerms, "no pass record for %v", miss)
 	}
 	for _, id := range c.Children {
 		i := slices.IndexFunc(children, func(k Contract) bool { return k.ID == id && k.Parent == c.ID })
-		if i < 0 || !children[i].state.Terminal() {
-			return c, refuse("verify", c.state, ErrChildOpen, "no closed or failed sub-contract %q of %q", id, c.ID)
+		if i < 0 || children[i].state != StateClosed {
+			return c, refuse("verify", c.state, ErrChildOpen, "no closed sub-contract %q of %q", id, c.ID)
 		}
 	}
 	n := c.clone()
@@ -138,7 +140,7 @@ func (c Contract) Verify(children []Contract) (Contract, error) {
 	return n, nil
 }
 
-// Close moves verified → closed once hand-back and close terms pass; other unmet terms are reported (D3), not refused.
+// Close moves verified → closed once every term passes.
 func (c Contract) Close(r Result) (Contract, error) {
 	if err := c.guard("close", StateVerified); err != nil {
 		return c, err
@@ -146,7 +148,7 @@ func (c Contract) Close(r Result) (Contract, error) {
 	if err := checkResult(c, r); err != "" {
 		return c, refuse("close", c.state, ErrInput, "%s", err)
 	}
-	if miss := c.missing(append(slices.Clone(verifyTerms), c.closeTerms()...)...); len(miss) > 0 {
+	if miss := c.missing(c.Terms...); len(miss) > 0 {
 		return c, refuse("close", c.state, ErrTerms, "no pass record for %v", miss)
 	}
 	n := c.clone()
@@ -176,7 +178,7 @@ func (c Contract) WithRecord(r TermRecord) (Contract, error) {
 	if err := c.guard("record", StateOpened, StateWorking, StateVerified); err != nil {
 		return c, err
 	}
-	if c.state == StateVerified && slices.Contains(verifyTerms, r.Term) {
+	if c.state == StateVerified && slices.Contains(c.verifyTerms(), r.Term) {
 		return c, refuse("record", c.state, ErrState, "%q was settled by verify", r.Term)
 	}
 	if tooEarly(c.state, r.Term) {
@@ -202,14 +204,11 @@ func tooEarly(s State, t Term) bool {
 	return slices.Index(Stages(), StageOf(t)) > slices.Index(Stages(), last)
 }
 
-// verifyTerms must pass before Verify and stay passed until Close.
-var verifyTerms = []Term{TermGate, TermTests}
-
-// closeTerms are the hand-back and c's close-stage terms, which must pass before Close.
-func (c Contract) closeTerms() []Term {
-	out := []Term{TermHandback}
+// verifyTerms must pass before Verify; close-stage terms need observations made after Verify.
+func (c Contract) verifyTerms() []Term {
+	var out []Term
 	for _, t := range c.Terms {
-		if StageOf(t) == StageClose {
+		if StageOf(t) != StageClose {
 			out = append(out, t)
 		}
 	}
@@ -294,9 +293,32 @@ func (c *Contract) UnmarshalJSON(b []byte) error {
 	}
 	n := Contract(w.alias)
 	n.state = w.State
+	if n.TermPolicy > 1 {
+		return fmt.Errorf("term policy %d: %w", n.TermPolicy, schemas.ErrNewer)
+	}
+	if n.Schema == SchemaVersion && n.TermPolicy == 0 {
+		n = upgradeLegacyTerms(n)
+	}
 	if ps := Validate(n); len(ps) > 0 {
 		return fmt.Errorf("contract %q: %v", n.ID, ps)
 	}
 	*c = n
 	return nil
+}
+
+// upgradeLegacyTerms preserves evidence while retiring pre-policy unfulfilled verified/closed states.
+func upgradeLegacyTerms(c Contract) Contract {
+	c.TermPolicy = 1
+	if (c.state == StateVerified || c.state == StateClosed) && len(c.missing(entryTerms(c.state, c)...)) > 0 {
+		r := Result{}
+		if c.Handback != nil {
+			r = *c.Handback
+		}
+		if c.Result != nil {
+			r = *c.Result
+		}
+		c.state, c.Failed = StateFailed, ReasonTerm
+		c.Result = settled(r, c.Unmet())
+	}
+	return c
 }

@@ -3,11 +3,15 @@ package ask
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -210,5 +214,156 @@ func TestSettleLeavesWaitsForWorking(t *testing.T) {
 	leavesSettle = 50 * time.Millisecond
 	if open := settleLeaves(context.Background(), []string{"e-2"}); len(open) != 1 || open[0] != "e-2" {
 		t.Fatalf("open = %v, want e-2 still working", open)
+	}
+}
+
+// TestCancelledFleetRecoversSameContractOnce exercises one slot, recovery takeover and the retry limit.
+func TestCancelledFleetRecoversSameContractOnce(t *testing.T) {
+	lostLeaf(t, "owner", "leaf")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	settleHeld(ctx, &agent.Prepared{Record: agent.Record{ID: "leaf"}}, wire.Result{}, context.Canceled)
+	assertWorkingHolders(t, "leaf", []string{"leaf"})
+	// The watcher uses agents ask --retry <id> --recover, not a fresh spec.
+	calls := 0
+	send := func(_ context.Context, holder string) (string, error) {
+		calls++
+		return recoverCancelledLeaf(t, holder), nil
+	}
+	watchOnce(context.Background(), "owner", send, map[string]int{})
+	k, err := contract.Load("leaf")
+	p, _ := contract.Load("owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(k.Holders, []string{"leaf", "retry"}) || !slices.Equal(p.Children, []string{"leaf"}) || calls != 1 {
+		t.Fatalf("not recovered in same slot: leaf %+v parent %+v calls %d", k, p, calls)
+	}
+	// A delayed cancellation from the old attempt cannot fail the new holder.
+	settleHeld(ctx, &agent.Prepared{Record: agent.Record{ID: "leaf"}}, wire.Result{}, context.Canceled)
+	assertWorkingHolders(t, "leaf", []string{"leaf", "retry"})
+	settleHeld(ctx, &agent.Prepared{Record: agent.Record{ID: "retry"}}, wire.Result{}, context.Canceled)
+	k, _ = contract.Load("leaf")
+	if k.State() != contract.StateFailed || k.Failed != contract.ReasonCancelled {
+		t.Fatalf("second cancel: %+v", k)
+	}
+	watchOnce(context.Background(), "owner", send, map[string]int{})
+	if calls != 1 {
+		t.Fatal("second cancelled attempt re-sent again")
+	}
+}
+
+func recoverCancelledLeaf(t *testing.T, holder string) string {
+	t.Helper()
+	if holder != "leaf" {
+		t.Fatalf("resend holder = %q", holder)
+	}
+	markResumed(t, holder, "retry")
+	if got := heldID(agent.Record{ID: "retry"}); got != "leaf" {
+		t.Fatalf("explicit recovery held %q, want leaf", got)
+	}
+	return "retry"
+}
+
+func assertWorkingHolders(t *testing.T, id string, holders []string) {
+	t.Helper()
+	k, err := contract.Load(id)
+	if err != nil || k.State() != contract.StateWorking || !slices.Equal(k.Holders, holders) {
+		t.Fatalf("contract %s: state %s holders %v err %v, want working %v", id, k.State(), k.Holders, err, holders)
+	}
+}
+
+func TestParentCancelEndsRecoverableLeavesAndOldAbandonCannotFailRetry(t *testing.T) {
+	lostLeaf(t, "owner", "leaf")
+	if _, err := abandonContract("leaf", "leaf", contract.ReasonCancelled); err != nil {
+		t.Fatal(err)
+	}
+	markResumed(t, "leaf", "retry")
+	if got := heldID(agent.Record{ID: "retry"}); got != "leaf" {
+		t.Fatal(got)
+	}
+	if _, err := abandonContract("leaf", "leaf", contract.ReasonOwnerDead); err != nil {
+		t.Fatal(err)
+	}
+	assertWorkingHolders(t, "leaf", []string{"leaf", "retry"})
+	if _, err := abandonContract("owner", "owner", contract.ReasonCancelled); err != nil {
+		t.Fatal(err)
+	}
+	k, err := contract.Load("leaf")
+	if err != nil || k.Failed != contract.ReasonCancelled {
+		t.Fatalf("orphan: %+v %v", k, err)
+	}
+}
+
+func TestCancelledFleetReplacementClosesOriginalContractAndOwner(t *testing.T) {
+	lostLeaf(t, "owner", "leaf")
+	if _, err := abandonContract("leaf", "leaf", contract.ReasonCancelled); err != nil {
+		t.Fatal(err)
+	}
+	recoverCancelledLeaf(t, "leaf")
+	zero := 0
+	ret := contractReturn{End: endFinished, Gate: &worktree.GateRun{Exit: &zero},
+		Verify:   &wire.VerifyResult{Command: "go test ./internal/contract -run TestTransitions", Exit: 0},
+		Handback: &wire.Handback{Status: "DONE", Summary: "done"}, Tests: contract.TestsExecuted,
+		Method: contract.MethodSolo, Report: completeReport(t, "leaf.md")}
+	k, err := settleContract("leaf", "retry", ret)
+	if err != nil || k.State() != contract.StateClosed {
+		t.Fatalf("replacement did not close original contract: %+v %v", k, err)
+	}
+	ret.Children, ret.Method, ret.Report = []contract.Contract{k}, contract.MethodFleet, completeReport(t, "owner.md")
+	p, err := settleContract("owner", "owner", ret)
+	if err != nil || p.State() != contract.StateClosed || !slices.Equal(p.Children, []string{"leaf"}) {
+		t.Fatalf("owner did not close with one recovered leaf: %+v %v", p, err)
+	}
+}
+
+func TestFailedOwnerSettlesPreservedDeadLeafWithItsReason(t *testing.T) {
+	for _, why := range []contract.Reason{contract.ReasonDeadline, contract.ReasonOwnerDead, contract.ReasonTerm} {
+		t.Run(string(why), func(t *testing.T) {
+			lostLeaf(t, "owner", "leaf")
+			if _, err := abandonContract("leaf", "leaf", contract.ReasonCancelled); err != nil {
+				t.Fatal(err)
+			}
+			assertWorkingHolders(t, "leaf", []string{"leaf"})
+			if _, err := abandonContract("owner", "owner", why); err != nil {
+				t.Fatal(err)
+			}
+			k, err := contract.Load("leaf")
+			if err != nil || k.Failed != why {
+				t.Fatalf("dead leaf orphaned or misattributed: %+v %v", k, err)
+			}
+		})
+	}
+}
+
+func TestWatchDoesNotResendAfterOwnerSettles(t *testing.T) {
+	lostLeaf(t, "owner", "leaf")
+	if _, err := contract.Update("owner", func(c contract.Contract) (contract.Contract, error) { return c.Fail(contract.ReasonCancelled) }); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	watchOnce(context.Background(), "owner", func(context.Context, string) (string, error) { calls++; return "retry", nil }, map[string]int{})
+	if calls != 0 {
+		t.Fatal("terminal owner watcher re-sent a leaf")
+	}
+}
+
+func TestTerminalContractRecoveryRefusesBeforeModelRun(t *testing.T) {
+	lostLeaf(t, "owner", "leaf")
+	markResumed(t, "leaf", "retry")
+	if _, err := abandonContract("owner", "owner", contract.ReasonCancelled); err != nil {
+		t.Fatal(err)
+	}
+	p := &agent.Prepared{Record: agent.Record{ID: "retry", Agent: "claude", Status: "running", Time: time.Now()}}
+	if err := p.Record.Save(); err != nil {
+		t.Fatal(err)
+	}
+	// A nil client would panic if the rejected recovery reached model execution.
+	if code := runSettled(context.Background(), nil, p, agent.RunOptions{}, nil, false, "text", "", io.Discard); code != 1 {
+		t.Fatalf("terminal recovery exit = %d", code)
+	}
+	rec, err := agent.LoadRecord("retry")
+	if err != nil || rec.Status != wire.StatusError || !strings.Contains(rec.Error, "contract leaf: state failed") {
+		t.Fatalf("refusal was not concluded: %+v %v", rec, err)
 	}
 }

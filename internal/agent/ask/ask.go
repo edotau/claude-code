@@ -180,6 +180,11 @@ func (r *askRun) config() (int, bool) {
 	if r.ctx, err = jobAncestry(r.ctx, r.f.job); err != nil { // first: the overlay read must see the parent's fence
 		return r.fail(err, 1)
 	}
+	if r.f.recover && r.f.retry != "" {
+		if r.ctx, err = recoveryFence(r.ctx, r.f.retry); err != nil {
+			return r.fail(err, 1)
+		}
+	}
 	busy := ""
 	if r.stdinTaken() {
 		busy = "stdin is the overlay, so give the task as an argument"

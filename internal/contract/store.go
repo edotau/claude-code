@@ -149,8 +149,8 @@ func FailUnreadable(id string) error {
 			}
 			return err // a read error may be transient: never replace on it
 		}
-		if _, err := load(p); err == nil {
-			return nil // readable: nothing to replace
+		if _, err := load(p); err == nil || errors.Is(err, schemas.ErrNewer) {
+			return nil // readable or future schema: never replace
 		}
 		scope := Scope{Unit: "unreadable " + id, Kind: KindTask, Own: []string{"-"}}
 		c, ps := Open(scope, Party{Role: RoleOwner, Agent: "unknown"}, LimitsFor(KindTask, RoleOwner, Limits{}), Facts{})

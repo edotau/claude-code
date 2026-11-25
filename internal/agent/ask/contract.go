@@ -108,12 +108,23 @@ func openRecords(c contract.Contract, o contractOpen, now time.Time) []contract.
 }
 
 // settleContract records the return terms on id's saved contract, then verifies (and closes) or fails it (D3).
-func settleContract(id string, r contractReturn) (contract.Contract, error) {
-	return contract.Update(id, func(c contract.Contract) (contract.Contract, error) { return settle(c, r, time.Now()) })
+func settleContract(id, holder string, r contractReturn) (contract.Contract, error) {
+	c, err := contract.Update(id, func(c contract.Contract) (contract.Contract, error) {
+		if !currentHolder(c, holder) {
+			return c, nil
+		}
+		return settle(c, r, time.Now())
+	})
+	settleDeadChildren(c)
+	return c, err
 }
 
 // settle is settleContract without the store: records, then Verify, Close for a contract with no close terms, or Fail.
 func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Contract, error) {
+	// Keep the first cancelled fleet attempt in its budget slot for one re-send.
+	if r.End == endCancelled && retryableCancellation(c) {
+		return c, nil
+	}
 	hb := typedHandback(r)
 	c, err := withRecords(c, returnRecords(c, r, hb, now))
 	if err != nil {
@@ -135,13 +146,39 @@ func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Cont
 }
 
 // abandonContract fails id's contract when it is not yet terminal: the deferred call for a panic or a cancel.
-func abandonContract(id string, why contract.Reason) (contract.Contract, error) {
-	return contract.Update(id, func(c contract.Contract) (contract.Contract, error) {
-		if c.State().Terminal() {
+func abandonContract(id, holder string, why contract.Reason) (contract.Contract, error) {
+	c, err := contract.Update(id, func(c contract.Contract) (contract.Contract, error) {
+		if !currentHolder(c, holder) || why == contract.ReasonCancelled && retryableCancellation(c) {
 			return c, nil
 		}
 		return c.Fail(why)
 	})
+	settleDeadChildren(c)
+	return c, err
+}
+
+// settleDeadChildren ends dead leaves outside the owner lock; MaxDepth forbids grandchildren.
+func settleDeadChildren(c contract.Contract) {
+	if c.State() != contract.StateFailed {
+		return
+	}
+	for _, id := range c.Children {
+		_, err := contract.Update(id, func(k contract.Contract) (contract.Contract, error) {
+			if k.State() != contract.StateWorking || holderLive(k) {
+				return k, nil
+			}
+			return k.Fail(c.Failed)
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ask: contract %s: settle dead leaf: %v\n", id, err)
+		}
+	}
+}
+
+// holderLive spares a leaf that can finish settling even after its owner failed.
+func holderLive(c contract.Contract) bool {
+	r, err := agent.LoadRecord(c.Holders[len(c.Holders)-1])
+	return err == nil && r.Status == "running" && agent.RecordLive(r)
 }
 
 // returnRecords is one record per return term: gate, tests, handback and report.
@@ -156,7 +193,7 @@ func returnRecords(c contract.Contract, r contractReturn, hb *handback, now time
 	if slices.Contains(c.Terms, contract.TermLeaves) {
 		out = append(out, leavesRecord(c.Children, r.Children, now))
 	}
-	return append(out, observed(contract.TermReport, isReport(r.Report), r.Report, missAbsent, now))
+	return append(out, reportRecord(c, r.Report, now))
 }
 
 // leavesRecord passes when every sub-contract id closed ok (a re-sent one on its new holder); else it names the rest.
@@ -227,7 +264,7 @@ func handbackMiss(h *wire.Handback) string {
 	return missUntyped
 }
 
-// failReason is why c fails now: the run did not finish, or an open or return term it holds has no pass.
+// failReason is why c fails now: the run did not finish, or a non-close term has no pass.
 func failReason(c contract.Contract, end runEnd, spent contract.Spent) (contract.Reason, bool) {
 	switch end {
 	case endFinished:
@@ -239,7 +276,7 @@ func failReason(c contract.Contract, end runEnd, spent contract.Spent) (contract
 		return contract.ReasonOwnerDead, true
 	}
 	for _, t := range c.Unmet() {
-		if s := contract.StageOf(t); s == contract.StageOpen || s == contract.StageReturn {
+		if s := contract.StageOf(t); s != contract.StageClose {
 			return c.FailReason(spent), true
 		}
 	}
@@ -325,6 +362,51 @@ func isProxyScope(p string) bool {
 	return fileIn(filepath.Join(paths.StateDir(), "proxy", "scopes"), p)
 }
 
+// reportRecord checks completeness of both the Go-recorded report and the explicitly requested path.
+func reportRecord(c contract.Contract, path string, now time.Time) contract.TermRecord {
+	paths := []string{path}
+	if c.Scope.Report != "" && c.Scope.Report != path {
+		paths = append(paths, c.Scope.Report)
+	}
+	for _, p := range paths {
+		if !isReport(p) && (p != c.Scope.Report || !isRequestedReport(p)) {
+			return failed(contract.TermReport, missAbsent, now)
+		}
+		body, err := readReport(p)
+		if err != nil {
+			return failed(contract.TermReport, "report-read", now)
+		}
+		if missing := contract.ReportProblems(string(body)); len(missing) > 0 {
+			return failed(contract.TermReport, "report-fields: "+strings.Join(missing, ", "), now)
+		}
+	}
+	return observed(contract.TermReport, true, path, "", now)
+}
+
+// readReport caps the bytes read even if another writer grows the file during the read.
+func readReport(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	const limit = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if len(body) > limit {
+		return nil, errors.New("report exceeds size limit")
+	}
+	return body, err
+}
+
+// isRequestedReport accepts an explicitly requested absolute regular file, even outside the memory bank.
+func isRequestedReport(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode().IsRegular()
+}
+
 // isReport reports whether p is a filed report in the memory bank; the caller passes the path JobReport returned.
 func isReport(p string) bool { return fileIn(paths.MemorySubDir("reports"), p) }
 
@@ -383,6 +465,9 @@ func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
 		Facts: contract.Facts{Lane: lane != "", PlanTask: plan != "", Fleet: lim.Leaves > 0,
 			TestStep: strings.Contains(t.Verify, "go test"), TestRepair: kind == contract.KindTestRepair},
 		Parent: t.Contract.Parent, Dir: dir}
+	if o.Scope.Report != "" && !filepath.IsAbs(o.Scope.Report) {
+		o.Scope.Report = filepath.Join(dir, o.Scope.Report)
+	}
 	if role == contract.RoleFleet { // a fleet member works in its owner's lane and plan task: only the owner owes them
 		o.Facts = contract.Facts{TestStep: o.Facts.TestStep, TestRepair: o.Facts.TestRepair}
 	}
@@ -449,7 +534,15 @@ func contractBlock(o *contractOpen) string {
 	}
 	lines = append(lines, "Terms Go records: "+joinTerms(o.terms()),
 		fmt.Sprintf("Limits: tokens %d, leaves %d, depth %d", o.Limits.Tokens, o.Limits.Leaves, o.Limits.Depth),
-		"Go checks every term itself; hand back with the handback tool (status, tests, method).")
+		"Go checks every term itself; hand back with the handback tool (status, tests, method).",
+		contract.ReportInstructions())
+	if o.Owner.Role == contract.RoleFleet && o.Parent != "" {
+		lines = append(lines,
+			"While the parent works, a cancelled fleet attempt is re-sent once on the same contract.",
+			"Recover manually with agents ask --retry <id> --recover; a fresh spec creates a new contract.",
+			"Operator cancels also trigger this one re-send. Stop the fleet by cancelling its owner; "+
+				"cancelling its replacement too (two cancels total) stops this unit but fails the owner leaves term.")
+	}
 	return "\n\n## Contract\n\n" + strings.Join(lines, "\n")
 }
 
@@ -476,7 +569,7 @@ func joinFleet(parent, child string) error {
 	}
 	add := func(c contract.Contract) (contract.Contract, error) { return c.AddChild(child) }
 	if _, err := contract.Update(parent, add); err != nil {
-		if _, aerr := abandonContract(child, contract.ReasonLimit); aerr != nil {
+		if _, aerr := abandonContract(child, child, contract.ReasonLimit); aerr != nil {
 			fmt.Fprintf(os.Stderr, "ask: contract %s: abandon after refusal: %v\n", child, aerr)
 		}
 		return fmt.Errorf("dispatch refused: %w", err)
@@ -489,7 +582,7 @@ func unsavedHeld(ctx context.Context, rec agent.Record, format string, saveErr e
 	if saveErr == nil || askContractOf(ctx) == nil {
 		return 0, false
 	}
-	got, err := abandonContract(rec.ID, contract.ReasonOwnerDead)
+	got, err := abandonContract(rec.ID, rec.ID, contract.ReasonOwnerDead)
 	reportSettled(rec.ID, got, err)
 	return failAsk(format, rec.Agent, fmt.Errorf("save dispatch record: %w", saveErr)), true
 }
@@ -505,7 +598,7 @@ func spawnHeld(ctx context.Context, fs *flag.FlagSet, p *agent.Prepared, native 
 	}
 	if code != 0 && askContractOf(ctx) != nil {
 		if rec, err := agent.LoadRecord(p.Record.ID); err != nil || !rec.Alive() { // a started job settles its own
-			got, err := abandonContract(p.Record.ID, contract.ReasonOwnerDead)
+			got, err := abandonContract(p.Record.ID, p.Record.ID, contract.ReasonOwnerDead)
 			reportSettled(p.Record.ID, got, err)
 		}
 	}
@@ -517,17 +610,37 @@ func runSettled(ctx context.Context, cl *agent.Client, p *agent.Prepared, req ag
 	isJob bool, format, save string, out io.Writer) int {
 	cid := heldID(p.Record)
 	if cid == "" {
+		if err := unheldContractError(p.Record); err != nil {
+			res := wire.Result{Agent: p.Record.Agent, DispatchID: p.Record.ID, Status: wire.StatusError}
+			err = p.Record.Conclude(res, err, jobOpts(isJob, format, out))
+			return reportAsk(out, format, save, p, res, err)
+		}
 		if run != nil {
 			return run.run(ctx, cl, p, req)
 		}
 		return runAskAndReport(ctx, cl, p, isJob, format, save, out)
 	}
-	defer abandonOnPanic(cid)
+	defer abandonOnPanic(cid, p.Record.ID)
 	defer watchLeaves(ctx, cid)()
 	if run != nil {
 		return run.run(ctx, cl, p, req) // the arm retry calls settleHeld before it concludes the record
 	}
 	return runHeld(ctx, cl, p, isJob, format, save, out)
+}
+
+// unheldContractError refuses a known contract's recovery rather than silently running it uncontracted.
+func unheldContractError(rec agent.Record) error {
+	for _, id := range append([]string{rec.ID}, agent.ResumeChain(rec.ID)...) {
+		c, err := contract.Load(id)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("recovery contract %s: %w", id, err)
+		}
+		return fmt.Errorf("dispatch %s cannot run without contract %s: state %s, holders %v", rec.ID, id, c.State(), c.Holders)
+	}
+	return nil
 }
 
 // heldID is the id of the working contract rec's dispatch holds: its own, else the one a re-send took over.
@@ -569,7 +682,7 @@ func holdsContract(id string) bool {
 			fmt.Fprintf(os.Stderr, "ask: contract %s: fail unreadable: %v\n", id, ferr)
 		}
 	}
-	return err == nil && c.State() == contract.StateWorking
+	return err == nil && currentHolder(c, id)
 }
 
 // runHeld is runAskAndReport with the record held running until the contract settles, so no reaper takes it.
@@ -594,9 +707,9 @@ func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob boo
 }
 
 // abandonOnPanic fails id's contract when the run panics, then re-panics; deferred directly so recover works.
-func abandonOnPanic(id string) {
+func abandonOnPanic(id, holder string) {
 	if p := recover(); p != nil {
-		got, err := abandonContract(id, contract.ReasonOwnerDead)
+		got, err := abandonContract(id, holder, contract.ReasonOwnerDead)
 		reportSettled(id, got, err)
 		panic(p)
 	}
@@ -613,7 +726,7 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 	if ctx.Err() == nil {
 		ret := returnOf(ctx, p.Record, id, res, runErr)
 		if ctx.Err() == nil { // a cancel during the settle gate is a cancel, not an unmet gate
-			got, err = settleContract(id, ret)
+			got, err = settleContract(id, p.Record.ID, ret)
 			reportSettled(id, got, err)
 			return
 		}
@@ -622,8 +735,22 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		why = contract.ReasonDeadline
 	}
-	got, err = abandonContract(id, why)
+	got, err = abandonContract(id, p.Record.ID, why)
 	reportSettled(id, got, err)
+}
+
+// retryableCancellation preserves the first fleet cancel for one automatic or --retry <id> --recover re-send.
+func retryableCancellation(c contract.Contract) bool {
+	if !currentHolder(c, c.ID) || c.Parent == "" || c.Owner.Role != contract.RoleFleet || len(c.Holders) != 1 {
+		return false
+	}
+	parent, err := contract.Load(c.Parent)
+	return err == nil && parent.State() == contract.StateWorking
+}
+
+// currentHolder checks that id still owns the working contract.
+func currentHolder(c contract.Contract, id string) bool {
+	return c.State() == contract.StateWorking && len(c.Holders) > 0 && c.Holders[len(c.Holders)-1] == id
 }
 
 // returnOf is what Go observed of rec's held run: its end, verify and hand-back, the filed report, spend and the gate.
@@ -666,7 +793,7 @@ func reportOf(rec agent.Record, c contract.Contract) string {
 	if saved, err := agent.LoadRecord(rec.ID); err == nil {
 		rec.Report = cmp.Or(saved.Report, rec.Report)
 	}
-	if !isReport(rec.Report) && isReport(c.Scope.Report) {
+	if !isReport(rec.Report) && isRequestedReport(c.Scope.Report) {
 		return c.Scope.Report
 	}
 	return rec.Report

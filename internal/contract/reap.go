@@ -18,7 +18,7 @@ type Env struct {
 // Reaped is one contract Reap acted on: Action is "reassigned" or "failed".
 type Reaped struct{ ID, Action, Holder string }
 
-// Reap re-assigns once, else fails owner-dead, each working contract whose holder is lost; its lane is kept.
+// Reap reassigns lost holders once or fails them, inheriting a terminal parent's reason; lanes are kept.
 func Reap(env Env) ([]Reaped, error) {
 	orphans, err := Orphans(env)
 	errs := []error{err}
@@ -60,6 +60,13 @@ func reapOne(id string, env Env) (r Reaped, err error) {
 		return Reaped{}, nil
 	}
 	holder := c.Holders[len(c.Holders)-1]
+	why, terminal, err := terminalParentFailure(c)
+	if err != nil {
+		return Reaped{}, err
+	}
+	if terminal {
+		return failOrphanedLeaf(c, env, holder, why)
+	}
 	next := successorOf(c, env)
 	_, err = Update(id, func(c Contract) (Contract, error) {
 		if !orphaned(c, env) || c.Holders[len(c.Holders)-1] != holder || spared(c, env, next) {
@@ -146,4 +153,37 @@ func age(id string, now time.Time) time.Duration {
 		return 0
 	}
 	return now.Sub(fi.ModTime())
+}
+
+// terminalParentFailure prevents a lost leaf from being re-sent under an already terminal owner.
+func terminalParentFailure(c Contract) (Reason, bool, error) {
+	if c.Parent == "" {
+		return "", false, nil
+	}
+	p, err := Load(c.Parent)
+	if err != nil {
+		return "", false, fmt.Errorf("parent contract %s: recovery deferred: %w", c.Parent, err)
+	}
+	if !p.State().Terminal() {
+		return "", false, nil
+	}
+	if p.Failed != "" {
+		return p.Failed, true, nil
+	}
+	return ReasonTerm, true, nil
+}
+
+func failOrphanedLeaf(c Contract, env Env, holder string, why Reason) (Reaped, error) {
+	r := Reaped{}
+	_, err := Update(c.ID, func(k Contract) (Contract, error) {
+		if !orphaned(k, env) || k.Holders[len(k.Holders)-1] != holder {
+			return k, nil
+		}
+		n, err := k.Fail(why)
+		if err == nil {
+			r = Reaped{ID: k.ID, Action: "failed", Holder: holder}
+		}
+		return n, err
+	})
+	return r, err
 }

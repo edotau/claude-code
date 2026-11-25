@@ -771,3 +771,89 @@ func TestTypedWorkspace(t *testing.T) {
 		}
 	}
 }
+
+// TestChildRouteFenceRespectsParentAuthority checks child fences under unpinned and dev-only parents.
+func TestChildRouteFenceRespectsParentAuthority(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{
+		"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},
+		"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}},
+		"prod":{"preset":"databricks","host":"https://prod.cloud.databricks.com","auth":{"type":"pat"}}
+	}}}`)
+	t.Setenv("HARNESS_DISPATCH_PROXY", "group:owner")
+	for _, parent := range []string{"databricks:auto", "databricks:dev"} {
+		confine(t, parent)
+		for _, profile := range []string{"dev", "qa", "prod"} {
+			ctx, err := ApplyRoute(t.Context(), route.Route{Provider: "databricks", Profile: profile}, "", "claude", "", router.FallbackAgents)
+			if parent == "databricks:dev" && profile != "dev" {
+				if err == nil || !strings.Contains(err.Error(), "cannot leave databricks:dev; drop --provider/--profile (parent fence)") {
+					t.Fatalf("fenced dev -> %s: %v", profile, err)
+				}
+				continue
+			}
+			if err != nil {
+				t.Fatalf("%s -> %s: %v", parent, profile, err)
+			}
+			assertChildFence(t, ctx, profile)
+		}
+	}
+}
+
+func assertChildFence(t *testing.T, ctx context.Context, profile string) {
+	t.Helper()
+	if got := router.ArmProfileContext(ctx); got != profile {
+		t.Fatalf("child fence %q, want %q", got, profile)
+	}
+	if got, err := agent.TokenScope(ctx, profile); err != nil || !slices.Equal(got, []string{profile}) {
+		t.Fatalf("child token scope %v %v, want only %s", got, err, profile)
+	}
+}
+
+func TestRecoverRestoresRecordedParentFenceBeforeOverlayFlags(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{
+		"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}
+	}}}`)
+	confine(t, "")
+	for _, rec := range []agent.Record{
+		{ID: "owner", Agent: "claude", Route: route.Route{Provider: "databricks", Profile: "dev"}},
+		{ID: "leaf", Agent: "claude", Parent: "owner"},
+	} {
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, err := recoveryFence(t.Context(), "leaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertChildFence(t, ctx, "dev")
+	if _, err := ApplyRoute(ctx, route.Route{Provider: "databricks", Profile: "qa"}, "", "claude", "", router.FallbackAll); err == nil {
+		t.Fatal("recovery widened the recorded parent's dev fence")
+	}
+	confine(t, "databricks:qa")
+	if _, err := recoveryFence(t.Context(), "leaf"); err == nil {
+		t.Fatal("recovery replaced a different ambient fence")
+	}
+}
+
+func TestRecoverMissingParentIsRuntimeErrorWithFenceRemedy(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.Record{ID: "leaf", Agent: "claude", Parent: "missing-owner"}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--retry", "leaf", "--recover", "--dry-run"}) })
+	if code != 1 || !strings.Contains(stderr, "missing-owner: cannot restore fence") {
+		t.Fatalf("exit %d message %q", code, stderr)
+	}
+}
+
+func TestRecoverWithoutRetryKeepsUsageError(t *testing.T) {
+	vaulttest.Use(t)
+	confine(t, "")
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--recover", "--dry-run", "task"}) })
+	if code != 2 || !strings.Contains(stderr, "--recover needs --retry <id>") {
+		t.Fatalf("exit %d message %q", code, stderr)
+	}
+}

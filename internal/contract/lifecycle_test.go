@@ -147,7 +147,45 @@ func TestParentCannotVerifyOverOpenChild(t *testing.T) {
 		}
 	}
 	child, _ = child.Fail(ReasonTerm)
+	if _, err := parent.Verify([]Contract{child}); !errors.Is(err, ErrChildOpen) {
+		t.Errorf("verify over a failed child: %v, want ErrChildOpen", err)
+	}
+	child, _ = opened(t, RoleFleet, 2, 0).Start("k1")
+	child.Parent = parent.ID
+	child, err := passAll(t, child).Verify(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err = passAll(t, child).Close(done)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, err := parent.Verify([]Contract{child}); err != nil || got.State() != StateVerified {
-		t.Errorf("verify over a failed child: %s, %v", got.State(), err)
+		t.Errorf("verify over a closed child: %s, %v", got.State(), err)
+	}
+}
+
+// Every pre-close term is a prerequisite, including leaves, report and lane.
+func TestVerifyRequiresEveryPreCloseTerm(t *testing.T) {
+	base := inState(t, StateWorking)
+	for _, term := range base.verifyTerms() {
+		t.Run(string(term), func(t *testing.T) {
+			c := passAll(t, base)
+			c, err := c.WithRecord(TermRecord{Term: term, Verdict: VerdictFail, By: ByGo})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.Verify(nil); !errors.Is(err, ErrTerms) {
+				t.Fatalf("Verify with failed %s: %v", term, err)
+			}
+			c.state = StateVerified // persisted forged state must be rejected too
+			if len(Validate(c)) == 0 {
+				t.Fatal("Validate accepted unmet verified term")
+			}
+		})
+	}
+	c := inState(t, StateVerified)
+	if _, err := c.WithRecord(TermRecord{Term: TermLeaves, Verdict: VerdictFail, By: ByGo}); !errors.Is(err, ErrState) {
+		t.Fatalf("verified leaves could regress: %v", err)
 	}
 }

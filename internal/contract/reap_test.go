@@ -97,3 +97,53 @@ func TestReapSparesAClaimedRecovery(t *testing.T) {
 		t.Fatalf("state = %s, want working", c.State())
 	}
 }
+
+func TestReapNeverResendsLostLeafUnderTerminalParent(t *testing.T) {
+	for _, why := range []Reason{ReasonCancelled, ReasonDeadline, ReasonOwnerDead, ReasonTerm} {
+		t.Run(string(why), func(t *testing.T) {
+			parent := savedWorking(t)
+			child, err := opened(t, RoleFleet, MaxDepth, 0).Start("leaf")
+			if err != nil {
+				t.Fatal(err)
+			}
+			child.Parent = parent.ID
+			if err := Save(child); err != nil {
+				t.Fatal(err)
+			}
+			// The owner swept while the cancelled child still looked live; it exits only afterward.
+			if _, err := Update(parent.ID, func(c Contract) (Contract, error) { return c.Fail(why) }); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			env := Env{Lost: func(id string) bool { return id == "leaf" }, Successor: func(Contract) string { calls++; return "retry" }}
+			if _, err := Reap(env); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load("leaf")
+			if err != nil || got.Failed != why || calls != 0 {
+				t.Fatalf("orphan re-sent or misattributed: %+v calls %d %v", got, calls, err)
+			}
+		})
+	}
+}
+
+func TestReapDefersRecoveryWithUnreadableParent(t *testing.T) {
+	savedWorking(t)
+	child, err := opened(t, RoleFleet, MaxDepth, 0).Start("leaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Parent = "pruned-owner"
+	if err := Save(child); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = Reap(Env{Lost: func(id string) bool { return id == "leaf" }, Successor: func(Contract) string { calls++; return "retry" }})
+	if err == nil || calls != 0 {
+		t.Fatalf("unreadable parent authorized recovery: calls %d %v", calls, err)
+	}
+	got, err := Load("leaf")
+	if err != nil || got.State() != StateWorking {
+		t.Fatalf("deferred recovery changed leaf: %+v %v", got, err)
+	}
+}
