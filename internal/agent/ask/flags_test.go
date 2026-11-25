@@ -134,7 +134,7 @@ func newAskTarget() *askTarget {
 	return &askTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
 		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
-		Host: s(), Fallback: s(), Codemode: s(), Runner: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
+		Host: s(), Fallback: s(), Codemode: s(), Runner: s(), GoogleTools: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
 		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema)}
 }
 
@@ -769,5 +769,38 @@ func TestVaultCodemodeDoesNotLeadPiRunner(t *testing.T) {
 	}
 	if got, _, _ := validateCodemode("", agentid.Pi, "", true, false); got != "on" {
 		t.Errorf("untyped pi = %q, want the vault's on", got)
+	}
+}
+
+func TestGoogleToolsFlag(t *testing.T) {
+	if err := googleToolsCheck(&askFlags{name: "gemini", googleTools: "url,code"}); err != nil {
+		t.Fatalf("url,code: %v", err)
+	}
+	for _, f := range []*askFlags{{name: "codex", googleTools: "url"}, {name: "gemini", googleTools: "bogus"}, {name: "gemini", googleTools: "computer_use"}, {name: "gemini", googleTools: "computer"}} {
+		if googleToolsCheck(f) == nil {
+			t.Errorf("accepted %+v", f)
+		}
+	}
+	s := newAskTarget()
+	s.Apply(agent.Record{Agent: "gemini", Request: agent.RunOptions{GoogleTools: []string{"url", "code"}}}, io.Discard)
+	if *s.GoogleTools != "url,code" {
+		t.Errorf("replayed google tools = %q", *s.GoogleTools)
+	}
+}
+
+func TestFinalGoogleToolsDropsRecordOnly(t *testing.T) {
+	f := &askFlags{name: "claude", googleTools: "url"}
+	if err := finalGoogleTools(f, ""); err != nil || f.googleTools != "" {
+		t.Fatalf("record-only: err=%v tools=%q", err, f.googleTools)
+	}
+	if finalGoogleTools(&askFlags{name: "codex", googleTools: "url"}, "url") == nil {
+		t.Fatal("typed list on codex accepted")
+	}
+	if err := finalGoogleTools(&askFlags{name: "gemini", googleTools: "url"}, "url"); err != nil {
+		t.Fatalf("gemini: %v", err)
+	}
+	req := agent.RunOptions{GoogleTools: []string{"url"}}
+	if err := lineCapable("codex", &req); err != nil || req.GoogleTools != nil {
+		t.Fatalf("batch line: err=%v tools=%v", err, req.GoogleTools)
 	}
 }

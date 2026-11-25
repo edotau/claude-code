@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -43,6 +44,7 @@ type askFlags struct {
 	attach                                                                                                                                                                             attachFlag
 	keepEnv                                                                                                                                                                            []string
 	codemode                                                                                                                                                                           string
+	googleTools                                                                                                                                                                        string
 	codemodeReason                                                                                                                                                                     string
 	runner                                                                                                                                                                             string
 	provider                                                                                                                                                                           string
@@ -120,6 +122,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(pi.CodemodeModes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
 	fs.StringVar(&f.runner, "runner", "", strings.Join(agentconfig.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
+	fs.StringVar(&f.googleTools, "google-tools", "", "gemini: Google built-ins, comma list (search,url,code)")
 	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
@@ -373,6 +376,48 @@ func validateAskFlags(format, fallback string) error {
 	return nil
 }
 
+// googleToolsCheck refuses --google-tools on another agent or with an unknown or held tool.
+func googleToolsCheck(f *askFlags) error {
+	if f.googleTools == "" {
+		return nil
+	}
+	if f.name != "" && f.name != agentid.Gemini {
+		return fmt.Errorf("--google-tools is gemini only, not %s", f.name)
+	}
+	_, err := translate.ParseGoogleTools(strings.Split(f.googleTools, ","))
+	return err
+}
+
+// finalGoogleTools runs on the final agent: off gemini a record-only list is dropped with a note, a typed one refused.
+func finalGoogleTools(f *askFlags, typed string) error {
+	if typed == "" && f.googleTools != "" {
+		var tools []string
+		if tools = []string{f.googleTools}; f.name != "" {
+			dropGoogleTools(f.name, &tools)
+		}
+		f.googleTools = strings.Join(tools, "")
+	}
+	return googleToolsCheck(f)
+}
+
+// dropGoogleTools clears an inherited list for an agent other than gemini, with a note.
+func dropGoogleTools(name string, tools *[]string) {
+	if len(*tools) > 0 && name != agentid.Gemini {
+		fmt.Fprintf(os.Stderr, "google-tools: dropped for %s (gemini only)\n", name)
+		*tools = nil
+	}
+}
+
+// googleToolNames is the validated --google-tools list, ready for RunOptions.
+func googleToolNames(csv string) []string {
+	tools, _ := translate.ParseGoogleTools(strings.Split(csv, ","))
+	out := make([]string, len(tools))
+	for i, t := range tools {
+		out[i] = string(t)
+	}
+	return out
+}
+
 // runnerCheck refuses a --runner outside agentconfig.Runners.
 func runnerCheck(f *askFlags) error {
 	if f.runner != "" && !slices.Contains(agentconfig.Runners, f.runner) {
@@ -466,6 +511,7 @@ type askTarget struct {
 	NoPersist, Native                                         *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
 	Host, Fallback, Coworker, Codemode, Runner, Verify        *string
+	GoogleTools                                               *string
 	Timeout                                                   *time.Duration
 	Persona                                                   **agent.Schema
 	Pack                                                      **pack.Spec
@@ -483,6 +529,9 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
 	if rec.Request.Runner != "" { // records from before the field keep this run's runner
 		*t.Runner = rec.Request.Runner
+	}
+	if len(rec.Request.GoogleTools) > 0 && t.GoogleTools != nil {
+		*t.GoogleTools = strings.Join(rec.Request.GoogleTools, ",")
 	}
 	if t.Verify != nil { // a retried or replayed run repeats its spec's verify
 		*t.Verify = rec.Request.Verify
