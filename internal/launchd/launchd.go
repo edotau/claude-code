@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,11 +17,11 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Agent is one launch agent: Body is the rendered plist; Prep makes directories the job needs before loading.
+// Agent is one launch agent; each domain and label must use one canonical plist path across installs.
 type Agent struct {
-	Label, Plist, Domain string // Domain is "gui/<uid>"
-	Body                 []byte
-	Prep                 func() error
+	Label, Plist, Domain string       // Domain is "gui/<uid>"
+	Body                 []byte       // rendered plist
+	Prep                 func() error // creates directories needed by the job
 }
 
 const ctlTimeout = 30 * time.Second // bounds each launchctl call so a wedged launchd cannot hang install
@@ -33,10 +34,18 @@ func Install(w io.Writer, a Agent, dryRun bool) error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	return install(w, a, dryRun)
+	return installSerialized(w, a, dryRun)
 }
 
-// install is Install without the darwin gate, so tests exercise the decision on any OS.
+// installSerialized is Install without the darwin gate; dry runs never create lock files.
+func installSerialized(w io.Writer, a Agent, dryRun bool) error {
+	if dryRun {
+		return install(w, a, true)
+	}
+	// The canonical plist lock serializes decisions and reloads across processes.
+	return paths.WithFileLock(a.Plist, func() error { return install(w, a, false) })
+}
+
 func install(w io.Writer, a Agent, dryRun bool) error {
 	switch same, err := plistCurrent(a); {
 	case err != nil:
@@ -51,19 +60,41 @@ func install(w io.Writer, a Agent, dryRun bool) error {
 	if err := prep(a); err != nil {
 		return err
 	}
+	// Mark intent before publishing so any interrupted reload will be retried.
+	if err := paths.AtomicWrite(a.Plist+".pending", nil, 0o600); err != nil {
+		return fmt.Errorf("mark launchd reload pending: %w", err)
+	}
 	if err := paths.AtomicWrite(a.Plist, a.Body, 0o644); err != nil {
 		return err
 	}
-	_ = Ctl("bootout", a.Domain+"/"+a.Label)
-	if err := Ctl("bootstrap", a.Domain, a.Plist); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %w", err)
+	if err := reload(a); err != nil {
+		return err
 	}
 	fmt.Fprintf(w, "  %-17s %s\n", rowName(a.Label), "wrote "+a.Plist)
 	return nil
 }
 
-// plistCurrent reports whether the installed plist already equals Body; a missing file is not current.
+// reload retains the pending marker until bootstrap succeeds.
+func reload(a Agent) error {
+	if err := Ctl("bootout", a.Domain+"/"+a.Label); err != nil && !notBootedOut(err) {
+		return fmt.Errorf("launchctl bootout: %w", err)
+	}
+	if err := Ctl("bootstrap", a.Domain, a.Plist); err != nil {
+		return fmt.Errorf("launchctl bootstrap: %w", err)
+	}
+	if err := os.Remove(a.Plist + ".pending"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear launchd reload pending: %w", err)
+	}
+	return nil
+}
+
+// plistCurrent reports whether the plist matches and no reload was interrupted.
 func plistCurrent(a Agent) (bool, error) {
+	if _, err := os.Lstat(a.Plist + ".pending"); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
 	have, err := os.ReadFile(a.Plist)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -99,6 +130,21 @@ func current(w io.Writer, a Agent, dryRun bool) error {
 // notLoaded reports launchctl print saying the domain has no such service (exit 113).
 func notLoaded(err error) bool {
 	return strings.Contains(err.Error(), "Could not find service")
+}
+
+// notBootedOut recognizes launchctl's explicit absent-service responses to bootout.
+func notBootedOut(err error) bool {
+	var status interface{ ExitCode() int }
+	if !errors.As(err, &status) {
+		return false
+	}
+	switch status.ExitCode() {
+	case 113:
+		return notLoaded(err)
+	case 3:
+		return strings.Contains("\n"+err.Error()+"\n", ": Boot-out failed: 3: No such process\n")
+	}
+	return false
 }
 
 // prep runs the agent's directory setup; an agent with nothing to prepare is fine.
