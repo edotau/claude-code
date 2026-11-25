@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
@@ -834,6 +835,26 @@ func TestRecoverRestoresRecordedParentFenceBeforeOverlayFlags(t *testing.T) {
 	confine(t, "databricks:qa")
 	if _, err := recoveryFence(t.Context(), "leaf"); err == nil {
 		t.Fatal("recovery replaced a different ambient fence")
+	}
+}
+
+func TestRecoverRestoresFenceFromParentRoutePlan(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, rec := range []agent.Record{
+		{ID: "owner", Agent: "claude", RoutePlan: &agent.RoutePlan{Fence: route.Fence{Profiles: []string{"dev"}}}},
+		{ID: "leaf", Agent: "claude", Parent: "owner"},
+	} {
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, err := recoveryFence(t.Context(), "leaf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := proxy.ConfinementFence(ctx)
+	if err != nil || got.Open || !slices.Equal(got.Profiles, []string{"dev"}) {
+		t.Fatalf("recovered fence %+v %v, want closed {dev}", got, err)
 	}
 }
 

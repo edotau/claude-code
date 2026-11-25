@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
@@ -600,6 +601,9 @@ func recoveryFence(ctx context.Context, id string) (context.Context, error) {
 	parent, err := agent.LoadRecord(rec.Parent)
 	if err != nil {
 		return ctx, fmt.Errorf("recovery parent %s: cannot restore fence: %w", rec.Parent, err)
+	}
+	if pf := parent.RoutePlan; pf != nil { // a recorded fence is restored as is, a closed empty one stays closed
+		return proxy.WithFence(ctx, pf.Fence.Profiles, pf.Fence.Open), nil
 	}
 	return ApplyRoute(ctx, parent.Route, "", rec.Agent, "", router.FallbackAgents)
 }
