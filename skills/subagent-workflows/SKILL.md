@@ -39,13 +39,14 @@ Shell `agents ask` belongs in a carried dispatch, workflow stage or requested sc
 | `Plan` | Design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 | `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
-| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the label names that ask's model | `ask: ran on` line, then the verdict |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf: a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict |
 | `code-mode` | Script-style work that needs raw tool output: a Haiku worker runs the typed `agents ask --agent pi --provider databricks --tools --codemode on` its file bakes; rtk stays off in the run | `ask: ran on` line, then the verdict |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
 Print a leaf's description prefix with `claude-code agents label <type> [--model m] [--profile p] --task FILE`
-(`--session-model` supplies the parent's). Pass the Agent
+(`--session-model` supplies the parent's). For a relay type the host label and receipt show the Haiku relay, and `label`
+is only a tier guess; the model that did the work is the inner `ask: ran on` line. Pass the Agent
 tool's `model` to raise one call. Model by job: fix and review-loop leaves run Sonnet (the review itself stays another
 family, R6), mechanical fixes `Tier: fast` with `--model auto` (R24; Haiku on a Claude
 leaf); Opus
