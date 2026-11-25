@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const cliFakeToken = "sk" + "-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
+const cliFakeToken = "qzplmoknij"
 
 func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 	vaulttest.UseFreshKey(t)
@@ -29,7 +29,7 @@ func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 		if code == 0 {
 			t.Errorf("%q: exit 0", args)
 		}
-		if strings.Contains(out+errOut, "FAKEFAKE") {
+		if strings.Contains(out+errOut, cliFakeToken) {
 			t.Errorf("%q echoed the secret: %q", args, out+errOut)
 		}
 	}

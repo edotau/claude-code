@@ -3,6 +3,7 @@ package vault
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 
 	"bytes"
 	"encoding/base64"
@@ -75,12 +76,12 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 
 func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	useZeroRootVault(t)
-	const secret = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	const secret = "qz-mnb-plmoknijbuhvygctfxrdzeswaq!"
 	storeAll(t, map[string]string{"Z_KEY": "short", "A_KEY": secret})
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	useWrongVaultKey(t)
 	want := []Stored{
-		{Name: "A_KEY", Prefix: "sk-test-", Len: len(secret)},
+		{Name: "A_KEY", Prefix: "qz-mnb-", Len: len(secret)},
 		{Name: "Z_KEY", Len: 5},
 	}
 	got, err := ListStored(nil)
@@ -88,7 +89,7 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("ListStored with wrong key = %+v, %v, want %+v", got, err, want)
 	}
-	if got[0].Masked() != "sk-test-*** (44 chars)" || got[1].Masked() != "5 chars" {
+	if got[0].Masked() != "qz-mnb-*** ("+strconv.Itoa(len(secret))+" chars)" || got[1].Masked() != "5 chars" {
 		t.Fatalf("Masked = %q, %q", got[0].Masked(), got[1].Masked())
 	}
 	got, err = ListStored([]string{"Z_KEY", "ONLY_IN_ENV", "MISSING"})

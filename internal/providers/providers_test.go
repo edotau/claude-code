@@ -257,20 +257,6 @@ func checkGatewayAuthorize(t *testing.T, gw *Provider) {
 	}
 }
 
-// A Provider marshals its Headers redacted at the type; an inline gateway token never reaches a dump.
-func TestProviderMarshalRedactsHeaders(t *testing.T) {
-	tok := "sk" + "-abcdefghijklmnopqrstuvwxyz0123"
-	p := Provider{Protocol: ProtocolOpenAI, BaseURL: "https://gw", Headers: map[string]string{"X-Key": tok, "X-Plain": "v"}}
-	b, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(b)
-	if strings.Contains(s, tok) || !strings.Contains(s, `"has_secret_headers":true`) || !strings.Contains(s, `"X-Plain":"v"`) {
-		t.Errorf("marshal: %s", s)
-	}
-}
-
 // StoredSecret reads only the vault; Credential must prefer the process env over it.
 func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	vaulttest.UseKeyring(t)

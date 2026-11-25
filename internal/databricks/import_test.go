@@ -32,7 +32,7 @@ client_secret = secret-value-1
 
 [pat-one]
 host = https://pat.example.cloud.databricks.com
-token = dapi-token-value
+token = qZanmdihhejd
 `
 
 func TestVaultImportDatabrickscfg(t *testing.T) {
@@ -54,7 +54,7 @@ func checkVaultImportApply(t *testing.T, base []string) {
 	t.Helper()
 	args := append(slices.Clone(base), "--apply", "--seal-secrets", "--rename", "pat-one=pat-renamed")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return importCfg(args) })
-	if code != 0 || strings.Contains(out, "secret-value-1") || strings.Contains(out, "dapi-token-value") {
+	if code != 0 || strings.Contains(out, "secret-value-1") || strings.Contains(out, "qZanmdihhejd") {
 		t.Fatalf("apply: %d %q", code, out)
 	}
 	reg, err := providers.Load()
@@ -142,7 +142,7 @@ func TestImportAllSkippedWritesNothing(t *testing.T) {
 func TestImportSealedPATIsFoundByCredentialForUnderscoreSuffixID(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	cfg := filepath.Join(t.TempDir(), "cfg")
-	body := "[dev_]\nhost = https://example.cloud.databricks.com\ntoken = dapi-e2e-value\n"
+	body := "[dev_]\nhost = https://example.cloud.databricks.com\ntoken = qZcogenifnle\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -155,14 +155,14 @@ func TestImportSealedPATIsFoundByCredentialForUnderscoreSuffixID(t *testing.T) {
 		t.Fatalf("row dev_ missing: %v", err)
 	}
 	got, err := providers.Credential(context.Background(), reg.Providers["dev_"])
-	if err != nil || got != "dapi-e2e-value" {
+	if err != nil || got != "qZcogenifnle" {
 		t.Fatalf("Credential = %q, %v", got, err)
 	}
 }
 
 const gapCfg = `[DEFAULT]
 host = https://leak.example.cloud.databricks.com
-token = dapi-DEFAULT-LEAK
+token = qZiemkpiojbf
 
 [svc-m2m]
 host = https://svc.example.cloud.databricks.com
@@ -171,7 +171,7 @@ client_secret = secret-value-1
 
 [pat-one]
 host = https://pat.example.cloud.databricks.com
-token = dapi-token-value
+token = qZanmdihhejd
 `
 
 func gapImport(t *testing.T, extra ...string) (code int, out string) {
@@ -213,7 +213,7 @@ func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
 			t.Errorf("dry-run sealed %s", n)
 		}
 	}
-	for _, leak := range []string{"secret-value-1", "dapi-token-value", "dapi-DEFAULT-LEAK", "leak.example"} {
+	for _, leak := range []string{"secret-value-1", "qZanmdihhejd", "qZiemkpiojbf", "leak.example"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("output leaks %q", leak)
 		}
@@ -242,14 +242,14 @@ func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"DATABRICKS_SVC_M2M_M2M": "secret-value-1",
-		"DATABRICKS_PAT_ONE_PAT": "dapi-token-value",
+		"DATABRICKS_PAT_ONE_PAT": "qZanmdihhejd",
 	} {
 		if got, src, err := vault.Lookup(name); err != nil || got != want || src != "vault" {
 			t.Errorf("%s = %q (%s) %v", name, got, src, err)
 		}
 	}
 	for _, n := range vault.Names() {
-		if v, _, _ := vault.Lookup(n); v == "dapi-DEFAULT-LEAK" {
+		if v, _, _ := vault.Lookup(n); v == "qZiemkpiojbf" {
 			t.Errorf("[DEFAULT] token sealed as %s", n)
 		}
 	}
@@ -409,7 +409,7 @@ func TestSealImportedEmptySecretIsNotSealed(t *testing.T) {
 
 const fixture = `[DEFAULT]
 host = https://leak.example.cloud.databricks.com
-token = dapiDEFAULTLEAK
+token = qZjhhcbkjkho
 
 [__settings__]
 x = y
@@ -425,7 +425,7 @@ client_secret = shh-beta
 
 [gamma]
 host = https://gamma.example.cloud.databricks.com
-token = dapi0123
+token = qZhbpdbngmpn
 
 [delta]
 host = http://insecure.example.com
@@ -524,15 +524,15 @@ func TestApplyAndSecretName(t *testing.T) {
 
 const orderCfg = `[prod]
 host = https://prod.cloud.databricks.com
-token = dapi1
+token = qZdgmkhmgaad
 
 [dev]
 host = https://dev.cloud.databricks.com
-token = dapi2
+token = qZhemkdlaihi
 
 [qa]
 host = https://qa.cloud.databricks.com
-token = dapi3
+token = qZbkifepohmo
 `
 
 func TestImportFollowsSectionOrder(t *testing.T) {

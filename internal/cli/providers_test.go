@@ -158,7 +158,7 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	}
 }
 
-const dbxCLIToken = "dapi-cli-secret-token"
+const dbxCLIToken = "qZcakflidphe"
 
 // providersDbxListing is the fake workspace listing (not dbxListing: these tests pin its exact three rows).
 const providersDbxListing = `{"endpoints":[
@@ -271,7 +271,7 @@ func qaProfile(t *testing.T, host string, on bool) {
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"qa":{"preset":"databricks","host":%q,` +
 		`"auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on, host))
-	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "dapi-qa")
+	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "qZkiibmfkedl")
 }
 
 // statusServer answers every request with code and counts them.
@@ -576,7 +576,7 @@ func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 
 func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	const secret = "dapi-list-secret-value-123456"
+	const secret = "qZgjhekpeodn"
 	err := providers.SetProviderFields("dbx-host", map[string]any{
 		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"auth": map[string]any{"type": "pat", "accountId": "1234abcd-0000", "workspaceId": "42"},

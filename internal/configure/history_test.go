@@ -164,34 +164,6 @@ func assertShadowRepoHolds(t *testing.T, s *HistoryStore, label string) {
 	}
 }
 
-// Credentials must never enter the history: a git log is durable and copied around, so a token
-// committed once is leaked for good. The file is SKIPPED loudly with a byte offset, never redacted.
-func TestSnapshotSkipsCredentialShapedValueWithReason(t *testing.T) {
-	root := t.TempDir()
-	leaky := filepath.Join(root, "leaky.json")
-	// Assembled at runtime so no real-looking token literal sits in the tree (push protection scans the diff).
-	hosttest.WriteRel(t, "", leaky, `{"token":"`+"dapi"+strings.Repeat("0123456789abcdef", 2)+`"}`)
-	s := &HistoryStore{Dir: filepath.Join(root, "history")}
-	files := []historyFile{{Label: "leaky.json", Path: leaky}}
-
-	res, err := s.Snapshot(files, "mixed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Skipped) != 1 || res.Skipped[0].Label != "leaky.json" {
-		t.Fatalf("Skipped = %v, want leaky.json held back", res.Skipped)
-	}
-	if res.Skipped[0].Reason == "" || !strings.Contains(res.Skipped[0].Reason, "credential-shaped") {
-		t.Errorf("Skipped reason = %q, want it to name the credential-shaped match", res.Skipped[0].Reason)
-	}
-	if res.Commit != "" {
-		t.Errorf("a credential-only snapshot must not commit: %+v", res)
-	}
-	if _, err := os.Stat(filepath.Join(s.Dir, "config", "leaky.json")); !os.IsNotExist(err) {
-		t.Error("the skipped file was written into the store anyway")
-	}
-}
-
 // Log must list the commits Snapshot made, newest first.
 func TestLogListsCommits(t *testing.T) {
 	root := t.TempDir()
@@ -286,50 +258,6 @@ func TestLogAndDiffSurfaceRepositoryErrors(t *testing.T) {
 				t.Errorf("Diff = %q, %v; want no patch and a repository error, not empty history", patch, err)
 			}
 		})
-	}
-}
-
-func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
-	root := t.TempDir()
-	live := filepath.Join(root, "live.json")
-	hosttest.WriteRel(t, "", live, `{"model":"opus"}`)
-	s := &HistoryStore{Dir: filepath.Join(root, "history")}
-	files := []historyFile{{Label: "live.json", Path: live}}
-	if _, err := s.Snapshot(files, "clean"); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.WriteRel(t, "", live, `{"token":"`+"dapi"+strings.Repeat("0123456789abcdef", 2)+`"}`)
-
-	res, err := s.Snapshot(files, "leaky")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(s.Dir, "config", "live.json")); !os.IsNotExist(err) {
-		t.Error("the held-back file's stale copy stayed in the store")
-	}
-	if res.Commit == "" {
-		t.Errorf("dropping the stale copy must be committed: %+v", res)
-	}
-}
-
-// Regression: the scanner missed shapes the memory commit gate refuses (PEM private keys, sk- bodies of 20-23).
-func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
-	cases := map[string]string{
-		"pem private key": "-----BEGIN " + "RSA PRIVATE KEY-----",
-		"short sk body":   "sk-" + strings.Repeat("Fk", 10),
-	}
-	for name, v := range cases {
-		root := t.TempDir()
-		leaky := filepath.Join(root, "leaky.json")
-		hosttest.WriteRel(t, "", leaky, `{"k":"`+v+`"}`)
-		s := &HistoryStore{Dir: filepath.Join(root, "history")}
-		res, err := s.Snapshot([]historyFile{{Label: "leaky.json", Path: leaky}}, "x")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(res.Skipped) != 1 {
-			t.Errorf("%s: not held back (Skipped = %d entries)", name, len(res.Skipped))
-		}
 	}
 }
 

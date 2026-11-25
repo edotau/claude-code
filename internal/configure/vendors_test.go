@@ -300,7 +300,7 @@ func TestHasAdminCredential(t *testing.T) {
 	if HasAdminCredential() {
 		t.Error("hasAdminCredential() = true with nothing set, want false")
 	}
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
+	t.Setenv("TAILSCALE_API_KEY", "qZpdfmjkgeoi")
 	if !HasAdminCredential() {
 		t.Error("hasAdminCredential() = false with TAILSCALE_API_KEY set, want true")
 	}

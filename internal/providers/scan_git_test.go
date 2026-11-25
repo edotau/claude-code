@@ -64,15 +64,15 @@ func TestScanGitNonRepoStillSkipped(t *testing.T) {
 	}
 }
 
-func TestScanGitLogPlusPrefixedSecret(t *testing.T) {
-	token := "ghp_" + "abcdefghij1234567890ABCD"
+func TestScanGitLogPlusPrefixedDeniedHost(t *testing.T) {
+	token := "private.devhost.invalid"
 	name := "config-" + token + ".env"
 	for _, content := range []string{"++TOKEN=", "++ TOKEN="} {
 		t.Run(content, func(t *testing.T) {
 			patch := "commit 0123456789abcdef\ndiff --git a/" + name + " b/" + name + "\n" +
 				"--- /dev/null\n+++ b/" + name + "\n@@ -0,0 +1 @@\n+" + content + token + "\n"
-			got, err := scanGitLogOutput(strings.NewReader(patch), nil)
-			want := []string{"0123456789ab " + name}
+			got, err := scanGitLogOutput(strings.NewReader(patch), []string{token})
+			want := []string{"0123456789ab " + name + ":1 — host of a configured Databricks profile"}
 			if err != nil || !slices.Equal(got, want) {
 				t.Fatalf("scan plus-prefixed addition = %v, %v; want %v", got, err, want)
 			}
@@ -80,15 +80,15 @@ func TestScanGitLogPlusPrefixedSecret(t *testing.T) {
 	}
 }
 
-func TestScanGitLogSecretStraddlesFragment(t *testing.T) {
-	token := "ghp_" + "abcdefghij1234567890ABCD"
+func TestScanGitLogDeniedHostStraddlesFragment(t *testing.T) {
+	token := "private.devhost.invalid"
 	line := "+" + strings.Repeat("x", (1<<20)-3) + token + "\n"
 	patch := "commit 0123456789abcdef\ndiff --git a/config.env b/config.env\n" +
 		"--- /dev/null\n+++ b/config.env\n@@ -0,0 +1 @@\n" + line
-	got, err := scanGitLogOutput(strings.NewReader(patch), nil)
-	want := []string{"0123456789ab config.env"}
+	got, err := scanGitLogOutput(strings.NewReader(patch), []string{token})
+	want := []string{"0123456789ab config.env:1 — host of a configured Databricks profile"}
 	if err != nil || !slices.Equal(got, want) {
-		t.Fatalf("scan token split after gh = %v, %v; want %v", got, err, want)
+		t.Fatalf("scan denied host split across fragments = %v, %v; want %v", got, err, want)
 	}
 }
 
@@ -120,12 +120,12 @@ func TestIsTestFixture(t *testing.T) {
 	}
 }
 
-// ScanGit must skip secret-shaped additions in test fixtures but still report real files.
+// ScanGit skips workspace-shaped additions in fixtures but still reports non-test and non-ASCII files.
 func TestScanGitSkipsTestFixtures(t *testing.T) {
 	dir := runGitScratch(t)
 	run := gitIn(t, dir)
-	// Fixtures are assembled at runtime so push protection never sees a literal key in this file.
-	fixture := "package x\n\nconst tok = \"sk" + "-abcdefghijklmnopqrstuvwxyz0123\"\n"
+	// Workspace identifiers exercise fixture classification without constructing credentials.
+	fixture := "host: acme.cloud.databricks.com\n"
 	if err := os.WriteFile(filepath.Join(dir, "x_test.go"), []byte(fixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := filepath.Join(dir, "testdata", "keys.env")
-	if err := os.WriteFile(keys, []byte("K=ghp"+"_abcdefghij0123456789\n"), 0o644); err != nil {
+	if err := os.WriteFile(keys, []byte(fixture), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "é.go"), []byte(fixture), 0o644); err != nil {
@@ -161,14 +161,15 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	}
 }
 
-// ScanGit must finish promptly and find a planted secret when another history line is enormous.
+// ScanGit must finish promptly and find a denied host when another history line is enormous.
 func TestScanGitLongLine(t *testing.T) {
 	for _, order := range []string{"leak-then-long", "long-then-leak"} {
 		t.Run(order, func(t *testing.T) {
+			stubDenyHosts(t, []string{"private.devhost.invalid"}, nil)
 			dir := hosttest.Repo(t)
 			run := gitIn(t, dir)
 			long := strings.Repeat("x", 1<<20+1)
-			leak := "k=ghp_abcdefghij1234567890ABCD\n"
+			leak := "host: private.devhost.invalid\n"
 
 			writeCommit := func(name, content string) {
 				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -221,11 +222,11 @@ func checkLongLineScan(t *testing.T, dir string) {
 	}
 }
 
-// A secret on a fragment of an over-long added line must be reported exactly once, not once per fragment.
-func TestScanGitSecretInsideLongLine(t *testing.T) {
+// A denied host on a fragment of an over-long added line must be reported exactly once, not once per fragment.
+func TestScanGitDeniedHostInsideLongLine(t *testing.T) {
 	dir := runGitScratch(t)
 	run := gitIn(t, dir)
-	line := strings.Repeat("x", 15*(1<<17)) + "ghp_abcdefghij1234567890ABCD"
+	line := strings.Repeat("x", 15*(1<<17)) + "private.devhost.invalid"
 	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -265,10 +266,9 @@ func TestScanGitNoTextconv(t *testing.T) {
 	}
 }
 
-// Prose that only starts like a key carries no digits; a minted token always does.
+// Ordinary prose and env references do not have a token shape.
 func TestTokenShaped(t *testing.T) {
-	jwt := "eyJ" + strings.Repeat("a", 12) + "." + strings.Repeat("b", 12) + "." + strings.Repeat("c", 12)
-	cases := map[string]bool{"": false, "sk" + "-before-changing-appearance-here": false, "sk" + "-abcdefghijklmnopqrstuvwxyz0123": true, jwt: true}
+	cases := map[string]bool{"": false, "ordinary-prose": false, "${ENV_REFERENCE}": false, "qz123gibberish": true}
 	for in, want := range cases {
 		if got := tokenShaped(in); got != want {
 			t.Errorf("tokenShaped(%q) = %v, want %v", in, got, want)
@@ -291,11 +291,12 @@ func TestScanGitRejectsOptionLikeRev(t *testing.T) {
 	}
 }
 
-// runGitScratch initializes a throwaway repo with a committed secret-shaped line, for ScanGit tests.
+// runGitScratch initializes a throwaway repo with a committed denied-host line, for ScanGit tests.
 func runGitScratch(t *testing.T) string {
+	stubDenyHosts(t, []string{"private.devhost.invalid"}, nil)
 	dir := hosttest.Repo(t)
 	path := filepath.Join(dir, "config.env")
-	if err := os.WriteFile(path, []byte("GITHUB_TOKEN=ghp_0123456789abcdefghij\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("host: private.devhost.invalid\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	hosttest.In(t, dir, "add", "config.env")
@@ -303,8 +304,8 @@ func runGitScratch(t *testing.T) string {
 	return dir
 }
 
-// ScanGit must find a secret-shaped line committed to history, without ever printing it.
-func TestScanGitFindsPlantedSecret(t *testing.T) {
+// ScanGit must find a denied-host line committed to history, without ever printing it.
+func TestScanGitFindsDeniedHost(t *testing.T) {
 	dir := runGitScratch(t)
 	var buf bytes.Buffer
 	rc := ScanGit(&buf, dir, "", 0)
@@ -315,8 +316,8 @@ func TestScanGitFindsPlantedSecret(t *testing.T) {
 	if !strings.Contains(out, "config.env") {
 		t.Errorf("output does not name the file:\n%s", out)
 	}
-	if strings.Contains(out, "ghp_0123456789abcdefghij") {
-		t.Fatal("git scan output must never echo the matched secret")
+	if strings.Contains(out, "private.devhost.invalid") {
+		t.Fatal("git scan output must never echo the matched host")
 	}
 }
 
@@ -335,10 +336,8 @@ func TestScanGitCleanHistory(t *testing.T) {
 	}
 }
 
-func TestLooksLikeSecret(t *testing.T) {
+func TestLooksLikeSecretRejectsReferencesAndPlaceholders(t *testing.T) {
 	cases := map[string]bool{
-		"sk-abcdefghij0123456789":    true,
-		"ghp_abcdefghij0123456789":   true,
 		"${ANTHROPIC_API_KEY}":       false,
 		"$ANTHROPIC_API_KEY":         false,
 		"/home/user/.ssh/token-file": false,
@@ -348,18 +347,6 @@ func TestLooksLikeSecret(t *testing.T) {
 	for v, want := range cases {
 		if got := LooksLikeSecret(v); got != want {
 			t.Errorf("LooksLikeSecret(%q) = %v, want %v", v, got, want)
-		}
-	}
-}
-
-// secretPattern (raw-text scan) catches every GitHub family at 20+ body characters and not shorter.
-func TestSecretPatternGitHubFamilies(t *testing.T) {
-	for _, p := range []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"} {
-		if !secretPattern().MatchString("x = " + p + strings.Repeat("a", 20)) {
-			t.Errorf("%s with a 20-char body must be caught", p)
-		}
-		if secretPattern().MatchString("x = " + p + strings.Repeat("a", 19)) {
-			t.Errorf("%s with a 19-char body must not be caught", p)
 		}
 	}
 }
@@ -422,9 +409,7 @@ func TestScanGitAllowsPlaceholders(t *testing.T) {
 
 // An unreadable registry is announced without echoing its error's host, and the shape rules still decide the exit.
 func TestScanGitRegistryUnreadable(t *testing.T) {
-	old := denyHosts
-	denyHosts = func() ([]string, error) { return nil, errors.New("overlay: bad row for acme.cloud.databricks.com") }
-	t.Cleanup(func() { denyHosts = old })
+	stubDenyHosts(t, nil, errors.New("overlay: bad row for acme.cloud.databricks.com"))
 	dir := hosttest.Repo(t)
 	if err := os.WriteFile(filepath.Join(dir, "n.md"), []byte("host: acme.cloud.databricks.com\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -450,4 +435,12 @@ func TestDenyHost(t *testing.T) {
 			t.Errorf("denyHost(%q) = %q, want %q", raw, got, want)
 		}
 	}
+}
+
+// stubDenyHosts restores the configured-host boundary after each test.
+func stubDenyHosts(t *testing.T, hosts []string, err error) {
+	t.Helper()
+	old := denyHosts
+	denyHosts = func() ([]string, error) { return hosts, err }
+	t.Cleanup(func() { denyHosts = old })
 }

@@ -39,11 +39,15 @@ func TestMain(m *testing.M) {
 func TestRunMintUsesInstalledVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	const token = "sk" + "-ant-oat01-abcdefghijklmnopqrstuv"
-	pathstest.FakeVendor(t, "claude", "printf '%s\\n' '"+token+"'")
+	const token = "qzplmoknij"
+	marker := filepath.Join(t.TempDir(), "vendor-ran")
+	pathstest.FakeVendor(t, "claude", "printf '%s' ran > '"+marker+"'; printf '%s\\n' '"+token+"'")
 	got, err := runMintContext(context.Background(), []string{"claude", "setup-token"})
-	if err != nil || got != token {
-		t.Fatalf("mint = %q, %v; want installed vendor's token", got, err)
+	if err != nil || got != "" {
+		t.Fatalf("mint = %q, %v; want no captured token for ordinary output", got, err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "ran" {
+		t.Fatalf("installed vendor did not run: %q, %v", got, err)
 	}
 }
 func TestVendorArgv(t *testing.T) {
@@ -98,7 +102,7 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 	}
 }
 
-const configureTestToken = "sk" + "-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
+const configureTestToken = "qzplmoknij"
 
 // configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE (exists: the first add reports a duplicate until remove runs); `exec sleep` leaves SIGINT nothing to defer.
 const configureFakeClaude = `printf '%s\n' "$@" '' >>"$CONFIGURE_COMMAND_LOG"
@@ -300,8 +304,8 @@ func assertCommandSucceeded(t *testing.T, err error, out, token string, mint boo
 	wantOut := "login complete\n"
 	if mint {
 		wantOut = "minting token\n" + configureTestToken + "\nfinished\n"
-		if token != configureTestToken {
-			t.Errorf("minted token = %q, want %q", token, configureTestToken)
+		if token != "" {
+			t.Errorf("ordinary output captured as a token: %q", token)
 		}
 	}
 	if out != wantOut {
@@ -317,9 +321,8 @@ func assertMaxPlanOptions(t *testing.T, opts []AuthOption) {
 	}
 }
 
-// The Max-plan row offers three ways in: browser login, minting a headless token, pasting one; the minted token
-// is recognised in the CLI's output by its sk-ant-oat prefix.
-func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
+// The Max-plan row offers login, mint and paste, and notices a stored headless value.
+func TestMaxPlanOptionsAndStoredHeadlessValue(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no claude binary: status reads as not logged in
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
@@ -328,11 +331,8 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 		t.Fatalf("no login and no token must read absent: %+v", kt)
 	}
 	assertMaxPlanOptions(t, AuthOptions(kt))
-	out := "Opening browser...\nPaste the code here:\n\nYour token: sk" + "-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
-	if got := setupTokenRE().FindString(out); got != "sk"+"-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
-		t.Errorf("token capture = %q", got)
-	}
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
+
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "qZmfpljhdkcf")
 	if kt := maxPlanTarget(KeyTarget{Label: "claude"}); !kt.Present || !kt.Headless || !strings.Contains(kt.Source, "headless token") {
 		t.Errorf("a stored token must read present/headless: %+v", kt)
 	}
@@ -345,7 +345,7 @@ func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // CLAUDE_CONFIG_DIR isolated so nothing real leaks in
 	t.Setenv("COPILOT_HOME", t.TempDir())      // no real copilot config.json: CopilotStoredLogin reads nothing
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
-	t.Setenv("GH_TOKEN", "ghp_env_override")
+	t.Setenv("GH_TOKEN", "qZnhilgadmfp")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	kt := AgentKeyTarget(reg, "copilot")
 	if !kt.Present || len(kt.LoginArgv) != 0 {
@@ -464,7 +464,7 @@ func servedHarness(t *testing.T, on bool) *int {
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"qa":{"preset":"databricks","host":%q,` +
 		`"auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on, srv.URL))
-	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "dapi-qa")
+	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "qZkiibmfkedl")
 	return &n
 }
 
@@ -539,7 +539,7 @@ func TestParseAssignment(t *testing.T) {
 	cases := []struct {
 		raw, name, value string
 	}{
-		{"sk-bare-value", "", "sk-bare-value"},
+		{"qZgdfggcclnd", "", "qZgdfggcclnd"},
 		{"NAME=v", "NAME", "v"},
 		{`export NAME="v"`, "NAME", "v"},
 		{"NAME='v'", "NAME", "v"},

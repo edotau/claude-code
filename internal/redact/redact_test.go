@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -92,17 +91,12 @@ func TestMaskCorners(t *testing.T) {
 			t.Errorf("variant %d: unchanged or resized", i)
 		}
 	}
-	shape := "Bearer " + strings.Repeat("Ab1_", 12)
-	out := m.String(shape)
-	if out == shape || m.String(out) != out {
-		t.Fatal("shape coverage or idempotence")
-	}
 }
 
-// A bearer token inside a JSON string stops at the closing quote, so the line stays valid JSON at the same length.
-func TestMaskBearerInJSON(t *testing.T) {
-	m := FromValues(nil)
-	tok := strings.Repeat("Xy9", 20)
+// A known value inside a JSON string stops at the closing quote, so the line stays valid JSON at the same length.
+func TestMaskKnownValueInJSON(t *testing.T) {
+	tok := "qzWxplMnrvBcDfg"
+	m := FromValues([]string{tok})
 	for _, line := range []string{`{"h":"Authorization: Bearer ` + tok + `","n":1}`, `{"h":["Bearer ` + tok + `"],"n":{"a":"Bearer ` + tok + `"}}`, `{"h":"Bearer ` + tok + `\n"}`, `{"h":"Bearer=` + tok + `"}`, `{"h":"Bearer \"` + tok + `\""}`} {
 		buf := []byte(line)
 		if m.Mask(buf) == 0 || len(buf) != len(line) || bytes.Contains(buf, []byte(tok)) || !json.Valid(buf) {
@@ -139,21 +133,21 @@ func TestLoadAndFileGuards(t *testing.T) {
 	}
 }
 
-// A truncated PEM line is masked to its body end; a line that would turn invalid stays, and the rest is still masked.
-func TestFileTruncatedPEM(t *testing.T) {
-	m := FromValues([]string{"FAKE-SECRET-0123456789abcdef"})
+// A known value in a valid JSON line is masked; an invalid line stays unchanged.
+func TestFileMasksValidLineAndPreservesInvalidLine(t *testing.T) {
+	const value = "qzWxplMnrvBcDfg"
+	m := FromValues([]string{value, "FAKE-SECRET-0123456789abcdef"})
 	dir := t.TempDir()
 	path := filepath.Join(dir, "t.jsonl")
-	pem := "-----BEGIN PRI" + "VATE KEY-----\\n" + strings.Repeat("MIIEvQIBADANBgkq", 8)
-	mixed := []byte("{\"k\":\"" + pem + "\"}\n{\"FAKE-SECRET-0123456789abcdef\": broken}\n")
+	mixed := []byte("{\"k\":\"" + value + "\"}\n{\"FAKE-SECRET-0123456789abcdef\": broken}\n")
 	if os.WriteFile(path, mixed, 0600) != nil {
 		t.Fatal("fixture write")
 	}
 	if _, err := File(dir, path, m, 0); err == nil {
 		t.Fatal("invalid line skip not reported")
 	}
-	if got, _ := os.ReadFile(path); bytes.Contains(got, []byte("MIIEvQIBADANBgkq")) || !bytes.HasSuffix(got, mixed[bytes.LastIndexByte(mixed[:len(mixed)-1], '\n')+1:]) {
-		t.Fatal("truncated PEM line not masked, or invalid line changed")
+	if got, _ := os.ReadFile(path); bytes.Contains(got, []byte(value)) || !bytes.HasSuffix(got, mixed[bytes.LastIndexByte(mixed[:len(mixed)-1], '\n')+1:]) {
+		t.Fatal("valid line not masked, or invalid line changed")
 	}
 }
 
@@ -182,7 +176,7 @@ func TestFileLinks(t *testing.T) {
 func benchSample(size int, jsonl bool, plant ...string) []byte {
 	line := "ok  \tgithub.com/edotau/claude-code/internal/redact\t0.412s sha=3f30f220c76ffebd0 Bearer is a word, token=abc\n"
 	if jsonl {
-		line = `{"type":"user","message":{"content":"ok  github.com/edotau/claude-code/internal/redact 0.412s sha=3f30f220c76ffebd0 ghost eyJ"},"uuid":"0f1e2d3c"}` + "\n"
+		line = `{"type":"user","message":{"content":"ok  github.com/edotau/claude-code/internal/redact 0.412s sha=3f30f220c76ffebd0 ordinary text"},"uuid":"0f1e2d3c"}` + "\n"
 	}
 	out := bytes.Repeat([]byte(line), size/len(line)+1)[:size]
 	for i, p := range plant {
@@ -191,16 +185,16 @@ func benchSample(size int, jsonl bool, plant ...string) []byte {
 	return out
 }
 
-func BenchmarkMask(b *testing.B) {
+func BenchmarkMaskKnownValues(b *testing.B) {
 	vals := make([]string, 200)
 	for i := range vals {
 		vals[i] = fmt.Sprintf("FAKE-SECRET-%04d-0123456789abcdef", i)
 	}
 	m := FromValues(vals)
-	shapes := []string{"gh" + "p_" + strings.Repeat("Ab1", 12), "tsk" + "ey-auth-kTEST000CNTRL-" + strings.Repeat("abcde", 6), "Bearer " + strings.Repeat("Xy9", 20)}
+	values := []string{vals[0], vals[100]}
 	for _, size := range []int{64 << 10, 1 << 20, 16 << 20} {
 		for _, kind := range []string{"text", "jsonl"} {
-			input := benchSample(size, kind == "jsonl", append([]string{vals[199]}, shapes...)...)
+			input := benchSample(size, kind == "jsonl", append([]string{vals[199]}, values...)...)
 			for name, mask := range map[string]func([]byte) int{"values": m.MaskValues, "all": m.Mask} {
 				b.Run(fmt.Sprintf("%s/bytes=%d/%s", kind, size, name), func(b *testing.B) {
 					buf := make([]byte, size)

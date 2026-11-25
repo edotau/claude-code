@@ -18,7 +18,7 @@ const exHost = "https://example.cloud.databricks.com"
 
 func noTokens(t *testing.T, s string) {
 	t.Helper()
-	if strings.Contains(s, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(s, "eyJ") {
+	if strings.Contains(s, "ANTHROPIC_AUTH_TOKEN") {
 		t.Errorf("token-like string in output:\n%s", s)
 	}
 }

@@ -131,7 +131,7 @@ func TestRunRemoteNotesConfiguredAdminCredential(t *testing.T) {
 	fakeTailscaleOnPATH(t, "test-mac.tailxxxxx.ts.net.")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
+	t.Setenv("TAILSCALE_API_KEY", "qZpdfmjkgeoi")
 
 	var out bytes.Buffer
 	d := &dialog{o: Options{}, out: &out}
@@ -140,7 +140,7 @@ func TestRunRemoteNotesConfiguredAdminCredential(t *testing.T) {
 	if !strings.Contains(got, "admin api   credential present") {
 		t.Errorf("output should report the admin credential present:\n%s", got)
 	}
-	if strings.Contains(got, "tskey-api-abc") {
+	if strings.Contains(got, "qZpdfmjkgeoi") {
 		t.Errorf("output leaked the credential value: %q", got)
 	}
 }

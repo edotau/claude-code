@@ -165,11 +165,11 @@ func TestMintCopyNoClipboardPrintsRouterNote(t *testing.T) {
 
 func TestSetPATStoresAndVerifies(t *testing.T) {
 	mintRow(t, 200)
-	status, err := SetPAT(context.Background(), "mrow", "  dapi-NEW  ")
+	status, err := SetPAT(context.Background(), "mrow", "  qZppigokeaop  ")
 	if err != nil || status != "verified" {
 		t.Fatalf("status %q err %v", status, err)
 	}
-	if v, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)); !ok || v != "dapi-NEW" {
+	if v, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)); !ok || v != "qZppigokeaop" {
 		t.Errorf("stored %q ok=%v", v, ok)
 	}
 	if !strings.Contains(overlayDoc(t), providers.AuthPAT) {
@@ -180,25 +180,25 @@ func TestSetPATStoresAndVerifies(t *testing.T) {
 func TestSetPATRejectedKeepsOldValue(t *testing.T) {
 	mintRow(t, 401)
 	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
-	if err := vault.Store(name, "dapi-OLD"); err != nil {
+	if err := vault.Store(name, "qZmipgbpmocm"); err != nil {
 		t.Fatal(err)
 	}
-	status, err := SetPAT(context.Background(), "mrow", "dapi-BAD")
+	status, err := SetPAT(context.Background(), "mrow", "qZkkdhelagbg")
 	if status != "rejected" || err == nil {
 		t.Fatalf("status %q err %v", status, err)
 	}
 	noToken(t, "error", err.Error())
-	if strings.Contains(err.Error(), "dapi-BAD") {
+	if strings.Contains(err.Error(), "qZkkdhelagbg") {
 		t.Errorf("error leaked the PAT: %v", err)
 	}
-	if v, ok, _ := vault.ReadSecret(name); !ok || v != "dapi-OLD" {
+	if v, ok, _ := vault.ReadSecret(name); !ok || v != "qZmipgbpmocm" {
 		t.Errorf("old PAT not restored: %q ok=%v", v, ok)
 	}
 }
 
 func TestSetPATRejectedWithoutOldDeletesSecret(t *testing.T) {
 	mintRow(t, 401)
-	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil {
+	if _, err := SetPAT(context.Background(), "mrow", "qZkkdhelagbg"); err == nil {
 		t.Fatal("want error")
 	}
 	if v, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)); ok {
@@ -217,16 +217,16 @@ func TestSetPATEmptyErrors(t *testing.T) {
 func TestSetPATReadFailureKeepsOldValue(t *testing.T) {
 	mintRow(t, 401)
 	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
-	if err := vault.Store(name, "dapi-OLD"); err != nil {
+	if err := vault.Store(name, "qZmipgbpmocm"); err != nil {
 		t.Fatal(err)
 	}
 	goodKey := os.Getenv("HARNESS_VAULT_KEY")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
-	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil || !strings.Contains(err.Error(), "read the previous") {
+	if _, err := SetPAT(context.Background(), "mrow", "qZkkdhelagbg"); err == nil || !strings.Contains(err.Error(), "read the previous") {
 		t.Fatalf("err = %v; want a read-previous error", err)
 	}
 	t.Setenv("HARNESS_VAULT_KEY", goodKey)
-	if v, ok, _ := vault.ReadSecret(name); !ok || v != "dapi-OLD" {
+	if v, ok, _ := vault.ReadSecret(name); !ok || v != "qZmipgbpmocm" {
 		t.Errorf("old PAT lost: %q ok=%v", v, ok)
 	}
 }
@@ -235,12 +235,12 @@ func TestSetPATReadFailureKeepsOldValue(t *testing.T) {
 func TestSetPATReadFailureRestoresAuthBlock(t *testing.T) {
 	mintRow(t, 200)
 	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
-	if err := vault.Store(name, "dapi-OLD"); err != nil {
+	if err := vault.Store(name, "qZmipgbpmocm"); err != nil {
 		t.Fatal(err)
 	}
 	goodKey := os.Getenv("HARNESS_VAULT_KEY")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
-	if _, err := SetPAT(context.Background(), "mrow", "dapi-NEW"); err == nil {
+	if _, err := SetPAT(context.Background(), "mrow", "qZppigokeaop"); err == nil {
 		t.Fatal("want a read error")
 	}
 	t.Setenv("HARNESS_VAULT_KEY", goodKey)
@@ -252,7 +252,7 @@ func TestSetPATReadFailureRestoresAuthBlock(t *testing.T) {
 // TestSetPATRejectedRestoresCommandAuth pins that a rejected PAT puts a command-auth row back, not just oauth/m2m.
 func TestSetPATRejectedRestoresCommandAuth(t *testing.T) {
 	mintRow(t, 401)
-	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil {
+	if _, err := SetPAT(context.Background(), "mrow", "qZkkdhelagbg"); err == nil {
 		t.Fatal("want error")
 	}
 	if doc := overlayDoc(t); strings.Contains(doc, providers.AuthPAT) || !strings.Contains(doc, "printf") {
@@ -263,8 +263,7 @@ func TestSetPATRejectedRestoresCommandAuth(t *testing.T) {
 // Mint reports the minted token's own exp, not a stored record.
 func TestMintExpiryComesFromMintedToken(t *testing.T) {
 	want := time.Now().Add(37 * time.Minute).Truncate(time.Second)
-	enc := base64.RawURLEncoding.EncodeToString
-	tok := enc([]byte(`{"alg":"none"}`)) + "." + enc(fmt.Appendf(nil, `{"exp":%d}`, want.Unix())) + ".sig"
+	tok := claimsEnvelope(fmt.Sprintf(`{"exp":%d}`, want.Unix()))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"data":[]}`) }))
 	t.Cleanup(srv.Close)
 	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":%q,`+
@@ -321,8 +320,7 @@ func TestStoredExpiryFollowsIdentity(t *testing.T) {
 
 // The minted kind comes from the token: an SP token (sub == client_id) is m2m even on an oauth row.
 func TestMintedAuthTypeReadsTheToken(t *testing.T) {
-	enc := base64.RawURLEncoding.EncodeToString
-	jwt := func(claims string) string { return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(claims)) + ".sig" }
+	jwt := claimsEnvelope
 	row := &providers.Provider{Auth: providers.Auth{Type: providers.AuthOAuth}}
 	if got := mintedAuthType(row, jwt(`{"sub":"sp-1","client_id":"sp-1"}`)); got != providers.AuthM2M {
 		t.Errorf("SP token on an oauth row = %q, want m2m", got)
@@ -330,4 +328,9 @@ func TestMintedAuthTypeReadsTheToken(t *testing.T) {
 	if got := mintedAuthType(row, jwt(`{"sub":"me@example.com","client_id":"databricks-cli"}`)); got != authLabel(row) {
 		t.Errorf("user token = %q, want the row label %q", got, authLabel(row))
 	}
+}
+
+// claimsEnvelope decodes whitespace-prefixed claims with deliberately invalid header/signature bytes.
+func claimsEnvelope(claims string) string {
+	return "!." + base64.RawURLEncoding.EncodeToString([]byte(" "+claims)) + ".!"
 }

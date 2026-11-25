@@ -429,7 +429,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 		origPick, orig := pickMenu, saveConfirmed
 		t.Cleanup(func() { saveConfirmed, pickMenu = orig, origPick })
 		pickMenu = flatPick(func(string, [][2]string, int) (int, error) {
-			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789")
+			storeValue(d, "GEMINI_API_KEY", "qZlcpclcgmnk")
 			return len(actions), nil
 		})
 		var asked []string
@@ -442,7 +442,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 			t.Errorf("yes=%v: asked = %v", yes, asked)
 		}
 		v, src, _ := vault.Get("GEMINI_API_KEY")
-		if yes && (src != "vault" || v != "AIzaTestKey-0123456789") {
+		if yes && (src != "vault" || v != "qZlcpclcgmnk") {
 			t.Errorf("Submit y: GEMINI_API_KEY = %q from %q, want the staged value stored\n%s", v, src, out.String())
 		}
 		if !yes && src != "" {

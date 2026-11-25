@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -213,7 +213,7 @@ func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 }
 
 func jwtExpIn(d time.Duration, iss string) string {
-	return hosttest.UnsignedJWT(fmt.Sprintf(`{"iss":%q,"exp":%d}`, iss, time.Now().Add(d).Unix()))
+	return claimsEnvelope(fmt.Sprintf(`{"iss":%q,"exp":%d}`, iss, time.Now().Add(d).Unix()))
 }
 
 // credProvider builds a preset provider whose commands append to a counter file, then print a crafted JWT.
@@ -558,4 +558,9 @@ func TestContextTokens(t *testing.T) {
 			t.Errorf("%s: ContextTokens(%s, %q, %v) = %d, want %d", c.name, c.p.Name, c.wire, c.oneM, got, c.want)
 		}
 	}
+}
+
+// claimsEnvelope decodes whitespace-prefixed claims with deliberately invalid header/signature bytes.
+func claimsEnvelope(claims string) string {
+	return "!." + base64.RawURLEncoding.EncodeToString([]byte(" "+claims)) + ".!"
 }

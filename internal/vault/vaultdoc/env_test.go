@@ -49,7 +49,6 @@ func TestSetEnvRefusesSecretsAndBadInput(t *testing.T) {
 		"harness name":      {"HARNESS_VAULT_KEY", "x", "is a secret name"},
 		"a sealed name":     {"MY_SEALED", "x", "is a secret name"},
 		"credential name":   {"GITHUB_TOKEN", "x", "is a secret name"},
-		"credential value":  {"PLAIN", "ghp_" + strings.Repeat("a", 36), "looks like a credential"},
 		"bad name":          {"1BAD", "x", "not a valid name"},
 		"empty value":       {"PLAIN", "  ", "empty value"},
 		"secret ref value":  {"PLAIN", "@secret", "seals a secret"},

@@ -175,7 +175,7 @@ func menuIDs() []string {
 	return ids
 }
 
-const ocCheckToken = "dapi-check-secret"
+const ocCheckToken = "qZhlnmiggjkp"
 
 type ocCheckFake struct {
 	mu    sync.Mutex

@@ -49,7 +49,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 			sb.Write(b)
 		}
 	}
-	for _, leak := range []string{"shh-beta", "dapi0123", "dapiDEFAULTLEAK", "leak.example"} {
+	for _, leak := range []string{"shh-beta", "qZhbpdbngmpn", "qZjhhcbkjkho", "leak.example"} {
 		if strings.Contains(sb.String(), leak) {
 			t.Errorf("%q leaked into candidates/plan output", leak)
 		}
@@ -154,12 +154,12 @@ func TestParseDuplicateSectionMergesLastWins(t *testing.T) {
 }
 
 func TestDefaultOnlyFileReason(t *testing.T) {
-	m := candsOf(t, "[DEFAULT]\nhost = https://d.example.cloud.databricks.com\ntoken = dapi-default\n")
+	m := candsOf(t, "[DEFAULT]\nhost = https://d.example.cloud.databricks.com\ntoken = qZjooaelliig\n")
 	c, ok := m["DEFAULT"]
 	if !ok || c.Skip != defaultOnlySkip || c.Auth != "" {
 		t.Errorf("DEFAULT-only file: %+v", m)
 	}
-	if strings.Contains(c.Skip+c.Host, "dapi-default") {
+	if strings.Contains(c.Skip+c.Host, "qZjooaelliig") {
 		t.Error("DEFAULT value leaked into the candidate")
 	}
 }
@@ -226,18 +226,18 @@ func TestCandidatesNotes(t *testing.T) {
 	const h = "https://example-ws.cloud.databricks.com"
 	for _, tt := range []struct{ name, cfg, profile, note string }{
 		{"unterminated header keeps the previous profile",
-			"[good]\nhost = " + h + "\n[broken\nhost = https://evil.cloud.databricks.com\ntoken = dapiFAKE1\n", "good",
+			"[good]\nhost = " + h + "\n[broken\nhost = https://evil.cloud.databricks.com\ntoken = qZkhkelddlod\n", "good",
 			"unable to parse line 3: unterminated section header"},
-		{"line without separator", "[g]\nhost = " + h + "\ndapiFAKE2 pasted alone\n", "g",
+		{"line without separator", "[g]\nhost = " + h + "\nqZlhjijiglid pasted alone\n", "g",
 			`unable to parse line 3 in [g]: no "=" separator`},
 		{"repeated key", "[d]\nhost = https://old.cloud.databricks.com\nhost = " + h + "\n", "d",
 			`line 3 in [d]: key "host" repeated`},
-		{"repeated section", "[d]\nhost = " + h + "\n[e]\nhost = " + h + "\n[d]\ntoken = dapiFAKE3\n", "d",
+		{"repeated section", "[d]\nhost = " + h + "\n[e]\nhost = " + h + "\n[d]\ntoken = qZieagdolfga\n", "d",
 			"line 5: section [d] repeated"},
-		{"DEFAULT beside a profile", "[DEFAULT]\nhost = " + h + "\ntoken = dapiFAKE4\n[p]\nhost = " + h + "\n", "p", "[DEFAULT] skipped"},
-		{"multi-line value counts its lines", "[m]\ntoken = \"\"\"dapiFAKE5\nmore\"\"\"\nhost = " + h + "\njunk\n", "m",
+		{"DEFAULT beside a profile", "[DEFAULT]\nhost = " + h + "\ntoken = qZcmcleahija\n[p]\nhost = " + h + "\n", "p", "[DEFAULT] skipped"},
+		{"multi-line value counts its lines", "[m]\ntoken = \"\"\"qZbfgdpilbki\nmore\"\"\"\nhost = " + h + "\njunk\n", "m",
 			"unable to parse line 5 in [m]"},
-		{"CRLF, BOM, trailing slash and a value with =", "\ufeff[c]\r\nhost = " + h + "/\r\ntoken = dapiFAKE6==\r\n", "c", ""},
+		{"CRLF, BOM, trailing slash and a value with =", "\ufeff[c]\r\nhost = " + h + "/\r\ntoken = qZgleffijkob==\r\n", "c", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "cfg")

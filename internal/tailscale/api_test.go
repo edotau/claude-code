@@ -31,7 +31,7 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
-		_ = json.NewEncoder(w).Encode(AuthKey{ID: "k1", Key: "tskey-auth-xyz"})
+		_ = json.NewEncoder(w).Encode(AuthKey{ID: "k1", Key: "qZpknaldahod"})
 	}))
 	defer ts.Close()
 	c := staticClient(ts, "tok")
@@ -43,7 +43,7 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAuthKey err = %v", err)
 	}
-	if key.ID != "k1" || key.Key != "tskey-auth-xyz" {
+	if key.ID != "k1" || key.Key != "qZpknaldahod" {
 		t.Errorf("CreateAuthKey result = %+v", key)
 	}
 	if gotPath != "/tailnet/-/keys" {
@@ -235,14 +235,14 @@ func TestNewClientErrNoCredential(t *testing.T) {
 
 func TestNewClientFallsBackToAPIKey(t *testing.T) {
 	hermeticSecrets(t)
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
+	t.Setenv("TAILSCALE_API_KEY", "qZpdfmjkgeoi")
 	c, err := clientFromVault()
 	if err != nil {
 		t.Fatal(err)
 	}
 	tok, err := c.token(context.Background())
-	if err != nil || tok != "tskey-api-abc" {
-		t.Errorf("token = (%q, %v), want (tskey-api-abc, nil)", tok, err)
+	if err != nil || tok != "qZpdfmjkgeoi" {
+		t.Errorf("token = (%q, %v), want (qZpdfmjkgeoi, nil)", tok, err)
 	}
 }
 

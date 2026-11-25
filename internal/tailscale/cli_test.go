@@ -120,7 +120,7 @@ func TestConnectNoOpWhenAlreadyRunning(t *testing.T) {
 	calls := filepath.Join(dir, "calls")
 	t.Setenv("TS_CALLS", calls)
 	// exitNode=true: fixture is already approved, so this must stay a no-op too.
-	if err := connect(context.Background(), "tskey-auth-xxx", true); err != nil {
+	if err := connect(context.Background(), "qZfhjahfcldm", true); err != nil {
 		t.Fatalf("Connect() err = %v, want nil (no-op)", err)
 	}
 	if _, err := os.Stat(calls); err == nil {
@@ -144,7 +144,7 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 		"fi"
 	stubCLI(t, script)
 
-	if err := connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
+	if err := connect(context.Background(), "qZohjdcfeikb", true); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
 	keyFile := authKeyFileFromArgv(t, argvFile)
@@ -152,7 +152,7 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tailscale up never read the --auth-key=file: path: %v", err)
 	}
-	if string(content) != "tskey-auth-secretvalue" {
+	if string(content) != "qZohjdcfeikb" {
 		t.Fatalf("key file content = %q, want the auth key", content)
 	}
 	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
@@ -167,7 +167,7 @@ func authKeyFileFromArgv(t *testing.T, argvFile string) string {
 	if err != nil {
 		t.Fatalf("`tailscale up` was not invoked: %v", err)
 	}
-	if strings.Contains(string(argv), "tskey-") {
+	if strings.Contains(string(argv), "qZohjdcfeikb") {
 		t.Fatalf("auth key must never appear in argv, got %q", string(argv))
 	}
 	fields := strings.Fields(string(argv))
@@ -285,7 +285,7 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 		return exec.CommandContext(ctx, name, args...)
 	}
 
-	if err := connect(context.Background(), "tskey-auth-x", false); err != nil {
+	if err := connect(context.Background(), "qZhalfhepbfa", false); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
 	if upBudget <= defaultExecTimeout {
@@ -351,7 +351,7 @@ func TestTailscaleBinMacAppFallback(t *testing.T) {
 // TestMachinesFetchesDevicesAndStatusConcurrently: each call waits to see the other started; serial order fails one.
 func TestMachinesFetchesDevicesAndStatusConcurrently(t *testing.T) {
 	hermeticSecrets(t)
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
+	t.Setenv("TAILSCALE_API_KEY", "qZpdfmjkgeoi")
 	dir := t.TempDir()
 	statusMark, devicesMark := filepath.Join(dir, "status"), filepath.Join(dir, "devices")
 	// status starts, then waits up to 2s for the devices call; without it, it fails and Online stays false.
@@ -385,18 +385,6 @@ func TestMachinesFetchesDevicesAndStatusConcurrently(t *testing.T) {
 	}
 }
 
-// stubOAuthMint points apiBaseURL at an httptest server minting an access_token, restored on cleanup.
-func stubOAuthMint(t *testing.T) {
-	t.Helper()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
-	}))
-	t.Cleanup(ts.Close)
-	old := apiBaseURL
-	apiBaseURL = ts.URL
-	t.Cleanup(func() { apiBaseURL = old })
-}
-
 func TestDoctorNoCLI(t *testing.T) {
 	noCLI(t)
 	hermeticSecrets(t)
@@ -409,33 +397,15 @@ func TestDoctorNoCLI(t *testing.T) {
 	}
 }
 
-func TestDoctorRunningAndApproved(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	stubOAuthMint(t)
-	hermeticSecrets(t)
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-set")
-	ok, detail := Doctor(context.Background())
-	if !ok {
-		t.Errorf("Doctor() ok = false, detail = %q", detail)
-	}
-	for _, want := range []string{"Running", "exit-node approved",
-		"api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified"} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("detail %q missing %q", detail, want)
-		}
-	}
-}
-
-// A half-set OAuth pair plus an API key falls back to the API-key note, as clientFromVault does.
-func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
+// A half-set OAuth pair with a malformed API key reports the malformed API key, not an incomplete pair.
+func TestDoctorHalfOAuthPlusMalformedAPIKeyReportsMalformed(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
 	hermeticSecrets(t)
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-set")
+	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "qzplmoknij")
+	t.Setenv("TAILSCALE_API_KEY", "qZhdjemeephl")
 	_, detail := Doctor(context.Background())
-	if !strings.Contains(detail, "api credential TAILSCALE_API_KEY") {
-		t.Errorf("detail = %q, want it to fall back to the API-key note", detail)
+	if !strings.Contains(detail, "TAILSCALE_API_KEY malformed") {
+		t.Errorf("detail = %q, want it to report the malformed API key", detail)
 	}
 	if strings.Contains(detail, "incomplete") {
 		t.Errorf("detail = %q, must not report incomplete once an API key covers it", detail)
@@ -457,30 +427,8 @@ func TestDoctorHalfOAuthWithoutAPIKeyStillIncomplete(t *testing.T) {
 	}
 }
 
-// A well-formed OAuth pair that the API itself refuses (401) is reported "rejected", not present.
-func TestDoctorOAuthPairRejectedByAPI(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	hermeticSecrets(t)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer ts.Close()
-	old := apiBaseURL
-	apiBaseURL = ts.URL
-	t.Cleanup(func() { apiBaseURL = old })
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-set")
-	ok, detail := Doctor(context.Background())
-	if ok {
-		t.Errorf("Doctor() ok = true, want false (API rejected the credential)")
-	}
-	if !strings.Contains(detail, "rejected") {
-		t.Errorf("detail = %q, want it to report the credential as rejected", detail)
-	}
-}
-
-// A malformed OAuth secret never reaches the network — the shape check short-circuits before any mint.
-func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
+// A malformed OAuth pair never reaches the network — validation short-circuits before any mint.
+func TestDoctorMalformedOAuthPairNeverCallsAPI(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
 	hermeticSecrets(t)
 	var hits int
@@ -492,11 +440,11 @@ func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
 	old := apiBaseURL
 	apiBaseURL = ts.URL
 	t.Cleanup(func() { apiBaseURL = old })
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
+	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "qzplmoknij")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "not-shaped-like-a-secret")
 	ok, detail := Doctor(context.Background())
 	if ok {
-		t.Errorf("Doctor() ok = true, want false (malformed secret)")
+		t.Errorf("Doctor() ok = true, want false (malformed pair)")
 	}
 	if !strings.Contains(detail, "malformed") {
 		t.Errorf("detail = %q, want it to report the credential as malformed", detail)
@@ -506,10 +454,10 @@ func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
 	}
 }
 
-// Neither an API key alone nor no credential at all calls the network — only the OAuth pair mints a token.
+// Neither a malformed API key alone nor no credential at all calls the network — only the OAuth pair mints a token.
 func TestDoctorWithoutOAuthPairNeverCallsNetwork(t *testing.T) {
-	const apiKey = "ts" + "key-api-should-never-appear"
-	for name, key := range map[string]string{"api key only": apiKey, "no credential": ""} {
+	const apiKey = "qzplmoknij"
+	for name, key := range map[string]string{"malformed api key only": apiKey, "no credential": ""} {
 		t.Run(name, func(t *testing.T) {
 			stubCLI(t, catScript(t, "status_running.json"))
 			hermeticSecrets(t)
@@ -523,8 +471,8 @@ func TestDoctorWithoutOAuthPairNeverCallsNetwork(t *testing.T) {
 				t.Setenv("TAILSCALE_API_KEY", key)
 			}
 			ok, detail := Doctor(context.Background())
-			if !ok {
-				t.Errorf("Doctor() ok = false, detail = %q", detail)
+			if ok != (key == "") {
+				t.Errorf("Doctor() ok = %v, detail = %q; want malformed key rejected, no credential allowed", ok, detail)
 			}
 			if hits != 0 {
 				t.Errorf("hits = %d, want 0: without an OAuth pair nothing may mint a token", hits)

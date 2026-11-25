@@ -124,17 +124,17 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if len(opts) != 2 || opts[0].Argv == nil || opts[1].Env != "OPENAI_API_KEY" || !strings.Contains(opts[1].Desc, "platform.openai.com") {
 		t.Fatalf("authOptions = %+v, want browser login then key with its console URL", opts)
 	}
-	in := strings.NewReader("n\ny\nn\n  sk-test-value \n")
+	in := strings.NewReader("n\ny\nn\n  qZjciniiclec \n")
 	var out bytes.Buffer
 	d := &dialog{o: Options{Interactive: true, In: in, Out: &out}, br: bufio.NewReader(in), out: &out}
 	if !resolveKey(d, kt) {
 		t.Fatalf("resolveKey = false\n%s", out.String())
 	}
 	got, src, ok := vault.Get("OPENAI_API_KEY")
-	if !ok || src != "vault" || got != "sk-test-value" {
+	if !ok || src != "vault" || got != "qZjciniiclec" {
 		t.Errorf("stored key = (%q, %q, %v)", got, src, ok)
 	}
-	assertVaultRecordSealed(t, "OPENAI_API_KEY", "sk-test-value")
+	assertVaultRecordSealed(t, "OPENAI_API_KEY", "qZjciniiclec")
 	if strings.Contains(out.String(), "logged in") {
 		t.Error("login must not have run after being declined")
 	}
@@ -207,8 +207,8 @@ func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
 }
 
 func TestSecretLineEchoesMaskedPreview(t *testing.T) {
-	for _, in := range []string{"ts" + "key-client-kAbCdEf123CNTRL-0123456789abcdefghij\n",
-		"TAILSCALE_OAUTH_CLIENT_SECRET=ts" + "key-client-kAbCdEf123CNTRL-0123456789abcdefghij\n"} {
+	for _, in := range []string{"qz-mnb-Qwerty!plmoknijbuhvygctfxrdzeswaq\n",
+		"TAILSCALE_OAUTH_CLIENT_SECRET=qz-mnb-Qwerty!plmoknijbuhvygctfxrdzeswaq\n"} {
 		var out strings.Builder
 		d := &dialog{out: &out, br: bufio.NewReader(strings.NewReader(in))}
 		if _, err := secretLine(d, "> "); err != nil {
@@ -217,7 +217,7 @@ func TestSecretLineEchoesMaskedPreview(t *testing.T) {
 		if w := len([]rune(strings.Split(strings.TrimSpace(out.String()), "\n")[1])); w > 80 {
 			t.Errorf("preview line is %d columns", w)
 		}
-		if strings.Contains(out.String(), "0123456789") || !strings.Contains(out.String(), "(49 chars)") {
+		if strings.Contains(out.String(), "buhvygct") || !strings.Contains(out.String(), "(40 chars)") {
 			t.Errorf("preview leaks or lacks length: %q", out.String())
 		}
 	}
@@ -265,7 +265,7 @@ func servedHarness(t *testing.T, on bool) *int {
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"qa":{"preset":"databricks","host":%q,` +
 		`"auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on, srv.URL))
-	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "dapi-qa")
+	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "qZkiibmfkedl")
 	return &n
 }
 

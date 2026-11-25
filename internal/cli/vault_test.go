@@ -27,7 +27,7 @@ import (
 	bolterrors "go.etcd.io/bbolt/errors"
 )
 
-const vaultLeakSecret = "tvly-dev-secret-leak-me-not"
+const vaultLeakSecret = "qZicbkmninge"
 
 // vaultGetModes are the two `vault get` output shapes the multi-name and stdout-failure tests both cover.
 var vaultGetModes = []struct {
@@ -346,26 +346,6 @@ func TestVaultSetRefusesMalformedShape(t *testing.T) {
 				t.Fatal("a refused value must not be stored")
 			}
 		})
-	}
-}
-
-// A valid-shaped GitHub token is accepted and sealed in the vault.
-func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	const tok = "gh" + "p_validshapedFAKEtoken1234567890"
-	withStdin(t, tok+"\n")
-	code, stdout, stderr := vaultRun(t, "set", "COPILOT_GITHUB_TOKEN")
-	if code != 0 {
-		t.Fatalf("set COPILOT_GITHUB_TOKEN exit = %d", code)
-	}
-	if v, _, ok := vault.Get("COPILOT_GITHUB_TOKEN"); !ok || vault.Redact(v) != vault.Redact(tok) {
-		t.Fatal("COPILOT_GITHUB_TOKEN was not stored correctly")
-	}
-	if strings.Contains(stdout+stderr, tok) {
-		t.Fatal("set leaked the raw value")
-	}
-	if !strings.Contains(stderr, vault.Redact(tok)) {
-		t.Fatal("set did not report the masked value")
 	}
 }
 

@@ -239,12 +239,12 @@ func TestDeleteAudit(t *testing.T) {
 
 // Redact shows only the length for a short value, and never the middle of a long one.
 func TestRedact(t *testing.T) {
-	long := "sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"
+	long := "qz-mnb-rt42-plmoknijbuhvygctfxrdzeswaq"
 	for in, want := range map[string]string{
-		"short":             "5 chars",
-		"elevenchars":       "11 chars",
-		long:                "sk-an*** (" + strconv.Itoa(len(long)) + " chars)",
-		"kJaxH1234567890ab": "kJaxH*** (17 chars)",
+		"short":           "5 chars",
+		"elevenchars":     "11 chars",
+		long:              "qz-mn*** (" + strconv.Itoa(len(long)) + " chars)",
+		"qz!plmoknijbuhv": "qz!pl*** (15 chars)",
 	} {
 		if got := Redact(in); got != want {
 			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
@@ -257,11 +257,11 @@ func TestRedact(t *testing.T) {
 
 func TestStoreGetRoundTripAndPerms(t *testing.T) {
 	useZeroRootVault(t)
-	if err := Store("GATEWAY_API_KEY", "sk-test-abc123"); err != nil {
+	if err := Store("GATEWAY_API_KEY", "qzplmoknij"); err != nil {
 		t.Fatalf("Store: %v", err)
 	}
 	checkVaultMode(t)
-	checkGet(t, "GATEWAY_API_KEY", "sk-test-abc123", "vault", true)
+	checkGet(t, "GATEWAY_API_KEY", "qzplmoknij", "vault", true)
 }
 
 func checkVaultMode(t *testing.T) {
@@ -376,10 +376,10 @@ func TestStoreAndDeleteMaintainNamesIndex(t *testing.T) {
 }
 
 func TestPreviewShowsPrefixLengthAndDoubledPaste(t *testing.T) {
-	key := "sk-ant-api03-" + strings.Repeat("a", 95)
+	key := "qz-mnb-rt42-" + strings.Repeat("plmn!", 19)
 	got := Preview(key)
-	if !strings.HasPrefix(got, "sk-ant-api03-*") || !strings.HasSuffix(got, "(108 chars)") || strings.Contains(got, "aaa") {
-		t.Errorf("Preview(anthropic) = %q", got)
+	if !strings.HasPrefix(got, "qz-mnb-rt42-*") || !strings.HasSuffix(got, "("+strconv.Itoa(len(key))+" chars)") || strings.Contains(got, "plmn!") {
+		t.Errorf("Preview(generic segments) = %q", got)
 	}
 	doubled := Preview(key + key)
 	if w := len([]rune("  pasted  " + doubled)); w > 80 {
@@ -391,17 +391,17 @@ func TestPreviewShowsPrefixLengthAndDoubledPaste(t *testing.T) {
 	if got := Preview("abcdef"); got != "ab**** (6 chars)" {
 		t.Errorf("short value reveals too much: %q", got)
 	}
-	if got := Preview("AIzaSyD" + strings.Repeat("x", 32)); !strings.HasPrefix(got, "AIza***") {
-		t.Errorf("Preview(google) = %q", got)
+	if got := Preview("Qzwx!plmnrv"); !strings.HasPrefix(got, "Qzw***") {
+		t.Errorf("Preview(unsegmented) = %q", got)
 	}
 }
 
 func TestPreviewPrefixStopsAtRandomSegment(t *testing.T) {
 	for in, want := range map[string]string{
-		"tvly-dev-3vjVEqAbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdef": "tvly-dev-",
-		"sk-ant-oat01-" + strings.Repeat("Z", 95):                   "sk-ant-oat01-",
-		"tskey-api-kAbC123-" + strings.Repeat("q", 42):              "tskey-api-",
-		"BBDC-" + strings.Repeat("A", 44):                           "BBDC",
+		"qz-mnb-Qwz!plmoknijbuhvygctfxrdzeswa":      "qz-mnb-",
+		"qz-mnb-rt42-Qwz!plmoknijbuhvygctfxrdzeswa": "qz-mnb-rt42-",
+		"QWZX!plmoknijbuhvygctfxrdzeswa":            "QWZX",
+		"qz-mn-Qwz!plmoknijbuhvygctfxrdzeswa":       "qz-mn-",
 	} {
 		if got := Preview(in); !strings.HasPrefix(got, want+"*") {
 			t.Errorf("Preview(%.20s…) = %q, want visible prefix %q then stars", in, got, want)
@@ -442,7 +442,7 @@ func readRecord(t *testing.T, name string) Record {
 
 func TestLoadMetaKeylessAndCurrent(t *testing.T) {
 	useZeroRootVault(t)
-	if err := Store("STORED", "sk"+"-ant-oat01-abcdefghijklmnopqrstuvwxyz"); err != nil {
+	if err := Store("STORED", "qz-mnb-rt42-plmoknijbuhvygctfxrdzeswaq"); err != nil {
 		t.Fatal(err)
 	}
 	r := readRecord(t, "STORED")
@@ -477,7 +477,7 @@ func TestLoadMetaMissingVaultDoesNotCreateIt(t *testing.T) {
 
 func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 	useZeroRootVault(t)
-	putTestSecret(t, "PROBE", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
+	putTestSecret(t, "PROBE", "qzmnbvcxplkj")
 	before := readRecord(t, "PROBE")
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
@@ -502,7 +502,7 @@ func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 
 func TestStoreNeverLeaksRawBytesIntoMetadataOrVault(t *testing.T) {
 	useZeroRootVault(t)
-	values := []string{"aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStT12", "zZyYxXwWvVuUtTsSrRqQpPoOnNmMlLkKjJiIhHgG98"}
+	values := []string{"qZplmoknijrv", "mNbvcxzlkjhg"}
 	for i, name := range []string{"FIRST", "SECOND"} {
 		if err := Store(name, values[i]); err != nil {
 			t.Fatal(err)
@@ -567,7 +567,7 @@ func metaRow(t *testing.T, name string) (SecretMeta, bool) {
 
 func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 	useZeroRootVault(t)
-	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"} {
+	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "qz-mnb-rt42-plmoknijbuhvygctfxrdzeswaq"} {
 		if err := Store("SHORT_SEG", v); err != nil {
 			t.Fatal(err)
 		}
@@ -575,8 +575,8 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 			t.Fatalf("prefix %q persisted for %q: over a third of the value", row.Prefix, v)
 		}
 	}
-	if p := MetaPrefix("sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
-		t.Fatalf("MetaPrefix dropped a genuine vendor prefix: %q", p)
+	if p := MetaPrefix("qz-mnb-rt42-plmoknijbuhvygctfxrdzeswaq"); p != "qz-mnb-rt42-" {
+		t.Fatalf("MetaPrefix dropped a generic segment prefix: %q", p)
 	}
 }
 

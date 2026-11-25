@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -32,7 +32,7 @@ func loginTokenServer(t *testing.T, ok bool) *atomic.Int32 {
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant", "error_description": "expired"})
 			return
 		}
-		jwt := hosttest.UnsignedJWT(fmt.Sprintf(`{"iss":"x","exp":%d}`, time.Now().Add(time.Hour).Unix()))
+		jwt := claimsEnvelope(fmt.Sprintf(`{"iss":"x","exp":%d}`, time.Now().Add(time.Hour).Unix()))
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": jwt, "expires_in": 3600})
 	}))
 	t.Cleanup(srv.Close)
@@ -116,4 +116,9 @@ func TestVaultImportVerifiesLoginsAndSkipsBareTokens(t *testing.T) {
 	if _, found, _ := vault.ReadSecret("PLAIN"); !found {
 		t.Error("the ordinary pair was not imported")
 	}
+}
+
+// claimsEnvelope decodes whitespace-prefixed claims with deliberately invalid header/signature bytes.
+func claimsEnvelope(claims string) string {
+	return "!." + base64.RawURLEncoding.EncodeToString([]byte(" "+claims)) + ".!"
 }

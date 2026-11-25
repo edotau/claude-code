@@ -667,8 +667,8 @@ func TestRunAuthCommandFailures(t *testing.T) {
 	cases := []struct{ cmd, want, absent string }{
 		{`echo null`, "printed nothing", ""},
 		{`printf 'tok1\ntok2\n'`, "more than one bare token", "tok1"},
-		{`echo "dial tcp: lookup x: no such host, token eyJabc.def.ghi" >&2; exit 1`, "(network:", "eyJabc"},
-		{`echo "invalid refresh token: dapiSECRET" >&2; exit 1`, "(auth:", "dapiSECRET"},
+		{`echo "dial tcp: lookup x: no such host, token qzplmoknij" >&2; exit 1`, "(network:", "qzplmoknij"},
+		{`echo "invalid refresh token: qZieofocfffl" >&2; exit 1`, "(auth:", "qZieofocfffl"},
 		{`definitely-not-a-command-xyz`, "(cli: command not found)", ""},
 	}
 	for _, c := range cases {

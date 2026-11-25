@@ -118,7 +118,7 @@ func TestTailscaleConnectWithoutKeyNotRunningExitsTwo(t *testing.T) {
 func TestTailscaleConnectUsesVaultAuthKey(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscale(t, "Stopped", "")
-	if err := vault.Store("TAILSCALE_AUTHKEY", "tskey-auth-fake"); err != nil {
+	if err := vault.Store("TAILSCALE_AUTHKEY", "qZmgacpljnpm"); err != nil {
 		t.Fatal(err)
 	}
 	_, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--connect"}) })
@@ -139,7 +139,7 @@ func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.WriteString("tskey-auth-fromstdin\n"); err != nil {
+	if _, err := w.WriteString("qZehkpjildkc\n"); err != nil {
 		t.Fatal(err)
 	}
 	w.Close()
@@ -158,7 +158,7 @@ func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tailscale up was not invoked: %v", err)
 	}
-	if strings.Contains(string(argv), "tskey-") {
+	if strings.Contains(string(argv), "qZehkpjildkc") {
 		t.Fatalf("auth key leaked into up argv: %q", argv)
 	}
 	if !strings.Contains(string(argv), "--auth-key=file:") {
@@ -175,7 +175,7 @@ func TestTailscaleConnectLiteralAuthKeyWarns(t *testing.T) {
 		"if [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile)+"; fi\n")
 
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return Cmd([]string{"--connect", "--auth-key", "tskey-auth-literal"})
+		return Cmd([]string{"--connect", "--auth-key", "qZihjjjdoamg"})
 	})
 	if code != 0 {
 		t.Fatalf("connect exit %d; stderr=%q", code, stderr)
@@ -187,7 +187,7 @@ func TestTailscaleConnectLiteralAuthKeyWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tailscale up was not invoked: %v", err)
 	}
-	if strings.Contains(string(argv), "tskey-") {
+	if strings.Contains(string(argv), "qZihjjjdoamg") {
 		t.Fatalf("literal auth key still leaked into up argv: %q", argv)
 	}
 }
@@ -202,7 +202,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
 			t.Setenv("TAILSCALE_API_KEY", "test-api-key")
-			const key = "tskey-auth-xyz"
+			const key = "qZpknaldahod"
 			ts := tailscaleAuthKeyServer(t, key)
 			defer ts.Close()
 			routeDefaultClientTo(t, ts)
@@ -226,7 +226,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 func TestTailscaleKeyRedactsWithoutSecret(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
-	const key = "tskey-auth-redact-me"
+	const key = "qZnfmklabmom"
 	ts := tailscaleAuthKeyServer(t, key)
 	defer ts.Close()
 	routeDefaultClientTo(t, ts)
@@ -296,7 +296,7 @@ func TestTailscaleKeyTrimsTags(t *testing.T) {
 			t.Error(err)
 		}
 		got = body.Capabilities.Devices.Create.Tags
-		_ = json.NewEncoder(w).Encode(AuthKey{ID: "k1", Key: "tskey-auth-xyz"})
+		_ = json.NewEncoder(w).Encode(AuthKey{ID: "k1", Key: "qZpknaldahod"})
 	}))
 	defer ts.Close()
 	routeDefaultClientTo(t, ts)
@@ -503,14 +503,14 @@ func TestTailscaleKeylessConnectAppliesAdvertise(t *testing.T) {
 func TestTailscaleKeyReportsStdoutFailure(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
-	srv := tailscaleAuthKeyServer(t, "tskey-auth-test-output")
+	srv := tailscaleAuthKeyServer(t, "qZdbonlljhma")
 	defer srv.Close()
 	routeDefaultClientTo(t, srv)
 	code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd([]string{"--token", "--secret"}) })
 	if code != 1 || !strings.Contains(stderr, "tailscale token: write") {
 		t.Fatalf("undelivered auth key: exit=%d stderr=%q", code, stderr)
 	}
-	if strings.Contains(stderr, "tskey-auth-test-output") {
+	if strings.Contains(stderr, "qZdbonlljhma") {
 		t.Fatalf("auth key leaked into stderr: %q", stderr)
 	}
 }

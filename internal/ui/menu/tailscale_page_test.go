@@ -29,7 +29,7 @@ func tsPage(t *testing.T, input string, admin bool) (*dialog, *bytes.Buffer) {
 		t.Setenv(k, "")
 	}
 	if admin {
-		t.Setenv("TAILSCALE_API_KEY", "tskey-api-test")
+		t.Setenv("TAILSCALE_API_KEY", "qZdcepaolppo")
 	}
 	resetTailscaleStatus(t)
 	sh, l, m, e, v, c := tsShell, tsLogin, tsMint, tsExitNode, tsValidate, tsCheck
@@ -141,17 +141,17 @@ func TestTailscalePageAuthKeyMintsAndSeals(t *testing.T) {
 	var got []tailscale.KeyOptions
 	tsMint = func(_ context.Context, o tailscale.KeyOptions) (tailscale.AuthKey, error) {
 		got = append(got, o)
-		return tailscale.AuthKey{Key: "tskey-auth-PAGE0123456789"}, nil
+		return tailscale.AuthKey{Key: "qZfjffkdhepe"}, nil
 	}
 	runTailscalePage(d)
 	want := tailscale.KeyOptions{Expiry: "90d", Tags: "tag:ci", Reusable: true}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("mint options = %+v, want one call with %+v", got, want)
 	}
-	if n := strings.Count(out.String(), "tskey-auth-PAGE0123456789"); n != 0 {
+	if n := strings.Count(out.String(), "qZfjffkdhepe"); n != 0 {
 		t.Errorf("key printed %d times, want never:\n%s", n, out)
 	}
-	if v, ok, err := vault.ReadSecret("TAILSCALE_AUTHKEY"); err != nil || !ok || v != "tskey-auth-PAGE0123456789" {
+	if v, ok, err := vault.ReadSecret("TAILSCALE_AUTHKEY"); err != nil || !ok || v != "qZfjffkdhepe" {
 		t.Errorf("vault TAILSCALE_AUTHKEY = %q, %v, %v; want the minted key", v, ok, err)
 	}
 }

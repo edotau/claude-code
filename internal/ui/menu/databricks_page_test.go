@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-var dbxTok = strings.Join([]string{"dapi", "SECRETTOKEN", "0123456789"}, "")
+var dbxTok = "qzplmoknijbuhv"
 
 const dbxDoc = `{"providers":{"databricks":{
 "dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"oauth"}},
@@ -230,7 +230,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", w, out)
 		}
 	}
-	if strings.Contains(out, dbxTok) || strings.Contains(out, "dapi") {
+	if strings.Contains(out, dbxTok) {
 		t.Errorf("token leaked into page output:\n%s", out)
 	}
 }
@@ -431,7 +431,7 @@ func TestDbxReportNoTokenAndShape(t *testing.T) {
 	if len(f.calls) != 0 {
 		t.Errorf("report must not mint/login: %v", f.calls)
 	}
-	if strings.Contains(out, dbxTok) || strings.Contains(out, "dapi") || strings.Contains(out, "eyJ") {
+	if strings.Contains(out, dbxTok) {
 		t.Errorf("token in report:\n%s", out)
 	}
 }

@@ -40,10 +40,10 @@ func TestExportEmpty(t *testing.T) {
 
 func TestExportOmitsSecretsAndPreviousProviders(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-0123456789abcdef")
+	vaulttest.Secret(t, "TAVILY_API_KEY", "qZgeiabdpaaa")
 	vaulttest.Put(t, vault.Overlay, "providers.prev", `{"sentinel":1}`)
 	raw := exportTestDoc(t)
-	for _, absent := range []string{"TAVILY_API_KEY", "tvly-dev-0123456789abcdef", "providers.prev", "sentinel"} {
+	for _, absent := range []string{"TAVILY_API_KEY", "qZgeiabdpaaa", "providers.prev", "sentinel"} {
 		t.Run(absent, func(t *testing.T) {
 			if bytes.Contains(raw, []byte(absent)) {
 				t.Errorf("Export contains %q", absent)

@@ -155,14 +155,14 @@ func TestPATCredentialAndPresence(t *testing.T) {
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
 	}
-	if err := vault.Store(AuthSecretName(p), "dapi-test-value"); err != nil {
+	if err := vault.Store(AuthSecretName(p), "qZjncnokckpa"); err != nil {
 		t.Fatal(err)
 	}
 	if !CredentialPresent(p) {
 		t.Error("absent after sealing")
 	}
 	got, err := Credential(context.Background(), p)
-	if err != nil || got != "dapi-test-value" {
+	if err != nil || got != "qZjncnokckpa" {
 		t.Errorf("Credential = %q, %v", got, err)
 	}
 }

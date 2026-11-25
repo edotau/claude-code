@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -39,7 +38,7 @@ func TestRefreshedCommandOutranksExpiredEnv(t *testing.T) {
 }
 
 func TestRedactDetailQuotedJSONToken(t *testing.T) {
-	if got := redactDetail(`{"access_token": "eyJabc.def.ghi"}`); got != `{"access_token": "REDACTED"}` {
+	if got := redactDetail(`{"access_token": "qzplmoknij"}`); got != `{"access_token": "REDACTED"}` {
 		t.Fatalf("quoted JSON redaction = %q; want token masked with JSON punctuation preserved", got)
 	}
 }
@@ -255,7 +254,7 @@ type staleRig struct {
 
 // jwtLife is an unsigned JWT issued at iat that expires at exp.
 func jwtLife(iat, exp time.Time) string {
-	return hosttest.UnsignedJWT(fmt.Sprintf(`{"iss":"","iat":%d,"exp":%d}`, iat.Unix(), exp.Unix()))
+	return claimsEnvelope(fmt.Sprintf(`{"iss":"","iat":%d,"exp":%d}`, iat.Unix(), exp.Unix()))
 }
 
 // newStaleRig seals and caches a one-hour token with left to live; async turns on BackgroundRefresh.

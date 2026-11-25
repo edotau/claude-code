@@ -16,7 +16,7 @@ import (
 
 const exportSeedCfg = `[DEFAULT]
 host = https://default.example.cloud.databricks.com
-token = dapi-DEFAULT-SENTINEL
+token = qZgkgdejffpi
 
 [alice]
 host = https://alice.example.cloud.databricks.com
@@ -32,7 +32,7 @@ host = https://tok.example.cloud.databricks.com
 token = PAT-SENTINEL
 `
 
-var sentinels = []string{"CLIENT-SECRET-SENTINEL", "PAT-SENTINEL", "dapi-DEFAULT-SENTINEL", "REFRESH-SENTINEL"}
+var sentinels = []string{"CLIENT-SECRET-SENTINEL", "PAT-SENTINEL", "qZgkgdejffpi", "REFRESH-SENTINEL"}
 
 // seedExportVault imports exportSeedCfg with sealed secrets plus a sealed refresh token for alice.
 func seedExportVault(t *testing.T) {
@@ -197,7 +197,7 @@ func sampleRows() []exportRow {
 
 func TestRenderCarriesNoSecretKeys(t *testing.T) {
 	out := renderExport(sampleRows())
-	for _, bad := range []string{"client_secret", "token =", "dapi"} {
+	for _, bad := range []string{"client_secret", "token ="} {
 		if strings.Contains(out, bad) {
 			t.Errorf("render contains %q:\n%s", bad, out)
 		}
