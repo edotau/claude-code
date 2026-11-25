@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,6 +51,23 @@ func TestDetachDropsTreeTag(t *testing.T) {
 	Detach(cmd)
 	if want := []string{"A=1", "B=2", detachedMarker + "=1"}; !slices.Equal(cmd.Env, want) {
 		t.Fatalf("Detach env = %q, want %q", cmd.Env, want)
+	}
+}
+
+func TestDetachNilEnvKeepsInherited(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Detach is a no-op off unix")
+	}
+	t.Setenv("HOME", "/h")
+	t.Setenv(TreeTagPrefix+"x", "1")
+	cmd := exec.Command("true")
+	Detach(cmd)
+	has := func(kv string) bool { return slices.Contains(cmd.Env, kv) }
+	if !has("HOME=/h") || !has(detachedMarker+"=1") || !slices.ContainsFunc(cmd.Env, func(kv string) bool { return strings.HasPrefix(kv, "PATH=") }) {
+		t.Fatalf("Detach nil env lost inherited vars: %d entries", len(cmd.Env))
+	}
+	if slices.ContainsFunc(cmd.Env, func(kv string) bool { return strings.HasPrefix(kv, TreeTagPrefix) }) {
+		t.Fatal("tree tag kept")
 	}
 }
 

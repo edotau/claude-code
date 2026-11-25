@@ -28,6 +28,9 @@ func hasTag(pid int, tag string) bool {
 	return envHolds(readEnviron(strconv.Itoa(pid), make([]byte, 1<<16)), tag)
 }
 
+// envUnreadable reports pid's environ cannot be read (another user's, or gone).
+func envUnreadable(pid int) bool { return readEnviron(strconv.Itoa(pid), make([]byte, 1<<16)) == nil }
+
 // envHolds reports a NUL-separated env block with an entry named tag.
 func envHolds(env []byte, tag string) bool {
 	want := []byte("\x00" + tag + "=")

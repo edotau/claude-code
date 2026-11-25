@@ -44,7 +44,9 @@ func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
 		for end := time.Now().Add(grace); time.Now().Before(end) && Alive(pid); {
 			time.Sleep(10 * time.Millisecond)
 		}
-		for _, k := range killable(append(kids, Descendants(pid)...), pid, getsid, func(p int) bool { return hasTag(p, detachedMarker) }) {
+		for _, k := range killable(append(kids, Descendants(pid)...), pid, getsid, func(p int) bool {
+			return isDetached(p, func(p int) bool { return hasTag(p, detachedMarker) }, envUnreadable)
+		}) {
 			if Alive(k) {
 				_ = SignalGroup(k, syscall.SIGKILL)  // a tool's own group (Pi's bash) is not ours
 				_ = syscall.Kill(k, syscall.SIGKILL) // not a group leader: the group signal missed it

@@ -29,26 +29,43 @@ func hasTag(pid int, tag string) bool {
 	return err == nil && procArgsEnvHas(raw, tag+"=")
 }
 
+// envUnreadable reports pid's env cannot be seen: the sysctl fails, or Apple platform binaries get an empty env.
+func envUnreadable(pid int) bool {
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	return err != nil || len(procArgsEnv(raw)) == 0
+}
+
 // procArgsEnvHas parses procargs2 (argc, exec path padded to 8 bytes, argc args, env to the end) for an env entry
 // starting want; an empty arg counts as one, and an empty env entry is skipped, not the end.
 func procArgsEnvHas(raw []byte, want string) bool {
-	if len(raw) < 4 {
-		return false
-	}
-	argc := int(binary.NativeEndian.Uint32(raw))
-	path, _, ok := strings.Cut(string(raw[4:]), "\x00")
-	start := 4 + (len(path)+1+7)&^7
-	if !ok || start > len(raw) {
-		return false
-	}
-	fields := strings.Split(string(raw[start:]), "\x00")
-	if argc > len(fields) {
-		return false
-	}
-	for _, kv := range fields[argc:] {
+	for _, kv := range procArgsEnv(raw) {
 		if strings.HasPrefix(kv, want) {
 			return true
 		}
 	}
 	return false
+}
+
+// procArgsEnv is the non-empty env entries of a procargs2 blob; none when it is malformed or the env is hidden.
+func procArgsEnv(raw []byte) []string {
+	if len(raw) < 4 {
+		return nil
+	}
+	argc := int(binary.NativeEndian.Uint32(raw))
+	path, _, ok := strings.Cut(string(raw[4:]), "\x00")
+	start := 4 + (len(path)+1+7)&^7
+	if !ok || start > len(raw) {
+		return nil
+	}
+	fields := strings.Split(string(raw[start:]), "\x00")
+	if argc > len(fields) {
+		return nil
+	}
+	var env []string
+	for _, kv := range fields[argc:] {
+		if kv != "" {
+			env = append(env, kv)
+		}
+	}
+	return env
 }

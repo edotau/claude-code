@@ -3,19 +3,24 @@
 package proc
 
 import (
+	"os"
 	"os/exec"
 	"slices"
 	"syscall"
 	"time"
 )
 
-// detachedMarker is set by Detach: TreeCancel spares only the sessions whose leader carries it.
-const detachedMarker = "HARNESS_DETACHED"
-
 // Detach starts cmd in its own session, untagged, so it outlives the parent's terminal and any TreeCancel above it.
 func Detach(cmd *exec.Cmd) {
 	setsid(cmd)
-	cmd.Env = append(slices.Clip(untagged(cmd.Env)), detachedMarker+"=1")
+	env := cmd.Env
+	if env == nil { // exec would inherit and add PWD for Dir; a bare marker would drop HOME, PATH and the rest
+		env = os.Environ()
+		if cmd.Dir != "" {
+			env = append(env, "PWD="+cmd.Dir)
+		}
+	}
+	cmd.Env = append(slices.Clip(untagged(env)), detachedMarker+"=1")
 }
 
 func setsid(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }

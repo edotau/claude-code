@@ -6,3 +6,5 @@ package proc
 func tagged(string) ([]int, error) { return nil, nil }
 
 func hasTag(int, string) bool { return false }
+
+func envUnreadable(int) bool { return false }

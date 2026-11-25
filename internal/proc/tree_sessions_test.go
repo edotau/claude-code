@@ -37,3 +37,23 @@ func TestTreeCancelSparesDetachedSessions(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDetachedEnvStates(t *testing.T) {
+	tests := []struct {
+		name             string
+		marked, unreadab bool
+		want             bool
+	}{
+		{"marker present", true, false, true},
+		{"env unreadable", false, true, true},
+		{"readable without marker", false, false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isDetached(1, func(int) bool { return tc.marked }, func(int) bool { return tc.unreadab })
+			if got != tc.want {
+				t.Fatalf("isDetached = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
