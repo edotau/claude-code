@@ -103,13 +103,12 @@ func (r *fixRun) listTracked(ctx context.Context, specs []string, named map[stri
 	if len(specs) == 0 {
 		return nil
 	}
-	out, err := proc.RunGitRaw(ctx, r.root, append([]string{"ls-files", "-z", "--"}, specs...)...)
+	out, err := proc.GitNUL(ctx, r.root, append([]string{"ls-files", "-z", "--"}, specs...)...)
 	if err != nil {
 		return err
 	}
-	for f := range strings.SplitSeq(out, "\x00") {
+	for _, f := range out {
 		switch {
-		case f == "":
 		case r.plain(f):
 			r.files = append(r.files, f)
 		case named[f]:

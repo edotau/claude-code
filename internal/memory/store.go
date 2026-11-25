@@ -3,7 +3,6 @@
 package memory
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -216,9 +215,7 @@ var gitTimeout = 30 * time.Second
 
 // gitOut runs `git -C dir args` with the sanitized env and gitTimeout; for identity probes of OTHER repos only.
 var gitOut = func(dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	return proc.RunGit(ctx, "", append([]string{"-C", dir}, args...)...)
+	return proc.GitTimeout(gitTimeout, dir, args...)
 }
 
 // GitToplevel is dir's git work-tree root, "" outside a repo.

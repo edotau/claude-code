@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Issue codes Preflight (or promote) can add to a LandPlan; IssueConflict is what a resolve agent acts on.
@@ -354,7 +355,7 @@ func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string
 		}
 		return nil, fmt.Errorf("git diff in %s: %w", path, err)
 	}
-	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
+	return textutil.SplitNUL(string(out)), nil
 }
 
 // inProgressIssue is the issueInProgress for a merge/rebase/cherry-pick underway in path, or nil.

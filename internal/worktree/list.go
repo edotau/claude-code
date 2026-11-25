@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // staleAfter is the age threshold past which an entry's last-activity evidence marks it Stale.
@@ -122,7 +123,7 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 		}
 		fillCounts(e, r)
 		if r.changed != nil {
-			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(r.changed), "\x00"))
+			files[laneLabel(entries, e.Path)] = nameSet(textutil.SplitNUL(string(r.changed)))
 		}
 	}
 	for i := range entries {

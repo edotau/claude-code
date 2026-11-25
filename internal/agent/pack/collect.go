@@ -366,17 +366,15 @@ func gitListRoot(ctx context.Context, cwd, root string, tracked map[string]bool)
 	if inside, err = insideWorkTree(ctx, root); !inside || err != nil {
 		return false, err
 	}
-	out, err := proc.RunGitRaw(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	out, err := proc.GitNUL(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return false, ctxErr // cancellation stays context.Canceled, not a ls-files failure
 		}
 		return false, fmt.Errorf("git ls-files in %s: %w", root, err) // fail closed: never walk gitignored files
 	}
-	for p := range strings.SplitSeq(strings.Trim(out, "\x00"), "\x00") {
-		if p != "" {
-			tracked[relSlash(cwd, filepath.Join(root, p))] = true
-		}
+	for _, p := range out {
+		tracked[relSlash(cwd, filepath.Join(root, p))] = true
 	}
 	return true, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // WithWorktreeLease runs fn under the lease serializing resolve, land and clean per worktree (before the land lock).
@@ -389,8 +390,8 @@ func agentChangedPaths(ctx context.Context, op *Operation, worktreePath string) 
 		if err != nil {
 			return nil, fmt.Errorf("git diff in %s: %w (%s)", worktreePath, err, gitErrorDetail(err))
 		}
-		for f := range strings.SplitSeq(string(diff), "\x00") {
-			if f != "" && !seen[f] {
+		for _, f := range textutil.SplitNUL(string(diff)) {
+			if !seen[f] {
 				seen[f] = true
 				result = append(result, f)
 			}
@@ -574,13 +575,7 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git diff --diff-filter=U in %s: %w", path, err)
 	}
-	var paths []string
-	for f := range strings.SplitSeq(string(out), "\x00") {
-		if f != "" {
-			paths = append(paths, f)
-		}
-	}
-	return paths, nil
+	return textutil.SplitNUL(string(out)), nil
 }
 
 func hasMergeHead(path string) (bool, error) {
