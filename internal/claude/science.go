@@ -99,11 +99,7 @@ func scienceDefaultsFile() (string, error) {
 	if paths.IsFile(filepath.Join(home, ".claude-science", "config.toml")) {
 		return "", nil
 	}
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "claude-code", "science.toml"), nil
+	return filepath.Join(paths.StateDir(), "science", "science.toml"), nil
 }
 
 // scienceArgs splits the harness's leading --port (either argv form) from the agent argv, which passes untouched.
