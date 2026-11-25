@@ -164,10 +164,11 @@ type Session struct {
 
 // Tree is the stable `agents tree --format json` schema; live sessions also carry registry fields.
 type Tree struct {
-	Sessions   []Session  `json:"sessions"`
-	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
-	Free       []string   `json:"free,omitempty"`       // --files: dirty files in this repo that no live leaf holds
-	Teams      []TeamNode `json:"teams,omitempty"`      // --detail and json: proxy teams, their proxies and dispatches
+	Sessions     []Session  `json:"sessions"`
+	Dispatches   []Dispatch `json:"dispatches,omitempty"`   // unscoped views: live dispatch jobs machine-wide
+	Free         []string   `json:"free,omitempty"`         // --files: dirty files in this repo that no live leaf holds
+	TeamWarnings []string   `json:"teamWarnings,omitempty"` // team config or proxy state that could not be read
+	Teams        []TeamNode `json:"teams,omitempty"`        // --detail and json: proxy teams, their proxies and dispatches
 
 	detail bool // --detail: each dispatch row is followed by its id and task
 }
@@ -206,7 +207,7 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 		cacheDispatchTotals(tree.Dispatches)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 		if showAll {
-			tree.Teams = loadTeams(tree.Dispatches)
+			tree.Teams, tree.TeamWarnings = loadTeams(tree.Dispatches)
 		}
 	}
 	if opts.Files {

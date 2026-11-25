@@ -43,7 +43,7 @@ func renderText(w io.Writer, tree *Tree, now time.Time) error {
 
 // renderTree writes active sessions and jobs, a blank line, then inactive sessions; rows clip to width before paint.
 func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string) {
-	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
+	if tree.empty() {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
@@ -67,11 +67,16 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 			addSession(&l, n, &c)
 		}
 	}
-	addTeams(&l, tree.Teams, tree.Dispatches)
+	addTeams(&l, tree.Teams, tree.TeamWarnings, tree.Dispatches)
 	addFree(&l, tree.Free)
 	for _, line := range l.lines(width, paint) {
 		fmt.Fprintln(w, line)
 	}
+}
+
+// empty: nothing to list, team rows and their warnings included.
+func (t *Tree) empty() bool {
+	return len(t.Sessions)+len(t.Dispatches)+len(t.Teams)+len(t.TeamWarnings) == 0
 }
 
 // isActive: the session is busy (or written recently), or anything in its subtree is running; stale never counts.
