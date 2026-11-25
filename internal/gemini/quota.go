@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -50,7 +50,8 @@ func runAgyUsage(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return exec.CommandContext(ctx, bin, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s").Output()
+	spec := agent.EnvSpec{Mode: agent.EnvAgent, Agent: "gemini", Keep: []string{"GOOGLE_APPLICATION_CREDENTIALS"}}
+	return agent.ProbeCLI(agent.ProbeContext(ctx, "gemini"), bin, spec, false, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s")
 }
 
 // diskCached shares one /usage read across short-lived processes (each hook run is one) for quotaTTL.

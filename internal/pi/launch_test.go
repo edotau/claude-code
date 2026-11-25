@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -111,11 +112,11 @@ func TestCodemodeLaunchEnvExportsMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := codemodeLaunchEnv([]string{rtkwrap.CodemodeEnv + "=stale"}, "only")
-	if got := lastEnv(env, rtkwrap.CodemodeEnv); got != "only" {
+	if got := proc.LastEnv(env, rtkwrap.CodemodeEnv); got != "only" {
 		t.Errorf("%s = %q, want only", rtkwrap.CodemodeEnv, got)
 	}
-	if !strings.HasPrefix(lastEnv(env, "PATH"), rtkwrap.Dir()) || lastEnv(env, "BASH_ENV") != "" {
-		t.Errorf("code mode: PATH = %q, BASH_ENV = %q", lastEnv(env, "PATH"), lastEnv(env, "BASH_ENV"))
+	if !strings.HasPrefix(proc.LastEnv(env, "PATH"), rtkwrap.Dir()) || proc.LastEnv(env, "BASH_ENV") != "" {
+		t.Errorf("code mode: PATH = %q, BASH_ENV = %q", proc.LastEnv(env, "PATH"), proc.LastEnv(env, "BASH_ENV"))
 	}
 }
 

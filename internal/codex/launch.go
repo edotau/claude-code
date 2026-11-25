@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -277,10 +276,8 @@ func probeCodexJSON() codexJSONProbe {
 func probeExecJSON(bin string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "exec", "--help")
-	cmd.WaitDelay = time.Second                                                        // a helper holding the pipe must not outlive the timeout
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no login or route credential
-	out, runErr := cmd.CombinedOutput()
+	// no login or route credential
+	out, runErr := agent.ProbeCLI(agent.ProbeContext(ctx, ""), bin, agent.EnvSpec{Mode: agent.EnvAgent}, true, "exec", "--help")
 	has := strings.Contains(string(out), "--json")
 	if ctx.Err() != nil || runErr != nil && !has {
 		return ""

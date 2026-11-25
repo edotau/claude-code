@@ -303,11 +303,17 @@ func verify(ctx context.Context, name string) (providers.AuthVerdict, string) {
 // ProbeCLI runs bin args on spec's environment; combined folds stderr into the returned output.
 func ProbeCLI(ctx context.Context, bin string, spec EnvSpec, combined bool, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.WaitDelay = time.Second // a helper holding the pipe must not outlive the timeout
 	cmd.Env = spec.Environ(ctx)
+	run := cmd.Output
 	if combined {
-		return cmd.CombinedOutput()
+		run = cmd.CombinedOutput
 	}
-	return cmd.Output()
+	out, err := run()
+	if errors.Is(err, exec.ErrWaitDelay) { // the CLI exited 0; only a lingering helper held the pipe
+		err = nil
+	}
+	return out, err
 }
 
 // ClassifyProbe maps a failed probe: a deadline is transient, an exit the CLI chose is NeedsLogin, else transient.

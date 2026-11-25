@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
@@ -66,17 +67,6 @@ func codemodeLaunchEnv(env []string, mode string) []string {
 	return rtkwrap.Launch(env, mode, agent.NoticeOut)
 }
 
-// lastEnv is the value the child gets for name: the last entry of env.
-func lastEnv(env []string, name string) string {
-	v := ""
-	for _, kv := range env {
-		if s, ok := strings.CutPrefix(kv, name+"="); ok {
-			v = s
-		}
-	}
-	return v
-}
-
 // checkCodemode refuses a code mode Pi would not run as asked: an unknown mode or no tools.
 func checkCodemode(req agent.RunOptions, _ []string) error {
 	if req.Codemode == "" {
@@ -107,7 +97,7 @@ func writeCodemodeSettings(env []string, mode string) error {
 	if !codemodeOn(mode) {
 		return nil
 	}
-	file := filepath.Join(lastEnv(env, agentDirEnv), "settings.json")
+	file := filepath.Join(proc.LastEnv(env, agentDirEnv), "settings.json")
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("pi codemode: %w", err)

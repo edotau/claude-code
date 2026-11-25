@@ -83,6 +83,17 @@ func Value(ctx context.Context, name string) string {
 	return os.Getenv(name)
 }
 
+// LastEnv is the value a child gets for name: the last entry of env, "" when absent.
+func LastEnv(env []string, name string) string {
+	v := ""
+	for _, kv := range env {
+		if s, ok := strings.CutPrefix(kv, name+"="); ok {
+			v = s
+		}
+	}
+	return v
+}
+
 // GoFlagsEntry is the GOFLAGS=... entry of env with each missing flag appended to the original value (kept verbatim).
 func GoFlagsEntry(env []string, flags ...string) string {
 	cur := ValuesFromEnv(env)["GOFLAGS"]

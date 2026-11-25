@@ -228,7 +228,7 @@ func codemodeArgs(ctx context.Context, req agent.RunOptions) ([]string, agent.Ru
 
 // childBase is the endpoint the child uses: the --settings env block's ANTHROPIC_BASE_URL over the process env's.
 func childBase(argv, env []string) string {
-	base := lastEnv(env, proc.EnvAnthropicBaseURL)
+	base := proc.LastEnv(env, proc.EnvAnthropicBaseURL)
 	for i, a := range argv {
 		v, ok := strings.CutPrefix(a, "--settings=")
 		if a == "--settings" && i+1 < len(argv) {
@@ -770,7 +770,7 @@ func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd
 }
 
 func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
-	return agent.WriteJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
+	return json.NewEncoder(w).Encode(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 }
 
 // Parse prices the turn alone (total_cost_usd accumulates over the process); a silent child is killed when idle.
