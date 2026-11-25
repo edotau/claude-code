@@ -272,6 +272,7 @@ func ensureProxyRoute(ctx context.Context) (string, error) {
 	if note != "" {
 		fmt.Fprintln(os.Stderr, note)
 	}
+	NoteProxy(id, c.label())
 	routeMu.Lock()
 	defer routeMu.Unlock()
 	if id != "" {

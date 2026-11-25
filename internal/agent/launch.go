@@ -258,7 +258,8 @@ func previewScopedBase(ctx context.Context) string {
 	if agent, _ := ctx.Value(scopedProxyKey{}).(string); agent != "" {
 		preview := func(ctx context.Context) (string, error) { return PreviewRouterBase(ctx), nil }
 		if c, base, _, err := chooseRoute(ctx, agent, routeCands(ctx), nil, preview); err == nil {
-			if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" {
+			if id, _ := ctx.Value(dispatchIDKey{}).(string); id != "" && !Peeking(ctx) { // a dry run never writes the record
+				NoteProxy(id, c.label())
 				routeMu.Lock()
 				chosenByID[id] = c.label()
 				routeMu.Unlock()

@@ -1464,3 +1464,17 @@ func TestTallyToolStats(t *testing.T) {
 		t.Fatalf("shell errors %d, want 2", got)
 	}
 }
+
+func TestNoteProxyStampsRunningRecord(t *testing.T) {
+	setConfigDir(t)
+	rec := benchAskRecord(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC), 0)
+	rec.PID = os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	NoteProxy(rec.ID, "phase:w1")
+	got, err := LoadRecord(rec.ID)
+	if err != nil || got.Proxy != "phase:w1" {
+		t.Fatalf("Proxy = %q, err %v", got.Proxy, err)
+	}
+}

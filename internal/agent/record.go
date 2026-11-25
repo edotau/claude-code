@@ -490,6 +490,20 @@ func NotePick(ctx context.Context, model string) {
 	}
 }
 
+// NoteProxy stores the chosen proxy route label on id's running record, so a live run shows its proxy.
+func NoteProxy(id, label string) {
+	if id == "" || label == "" {
+		return
+	}
+	_, _, _ = updateRecord(id, func(r Record) (Record, bool) {
+		if r.Status != "running" || r.Proxy == label {
+			return r, false
+		}
+		r.Proxy = label
+		return r, true
+	})
+}
+
 // withPick fills an unreported model of an auto hop from the pick NotePick stored.
 func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result {
 	if id := DispatchIDOf(ctx); id != "" && res.Model == "" && (req.AutoModel || IsAuto(req.Model)) {

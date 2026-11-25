@@ -67,6 +67,7 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 			addSession(&l, n, &c)
 		}
 	}
+	addTeams(&l, tree.Teams, tree.Dispatches)
 	addFree(&l, tree.Free)
 	for _, line := range l.lines(width, paint) {
 		fmt.Fprintln(w, line)
