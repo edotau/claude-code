@@ -1,6 +1,6 @@
 ---
 name: dbx-expert
-description: How model traffic reaches Databricks in this harness and how to diagnose it. Use for "a Databricks model call failed", "401/403/404/429/503 from Databricks", "stream disconnected", "which endpoint or wire does this model use", "add or check a Databricks model", "dev qa prod profile", "serving endpoint", "why is this slow or throttled", "what does this cost". Not for building Databricks apps, jobs, pipelines or SQL; those are Databricks' own skills, installed separately.
+description: How model traffic reaches Databricks in this harness and how to diagnose it. Use for "a Databricks model call failed", "401/403/404/429/503 from Databricks", "stream disconnected", "which endpoint or wire does this model use", "add or check a Databricks model", "dev qa prod profile", "serving endpoint", "why is this slow or throttled", "what does this cost". Not for writing Databricks SDK, CLI or SQL code: use databricks-core (CLI, auth, bundles), databricks-python-sdk (SDK and APIs) or databricks-docs.
 ---
 
 # Databricks serving (dbx-expert)
@@ -21,6 +21,9 @@ agent (claude|codex|copilot|gemini|opencode|pi)
 - Model traffic uses only workspace `/serving-endpoints/...` routes, never AI Gateway. A row with another
   `options.wire` is refused.
 - Credentials sit only in the encrypted vault or a provider's `auth.command`, never in a file or a log line.
+- Every agent shares one proxy, the `shared` team on the daemon (`claude-code doctor` shows `teams: 1 teams`).
+  More teams are data: `claude-code vault overlay set proxy-teams --file <f>` checks the document (`reserved` ≤ 16)
+  and `vault overlay unset proxy-teams --yes` goes back.
 
 ## Which profile runs
 
@@ -44,11 +47,14 @@ A model the fresh listing lacks prints `served: no` with the served alternatives
 - Tokens refresh early (half their life, at most 20 minutes) and the proxy refreshes behind the request. It loads new
   token code only on `claude-code gateway proxy --restart`. A process killed mid-refresh can lose a user login: renew
   it with `databricks login --profile <p>`.
+- One service-principal mint per token lifetime, across processes; each mint writes an `sp_mint` row to
+  `state/harness/audit.jsonl`.
 
 ## Tokens to the proxy
 
 - A session token is scoped to one profile's `/p/<profile>/` routes: `claude-code resolve --proxy`
-  (`--refresh` mints a new one). Agents get theirs at launch.
+  (`--refresh` mints a new one). Agents get theirs at launch. It is handed out only when the caller's
+  `ANTHROPIC_BASE_URL` is the loopback proxy; any other base gets exit 1 and the host named, never the token.
 - An editor needs a named client token: `claude-code gateway proxy --secret --client-token <name>` prints it once;
   `--revoke-client-token <name>` deletes it. It reaches only `/p/<profile>/` serving routes.
 - Never print, paste or store a token. Credential verbs print `<redacted: N bytes>` unless `--secret`, which only
@@ -107,3 +113,9 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
 - Put a secret in a file, a brief, a commit or a log.
 - Hand-edit generated agent configs or `settings.json` (`rules/harness/settings-management.md`).
 - Change production from a session: it is read-only; deploys go through its pipeline.
+
+## Related skills
+
+- **databricks-core**: CLI install, authentication, profiles and bundles.
+- **databricks-python-sdk**: SDK, Databricks Connect and REST API code.
+- **databricks-docs**: Databricks documentation lookup.
