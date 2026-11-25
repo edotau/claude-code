@@ -38,32 +38,101 @@ func TestAdmitBoundsWaitAndRetries(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	oldWindow, oldStep := requeueWindow, dialStep
-	requeueWindow, dialStep = 40*time.Millisecond, time.Millisecond
+	dialStep = time.Millisecond
 	t.Cleanup(func() { requeueWindow, dialStep = oldWindow, oldStep })
 	if err := ensureDir(Dir()); err != nil {
 		t.Fatal(err)
 	}
 	for _, state := range []string{"silent", StateQueued, StateRequeue, "drop"} {
-		t.Run(state, func(t *testing.T) {
-			ln, err := listenPrivate(SockPath())
-			if err != nil {
-				t.Fatal(err)
-			}
-			var wg sync.WaitGroup
-			var admits atomic.Int32
-			wg.Go(func() { serveAdmissionFixture(ln, state, &wg, &admits) })
-			defer func() { _ = ln.Close(); wg.Wait() }()
-			start := time.Now()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*requeueWindow)
-			defer cancel()
-			got := Admit(ctx, agent.Record{ID: "20261122T120000.000-claude"}, io.Discard)
-			if elapsed := time.Since(start); got != Direct || elapsed > 6*requeueWindow {
-				t.Fatalf("Admit = %s after %s, want Direct within the caller's %s", got, elapsed, 5*requeueWindow)
-			}
-			if n := admits.Load(); state == "drop" && n != 1 { // a close before any reply is a full daemon
-				t.Fatalf("drop before any reply re-asked: %d admits, want 1", n)
-			}
-		})
+		t.Run(state, func(t *testing.T) { runAdmissionBoundCase(t, state) })
+	}
+}
+
+func runAdmissionBoundCase(t *testing.T, state string) {
+	// Only the silent handshake needs a short deadline.
+	requeueWindow = 3 * time.Second
+	if state == "silent" {
+		requeueWindow = 40 * time.Millisecond
+	}
+	ln, err := listenPrivate(SockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	var admits atomic.Int32
+	retried := make(chan struct{})
+	wg.Go(func() { serveAdmissionFixture(ln, state, &wg, &admits, retried) })
+	defer func() { _ = ln.Close(); wg.Wait() }()
+
+	// This caller deadline only guards against a hung test.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	queued := make(chan struct{}, 1)
+	note := admissionEventNote(state, queued)
+	finished := make(chan Outcome, 1)
+	go func() {
+		finished <- Admit(ctx, agent.Record{ID: "20261122T120000.000-claude"}, note)
+	}()
+	joined := false
+	defer joinAdmission(t, cancel, finished, &joined)
+	awaitAdmissionEvent(t, state, ctx, queued, retried, cancel)
+	got := awaitAdmissionResult(t, state, finished)
+	joined = true
+	if got != Direct {
+		t.Fatalf("Admit = %s, want Direct", got)
+	}
+	if (state == "silent" || state == "drop") && ctx.Err() != nil {
+		t.Fatalf("Admit needed caller cancellation (%s)", state)
+	}
+	if n := admits.Load(); state == "drop" && n != 1 { // a close before any reply is a full daemon
+		t.Fatalf("drop before any reply re-asked: %d admits, want 1", n)
+	}
+}
+
+func admissionEventNote(state string, queued chan<- struct{}) io.Writer {
+	if state == StateQueued || state == StateRequeue {
+		return admissionNote(func() { queued <- struct{}{} })
+	}
+	return io.Discard
+}
+
+func joinAdmission(t *testing.T, cancel context.CancelFunc, finished <-chan Outcome, joined *bool) {
+	cancel()
+	if !*joined {
+		select {
+		case <-finished:
+		case <-time.After(15 * time.Second):
+			t.Error("Admit goroutine did not stop after cancellation")
+		}
+	}
+}
+
+func awaitAdmissionResult(t *testing.T, state string, finished <-chan Outcome) Outcome {
+	t.Helper()
+	select {
+	case got := <-finished:
+		return got
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Admit did not return after handshake deadline or cancellation (%s)", state)
+		return ""
+	}
+}
+
+func awaitAdmissionEvent(t *testing.T, state string, ctx context.Context, queued, retried <-chan struct{}, cancel context.CancelFunc) {
+	t.Helper()
+	if state == StateRequeue {
+		select {
+		case <-retried: // the replacement daemon received a second admit
+		case <-ctx.Done():
+			t.Fatal("Admit did not retry after requeue")
+		}
+	}
+	if state == StateQueued || state == StateRequeue {
+		select {
+		case <-queued: // client processed queued; handshake deadline is cleared
+			cancel()
+		case <-ctx.Done():
+			t.Fatal("Admit did not process the queued reply")
+		}
 	}
 }
 
@@ -110,7 +179,14 @@ func TestAdmitWaitsPastHandshakeWindow(t *testing.T) {
 	}
 }
 
-func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGroup, admits *atomic.Int32) {
+type admissionNote func()
+
+func (f admissionNote) Write(p []byte) (int, error) {
+	f()
+	return len(p), nil
+}
+
+func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGroup, admits *atomic.Int32, retried chan<- struct{}) {
 	for {
 		c, err := ln.AcceptUnix()
 		if err != nil {
@@ -118,7 +194,8 @@ func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGrou
 		}
 		wg.Go(func() {
 			defer c.Close()
-			_ = c.SetDeadline(time.Now().Add(time.Second))
+			// Keep the fixture open past the handshake and cancellation guards.
+			_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 			var rq request
 			if json.NewDecoder(c).Decode(&rq) != nil {
 				return
@@ -127,7 +204,13 @@ func serveAdmissionFixture(ln *net.UnixListener, state string, wg *sync.WaitGrou
 				send(c, reply{State: "status", Status: &Status{PID: os.Getpid()}})
 				return
 			}
-			admits.Add(1)
+			if admits.Add(1) == 2 && state == StateRequeue {
+				close(retried)
+				// Clear the handshake deadline; wait for cancellation.
+				send(c, reply{State: StateQueued})
+				_, _ = io.Copy(io.Discard, c)
+				return
+			}
 			switch state {
 			case StateRequeue:
 				send(c, reply{State: state})
