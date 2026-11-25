@@ -433,6 +433,12 @@ func clipboardExtras(w io.Writer) []string {
 	} else if lbuf.Len() > 0 {
 		tokens = append(tokens, "clip agent ok")
 	}
+	var dbuf bytes.Buffer
+	if err := installDreamAgent(&dbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
+		fmt.Fprintf(w, "dream agent skip  %v\n", err)
+	} else if dbuf.Len() > 0 {
+		tokens = append(tokens, "dream agent ok")
+	}
 	return tokens
 }
 

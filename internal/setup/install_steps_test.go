@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -544,5 +545,34 @@ func TestRenderDreamPlist(t *testing.T) {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("plist missing %q", want)
 		}
+	}
+}
+
+func TestPrepDreamLogTruncatesOversize(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "sub", "dream-launchd.log")
+	if err := prepDreamLog(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, make([]byte, dreamLogMax+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepDreamLog(p); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(p); fi.Size() != 0 {
+		t.Fatalf("size %d, want 0", fi.Size())
+	}
+}
+
+func TestExtrasCompactInstallsDreamAgent(t *testing.T) {
+	called := false
+	old := installDreamAgent
+	installDreamAgent = func(w io.Writer, _ string, _ bool) error { called = true; fmt.Fprintln(w, "ok"); return nil }
+	t.Cleanup(func() { installDreamAgent = old })
+	oldClip := installClipAgent
+	installClipAgent = func(io.Writer, string, bool) error { return nil }
+	t.Cleanup(func() { installClipAgent = oldClip })
+	if got := clipboardExtras(io.Discard); !called || !slices.Contains(got, "dream agent ok") {
+		t.Fatalf("called=%v tokens=%v", called, got)
 	}
 }

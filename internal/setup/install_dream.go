@@ -17,6 +17,9 @@ import (
 // installDreamAgent is a var so tests never bootstrap the developer's real launchd agent.
 var installDreamAgent = dreamLaunchAgent
 
+// dreamLogMax bounds dream-launchd.log: launchd appends forever, so install truncates past this size.
+const dreamLogMax = 1 << 20
+
 const dreamLabel = "com.edotau.claude-code.dream"
 
 // dreamEvery matches dreamRetry, so a failed dream retries on schedule and a due one never waits past 6 h.
@@ -82,8 +85,18 @@ func dreamLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 		Plist:  filepath.Join(home, "Library", "LaunchAgents", dreamLabel+".plist"),
 		Domain: "gui/" + strconv.Itoa(os.Getuid()),
 		Body:   body,
-		Prep:   func() error { return os.MkdirAll(filepath.Dir(logPath), 0o755) },
+		Prep:   func() error { return prepDreamLog(logPath) },
 	}, dryRun)
+}
+
+func prepDreamLog(logPath string) error {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return err
+	}
+	if fi, err := os.Stat(logPath); err == nil && fi.Size() > dreamLogMax {
+		return os.Truncate(logPath, 0)
+	}
+	return nil
 }
 
 // installDreamBridge installs the scheduled dream launchd agent; best-effort, a no-op off macOS.
