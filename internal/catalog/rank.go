@@ -33,8 +33,8 @@ type rotationRule struct {
 	DeferTurns int `json:"defer_turns,omitempty"`
 }
 
-// LocalRule is the staged rollout of the local last-resort model: stage off|shadow|last, the tiers it may serve.
-type LocalRule struct {
+// localRule is the staged rollout of the local last-resort model: stage off|shadow|last, the tiers it may serve.
+type localRule struct {
 	Stage     string   `json:"stage"`
 	Tiers     []string `json:"tiers"`
 	LeadEvery int      `json:"lead_every"` // 0 = fallback only; N = one in N healthy fast pi dispatches leads
@@ -43,7 +43,7 @@ type LocalRule struct {
 
 var localStages = []string{"off", "shadow", "last"}
 
-func (r LocalRule) validate(tiers map[string]int) error {
+func (r localRule) validate(tiers map[string]int) error {
 	if !slices.Contains(localStages, r.Stage) {
 		return fmt.Errorf("local.stage %q: want one of %s", r.Stage, strings.Join(localStages, ", "))
 	}
@@ -60,7 +60,7 @@ func (r LocalRule) validate(tiers map[string]int) error {
 
 type rankTable struct {
 	Tiers    map[string]int          `json:"tiers"` // tier -> the least capability it needs
-	Local    LocalRule               `json:"local"`
+	Local    localRule               `json:"local"`
 	Rotation map[string]rotationRule `json:"rotation"`
 	Families []Rank                  `json:"families"`
 }
@@ -85,7 +85,7 @@ var loadRanks = sync.OnceValue(func() rankTable {
 })
 
 // Local is the local last-resort rule from ranks.json.
-func Local() LocalRule { return loadRanks().Local }
+func Local() localRule { return loadRanks().Local }
 
 // RankOf is id's family rank: the first pattern matching its canonical id; an unknown id sorts after every family.
 func RankOf(id string) Rank {

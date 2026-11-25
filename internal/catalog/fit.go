@@ -31,7 +31,7 @@ const (
 
 var fitFormat = schemas.Register(schemas.Format{
 	Name: "route-fit", Owner: "internal/catalog", Kind: schemas.Record, Version: fitSchema,
-	Glob: FitPath,
+	Glob: fitPath,
 	New:  func() any { return new(Fit) },
 	Keep: "learned from dispatch records that `make sweep` removes after 7 days, so it cannot be rebuilt",
 })
@@ -39,8 +39,8 @@ var fitFormat = schemas.Register(schemas.Format{
 // fitNow is the clock Choose and the learn step read; a var so tests need no sleeps.
 var fitNow = time.Now
 
-// FitPath is the learned fit table under the harness state dir.
-func FitPath() string { return filepath.Join(paths.StateDir(), "router", "fit.json") }
+// fitPath is the learned fit table under the harness state dir.
+func fitPath() string { return filepath.Join(paths.StateDir(), "router", "fit.json") }
 
 // FitCell is one (alias, agent, group) cell as of At: decayed successes A, quality failures B, timed runs and seconds.
 type FitCell struct {
@@ -70,8 +70,8 @@ type Outcome struct {
 	Secs                float64 // run duration, successes only
 }
 
-// FitEval is a cell read at a moment: its Beta mean, the evidence n beyond the prior, and the mean seconds.
-type FitEval struct {
+// fitEval is a cell read at a moment: its Beta mean, the evidence n beyond the prior, and the mean seconds.
+type fitEval struct {
 	A, B, N, Score, MeanSecs float64
 }
 
@@ -128,7 +128,7 @@ func fitPrior(capability, need int) float64 {
 }
 
 // Eval reads c at now: evidence decays toward the prior, which never does.
-func (c FitCell) Eval(now time.Time) FitEval {
+func (c FitCell) Eval(now time.Time) fitEval {
 	t := loadRanks()
 	capability := 0
 	for _, r := range t.Families {
@@ -136,12 +136,12 @@ func (c FitCell) Eval(now time.Time) FitEval {
 			capability = r.Capability
 		}
 	}
-	return evalCell(c, now, fitPrior(capability, t.Tiers[AliasTier(c.Alias)]))
+	return evalCell(c, now, fitPrior(capability, t.Tiers[aliasTier(c.Alias)]))
 }
 
-func evalCell(c FitCell, now time.Time, prior float64) FitEval {
+func evalCell(c FitCell, now time.Time, prior float64) fitEval {
 	a, b, runs := decay(c.A, c.At, now), decay(c.B, c.At, now), decay(c.Runs, c.At, now)
-	e := FitEval{A: a, B: b, N: a + b, Score: (prior*fitPriorN + a) / (fitPriorN + a + b)}
+	e := fitEval{A: a, B: b, N: a + b, Score: (prior*fitPriorN + a) / (fitPriorN + a + b)}
 	if runs > 0 {
 		e.MeanSecs = decay(c.Secs, c.At, now) / runs
 	}
@@ -149,7 +149,7 @@ func evalCell(c FitCell, now time.Time, prior float64) FitEval {
 }
 
 // Evidence is true once a cell holds as much evidence as the prior weighs; below it the cell is its prior.
-func (e FitEval) Evidence() bool { return e.N >= fitPriorN }
+func (e fitEval) Evidence() bool { return e.N >= fitPriorN }
 
 // Live is true once the table has run in shadow for fitShadow.
 func (f *Fit) Live(now time.Time) bool { return !f.Created.IsZero() && now.Sub(f.Created) > fitShadow }
@@ -165,8 +165,8 @@ func (f *Fit) cell(alias, agent, match string) (FitCell, bool) {
 	return f.Cells[i], true
 }
 
-// AliasTier is the dispatch tier word of a model alias, "" for an unknown alias.
-func AliasTier(alias string) string {
+// aliasTier is the dispatch tier word of a model alias, "" for an unknown alias.
+func aliasTier(alias string) string {
 	for tier, a := range tierAlias {
 		if a == alias {
 			return tier
@@ -181,12 +181,12 @@ var fitCache = paths.NewStampCache[*Fit]("catalog.fit")
 
 // LoadFit is the learned table, or nil when there is none or it cannot be read (a pick never fails on it).
 func LoadFit() *Fit {
-	f, _ := fitCache.Get(FitPath(), readFit)
+	f, _ := fitCache.Get(fitPath(), readFit)
 	return f
 }
 
 func readFit() (*Fit, error) {
-	raw, err := os.ReadFile(FitPath())
+	raw, err := os.ReadFile(fitPath())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -211,14 +211,14 @@ func ReadFit() (Fit, error) {
 
 // SaveFit writes f atomically.
 func SaveFit(f Fit) error {
-	if err := os.MkdirAll(filepath.Dir(FitPath()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fitPath()), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
-	return paths.AtomicWrite(FitPath(), append(data, '\n'), 0o600)
+	return paths.AtomicWrite(fitPath(), append(data, '\n'), 0o600)
 }
 
 // attach sets r's fit score from c and, once live and c has evidence, the keys pickOrder reorders by.

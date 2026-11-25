@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"path"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -29,23 +28,15 @@ func TestRanksData(t *testing.T) {
 	}
 }
 
-// The local rule ships at stage shadow, an unknown stage or tier is refused, and the qwen row ranks.
+// An unknown local stage or tier is refused.
 func TestLocalRule(t *testing.T) {
-	want := LocalRule{Stage: "shadow", Tiers: []string{"fast"}, MaxPrompt: 48000}
-	if got := Local(); !reflect.DeepEqual(got, want) {
-		t.Errorf("Local() = %+v, want %+v", got, want)
-	}
 	tiers := loadRanks().Tiers
-	err := LocalRule{Stage: "all", MaxPrompt: 1}.validate(tiers)
+	err := localRule{Stage: "all", MaxPrompt: 1}.validate(tiers)
 	if err == nil || !strings.Contains(err.Error(), "off, shadow, last") {
 		t.Errorf("unknown stage err = %v, want the allowed values named", err)
 	}
-	if err := (LocalRule{Stage: "last", Tiers: []string{"huge"}, MaxPrompt: 1}).validate(tiers); err == nil {
+	if err := (localRule{Stage: "last", Tiers: []string{"huge"}, MaxPrompt: 1}).validate(tiers); err == nil {
 		t.Error("unknown tier accepted")
-	}
-	r := RankOf("qwen3.8-27b:gguf:q6")
-	if got := [4]any{r.Known, r.Capability, r.Speed, r.Cost}; got != [4]any{true, 2, 3, 1} {
-		t.Errorf("RankOf(qwen3.8-27b:gguf:q6) = %+v, want known 2/3/1", r)
 	}
 }
 

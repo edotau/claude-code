@@ -38,8 +38,8 @@ var pricesFormat = schemas.Register(schemas.Format{
 // PricesPath is the learned list-price table under the harness state dir.
 func PricesPath() string { return filepath.Join(paths.StateDir(), "router", "prices.json") }
 
-// SnapshotPath is the models.dev file OpenCode keeps: OPENCODE_MODELS_PATH, else <cache home>/opencode/models.json.
-func SnapshotPath() string {
+// snapshotPath is the models.dev file OpenCode keeps: OPENCODE_MODELS_PATH, else <cache home>/opencode/models.json.
+func snapshotPath() string {
 	if p := os.Getenv("OPENCODE_MODELS_PATH"); p != "" {
 		return p
 	}
@@ -190,7 +190,7 @@ func SavePrices(p Prices) error {
 
 // ReadSnapshot reads OpenCode's snapshot file, at most snapshotLimit bytes, with its mtime.
 func ReadSnapshot() ([]byte, time.Time, error) {
-	f, err := os.Open(SnapshotPath())
+	f, err := os.Open(snapshotPath())
 	if err != nil {
 		return nil, time.Time{}, err
 	}

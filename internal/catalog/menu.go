@@ -275,16 +275,16 @@ func dedupeMenu(in []providers.OpencodeModel) []providers.OpencodeModel {
 	return out
 }
 
-// MenuChange is one line of an import diff: Op is "+", "-" or "~".
-type MenuChange struct {
+// menuChange is one line of an import diff: Op is "+", "-" or "~".
+type menuChange struct {
 	Op    string                   `json:"op"`
 	Model providers.OpencodeModel  `json:"model"`
 	Was   *providers.OpencodeModel `json:"was,omitempty"`
 }
 
 // diffMenu lists what turns old into next: additions, removals, then label/responses changes.
-func diffMenu(old, next []providers.OpencodeModel) []MenuChange {
-	var out []MenuChange
+func diffMenu(old, next []providers.OpencodeModel) []menuChange {
+	var out []menuChange
 	find := func(l []providers.OpencodeModel, id string) (providers.OpencodeModel, bool) {
 		i := slices.IndexFunc(l, func(m providers.OpencodeModel) bool { return m.ID == id })
 		if i < 0 {
@@ -294,25 +294,25 @@ func diffMenu(old, next []providers.OpencodeModel) []MenuChange {
 	}
 	for _, m := range next {
 		if _, ok := find(old, m.ID); !ok {
-			out = append(out, MenuChange{Op: "+", Model: m})
+			out = append(out, menuChange{Op: "+", Model: m})
 		}
 	}
 	for _, m := range old {
 		if _, ok := find(next, m.ID); !ok {
-			out = append(out, MenuChange{Op: "-", Model: m})
+			out = append(out, menuChange{Op: "-", Model: m})
 		}
 	}
 	for _, m := range next {
 		if was, ok := find(old, m.ID); ok && was != m {
 			w := was
-			out = append(out, MenuChange{Op: "~", Model: m, Was: &w})
+			out = append(out, menuChange{Op: "~", Model: m, Was: &w})
 		}
 	}
 	return out
 }
 
-// MenuRow is one `opencode catalog list` line; Live, Ready and Check are set only for a live listing.
-type MenuRow struct {
+// menuRow is one `opencode catalog list` line; Live, Ready and Check are set only for a live listing.
+type menuRow struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Responses bool   `json:"responses"`
@@ -323,7 +323,7 @@ type MenuRow struct {
 }
 
 // MenuRows lists the shared menu; a non-nil p marks each entry served or missing among infos, its workspace listing.
-func MenuRows(p *providers.Provider, infos []providers.ModelInfo) []MenuRow {
+func MenuRows(p *providers.Provider, infos []providers.ModelInfo) []menuRow {
 	src := "default"
 	if providers.OpencodeMenuFromVault() {
 		src = "vault"
@@ -333,9 +333,9 @@ func MenuRows(p *providers.Provider, infos []providers.ModelInfo) []MenuRow {
 	if live {
 		cache, _ = LoadCheckCache(p.Name)
 	}
-	var rows []MenuRow
+	var rows []menuRow
 	for _, m := range providers.OpencodeMenu() {
-		r := MenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
+		r := menuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
 		if live {
 			r.Live = "missing"
 			if info, ok := servedInfo(served, p, m.ID); ok {
@@ -377,7 +377,7 @@ func MenuAddServed(arg string, responses, responsesSet, force bool,
 }
 
 // MenuImportDiff parses file and returns the menu it describes plus what changes against the current one.
-func MenuImportDiff(file string) (next []providers.OpencodeModel, changes []MenuChange, err error) {
+func MenuImportDiff(file string) (next []providers.OpencodeModel, changes []menuChange, err error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, nil, err
@@ -415,7 +415,7 @@ type SyncPlan struct {
 	Next     []providers.OpencodeModel
 	Skipped  int      // additions dropped because their probe failed
 	Dropped  []string // eligible ids left out because `models discover` dropped them
-	Changes  []MenuChange
+	Changes  []menuChange
 	Verified bool
 }
 
