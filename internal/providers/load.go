@@ -346,21 +346,11 @@ func applyOverlay(base, o *Registry) error {
 	if err := applyProviderOverlay(base, o); err != nil {
 		return err
 	}
-	if o.Default != "" {
-		base.Default = o.Default
-	}
-	if o.Fallback != nil {
-		base.Fallback = o.Fallback
-	}
-	if o.OpencodePlugins != nil {
-		base.OpencodePlugins = o.OpencodePlugins
-	}
-	if o.AgentPlans != nil {
-		base.AgentPlans = o.AgentPlans
-	}
-	if o.AgentPlanFormat != "" {
-		base.AgentPlanFormat = o.AgentPlanFormat
-	}
+	setIf(&base.Default, o.Default, o.Default != "")
+	setIf(&base.Fallback, o.Fallback, o.Fallback != nil)
+	setIf(&base.OpencodePlugins, o.OpencodePlugins, o.OpencodePlugins != nil)
+	setIf(&base.AgentPlans, o.AgentPlans, o.AgentPlans != nil)
+	setIf(&base.AgentPlanFormat, o.AgentPlanFormat, o.AgentPlanFormat != "")
 	applyRoutingOverlay(&base.Routing, &o.Routing)
 	return nil
 }
@@ -394,16 +384,10 @@ func applyProviderOverlay(base, o *Registry) error {
 // applyRoutingOverlay merges o into base: cells cell by cell, every other field replaced whole when set.
 func applyRoutingOverlay(base, o *Routing) {
 	mergeCells(base, o)
-	if o.Weights != nil {
-		// an overlay replaces the weights whole, per its docstring
-		base.Weights = o.Weights
-	}
-	if o.ServedAware != nil {
-		base.ServedAware = o.ServedAware
-	}
-	if o.ClaudeAnywhere != nil {
-		base.ClaudeAnywhere = o.ClaudeAnywhere
-	}
+	// an overlay replaces the weights whole, per its docstring
+	setIf(&base.Weights, o.Weights, o.Weights != nil)
+	setIf(&base.ServedAware, o.ServedAware, o.ServedAware != nil)
+	setIf(&base.ClaudeAnywhere, o.ClaudeAnywhere, o.ClaudeAnywhere != nil)
 	for name, ladder := range o.Ladders {
 		if base.Ladders == nil {
 			base.Ladders = map[string][]Rung{}
@@ -429,17 +413,16 @@ func mergeCells(base, o *Routing) {
 
 // applyOpencodeOverlay replaces each opencode field whole when the overlay sets it.
 func applyOpencodeOverlay(base, o *OpencodeRouting) {
-	if o.Ladder != nil {
-		base.Ladder = o.Ladder
-	}
-	if o.WorkRepoMarkers != nil {
-		base.WorkRepoMarkers = o.WorkRepoMarkers
-	}
-	if o.FreeTiers != nil {
-		base.FreeTiers = o.FreeTiers
-	}
-	if o.FreeFirstOutput != "" {
-		base.FreeFirstOutput = o.FreeFirstOutput
+	setIf(&base.Ladder, o.Ladder, o.Ladder != nil)
+	setIf(&base.WorkRepoMarkers, o.WorkRepoMarkers, o.WorkRepoMarkers != nil)
+	setIf(&base.FreeTiers, o.FreeTiers, o.FreeTiers != nil)
+	setIf(&base.FreeFirstOutput, o.FreeFirstOutput, o.FreeFirstOutput != "")
+}
+
+// setIf stores v in *dst when set.
+func setIf[T any](dst *T, v T, set bool) {
+	if set {
+		*dst = v
 	}
 }
 

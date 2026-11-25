@@ -245,19 +245,10 @@ func AddGithubAccount(login string) error {
 }
 
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
-	_, _, err := UpdateOverlayDoc(true, func(doc map[string]json.RawMessage, _ *vault.Tx) error {
-		provs := map[string]map[string]json.RawMessage{}
-		if b, ok := doc["providers"]; ok {
-			if err := json.Unmarshal(b, &provs); err != nil {
-				return fmt.Errorf("vault overlay/providers: providers: %w", err)
-			}
-		}
-		if provs == nil {
-			provs = map[string]map[string]json.RawMessage{}
-		}
+	return UpdateProviderRows(true, false, func(provs map[string]map[string]json.RawMessage) error {
 		entry := provs[name]
-		var err error
 		if entry == nil {
+			var err error
 			if entry, err = builtinEntry(name); err != nil {
 				return err
 			}
@@ -266,9 +257,37 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 			return err
 		}
 		provs[name] = entry
-		doc["providers"], err = json.Marshal(provs)
-		return err
+		return nil
 	})
+}
+
+// UpdateProviderRows runs fn on the overlay's providers rows (a missing key is empty) and writes them back.
+func UpdateProviderRows(apply, force bool, fn func(rows map[string]map[string]json.RawMessage) error) error {
+	_, _, err := UpdateOverlayDocForce(apply, force, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		return EditProviderRows(top, "vault overlay/providers: providers", fn)
+	})
+	return err
+}
+
+// EditProviderRows is UpdateProviderRows over an already-open doc top; prefix, when set, labels a decode error.
+func EditProviderRows(top map[string]json.RawMessage, prefix string, fn func(rows map[string]map[string]json.RawMessage) error) error {
+	provs := map[string]map[string]json.RawMessage{}
+	if b, ok := top["providers"]; ok {
+		if err := json.Unmarshal(b, &provs); err != nil {
+			if prefix != "" {
+				return fmt.Errorf("%s: %w", prefix, err)
+			}
+			return err
+		}
+	}
+	if provs == nil {
+		provs = map[string]map[string]json.RawMessage{}
+	}
+	if err := fn(provs); err != nil {
+		return err
+	}
+	b, err := json.Marshal(provs)
+	top["providers"] = b
 	return err
 }
 
