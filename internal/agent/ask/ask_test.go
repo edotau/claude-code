@@ -1317,3 +1317,40 @@ func TestRefuseRecords(t *testing.T) {
 		}
 	}
 }
+
+// A job restores auto provenance; a retry must not grant failover to a newly typed route or inherited fence.
+func TestMarkAutoReplayRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		job, typed, fence bool
+		want              string
+	}{
+		{"job", true, false, false, "dev"},
+		{"retry", false, false, false, "dev"},
+		{"typed route", false, true, false, ""},
+		{"overlay fence", false, false, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &askRun{ctx: withValues(t.Context(), confinement(t.Context(), "databricks", "dev")),
+				f: &askFlags{retry: "record"}, replayed: agent.RunOptions{AutoArm: true}, flagRoute: tc.typed}
+			if tc.job {
+				r.jobRec = &agent.Record{Request: r.replayed}
+				r.f.retry = ""
+			}
+			if tc.fence {
+				r.ov.Provider, r.ov.Profile = "databricks", "dev"
+			}
+			r.markAuto(false, false)
+			if r.auto != tc.want {
+				t.Fatalf("auto = %q, want %q", r.auto, tc.want)
+			}
+			wantProvider := ""
+			if tc.want != "" {
+				wantProvider = router.RouteDatabricks
+			}
+			if got := agent.AutoFailoverProvider(r.ctx); got != wantProvider {
+				t.Fatalf("failover = %q, want %q", got, wantProvider)
+			}
+		})
+	}
+}

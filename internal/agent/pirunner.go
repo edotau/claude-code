@@ -166,7 +166,7 @@ func staysOnWorkspace(ctx context.Context, q RouteReq, lead Dispatch) bool {
 // piRunnerBarred is why q keeps its own CLI: one named hop, a resumed session, --native, a carried ask, or a Pi gap.
 func piRunnerBarred(ctx context.Context, q RouteReq) string {
 	switch {
-	case q.Fallback == router.FallbackNone:
+	case q.Fallback == router.FallbackNone && !autoPickKeepsPi(ctx, q):
 		return "--fallback none keeps the one hop it names"
 	case q.Resumed:
 		return "a resumed session stays on its own CLI"
@@ -180,6 +180,15 @@ func piRunnerBarred(ctx context.Context, q RouteReq) string {
 		return ""
 	}
 	return runnerLoses(engine.Caps(), q.Opts)
+}
+
+// autoPickKeepsPi permits Pi on the confined auto pick under an internal clamp, never a requested one-hop policy.
+func autoPickKeepsPi(ctx context.Context, q RouteReq) bool {
+	if !q.FallbackDefaulted || AutoFailoverProvider(ctx) != router.RouteDatabricks || router.ArmProfileContext(ctx) == "" {
+		return false
+	}
+	mode, err := fallbackSetting(ctx)
+	return err == nil && (mode == "" || router.ParseFallback(mode) != router.FallbackNone)
 }
 
 // headPiHop is the pi runner dispatch on lead's own workspace: lead's route flags on the wire piRunnerModel validated.
@@ -316,14 +325,17 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 	return r.Model, ""
 }
 
+// fallbackSetting reads the configured mode in precedence order; an unreadable overlay already fails ask setup.
+func fallbackSetting(ctx context.Context) (string, error) {
+	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	return cmp.Or(ov.Fallback, strings.TrimSpace(proc.Value(ctx, router.EnvFallback)),
+		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback])), err
+}
+
 // fallbackUnset reports no fallback mode set anywhere: not the overlay, the process env nor the vault.
 func fallbackUnset(ctx context.Context) (bool, error) {
-	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
-	if err != nil {
-		return false, err // unreadable overlay: treated as set
-	}
-	return ov.Fallback == "" && strings.TrimSpace(proc.Value(ctx, router.EnvFallback)) == "" &&
-		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) == "", nil
+	mode, err := fallbackSetting(ctx)
+	return mode == "" && err == nil, err
 }
 
 // piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none or model).

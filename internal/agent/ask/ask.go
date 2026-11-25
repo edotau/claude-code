@@ -391,6 +391,7 @@ func (r *askRun) checkArm() (int, bool) {
 	picks := armAutoPick(r.ctx, value)
 	fallback := f.fallback
 	if picks && !r.swap { // an env default never licenses swapping a typed model
+		// This is a no-swap clamp, not a runner choice: autoPickKeepsPi keeps Pi on the picked workspace.
 		fallback = router.FallbackNone
 		if typedModel(f.model) { // chain and 429 retry both keep the typed model
 			f.fallback = fallback
@@ -413,10 +414,11 @@ func (r *askRun) checkArm() (int, bool) {
 	return 0, false
 }
 
-// markAuto records an auto-picked workspace; a --job child (explicit profile) regains the parent's failover grant.
+// markAuto records an auto-picked workspace, including a replay that keeps the recorded route rather than a new fence.
 func (r *askRun) markAuto(picks, moves bool) {
 	picks = picks || moves // a typed start retries on the next workspace after a rate limit, like auto
-	if !picks && !r.jobAutoArm() {
+	retryAuto := r.f.retry != "" && r.replayed.AutoArm && !r.flagRoute && r.ov.Confinement() == ""
+	if !picks && !r.jobAutoArm() && !retryAuto {
 		return
 	}
 	r.auto = router.ArmProfileContext(r.ctx)

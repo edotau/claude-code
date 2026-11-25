@@ -555,3 +555,64 @@ func TestCheckArmClampsFallbackForTypedModel(t *testing.T) {
 		}
 	})
 }
+
+// An auto pick keeps the runner on the picked workspace, not a sibling or another provider.
+func TestAutoPickedDatabricksPiFirst(t *testing.T) {
+	armChildEnvFixture(t)
+	pathstest.FakeVendor(t, "pi", "exit 0")
+	oldFind := armFindings
+	armFindings = noCredential(nil)
+	t.Cleanup(func() { armFindings = oldFind })
+	for _, tc := range []struct {
+		name, mode, ownModel string
+		args                 []string
+		wantPi               bool
+	}{
+		{"default", "", "sonnet", nil, true},
+		{"internal typed model clamp", "all", "databricks-claude-sonnet-5-5", []string{"--model", "claude-sonnet-5-5"}, true},
+		{"typed none", "", "databricks-claude-sonnet-5-5", []string{"--fallback", "none"}, false},
+		{"env none", "none", "databricks-claude-sonnet-5-5", nil, false},
+		{"typed profile", "", "databricks-claude-sonnet-5-5", []string{"--profile", "dev"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(router.EnvFallback, tc.mode)
+			args := append([]string{"--provider", "databricks", "--dry-run", "--format", "json"}, tc.args...)
+			code, out, stderr := runCLI(t, append([]string{"ask"}, append(args, "reply ok")...)...)
+			var doc dryDoc
+			if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil {
+				t.Fatalf("exit %d, decode %v: %s\n%s", code, err, out, stderr)
+			}
+			want := []string{"claude (databricks·dev, " + tc.ownModel + ")"}
+			if tc.wantPi {
+				want = append([]string{"claude via pi (databricks·dev, databricks-claude-sonnet-5-5)"}, want...)
+			}
+			if !slices.Equal(doc.Hops, want) {
+				t.Fatalf("hops = %v, want %v", doc.Hops, want)
+			}
+		})
+	}
+}
+
+// A retry retains Pi-first provenance when it replays the picked workspace rather than choosing a new route.
+func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
+	armChildEnvFixture(t)
+	pathstest.FakeVendor(t, "pi", "exit 0")
+	t.Setenv(router.EnvFallback, "")
+	rec := agent.NewRecord("claude", agent.RunOptions{Model: "claude-sonnet-5-5", Fallback: router.FallbackNone,
+		FallbackDefaulted: true, AutoArm: true, Prompt: "reply ok"}, time.Now())
+	rec.Route = route.Route{Provider: "databricks", Profile: "dev"}
+	rec.FallbackPolicy = router.FallbackNone
+	rec.Status = "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := runCLI(t, "ask", "--retry", rec.ID, "--dry-run", "--format", "json")
+	var doc dryDoc
+	if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil {
+		t.Fatalf("exit %d, decode %v: %s\n%s", code, err, out, stderr)
+	}
+	want := []string{"claude via pi (databricks·dev, databricks-claude-sonnet-5-5)", "claude (databricks·dev, databricks-claude-sonnet-5-5)"}
+	if !slices.Equal(doc.Hops, want) {
+		t.Fatalf("hops = %v, want %v", doc.Hops, want)
+	}
+}
