@@ -18,6 +18,7 @@ func init() {
 var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 	PromptVia:   agent.PromptStdin,
 	Carry:       true,
+	Verified:    "0.171",
 	ScopedProxy: true,
 	Binary:      "codex", Dialects: []string{providers.ProtocolResponses},
 	RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},

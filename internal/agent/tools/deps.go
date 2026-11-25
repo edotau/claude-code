@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // depClass says what breaks when a host tool is missing.
@@ -248,7 +249,7 @@ func depVersion(d dep, path string) string {
 	line := ProbedSaltedLine(path, d.Pick, func(p string) string {
 		return depPick(d, versionOutput(context.Background(), p, versionProbeTimeout, cmp.Or(d.Version, "--version")))
 	})
-	return cmp.Or(parseVersion(line), line)
+	return cmp.Or(textutil.FirstVersion(line), line)
 }
 
 // depPick is d's Pick group 1 in out, else out's first line.

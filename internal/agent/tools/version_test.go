@@ -15,9 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
-func TestParseVersion(t *testing.T) {
+func TestFirstVersion(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"1.0.104", "1.0.104"},
 		{"codex-cli 0.155.0", "0.155.0"},
@@ -32,8 +33,8 @@ func TestParseVersion(t *testing.T) {
 		{"no version here", ""},
 		{"", ""},
 	} {
-		if got := parseVersion(tc.in); got != tc.want {
-			t.Errorf("parseVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := textutil.FirstVersion(tc.in); got != tc.want {
+			t.Errorf("textutil.FirstVersion(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -184,7 +184,7 @@ func requirePiNode(ctx context.Context) (string, string, error) {
 	if err != nil {
 		seen := "no node on PATH"
 		if node != "" {
-			seen = fmt.Sprintf("PATH node %q", parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version")))
+			seen = fmt.Sprintf("PATH node %q", textutil.FirstVersion(versionOutput(ctx, node, versionProbeTimeout, "--version")))
 		}
 		hint := fmt.Sprintf("%s, or install Node %s+ with nvm", fix, piMinNode)
 		if st, e := os.Stat(mise); e == nil && st.IsDir() {

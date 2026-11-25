@@ -42,30 +42,33 @@ type CLI struct {
 	// MinVersion/MaxVersion bound the known-good CLI versions ("" = none; MaxVersion may end ".x"), each with its reason.
 	MinVersion, MinReason string
 	MaxVersion, MaxReason string
-	Caps                  Caps
-	Events                []string // typed event kinds the stream can carry
-	Cost                  bool
-	ResumeFormat          string          // "codex resume %s"; "" = none
-	ModelsArgv            []string        // args that list models; nil = no catalog verb
-	ModelsProvider        string          // list via models --live on this provider instead
-	ReadNeedsTools        bool            // file reads are denied without --tools
-	PromptVia             PromptTransport // how a headless prompt reaches the agent; only PromptArgv is size-capped
-	PromptMaxBytes        int             // a verified per-agent prompt ceiling below the transport's; 0 = none
-	PackVia               PackTransport   // how packed workspace context reaches the agent; zero = inline in the prompt
-	DirFlag               bool            // Headless.WorkDir must be set; cmd.Dir alone is not enough
-	Hub                   bool            // ask routes it through the opencode hub unless --native is set
-	ConfigureHint         string          // the command to run when no credential resolved
-	DisplayName           string          // TUI label; "" = Name
-	LoginArgv             []string        // the CLI's own sign-in command
-	ExtraUsage            [][2]string     // extra help rows
-	CatalogUsage          string          // override for the catalog help row
-	CatalogHint           string          // extra hint on the catalog page
-	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
-	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
-	Carry                 bool            // ask --carry may run it as a plain child process with a Pi takeover
-	ScopedProxy           bool            // the launcher walks the proxy team route list for it
-	CatalogTitle          string          // heading above a text catalog; "" = none
-	ProviderVerb          bool            // `claude-code <agent> <provider> [-p NAME]` launches on that provider
+	// Verified is the major.minor the harness last verified ("" = unchecked); VersionPolicy says what a drift does.
+	Verified        string
+	VersionPolicy   VersionPolicy
+	Caps            Caps
+	Events          []string // typed event kinds the stream can carry
+	Cost            bool
+	ResumeFormat    string          // "codex resume %s"; "" = none
+	ModelsArgv      []string        // args that list models; nil = no catalog verb
+	ModelsProvider  string          // list via models --live on this provider instead
+	ReadNeedsTools  bool            // file reads are denied without --tools
+	PromptVia       PromptTransport // how a headless prompt reaches the agent; only PromptArgv is size-capped
+	PromptMaxBytes  int             // a verified per-agent prompt ceiling below the transport's; 0 = none
+	PackVia         PackTransport   // how packed workspace context reaches the agent; zero = inline in the prompt
+	DirFlag         bool            // Headless.WorkDir must be set; cmd.Dir alone is not enough
+	Hub             bool            // ask routes it through the opencode hub unless --native is set
+	ConfigureHint   string          // the command to run when no credential resolved
+	DisplayName     string          // TUI label; "" = Name
+	LoginArgv       []string        // the CLI's own sign-in command
+	ExtraUsage      [][2]string     // extra help rows
+	CatalogUsage    string          // override for the catalog help row
+	CatalogHint     string          // extra hint on the catalog page
+	OwnLoginProfile string          // the pin naming the agent's own sign-in when no registry row does; "" = none
+	PinIDs          []string        // extra ids accepted as this agent's profile pin besides registry rows
+	Carry           bool            // ask --carry may run it as a plain child process with a Pi takeover
+	ScopedProxy     bool            // the launcher walks the proxy team route list for it
+	CatalogTitle    string          // heading above a text catalog; "" = none
+	ProviderVerb    bool            // `claude-code <agent> <provider> [-p NAME]` launches on that provider
 
 	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string

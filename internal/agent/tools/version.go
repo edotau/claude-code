@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +21,9 @@ import (
 
 // versionProbeTimeout bounds a `--version` call; it is not a login probe, so it is not agent.ProbeTimeout.
 const versionProbeTimeout = 5 * time.Second
+
+// cliProbeTimeout is the preflight probe deadline, the same 2s as agent.CLIVersionAt's own.
+const cliProbeTimeout = 2 * time.Second
 
 // FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
 func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
@@ -53,17 +55,6 @@ var (
 	errVersionUnknown    = errors.New("version not recognized")
 )
 
-// versionRe picks the first dotted version in a --version line, never digits glued to a name ("gpt-5.1" stays a name).
-var versionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[^0-9A-Za-z.\-])v?(\d+(?:\.\d+)+)`) })
-
-// parseVersion returns the first dotted version in --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
-func parseVersion(line string) string {
-	if m := versionRe().FindStringSubmatch(line); m != nil {
-		return m[1]
-	}
-	return ""
-}
-
 // Version is the installed version of the named agent's CLI, resolved as a launch resolves it (bin/ link, then PATH).
 func Version(name string) (string, error) {
 	if _, ok := agent.LookupSchema(name); !ok {
@@ -81,7 +72,7 @@ func Version(name string) (string, error) {
 // versionAt is Version for a resolved binary path; --version runs once per path+size+mtime.
 func versionAt(path string) (string, error) {
 	line := versionLine(path)
-	if v := parseVersion(line); v != "" {
+	if v := textutil.FirstVersion(line); v != "" {
 		return v, nil
 	}
 	return "", fmt.Errorf("%w: %q", errVersionUnknown, line)
@@ -145,6 +136,15 @@ func versionLine(path string) string {
 	return ProbedVersionLine(path, func(p string) string {
 		return FirstVersionLine(context.Background(), p, versionProbeTimeout)
 	})
+}
+
+func init() { agent.CLIVersionAt = cachedCLIVersion }
+
+// cachedCLIVersion is agent.CLIVersionAt through the shared cache: one --version spawn per binary.
+func cachedCLIVersion(ctx context.Context, path string) string {
+	return textutil.FirstVersion(ProbedVersionLine(path, func(p string) string {
+		return FirstVersionLine(ctx, p, cliProbeTimeout)
+	}))
 }
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
