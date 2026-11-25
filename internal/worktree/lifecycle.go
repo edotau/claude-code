@@ -307,6 +307,8 @@ type CleanResult struct {
 	Reason string
 	// CleanAll only: the clean errored (Reason is the error) rather than being refused by policy
 	Failed bool
+	// files already identical on main when the lane was accepted by content, not ancestry or patches
+	ContentFiles int
 }
 
 // Clean removes name's worktree only after a live recheck (unlocked, clean, merged, owned) under the lease; no force.
@@ -355,9 +357,10 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 
 	if dryRun {
 		// preview: every recheck above passed, so this one is eligible
-		result.Removed = true
+		result.Removed, result.ContentFiles = true, entry.contentFiles
 		return result, nil
 	}
+	result.ContentFiles = entry.contentFiles
 	return removeMerged(repo, name, dest, entry, result, log, closing), nil
 }
 
@@ -432,9 +435,23 @@ func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason st
 	case entry.Dirty:
 		return entry, "worktree has uncommitted changes"
 	case !entry.Merged:
-		return entry, "worktree HEAD is not merged into " + target
+		return entry, notMergedReason(target, entry.contentDiff)
 	}
 	return entry, ""
+}
+
+// notMergedReason names the target and up to 5 files whose content still differs from it.
+func notMergedReason(target string, diff []string) string {
+	reason := "worktree HEAD is not merged into " + target
+	if len(diff) == 0 {
+		return reason
+	}
+	shown := diff[:min(len(diff), 5)]
+	reason += "; differing: " + strings.Join(shown, ", ")
+	if len(diff) > len(shown) {
+		reason += fmt.Sprintf(" (+%d more)", len(diff)-len(shown))
+	}
+	return reason
 }
 
 // removeMerged removes a worktree that passed every recheck, deletes its merged branch and closes the ledger once.

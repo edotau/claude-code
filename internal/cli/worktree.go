@@ -525,13 +525,20 @@ func printCleanResult(r worktree.CleanResult, dryRun bool) {
 	case !r.Removed:
 		fmt.Printf("refused:  %s (%s)\n", r.Path, r.Reason)
 	case dryRun:
-		fmt.Printf("eligible: %s\n", r.Path)
+		fmt.Printf("eligible: %s%s\n", r.Path, contentNote(r))
 	default:
-		fmt.Printf("removed:  %s\n", r.Path)
+		fmt.Printf("removed:  %s%s\n", r.Path, contentNote(r))
 		if r.BranchDeleted {
 			fmt.Printf("  branch deleted: %s\n", r.Branch)
 		}
 	}
+}
+
+func contentNote(r worktree.CleanResult) string {
+	if r.ContentFiles == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (content already on main, %d files)", r.ContentFiles)
 }
 
 func names() []string {

@@ -48,6 +48,9 @@ type Entry struct {
 	mergedKnown bool
 	// Merged by patch-equivalence (cherry-picked), not ancestry: its branch needs `branch -D`.
 	patchMerged bool
+	// Merged by content: every file the lane's own commits touch is identical on target (count), else the differing ones.
+	contentFiles int
+	contentDiff  []string
 	// land removes the worktree only: its branch is the one committed copy until `worktree clean`.
 	keepBranch bool
 }
@@ -421,12 +424,63 @@ func (e *Entry) markPatchMerged(ctx context.Context, main, target string) {
 	if rows[0] == "" {
 		return
 	}
+	var own []string
 	for _, row := range rows {
-		if !strings.HasPrefix(row, "-") {
-			return
+		if sha, ok := strings.CutPrefix(row, "+ "); ok {
+			own = append(own, sha)
 		}
 	}
+	if len(own) > 0 {
+		e.markContentMerged(ctx, main, target, own)
+		return
+	}
 	e.Merged, e.patchMerged = true, true
+}
+
+// markContentMerged sets Merged when every file the own commits touch is identical on target and e.Head.
+func (e *Entry) markContentMerged(ctx context.Context, main, target string, own []string) {
+	var files []string
+	seen := map[string]bool{}
+	for _, sha := range own {
+		names, err := gitNames(ctx, main, "diff-tree", "-z", "--no-commit-id", "--name-only", "-r", "--root", sha)
+		if err != nil {
+			e.Problems = append(e.Problems, "merge check failed: "+err.Error())
+			return
+		}
+		for _, f := range names {
+			if !seen[f] {
+				seen[f] = true
+				files = append(files, f)
+			}
+		}
+	}
+	if len(files) == 0 {
+		return
+	}
+	args := append([]string{"--literal-pathspecs", "diff", "-z", "--name-only", target, e.Head, "--"}, files...)
+	diff, err := gitNames(ctx, main, args...)
+	if err != nil {
+		e.Problems = append(e.Problems, "merge check failed: "+err.Error())
+		return
+	}
+	if e.contentDiff = diff; len(diff) == 0 {
+		e.Merged, e.patchMerged, e.contentFiles = true, true, len(files)
+	}
+}
+
+// gitNames runs git in main and returns its NUL-separated, non-empty output fields.
+func gitNames(ctx context.Context, main string, args ...string) ([]string, error) {
+	out, err := gitCmd(ctx, append([]string{"-C", main}, args...)...).Output()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for f := range strings.SplitSeq(string(out), "\x00") {
+		if f != "" {
+			names = append(names, f)
+		}
+	}
+	return names, nil
 }
 
 // gitDirFromPath resolves a worktree's git-dir from <path>/.git: a directory, or a linked worktree's gitdir file.

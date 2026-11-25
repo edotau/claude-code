@@ -786,3 +786,54 @@ func laneCommit(t *testing.T, dir string) {
 	commitIn(t, dir, "add", ".")
 	commitIn(t, dir, "commit", "-q", "-m", "lane")
 }
+
+func TestCleanContentAlreadyOnMain(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	for _, name := range []string{"collapsed", "differs", "dirty"} {
+		dest, err := Create(repo, name, CreateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCommit(t, dest, "a.txt", "a")
+		writeCommit(t, dest, "b.txt", name)
+		if name == "dirty" {
+			if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// main gets the same net content in one commit (not patch-equivalent to the lane's)
+	for name, body := range map[string]string{"a.txt": "a", "b.txt": "collapsed"} {
+		if err := os.WriteFile(filepath.Join(repo.Main, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		commitIn(t, repo.Main, "add", name)
+	}
+	commitIn(t, repo.Main, "commit", "-q", "-m", "collapse")
+	checkCleanVerdict(t, repo, "collapsed", "")
+	checkCleanVerdict(t, repo, "differs", "differing: b.txt")
+	checkCleanVerdict(t, repo, "dirty", "uncommitted")
+}
+
+// checkCleanVerdict previews Clean: sub "" wants eligible by content (2 files), else a refusal naming sub.
+func checkCleanVerdict(t *testing.T, repo *Repo, name, sub string) {
+	t.Helper()
+	res, err := Clean(repo, name, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%s: removed=%v files=%d reason=%q", name, res.Removed, res.ContentFiles, res.Reason)
+	if (sub == "") != res.Removed || !strings.Contains(res.Reason, sub) || (sub == "" && res.ContentFiles != 2) {
+		t.Errorf("%s: want %q, got %+v", name, sub, res)
+	}
+}
+
+func writeCommit(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commitIn(t, dir, "add", name)
+	commitIn(t, dir, "commit", "-q", "-m", "add "+name+body)
+}
