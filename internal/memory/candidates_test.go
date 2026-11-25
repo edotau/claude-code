@@ -227,7 +227,8 @@ func TestCandidatesEndToEnd(t *testing.T) {
 	if err := ReviewReport(&out, ReviewOptions{StaleDays: DefaultStaleDays}); err != nil {
 		t.Errorf("review on a valid file failed: %v", err)
 	}
-	secret := "AKIA" + "ABCDEFGHIJKLMNOP"
+	secret := candidatePlaceholder
+	flagPlaceholder(t)
 	for _, tc := range candidateVariants(good, secret) {
 		write(t, candidates, file(tc.body))
 		got := strings.Join(candidateProblems(), "\n")
@@ -241,6 +242,21 @@ func TestCandidatesEndToEnd(t *testing.T) {
 			t.Errorf("%s: review exited zero", tc.name)
 		}
 	}
+}
+
+const candidatePlaceholder = "zq9-not-a-credential"
+
+// flagPlaceholder swaps the detector for one that flags only candidatePlaceholder, so no token shape is held.
+func flagPlaceholder(t *testing.T) {
+	t.Helper()
+	old := candidateSecretSpans
+	candidateSecretSpans = func(s string) [][2]int {
+		if i := strings.Index(s, candidatePlaceholder); i >= 0 {
+			return [][2]int{{i, i + len(candidatePlaceholder)}}
+		}
+		return nil
+	}
+	t.Cleanup(func() { candidateSecretSpans = old })
 }
 
 type candidateVariant struct{ name, body, want string }
@@ -278,7 +294,8 @@ func TestCandidateDiagnosticsNeverEchoInput(t *testing.T) {
 		"syntax": rec(`"fc-a"`, `@`), "trailing": base + ` @`, "duplicate key": rec(`"size"`, `"@":1,"@":2,"size"`),
 		"bad utf8": rec(`Add a hook.`, "\xff@"), "scalar": `"@"`, "array": `["@"]`,
 	}
-	for _, val := range []string{"zq9fakevalue", "AKIA" + "ABCDEFGHIJKLMNOP"} {
+	flagPlaceholder(t)
+	for _, val := range []string{"zq9fakevalue", candidatePlaceholder} {
 		for name, tpl := range templates {
 			text := "```jsonl\n" + strings.ReplaceAll(tpl, "@", val) + "\n" + strings.ReplaceAll(tpl, "@", val) + "\n```\n"
 			got := validateCandidates(text)
