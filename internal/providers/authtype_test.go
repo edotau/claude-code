@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -393,6 +394,93 @@ func TestSPMintAuditRowOnlyOnRealMint(t *testing.T) {
 	*refuse = errors.New("exchange refused")
 	if _, _, err := mintSP(ctx, p, true, expiryMargin); err == nil || len(spMintRows(t)) != 1 {
 		t.Fatalf("failed exchange: err %v; want an error and no new sp_mint row", err)
+	}
+}
+
+// Two independent calls that miss the shared seal must serialize and serve the winner's mint.
+func TestM2MTokenConcurrentMintOnce(t *testing.T) {
+	p := mintRow(t, "m2m-concurrent-mint", AuthM2M, "client", "http://127.0.0.1:1")
+	name := AuthSecretName(p)
+	tok := jwtExpIn(time.Hour, "")
+	first, waited, unlock, calls := concurrentM2MStub(t, tok)
+	runConcurrentM2M(t, p, name, tok, first, waited, unlock)
+	if rows := spMintRows(t); calls.Load() != 1 || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" {
+		t.Errorf("exchanges = %d, sp_mint rows = %+v; want one of each", calls.Load(), rows)
+	}
+}
+
+func concurrentM2MStub(t *testing.T, tok string) (first, waited chan struct{}, unlock func(), calls *atomic.Int32) {
+	first, release, waited := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	var once sync.Once
+	unlock = func() { once.Do(func() { close(release) }) }
+	calls = new(atomic.Int32)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if calls.Add(1) == 1 {
+			close(first)
+			<-release
+		}
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	hook := func() {
+		select {
+		case waited <- struct{}{}:
+		default:
+		}
+	}
+	lockWaitHook.Store(&hook)
+	t.Cleanup(func() { lockWaitHook.Store(nil) })
+	return first, waited, unlock, calls
+}
+
+func runConcurrentM2M(t *testing.T, p *Provider, name, tok string, first, waited chan struct{}, unlock func()) {
+	t.Helper()
+	type result struct {
+		tok oauth.Token
+		err error
+	}
+	results := make(chan result, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	started := 0
+	defer func() {
+		cancel()
+		unlock()
+		for range started {
+			select {
+			case <-results:
+			case <-time.After(5 * time.Second):
+				t.Error("mint worker did not exit after cancellation")
+			}
+		}
+	}()
+	call := func() { v, err := m2mToken(ctx, p, name, "host", "client", "secret", false); results <- result{v, err} }
+	started++
+	go call()
+	waitM2MSignal(t, first, "first exchange did not start")
+	started++
+	go call()
+	waitM2MSignal(t, waited, "second mint did not wait for the refresh lock")
+	unlock()
+	for range 2 {
+		select {
+		case r := <-results:
+			started--
+			if r.err != nil || r.tok.Access != tok {
+				t.Errorf("mint result: err %v, winner token = %v", r.err, r.tok.Access == tok)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("mint never returned")
+		}
+	}
+}
+
+func waitM2MSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
 	}
 }
 
