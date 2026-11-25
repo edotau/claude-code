@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,12 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -88,8 +91,8 @@ func TestDriverSavedMSDay(t *testing.T) {
 	before, after := filepath.Join(dir, "before"), filepath.Join(dir, "after")
 	writeFile(t, before, "BenchmarkA-8\t1\t3000 ns/op\nBenchmarkB-8\t1\t9000 ns/op\nBenchmarkC-8\t1\t5000 ns/op\n")
 	writeFile(t, after, "BenchmarkA-8\t1\t1000 ns/op\nBenchmarkB-8\t1\t8000 ns/op\nBenchmarkOther-8\t1\t1 ns/op\n")
-	c := candidate{CallsPerDay: 1e6, res: ABResult{Before: before, After: after,
-		Decision: Decision{Faster: []string{"A-8", "B-8"}}}}
+	c := candidate{CallsPerDay: 1e6, res: abResult{Before: before, After: after,
+		Decision: decision{Faster: []string{"A-8", "B-8"}}}}
 	if got := savedMSDay(c); got != 2000 { // the largest judged drop is A's 2000 ns, times 1e6 calls
 		t.Errorf("savedMSDay = %v, want 2000", got)
 	}
@@ -191,7 +194,7 @@ func judgeRun(t *testing.T, answer string) *[]string {
 // wantRows checks the scorecard holds no row (verdict "") or exactly one with that verdict.
 func wantRows(t *testing.T, verdict string) {
 	t.Helper()
-	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	rows, err := readJSONL[scorecardRow](filepath.Join(benchRoot(), "scorecard.jsonl"))
 	var got []string
 	for _, r := range rows {
 		got = append(got, r.Verdict)
@@ -218,7 +221,7 @@ func TestDriverJudgeVerdicts(t *testing.T) {
 			calls := judgeRun(t, c.answer)
 			lane := gitRepo(t)
 			cand := candidate{Pkg: "internal/x", What: "cut allocs", slug: "bench-x-1", lane: lane, parent: "HEAD",
-				res: ABResult{Before: "before.txt", After: "after.txt", Decision: Decision{Rows: []string{"A-8 sec/op -20%"}}}}
+				res: abResult{Before: "before.txt", After: "after.txt", Decision: decision{Rows: []string{"A-8 sec/op -20%"}}}}
 			d := &driver{top: lane, exe: "claude-code", out: io.Discard, log: io.Discard, skip: map[string]bool{}}
 			got, err := d.judge(context.Background(), cand)
 			if err != nil || got != c.want {
@@ -244,7 +247,7 @@ func TestDriverSpendsDispatchTokens(t *testing.T) {
 	spendDispatch = func(kind, id string, _ time.Time) error { spent = append(spent, kind+" "+id); return nil }
 	lane := gitRepo(t)
 	cand := candidate{Pkg: "internal/x", What: "w", slug: "bench-x-1", lane: lane, parent: "HEAD",
-		res: ABResult{Before: "before.txt", After: "after.txt", Decision: Decision{Rows: []string{"A-8 sec/op -20%"}}}}
+		res: abResult{Before: "before.txt", After: "after.txt", Decision: decision{Rows: []string{"A-8 sec/op -20%"}}}}
 	d := &driver{top: lane, exe: "claude-code", out: io.Discard, log: io.Discard, skip: map[string]bool{}}
 	if _, err := d.judge(context.Background(), cand); err != nil {
 		t.Fatal(err)
@@ -501,5 +504,195 @@ func TestDriverCorruptLedgerRefuses(t *testing.T) {
 			!strings.Contains(errb.String(), "inspect budget.jsonl") || strings.Contains(errb.String(), dir) {
 			t.Errorf("reserved %q: exit %d, stderr %q", sha, code, errb.String())
 		}
+	}
+}
+
+func TestBriefBlankFields(t *testing.T) {
+	fix := assets.BenchFixInput{Workdir: "/tmp/owner's lane", Package: "./internal/shell", OwnedLine: `["x"]`,
+		Benchmark: "Bench", Cause: "cause", Numbers: "numbers", BeforeFile: "before", BenchCommand: "bench",
+		IdentityCommand: "identity", Verify: "verify"}
+	review := assets.BenchReviewInput{Workdir: fix.Workdir, Package: fix.Package, OwnedLine: fix.OwnedLine,
+		Benchmark: fix.Benchmark, Numbers: fix.Numbers, BeforeFile: fix.BeforeFile, AfterFile: "after",
+		IdentityCommand: fix.IdentityCommand, Verify: fix.Verify, Diff: "- old\n+ new"}
+	checkBlankFields(t, fix, review)
+}
+
+func checkBlankFields(t *testing.T, fix assets.BenchFixInput, review assets.BenchReviewInput) {
+	t.Helper()
+	for _, item := range []any{fix, review} {
+		v := reflect.ValueOf(item)
+		for i := range v.NumField() {
+			name := v.Type().Field(i).Name
+			if name == "Diff" || v.Field(i).Kind() != reflect.String {
+				continue
+			}
+			copy := reflect.New(v.Type()).Elem()
+			copy.Set(v)
+			copy.Field(i).SetString(" ")
+			var err error
+			switch value := copy.Interface().(type) {
+			case assets.BenchFixInput:
+				_, err = renderFixBrief(value)
+			case assets.BenchReviewInput:
+				_, err = renderReviewBrief(value)
+			}
+			if err == nil || !strings.Contains(err.Error(), "empty "+name) {
+				t.Errorf("%T blank %s: %v", item, name, err)
+			}
+		}
+	}
+}
+
+func TestRenderBrief(t *testing.T) {
+	values := map[string]string{
+		"Workdir": "/tmp/owner's lane", "Package": "./internal/shell",
+		"OwnedLine": `["/tmp/owner's lane/internal/shell/shell.go"]`,
+		"Benchmark": "BenchmarkCommentsEachHash", "Cause": "repeated buffer allocation",
+		"Numbers":    "before: 120 ns/op, 64 B/op; after: 90 ns/op, 32 B/op",
+		"BeforeFile": "/tmp/before.txt", "AfterFile": "/tmp/after.txt",
+		"BenchCommand":    "rtk go test -run '^$' -bench '^BenchmarkCommentsEachHash$' -benchmem ./internal/shell",
+		"IdentityCommand": "rtk go test -run '^TestCommentsEachHash$' ./internal/shell",
+		"Verify":          "rtk go test ./internal/shell", "Diff": "- old allocation\n+ reused buffer",
+	}
+	sections := map[string][]string{
+		"fix":    {values["Cause"], values["BenchCommand"]},
+		"review": {values["Diff"], values["AfterFile"]},
+	}
+	fix := assets.BenchFixInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Cause: values["Cause"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		BenchCommand: values["BenchCommand"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"]}
+	review := assets.BenchReviewInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		AfterFile: values["AfterFile"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"], Diff: values["Diff"]}
+	for kind, required := range sections {
+		t.Run(kind, func(t *testing.T) {
+			var got string
+			var err error
+			if kind == "fix" {
+				got, err = renderFixBrief(fix)
+			} else {
+				got, err = renderReviewBrief(review)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			required = append(required, values["Numbers"], values["Benchmark"], values["BeforeFile"], values["Verify"],
+				values["IdentityCommand"], values["OwnedLine"], "cd '/tmp/owner'\"'\"'s lane'")
+			checkBriefSections(t, got, required)
+		})
+	}
+	checkBriefErrors(t, review)
+}
+
+func checkBriefErrors(t *testing.T, review assets.BenchReviewInput) {
+	t.Helper()
+	review.Diff = "```diff\n\n```"
+	if got, err := renderReviewBrief(review); err != nil || !strings.Contains(got, assets.BenchNoDiff()) {
+		t.Errorf("empty diff: %v, placeholder missing", err)
+	}
+	if got, err := renderFixBrief(assets.BenchFixInput{}); err == nil || got != "" {
+		t.Errorf("fix: missing input returned %q, %v", got, err)
+	}
+	if got, err := renderReviewBrief(assets.BenchReviewInput{}); err == nil || got != "" {
+		t.Errorf("review: missing input returned %q, %v", got, err)
+	}
+}
+
+func checkBriefSections(t *testing.T, got string, required []string) {
+	t.Helper()
+	for _, want := range required {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(got, "{{") || strings.Contains(got, "<no value>") {
+		t.Error("unrendered placeholder")
+	}
+}
+
+func testLanes(t *testing.T, lanes []autoLane, clean func(context.Context, string, string) (string, error)) {
+	t.Helper()
+	data, err := json.Marshal(lanes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldList, oldClean := laneList, laneClean
+	laneList = func(context.Context, string) (string, error) { return string(data), nil }
+	laneClean = clean
+	t.Cleanup(func() { laneList, laneClean = oldList, oldClean })
+}
+
+func TestAutoLanes(t *testing.T) {
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-providers-20261123-1", Branch: "worktree-bench-providers-20261123-1"},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0"},
+		{Path: "/lanes/rtk-external-agents", Branch: "worktree-rtk-external-agents"},
+		{Path: "/lanes/bench-providers-20261123-2", Branch: "main"},
+		{Path: "/lanes/autofix-ABCDEF0", Branch: "worktree-autofix-ABCDEF0"},
+	}, nil)
+	got, err := autoLanes(t.Context(), "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("automatic lanes = %+v", got)
+	}
+	if names := []string{got[0].Name, got[1].Name}; !reflect.DeepEqual(names, []string{"bench-providers-20261123-1", "autofix-abcdef0"}) {
+		t.Fatalf("automatic lanes = %+v", got)
+	}
+}
+
+func TestLaneCap(t *testing.T) {
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-a-20261123-1", Branch: "worktree-bench-a-20261123-1"},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0"},
+		{Path: "/lanes/bench-b-20261123-2", Branch: "worktree-bench-b-20261123-2"},
+		{Path: "/lanes/gofmt-fix", Branch: "worktree-gofmt-fix"},
+	}, nil)
+	err := LaneCap(t.Context(), "/repo")
+	if err == nil || !strings.Contains(err.Error(), "3 open") || !strings.Contains(err.Error(), "bench-b-20261123-2") {
+		t.Fatalf("cap error = %v", err)
+	}
+}
+
+func TestCleanLanes(t *testing.T) {
+	var cleaned []string
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-a-20261123-1", Branch: "worktree-bench-a-20261123-1", Merged: true},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0", Dirty: true, Merged: true},
+		{Path: "/lanes/bench-b-20261123-2", Branch: "worktree-bench-b-20261123-2", Behind: 20},
+		{Path: "/lanes/bench-c-20261123-3", Branch: "worktree-bench-c-20261123-3", Behind: 21},
+	}, func(_ context.Context, _, name string) (string, error) {
+		cleaned = append(cleaned, name)
+		return "", nil
+	})
+	var out bytes.Buffer
+	if err := CleanLanes(t.Context(), "/repo", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cleaned, []string{"bench-a-20261123-1"}) {
+		t.Fatalf("cleaned = %v", cleaned)
+	}
+	if text := out.String(); !strings.Contains(text, "removed automatic lane bench-a-20261123-1") ||
+		!strings.Contains(text, "kept dirty automatic lane autofix-abcdef0") ||
+		!strings.Contains(text, "claude-code worktree land bench-c-20261123-3") ||
+		strings.Contains(text, "bench-b-20261123-2") {
+		t.Fatalf("notices = %q", text)
+	}
+}
+
+func TestCleanLanesFailures(t *testing.T) {
+	want := errors.New("refused")
+	testLanes(t, []autoLane{{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0", Merged: true}},
+		func(context.Context, string, string) (string, error) { return "refused: still in use\n", want })
+	var out bytes.Buffer
+	if err := CleanLanes(t.Context(), "/repo", &out); !errors.Is(err, want) ||
+		out.String() != "refused automatic lane autofix-abcdef0: refused: still in use\n" {
+		t.Fatalf("error = %v, notice = %q", err, out.String())
+	}
+	laneList = func(context.Context, string) (string, error) { return "", want }
+	out.Reset()
+	if err := CleanLanes(t.Context(), "/repo", &out); !errors.Is(err, want) || out.Len() != 0 {
+		t.Fatalf("list error = %v, notices = %q", err, out.String())
 	}
 }

@@ -23,7 +23,7 @@ func TestRankWeakAbovePackageFixThenScoreAndSkipSettled(t *testing.T) {
 		{Kind: "weak", Pkg: "p", What: "BenchmarkX is slow"},
 		{Kind: "weak", Pkg: "z", What: "BenchmarkZ is noisy"},
 	}
-	rows := []Row{
+	rows := []scorecardRow{
 		{Pkg: "p", What: "done", Verdict: "kept", At: time.Now()},
 		{Pkg: "q", What: "redo", Verdict: "reverted", At: time.Now().Add(-8 * 24 * time.Hour)},
 	}
@@ -163,11 +163,11 @@ func TestRecordAppendsAndDefersRolling(t *testing.T) {
 	if err := recordRow(l); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	rows, err := readJSONL[scorecardRow](filepath.Join(benchRoot(), "scorecard.jsonl"))
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows = %+v", rows)
 	}
-	want := Row{At: rows[0].At, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent, Sha: l.sha, Attempts: 1}
+	want := scorecardRow{At: rows[0].At, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent, Sha: l.sha, Attempts: 1}
 	if rows[0] != want {
 		t.Errorf("row = %+v, want %+v", rows[0], want)
 	}
@@ -213,11 +213,11 @@ func TestRecordFillsFromDispatch(t *testing.T) {
 	if err := recordRow(loopOpts{pkg: "internal/p", what: "w", verdict: "reverted", sha: "abc", dispatch: "id1"}); err != nil {
 		t.Fatal(err)
 	}
-	r, err := readJSONL[Row](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	r, err := readJSONL[scorecardRow](filepath.Join(benchRoot(), "scorecard.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Row{Pkg: "internal/p", What: "w", Verdict: "reverted", Agent: "claude", Model: "m1", TokensIn: 7, TokensOut: 3,
+	want := scorecardRow{Pkg: "internal/p", What: "w", Verdict: "reverted", Agent: "claude", Model: "m1", TokensIn: 7, TokensOut: 3,
 		TokensCache: 5, DurationS: 4, Sha: "abc"}
 	if len(r) != 1 || r[0].At.IsZero() {
 		t.Fatalf("rows = %+v", r)
@@ -249,7 +249,7 @@ func TestRankClosedRules(t *testing.T) {
 		{Kind: "fix", Pkg: "p", What: "rev thing: seed"},
 		{Kind: "fix", Pkg: "p", What: "other"},
 	}
-	rows := []Row{
+	rows := []scorecardRow{
 		{Pkg: "p", What: "kept thing: recorded text", Verdict: "kept", At: now.Add(-30 * 24 * time.Hour)},
 		{Pkg: "p", What: "rev thing: x", Verdict: "reverted", At: now.Add(-24 * time.Hour)},
 	}

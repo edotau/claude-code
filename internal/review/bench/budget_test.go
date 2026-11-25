@@ -21,7 +21,7 @@ func TestAllowCountLimit(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			now := time.Now()
 			for i := range budgetLimit(kind) {
-				if ok, why := Allow(kind, now); !ok {
+				if ok, why := allow(kind, now); !ok {
 					t.Fatalf("refused before limit: %s", why)
 				}
 				for range 2 {
@@ -33,7 +33,7 @@ func TestAllowCountLimit(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if ok, why := Allow(kind, now); ok || why != "daily "+kind+" count limit reached" {
+			if ok, why := allow(kind, now); ok || why != "daily "+kind+" count limit reached" {
 				t.Fatalf("at limit: %v, %q", ok, why)
 			}
 		})
@@ -49,7 +49,7 @@ func TestAllowTokenLimit(t *testing.T) {
 		}
 	}
 	for _, kind := range []string{KindBenchLoop, KindGateFix} {
-		if ok, why := Allow(kind, now); ok || why != "daily token limit reached" {
+		if ok, why := allow(kind, now); ok || why != "daily token limit reached" {
 			t.Fatalf("at token limit: %v, %q", ok, why)
 		}
 	}
@@ -65,7 +65,7 @@ func TestAllowCorruptLedger(t *testing.T) {
 			if err := paths.AppendLine(filepath.Join(benchRoot(), "budget.jsonl"), []byte(raw)); err != nil {
 				t.Fatal(err)
 			}
-			if ok, why := Allow(KindBenchLoop, time.Now()); ok || why == "" {
+			if ok, why := allow(KindBenchLoop, time.Now()); ok || why == "" {
 				t.Fatalf("corrupt ledger allowed: %v, %q", ok, why)
 			}
 		})
@@ -77,7 +77,7 @@ func TestAllowUnreadableLedger(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(benchRoot(), "budget.jsonl"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if ok, why := Allow(KindBenchLoop, time.Now()); ok || why == "" {
+	if ok, why := allow(KindBenchLoop, time.Now()); ok || why == "" {
 		t.Fatalf("unreadable ledger allowed: %v, %q", ok, why)
 	}
 }
@@ -89,10 +89,10 @@ func TestAllowLocalDayBoundary(t *testing.T) {
 	if err := Record(KindBenchLoop, "yesterday", dailyTokens, before.UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := Allow(KindBenchLoop, before); ok {
+	if ok, _ := allow(KindBenchLoop, before); ok {
 		t.Fatal("UTC date bypassed the local day limit")
 	}
-	if ok, why := Allow(KindBenchLoop, before.Add(time.Second)); !ok {
+	if ok, why := allow(KindBenchLoop, before.Add(time.Second)); !ok {
 		t.Fatalf("new local day refused: %s", why)
 	}
 }
@@ -139,10 +139,10 @@ func TestAdmitLoopReservationStartsOnce(t *testing.T) {
 	if ok, why := Reserve(KindBenchLoop, testSHA, now); !ok {
 		t.Fatal(why)
 	}
-	if why, err := AdmitLoop(testSHA, now); why != "" || err != nil {
+	if why, err := admitLoop(testSHA, now); why != "" || err != nil {
 		t.Fatalf("first start refused: %q, %v", why, err)
 	}
-	if why, err := AdmitLoop(testSHA, now); !strings.Contains(why, "already used") || err != nil {
+	if why, err := admitLoop(testSHA, now); !strings.Contains(why, "already used") || err != nil {
 		t.Fatalf("second start: %q, %v", why, err)
 	}
 	rows, err := readBudget()
@@ -168,7 +168,7 @@ func TestAdmitLoopReservationRefusals(t *testing.T) {
 			if ok, why := Reserve(KindBenchLoop, c.id, c.reservedAt); !c.reservedAt.IsZero() && !ok {
 				t.Fatal(why)
 			}
-			if why, err := AdmitLoop(c.id, now); !strings.Contains(why, c.want) || err != nil {
+			if why, err := admitLoop(c.id, now); !strings.Contains(why, c.want) || err != nil {
 				t.Fatalf("admit %s: %q, %v; want %q", c.id, why, err, c.want)
 			}
 		})

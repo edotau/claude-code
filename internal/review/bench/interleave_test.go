@@ -24,15 +24,15 @@ func stubSeam(order *[]string, live, peak *atomic.Int32, dirty map[string]bool) 
 	return abSeam{
 		commit: func(dir string) (string, error) { return filepath.Base(dir), nil },
 		dirty:  func(dir string) (bool, error) { return dirty[filepath.Base(dir)], nil },
-		bench: func(_ context.Context, dir string, _ ABOptions, out string) error {
+		bench: func(_ context.Context, dir string, _ abOptions, out string) error {
 			n := live.Add(1)
 			defer live.Add(-1)
 			peak.Store(max(peak.Load(), n))
 			*order = append(*order, filepath.Base(dir))
 			return os.WriteFile(out, []byte(abRun(filepath.Base(dir), false, 1000+len(*order))), 0o644)
 		},
-		decide: func(before, after string) (Decision, error) {
-			return Decision{Keep: true, Rule: before + "|" + after}, nil
+		decide: func(before, after string) (decision, error) {
+			return decision{Keep: true, Rule: before + "|" + after}, nil
 		},
 	}
 }
@@ -53,7 +53,7 @@ func TestInterleaveAlternatesMergesAndNamesCommits(t *testing.T) {
 	var order []string
 	var live, peak atomic.Int32
 	var log strings.Builder
-	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 3, Count: 2, Work: t.TempDir()}
+	o := abOptions{A: a, B: b, Pkg: "internal/x", Rounds: 3, Count: 2, Work: t.TempDir()}
 	res, err := interleave(context.Background(), o, stubSeam(&order, &live, &peak, nil), &log)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestInterleaveRefusals(t *testing.T) {
 	a, b := abDirs(t)
 	var order []string
 	var live, peak atomic.Int32
-	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 1, Count: 1, Work: t.TempDir()}
+	o := abOptions{A: a, B: b, Pkg: "internal/x", Rounds: 1, Count: 1, Work: t.TempDir()}
 	if _, err := interleave(context.Background(), o, stubSeam(&order, &live, &peak, map[string]bool{"bbb222": true}), io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "dirty") || len(order) != 0 {
 		t.Errorf("dirty B: err = %v, runs = %v", err, order)
@@ -98,7 +98,7 @@ func TestInterleaveRefusals(t *testing.T) {
 	if _, err := interleave(context.Background(), o, same, io.Discard); err == nil || len(order) != 0 {
 		t.Errorf("same commit: err = %v, runs = %v", err, order)
 	}
-	if _, err := interleave(context.Background(), ABOptions{A: a, B: a, Pkg: "p", Rounds: 1, Count: 1}, same, io.Discard); err == nil {
+	if _, err := interleave(context.Background(), abOptions{A: a, B: a, Pkg: "p", Rounds: 1, Count: 1}, same, io.Discard); err == nil {
 		t.Error("same worktree accepted")
 	}
 }
@@ -108,10 +108,10 @@ func TestInterleaveRejectsWrongCommitRound(t *testing.T) {
 	var order []string
 	var live, peak atomic.Int32
 	s := stubSeam(&order, &live, &peak, nil)
-	s.bench = func(_ context.Context, _ string, _ ABOptions, out string) error {
+	s.bench = func(_ context.Context, _ string, _ abOptions, out string) error {
 		return os.WriteFile(out, []byte(abRun("zzz999", false, 1000)), 0o644)
 	}
-	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 1, Count: 1, Work: t.TempDir()}
+	o := abOptions{A: a, B: b, Pkg: "internal/x", Rounds: 1, Count: 1, Work: t.TempDir()}
 	if _, err := interleave(context.Background(), o, s, io.Discard); err == nil || !strings.Contains(err.Error(), "not a run of commit") {
 		t.Errorf("err = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestInterleaveAbortsOnNoisyRound(t *testing.T) {
 	var order []string
 	var live, peak atomic.Int32
 	s := stubSeam(&order, &live, &peak, nil)
-	s.bench = func(_ context.Context, dir string, _ ABOptions, out string) error {
+	s.bench = func(_ context.Context, dir string, _ abOptions, out string) error {
 		order = append(order, filepath.Base(dir))
 		const nsPerOp = 1000
 		run := abRun(filepath.Base(dir), false, nsPerOp)
@@ -131,7 +131,7 @@ func TestInterleaveAbortsOnNoisyRound(t *testing.T) {
 		}
 		return os.WriteFile(out, []byte(run), 0o644)
 	}
-	o := ABOptions{A: a, B: b, Pkg: "internal/x", Rounds: 3, Count: 1, Work: t.TempDir()}
+	o := abOptions{A: a, B: b, Pkg: "internal/x", Rounds: 3, Count: 1, Work: t.TempDir()}
 	if _, err := interleave(context.Background(), o, s, io.Discard); err == nil || !strings.Contains(err.Error(), "load") || len(order) != 2 {
 		t.Errorf("err = %v, runs = %v; want a load abort after 2 runs", err, order)
 	}

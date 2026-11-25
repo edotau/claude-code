@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
-// ABOptions is an interleaved run: A is the parent worktree, B the fix; rounds alternate A, B, A, B, ...
-type ABOptions struct {
+// abOptions is an interleaved run: A is the parent worktree, B the fix; rounds alternate A, B, A, B, ...
+type abOptions struct {
 	A, B   string // worktree dirs, both clean and at different commits
 	Pkg    string // package dir relative to a worktree, e.g. internal/hooks/safety
 	Bench  string // -bench regexp; "" is "."
@@ -27,36 +27,32 @@ type ABOptions struct {
 	Work   string // dir for the round files and the merged before.txt and after.txt; "" makes a temp dir
 }
 
-// ABResult names both commits, the merged run files, and the verdict decided on them.
-type ABResult struct {
+// abResult names both commits, the merged run files, and the verdict decided on them.
+type abResult struct {
 	CommitA, CommitB string
 	Before, After    string
-	Decision         Decision
+	Decision         decision
 }
 
 // abSeam is what an interleaved run touches outside the process; tests stub it.
 type abSeam struct {
 	commit func(dir string) (string, error)
 	dirty  func(dir string) (bool, error)
-	bench  func(ctx context.Context, dir string, o ABOptions, out string) error
-	decide func(before, after string) (Decision, error)
+	bench  func(ctx context.Context, dir string, o abOptions, out string) error
+	decide func(before, after string) (decision, error)
 }
 
 var abBusy sync.Mutex // one benchmark process at a time in this process
 
-// Interleave runs the A/B benchmarks one process at a time, merges each side's rounds, and decides.
-func Interleave(ctx context.Context, o ABOptions, log io.Writer) (ABResult, error) {
-	return interleave(ctx, o, abSeam{gitCommit, gitDirty, execBench, decideFiles}, log)
-}
-
-func interleave(ctx context.Context, o ABOptions, s abSeam, log io.Writer) (ABResult, error) {
+// interleave runs the A/B benchmarks one process at a time, merges each side's rounds, and decides.
+func interleave(ctx context.Context, o abOptions, s abSeam, log io.Writer) (abResult, error) {
 	if !abBusy.TryLock() {
-		return ABResult{}, errors.New("interleave: another interleaved run is active")
+		return abResult{}, errors.New("interleave: another interleaved run is active")
 	}
 	defer abBusy.Unlock()
 	o, err := o.normalized()
 	if err != nil {
-		return ABResult{}, err
+		return abResult{}, err
 	}
 	res, err := preflight(o, s)
 	if err != nil {
@@ -77,7 +73,7 @@ func interleave(ctx context.Context, o ABOptions, s abSeam, log io.Writer) (ABRe
 }
 
 // normalized resolves the worktree dirs (the repo top is symlink-resolved) and defaults the rest.
-func (o ABOptions) normalized() (ABOptions, error) {
+func (o abOptions) normalized() (abOptions, error) {
 	if o.Pkg == "" || filepath.IsAbs(o.Pkg) || o.Rounds < 1 || o.Count < 1 {
 		return o, errors.New("interleave: need a relative Pkg, Rounds >= 1 and Count >= 1")
 	}
@@ -126,8 +122,8 @@ func canonicalWorktree(dir string) (string, error) {
 }
 
 // preflight refuses a dirty worktree, or two worktrees at one commit, before any benchmark starts.
-func preflight(o ABOptions, s abSeam) (ABResult, error) {
-	var res ABResult
+func preflight(o abOptions, s abSeam) (abResult, error) {
+	var res abResult
 	for i, d := range []string{o.A, o.B} {
 		dirty, err := s.dirty(d)
 		if err != nil {
@@ -158,7 +154,7 @@ type abSide struct {
 }
 
 // runRounds runs ABBA order, one at a time, so linear drift hits both sides alike; returns each side's files.
-func runRounds(ctx context.Context, o ABOptions, s abSeam, res ABResult, log io.Writer) (as, bs []string, err error) {
+func runRounds(ctx context.Context, o abOptions, s abSeam, res abResult, log io.Writer) (as, bs []string, err error) {
 	rdir, err := os.MkdirTemp(o.Work, "rounds-") // private per run, so concurrent runs cannot share files
 	if err != nil {
 		return nil, nil, err
@@ -244,7 +240,7 @@ func gitDirty(dir string) (bool, error) {
 }
 
 // execBench runs `review bench --out` of this binary in dir, so one side's run is its own process.
-func execBench(ctx context.Context, dir string, o ABOptions, out string) error {
+func execBench(ctx context.Context, dir string, o abOptions, out string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err

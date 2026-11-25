@@ -85,8 +85,8 @@ func readBudget() ([]budgetRow, error) {
 	return rows, nil
 }
 
-// Allow refuses a run once today's count of kind or today's token total reaches its limit; a bad ledger refuses.
-func Allow(kind string, now time.Time) (ok bool, why string) {
+// allow refuses a run once today's count of kind or today's token total reaches its limit; a bad ledger refuses.
+func allow(kind string, now time.Time) (ok bool, why string) {
 	rows, err := readBudget()
 	if err != nil {
 		return false, err.Error()
@@ -123,8 +123,8 @@ func tokenStop(rows []budgetRow, now time.Time) string {
 	return fmt.Sprintf("daily token budget reached: %d/%d; resumes tomorrow", tokens, dailyTokens)
 }
 
-// TokenStop reads the ledger for tokenStop; a bad ledger is an error naming budget.jsonl.
-func TokenStop(now time.Time) (string, error) {
+// ledgerTokenStop reads the ledger for tokenStop; a bad ledger is an error naming budget.jsonl.
+func ledgerTokenStop(now time.Time) (string, error) {
 	rows, err := readBudget()
 	if err != nil {
 		return "", fmt.Errorf("%w (inspect budget.jsonl)", err)
@@ -134,9 +134,9 @@ func TokenStop(now time.Time) (string, error) {
 
 const whyLoopLocked = "loop already locked"
 
-// AdmitLoop is whether a bench loop may start: a worker-reserved run (reserved is its sha) consumes that ledger row
+// admitLoop is whether a bench loop may start: a worker-reserved run (reserved is its sha) consumes that ledger row
 // and takes no slot; a hand run reserves its own slot. A non-empty reason refuses.
-func AdmitLoop(reserved string, now time.Time) (why string, err error) {
+func admitLoop(reserved string, now time.Time) (why string, err error) {
 	if reserved != "" {
 		return consumeReservation(reserved, now)
 	}
@@ -335,7 +335,7 @@ func SpendDispatch(kind, dispatchID string, now time.Time) error {
 }
 
 // GateFixBudget is the budget check autofix.FixLeaf takes.
-func GateFixBudget() (bool, string) { return Allow(KindGateFix, budgetNow()) }
+func GateFixBudget() (bool, string) { return allow(KindGateFix, budgetNow()) }
 
 // loopLocked probes runDriver's loop.lock without waiting or creating it; an open failure counts as held.
 func loopLocked() bool {

@@ -43,7 +43,7 @@ func statusWriteFixture(t *testing.T, name, data string) {
 func statusText(t *testing.T, s Status) string {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := s.WriteText(&buf); err != nil {
+	if err := s.writeText(&buf); err != nil {
 		t.Fatal(err)
 	}
 	return buf.String()
@@ -74,14 +74,14 @@ func TestStatusBudgetLimit(t *testing.T) {
 		t.Fatalf("budget: %+v", s.Budget)
 	}
 	out := statusText(t, s)
-	statusWantText(t, out, fmt.Sprintf("tokens: %d/%d today", wantTokens, dailyTokens), "bench-loop: 5/5 today",
-		"bench-loop launch: refused: daily bench-loop count limit reached", "gate-fix: 0/6 today")
+	statusWantText(t, out, fmt.Sprintf("tokens: %d/%d today", wantTokens, dailyTokens), fmt.Sprintf("bench-loop: %d/%[1]d today", dailyBenchLoops),
+		"bench-loop launch: refused: daily bench-loop count limit reached", fmt.Sprintf("gate-fix: 0/%d today", budgetLimit(KindGateFix)))
 }
 
 func TestStatusJSON(t *testing.T) {
 	s := Status{Budget: &StatusBudget{Kinds: []StatusBudgetKind{{Kind: KindBenchLoop, Reason: "refused"}}}}
 	var data bytes.Buffer
-	if err := s.WriteJSON(&data); err != nil {
+	if err := s.writeJSON(&data); err != nil {
 		t.Fatal(err)
 	}
 	var decoded Status

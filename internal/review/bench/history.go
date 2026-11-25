@@ -2,11 +2,19 @@ package bench
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -154,7 +162,7 @@ func recordEpochChanges(history, rows []observation, sha string) error {
 		if old == "" || old == row.Epoch {
 			continue
 		}
-		data, err := json.Marshal(Row{At: row.At, Pkg: row.Pkg, Benchmark: row.Benchmark, Epoch: row.Epoch,
+		data, err := json.Marshal(scorecardRow{At: row.At, Pkg: row.Pkg, Benchmark: row.Benchmark, Epoch: row.Epoch,
 			OldEpoch: old, Verdict: "bench-change", What: "benchmark file changed", Sha: sha})
 		if err != nil {
 			return err
@@ -240,4 +248,209 @@ func runVerdicts(l loopOpts, asJSON bool, w io.Writer) error {
 		fmt.Fprintf(w, "%s %s: %s (%s; gates only)\n", v.Pkg, v.Benchmark, v.Verdict, v.Reason)
 	}
 	return nil
+}
+
+type benchmarkEpoch struct {
+	File string `json:"file"`
+	Hash string `json:"hash"`
+}
+
+const epochPrefix = "# bench-epochs: "
+
+func benchmarkFunc(name string) string {
+	root, _, _ := strings.Cut(name, "/")
+	return procSuffix.ReplaceAllString(root, "")
+}
+
+func benchmarkEpochs(top, pkg string) (map[string]benchmarkEpoch, error) {
+	dir := filepath.Join(top, pkg)
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]benchmarkEpoch{}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), "_test.go") {
+			continue
+		}
+		epochs, err := fileEpochs(top, filepath.Join(dir, file.Name()))
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(out, epochs)
+	}
+	return out, nil
+}
+
+func fileEpochs(top, file string) (map[string]benchmarkEpoch, error) {
+	active, err := build.Default.MatchFile(filepath.Dir(file), filepath.Base(file))
+	if err != nil || !active {
+		return nil, err
+	}
+	body, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), file, body, 0)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(top, file)
+	if err != nil {
+		return nil, err
+	}
+	// CRLF folds to LF so an autocrlf checkout keeps the epoch.
+	hash := sha256.Sum256(bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")))
+	out := map[string]benchmarkEpoch{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Benchmark") {
+			out[fn.Name.Name] = benchmarkEpoch{File: filepath.ToSlash(rel), Hash: hex.EncodeToString(hash[:])}
+		}
+	}
+	return out, nil
+}
+
+func epochHeader(epochs map[string]benchmarkEpoch) string {
+	data, _ := json.Marshal(epochs) // strings only
+	return epochPrefix + string(data) + "\n"
+}
+
+func parseEpochs(text string) (map[string]benchmarkEpoch, error) {
+	for line := range strings.SplitSeq(text, "\n") {
+		if raw, ok := strings.CutPrefix(line, epochPrefix); ok {
+			var epochs map[string]benchmarkEpoch
+			if err := json.Unmarshal([]byte(raw), &epochs); err != nil || epochs == nil {
+				return nil, fmt.Errorf("invalid benchmark epoch header: %s", line)
+			}
+			for name, epoch := range epochs {
+				if name == "" || epoch.File == "" || !validEpoch(epoch.Hash) {
+					return nil, fmt.Errorf("invalid benchmark epoch for %q", name)
+				}
+			}
+			return epochs, nil
+		}
+	}
+	return nil, nil
+}
+
+func sameEpochs(before, after string) bool {
+	b, berr := parseEpochs(before)
+	a, aerr := parseEpochs(after)
+	return berr == nil && aerr == nil && maps.Equal(b, a) && (b == nil) == (a == nil)
+}
+
+func validEpoch(epoch string) bool {
+	decoded, err := hex.DecodeString(epoch)
+	return err == nil && len(decoded) == sha256.Size && epoch == strings.ToLower(epoch)
+}
+
+func evaluateHistory(history []observation, now time.Time) []Verdict {
+	ordered := slices.Clone(history)
+	slices.SortStableFunc(ordered, func(a, b observation) int { return a.At.Compare(b.At) })
+	groups := map[string][]observation{}
+	for _, row := range ordered {
+		key := row.Pkg + "\x00" + row.Benchmark
+		group := groups[key]
+		if len(group) > 0 && group[len(group)-1].Epoch != row.Epoch {
+			group = nil
+		}
+		groups[key] = append(group, row)
+	}
+	verdicts := make([]Verdict, 0, len(groups))
+	for _, group := range groups {
+		last := group[len(group)-1]
+		verdict, reason := benchmarkVerdict(group, now)
+		verdicts = append(verdicts, Verdict{Pkg: last.Pkg, Benchmark: last.Benchmark, Epoch: last.Epoch,
+			Verdict: verdict, Reason: reason})
+	}
+	slices.SortFunc(verdicts, func(a, b Verdict) int {
+		return cmp.Compare(a.Pkg+"\x00"+a.Benchmark, b.Pkg+"\x00"+b.Benchmark)
+	})
+	return verdicts
+}
+
+type verdictEvidence struct {
+	latest             observation
+	compared, decisive time.Time
+	path, subject      string
+}
+
+func summarizeEvidence(history []observation) verdictEvidence {
+	var e verdictEvidence
+	for _, row := range history {
+		if row.Score != nil {
+			e.latest = row
+		}
+		if row.Compared {
+			e.compared = row.At
+		}
+		if row.Decisive {
+			e.decisive = row.At
+		}
+		if row.ProductionPath != "" {
+			e.path = row.ProductionPath
+		}
+		if row.Subject != "" {
+			e.subject = row.Subject
+		}
+	}
+	return e
+}
+
+func benchmarkVerdict(history []observation, now time.Time) (string, string) {
+	e := summarizeEvidence(history)
+	switch {
+	case e.subject == "gone":
+		return "dead", "recorded subject is gone; owner approval required for deletion"
+	case e.path == "off":
+		return "off-path", "recorded evidence says production does not run the subject"
+	}
+	if verdict, reason := measurementVerdict(history, e.latest); verdict != "" {
+		return verdict, reason
+	}
+	switch {
+	case now.Sub(history[0].At) >= idleAge && (e.compared.IsZero() || now.Sub(e.decisive) >= idleAge):
+		return "idle", "never compared or no decisive evidence in 30 days"
+	case e.compared.IsZero() && e.decisive.IsZero():
+		return "idle", "no comparison or decision evidence"
+	case e.path != "on": // design §10: idle means never compared or decisive, not an unrecorded production path
+		return "unverified", "compared, but no production-path record (--production-path on|off)"
+	}
+	return "working", "stable, on production path, and compared or decisive"
+}
+
+func measurementVerdict(history []observation, latest observation) (string, string) {
+	switch {
+	case latest.Score == nil:
+		return "idle", "no measured run in this epoch"
+	case !isQuiet(*latest.Score) || latest.Score.Metrics["ns/op"].CV > noiseFlagCV || crossRunCV(history, latest) > noiseFlagCV:
+		return "noisy", "load or within/across-run CV exceeds the quiet threshold"
+	case latest.Score.Samples > 0 && latest.Score.CostSec/float64(latest.Score.Samples) > slowSampleSec:
+		return "costly", "measured cost exceeds two seconds per sample"
+	case latest.Score.Samples < 2:
+		return "idle", "insufficient samples"
+	}
+	return "", ""
+}
+
+func crossRunCV(history []observation, latest observation) float64 {
+	medians := make([]float64, 0, quietWindow)
+	for i := len(history) - 1; i >= 0 && len(medians) < quietWindow; i-- {
+		row := history[i]
+		if row.Score != nil && isQuiet(*row.Score) && sameHost(row.Env, latest.Env) {
+			if metric, ok := row.Score.Metrics["ns/op"]; ok {
+				medians = append(medians, metric.Median)
+			}
+		}
+	}
+	if len(medians) < 2 {
+		return 0
+	}
+	return spread(medians).CV
+}
+
+func sameHost(a, b Env) bool {
+	return a.Machine == b.Machine && a.GOOS == b.GOOS && a.GOARCH == b.GOARCH && a.Go == b.Go &&
+		a.CPUs == b.CPUs && a.GOMAXPROCS == b.GOMAXPROCS
 }

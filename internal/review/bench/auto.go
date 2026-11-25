@@ -94,12 +94,7 @@ func noisyTwice(it Item, name string, group []observation, measured []int) (Item
 	return it, true
 }
 
-// Candidates ranks the items derived from every package's benchmark history, closed ones dropped.
-func Candidates(now time.Time) ([]Item, error) {
-	return candidates(now, nil)
-}
-
-// candidates keeps only history rows that keep accepts (all when nil), before grouping, so repos never mix epochs.
+// candidates ranks open items from benchmark history; keep filters rows (all when nil) before grouping.
 func candidates(now time.Time, keep func(observation) bool) ([]Item, error) {
 	root := benchRoot()
 	files, err := filepath.Glob(filepath.Join(root, "*", "history.jsonl"))
@@ -124,7 +119,7 @@ func candidates(now time.Time, keep func(observation) bool) ([]Item, error) {
 	for i := range items {
 		items[i].CallsPerDay = cmp.Or(perDay[items[i].Pkg], 1)
 	}
-	rows, err := readJSONL[Row](filepath.Join(root, "scorecard.jsonl"))
+	rows, err := readJSONL[scorecardRow](filepath.Join(root, "scorecard.jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -142,15 +137,6 @@ func callsPerDay(file string) (map[string]float64, error) {
 		out[r.Pkg] = max(out[r.Pkg], r.CallsPerDay)
 	}
 	return out, nil
-}
-
-// NextCandidate is the top-ranked history candidate; false when none is open.
-func NextCandidate(now time.Time) (Item, bool, error) {
-	items, err := Candidates(now)
-	if err != nil || len(items) == 0 {
-		return Item{}, false, err
-	}
-	return items[0], true, nil
 }
 
 // NextCandidateFor is the first launchable fix at or above the floor, from rows measured in the repository at top.

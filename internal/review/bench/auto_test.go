@@ -58,20 +58,20 @@ func TestHistoryCandidates(t *testing.T) {
 	}
 }
 
-func TestNextCandidate(t *testing.T) {
+func TestCandidatesDropClosed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{autoRow(now, regressed)}); err != nil {
 		t.Fatal(err)
 	}
 	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","what":"x","calls_per_day":100}`)
-	it, ok, err := NextCandidate(now)
-	if err != nil || !ok || it.What != "BenchmarkA regressed +10.00%" || it.CallsPerDay != 100 || it.EstSavingMS != 0.1 {
-		t.Fatalf("next = %+v, %v, %v", it, ok, err)
+	items, err := candidates(now, nil)
+	if err != nil || len(items) != 1 || items[0].What != "BenchmarkA regressed +10.00%" || items[0].CallsPerDay != 100 || items[0].EstSavingMS != 0.1 {
+		t.Fatalf("items = %+v, %v", items, err)
 	}
 	writeBenchFile(t, "scorecard.jsonl", `{"pkg":"internal/p","what":"BenchmarkA regressed +10.00%","verdict":"kept"}`)
-	if it, ok, err := NextCandidate(now); err != nil || ok {
-		t.Fatalf("closed item still queued: %+v, %v, %v", it, ok, err)
+	if items, err := candidates(now, nil); err != nil || len(items) != 0 {
+		t.Fatalf("closed item still queued: %+v, %v", items, err)
 	}
 }
 
@@ -137,7 +137,7 @@ func benchPkg(t *testing.T, top, pkg string) {
 
 func checkRepoLessRow(t *testing.T, now time.Time) {
 	t.Helper()
-	all, err := Candidates(now)
+	all, err := candidates(now, nil)
 	if err != nil || len(all) != 2 {
 		t.Fatalf("Candidates must keep the repo-less row: %+v, %v", all, err)
 	}

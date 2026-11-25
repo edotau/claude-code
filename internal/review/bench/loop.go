@@ -144,8 +144,8 @@ type queueLine struct {
 	AfterMS  float64 `json:"after_ms"`
 }
 
-// Row is one scorecard line.
-type Row struct {
+// scorecardRow is one scorecard line.
+type scorecardRow struct {
 	At          time.Time `json:"at"`
 	Pkg         string    `json:"pkg"`
 	What        string    `json:"what"`
@@ -297,7 +297,7 @@ func closeKey(pkg, what string) string {
 }
 
 // closedUntil maps pkg+what head to when its row stops closing it (zero time = for good).
-func closedUntil(rows []Row) map[string]time.Time {
+func closedUntil(rows []scorecardRow) map[string]time.Time {
 	closed := map[string]time.Time{}
 	for _, r := range rows {
 		k := closeKey(r.Pkg, r.What)
@@ -361,7 +361,7 @@ func btoi(b bool) int {
 }
 
 // rank drops closed items, merges duplicates, and orders by score; a weak item ranks just above its package's fix.
-func rank(items []Item, rows []Row, now time.Time) []Item {
+func rank(items []Item, rows []scorecardRow, now time.Time) []Item {
 	closed := closedUntil(rows)
 	best := map[string]Item{}
 	for _, it := range items {
@@ -406,11 +406,11 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	history, err := Candidates(time.Now())
+	history, err := candidates(time.Now(), nil)
 	if err != nil {
 		return err
 	}
-	rows, err := readJSONL[Row](filepath.Join(root, "scorecard.jsonl"))
+	rows, err := readJSONL[scorecardRow](filepath.Join(root, "scorecard.jsonl"))
 	if err != nil {
 		return err
 	}
@@ -433,8 +433,8 @@ func runQueue(l loopOpts, asJSON bool, w io.Writer) error {
 	return nil
 }
 
-// Decision is the keep/revert verdict and the benchstat rows that decided it.
-type Decision struct {
+// decision is the keep/revert verdict and the benchstat rows that decided it.
+type decision struct {
 	Keep         bool
 	NoComparison bool // inconclusive, so neither KEEP nor REVERT: no benchmark in both runs, or timing only on a noisy run
 	Rule         string
@@ -532,7 +532,7 @@ func bestSpeedup(win, loss []benchRow) float64 {
 }
 
 // decide keeps on a significant win with no regression that counts: under 2% is minor, a speedup outweighs less memory.
-func decide(deltas map[string]map[string]Delta, before, after []Score) Decision {
+func decide(deltas map[string]map[string]Delta, before, after []Score) decision {
 	win, loss, noisy := sortRows(deltas, quietBoth(before, after))
 	speed := bestSpeedup(win, loss)
 	counted, outweighed, minor := classifyLoss(loss, speed)
@@ -549,7 +549,7 @@ func decide(deltas map[string]map[string]Delta, before, after []Score) Decision 
 	for _, s := range [][]string{counted, outweighed, minor, wins, noisyRows, faster} {
 		slices.Sort(s)
 	}
-	d := Decision{Keep: len(wins) > 0 && len(counted) == 0, Rule: decideRule(len(wins), counted, outweighed, minor, speed),
+	d := decision{Keep: len(wins) > 0 && len(counted) == 0, Rule: decideRule(len(wins), counted, outweighed, minor, speed),
 		Rows: slices.Concat(counted, outweighed, minor, wins, noisyRows), Faster: faster}
 	allQuiet := !slices.ContainsFunc(slices.Concat(before, after), func(s Score) bool { return !isQuiet(s) })
 	if len(counted) == 0 && inconclusive(win, noisy, allQuiet) {
@@ -615,17 +615,17 @@ func benchNames(text string) map[string]bool {
 }
 
 // decideFiles decides on benchmarks both runs hold; one-sided ones are listed, and none in common is NoComparison.
-func decideFiles(before, after string) (Decision, error) {
+func decideFiles(before, after string) (decision, error) {
 	bt, err := os.ReadFile(before)
 	if err != nil {
-		return Decision{}, err
+		return decision{}, err
 	}
 	at, err := os.ReadFile(after)
 	if err != nil {
-		return Decision{}, err
+		return decision{}, err
 	}
 	if !sameEpochs(string(bt), string(at)) {
-		return Decision{NoComparison: true, Rule: "benchmark epochs differ; rebaseline before comparing"}, nil
+		return decision{NoComparison: true, Rule: "benchmark epochs differ; rebaseline before comparing"}, nil
 	}
 	miss := missingBench(string(bt), string(at))
 	bn, an := benchNames(string(bt)), benchNames(string(at))
@@ -634,11 +634,11 @@ func decideFiles(before, after string) (Decision, error) {
 		common = common || an[n]
 	}
 	if !common {
-		return Decision{NoComparison: true, Rule: "no benchmark is in both runs", Rows: miss}, nil
+		return decision{NoComparison: true, Rule: "no benchmark is in both runs", Rows: miss}, nil
 	}
 	deltas, err := compare(before, after)
 	if err != nil {
-		return Decision{}, err
+		return decision{}, err
 	}
 	maps.DeleteFunc(deltas, func(n string, _ map[string]Delta) bool { return !bn[n] || !an[n] })
 	d := decide(deltas, scoreAll(string(bt), loadNoisy(string(bt))), scoreAll(string(at), loadNoisy(string(at))))
@@ -732,7 +732,7 @@ func recordRow(l loopOpts) error {
 		return err
 	}
 	at := time.Now().UTC()
-	data, err := json.Marshal(Row{At: at, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
+	data, err := json.Marshal(scorecardRow{At: at, Pkg: l.pkg, What: l.what, Verdict: l.verdict, Agent: l.agent,
 		Model: l.model, TokensIn: l.tokensIn, TokensOut: l.tokensOut, TokensCache: l.tokensCache,
 		DurationS: l.durationS, Attempts: l.attempts, SavingMSDay: l.savingMSDay, Sha: l.sha,
 		Benchmark: l.benchmark, Epoch: l.epoch, OldEpoch: l.oldEpoch})

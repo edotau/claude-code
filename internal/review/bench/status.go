@@ -82,7 +82,7 @@ func BuildStatus(ctx context.Context, top string, now time.Time) Status {
 			s.Budget.Kinds = append(s.Budget.Kinds, StatusBudgetKind{kind, runs, budgetLimit(kind), why == "", why})
 		}
 	}
-	lanes, err := AutoLanes(ctx, top)
+	lanes, err := autoLanes(ctx, top)
 	if err != nil {
 		s.LanesError = err.Error()
 	}
@@ -167,13 +167,13 @@ func readLaunch(file string) (time.Time, string, error) {
 	return info.ModTime(), marker.Loop, nil
 }
 
-func (s Status) WriteJSON(w io.Writer) error {
+func (s Status) writeJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(s)
 }
 
-func (s Status) WriteText(w io.Writer) error {
+func (s Status) writeText(w io.Writer) error {
 	rows := s.budgetText()
 	rows = append(rows, s.lanesText()...)
 	rows = append(rows, s.queueText()...)
@@ -283,7 +283,7 @@ func runStatus(asJSON bool, w io.Writer) error {
 	}
 	s := BuildStatus(context.Background(), top, time.Now())
 	if asJSON {
-		return s.WriteJSON(w)
+		return s.writeJSON(w)
 	}
-	return s.WriteText(w)
+	return s.writeText(w)
 }

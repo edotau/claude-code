@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -109,7 +110,7 @@ type candidate struct {
 	slug, lane, work, before string
 	parent, fixSHA, fixID    string
 	files                    []string
-	res                      ABResult
+	res                      abResult
 }
 
 type askEnvelope struct {
@@ -120,7 +121,7 @@ type askEnvelope struct {
 }
 
 func runDriver(l loopOpts, stdout, stderr io.Writer) int {
-	why, err := AdmitLoop(reservedSHA, budgetNow())
+	why, err := admitLoop(reservedSHA, budgetNow())
 	switch {
 	case err != nil:
 		fmt.Fprintln(stderr, "review bench --loop:", err)
@@ -204,7 +205,7 @@ func (d *driver) loop(ctx context.Context, maxItems int) error {
 
 // ready is the check before an item's first paid dispatch: the day's tokens, then a quiet machine.
 func ready(ctx context.Context, out io.Writer, quiet func(context.Context) (bool, string)) (bool, error) {
-	why, err := TokenStop(budgetNow())
+	why, err := ledgerTokenStop(budgetNow())
 	if err != nil {
 		return false, err
 	}
@@ -514,8 +515,9 @@ func (d *driver) interleaveLocked(ctx context.Context, c *candidate) error {
 		return err
 	}
 	var err error
-	c.res, err = Interleave(ctx, ABOptions{A: parent, B: c.lane, Pkg: c.Pkg, Rounds: abRounds, Count: abCount,
-		Work: filepath.Join(c.work, "ab")}, d.log)
+	c.res, err = interleave(ctx, abOptions{A: parent, B: c.lane, Pkg: c.Pkg, Rounds: abRounds, Count: abCount,
+		Work: filepath.Join(c.work, "ab")},
+		abSeam{gitCommit, gitDirty, execBench, decideFiles}, d.log)
 	if _, removeErr := source.GitInherit(c.lane, "worktree", "remove", "--force", parent); removeErr != nil {
 		err = errors.Join(err, fmt.Errorf("%w: %s: %w", errParentWorktree, parent, removeErr))
 	}
@@ -710,4 +712,165 @@ func lastLine(s string) string {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
 	return line
+}
+
+func validateBrief(kind string, values map[string]string) error {
+	for key, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("bench brief %s: empty %s", kind, key)
+		}
+	}
+	return nil
+}
+
+func renderFixBrief(in assets.BenchFixInput) (string, error) {
+	if err := validateBrief("fix", map[string]string{
+		"OwnedLine": in.OwnedLine, "Verify": in.Verify, "Benchmark": in.Benchmark, "Package": in.Package,
+		"Workdir": in.Workdir, "Cause": in.Cause, "Numbers": in.Numbers, "BeforeFile": in.BeforeFile,
+		"BenchCommand": in.BenchCommand, "IdentityCommand": in.IdentityCommand,
+	}); err != nil {
+		return "", err
+	}
+	return assets.BenchFixBrief(in)
+}
+
+func renderReviewBrief(in assets.BenchReviewInput) (string, error) {
+	if emptyDiff(in.Diff) {
+		in.Diff = assets.BenchNoDiff()
+	}
+	if err := validateBrief("review", map[string]string{
+		"OwnedLine": in.OwnedLine, "Verify": in.Verify, "Benchmark": in.Benchmark, "Package": in.Package,
+		"Workdir": in.Workdir, "Numbers": in.Numbers, "BeforeFile": in.BeforeFile,
+		"AfterFile": in.AfterFile, "Diff": in.Diff, "IdentityCommand": in.IdentityCommand,
+	}); err != nil {
+		return "", err
+	}
+	return assets.BenchReviewBrief(in)
+}
+
+// emptyDiff is true for a blank diff, bare or inside the driver's ```diff fence.
+func emptyDiff(s string) bool {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "```diff")) == ""
+}
+
+const (
+	maxAutoLanes = 3
+	staleBehind  = 20
+)
+
+var (
+	benchLaneName   = regexp.MustCompile(`^bench-[a-z0-9._-]+-[0-9]{8}-[0-9]+$`)
+	autofixLaneName = regexp.MustCompile(`^autofix-[0-9a-f]{7}$`)
+	laneList        = func(ctx context.Context, top string) (string, error) {
+		bin, err := laneBin()
+		if err != nil {
+			return "", err
+		}
+		out, _, err := driverRun(ctx, top, "", bin, "worktree", "list", "--format", "json")
+		return out, err
+	}
+	laneClean = func(ctx context.Context, top, name string) (string, error) {
+		bin, err := laneBin()
+		if err != nil {
+			return "", err
+		}
+		out, _, err := driverRun(ctx, top, "", bin, "worktree", "clean", name)
+		return out, err
+	}
+)
+
+// laneBin is this binary, refused under go test: a test binary would re-run itself as the lane verb without end.
+func laneBin() (string, error) {
+	bin, err := paths.SelfBinary()
+	if err == nil && strings.HasSuffix(bin, ".test") {
+		return "", errors.New("lane verbs need the claude-code binary, not a test binary")
+	}
+	return bin, err
+}
+
+// autoLane is one `worktree list --format json` row this tool created (bench loop or autofix).
+type autoLane struct {
+	Path   string
+	Branch string
+	Dirty  bool
+	Merged bool
+	Behind int
+	Name   string `json:"-"`
+}
+
+// autoLanes is the bench and autofix lanes only, matched by name and branch so a user's lane never shows.
+func autoLanes(ctx context.Context, top string) ([]autoLane, error) {
+	out, err := laneList(ctx, top)
+	if err != nil {
+		return nil, fmt.Errorf("worktree list: %w", err)
+	}
+	var listed []autoLane
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		return nil, fmt.Errorf("worktree list JSON: %w", err)
+	}
+	if listed == nil {
+		return nil, errors.New("worktree list JSON: expected an array")
+	}
+	lanes := make([]autoLane, 0, len(listed))
+	for _, lane := range listed {
+		name := filepath.Base(lane.Path)
+		if (benchLaneName.MatchString(name) || autofixLaneName.MatchString(name)) && lane.Branch == "worktree-"+name {
+			lane.Name = name
+			lanes = append(lanes, lane)
+		}
+	}
+	return lanes, nil
+}
+
+// LaneCap refuses a new automatic lane at the plan's cap: "At most 3 automatic lanes stay open; a fourth waits".
+func LaneCap(ctx context.Context, top string) error {
+	lanes, err := autoLanes(ctx, top)
+	if err != nil {
+		return err
+	}
+	if len(lanes) < maxAutoLanes {
+		return nil
+	}
+	names := make([]string, 0, len(lanes))
+	for _, lane := range lanes {
+		names = append(names, lane.Name)
+	}
+	return fmt.Errorf("automatic lane cap: %d open (limit %d): %s", len(lanes), maxAutoLanes, strings.Join(names, ", "))
+}
+
+// CleanLanes removes merged clean lanes without force; a dirty or unmerged one is only reported, never discarded.
+func CleanLanes(ctx context.Context, top string, out io.Writer) error {
+	lanes, err := autoLanes(ctx, top)
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, lane := range lanes {
+		switch {
+		case lane.Dirty:
+			_, err = fmt.Fprintf(out, "kept dirty automatic lane %s\n", lane.Name)
+		case !lane.Merged && lane.Behind > staleBehind:
+			_, err = fmt.Fprintf(out, "kept stale automatic lane %s (%d behind, unmerged): claude-code worktree land %s\n",
+				lane.Name, lane.Behind, lane.Name)
+		case !lane.Merged:
+			continue
+		default:
+			cleanOut, cleanErr := laneClean(ctx, top, lane.Name)
+			if cleanErr != nil {
+				failures = append(failures, fmt.Errorf("worktree clean %s: %w", lane.Name, cleanErr))
+				reason := firstLine(cleanOut)
+				if reason == "" {
+					reason = firstLine(cleanErr.Error())
+				}
+				_, err = fmt.Fprintf(out, "refused automatic lane %s: %s\n", lane.Name, reason)
+			} else {
+				_, err = fmt.Fprintf(out, "removed automatic lane %s\n", lane.Name)
+			}
+		}
+		if err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+	}
+	return errors.Join(failures...)
 }
