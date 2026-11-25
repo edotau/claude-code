@@ -76,10 +76,13 @@ func policyBar(p RoutePlan, row string) string {
 	return ""
 }
 
+// pinsBackend is explicitBackend, or a whole Route a batch line's overlay named without a profile.
+func pinsBackend(o RunOptions) bool { return explicitBackend(o) || !o.Route.IsZero() }
+
 // requestBar is why o itself must not be swapped onto row: a typed model (R8) or a run tied to its own CLI.
 func requestBar(o RunOptions, row string) string {
 	switch {
-	case explicitBackend(o):
+	case pinsBackend(o):
 		return "--provider pins the backend"
 	case o.ModelTyped && o.Model != "" && !IsAuto(o.Model):
 		return "a typed model is never swapped (R8)"
@@ -192,17 +195,21 @@ func (s *fallbackState) runLocal(ctx context.Context, c Chain, sink wire.Sink, n
 	d, has := ctx.Value(localHop{}).(Dispatch)
 	kind, falls := localKind(s.res, s.err)
 	switch {
-	case !falls || c.yieldsFallback(s.req, s.res, s.err) || ctx.Err() != nil || explicitBackend(s.req):
+	case !falls || c.yieldsFallback(s.req, s.res, s.err) || ctx.Err() != nil || pinsBackend(s.req):
 		return nil
 	case !has:
 		noteLocalBar(c, notify)
 		return nil
 	}
+	waited := time.Now()
 	slot, ok := s.admitFirst(ctx, notify)
 	if !ok {
 		return nil
 	}
 	defer slot()
+	if s.req.Timeout > 0 {
+		s.req.Timeout = max(time.Millisecond, s.req.Timeout-time.Since(waited))
+	}
 	keep, i := *s, len(c.Dispatches)
 	if herr := s.handOff(i, d, false, sink, notify); herr != nil {
 		return herr

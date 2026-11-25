@@ -53,6 +53,7 @@ func TestPlanLocal(t *testing.T) {
 		{name: "cap", stage: "last", reg: withRow, p: open, o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)},
 			barred: "max_prompt"},
 		{name: "typed provider", stage: "last", reg: withRow, p: open, o: RunOptions{Provider: "databricks:dev"}, barred: "--provider"},
+		{name: "line overlay route", stage: "last", reg: withRow, p: open, o: RunOptions{Route: route.Route{Provider: "databricks"}}, barred: "--provider"},
 		{name: "shadow", stage: "shadow", reg: withRow, p: open},
 		{name: "last", stage: "last", reg: withRow, p: open, hop: true},
 	}
@@ -94,10 +95,12 @@ func TestLocalHopTakesOver(t *testing.T) {
 	rows := []struct {
 		name   string
 		refuse bool
+		wait   time.Duration // the slot wait the local run's timeout is debited for
 		o      RunOptions
 		want   bool // the local hop ran
 	}{
 		{name: "up", o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
+		{name: "slot wait debited", wait: 300 * time.Millisecond, o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
 		{name: "down", o: RunOptions{Prompt: "p"}, refuse: true},
 		{name: "pinned backend", o: RunOptions{Prompt: "p", Provider: "databricks:dev"}},
 		{name: "wrapped prompt over the cap", o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)}},
@@ -108,6 +111,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		var bounded bool
 		localGate = func(ctx context.Context, _ func(string)) (func(), error) {
 			_, bounded = ctx.Deadline()
+			time.Sleep(r.wait)
 			if r.refuse {
 				return func() {}, errors.New("local model down: connection refused")
 			}
@@ -123,9 +127,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		if r.want != (err == nil) || r.want != (len(local.seen) == 1) || announced != r.want {
 			t.Errorf("%s: err=%v local runs=%d announced=%v lines=%q", r.name, err, len(local.seen), announced, lines)
 		}
-		if r.want && (res.FallbackKind != "rate limited" || noted != "rate limited" || !bounded) {
-			t.Errorf("%s: kind=%q noted=%q slot wait bounded by the timeout=%v", r.name, res.FallbackKind, noted, bounded)
-		}
+		checkLocalRun(t, r.name, r.want, r.wait, r.o.Timeout, local.seen, res, noted, bounded)
 	}
 }
 
@@ -136,5 +138,18 @@ func TestSlimForLocal(t *testing.T) {
 	}
 	if o := slimForLocal(Dispatch{Effort: "high"}, RunOptions{Timeout: time.Minute}); o.Effort != "high" || o.Timeout != time.Minute {
 		t.Errorf("typed effort and a shorter timeout must stand: %q %s", o.Effort, o.Timeout)
+	}
+}
+
+func checkLocalRun(t *testing.T, name string, want bool, wait, timeout time.Duration, seen []RunOptions, res wire.Result, noted string, bounded bool) {
+	t.Helper()
+	if !want || len(seen) != 1 {
+		return
+	}
+	if wait > 0 && seen[0].Timeout > timeout-wait {
+		t.Errorf("%s: local run timeout %s keeps the %s slot wait", name, seen[0].Timeout, wait)
+	}
+	if res.FallbackKind != "rate limited" || noted != "rate limited" || !bounded {
+		t.Errorf("%s: kind=%q noted=%q slot wait bounded by the timeout=%v", name, res.FallbackKind, noted, bounded)
 	}
 }
