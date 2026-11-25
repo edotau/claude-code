@@ -40,7 +40,7 @@ func logDivergence(ctx context.Context, agent string, lines []string) {
 }
 
 func appendShadow(b []byte) error {
-	path := filepath.Join(paths.StateDir(), "harness", "agent", "routeplan-shadow.jsonl")
+	path := filepath.Join(paths.StateDir(), "agent", "routeplan-shadow.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
