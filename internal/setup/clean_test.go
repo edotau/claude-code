@@ -123,12 +123,18 @@ func seedFiles(t *testing.T, dir string, rels []string, contents string, old tim
 	}
 }
 
+// useTempGoCache keeps a bare Clean off the real Go build cache, which its go-cache target trims over the cap.
+func useTempGoCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("GOCACHE", t.TempDir())
+}
+
 // seedDebris lays down one aged entry per target plus everything that must survive, and returns the config dir.
 func seedDebris(t *testing.T) string {
 	t.Helper()
 	dir := vaulttest.Use(t)
-	t.Setenv("TMPDIR", t.TempDir())  // the sandbox target sweeps the temp dir; never the real one
-	t.Setenv("GOCACHE", t.TempDir()) // the go-cache target runs go clean -cache; never on the real cache
+	t.Setenv("TMPDIR", t.TempDir()) // the sandbox target sweeps the temp dir; never the real one
+	useTempGoCache(t)
 	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
 	oldOpen := openMemoryFiles
 	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
@@ -429,6 +435,7 @@ func TestStalePluginVersions(t *testing.T) {
 
 // TestNestedConfig: the nested dir goes only when user settings already carry every key it sets.
 func TestNestedConfig(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise"}`)
@@ -460,6 +467,7 @@ func TestNestedConfig(t *testing.T) {
 
 // TestNestedConfigKeepsWorktrees
 func TestNestedConfigKeepsWorktrees(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	write(t, filepath.Join(dir, "settings.json"), `{"outputStyle": "Concise"}`)
@@ -482,6 +490,7 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 
 // TestBackupsMirrorNeverSwept: the revert mirror survives a sweep; CLI backups age out like any target.
 func TestBackupsMirrorNeverSwept(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	mirror := filepath.Join(paths.StateDir(), "backups", "settings.json.bak-20200101-000000")
@@ -519,6 +528,7 @@ func TestCleanListShowsBackupsTarget(t *testing.T) {
 
 // TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles
 func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	unrelated := filepath.Join(dir, "settings.json.bak-20260101-000000")
@@ -532,6 +542,7 @@ func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 
 // TestSessionsTargetOptInKeepsAutoMemory
 func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	transcript, sessDir := seedAgedSession(t, dir)
@@ -753,6 +764,7 @@ func TestSessionsRegistryKeepsLiveOrUnparsable(t *testing.T) {
 
 // TestSessionsRegistrySplitFromSessionsTarget
 func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
+	useTempGoCache(t)
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	stubPidAlive(t, func(pid int) bool { return pid == 4242 })
