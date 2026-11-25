@@ -568,11 +568,11 @@ func TestAutoPickedDatabricksPiFirst(t *testing.T) {
 		args                 []string
 		wantPi               bool
 	}{
-		{"default", "", "sonnet", nil, true},
+		{"default", "", "databricks-claude-sonnet-5-5", nil, true},
 		{"internal typed model clamp", "all", "databricks-claude-sonnet-5-5", []string{"--model", "claude-sonnet-5-5"}, true},
-		{"typed none", "", "databricks-claude-sonnet-5-5", []string{"--fallback", "none"}, false},
-		{"env none", "none", "databricks-claude-sonnet-5-5", nil, false},
-		{"typed profile", "", "databricks-claude-sonnet-5-5", []string{"--profile", "dev"}, false},
+		{"typed none", "", "databricks-claude-sonnet-5-5", []string{"--fallback", "none"}, true},
+		{"env none", "none", "databricks-claude-sonnet-5-5", nil, true},
+		{"typed profile", "", "databricks-claude-sonnet-5-5", []string{"--profile", "dev"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(router.EnvFallback, tc.mode)

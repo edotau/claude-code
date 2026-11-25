@@ -38,7 +38,6 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if sink == nil {
 		sink = wire.Discard
 	}
-	c = dropRunner(c, req, notify)
 	c.Dispatches = slices.Clone(c.Dispatches)
 	ctx = withAsk(context.WithValue(ctx, triedCarryKey{}, new([]string)), req)
 	reasons := slices.Clone(c.Skipped)

@@ -63,6 +63,14 @@ func (c Chain) runners() int {
 	return n
 }
 
+// OwnHop is the index of the agent's own CLI hop that follows the pi runner hops, -1 when there is none.
+func (c Chain) OwnHop() int {
+	if n := c.runners(); n < len(c.Dispatches) {
+		return n
+	}
+	return -1
+}
+
 // leads reports hop i as the requested one: the first, or the agent's own CLI right after the pi runner hops.
 func (c Chain) leads(i int) bool { return i == c.runners() }
 
@@ -74,23 +82,6 @@ func runnerRefused(prev Dispatch, res wire.Result, err error) bool {
 // modelGone is typedModelGone, except after a pi runner refusal: the agent's own CLI runs that same model next.
 func (s *fallbackState) modelGone() bool {
 	return typedModelGone(s.req, s.err) && !runnerRefused(s.prevDispatch, s.res, s.err)
-}
-
-// dropRunner removes the pi runner hops when the request needs the agent's own CLI, saying why.
-func dropRunner(c Chain, req RunOptions, notify func(string)) Chain {
-	n := c.runners()
-	if n == 0 { // never every hop: ledBy keeps the agent's own CLI after them
-		return c
-	}
-	why := runnerLoses(c.Dispatches[0].Agent.Caps(), req)
-	if why == "" {
-		return c
-	}
-	if notify != nil {
-		notify(c.Want + ": pi runner skipped: " + why + "; runs on " + c.Want + "'s own CLI")
-	}
-	c.Dispatches = c.Dispatches[n:]
-	return c
 }
 
 // runnerLoses is the first thing req asks that Pi's capability row cannot give, "" when the pi runner can run it.

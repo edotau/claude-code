@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
@@ -16,33 +15,31 @@ import (
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
-// piRunnerAsked reports q taking the pi runner (every roster agent but pi, unless runner own) and if it was typed.
-func piRunnerAsked(ctx context.Context, q RouteReq) (asked, typed bool) {
-	ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable document already failed the ask
-	typed = ov.Runner == agentconfig.RunnerPi
-	if ov.Runner == agentconfig.RunnerOwn || q.Agent == agentid.Pi || !agentid.Known(q.Agent) {
-		return false, false
-	}
-	return true, typed
-}
-
 // withPiRunner leads c with the pi runner when its first hop is the asked agent on a Databricks route.
 func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 	if q.Agent == agentid.Pi && len(c.Dispatches) > 0 {
 		return withPiClaudeHop(ctx, q, c)
 	}
-	asked, typed := piRunnerAsked(ctx, q)
-	if len(c.Dispatches) == 0 || !asked {
+	plan, ok := PlanOf(ctx)
+	if !ok || len(c.Dispatches) == 0 {
 		return c
 	}
+	if plan.Runners[0].Kind != RunnerPi {
+		return c.barredNote(q, plan)
+	}
+	return withPiHops(ctx, q, c)
+}
+
+// withPiHops validates and puts the pi hops ahead of c, whose lead is the asked agent's own hop.
+func withPiHops(ctx context.Context, q RouteReq, c Chain) Chain {
 	reg := loadRegistryWarn()
 	lead := c.Dispatches[0]
 	if !ownDatabricksHop(reg, q, lead) { // first-party, Copilot and Google logins keep their own CLI
-		return c.notedIf(typed, q.Agent+": pi runner skipped: "+hopTarget(lead)+" is not the agent's Databricks hop")
+		return c
 	}
 	pi, err := Lookup(agentid.Pi)
 	if err != nil || pi.Available() != nil { // a build without the pi driver, or pi not installed
-		return c.notedIf(typed, q.Agent+": pi runner skipped: pi is not installed")
+		return c.noted(q.Agent + ": pi runner skipped: pi is not installed")
 	}
 	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
 	if why != "" {
@@ -52,6 +49,14 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 		c = c.noted(q.Agent + ": pi runner hop skipped: " + s)
 	}
 	return c.ledBy(hops)
+}
+
+// barredNote says once why plan keeps q's own CLI; an asked --runner own needs no note.
+func (c Chain) barredNote(q RouteReq, plan RoutePlan) Chain {
+	if plan.Barred == "" || strings.HasPrefix(plan.Barred, "--runner own") {
+		return c
+	}
+	return c.noted(q.Agent + ": pi runner skipped: " + plan.Barred + "; runs on " + q.Agent + "'s own CLI")
 }
 
 // withOwnHopCodemodeNote notes each own-CLI hop that runs code mode off (hopCodemode applies it per hop).
@@ -65,14 +70,6 @@ func withOwnHopCodemodeNote(q RouteReq, c Chain) Chain {
 		}
 	}
 	return c
-}
-
-// notedIf is c with line as a preflight note when a typed runner was asked, else c.
-func (c Chain) notedIf(typed bool, line string) Chain {
-	if !typed {
-		return c
-	}
-	return c.noted(line)
 }
 
 // ownDatabricksHop reports lead as the asked agent's own hop on a Databricks row.
@@ -103,9 +100,6 @@ func (c Chain) ledBy(hops []Dispatch) Chain {
 
 // piRunnerHops is the pi hops router.Chain orders from lead's profile and model, each validated; why when none run.
 func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, pi Engine) ([]Dispatch, []string, string) {
-	if why := piRunnerBarred(ctx, q); why != "" {
-		return nil, nil, why
-	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
 	if arm := router.ArmProfileContext(ctx); arm != "" && arm != profile {
 		return nil, nil, hopTarget(lead) + " is not on the confined workspace " + arm
@@ -115,7 +109,7 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	if why != "" {
 		return nil, nil, why
 	}
-	sibs, skips, why := piSiblings(ctx, reg, q, lead, model)
+	sibs, skips, why := piSiblings(ctx, reg, lead, model)
 	if why != "" {
 		return nil, nil, why
 	}
@@ -129,25 +123,20 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 	return hops, skips, ""
 }
 
-// piSiblings is the validated pi hops router.Chain orders after the head on lead's sibling workspaces.
-func piSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch, model string) ([]Dispatch, []string, string) {
-	if staysOnWorkspace(ctx, q, lead) {
+// piSiblings is the validated pi hops on the plan's pool workspaces after lead's own.
+func piSiblings(ctx context.Context, reg *providers.Registry, lead Dispatch, model string) ([]Dispatch, []string, string) {
+	plan, ok := PlanOf(ctx)
+	if !ok || staysOnWorkspace(plan, lead) {
 		return nil, nil, ""
 	}
-	tb, err := router.Load()
-	if err != nil {
-		return nil, nil, err.Error()
-	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
-	drop := router.RotatedLeadOf(ctx).Drop // rows of providers a rotation kept out: no hop runs there
 	var hops []Dispatch
 	var skips []string
-	for _, h := range tb.Chain(reg, router.ChainReq{Agent: agentid.Pi, Profile: profile, Model: model, Alias: q.AliasHint,
-		Fallback: q.Fallback, Asked: q.Agent, TypedModel: q.Model != ""}) {
-		if h.Agent != agentid.Pi || h.OffArm || h.Profile == profile || slices.Contains(drop, h.Profile) {
-			continue // the head, the agent's own CLI hops and kept-out rows
+	for _, w := range plan.Pool[min(1, len(plan.Pool)):] {
+		if w.Profile == profile {
+			continue
 		}
-		d, why := piHop(reg, h, lead.Effort)
+		d, why := piHop(reg, router.ChainHop{Agent: agentid.Pi, Profile: w.Profile, Account: w.Account, Model: model}, lead.Effort)
 		if why != "" {
 			skips = append(skips, why)
 			continue
@@ -157,38 +146,9 @@ func piSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, lead D
 	return hops, skips, ""
 }
 
-// staysOnWorkspace: an explicit backend, a databricks:<p> confinement (armRetry moves it) or an agent that never moves.
-func staysOnWorkspace(ctx context.Context, q RouteReq, lead Dispatch) bool {
-	explicit := lead.unroutedDispatch || q.Pinned && q.Profile != "" && q.Profile != LeadSession
-	return explicit || router.ArmProfileContext(ctx) != "" || agentid.Routing(q.Agent).NoWorkspaceFallback
-}
-
-// piRunnerBarred is why q keeps its own CLI: one named hop, a resumed session, --native, a carried ask, or a Pi gap.
-func piRunnerBarred(ctx context.Context, q RouteReq) string {
-	switch {
-	case q.Fallback == router.FallbackNone && !autoPickKeepsPi(ctx, q):
-		return "--fallback none keeps the one hop it names"
-	case q.Resumed:
-		return "a resumed session stays on its own CLI"
-	case q.Native:
-		return "--native runs the agent's own config"
-	case carriedChild(ctx, q.Agent):
-		return "a carried ask runs " + q.Agent + "'s own CLI"
-	}
-	engine, err := Lookup(agentid.Pi)
-	if err != nil {
-		return ""
-	}
-	return runnerLoses(engine.Caps(), q.Opts)
-}
-
-// autoPickKeepsPi permits Pi on the confined auto pick under an internal clamp, never a requested one-hop policy.
-func autoPickKeepsPi(ctx context.Context, q RouteReq) bool {
-	if !q.FallbackDefaulted || AutoFailoverProvider(ctx) != router.RouteDatabricks || router.ArmProfileContext(ctx) == "" {
-		return false
-	}
-	mode, err := fallbackSetting(ctx)
-	return err == nil && (mode == "" || router.ParseFallback(mode) != router.FallbackNone)
+// staysOnWorkspace: an explicit backend or a plan that keeps every hop on its first workspace.
+func staysOnWorkspace(plan RoutePlan, lead Dispatch) bool {
+	return lead.unroutedDispatch || plan.Fallback.Kind == router.PolicySameWorkspace
 }
 
 // headPiHop is the pi runner dispatch on lead's own workspace: lead's route flags on the wire piRunnerModel validated.
@@ -325,43 +285,19 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 	return r.Model, ""
 }
 
-// fallbackSetting reads the configured mode in precedence order; an unreadable overlay already fails ask setup.
-func fallbackSetting(ctx context.Context) (string, error) {
-	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
-	return cmp.Or(ov.Fallback, strings.TrimSpace(proc.Value(ctx, router.EnvFallback)),
-		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback])), err
-}
-
-// fallbackUnset reports no fallback mode set anywhere: not the overlay, the process env nor the vault.
-func fallbackUnset(ctx context.Context) (bool, error) {
-	mode, err := fallbackSetting(ctx)
-	return mode == "" && err == nil, err
-}
-
 // piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none or model).
-func piChainMode(ctx context.Context, q RouteReq) (string, error) {
-	switch {
-	case q.Model != "" || q.AutoModel || q.Resumed || q.Native:
-		return "", nil
-	case q.Fallback == router.FallbackNone && q.FallbackDefaulted:
-		unset, err := fallbackUnset(ctx)
-		if unset {
-			return router.FallbackAgents, nil // nothing set anywhere: pi's own default
-		}
-		return "", err
-	case q.Fallback == router.FallbackNone:
-		return "", nil
+func piChainMode(ctx context.Context, q RouteReq) string {
+	plan, ok := PlanOf(ctx)
+	if !ok || q.Model != "" || q.AutoModel || q.Resumed || q.Native || plan.Fallback.Kind == router.PolicyNone {
+		return ""
 	}
-	return q.Fallback, nil
+	return plan.Fallback.Mode()
 }
 
 // withPiClaudeHop is a plain pi ask's chain: pi on the workspaces, then claude on the lead's Databricks workspace.
 func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 	lead := c.Dispatches[0]
-	mode, modeErr := piChainMode(ctx, q)
-	if modeErr != nil {
-		c = c.noted("fallback default not applied: overlay unreadable: " + modeErr.Error())
-	}
+	mode := piChainMode(ctx, q)
 	reg := loadRegistryWarn()
 	cl, err := Lookup(agentid.Claude)
 	if mode == "" || err != nil || !ownDatabricksHop(reg, q, lead) {
@@ -372,7 +308,7 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 			return d.Agent.Name() == lead.Agent.Name() && d.Account != lead.Account
 		})
 	} else {
-		c = withPiSiblings(ctx, reg, q, c, mode)
+		c = withPiSiblings(ctx, reg, c)
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
 	alias := cmp.Or(q.AliasHint, models.Sonnet)
@@ -385,13 +321,12 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 }
 
 // withPiSiblings adds pi on the other Databricks workspaces, same model, right after a plain pi ask's lead hop.
-func withPiSiblings(ctx context.Context, reg *providers.Registry, q RouteReq, c Chain, mode string) Chain {
+func withPiSiblings(ctx context.Context, reg *providers.Registry, c Chain) Chain {
 	lead := c.Dispatches[0]
 	if lead.Model == "" || IsAuto(lead.Model) { // a sibling runs the same model: an unpicked one has none
 		return c
 	}
-	q.Fallback = mode
-	sibs, skips, why := piSiblings(ctx, reg, q, lead, lead.Model)
+	sibs, skips, why := piSiblings(ctx, reg, lead, lead.Model)
 	if why != "" {
 		return c.noted("pi sibling hops skipped: " + why)
 	}

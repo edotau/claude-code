@@ -83,6 +83,19 @@ type RoutePlan struct {
 	Barred   string        `json:"barred,omitempty"` // why Runners lacks pi, said once
 }
 
+type planKey struct{}
+
+// withPlan carries p to every reader below Client.Plan.
+func withPlan(ctx context.Context, p RoutePlan) context.Context {
+	return context.WithValue(ctx, planKey{}, p)
+}
+
+// PlanOf is the route plan Client.Plan built for ctx's ask; false for a path with no Client.Plan.
+func PlanOf(ctx context.Context) (RoutePlan, bool) {
+	p, ok := ctx.Value(planKey{}).(RoutePlan)
+	return p, ok
+}
+
 // PlanHop is one planned step: a runner on a workspace.
 type PlanHop struct {
 	Runner    Runner
@@ -134,6 +147,9 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 	mode, src := o.Fallback, router.PolicyTyped
 	if o.FallbackDefaulted || o.Fallback == "" {
 		mode, src = router.FallbackSetting(ctx, overlayMode)
+	}
+	if o.Agent == agentid.Pi && src == router.PolicyDefault {
+		mode = router.FallbackAgents // nothing set anywhere: pi's own default
 	}
 	pol, err := router.PolicyOf(mode, src)
 	if err != nil {

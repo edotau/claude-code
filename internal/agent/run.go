@@ -106,10 +106,19 @@ func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Ch
 			return o, nil, Chain{}, err
 		}
 	}
+	plan, perr := PlanRoute(ctx, o, parentRoute(ctx))
+	if perr == nil {
+		ctx = withPlan(ctx, plan)
+	} else {
+		logDivergence(ctx, o.Agent, []string{perr.Error()})
+	}
 	ch, err := c.route(ctx, r, o)
 	ch = rotated.onto(ch)
+	if perr == nil {
+		ch.Plan = &plan
+		logDivergence(ctx, o.Agent, Divergence(plan, ch))
+	}
 	if err == nil {
-		ch = shadowPlan(ctx, o, ch)
 		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
 			err = clientUsageError{perr}
 		}

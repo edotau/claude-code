@@ -431,14 +431,17 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	return doc.print(format, out)
 }
 
-// firstHopOnRoute is ch's hops with the first one's model replaced by the peeked route's when it runs on that account.
+// firstHopOnRoute is ch's hops with hop 0's and the own hop's model set to the peeked route's on that account.
 func firstHopOnRoute(ch agent.Chain, r agent.ModelRoute) []string {
-	if len(ch.Dispatches) == 0 || r.Model == "" || strings.Contains(ch.Dispatches[0].Model, r.Model) ||
-		ch.Dispatches[0].Account != r.Account {
+	if len(ch.Dispatches) == 0 || r.Model == "" {
 		return ch.Hops()
 	}
 	ch.Dispatches = slices.Clone(ch.Dispatches)
-	ch.Dispatches[0].Model = r.Model
+	for _, i := range []int{0, ch.OwnHop()} {
+		if i >= 0 && !strings.Contains(ch.Dispatches[i].Model, r.Model) && ch.Dispatches[i].Account == r.Account {
+			ch.Dispatches[i].Model = r.Model
+		}
+	}
 	return ch.Hops()
 }
 

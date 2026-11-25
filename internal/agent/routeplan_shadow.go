@@ -13,16 +13,9 @@ import (
 	"github.com/edotau/claude-code/internal/route"
 )
 
-// shadowPlan builds o's route plan beside ch, sets ch.Plan and logs where they differ; ch still runs unchanged.
-func shadowPlan(ctx context.Context, o RunOptions, ch Chain) Chain {
-	plan, err := PlanRoute(ctx, o, ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")})
-	if err != nil {
-		logDivergence(ctx, o.Agent, []string{err.Error()})
-		return ch
-	}
-	ch.Plan = &plan
-	logDivergence(ctx, o.Agent, Divergence(plan, ch))
-	return ch
+// parentRoute is what Stage 1 inherits: an open fence and whether this ask is a carried child.
+func parentRoute(ctx context.Context) ParentRoute {
+	return ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")}
 }
 
 // logDivergence appends one JSON line to the shadow log when lines is non-empty; a write error never fails the run.

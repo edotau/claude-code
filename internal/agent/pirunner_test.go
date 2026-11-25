@@ -16,18 +16,34 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// withTestPlan is ctx carrying the plan PlanRoute would hold for o with pool profiles (Databricks rows named dev, ...).
+func withTestPlan(t *testing.T, ctx context.Context, o RunOptions, profiles ...string) context.Context {
+	t.Helper()
+	pol, err := planPolicy(ctx, o, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := RoutePlan{Agent: o.Agent, Fallback: pol}
+	for _, p := range profiles {
+		plan.Pool = append(plan.Pool, Workspace{Profile: p, Account: "databricks·" + p})
+	}
+	return withPlan(ctx, plan)
+}
+
 // A databricks:<p> confinement plans no pi hop on a sibling workspace and mints no token for one.
 func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
 	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
-	open := proc.WithValues(context.Background(), proc.Values{})
-	sibs, skips, _ := piSiblings(open, reg, q, lead, q.Model)
+	o := RunOptions{Agent: "claude", Fallback: router.FallbackAll}
+	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), o, "dev", "qa", "prod")
+	sibs, skips, _ := piSiblings(open, reg, lead, q.Model)
 	if len(sibs)+len(skips) == 0 {
 		t.Fatal("fixture: an unconfined ask considers no sibling workspace")
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if sibs, skips, why := piSiblings(armed, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
+	armed = withTestPlan(t, armed, o, "dev")
+	if sibs, skips, why := piSiblings(armed, reg, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
 		t.Fatalf("confined to dev, pi hops planned beyond it: hops %v, skips %v, why %q", sibs, skips, why)
 	}
 	testTokenScope(t, reg, open, armed)
@@ -72,34 +88,35 @@ func TestPiRunnerBarredForCarriedChild(t *testing.T) {
 	}
 	rec := record(0, true, "running", os.Getppid()) // the carrier is this test's parent process
 	ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: rec.ID})
-	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); !strings.Contains(why, "carried") {
+	if why := piBar(ctx, RunOptions{}, "codex", false); !strings.Contains(why, "carried") {
 		t.Fatalf("carried codex child: barred = %q, want the carried reason", why)
 	}
-	if why := piRunnerBarred(ctx, RouteReq{Agent: "gemini"}); why != "" {
+	if why := piBar(ctx, RunOptions{}, "gemini", false); why != "" {
 		t.Fatalf("another agent under a codex carrier is barred: %q", why)
 	}
 	done, plain := record(1, true, "ok", os.Getppid()), record(2, false, "running", os.Getppid())
 	noPID := record(3, true, "running", 0)
 	for _, id := range []string{done.ID, plain.ID, noPID.ID, "../" + rec.ID} {
 		ctx := proc.WithValues(context.Background(), proc.Values{proc.DispatchIDEnv: id})
-		if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
+		if why := piBar(ctx, RunOptions{}, "codex", false); why != "" {
 			t.Fatalf("parent %q is no live carrier, yet barred: %q", id, why)
 		}
 	}
 }
 
-// Every roster agent but pi takes the pi runner untyped; an unknown name never does.
+// Every roster agent takes the pi runner on a Databricks lead; an unknown name never does.
 func TestPiRunnerAskedForRosterAgents(t *testing.T) {
-	setConfigDir(t)
+	reg, _, _ := autoFixture(t)
+	plan := RoutePlan{Pool: []Workspace{{Profile: "dev"}}}
 	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
-		if asked, typed := piRunnerAsked(context.Background(), RouteReq{Agent: name}); !asked || typed {
-			t.Errorf("%s: asked %v typed %v, want asked untyped", name, asked, typed)
+		plan.Agent = name
+		if rs, _ := planRunners(context.Background(), reg, RunOptions{}, plan, false); rs[0].Kind != RunnerPi {
+			t.Errorf("%s: runners %+v, want pi first", name, rs)
 		}
 	}
-	for _, name := range []string{"pi", "persona"} {
-		if asked, _ := piRunnerAsked(context.Background(), RouteReq{Agent: name}); asked {
-			t.Errorf("%s took the pi runner", name)
-		}
+	plan.Agent = "persona"
+	if rs, _ := planRunners(context.Background(), reg, RunOptions{}, plan, false); rs[0].Kind == RunnerPi {
+		t.Errorf("persona took the pi runner")
 	}
 }
 
@@ -109,7 +126,7 @@ func TestPiSiblingsSkipRotationDrop(t *testing.T) {
 	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
 	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
 	open := proc.WithValues(context.Background(), proc.Values{})
-	sibs, skips, _ := piSiblings(open, reg, q, lead, q.Model)
+	sibs, skips, _ := piSiblings(withTestPlan(t, open, RunOptions{Agent: "claude", Fallback: router.FallbackAll}, "dev", "qa", "prod"), reg, lead, q.Model)
 	if len(sibs)+len(skips) == 0 {
 		t.Fatal("fixture: an unrotated ask considers no sibling workspace")
 	}
@@ -119,8 +136,9 @@ func TestPiSiblingsSkipRotationDrop(t *testing.T) {
 			drop = append(drop, name)
 		}
 	}
-	ctx := router.WithRotatedLead(open, router.RotatedLead{Row: "dev", Drop: drop})
-	if sibs, skips, why := piSiblings(ctx, reg, q, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
+	ctx := withTestPlan(t, router.WithRotatedLead(open, router.RotatedLead{Row: "dev", Drop: drop}),
+		RunOptions{Agent: "claude", Fallback: router.FallbackAll}, "dev") // planPool drops the kept-out rows
+	if sibs, skips, why := piSiblings(ctx, reg, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
 		t.Fatalf("kept-out rows still planned pi hops: hops %v, skips %v, why %q", sibs, skips, why)
 	}
 }
@@ -136,18 +154,20 @@ func TestPiChainModeDefault(t *testing.T) {
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, router.FallbackAgents},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackPin, FallbackDefaulted: true}, router.FallbackPin},
+		{RouteReq{Agent: "pi", Fallback: router.FallbackPin}, router.FallbackPin},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents, Native: true}, ""},
 		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents}, router.FallbackAgents},
 	} {
-		if got, _ := piChainMode(ctx, c.q); got != c.want {
+		pctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: c.q.Fallback, FallbackDefaulted: c.q.FallbackDefaulted})
+		if got := piChainMode(pctx, c.q); got != c.want {
 			t.Errorf("piChainMode(%+v) = %q, want %q", c.q, got, c.want)
 		}
 	}
 	t.Setenv(router.EnvFallback, router.FallbackNone)
-	if got, _ := piChainMode(ctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
+	nctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true})
+	if got := piChainMode(nctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
 		t.Errorf("an env none gave mode %q, want a one-hop chain", got)
 	}
 }
@@ -165,10 +185,10 @@ func TestAfterPiHopsOrder(t *testing.T) {
 // A plain pi ask gets pi hops on the other workspaces after its lead; a confinement or no hop leaves it alone.
 func TestWithPiSiblings(t *testing.T) {
 	reg, _, _ := autoFixture(t) // the fixture roster has no pi driver, so each sibling is planned and then skipped
-	q := RouteReq{Agent: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "pi"}, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
-	open := proc.WithValues(context.Background(), proc.Values{})
-	got := withPiSiblings(open, reg, q, c, router.FallbackAgents)
+	o := RunOptions{Agent: "pi", Fallback: router.FallbackAgents}
+	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), o, "dev", "qa", "prod")
+	got := withPiSiblings(open, reg, c)
 	notes := strings.Join(got.Preflight.Notes, "\n")
 	for _, ws := range []string{"pi (qa)", "pi (prod)"} {
 		if !strings.Contains(notes, ws) {
@@ -179,7 +199,7 @@ func TestWithPiSiblings(t *testing.T) {
 		t.Fatalf("the lead's own workspace was planned as a sibling: %q", notes)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiSiblings(armed, reg, q, c, router.FallbackAgents); len(got.Dispatches) != 1 || got.Preflight != nil {
+	if got := withPiSiblings(withTestPlan(t, armed, o, "dev"), reg, c); len(got.Dispatches) != 1 || got.Preflight != nil {
 		t.Fatalf("a confined ask planned sibling hops: %+v", got)
 	}
 }
@@ -211,7 +231,7 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	pi := &fakeRunner{name: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
 	open := proc.WithValues(context.Background(), proc.Values{})
-	got := withPiClaudeHop(open, q, c)
+	got := withPiClaudeHop(withTestPlan(t, open, RunOptions{Agent: "pi", Fallback: router.FallbackAgents}, "dev", "qa", "prod"), q, c)
 	var seq []string
 	for _, d := range got.Dispatches {
 		seq = append(seq, d.Agent.Name()+" "+d.Account)
@@ -224,7 +244,7 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiClaudeHop(armed, q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
+	if got := withPiClaudeHop(withTestPlan(t, armed, RunOptions{Agent: "pi", Fallback: router.FallbackAgents}, "dev"), q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
 		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
 	}
 }
@@ -235,10 +255,9 @@ func TestWithPiClaudeHopPin(t *testing.T) {
 	registerPiForTest(t)
 	pi := &fakeRunner{name: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
-	open := proc.WithValues(context.Background(), proc.Values{})
-	pinned, err := piChainMode(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin})
-	if pinned != router.FallbackPin || err != nil {
-		t.Fatalf("plain pin ask mode = %q, %v", pinned, err)
+	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), RunOptions{Agent: "pi", Fallback: router.FallbackPin}, "dev")
+	if pinned := piChainMode(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}); pinned != router.FallbackPin {
+		t.Fatalf("plain pin ask mode = %q", pinned)
 	}
 	var pseq []string
 	for _, d := range withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}, c).Dispatches {
@@ -252,31 +271,39 @@ func TestWithPiClaudeHopPin(t *testing.T) {
 		t.Fatalf("pin kept a stray workspace hop: %+v", got.Dispatches)
 	}
 	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{bad`})
-	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, c)
-	if len(one.Dispatches) != 1 || one.Preflight == nil || !strings.Contains(strings.Join(one.Preflight.Notes, "\n"), "overlay unreadable") {
-		t.Fatalf("a malformed overlay widened or went unnoted: %+v", one)
+	if _, err := PlanRoute(bad, RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, ParentRoute{}); err == nil {
+		t.Fatal("a malformed overlay built a plan")
+	}
+	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, c) // no plan, no widening
+	if len(one.Dispatches) != 1 {
+		t.Fatalf("a malformed overlay widened: %+v", one)
 	}
 }
 
 // Any one of the overlay, the process env and the vault setting a fallback mode ends the default.
-func TestFallbackUnsetSources(t *testing.T) {
+func TestPlanPolicySources(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.Use(t)
 	ctx := context.Background()
-	if u, err := fallbackUnset(ctx); !u || err != nil {
-		t.Fatalf("nothing set anywhere = %v, %v", u, err)
+	o := RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}
+	src := func(ctx context.Context) router.PolicySource {
+		pol, err := planPolicy(ctx, o, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pol.Source
 	}
-	if u, err := fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{bad`})); u || err == nil {
-		t.Errorf("a malformed overlay = %v, %v, want false with an error", u, err)
+	if got := src(ctx); got != router.PolicyDefault {
+		t.Fatalf("nothing set anywhere = source %d", got)
 	}
-	if u, _ := fallbackUnset(proc.WithValues(ctx, proc.Values{route.OverlayVar: `{"fallback":"agents"}`})); u {
-		t.Error("an overlay fallback reads as unset")
+	if got := src(proc.WithValues(ctx, proc.Values{router.EnvFallback: "agents"})); got != router.PolicyEnv {
+		t.Errorf("a process env fallback = source %d", got)
 	}
-	if u, _ := fallbackUnset(proc.WithValues(ctx, proc.Values{router.EnvFallback: "agents"})); u {
-		t.Error("a process env fallback reads as unset")
+	if pol, err := planPolicy(ctx, o, "agents"); err != nil || pol.Source != router.PolicyOverlay {
+		t.Errorf("an overlay fallback = %+v, %v", pol, err)
 	}
 	vaulttest.Put(t, vault.Env, router.EnvFallback, "pin")
-	if u, _ := fallbackUnset(ctx); u {
+	if got := src(ctx); got != router.PolicyEnv {
 		t.Error("a vault fallback reads as unset")
 	}
 }
@@ -291,11 +318,11 @@ func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
 		"carry": {Carry: true}, "debug file": {DebugFile: "x"}, "fleet": {Fleet: true}, "memory": {EnableMemory: true},
 		"budget": {BudgetUSD: &budget},
 	} {
-		if why := piRunnerBarred(ctx, RouteReq{Agent: "codex", Opts: o}); why == "" {
+		if why := piBar(ctx, o, "codex", false); why == "" {
 			t.Errorf("%s: want a reason", name)
 		}
 	}
-	if why := piRunnerBarred(ctx, RouteReq{Agent: "codex"}); why != "" {
+	if why := piBar(ctx, RunOptions{}, "codex", false); why != "" {
 		t.Errorf("plain ask barred: %q", why)
 	}
 }
