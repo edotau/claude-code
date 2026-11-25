@@ -1,0 +1,3 @@
+{{define "header"}}<!-- memory-recall{{if .}}; expand: claude-code memory search <id>{{end}} -->{{end}}
+
+{{define "line"}}- {{if .Label}}[{{.File}}] {{end}}{{.Text}}{{end}}

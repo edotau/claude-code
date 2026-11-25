@@ -70,11 +70,11 @@ func MemoryUpdatePrompt(in MemoryUpdateInput) string {
 }
 
 func MemoryTranscriptPointer(path string) string {
-	return renderMemory("transcript-pointer.tmpl", tmplFields{"Path": path})
+	return renderMemory("transcript/pointer", tmplFields{"Path": path})
 }
 
 func MemorySessionDigest(path, body string) string {
-	return renderMemory("session-digest.tmpl", tmplFields{"Path": path, "Body": body})
+	return renderMemory("misc/session-digest", tmplFields{"Path": path, "Body": body})
 }
 
 func MemoryGitActivity(commits, files string) string {
@@ -92,7 +92,7 @@ func MemoryDreamPrompt(worker, changed, procedure string) string {
 func MemoryDreamUnchanged() string { return string(read("files/memory/prompts/dream-unchanged.txt")) }
 
 func MemoryOpenTasks(tasks string) string {
-	return renderMemory("open-tasks.tmpl", tasks)
+	return renderMemory("misc/open-tasks", tasks)
 }
 
 func MemoryRTKMisses(misses string) string {
@@ -116,23 +116,23 @@ func MemoryBlockBegin() string {
 }
 
 func MemoryBankHead(folders, router string) string {
-	return renderMemory("bank-head.tmpl", tmplFields{"Folders": folders, "Router": router})
+	return renderMemory("bank/head", tmplFields{"Folders": folders, "Router": router})
 }
 
 func MemoryMoreEntries(count int, router string) string {
-	return renderMemory("more-entries.tmpl", tmplFields{"Count": count, "Router": router})
+	return renderMemory("misc/more-entries", tmplFields{"Count": count, "Router": router})
 }
 
 func MemoryUnresolvedEntries(count int) string {
-	return renderMemory("unresolved.tmpl", count)
+	return renderMemory("misc/unresolved", count)
 }
 
 func MemoryCatalogHeader(date string) string {
-	return renderMemory("catalog-header.tmpl", tmplFields{"Date": date})
+	return renderMemory("catalog/header", tmplFields{"Date": date})
 }
 
 func MemoryCatalogBank(hook, date string) string {
-	return renderMemory("catalog-bank.tmpl", tmplFields{"Hook": hook, "Date": date})
+	return renderMemory("catalog/bank", tmplFields{"Hook": hook, "Date": date})
 }
 
 func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/home-index.txt")) }
@@ -140,7 +140,7 @@ func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/
 func MemoryKnowledgeHeading() string { return string(read("files/memory/prompts/knowledge.txt")) }
 
 func MemoryHomeOverflow(count int) string {
-	return renderMemory("home-overflow.tmpl", count)
+	return renderMemory("misc/home-overflow", count)
 }
 
 var memoryFolderRoles struct {
@@ -160,25 +160,25 @@ func MemoryFolderRoles() [][2]string {
 func MemoryLayoutHeading() string { return string(read("files/memory/prompts/layout.txt")) }
 
 func MemoryLayoutRow(folder, role string, count int) string {
-	return renderMemory("layout-row.tmpl", tmplFields{"Folder": folder, "Role": role, "Count": count})
+	return renderMemory("misc/layout-row", tmplFields{"Folder": folder, "Role": role, "Count": count})
 }
 
 func MemoryNativeHeading() string { return string(read("files/memory/prompts/native.txt")) }
 
 func MemoryNativeFolder(folder string) string {
-	return renderMemory("native-folder.tmpl", folder)
+	return renderMemory("native/folder", folder)
 }
 
 func MemoryNativeUnparsed(count int) string {
-	return renderMemory("native-unparsed.tmpl", count)
+	return renderMemory("native/unparsed", count)
 }
 
 func MemoryRecallLine(file, text string, label bool) string {
-	return renderMemory("recall-line.tmpl", tmplFields{"File": file, "Text": text, "Label": label})
+	return renderMemory("recall/line", tmplFields{"File": file, "Text": text, "Label": label})
 }
 
 func MemoryRecallHeader(expand bool) string {
-	return renderMemory("recall-header.tmpl", expand)
+	return renderMemory("recall/header", expand)
 }
 
 func MemoryRecallFooter() string { return string(read("files/memory/prompts/recall-footer.txt")) }
@@ -186,35 +186,35 @@ func MemoryRecallFooter() string { return string(read("files/memory/prompts/reca
 func MemoryRecallMarker() string { return string(read("files/memory/prompts/recall-marker.txt")) }
 
 func MemoryBankLoadNote(prefix string) string {
-	return renderMemory("bank-load.tmpl", prefix)
+	return renderMemory("bank/load", prefix)
 }
 
 func MemoryPreviousSession(id string) string {
-	return renderMemory("previous-session.tmpl", id)
+	return renderMemory("misc/previous-session", id)
 }
 
 func MemoryUpdateRecovery(id, status, log string) string {
-	return renderMemory("update-recovery.tmpl", tmplFields{"ID": id, "Status": status, "Log": log})
+	return renderMemory("misc/update-recovery", tmplFields{"ID": id, "Status": status, "Log": log})
 }
 
 func MemoryScaffoldNote(dir string) string {
-	return renderMemory("scaffold.tmpl", dir)
+	return renderMemory("misc/scaffold", dir)
 }
 
 func MemoryCatalogPointer(path string) string {
-	return renderMemory("catalog-pointer.tmpl", path)
+	return renderMemory("catalog/pointer", path)
 }
 
 func MemoryBankHeading(root string) string {
-	return renderMemory("bank-heading.tmpl", root)
+	return renderMemory("bank/heading", root)
 }
 
 func MemoryNativeContext(index string) string {
-	return renderMemory("native-context.tmpl", index)
+	return renderMemory("native/context", index)
 }
 
 func TranscriptHandoff(cwd, transcript, note string) string {
-	return renderMemory("transcript-handoff.tmpl", tmplFields{"CWD": cwd, "Transcript": transcript, "Note": note})
+	return renderMemory("transcript/handoff", tmplFields{"CWD": cwd, "Transcript": transcript, "Note": note})
 }
 
 var memoryTemplates = loadTemplates("files/memory/prompts/*.tmpl")
