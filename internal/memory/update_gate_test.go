@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // runGate is the update hooks' path minus the hook layer: session root, Updatable, then UpdateIfNew.
@@ -750,4 +751,19 @@ func countWorkBenchFixture(b *testing.B, mib int, state string) (tr, cache strin
 		b.Fatal(err)
 	}
 	return tr, cache, seed, blocks * 2
+}
+
+func TestUpdatableFalseInDispatchedLeaf(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(tr, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(proc.DispatchIDEnv, "")
+	if !Updatable("ses_leaf", tr) {
+		t.Fatal("not updatable outside a dispatch")
+	}
+	t.Setenv(proc.DispatchIDEnv, "disp_1")
+	if Updatable("ses_leaf", tr) {
+		t.Fatal("updatable inside a dispatched leaf")
+	}
 }

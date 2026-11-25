@@ -14,11 +14,16 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// archiveCaps are the per-file caps that trigger archiving on a durable file; session-state files never do.
+// archiveCaps are the per-file caps that trigger archiving; sectionFiles split per section instead of per entry.
 var archiveCaps = map[string]int{
-	"conventions.md": fileCaps["conventions.md"],
-	"decisionLog.md": fileCaps["decisionLog.md"],
+	"conventions.md":   fileCaps["conventions.md"],
+	"decisionLog.md":   fileCaps["decisionLog.md"],
+	"activeContext.md": fileCaps["activeContext.md"],
+	"progress.md":      fileCaps["progress.md"],
 }
+
+// sectionFiles are the replace-each-session files: every "## " section stays, each keeps its top (newest) bullets.
+var sectionFiles = map[string]bool{"activeContext.md": true, "progress.md": true}
 
 // bottomAppended marks files whose newest entries are at the BOTTOM, so the split runs on the reversed list.
 var bottomAppended = map[string]bool{"conventions.md": true}
@@ -72,6 +77,9 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 	if logicalLineCount(body) <= capLines {
 		return "", nil, nil
 	}
+	if sectionFiles[base] {
+		return sectionSplit(base, body, capLines)
+	}
 	header, blocks := entryBlocks(base, body)
 	keep, overflow = settledSplit(base, header, blocks, capLines)
 	return header, keep, overflow
@@ -90,7 +98,7 @@ func archiveFile(name string, capLines int, now time.Time) (moved int, err error
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		_, held := entryBlocks(name, string(existing))
+		_, held := archivedBlocks(name, string(existing))
 		heldSet := make(map[string]bool, len(held))
 		for _, b := range held {
 			heldSet[strings.TrimSpace(b)] = true
@@ -210,6 +218,61 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 	}
 	return keep, overflow
 }
+
+// archivedBlocks parses an archive file: section overflow is stored as "## " blocks, the rest by its own grammar.
+func archivedBlocks(name, body string) (string, []string) {
+	if sectionFiles[name] {
+		return splitHeadingBlocks(body)
+	}
+	return entryBlocks(name, body)
+}
+
+// sectionSplit keeps every section, sharing the cap evenly with rollover; a repeated heading is a stale copy.
+func sectionSplit(base, body string, capLines int) (header string, keep, overflow []string) {
+	header, sections := splitHeadingBlocks(body)
+	left := capLines - logicalLineCount(header)
+	seen := map[string]bool{}
+	for i, sec := range sections {
+		head, rest, _ := strings.Cut(sec, "\n")
+		if seen[head] {
+			overflow = append(overflow, overflowBlock(base, head, strings.TrimSpace(rest)))
+			continue
+		}
+		seen[head] = true
+		intro, bullets := splitOn(rest, func(ln string) bool { return strings.HasPrefix(ln, "- ") })
+		fixed := 2 + logicalLineCount(intro) // heading + the blank line rejoin adds
+		kept, moved := sectionKeep(bullets, left/(len(sections)-i)-fixed)
+		block := strings.Join(slices.DeleteFunc([]string{head, intro, strings.Join(kept, "\n")}, isBlank), "\n")
+		keep = append(keep, block)
+		left -= logicalLineCount(block) + 1
+		if len(moved) > 0 {
+			overflow = append(overflow, overflowBlock(base, head, strings.Join(moved, "\n")))
+		}
+	}
+	return header, keep, overflow
+}
+
+// sectionKeep keeps bullets from the top while they fit budget lines; the first bullet always stays.
+func sectionKeep(bullets []string, budget int) (keep, moved []string) {
+	used := 0
+	for i, b := range bullets {
+		n := logicalLineCount(b)
+		if i > 0 && (len(moved) > 0 || used+n > budget) {
+			moved = append(moved, b)
+			continue
+		}
+		keep = append(keep, b)
+		used += n
+	}
+	return keep, moved
+}
+
+// overflowBlock is one archived "## " block naming the section and file it came from.
+func overflowBlock(base, head, text string) string {
+	return head + " (overflow from " + base + ")\n" + text
+}
+
+func isBlank(s string) bool { return strings.TrimSpace(s) == "" }
 
 // blockCost is a block's line cost including the blank separator rejoin inserts (none before block 0 sans header).
 func blockCost(block string, i, used int) int {

@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -136,9 +137,9 @@ func retryFailedStop(r UpdateRequest, st updateStamp, now time.Time) bool {
 	return work > st.edits && work >= updateMinEdits && dispatchUpdate(r, TriggerStop, work, now)
 }
 
-// Updatable reports whether a session can be updated: ids present, not an update child, the transcript a file.
+// Updatable reports whether a session can be updated: ids present, not an update child or dispatched leaf, a file.
 func Updatable(sessionID, transcriptPath string) bool {
-	if sessionID == "" || transcriptPath == "" || IsUpdateChild() {
+	if sessionID == "" || transcriptPath == "" || IsUpdateChild() || os.Getenv(proc.DispatchIDEnv) != "" {
 		return false
 	}
 	fi, err := os.Stat(transcriptPath)

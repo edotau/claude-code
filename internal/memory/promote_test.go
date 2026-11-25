@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,5 +102,30 @@ func TestPromoteUnknownIDErrors(t *testing.T) {
 	repoRoot(t, "proj") // scaffolds the bank; the id below is deliberately wrong
 	if _, err := Promote("deadbeef", "rules"); err == nil {
 		t.Fatal("Promote with an unknown id = nil error, want one")
+	}
+}
+
+func TestSectionSplitKeepsEverySection(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# Active\n\n")
+	for _, h := range []string{"Focus", "Next", "Blockers", "Focus"} {
+		b.WriteString("## " + h + "\n\n")
+		for i := range 8 {
+			fmt.Fprintf(&b, "- %s bullet %d\n", h, i)
+		}
+		b.WriteString("\n")
+	}
+	header, keep, overflow := overflowSplit("activeContext.md", b.String(), 20)
+	if got := logicalLineCount(rejoin(header, keep)); got > 20 {
+		t.Fatalf("kept %d lines, want <= 20", got)
+	}
+	heads := strings.Join(keep, "\n")
+	for _, h := range []string{"## Focus", "## Next", "## Blockers"} {
+		if strings.Count(heads, h+"\n") != 1 {
+			t.Fatalf("heading %q not kept exactly once:\n%s", h, heads)
+		}
+	}
+	if !strings.Contains(strings.Join(overflow, "\n"), "- Focus bullet 7") || len(overflow) < 4 {
+		t.Fatalf("overflow missing the duplicate section or trimmed bullets: %q", overflow)
 	}
 }
