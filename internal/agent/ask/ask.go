@@ -390,7 +390,7 @@ func (r *askRun) checkArm() (int, bool) {
 	agentName, batchLines := confineAgent(r.ov, f, r.ag)
 	picks := armAutoPick(r.ctx, value)
 	fallback := f.fallback
-	if picks && !r.swap && typedModel(f.model) { // an env default never moves a typed model off the picked arm (R8)
+	if !r.swap && typedModel(f.model) { // an env default never moves a typed model to another agent or arm (R8)
 		fallback, f.fallback = router.FallbackNone, router.FallbackNone
 	}
 	moves := r.typedStart(value, fallback)
