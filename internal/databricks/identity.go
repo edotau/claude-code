@@ -18,20 +18,20 @@ var identityPage = helptext.Page{
 
 var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 
-// IdentityChange is one profile identity write: the mode before and after, and the paired service principal id.
-type IdentityChange struct{ Profile, Old, New, SP string }
+// identityChange is one profile identity write: the mode before and after, and the paired service principal id.
+type identityChange struct{ Profile, Old, New, SP string }
 
-// SetIdentity pins profile's identity mode through SaveIdentity, the configure menu's writer; dryRun writes nothing.
-func SetIdentity(reg *providers.Registry, profile, mode string, dryRun bool) (IdentityChange, error) {
+// setIdentity pins profile's identity mode through SaveIdentity, the configure menu's writer; dryRun writes nothing.
+func setIdentity(reg *providers.Registry, profile, mode string, dryRun bool) (identityChange, error) {
 	if !slices.Contains(providers.DatabricksProfiles(reg), profile) {
-		return IdentityChange{}, fmt.Errorf("%q is not a Databricks profile", profile)
+		return identityChange{}, fmt.Errorf("%q is not a Databricks profile", profile)
 	}
 	if !slices.Contains(identityModes, mode) {
-		return IdentityChange{}, fmt.Errorf("identity %q must be auto, user or sp", mode)
+		return identityChange{}, fmt.Errorf("identity %q must be auto, user or sp", mode)
 	}
 	p := reg.Providers[profile]
 	old, _ := providers.ResolveIdentity(p.Identity, "")
-	ch := IdentityChange{Profile: profile, Old: old, New: mode, SP: p.Auth.SPClientID}
+	ch := identityChange{Profile: profile, Old: old, New: mode, SP: p.Auth.SPClientID}
 	if mode == providers.IdentitySP {
 		if ch.SP == "" { // SaveIdentity refuses an sp row with no client id, with the menu's message, and writes nothing
 			return ch, fmt.Errorf("%w; pair one in `claude-code configure databricks` → Identity",
@@ -71,7 +71,7 @@ func identity(args []string) int {
 	if err != nil {
 		return fail("identity: load providers: %v", err)
 	}
-	ch, err := SetIdentity(reg, profile, rest[0], *dryRun)
+	ch, err := setIdentity(reg, profile, rest[0], *dryRun)
 	if err != nil {
 		return fail("identity: %v", err)
 	}
@@ -80,7 +80,7 @@ func identity(args []string) int {
 }
 
 // identityLine words the outcome of an identity change for stdout.
-func identityLine(reg *providers.Registry, ch IdentityChange, dryRun bool) string {
+func identityLine(reg *providers.Registry, ch identityChange, dryRun bool) string {
 	line := fmt.Sprintf("%s: identity %s → %s", ch.Profile, ch.Old, ch.New)
 	if ch.New == providers.IdentitySP {
 		line += " · SP " + ch.SP
