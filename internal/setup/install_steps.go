@@ -49,6 +49,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
 	installClipBridge(w, target, dryRun)
+	installDreamBridge(w, target, dryRun)
 	seedTmuxConf(w, dryRun)
 	if err := installRTKConfig(w, dryRun); err != nil {
 		return err

@@ -451,6 +451,9 @@ func hermetic(t *testing.T) {
 	oldClip := installClipAgent
 	installClipAgent = func(io.Writer, string, bool) error { return nil }
 	t.Cleanup(func() { installClipAgent = oldClip })
+	oldDream := installDreamAgent
+	installDreamAgent = func(io.Writer, string, bool) error { return nil }
+	t.Cleanup(func() { installDreamAgent = oldDream })
 	oldSelf := selfBinary
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }
 	t.Cleanup(func() { selfBinary = oldSelf })
@@ -529,5 +532,17 @@ func TestTmuxConfPathsEmptyWithoutHomeAndSeedSkips(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cwd, ".tmux.conf")); err == nil {
 		t.Error("seedTmuxConf wrote .tmux.conf into the working directory")
+	}
+}
+
+func TestRenderDreamPlist(t *testing.T) {
+	got, err := renderDreamPlist("/b/cc&", "/cfg", "/log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/b/cc&amp;", "<string>schedule</string>", "<integer>21600</integer>", "<key>RunAtLoad</key><false/>"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("plist missing %q", want)
+		}
 	}
 }
