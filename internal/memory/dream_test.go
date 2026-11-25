@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -248,5 +249,57 @@ func TestDreamLogsAreUniqueAndPruned(t *testing.T) {
 	}
 	if logs, _ := filepath.Glob(filepath.Join(dir, "dream-[0-9]*.log")); len(logs) != dreamLogKeep {
 		t.Errorf("%d logs kept, want %d", len(logs), dreamLogKeep)
+	}
+}
+
+// Output written before dream() (catch-up) and by the runner through JobOutput both land in the per-run log.
+func TestDreamLogCapturesCatchupAndRunnerOutput(t *testing.T) {
+	isolatedConfig(t)
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		fmt.Fprintln(JobOutput(ctx, io.Discard), "hop-receipt-line")
+		return "stub", nil
+	}
+	o := dreamOptions{CWD: root, Run: run, Trigger: "manual", Forced: true}.withLog()
+	fmt.Fprintln(o.Out, "catchup-line")
+	_ = dream(o)
+	got, _ := LastDreamResults(1)
+	if len(got) != 1 || got[0].Log == "" {
+		t.Fatalf("results = %v, want one with a log", got)
+	}
+	b, _ := os.ReadFile(got[0].Log)
+	if !strings.Contains(string(b), "catchup-line") || !strings.Contains(string(b), "hop-receipt-line") {
+		t.Errorf("log = %q, want catch-up and runner lines", b)
+	}
+}
+
+// A log a retained result record names survives pruning past the keep count.
+func TestDreamPruneKeepsNamedLogs(t *testing.T) {
+	isolatedConfig(t)
+	dir := paths.MemoryStateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	named := filepath.Join(dir, "dream-20200101-000000.000-a.log")
+	other := filepath.Join(dir, "dream-20200101-000000.001-b.log")
+	for _, p := range []string{named, other} {
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := appendDreamResult(DreamResult{At: time.Now(), Log: named}); err != nil {
+		t.Fatal(err)
+	}
+	pruneDreamLogs(dir, 0)
+	if _, err := os.Stat(named); err != nil {
+		t.Errorf("named log pruned: %v", err)
+	}
+	if _, err := os.Stat(other); err == nil {
+		t.Error("unnamed log kept")
 	}
 }

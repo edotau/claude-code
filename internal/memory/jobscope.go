@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"io"
 	"slices"
 )
 
@@ -51,4 +52,19 @@ func ReportJob(ctx context.Context, r JobResult) {
 	if p, ok := ctx.Value(jobReportKey{}).(*JobResult); ok {
 		*p = r
 	}
+}
+
+type jobOutputKey struct{}
+
+// WithJobOutput routes the runner's agent output, receipts and notes to w (the job's log tee).
+func WithJobOutput(ctx context.Context, w io.Writer) context.Context {
+	return context.WithValue(ctx, jobOutputKey{}, w)
+}
+
+// JobOutput is the writer set by WithJobOutput, else fallback (the runner's own stdout or stderr).
+func JobOutput(ctx context.Context, fallback io.Writer) io.Writer {
+	if w, ok := ctx.Value(jobOutputKey{}).(io.Writer); ok && w != nil {
+		return w
+	}
+	return fallback
 }

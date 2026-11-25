@@ -162,6 +162,8 @@ type dreamOptions struct {
 
 	Trigger string // session-start | schedule | manual, for the result record
 	Forced  bool
+
+	log *os.File // the run's log, when the caller opened it before catch-up; Out already tees into it
 }
 
 // dreamChanged lists the top-level and feedback/ and notes/ store .md files modified after since (all when zero).
@@ -193,15 +195,26 @@ func dream(o dreamOptions) error {
 		o.Out = io.Discard
 	}
 	begin := time.Now()
-	log, _ := openDreamLog() // a log that cannot open loses only the copy; the run goes on
-	if log != nil {
-		o.Out = io.MultiWriter(o.Out, log)
+	if o.log == nil {
+		o = o.withLog()
 	}
+	log := o.log
 	res := DreamResult{At: begin, Trigger: o.Trigger, Forced: o.Forced}
 	err := dreamRun(o, &res)
 	res.DurationMs = time.Since(begin).Milliseconds()
 	finishDreamResult(&res, err, log)
 	return errors.Join(err, appendDreamResult(res))
+}
+
+// withLog opens the run's log and tees Out into it; a log that cannot open loses only the copy.
+func (o dreamOptions) withLog() dreamOptions {
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	if log, _ := openDreamLog(); log != nil {
+		o.log, o.Out = log, io.MultiWriter(o.Out, log)
+	}
+	return o
 }
 
 // finishDreamResult sets the outcome and the log name, and drops the log of a not-due run.
@@ -328,6 +341,7 @@ func (r *dreamRan) runAgent(o dreamOptions, prompt string, nChanged int) {
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	ctx, r.job = WithJobReport(ctx)
+	ctx = WithJobOutput(ctx, o.Out)
 	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
 	start := time.Now()
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
@@ -538,11 +552,18 @@ func openDreamLog() (*os.File, error) {
 	return os.CreateTemp(dir, "dream-"+time.Now().Format(logStampLayout)+"-*.log")
 }
 
-// pruneDreamLogs keeps the newest keep stamped dream logs (never dream-launchd.log); names sort oldest first.
+// pruneDreamLogs keeps the newest keep stamped dream logs plus any a result record names (not dream-launchd.log).
 func pruneDreamLogs(dir string, keep int) {
 	logs, _ := filepath.Glob(filepath.Join(dir, "dream-[0-9]*.log"))
 	sort.Strings(logs)
+	named := map[string]bool{} // a log a retained result record names stays
+	recs, _ := LastDreamResults(dreamResultsKeep)
+	for _, r := range recs {
+		named[r.Log] = true
+	}
 	for i := 0; i < len(logs)-keep; i++ {
-		_ = os.Remove(logs[i])
+		if !named[logs[i]] {
+			_ = os.Remove(logs[i])
+		}
 	}
 }

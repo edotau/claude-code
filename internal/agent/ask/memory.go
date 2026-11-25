@@ -170,9 +170,10 @@ func jobClass(reg *providers.Registry, profile string, err error) (class, fix st
 func memoryHop(ctx context.Context, c *agent.Client, opts agent.RunOptions) (wire.Result, error) {
 	ctx, stop := memorySignals(ctx)
 	start := time.Now()
-	fmt.Fprintf(os.Stderr, "memory job: pid %d started %s\n", os.Getpid(), start.Format(time.RFC3339))
-	res, err := c.Run(ctx, opts, memorySink(os.Stdout))
-	fmt.Fprintln(os.Stderr, memoryReceipt(os.Getpid(), res.DispatchID, time.Since(start), stop(), err))
+	note := memory.JobOutput(ctx, os.Stderr)
+	fmt.Fprintf(note, "memory job: pid %d started %s\n", os.Getpid(), start.Format(time.RFC3339))
+	res, err := c.Run(ctx, opts, memorySink(memory.JobOutput(ctx, os.Stdout)))
+	fmt.Fprintln(note, memoryReceipt(os.Getpid(), res.DispatchID, time.Since(start), stop(), err))
 	return res, err
 }
 
@@ -203,7 +204,7 @@ func MemoryRunner() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		c := newClient()
 		c.Refresh = nil
-		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		c.Notify = func(m string) { fmt.Fprintln(memory.JobOutput(ctx, os.Stderr), m) }
 		run := func(ctx context.Context, o agent.RunOptions) (wire.Result, error) { return memoryHop(ctx, c, o) }
 		opts := memoryRunOptions(ctx, prompt, workdir)
 		opts.Env = memory.ChildEnv(ctx)
@@ -246,7 +247,7 @@ func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts a
 	for _, hop := range memoryHops(reg, pin.profile) {
 		local := hop == localRoute
 		if local && !localUp(ctx, reg) {
-			fmt.Fprintln(os.Stderr, "memory job: local model down; skipped")
+			fmt.Fprintln(memory.JobOutput(ctx, os.Stderr), "memory job: local model down; skipped")
 			break
 		}
 		res, err := run(ctx, hopOptions(opts, hop))

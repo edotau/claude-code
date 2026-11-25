@@ -438,10 +438,11 @@ func RunDream(o DreamRunOptions) error {
 		fmt.Fprint(o.Out, previewDream().Report())
 		return nil
 	}
+	d := dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force, Trigger: cmp.Or(o.Trigger, DreamTriggerManual), Forced: o.Force}.withLog()
 	if o.Force || dreamDue(time.Now()) {
-		dreamCatchup(o.Out)
+		dreamCatchup(d.Out)
 	}
-	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force, Trigger: cmp.Or(o.Trigger, DreamTriggerManual), Forced: o.Force})
+	return dream(d)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
