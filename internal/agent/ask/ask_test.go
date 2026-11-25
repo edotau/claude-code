@@ -1307,7 +1307,7 @@ func TestRefuseRecords(t *testing.T) {
 			rec := agent.ClaimRecord("codex", agent.RunOptions{Prompt: c.prompt, Tools: true}, time.Now())
 			r.jobRec = &rec
 		}
-		if code, _ := refuse(r, &agent.PreflightError{}, router.FallbackNone); code != 1 {
+		if code, _ := refuse(r, &agent.PreflightError{}, route.FallbackNone); code != 1 {
 			t.Fatalf("%s: exit %d, want 1", c.name, code)
 		}
 		recs, err := agent.ReadRecent(5)

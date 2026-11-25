@@ -348,7 +348,7 @@ func loadRegistryWarn() *providers.Registry {
 func routePickOpts(ctx context.Context, o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
 	if plan, ok := PlanOf(ctx); ok {
 		o.Policy = plan.Fallback
-		if mode == router.FallbackNone {
+		if mode == route.FallbackNone {
 			o.Policy = router.Policy{Kind: router.PolicyNone, Source: plan.Fallback.Source}
 		}
 	} else {
@@ -653,7 +653,7 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 	if err != nil {
 		return "", false, err
 	}
-	if q.Provider == "" && q.Profile != LeadSession && (q.Pinned || q.Fallback == router.FallbackNone) {
+	if q.Provider == "" && q.Profile != LeadSession && (q.Pinned || q.Fallback == route.FallbackNone) {
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}

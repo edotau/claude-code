@@ -293,7 +293,7 @@ func confinedRoute(ctx context.Context) bool {
 func overlayRoutes(ov agentconfig.Overlay) bool {
 	identity := ov.Identity != "" && ov.Identity != providers.IdentityAuto
 	return ov.Provider != "" || ov.Profile != "" || ov.Model != "" || ov.Account != "" || ov.Host != "" ||
-		ov.Remote != "" || identity || ov.Fallback == router.FallbackNone
+		ov.Remote != "" || identity || ov.Fallback == route.FallbackNone
 }
 
 // dispatchRole uses the brief's tier: deep is an owner, fast and standard are fleet.

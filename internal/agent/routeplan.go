@@ -142,7 +142,7 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	}
 	p.Pool = leadWith(planPool(ctx, reg, o, p), replayLead(parent.Replay)) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
-	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == agentconfig.RunnerOwn)
+	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == route.RunnerOwn)
 	if rp := parent.Replay; rp != nil && len(rp.Runners) > 0 && rp.Agent == p.Agent && o.SessionID == "" {
 		p.Runners, p.Barred = slices.Clone(rp.Runners), rp.Barred // a retry replays its runners; a session stays on its CLI
 	}
@@ -205,7 +205,7 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 		mode, src = router.FallbackSetting(ctx, overlayMode)
 	}
 	if o.Agent == agentid.Pi && src == router.PolicyDefault {
-		mode = router.FallbackAgents // nothing set anywhere: pi's own default
+		mode = route.FallbackAgents // nothing set anywhere: pi's own default
 	}
 	pol, err := router.PolicyOf(mode, src)
 	if err != nil {
@@ -365,7 +365,7 @@ func planRunners(ctx context.Context, reg *providers.Registry, o RunOptions, p R
 // piBar is why the pi runner cannot run o: --runner own, a resumed session, --native, a carried ask, a Pi gap.
 func piBar(ctx context.Context, o RunOptions, agentName string, own bool) string {
 	switch {
-	case own || o.Runner == agentconfig.RunnerOwn:
+	case own || o.Runner == route.RunnerOwn:
 		return "--runner own runs " + agentName + "'s own CLI"
 	case o.SessionID != "":
 		return "a resumed session stays on its own CLI"

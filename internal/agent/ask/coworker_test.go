@@ -145,7 +145,7 @@ func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	t.Setenv(route.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	t.Setenv(egress.EnvHost, "")
-	ctx, err := ApplyRouteOverlay(t.Context(), "openai", "", "", "", router.FallbackNone)
+	ctx, err := ApplyRouteOverlay(t.Context(), "openai", "", "", "", route.FallbackNone)
 	if err == nil {
 		ctx, err = overlayEgress(ctx, "syn-host")
 	}
@@ -742,11 +742,11 @@ func TestTypedArmExportsFence(t *testing.T) {
 	if r.auto != "qa" || agent.AutoFailoverProvider(r.ctx) != router.RouteDatabricks {
 		t.Errorf("typed qa under --fallback all: auto = %q, failover = %q; want a movable start", r.auto, agent.AutoFailoverProvider(r.ctx))
 	}
-	f.fallback, r.ctx, r.auto = router.FallbackNone, t.Context(), ""
+	f.fallback, r.ctx, r.auto = route.FallbackNone, t.Context(), ""
 	if r.checkArm(); r.auto != "" || agent.AutoFailoverProvider(r.ctx) != "" {
 		t.Errorf("typed qa under --fallback none: auto = %q, failover = %q; want a lock", r.auto, agent.AutoFailoverProvider(r.ctx))
 	}
-	f.fallback, r.auto = router.FallbackAll, ""
+	f.fallback, r.auto = route.FallbackAll, ""
 	r.ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "dev")})
 	if code, done := r.checkArm(); !done || code != 2 {
 		t.Errorf("inherited dev fence: checkArm = %d, %v; want refusal", code, done)
@@ -785,7 +785,7 @@ func TestChildRouteFenceRespectsParentAuthority(t *testing.T) {
 	for _, parent := range []string{"databricks:auto", "databricks:dev"} {
 		confine(t, parent)
 		for _, profile := range []string{"dev", "qa", "prod"} {
-			ctx, err := ApplyRoute(t.Context(), route.Route{Provider: "databricks", Profile: profile}, "", "claude", "", router.FallbackAgents)
+			ctx, err := ApplyRoute(t.Context(), route.Route{Provider: "databricks", Profile: profile}, "", "claude", "", route.FallbackAgents)
 			if parent == "databricks:dev" && profile != "dev" {
 				if err == nil || !strings.Contains(err.Error(), "cannot leave databricks:dev; drop --provider/--profile (parent fence)") {
 					t.Fatalf("fenced dev -> %s: %v", profile, err)
@@ -829,7 +829,7 @@ func TestRecoverRestoresRecordedParentFenceBeforeOverlayFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertChildFence(t, ctx, "dev")
-	if _, err := ApplyRoute(ctx, route.Route{Provider: "databricks", Profile: "qa"}, "", "claude", "", router.FallbackAll); err == nil {
+	if _, err := ApplyRoute(ctx, route.Route{Provider: "databricks", Profile: "qa"}, "", "claude", "", route.FallbackAll); err == nil {
 		t.Fatal("recovery widened the recorded parent's dev fence")
 	}
 	confine(t, "databricks:qa")

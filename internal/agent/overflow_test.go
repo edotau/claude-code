@@ -11,12 +11,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
 const overflowMsg = "pi: prompt is too long: 230000 tokens > 200000 maximum"
 
-var overflowCell = RunOptions{Model: "databricks-claude-sonnet-4-6", CellModel: true, Fallback: router.FallbackAll}
+var overflowCell = RunOptions{Model: "databricks-claude-sonnet-4-6", CellModel: true, Fallback: route.FallbackAll}
 
 func overflowDisp(agent string) Dispatch {
 	return Dispatch{Agent: &fakeRunner{name: agent}, Account: router.ProviderAccount("dev")}
@@ -81,8 +82,8 @@ func TestPlanOverflowSkipsHeldModel(t *testing.T) {
 func TestPlanOverflowRefuses(t *testing.T) {
 	autoFixture(t)
 	disp, over := overflowDisp("pi"), errors.New(overflowMsg)
-	for name, req := range map[string]RunOptions{"none": {Model: overflowCell.Model, CellModel: true, Fallback: router.FallbackNone},
-		"typed": {Model: overflowCell.Model, ModelTyped: true, Fallback: router.FallbackAll}} {
+	for name, req := range map[string]RunOptions{"none": {Model: overflowCell.Model, CellModel: true, Fallback: route.FallbackNone},
+		"typed": {Model: overflowCell.Model, ModelTyped: true, Fallback: route.FallbackAll}} {
 		kept := planOverflow(disp, req, wire.Result{}, req.Model, over)
 		if kept.model != "" || !strings.Contains(kept.refusal, "larger windows:") {
 			t.Fatalf("%s plan = %+v, want a refusal naming larger ids", name, kept)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -107,7 +108,7 @@ func vendorPick(t *testing.T, want string, pinned bool, st State, lead string) P
 	t.Setenv("CLAUDE_PROFILE", "dev")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
-	o := PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
+	o := PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
 	if pinned {
 		o.Pins = map[string]PinSpec{"codex": {Profile: "dev"}, "copilot": {Profile: "dev"}}
 	}
@@ -175,7 +176,7 @@ func leadPick(t *testing.T, want, lead string) PickResult {
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
 	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
-		Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead})
+		Policy: testPolicy(route.FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead})
 }
 
 func TestPickLeadPutsWantedAgentOnLeadProfileFirst(t *testing.T) {
@@ -374,7 +375,7 @@ func TestPickPinnedVendorOffersEveryLoginRow(t *testing.T) {
 		`"auth":{"type":"cli","login":"copilot"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", rows)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-pat")
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"copilot": {Profile: "dev"}}})
 	got := accountsOf(r, "copilot")
 	if !slices.Contains(got, "github·copilot") || !slices.Contains(got, "github·zz-second") {
@@ -409,7 +410,7 @@ func workspacePick(t *testing.T, want, lead, pin, fb string) []string {
 }
 
 func TestPickLeadOrdersWorkspacesThenOwnLogin(t *testing.T) {
-	got := workspacePick(t, "codex", "prod", "dev", FallbackAll)
+	got := workspacePick(t, "codex", "prod", "dev", route.FallbackAll)
 	want := []string{"databricks·prod", "databricks·dev", "databricks·qa", "openai·chatgpt"}
 	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
 		t.Fatalf("codex accounts = %v, want prefix %v", got, want)
@@ -417,7 +418,7 @@ func TestPickLeadOrdersWorkspacesThenOwnLogin(t *testing.T) {
 }
 
 func TestPickPinnedWithoutLeadAddsSiblingWorkspaces(t *testing.T) {
-	got := workspacePick(t, "codex", "", "dev", FallbackAll)
+	got := workspacePick(t, "codex", "", "dev", route.FallbackAll)
 	want := []string{"databricks·dev", "databricks·qa", "databricks·prod"}
 	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
 		t.Fatalf("codex accounts = %v, want prefix %v", got, want)
@@ -426,7 +427,7 @@ func TestPickPinnedWithoutLeadAddsSiblingWorkspaces(t *testing.T) {
 
 // Under --fallback none a lead adds no sibling workspace; its own-login row stays, as before the sweep.
 func TestPickLeadFallbackNoneSkipsSiblingWorkspaces(t *testing.T) {
-	got := workspacePick(t, "codex", "prod", "prod", FallbackNone)
+	got := workspacePick(t, "codex", "prod", "prod", route.FallbackNone)
 	if want := []string{"databricks·prod", "openai·chatgpt"}; !slices.Equal(got, want) {
 		t.Fatalf("codex accounts = %v, want %v", got, want)
 	}
@@ -444,7 +445,7 @@ func TestPickRecordFallbackRunsWithoutPin(t *testing.T) {
 		}
 		return nil
 	}
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: noOwnLogin, Policy: testPolicy(FallbackAll),
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: noOwnLogin, Policy: testPolicy(route.FallbackAll),
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Fallback: "qa"}}})
 	if got := accountsOf(r, "codex"); !slices.Contains(got, "databricks·qa") {
 		t.Fatalf("codex accounts = %v, want the record fallback databricks·qa (skipped %+v)", got, r.Skipped)
@@ -461,7 +462,7 @@ func BenchmarkDatabricksPick(b *testing.B) {
 		b.Fatal(err)
 	}
 	o := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 },
-		Policy: testPolicy(FallbackAll), WorkRepo: func() bool { return true }}
+		Policy: testPolicy(route.FallbackAll), WorkRepo: func() bool { return true }}
 	b.ReportAllocs()
 	for b.Loop() {
 		tb.Pick(context.Background(), "sonnet", "codex", nil, o)

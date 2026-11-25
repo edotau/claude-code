@@ -642,14 +642,6 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 	return s
 }
 
-// Fallback modes live in route; these aliases spare ~200 call sites.
-const (
-	FallbackAll    = route.FallbackAll
-	FallbackAgents = route.FallbackAgents
-	FallbackPin    = route.FallbackPin
-	FallbackNone   = route.FallbackNone
-)
-
 // EnvFallback (process, else vault env) names the mode: a route.FallbackModes value or 1/true/yes (all); unset is none
 const EnvFallback = "AGENT_ERROR_FALLBACK"
 
@@ -662,9 +654,9 @@ func (o PickOpts) oneHop() bool {
 func ParseFallback(raw string) string {
 	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
 	case "":
-		return FallbackNone
+		return route.FallbackNone
 	case "1", "true", "yes":
-		return FallbackAll
+		return route.FallbackAll
 	default:
 		return v
 	}

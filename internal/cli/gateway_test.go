@@ -525,7 +525,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 				t.Fatalf("not JSON: %v\n%s", err, out)
 			}
 			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet",
-				router.FallbackAgents, false,
+				route.FallbackAgents, false,
 				router.PickOpts{Lead: "astra-par", Refresh: ask.RouteRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 			if err != nil {
 				t.Fatal(err)

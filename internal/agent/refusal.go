@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -90,7 +91,7 @@ func explicitModel(ctx context.Context, in refusedHop) bool {
 	if ask, ok := ctx.Value(askKey{}).(*askNote); ok && ask.typed || req.ModelTyped {
 		return true
 	}
-	if req.Fallback == router.FallbackNone || req.Fallback == router.FallbackPin {
+	if req.Fallback == route.FallbackNone || req.Fallback == route.FallbackPin {
 		return true
 	}
 	if pin := agentModelPinContext(valuesContext(ctx, req.Values), in.disp.agentName()); pin != "" && !IsAuto(pin) && !IsAuto(req.Model) && !req.AutoModel {

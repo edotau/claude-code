@@ -81,7 +81,7 @@ func TypedWorkspace(profile string) string {
 
 // typedMoves reports a typed --profile p that is a start, not a lock: unfenced, and not under --fallback none.
 func typedMoves(ctx context.Context, p, profile, fallback string) bool {
-	return p != "" && p == profile && fallback != router.FallbackNone && router.ArmProfileContext(ctx) == ""
+	return p != "" && p == profile && fallback != route.FallbackNone && router.ArmProfileContext(ctx) == ""
 }
 
 // typedStart reports value is r's own typed --profile workspace and typedMoves lets it move.
@@ -266,7 +266,7 @@ func checkArmRow(ctx context.Context, p string, explicit bool, fallback string) 
 	if err := providers.ServingRow(p); err != nil {
 		return err
 	}
-	if explicit && inherited == "" && fallback == router.FallbackNone {
+	if explicit && inherited == "" && fallback == route.FallbackNone {
 		return workspaceRefusal(p)
 	}
 	return nil
@@ -296,7 +296,7 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 	q := armQuery{
 		AgentName:   agentName,
 		Model:       model,
-		Strict:      fallback == router.FallbackNone && typedModel(model),
+		Strict:      fallback == route.FallbackNone && typedModel(model),
 		PreferFresh: model == "" || agent.IsAuto(model),
 	}
 	if agent.Peeking(ctx) {
@@ -605,5 +605,5 @@ func recoveryFence(ctx context.Context, id string) (context.Context, error) {
 	if pf := parent.RoutePlan; pf != nil { // a recorded fence is restored as is, a closed empty one stays closed
 		return proxy.WithFence(ctx, pf.Fence.Profiles, pf.Fence.Open), nil
 	}
-	return ApplyRoute(ctx, parent.Route, "", rec.Agent, "", router.FallbackAgents)
+	return ApplyRoute(ctx, parent.Route, "", rec.Agent, "", route.FallbackAgents)
 }

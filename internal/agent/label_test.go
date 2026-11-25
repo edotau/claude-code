@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
 	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -205,7 +204,7 @@ func TestResolveRunUnservedCatalogModel(t *testing.T) {
 		t.Errorf("no listing: %+v, %v; want Served %q", r, err, ServedUnverified)
 	}
 	saveListing(t, "dev", []string{"databricks-gemini-3-8-flash"})
-	for _, fb := range []string{"", router.FallbackNone} {
+	for _, fb := range []string{"", route.FallbackNone} {
 		q.Fallback = fb
 		if _, err := ResolveRun(reg, q, now); !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "databricks-gemini-3-8-flash") {
 			t.Errorf("fallback %q: err = %v; want ErrModelRoute naming the served alternative", fb, err)
@@ -541,7 +540,7 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 func TestAutoNoCandidateIsRefused(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"}) // Responses-only: neither gemini nor claude ranks it
-	for _, fb := range []string{"", router.FallbackNone} {
+	for _, fb := range []string{"", route.FallbackNone} {
 		q := ModelQuery{Agent: "gemini", Model: AutoModel, Profile: "dev", Task: fastBrief, Fallback: fb}
 		if r, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrPoolExhausted) {
 			t.Errorf("gemini auto, fallback %q: %s %q %v; want ErrPoolExhausted", fb, r.Model, r.Note, err)
@@ -551,7 +550,7 @@ func TestAutoNoCandidateIsRefused(t *testing.T) {
 			t.Errorf("claude auto, fallback %q: %s %q %v; want the untiered model, saying the fast tier is not served", fb, r.Model, r.Note, err)
 		}
 	}
-	q := ModelQuery{Agent: "claude", Profile: "dev", Model: "claude-opus-5-5", Fallback: router.FallbackNone}
+	q := ModelQuery{Agent: "claude", Profile: "dev", Model: "claude-opus-5-5", Fallback: route.FallbackNone}
 	if _, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
 		t.Errorf("a typed concrete unserved model under fallback none ran (%v); want it refused", err)
 	}

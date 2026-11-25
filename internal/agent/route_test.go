@@ -25,7 +25,7 @@ import (
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	setConfigDir(t)
 	all := router.PickOpts{Configured: allConfigured}
-	c, _, err := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackAll, true, all)
+	c, _, err := RouteChainFor(context.Background(), "opencode", "sonnet", "", route.FallbackAll, true, all)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 			t.Errorf("the hub opencode cell must not also run: %+v", c.Dispatches)
 		}
 	}
-	none, _, _ := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackNone, true, all)
+	none, _, _ := RouteChainFor(context.Background(), "opencode", "sonnet", "", route.FallbackNone, true, all)
 	if len(none.Dispatches) != 1 {
 		t.Errorf("fallback none = %d dispatches, want the native dispatch only", len(none.Dispatches))
 	}
@@ -60,7 +60,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 // codexEffortAt routes a codex request at alias and returns the first dispatch's effort, which runs the shared model.
 func codexEffortAt(t *testing.T, alias string) string {
 	t.Helper()
-	c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", router.FallbackNone, false, router.PickOpts{Configured: allConfigured})
+	c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", route.FallbackNone, false, router.PickOpts{Configured: allConfigured})
 	if err != nil || len(c.Dispatches) == 0 || c.Dispatches[0].Agent.Name() != "codex" {
 		t.Fatalf("%s chain = %+v, err %v", alias, c, err)
 	}
@@ -88,7 +88,7 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", "")
 	activateAgents(t, "codex")
-	c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", router.FallbackAgents, false, router.PickOpts{Configured: allConfigured})
+	c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", route.FallbackAgents, false, router.PickOpts{Configured: allConfigured})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func profileCodexDispatches(c Chain, profile string) []Dispatch {
 // astraRoute asks codex for astra on profile: only a requested row is a hop, the session profile is not one by itself.
 func astraRoute(t *testing.T, profile string) Chain {
 	t.Helper()
-	c, _, err := RouteChainFor(context.Background(), "codex", astra, "sonnet", router.FallbackAgents, false,
+	c, _, err := RouteChainFor(context.Background(), "codex", astra, "sonnet", route.FallbackAgents, false,
 		router.PickOpts{Configured: allConfigured, Lead: profile})
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	all := router.PickOpts{Configured: allConfigured}
 	vaulttest.Use(t)
 	activateAgents(t, "codex")
-	c, _, err := RouteChainFor(context.Background(), "codex", "gpt-6.1-sol", "sonnet", router.FallbackAll, false, all)
+	c, _, err := RouteChainFor(context.Background(), "codex", "gpt-6.1-sol", "sonnet", route.FallbackAll, false, all)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	setConfigDir(t)
 	all := router.PickOpts{Configured: allConfigured}
-	c, _, err := RouteChainFor(context.Background(), "copilot", "claude-sonnet-5.5", "", router.FallbackAll, false, all)
+	c, _, err := RouteChainFor(context.Background(), "copilot", "claude-sonnet-5.5", "", route.FallbackAll, false, all)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestOtherRouteFollowsArm(t *testing.T) {
 func TestLeadFor(t *testing.T) {
 	leadRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "dev")
-	all, none := router.FallbackAll, router.FallbackNone
+	all, none := route.FallbackAll, route.FallbackNone
 	cases := []struct {
 		q        RouteReq
 		lead     string
@@ -389,8 +389,8 @@ func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 		q    RouteReq
 		lead string
 	}{
-		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
-		{RouteReq{Agent: "codex", Profile: "ultra", Model: "opus", Fallback: router.FallbackAll, Preview: true}, "ultra"},
+		{RouteReq{Agent: "codex", Fallback: route.FallbackAll, Preview: true}, ""},
+		{RouteReq{Agent: "codex", Profile: "ultra", Model: "opus", Fallback: route.FallbackAll, Preview: true}, "ultra"},
 	}
 	for _, c := range cases {
 		lead, explicit, err := routeLeadContext(context.Background(), c.q)
@@ -404,7 +404,7 @@ func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 func TestRouteLeadIgnoresRetiredArmEnv(t *testing.T) {
 	leadRegistry(t)
 	t.Setenv("HARNESS_DATABRICKS_ARM", "dev")
-	lead, explicit, err := routeLeadContext(context.Background(), RouteReq{Agent: "codex", Fallback: router.FallbackAll})
+	lead, explicit, err := routeLeadContext(context.Background(), RouteReq{Agent: "codex", Fallback: route.FallbackAll})
 	if lead != "" || explicit || err != nil {
 		t.Errorf("got %q, %v, %v; want no lead", lead, explicit, err)
 	}
@@ -428,7 +428,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 			t.Fatal(err)
 		}
 	}
-	c, pick, err := RouteChainFor(context.Background(), "codex", "", "sonnet", router.FallbackAll, false,
+	c, pick, err := RouteChainFor(context.Background(), "codex", "", "sonnet", route.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured})
 	if err != nil {
 		t.Fatal(err)
@@ -513,7 +513,7 @@ func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
 	t.Setenv("HOME", t.TempDir())
 	activateAgents(t, "copilot")
 	vaulttest.SetRecord(t, "copilot", "model", "gpt-6.1-sol")
-	c, _, err := RouteChainFor(context.Background(), "copilot", model, "sonnet", router.FallbackAll, false,
+	c, _, err := RouteChainFor(context.Background(), "copilot", model, "sonnet", route.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured, Lead: "dev"})
 	if err != nil || reg.Providers["dev"] == nil {
 		t.Fatal(err)
@@ -614,7 +614,7 @@ func TestRetryModelSkipsProgressedError(t *testing.T) {
 func TestRouteChainOwnConnector(t *testing.T) {
 	setConfigDir(t)
 	for _, model := range []string{"opencode-go/kimi-k3", "opencode/kimi-k3"} {
-		c, _, err := RouteChainFor(context.Background(), "opencode", model, "opus", router.FallbackAll, false, router.PickOpts{})
+		c, _, err := RouteChainFor(context.Background(), "opencode", model, "opus", route.FallbackAll, false, router.PickOpts{})
 		if err != nil || len(c.Dispatches) != 1 {
 			t.Fatalf("%s: chain=%+v err=%v", model, c, err)
 		}
@@ -666,12 +666,12 @@ func TestRouteChainAgyOverflow(t *testing.T) {
 		want, alias, mode string
 		hop               bool
 	}{
-		{"claude", "sonnet", router.FallbackAll, true},
-		{"claude", "opus", router.FallbackAgents, true},
-		{"claude", "sonnet", router.FallbackNone, false},
-		{"claude", "sonnet", router.FallbackPin, false},
-		{"claude", "haiku", router.FallbackAll, false}, // agy serves no Claude Haiku
-		{"codex", "sonnet", router.FallbackAll, false},
+		{"claude", "sonnet", route.FallbackAll, true},
+		{"claude", "opus", route.FallbackAgents, true},
+		{"claude", "sonnet", route.FallbackNone, false},
+		{"claude", "sonnet", route.FallbackPin, false},
+		{"claude", "haiku", route.FallbackAll, false}, // agy serves no Claude Haiku
+		{"codex", "sonnet", route.FallbackAll, false},
 	}
 	for _, c := range cases {
 		chain, _, err := RouteChainFor(context.Background(), c.want, "", c.alias, c.mode, false, router.PickOpts{Configured: allConfigured})
@@ -770,7 +770,7 @@ func familyEntryCases(t *testing.T, reg *providers.Registry) []familyCase {
 		return append(chainModels(Chain{}, err), tg.Model)
 	}
 	routedOn := func(lead, want, model, alias string) []string {
-		c, _, err := RouteChainFor(ctx, want, model, alias, router.FallbackAll, false, router.PickOpts{Configured: allConfigured, Lead: lead})
+		c, _, err := RouteChainFor(ctx, want, model, alias, route.FallbackAll, false, router.PickOpts{Configured: allConfigured, Lead: lead})
 		return chainModels(c, err)
 	}
 	routed := func(want, model, alias string) []string { return routedOn("dev", want, model, alias) }
@@ -828,7 +828,7 @@ func TestRoutedConcreteReadsNoFamilyList(t *testing.T) {
 		{"codex", "", "sonnet"}, {"codex", "sonnet", ""}, {"codex", "gpt-6.1-sol", "sonnet"},
 		{"copilot", "gpt-6.1-sol", "sonnet"}, {"copilot", "claude-sonnet-5.5", ""},
 	} {
-		if _, _, err := RouteChainFor(context.Background(), c.want, c.model, c.alias, router.FallbackAll, false,
+		if _, _, err := RouteChainFor(context.Background(), c.want, c.model, c.alias, route.FallbackAll, false,
 			router.PickOpts{Configured: allConfigured}); err != nil {
 			t.Fatalf("%+v: %v", c, err)
 		}
@@ -880,7 +880,7 @@ func TestRouteChainRefusesUnlistedTypedModel(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	activateAgents(t, "codex")
-	_, _, err := RouteChainFor(context.Background(), "codex", "databricks-gpt-6-1-sul", "sonnet", router.FallbackAll, false,
+	_, _, err := RouteChainFor(context.Background(), "codex", "databricks-gpt-6-1-sul", "sonnet", route.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured, Lead: "dev"})
 	var ue *UnacceptedError
 	var cu clientUsageError

@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -30,7 +31,7 @@ func TestHopMovesPolicyRefusalToOtherFamily(t *testing.T) {
 		t.Error("only a hop of the refused family is skipped")
 	}
 	typed := req
-	typed.ModelTyped, typed.Fallback = true, router.FallbackAll
+	typed.ModelTyped, typed.Fallback = true, route.FallbackAll
 	if (Chain{Want: "codex", Dispatches: []Dispatch{codex, gemini}}).hopMoves(ctx, 0, typed, wire.Result{}, errPolicy) {
 		t.Error("a typed model moved to another family")
 	}

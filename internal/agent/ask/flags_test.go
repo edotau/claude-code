@@ -742,13 +742,13 @@ func TestRunnerFlagValidatesAndCarries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil); ov.Runner != agentconfig.RunnerOwn {
+	if ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil); ov.Runner != route.RunnerOwn {
 		t.Fatalf("carried runner = %q, want own", ov.Runner)
 	}
 }
 
 func TestPiRunnerOwnsCodemode(t *testing.T) {
-	if got, _, _ := validateCodemode("on", "codex", agentconfig.RunnerOwn, true, false); got != "off" {
+	if got, _, _ := validateCodemode("on", "codex", route.RunnerOwn, true, false); got != "off" {
 		t.Errorf("codex --runner own code mode = %q, want off", got)
 	}
 	if got, _, _ := validateCodemode("on", "opencode", "", true, false); got != "on" {

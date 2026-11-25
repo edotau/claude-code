@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // copilotEngine is copilot's engine and its Engine: it drives the CLI through the SDK; tools are denied unless asked.
@@ -139,7 +139,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err != nil {
 		return opts, nil, copilotFatal(err)
 	}
-	route, env, err := e.routeEnv(ctx, cs, req, t)
+	rt, env, err := e.routeEnv(ctx, cs, req, t)
 	if err != nil {
 		return opts, nil, copilotFatal(err)
 	}
@@ -150,19 +150,19 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if opts, err = newSDKOptions(bin, env, req, st); err != nil {
 		return opts, nil, copilotFatal(err)
 	}
-	if err := routeOptions(&opts, route, env, req); err != nil {
+	if err := routeOptions(&opts, rt, env, req); err != nil {
 		return opts, nil, err
 	}
-	if armedBYOK(ctx, route, t) {
+	if armedBYOK(ctx, rt, t) {
 		armBYOK(&opts)
 	}
 	return opts, env, nil
 }
 
 // routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.
-func routeOptions(opts *sdk.Options, route *copilotRegistryRoute, env []string, req agent.RunOptions) error {
-	if route != nil {
-		route.apply(opts)
+func routeOptions(opts *sdk.Options, rt *copilotRegistryRoute, env []string, req agent.RunOptions) error {
+	if rt != nil {
+		rt.apply(opts)
 	}
 	// the SDK child gets exactly buildClientOptions' env; its base drops foreign credentials under ctx isolation
 	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet, req.OverlayUnset); err != nil {
@@ -172,11 +172,6 @@ func routeOptions(opts *sdk.Options, route *copilotRegistryRoute, env []string, 
 	opts.Env = append(opts.Env, req.Env...)
 	applyCopilotToken(opts, env)
 	return nil
-}
-
-// armedBYOK is a route-less, login-free hop on routed BYOK: inside a databricks arm, or a Databricks row on macOS.
-func armedBYOK(ctx context.Context, route *copilotRegistryRoute, t providers.Target) bool {
-	return route == nil && t.Provider.Auth.Login == "" && (router.ArmProfileContext(ctx) != "" || macOSDatabricks(t))
 }
 
 // macOSDatabricks is a Databricks row on macOS, which skips the registry and so runs routed BYOK.
@@ -191,10 +186,10 @@ func armBYOK(o *sdk.Options) {
 
 // routeEnv prepares the registry route or the BYOK route env for target t.
 func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
-) (route *copilotRegistryRoute, env []string, err error) {
+) (rt *copilotRegistryRoute, env []string, err error) {
 	if copilotRegistryEligible(req.Direct, t) {
-		route, err = prepareCopilotRegistry(ctx, t)
-		return route, nil, err
+		rt, err = prepareCopilotRegistry(ctx, t)
+		return rt, nil, err
 	}
 	env, _, err = cs.Configure(ctx, t)
 	return nil, env, err
@@ -426,8 +421,8 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 	if err != nil {
 		return t, "", err
 	}
-	if req.Fallback == router.FallbackNone {
-		t, _, err := copilotGate(ctx, reg, t, true, router.FallbackNone)
+	if req.Fallback == route.FallbackNone {
+		t, _, err := copilotGate(ctx, reg, t, true, route.FallbackNone)
 		return t, "", copilotFatalIf(err)
 	}
 	from := t.Provider

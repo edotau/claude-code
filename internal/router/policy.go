@@ -85,13 +85,13 @@ func (p Policy) Resolved() Policy {
 // PolicyOf maps a stored mode; empty is none everywhere.
 func PolicyOf(mode string, src PolicySource) (Policy, error) {
 	switch ParseFallback(mode) {
-	case FallbackNone:
+	case route.FallbackNone:
 		return Policy{Kind: PolicyNone, Source: src}, nil
-	case FallbackPin:
+	case route.FallbackPin:
 		return Policy{Kind: PolicyAnyInFence, Source: src}, nil
-	case FallbackAgents:
+	case route.FallbackAgents:
 		return Policy{Kind: PolicyAnyInFence, Agents: true, Source: src}, nil
-	case FallbackAll:
+	case route.FallbackAll:
 		return Policy{Kind: PolicyAnyInFence, Agents: true, OffArm: true, Source: src}, nil
 	}
 	return Policy{}, fmt.Errorf("%s=%q unknown (%s)", EnvFallback, mode, strings.Join(route.FallbackModes, "|"))
@@ -102,13 +102,13 @@ func (p Policy) Mode() string {
 	p = p.Resolved()
 	switch {
 	case p.Kind == PolicyNone:
-		return FallbackNone
+		return route.FallbackNone
 	case p.OffArm:
-		return FallbackAll
+		return route.FallbackAll
 	case p.Agents:
-		return FallbackAgents
+		return route.FallbackAgents
 	}
-	return FallbackPin // AnyInFence without agents, and SameWorkspace.
+	return route.FallbackPin // AnyInFence without agents, and SameWorkspace.
 }
 
 // Typed reports a requested mode: typed or overlay, including an explicit none.

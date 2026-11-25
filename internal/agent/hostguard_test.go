@@ -210,7 +210,7 @@ func TestArmPickAdmitsOnlyGuardAllowedHops(t *testing.T) {
 				for a, p := range c.pins {
 					vaulttest.SetRecord(t, a, "profile", p)
 				}
-				chain, _, err := RouteChainFor(t.Context(), want, "sonnet", "", router.FallbackAll, false,
+				chain, _, err := RouteChainFor(t.Context(), want, "sonnet", "", route.FallbackAll, false,
 					router.PickOpts{Configured: configured})
 				if err != nil || len(chain.Dispatches) == 0 {
 					t.Fatalf("chain = %+v, %v; want admitted hops", chain, err)

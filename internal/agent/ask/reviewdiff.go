@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -237,7 +237,7 @@ func reviewArgs(agentName string, diff []byte, adversarial, background bool, foc
 		_ = os.Remove(f.Name()) // best-effort cleanup; the close error is already being returned
 		return nil, nil, err
 	}
-	args := []string{"--agent", agentName, "--fallback", router.FallbackAgents, "--attach", f.Name(), "--tools=false"} // the agent sees only the attached diff
+	args := []string{"--agent", agentName, "--fallback", route.FallbackAgents, "--attach", f.Name(), "--tools=false"} // the agent sees only the attached diff
 	if background {
 		args = append(args, "--background")
 	}

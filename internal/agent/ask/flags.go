@@ -206,7 +206,7 @@ func validateCodemode(mode, ag, runner string, tools, direct bool) (resolved, re
 
 // piRunnerLeads reports a typed agent with no code-mode row of its own running on the pi runner, which owns code mode.
 func piRunnerLeads(ag, runner string, direct bool) bool {
-	if runner == agentconfig.RunnerOwn || direct || !agentid.Known(ag) || agentid.Routing(ag).CodeMode.Has() {
+	if runner == route.RunnerOwn || direct || !agentid.Known(ag) || agentid.Routing(ag).CodeMode.Has() {
 		return false
 	}
 	pi, err := agent.Lookup(agentid.Pi)
@@ -675,7 +675,7 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 		return false
 	}
 	auto := agent.IsAuto(*s.Model) // typed auto asks for rotation, not a pin
-	typed, none := *s.modelTyped || helptext.Explicit(fs, "model") && !auto, *s.Fallback == router.FallbackNone
+	typed, none := *s.modelTyped || helptext.Explicit(fs, "model") && !auto, *s.Fallback == route.FallbackNone
 	id := rec.ID + ago
 	if why := keepReason(typed, none, ran); why != "" {
 		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)

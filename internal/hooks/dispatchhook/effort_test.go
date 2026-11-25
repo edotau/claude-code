@@ -696,7 +696,7 @@ func codexHopRun(t *testing.T) (*dispatchRun, *providers.Registry, agentpkg.Mode
 		calls++
 		return orig(ctx, reg, q, hint)
 	}
-	run, q := newDispatchRun(nil), agentpkg.ModelQuery{Agent: "codex", Fallback: router.FallbackNone}
+	run, q := newDispatchRun(nil), agentpkg.ModelQuery{Agent: "codex", Fallback: route.FallbackNone}
 	if first, _, err := run.runHop(context.Background(), reg, q, "sonnet"); err != nil || first.Agent != "codex" || first.Profile != "dev" {
 		t.Fatalf("initial hop = %+v, err %v; want codex on dev", first, err)
 	}

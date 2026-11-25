@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -52,7 +53,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 	client := newClient()
 	for _, profile := range []string{"acme", "chatgpt"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
+			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: route.FallbackAgents}, nil)
 		if profile == "chatgpt" { // a typed row the agent cannot use is refused before any dispatch
 			if err == nil || !strings.Contains(err.Error(), "cannot use") {
 				t.Fatalf("hub profile Prepare = %v, want a refusal naming the codex login", err)
@@ -80,7 +81,7 @@ func TestClientPrepareHonorsCancellation(t *testing.T) {
 	t.Cleanup(func() { RouteRefresh = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
+	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: route.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if refreshes != 0 {
@@ -96,7 +97,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	client := newClient()
 	for _, profile := range []string{"acme"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
+			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: route.FallbackAgents}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +119,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	client := newClient()
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
+			Agent: name, Provider: "acme", Prompt: "p", Fallback: route.FallbackAll}, nil)
 		if name == "codex" || name == "gemini" { // acme has no responses route or custom base URL: refused before dispatch
 			if err == nil {
 				t.Errorf("%s: Prepare on acme succeeded, want a refusal", name)

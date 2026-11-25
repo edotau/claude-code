@@ -110,6 +110,12 @@ var Waves = func([]string) int { return 2 }
 // Reap starts the silent cleanup of a real ask and returns its join; the cli sets it.
 var Reap = func() func() { return func() {} }
 
+// envFallback is the process or vault fallback mode; unset reads as none.
+func envFallback(ctx context.Context) string {
+	mode, _ := router.FallbackSetting(ctx, "")
+	return router.ParseFallback(mode)
+}
+
 // runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
 	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
@@ -118,8 +124,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		return code
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		mode, _ := router.FallbackSetting(ctx, "")
-		f.fallback = router.ParseFallback(mode) // unset reads as none
+		f.fallback = envFallback(ctx)
 		if !slices.Contains(route.FallbackModes, f.fallback) {
 			return failAskCode(f.format, f.name, fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(route.FallbackModes, "|")), 2)
 		}
@@ -390,7 +395,7 @@ func (r *askRun) checkArm() (int, bool) {
 	picks := armAutoPick(r.ctx, value)
 	fallback := f.fallback
 	if !r.swap && typedModel(f.model) { // an env default never moves a typed model to another agent or arm (R8)
-		fallback, f.fallback = router.FallbackNone, router.FallbackNone
+		fallback, f.fallback = route.FallbackNone, route.FallbackNone
 	}
 	moves := r.typedStart(value, fallback)
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
@@ -457,7 +462,7 @@ func recordRefusal(r *askRun, err error, fallback string) {
 // poolValue is value, or the pool confinement for --provider databricks alone, a pool pin, or a model the pin lacks.
 func (r *askRun) poolValue(value string) string {
 	f := r.f
-	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
+	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != route.FallbackNone
 	auto := route.Join(router.RouteDatabricks, route.AutoArm)
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
@@ -937,7 +942,7 @@ func narrowLead(ag string, f *askFlags, routed bool, fenced string) (string, err
 	}
 	fallback := f.fallback
 	if f.session != "" { // a resumed session runs one hop
-		fallback = router.FallbackNone
+		fallback = route.FallbackNone
 	}
 	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: cmp.Or(f.profile, fenced), Provider: f.provider, Fallback: fallback}
 	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)

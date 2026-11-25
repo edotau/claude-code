@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 const workflowLintName = "inline workflow"
@@ -197,7 +197,7 @@ const stepChildScript = "code-workers.js"
 // stepRoute previews an external stage's route; a test swaps it (production reads the registry and route state).
 var stepRoute = func(who, model, profile, provider string) error {
 	chain, res, err := agent.Resolve(context.Background(), agent.RouteReq{Agent: who, Model: model, Profile: profile,
-		Provider: provider, Fallback: router.FallbackAgents, Preview: true})
+		Provider: provider, Fallback: route.FallbackAgents, Preview: true})
 	if err != nil {
 		return err
 	}

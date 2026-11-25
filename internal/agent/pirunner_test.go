@@ -37,9 +37,9 @@ func withTestPlan(t *testing.T, ctx context.Context, o RunOptions, profiles ...s
 // A databricks:<p> confinement plans no pi hop on a sibling workspace and mints no token for one.
 func TestPiRunnerConfinedStaysOnWorkspace(t *testing.T) {
 	reg, _, _ := autoFixture(t)
-	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
+	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: route.FallbackAll}
 	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
-	o := RunOptions{Agent: "claude", Fallback: router.FallbackAll}
+	o := RunOptions{Agent: "claude", Fallback: route.FallbackAll}
 	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), o, "dev", "qa", "prod")
 	sibs, skips, _ := piSiblings(open, reg, lead, q.Model)
 	if len(sibs)+len(skips) == 0 {
@@ -127,10 +127,10 @@ func TestPiRunnerAskedForRosterAgents(t *testing.T) {
 // A rotation's kept-out rows get no sibling pi hop, hop or skip.
 func TestPiSiblingsSkipRotationDrop(t *testing.T) {
 	reg, _, _ := autoFixture(t)
-	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: router.FallbackAll}
+	q := RouteReq{Agent: "claude", Model: "databricks-claude-sonnet-5-5", Fallback: route.FallbackAll}
 	lead := Dispatch{Account: "databricks·dev", Model: q.Model}
 	open := proc.WithValues(context.Background(), proc.Values{})
-	sibs, skips, _ := piSiblings(withTestPlan(t, open, RunOptions{Agent: "claude", Fallback: router.FallbackAll}, "dev", "qa", "prod"), reg, lead, q.Model)
+	sibs, skips, _ := piSiblings(withTestPlan(t, open, RunOptions{Agent: "claude", Fallback: route.FallbackAll}, "dev", "qa", "prod"), reg, lead, q.Model)
 	if len(sibs)+len(skips) == 0 {
 		t.Fatal("fixture: an unrotated ask considers no sibling workspace")
 	}
@@ -141,7 +141,7 @@ func TestPiSiblingsSkipRotationDrop(t *testing.T) {
 		}
 	}
 	ctx := withTestPlan(t, router.WithRotatedLead(open, router.RotatedLead{Row: "dev", Drop: drop}),
-		RunOptions{Agent: "claude", Fallback: router.FallbackAll}, "dev") // planPool drops the kept-out rows
+		RunOptions{Agent: "claude", Fallback: route.FallbackAll}, "dev") // planPool drops the kept-out rows
 	if sibs, skips, why := piSiblings(ctx, reg, lead, q.Model); len(sibs)+len(skips) != 0 || why != "" {
 		t.Fatalf("kept-out rows still planned pi hops: hops %v, skips %v, why %q", sibs, skips, why)
 	}
@@ -155,23 +155,23 @@ func TestPiChainModeDefault(t *testing.T) {
 		q    RouteReq
 		want string
 	}{
-		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, router.FallbackAgents},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackNone}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackPin}, router.FallbackPin},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents, Native: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: router.FallbackAgents}, router.FallbackAgents},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, route.FallbackAgents},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone}, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackPin}, route.FallbackPin},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents, Native: true}, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents}, route.FallbackAgents},
 	} {
 		pctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: c.q.Fallback, FallbackDefaulted: c.q.FallbackDefaulted})
 		if got := piChainMode(pctx, c.q); got != c.want {
 			t.Errorf("piChainMode(%+v) = %q, want %q", c.q, got, c.want)
 		}
 	}
-	t.Setenv(router.EnvFallback, router.FallbackNone)
-	nctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true})
-	if got := piChainMode(nctx, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}); got != "" {
+	t.Setenv(router.EnvFallback, route.FallbackNone)
+	nctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true})
+	if got := piChainMode(nctx, RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}); got != "" {
 		t.Errorf("an env none gave mode %q, want a one-hop chain", got)
 	}
 }
@@ -190,7 +190,7 @@ func TestAfterPiHopsOrder(t *testing.T) {
 func TestWithPiSiblings(t *testing.T) {
 	reg, _, _ := autoFixture(t) // the fixture roster has no pi driver, so each sibling is planned and then skipped
 	c := Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "pi"}, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
-	o := RunOptions{Agent: "pi", Fallback: router.FallbackAgents}
+	o := RunOptions{Agent: "pi", Fallback: route.FallbackAgents}
 	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), o, "dev", "qa", "prod")
 	got := withPiSiblings(open, reg, c)
 	notes := strings.Join(got.Preflight.Notes, "\n")
@@ -231,11 +231,11 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	keyed := strings.NewReplacer(`"qa":{"auth":{"type":"oauth"}`, `"qa":{"auth":{"type":"key","command":"echo qzvxplk"}`)
 	vaulttest.Put(t, vault.Overlay, "providers", keyed.Replace(autoOverlay))
 	registerPiForTest(t)
-	q := RouteReq{Agent: "pi", Fallback: router.FallbackAgents}
+	q := RouteReq{Agent: "pi", Fallback: route.FallbackAgents}
 	pi := &fakeRunner{name: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
 	open := proc.WithValues(context.Background(), proc.Values{})
-	got := withPiClaudeHop(withTestPlan(t, open, RunOptions{Agent: "pi", Fallback: router.FallbackAgents}, "dev", "qa", "prod"), q, c)
+	got := withPiClaudeHop(withTestPlan(t, open, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev", "qa", "prod"), q, c)
 	var seq []string
 	for _, d := range got.Dispatches {
 		seq = append(seq, d.Agent.Name()+" "+d.Account)
@@ -248,7 +248,7 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiClaudeHop(withTestPlan(t, armed, RunOptions{Agent: "pi", Fallback: router.FallbackAgents}, "dev"), q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
+	if got := withPiClaudeHop(withTestPlan(t, armed, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev"), q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
 		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
 	}
 }
@@ -259,26 +259,26 @@ func TestWithPiClaudeHopPin(t *testing.T) {
 	registerPiForTest(t)
 	pi := &fakeRunner{name: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
-	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), RunOptions{Agent: "pi", Fallback: router.FallbackPin}, "dev")
-	if pinned := piChainMode(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}); pinned != router.FallbackPin {
+	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), RunOptions{Agent: "pi", Fallback: route.FallbackPin}, "dev")
+	if pinned := piChainMode(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}); pinned != route.FallbackPin {
 		t.Fatalf("plain pin ask mode = %q", pinned)
 	}
 	var pseq []string
-	for _, d := range withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}, c).Dispatches {
+	for _, d := range withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, c).Dispatches {
 		pseq = append(pseq, d.Agent.Name()+" "+d.Account)
 	}
 	if pwant := []string{"pi databricks·dev", "claude databricks·dev"}; !slices.Equal(pseq, pwant) {
 		t.Fatalf("pin hops = %v, want %v", pseq, pwant)
 	}
 	stray := Chain{Dispatches: []Dispatch{c.Dispatches[0], {Agent: pi, Account: "databricks·qa"}}}
-	if got := withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: router.FallbackPin}, stray); len(got.Dispatches) != 2 {
+	if got := withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, stray); len(got.Dispatches) != 2 {
 		t.Fatalf("pin kept a stray workspace hop: %+v", got.Dispatches)
 	}
 	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{bad`})
-	if _, err := PlanRoute(bad, RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, ParentRoute{}); err == nil {
+	if _, err := PlanRoute(bad, RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, ParentRoute{}); err == nil {
 		t.Fatal("a malformed overlay built a plan")
 	}
-	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}, c) // no plan, no widening
+	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, c) // no plan, no widening
 	if len(one.Dispatches) != 1 {
 		t.Fatalf("a malformed overlay widened: %+v", one)
 	}
@@ -289,7 +289,7 @@ func TestPlanPolicySources(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.Use(t)
 	ctx := context.Background()
-	o := RunOptions{Agent: "pi", Fallback: router.FallbackNone, FallbackDefaulted: true}
+	o := RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}
 	src := func(ctx context.Context) router.PolicySource {
 		pol, err := planPolicy(ctx, o, "")
 		if err != nil {

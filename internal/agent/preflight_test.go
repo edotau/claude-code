@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -45,7 +46,7 @@ func TestPreviewRouteLeadsOnlyWhenAsked(t *testing.T) {
 	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
 	t.Setenv("CLAUDE_PROFILE", "no-such-row")
 	for _, lead := range []string{"", "no-such-row"} {
-		q := RouteReq{Agent: "codex", Task: "x", Lead: lead, Fallback: router.FallbackAll, Preview: true}
+		q := RouteReq{Agent: "codex", Task: "x", Lead: lead, Fallback: route.FallbackAll, Preview: true}
 		_, res, err := Resolve(context.Background(), q)
 		if err != nil {
 			t.Fatal(err)

@@ -83,9 +83,6 @@ var routeKeys = []routeKey{
 		"want " + strings.Join(identityModes, ", ")},
 }
 
-// RunnerOwn is the runner value for the agent's own CLI; unset is pi where it can run, else own.
-const RunnerOwn = route.RunnerOwn
-
 // identityModes are the Databricks identity values: the --as pair plus auto (the profile's own setting).
 var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 

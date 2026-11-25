@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func testTable(t testing.TB) *RouteTable {
@@ -151,7 +152,7 @@ func TestStatusThresholds(t *testing.T) {
 
 func pick(tb *RouteTable, alias, want string, st State, mode string) PickResult {
 	if mode == "" {
-		mode = FallbackAll
+		mode = route.FallbackAll
 	} // legacy pick helper explicitly requests the full ladder
 	return tb.Pick(context.Background(), alias, want, st, PickOpts{Policy: testPolicy(mode), Configured: allConfigured, Now: func() time.Time { return now0 }})
 }
@@ -162,7 +163,7 @@ func pickRepo(tb *RouteTable, alias string, st State, work bool) PickResult {
 		// defaults.json order; LoadFrom(nil) has none
 		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
 	}
-	return tb.Pick(context.Background(), alias, "", st, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
+	return tb.Pick(context.Background(), alias, "", st, PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
 }
 
@@ -177,7 +178,7 @@ func runners(r PickResult) string {
 func TestPickGatesBeatScore(t *testing.T) {
 	tb := testTable(t)
 	st := State{"github·work-user": {UsedPct: 0, Seen: now0, ExhaustedUntil: time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local), Reason: "402"}}
-	r := pick(tb, "sonnet", "copilot", st, FallbackAll)
+	r := pick(tb, "sonnet", "copilot", st, route.FallbackAll)
 	if strings.Contains(runners(r), "copilot") {
 		t.Fatalf("exhausted copilot picked: %s", runners(r))
 	}
@@ -191,13 +192,13 @@ func TestPickGatesBeatScore(t *testing.T) {
 
 func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
 	tb := testTable(t)
-	baseline := pick(tb, "sonnet", "codex", State{}, FallbackAgents)
+	baseline := pick(tb, "sonnet", "codex", State{}, route.FallbackAgents)
 	if len(baseline.Candidates) == 0 || baseline.Candidates[0].Agent != "codex" {
 		t.Fatalf("baseline candidates = %+v, want codex first", baseline.Candidates)
 	}
 	first := baseline.Candidates[0]
 	dead := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(time.Hour)}}}
-	got := pick(tb, "sonnet", "codex", dead, FallbackAgents)
+	got := pick(tb, "sonnet", "codex", dead, route.FallbackAgents)
 	if len(got.Candidates) == 0 || got.Candidates[len(got.Candidates)-1].Agent != "codex" {
 		t.Errorf("quota-dead codex candidates = %+v, want codex last", got.Candidates)
 	}
@@ -212,7 +213,7 @@ func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
 		t.Errorf("quota-dead skips = %+v, want one tried-last quota skip", got.Skipped)
 	}
 	expired := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(-time.Hour)}}}
-	afterExpiry := pick(tb, "sonnet", "codex", expired, FallbackAgents)
+	afterExpiry := pick(tb, "sonnet", "codex", expired, route.FallbackAgents)
 	if runners(afterExpiry) != runners(baseline) {
 		t.Errorf("expired-mark order = %s, want baseline order %s", runners(afterExpiry), runners(baseline))
 	}
@@ -221,14 +222,14 @@ func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
 func TestPickUnpinnedCopilotAndFallbackModes(t *testing.T) {
 	tb := testTable(t)
 	unpinned, _ := LoadFrom(nil, "")
-	r := pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
+	r := pick(unpinned, "opus", "copilot", State{}, route.FallbackAgents)
 	if r.Skipped[0].Gate != gateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
 	}
-	if got := runners(pick(tb, "opus", "copilot", State{}, FallbackNone)); got != "copilot" {
+	if got := runners(pick(tb, "opus", "copilot", State{}, route.FallbackNone)); got != "copilot" {
 		t.Errorf("fallback none = %s", got)
 	}
-	if got := runners(pick(tb, "opus", "claude", State{}, FallbackAll)); got != "claude" {
+	if got := runners(pick(tb, "opus", "claude", State{}, route.FallbackAll)); got != "claude" {
 		t.Errorf("claude never falls back: %s", got)
 	}
 }
@@ -290,7 +291,7 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := pick(tb, "sonnet", "opencode", State{}, FallbackNone)
+	r := pick(tb, "sonnet", "opencode", State{}, route.FallbackNone)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want exactly the wanted opencode dispatch", r.Candidates)
 	}
@@ -306,7 +307,7 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	}
 	// A reading on the pinned gh user's own copilot account must not leak into the derived one.
 	st := State{"github·work-user": {UsedPct: 90, Seen: now0}}
-	r = pick(tb, "sonnet", "opencode", st, FallbackNone)
+	r = pick(tb, "sonnet", "opencode", st, route.FallbackNone)
 	if got := r.Candidates[0].Scores["headroom"]; got != 0.5 {
 		t.Errorf("headroom = %v, want 0.5 still — github·work-user's state must not apply to opencode·github-copilot", got)
 	}
@@ -354,7 +355,7 @@ func TestPickBacksOffAfterNoDataRefresh(t *testing.T) {
 	at := now0
 	var mu sync.Mutex
 	var calls []string
-	o := PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured, Now: func() time.Time { return at },
+	o := PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: allConfigured, Now: func() time.Time { return at },
 		WorkRepo: func() bool { return false },
 		Refresh: func(_ context.Context, account string) bool {
 			mu.Lock()
@@ -394,7 +395,7 @@ func TestPickRefreshesEachAccountOnce(t *testing.T) {
 	tb := testTable(t)
 	var mu sync.Mutex
 	seen := map[string]int{}
-	tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
+	tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
 		Refresh: func(_ context.Context, account string) bool {
 			mu.Lock()
@@ -414,7 +415,7 @@ func TestPickRefreshesEachAccountOnce(t *testing.T) {
 
 func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 	tb := testTable(t)
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Off: true}}})
 	if !slices.Contains(r.Skipped, Skip{"codex", GateOff, "deactivated (no profile set)"}) {
 		t.Errorf("skips = %+v, want codex deactivated (no profile set)", r.Skipped)
@@ -425,7 +426,7 @@ func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 	wantTier2 := []string{"copilot/github·copilot", "codex/openai·chatgpt", "gemini/google·antigravity",
 		"opencode/opencode·go", "claude/anthropic·ultra"}
-	for _, fb := range []string{FallbackAll, FallbackAgents} {
+	for _, fb := range []string{route.FallbackAll, route.FallbackAgents} {
 		tier1, tier2 := armTiers(armPick(t, "claude", fb))
 		if len(tier1) != 6 || tier1[0] != "claude" {
 			t.Errorf("%s: tier 1 = %v, want claude first then the other five agents on databricks·dev", fb, tier1)
@@ -434,11 +435,11 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 			t.Errorf("%s: tier 2 = %v, want %v", fb, tier2, wantTier2)
 		}
 	}
-	if c := armPick(t, "claude", FallbackNone).Candidates; len(c) != 1 || c[0].Account != "databricks·dev" {
+	if c := armPick(t, "claude", route.FallbackNone).Candidates; len(c) != 1 || c[0].Account != "databricks·dev" {
 		t.Errorf("fallback none = %+v, want claude on databricks·dev only", c)
 	}
 	calls := map[string]int{}
-	(&RouteTable{}).gatherCandidates(context.Background(), "claude", PickOpts{Policy: testPolicy(FallbackAll)}, func(a string) []Candidate {
+	(&RouteTable{}).gatherCandidates(context.Background(), "claude", PickOpts{Policy: testPolicy(route.FallbackAll)}, func(a string) []Candidate {
 		calls[a]++
 		return nil
 	})
@@ -671,7 +672,7 @@ func denyOpencode(agent string, _ Cell) error {
 func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: denyOpencode,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: denyOpencode,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(opencodeCands(r)) != 0 {
 		t.Fatalf("opencode must be skipped entirely, got %s", runners(r))
@@ -712,7 +713,7 @@ func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
 	// overlay: copilot ahead of Go
 	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)
 	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" {
@@ -741,7 +742,7 @@ func TestIsWorkRepoCachesGitPerDir(t *testing.T) {
 }
 
 func TestFallbackSettingModes(t *testing.T) {
-	for env, want := range map[string]string{"pin": FallbackPin, "PIN": FallbackPin, "agents": FallbackAgents, "1": FallbackAll, "yes": FallbackAll, "bogus": "bogus"} {
+	for env, want := range map[string]string{"pin": route.FallbackPin, "PIN": route.FallbackPin, "agents": route.FallbackAgents, "1": route.FallbackAll, "yes": route.FallbackAll, "bogus": "bogus"} {
 		t.Setenv(EnvFallback, env)
 		mode, _ := FallbackSetting(t.Context(), "")
 		if got := ParseFallback(mode); got != want {

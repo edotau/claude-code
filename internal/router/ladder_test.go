@@ -24,9 +24,9 @@ func TestPickFollowsLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}}
-	pickAt := func(route string) PickResult {
-		confine(t, route)
-		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	pickAt := func(prov string) PickResult {
+		confine(t, prov)
+		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 			Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	}
 	order := func(r PickResult) []string {
@@ -58,7 +58,7 @@ func TestRungKeepsOpusTierGPT(t *testing.T) {
 		t.Fatal(err)
 	}
 	confine(t, "github")
-	got := tb.Pick(context.Background(), "opus", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	got := tb.Pick(context.Background(), "opus", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	var models []string
 	for _, c := range got.Candidates {
@@ -77,7 +77,7 @@ func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
 		t.Fatal(err)
 	}
 	confine(t, "")
-	got := tb.Pick(context.Background(), "haiku", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	got := tb.Pick(context.Background(), "haiku", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	for _, c := range got.Candidates {
 		if c.Agent == "copilot" && c.Model != "claude-haiku-5.5" {
@@ -94,7 +94,7 @@ func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
 func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 	tb := testTable(t)
 	confine(t, "")
-	opts := PickOpts{Policy: testPolicy(FallbackNone), Configured: allConfigured,
+	opts := PickOpts{Policy: testPolicy(route.FallbackNone), Configured: allConfigured,
 		Now:     func() time.Time { return now0 },
 		Account: func(string, Cell) (string, string) { return "databricks·dev", BillCredits }}
 	baseline := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
@@ -114,7 +114,7 @@ func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
 	tb := testTable(t)
 	confine(t, "")
-	opts := PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
+	opts := PickOpts{Policy: testPolicy(route.FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
 	baseline := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
 	isCodex := func(c Candidate) bool { return c.Agent == "codex" }
@@ -147,7 +147,7 @@ func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 	}
 	tb.Ladders = nil
 	confine(t, "anthropic:ultra")
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(r.Candidates) != 1 || r.Candidates[0].Account != "anthropic·ultra" {
 		t.Errorf("candidates = %+v, want only anthropic·ultra with no ladder", r.Candidates)
@@ -190,7 +190,7 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 
 // Tier 1 is every agent on databricks·dev, wanted first; tier 2 the first-party logins in ladder order.
 func TestArmPickOrder(t *testing.T) {
-	r := armPick(t, "codex", FallbackAll)
+	r := armPick(t, "codex", route.FallbackAll)
 	tier1, tier2 := armTiers(r)
 	if len(tier1) != 6 || tier1[0] != "codex" || !slices.Contains(tier1, "claude") {
 		t.Errorf("tier 1 = %v, want codex first then the other five agents on databricks·dev", tier1)
@@ -205,10 +205,10 @@ func TestArmPickOrder(t *testing.T) {
 			t.Errorf("skips = %+v, want %s outside databricks:dev", r.Skipped, label)
 		}
 	}
-	if none := armPick(t, "codex", FallbackNone); len(none.Candidates) != 1 || none.Candidates[0].Account != "databricks·dev" {
+	if none := armPick(t, "codex", route.FallbackNone); len(none.Candidates) != 1 || none.Candidates[0].Account != "databricks·dev" {
 		t.Errorf("fallback none = %+v, want codex on databricks·dev only", none.Candidates)
 	}
-	if ag := armPick(t, "codex", FallbackAgents); slices.ContainsFunc(ag.Candidates, func(c Candidate) bool { return c.Agent == "claude" }) {
+	if ag := armPick(t, "codex", route.FallbackAgents); slices.ContainsFunc(ag.Candidates, func(c Candidate) bool { return c.Agent == "claude" }) {
 		t.Errorf("fallback agents ran claude: %+v", ag.Candidates)
 	}
 }
@@ -299,11 +299,11 @@ func TestChainOrder(t *testing.T) {
 		return len(slices.DeleteFunc(slices.Clone(got), func(s string) bool { return !strings.HasSuffix(s, "OFF-ARM") }))
 	}
 	q := base
-	q.Policy = testPolicy(FallbackAgents)
+	q.Policy = testPolicy(route.FallbackAgents)
 	if got := chainOf(t, q); len(got) != 3 || off(got) != 0 || !strings.HasPrefix(got[1], "pi databricks·qa") || !strings.HasPrefix(got[2], "claude databricks·dev") {
 		t.Errorf("agents chain = %v, want pi dev, pi qa, claude dev", got)
 	}
-	q.Policy = testPolicy(FallbackAll)
+	q.Policy = testPolicy(route.FallbackAll)
 	if got := chainOf(t, q); off(got) != 0 {
 		t.Errorf("inherited all chain = %v, want no off-arm hop", got)
 	}
@@ -315,7 +315,7 @@ func TestChainOrder(t *testing.T) {
 	if got := chainOf(t, q); off(got) != 0 {
 		t.Errorf("typed-model all chain = %v, want no off-arm hop", got)
 	}
-	q.Policy = testPolicy(FallbackNone)
+	q.Policy = testPolicy(route.FallbackNone)
 	if got := chainOf(t, q); len(got) != 1 {
 		t.Errorf("none chain = %v, want one hop", got)
 	}

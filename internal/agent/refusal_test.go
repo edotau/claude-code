@@ -9,6 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -19,7 +20,7 @@ func refusalFixture(t *testing.T) (Dispatch, RunOptions) {
 	t.Helper()
 	_, _, pair := autoFixture(t)
 	disp := Dispatch{Agent: &fakeRunner{name: "opencode"}, Account: router.ProviderAccount("xf")}
-	return disp, RunOptions{Model: pair[0], CellModel: true, Fallback: router.FallbackAll}
+	return disp, RunOptions{Model: pair[0], CellModel: true, Fallback: route.FallbackAll}
 }
 
 func policyPlanFor(disp Dispatch, req RunOptions, hops []wire.Hop) repickPlan {
@@ -45,7 +46,7 @@ func TestPlanRepickPolicyRefusalChangesFamily(t *testing.T) {
 func TestPlanRepickPolicyRefusalKeepsExplicitAndStopsAfterOne(t *testing.T) {
 	disp, req := refusalFixture(t)
 	none := req
-	none.Fallback = router.FallbackNone
+	none.Fallback = route.FallbackNone
 	plan := policyPlanFor(disp, none, nil)
 	if plan.pick() != "" || !strings.Contains(plan.prefusal, "kept, not replaced") || strings.HasSuffix(plan.prefusal, "none") {
 		t.Fatalf("--fallback none plan = %+v, want the refusal naming other ids", plan)

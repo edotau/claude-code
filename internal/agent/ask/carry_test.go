@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -132,9 +132,9 @@ func TestTakeoverDecision(t *testing.T) {
 		policy         string
 		take, explains bool
 	}{
-		{cut, true, false, router.FallbackNone, true, false},
+		{cut, true, false, route.FallbackNone, true, false},
 		{cut, true, true, "all", true, false},
-		{cut, true, true, router.FallbackNone, false, true},
+		{cut, true, true, route.FallbackNone, false, true},
 		{agent.Record{Status: "ok"}, true, false, "all", false, false},
 		{agent.Record{Status: "error"}, true, false, "all", false, false},
 		{cut, false, false, "all", false, false},

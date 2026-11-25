@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -550,7 +550,7 @@ func (r *askRun) loopGoal() (string, loopFile, error) {
 func (r *askRun) loopConfig() loopCfg {
 	f := r.f
 	cfg := loopCfg{Rounds: f.loopRounds, Budget: f.loopBudget, Planner: f.loopPlanner, TypedModel: f.modelTyped,
-		NoMove: f.fallback == router.FallbackNone, JSON: f.format == helptext.JSON, Out: r.out, Log: r.out}
+		NoMove: f.fallback == route.FallbackNone, JSON: f.format == helptext.JSON, Out: r.out, Log: r.out}
 	if cfg.JSON {
 		cfg.Log = os.Stderr
 	}

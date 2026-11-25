@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -68,7 +67,7 @@ func (r *askRun) startRecall(prompt string) func() string {
 // memoryRunOptions pins the memory job to claude's own CLI: it holds write tools, so Pi never leads.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	o := agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: memory.JobTools(memory.JobKind(ctx)), WorkDir: workdir,
-		Fallback: router.FallbackNone, Runner: agentconfig.RunnerOwn}
+		Fallback: route.FallbackNone, Runner: route.RunnerOwn}
 	if schema := memory.JobAnswerSchema(ctx); schema != "" {
 		o.OutputSchema, o.Tools = schema, false
 	}

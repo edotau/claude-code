@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -47,11 +48,11 @@ func TestCandidateAndSkipJSONUseAgentField(t *testing.T) {
 func TestOldColonKeysNoLongerMatch(t *testing.T) {
 	tb := testTable(t)
 	old := State{"codex:chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
-	if !strings.Contains(runners(pick(tb, "sonnet", "codex", old, FallbackAgents)), "codex") {
+	if !strings.Contains(runners(pick(tb, "sonnet", "codex", old, route.FallbackAgents)), "codex") {
 		t.Error("an old-format auth mark still gated codex")
 	}
 	cur := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
-	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, FallbackAgents)), "codex") {
+	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, route.FallbackAgents)), "codex") {
 		t.Error("the new-format auth mark did not gate codex")
 	}
 	if _, ok := old.authMarkedVia(ProviderAccount, "openai·chatgpt", now0); ok {
@@ -234,7 +235,7 @@ func TestMarkAuthKeepsQuotaFields(t *testing.T) {
 func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 	tb := testTable(t)
 	marked := State{"openai·chatgpt": {AuthReason: "auth needs_login: run `claude-code databricks login --profile chatgpt`", AuthAt: now0.Add(-time.Hour)}}
-	r := pick(tb, "sonnet", "codex", marked, FallbackAgents)
+	r := pick(tb, "sonnet", "codex", marked, route.FallbackAgents)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("auth-marked codex picked: %s", runners(r))
 	}
@@ -256,7 +257,7 @@ func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 		"expired": {"openai·chatgpt": {AuthReason: "r", AuthAt: now0.Add(-authMarkTTL - time.Minute)}},
 		"cleared": {"openai·chatgpt": {UsedPct: 5, Seen: now0}},
 	} {
-		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, FallbackAgents)), "codex") {
+		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, route.FallbackAgents)), "codex") {
 			t.Errorf("%s: codex wrongly gated", name)
 		}
 	}
@@ -265,7 +266,7 @@ func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 func TestPickAuthGateComesBeforeExhausted(t *testing.T) {
 	tb := testTable(t)
 	st := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0, ExhaustedUntil: now0.Add(time.Hour), Reason: "402"}}
-	r := pick(tb, "sonnet", "codex", st, FallbackAgents)
+	r := pick(tb, "sonnet", "codex", st, route.FallbackAgents)
 	for _, s := range r.Skipped {
 		if s.Agent == "codex" && s.Gate != GateAuth {
 			t.Fatalf("codex skipped at %q, want the auth gate first: %+v", s.Gate, s)
@@ -323,7 +324,7 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 func TestPickGatesDispatchAccountOnRouterProviderMark(t *testing.T) {
 	tb := testTable(t)
 	st := State{ProviderAccount("chatgpt"): {AuthReason: "auth rejected: run `claude-code databricks login --profile chatgpt`", AuthAt: now0}}
-	r := pick(tb, "sonnet", "codex", st, FallbackAgents)
+	r := pick(tb, "sonnet", "codex", st, route.FallbackAgents)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("openai·chatgpt picked despite databricks·chatgpt mark: %s", runners(r))
 	}

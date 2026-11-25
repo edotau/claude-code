@@ -172,7 +172,7 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	if err != nil {
 		return r, choice, err
 	}
-	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone && need.mode == autoOff, now)
+	r, err = checkRouteServed(reg, r, q.Fallback == route.FallbackNone && need.mode == autoOff, now)
 	return noListingNote(reg, r, cmp.Or(q.Model, q.PinModel), need.mode == autoOff, now), choice, err
 }
 

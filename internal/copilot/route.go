@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -40,14 +41,14 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 		return providers.Target{}, "", fmt.Errorf("copilot: %s; GitHub hop refused inside databricks:%s", detail, arm)
 	}
 	mode = cmp.Or(mode, fallbackMode(ctx))
-	if explicit && mode == router.FallbackNone {
+	if explicit && mode == route.FallbackNone {
 		return providers.Target{}, "", fmt.Errorf("copilot: %s; the %s account was named explicitly", detail, t.Provider.Name)
 	}
 	if pt, ok := pinHop(reg, t); explicit && ok {
 		if got, _, err := copilotGate(ctx, reg, pt, false, mode); err == nil && got.Provider == pt.Provider {
 			return pt, fmt.Sprintf("copilot: %s; %s has no credits, using pin %s", detail, t.Provider.Name, pt.Provider.Name), nil
 		}
-		if mode == router.FallbackPin {
+		if mode == route.FallbackPin {
 			return providers.Target{}, "", fmt.Errorf("copilot: %s; neither %s nor the pin %s can run", detail, t.Provider.Name, pt.Provider.Name)
 		}
 	}
@@ -627,4 +628,9 @@ func cachedEffortModels() []SDKModel {
 		return nil
 	}
 	return snap.Models
+}
+
+// armedBYOK is a route-less, login-free hop on routed BYOK: inside a databricks arm, or a Databricks row on macOS.
+func armedBYOK(ctx context.Context, rt *copilotRegistryRoute, t providers.Target) bool {
+	return rt == nil && t.Provider.Auth.Login == "" && (router.ArmProfileContext(ctx) != "" || macOSDatabricks(t))
 }

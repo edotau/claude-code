@@ -27,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -719,7 +720,7 @@ func TestClientRouteCarriesLeadToThePick(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
 	c := NewClient(router.RuleClassifier{}.Alias, nil, nil)
-	chain, err := c.route(t.Context(), nil, RunOptions{Agent: "codex", Prompt: "x", Lead: "no-such-row", Fallback: router.FallbackAll})
+	chain, err := c.route(t.Context(), nil, RunOptions{Agent: "codex", Prompt: "x", Lead: "no-such-row", Fallback: route.FallbackAll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +763,7 @@ func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
 	var notes []string
 	client := NewClient(router.RuleClassifier{}.Alias, nil, func(s string) { notes = append(notes, s) })
 	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
-		Fallback: router.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
+		Fallback: route.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}
@@ -934,8 +935,8 @@ func TestRunDirectAuthFailureNamesRoutedDefault(t *testing.T) {
 // withDefaults reads AGENT_ERROR_FALLBACK as a mode: 1 is all, a mode is itself, unset is none, junk is refused.
 func TestWithDefaultsFallbackFromEnv(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{
-		{"", router.FallbackNone}, {"1", router.FallbackAll}, {"yes", router.FallbackAll}, {"none", router.FallbackNone},
-		{"pin", router.FallbackPin}, {"agents", router.FallbackAgents}, {"all", router.FallbackAll}, {"maybe", ""},
+		{"", route.FallbackNone}, {"1", route.FallbackAll}, {"yes", route.FallbackAll}, {"none", route.FallbackNone},
+		{"pin", route.FallbackPin}, {"agents", route.FallbackAgents}, {"all", route.FallbackAll}, {"maybe", ""},
 	} {
 		t.Run(tc.env, func(t *testing.T) {
 			hermetic(t, "")
@@ -1039,7 +1040,7 @@ func TestPrepareResolvesModelWordForResolverDriver(t *testing.T) {
 		registryMu.Unlock()
 		client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
 		p, err := client.Prepare(context.Background(), RunOptions{Agent: tc.agent, Prompt: "p", Model: "gpt", Host: tc.host,
-			Fallback: router.FallbackNone}, nil)
+			Fallback: route.FallbackNone}, nil)
 		registryMu.Lock()
 		drivers["copilot"] = orig
 		registryMu.Unlock()

@@ -18,7 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -81,7 +81,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("remote ask: %w", err)
 	}
-	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
+	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, route.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	w = appendOpt(w, "--model", req.Model)
 	w = appendOpt(w, "--profile", req.Provider)

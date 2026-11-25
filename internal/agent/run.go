@@ -195,7 +195,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
-		o.Fallback = router.FallbackNone
+		o.Fallback = route.FallbackNone
 	}
 	o = foldAuto(o)
 	if err := c.resolve(&o); err != nil {

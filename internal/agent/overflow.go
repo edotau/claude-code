@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -106,7 +107,7 @@ func planOverflow(disp Dispatch, lreq RunOptions, res wire.Result, ran string, e
 	switch {
 	case len(cands) == 0:
 		plan.refusal = fmt.Sprintf("no model with a larger window than %s (%d tokens) is available", ran, from)
-	case lreq.ModelTyped || lreq.Fallback == router.FallbackNone || lreq.Fallback == router.FallbackPin:
+	case lreq.ModelTyped || lreq.Fallback == route.FallbackNone || lreq.Fallback == route.FallbackPin:
 		plan.refusal = fmt.Sprintf("%s (%d tokens) is kept, not replaced; larger windows: %s", ran, from, nearest(cands))
 	default:
 		pick := cands[0]

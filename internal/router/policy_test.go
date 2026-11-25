@@ -22,10 +22,10 @@ func TestPolicy(t *testing.T) {
 // Every persisted mode preserves both its spelling and the independent hop permissions.
 func testPolicyModes(t *testing.T) {
 	want := map[string]Policy{
-		FallbackNone:   {Kind: PolicyNone},
-		FallbackPin:    {Kind: PolicyAnyInFence},
-		FallbackAgents: {Kind: PolicyAnyInFence, Agents: true},
-		FallbackAll:    {Kind: PolicyAnyInFence, Agents: true, OffArm: true},
+		route.FallbackNone:   {Kind: PolicyNone},
+		route.FallbackPin:    {Kind: PolicyAnyInFence},
+		route.FallbackAgents: {Kind: PolicyAnyInFence, Agents: true},
+		route.FallbackAll:    {Kind: PolicyAnyInFence, Agents: true, OffArm: true},
 	}
 	for _, mode := range route.FallbackModes {
 		t.Run(mode, func(t *testing.T) {
@@ -39,15 +39,15 @@ func testPolicyModes(t *testing.T) {
 			}
 		})
 	}
-	if got := (Policy{Kind: PolicySameWorkspace}).Mode(); got != FallbackPin {
+	if got := (Policy{Kind: PolicySameWorkspace}).Mode(); got != route.FallbackPin {
 		t.Errorf("SameWorkspace Mode() = %q, want pin", got)
 	}
 }
 
 func testPolicyAliases(t *testing.T) {
 	for raw, mode := range map[string]string{
-		"": FallbackNone, " \t": FallbackNone, "1": FallbackAll,
-		"true": FallbackAll, "yes": FallbackAll, " ALL ": FallbackAll, " Pin ": FallbackPin,
+		"": route.FallbackNone, " \t": route.FallbackNone, "1": route.FallbackAll,
+		"true": route.FallbackAll, "yes": route.FallbackAll, " ALL ": route.FallbackAll, " Pin ": route.FallbackPin,
 	} {
 		p, err := PolicyOf(raw, PolicyTyped)
 		want, _ := PolicyOf(mode, PolicyTyped)

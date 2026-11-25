@@ -19,21 +19,19 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
 	o := memoryRunOptions(context.Background(), "p", "/w")
-	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
+	if o.Fallback != route.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
 		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
 	}
-	if o.Runner != agentconfig.RunnerOwn {
+	if o.Runner != route.RunnerOwn {
 		t.Fatalf("Runner = %q, want own so Pi never leads a memory job", o.Runner)
 	}
 }
@@ -42,7 +40,7 @@ func TestMemoryHopOptionsAgreeOnTarget(t *testing.T) {
 	base := memoryRunOptions(context.Background(), "p", "/w")
 	base.Lead, base.Account = "dev", "acct"
 	o := hopOptions(base, route.Route{Provider: "databricks", Profile: "qa"})
-	if o.Provider != "databricks:qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != agentconfig.RunnerOwn {
+	if o.Provider != "databricks:qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != route.RunnerOwn {
 		t.Fatalf("hopOptions = %+v, want one qa target with the own runner", o)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -24,7 +25,7 @@ func TestRouteChainWarnsWhenRegistryFailsToLoad(t *testing.T) {
 	}
 	old := os.Stderr
 	os.Stderr = w
-	_, _, rerr := RouteChainFor(context.Background(), "claude", "", "sonnet", router.FallbackAll, false,
+	_, _, rerr := RouteChainFor(context.Background(), "claude", "", "sonnet", route.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured})
 	os.Stderr = old
 	w.Close()
@@ -40,7 +41,7 @@ func TestRouteChainWarnsWhenRegistryFailsToLoad(t *testing.T) {
 // Every dispatch the router builds carries the 1-based rung of the pick candidate it came from.
 func TestRouteChainStampsRungOnEveryDispatch(t *testing.T) {
 	vaulttest.Use(t)
-	chain, pick, err := RouteChainFor(context.Background(), "claude", "", "sonnet", router.FallbackAll, false,
+	chain, pick, err := RouteChainFor(context.Background(), "claude", "", "sonnet", route.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured})
 	if err != nil {
 		t.Fatal(err)

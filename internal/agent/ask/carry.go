@@ -25,7 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -306,8 +306,7 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 		return agent.ModelRoute{}, fmt.Errorf("parse inner ask: exit %d", code)
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		mode, _ := router.FallbackSetting(ctx, "")
-		f.fallback = router.ParseFallback(mode)
+		f.fallback = envFallback(ctx)
 	}
 	f.dryRun = true
 	peek := withValues(agent.PeekContext(ctx), proc.Values{proc.DispatchIDEnv: rec.ID}) // the child's ancestry: it is carried
@@ -409,7 +408,7 @@ func takeoverDecision(child agent.Record, found bool, policy string, modelTyped 
 	if !found || !child.CutOff() && child.Status != wire.StatusPartial && child.Status != wire.StatusStalled {
 		return false, ""
 	}
-	if policy == router.FallbackNone && modelTyped {
+	if policy == route.FallbackNone && modelTyped {
 		return false, fmt.Sprintf("%s was cut off (%s); no Pi takeover: --fallback none with a typed model", child.ID, cmp.Or(child.Cutoff, child.Status))
 	}
 	return true, ""

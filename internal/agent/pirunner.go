@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
@@ -303,7 +304,7 @@ func withPiClaudeHop(ctx context.Context, q RouteReq, c Chain) Chain {
 	if mode == "" || err != nil || !ownDatabricksHop(reg, q, lead) {
 		return c
 	}
-	if mode == router.FallbackPin { // pin stays on its workspace: drop any other pi hop
+	if mode == route.FallbackPin { // pin stays on its workspace: drop any other pi hop
 		c.Dispatches = slices.DeleteFunc(slices.Clone(c.Dispatches), func(d Dispatch) bool {
 			return d.Agent.Name() == lead.Agent.Name() && d.Account != lead.Account
 		})

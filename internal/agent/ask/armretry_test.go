@@ -300,9 +300,9 @@ func TestAutoRateLimitStreamJSONEmitsOneResult(t *testing.T) {
 func TestJobRetryKeepsOneRecord(t *testing.T) {
 	armRateFixture(t, []string{"dev"}, nil)
 	cl := newClient()
-	a := &armRetry{agentName: "codex", fallback: router.FallbackNone, format: helptext.Text, out: &bytes.Buffer{}, job: true,
+	a := &armRetry{agentName: "codex", fallback: route.FallbackNone, format: helptext.Text, out: &bytes.Buffer{}, job: true,
 		tried: []string{"dev"}}
-	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: route.FallbackNone, AutoArm: true}
 	p, err := a.prepare(t.Context(), cl, req, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -345,9 +345,9 @@ func (w *failFirstWrite) Write(b []byte) (int, error) {
 func TestJobRetryAnswerWriteFailureExitsWithRecord(t *testing.T) {
 	armRateFixture(t, []string{"dev"}, nil)
 	cl := newClient()
-	a := &armRetry{agentName: "codex", fallback: router.FallbackNone, format: helptext.Text, out: &failFirstWrite{}, job: true,
+	a := &armRetry{agentName: "codex", fallback: route.FallbackNone, format: helptext.Text, out: &failFirstWrite{}, job: true,
 		tried: []string{"dev"}}
-	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: route.FallbackNone, AutoArm: true}
 	p, err := a.prepare(t.Context(), cl, req, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -540,8 +540,8 @@ func TestArmRetryKeepsTypedModel(t *testing.T) {
 func TestCheckArmClampsFallbackForTypedModel(t *testing.T) {
 	retryUnit(t, func(t *testing.T) {
 		armFindings = servesOnly("dev", "qa")
-		t.Setenv(router.EnvFallback, router.FallbackAll)
-		for model, want := range map[string]string{"kimi-k3-1-pro": router.FallbackNone, "opus": router.FallbackAll} {
+		t.Setenv(router.EnvFallback, route.FallbackAll)
+		for model, want := range map[string]string{"kimi-k3-1-pro": route.FallbackNone, "opus": route.FallbackAll} {
 			fs, f := askFlagSet()
 			if err := fs.Parse([]string{"--provider", "databricks", "--model", model}); err != nil {
 				t.Fatal(err)
@@ -601,10 +601,10 @@ func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
 	armChildEnvFixture(t)
 	pathstest.FakeVendor(t, "pi", "exit 0")
 	t.Setenv(router.EnvFallback, "")
-	rec := agent.NewRecord("claude", agent.RunOptions{Model: "claude-sonnet-5-5", Fallback: router.FallbackNone,
+	rec := agent.NewRecord("claude", agent.RunOptions{Model: "claude-sonnet-5-5", Fallback: route.FallbackNone,
 		FallbackDefaulted: true, AutoArm: true, Prompt: "reply ok"}, time.Now())
 	rec.Route = route.Route{Provider: "databricks", Profile: "dev"}
-	rec.FallbackPolicy = router.FallbackNone
+	rec.FallbackPolicy = route.FallbackNone
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

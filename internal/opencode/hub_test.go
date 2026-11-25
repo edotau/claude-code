@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -512,9 +512,9 @@ func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 
 func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 	t.Helper()
-	client := agent.NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	client := agent.NewClient(nil, nil, nil)
 	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "test prompt",
-		Fallback: router.FallbackAgents, WorkDir: workdir}, nil)
+		Fallback: route.FallbackAgents, WorkDir: workdir}, nil)
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}
