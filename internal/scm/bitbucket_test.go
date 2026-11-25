@@ -212,3 +212,13 @@ func TestRedirectRefusedOffHostKeptOnSameHost(t *testing.T) {
 		t.Errorf("Authorization after a same-host redirect = %q; want it kept", gotSame)
 	}
 }
+
+func TestDiffOverLimitBodyIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(make([]byte, maxBodyBytes+1))
+	}))
+	defer srv.Close()
+	if _, err := NewBitbucket(srv.URL, "P", "r", "TOKEN").Diff(context.Background(), "1"); err == nil {
+		t.Fatal("over-limit body returned as success")
+	}
+}

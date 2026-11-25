@@ -77,14 +77,34 @@ func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Value
 		return nil, fmt.Errorf("bitbucket %s %s: %s", method, path, h.redact(err.Error()))
 	}
 	defer resp.Body.Close()
-	data, rerr := io.ReadAll(resp.Body)
+	data, rerr := readCapped(resp.Body)
 	if err := statusErr(method, path, resp.StatusCode); err != nil {
 		return nil, err
 	}
 	if rerr != nil {
-		return nil, fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, h.redact(rerr.Error()))
+		return nil, bodyErr(method, path, h.redact(rerr.Error()), rerr)
 	}
 	return data, nil
+}
+
+// bodyErr names the cap and keeps httpx.ErrTooLarge matchable; any other read error stays redacted text.
+func bodyErr(method, path, msg string, cause error) error {
+	if errors.Is(cause, httpx.ErrTooLarge) {
+		return fmt.Errorf("bitbucket %s %s: body over %d MiB: %w", method, path, maxBodyBytes>>20, httpx.ErrTooLarge)
+	}
+	return fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, msg)
+}
+
+// maxBodyBytes caps a Bitbucket response body; a longer one is an error, never a truncation.
+const maxBodyBytes = 32 << 20
+
+// readCapped reads at most maxBodyBytes; a longer body is httpx.ErrTooLarge.
+func readCapped(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBodyBytes+1))
+	if err == nil && len(data) > maxBodyBytes {
+		err = httpx.ErrTooLarge
+	}
+	return data, err
 }
 
 func statusErr(method, path string, code int) error {
