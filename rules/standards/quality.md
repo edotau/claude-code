@@ -18,6 +18,13 @@ hardcoded values, secrets or leftover debug prints. Enforced on new Go lines by 
 simplify --fail`), which also advises on retired words in added Go JSON tags and flag names without failing;
 trim comments first.
 
+**What the caps are for (owner, 2026-11-25):** they push toward reusable, stable code: write a function once,
+stress-test it, then reuse it with minimal further tests. They are not there to limit complexity or file size for its
+own sake, and a cap is never met by adding files, splitting a file, or wrapping code in thin helpers. Code near a cap is
+a signal to look for what already does the job: fold duplicates, extend the closest existing function, delete what the
+reuse makes dead. A new file needs a distinct role; a change reports its file count and net lines, and subtracts where
+it can (less code, fewer tests, a smaller test bottleneck).
+
 ## Comments
 
 **1 line MAX, ≤120 chars, per section**, any language, code comments and docstrings alike. Exempt: provenance/audit
