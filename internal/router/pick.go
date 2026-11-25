@@ -62,7 +62,7 @@ type PickResult struct {
 
 // PickOpts tunes a pick; nil funcs take the defaults (no presence check, no refresh, time.Now).
 type PickOpts struct {
-	Fallback   string
+	Policy     Policy
 	Configured func(agent string, c Cell) error
 	// Account resolves the backend an agent actually uses ("" keeps the table's account key) and its billing type.
 	Account func(agent string, c Cell) (account, billing string)
@@ -295,8 +295,8 @@ func OffOrder(label, want string) bool {
 }
 
 // ClaudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
-func ClaudeBackstop(cands []Candidate, req int, mode string) int {
-	if mode != FallbackAll && mode != "" {
+func ClaudeBackstop(cands []Candidate, req int, p Policy) int {
+	if !p.Agents || !p.OffArm {
 		return -1
 	}
 	last := -1
@@ -536,9 +536,9 @@ func gateOthers(want string, gate func(string) []Candidate) (rest [][]Candidate)
 	return rest
 }
 
-// claudeLast gates claude as the final fallback under FallbackAll (or the unset default).
+// claudeLast gates claude as the final agent fallback.
 func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
-	if o.Fallback != FallbackAll && o.Fallback != "" {
+	if !o.Policy.Agents || !o.Policy.OffArm {
 		return nil
 	}
 	if cs := gate("claude"); len(cs) > 0 {
@@ -655,7 +655,7 @@ var FallbackModes = []string{FallbackNone, FallbackPin, FallbackAgents, Fallback
 const EnvFallback = "AGENT_ERROR_FALLBACK"
 
 // oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).
-func (o PickOpts) oneHop() bool { return o.Fallback == FallbackNone || o.Fallback == FallbackPin }
+func (o PickOpts) oneHop() bool { return o.Policy.Kind == PolicyNone || !o.Policy.Agents }
 
 // ParseFallback reads a stored mode: empty is none, 1/true/yes is all; any other value is returned for validation.
 func ParseFallback(raw string) string {

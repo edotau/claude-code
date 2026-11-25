@@ -539,7 +539,7 @@ func TestSessionProfileAgentsCopilotProfile(t *testing.T) {
 	s := newSessFix(t)
 	vaulttest.SetRecord(t, "copilot", "profile", sessProfile)
 	only := s.opts
-	only.Fallback = router.FallbackNone
+	only.Policy = router.Policy{Kind: router.PolicyNone}
 	r := s.pickAgent(t, "copilot", s.st, only)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("copilot profile = %+v", r)
@@ -553,7 +553,7 @@ func TestSessionProfileAgentsCopilotModel(t *testing.T) {
 	cell.Account, cell.Model = s.dbx, s.p.WireModel(s.p.Models["sonnet"])
 	s.tb.Rows["copilot"]["sonnet"] = cell
 	only := s.opts
-	only.Fallback = router.FallbackNone
+	only.Policy = router.Policy{Kind: router.PolicyNone}
 	if r := s.pickAgent(t, "copilot", s.st, only); len(r.Candidates) != 1 || r.Candidates[0].Cell != cell {
 		t.Errorf("copilot profile model = %+v, want %+v", r, cell)
 	}

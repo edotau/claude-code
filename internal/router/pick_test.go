@@ -150,7 +150,10 @@ func TestStatusThresholds(t *testing.T) {
 }
 
 func pick(tb *RouteTable, alias, want string, st State, mode string) PickResult {
-	return tb.Pick(context.Background(), alias, want, st, PickOpts{Fallback: mode, Configured: allConfigured, Now: func() time.Time { return now0 }})
+	if mode == "" {
+		mode = FallbackAll
+	} // legacy pick helper explicitly requests the full ladder
+	return tb.Pick(context.Background(), alias, want, st, PickOpts{Policy: testPolicy(mode), Configured: allConfigured, Now: func() time.Time { return now0 }})
 }
 
 // pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
@@ -159,7 +162,7 @@ func pickRepo(tb *RouteTable, alias string, st State, work bool) PickResult {
 		// defaults.json order; LoadFrom(nil) has none
 		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
 	}
-	return tb.Pick(context.Background(), alias, "", st, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	return tb.Pick(context.Background(), alias, "", st, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
 }
 
@@ -351,7 +354,7 @@ func TestPickBacksOffAfterNoDataRefresh(t *testing.T) {
 	at := now0
 	var mu sync.Mutex
 	var calls []string
-	o := PickOpts{Fallback: FallbackAgents, Configured: allConfigured, Now: func() time.Time { return at },
+	o := PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured, Now: func() time.Time { return at },
 		WorkRepo: func() bool { return false },
 		Refresh: func(_ context.Context, account string) bool {
 			mu.Lock()
@@ -391,7 +394,7 @@ func TestPickRefreshesEachAccountOnce(t *testing.T) {
 	tb := testTable(t)
 	var mu sync.Mutex
 	seen := map[string]int{}
-	tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
 		Refresh: func(_ context.Context, account string) bool {
 			mu.Lock()
@@ -411,7 +414,7 @@ func TestPickRefreshesEachAccountOnce(t *testing.T) {
 
 func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 	tb := testTable(t)
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Off: true}}})
 	if !slices.Contains(r.Skipped, Skip{"codex", GateOff, "deactivated (no profile set)"}) {
 		t.Errorf("skips = %+v, want codex deactivated (no profile set)", r.Skipped)
@@ -435,7 +438,7 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 		t.Errorf("fallback none = %+v, want claude on databricks·dev only", c)
 	}
 	calls := map[string]int{}
-	(&RouteTable{}).gatherCandidates(context.Background(), "claude", PickOpts{Fallback: FallbackAll}, func(a string) []Candidate {
+	(&RouteTable{}).gatherCandidates(context.Background(), "claude", PickOpts{Policy: testPolicy(FallbackAll)}, func(a string) []Candidate {
 		calls[a]++
 		return nil
 	})
@@ -668,7 +671,7 @@ func denyOpencode(agent string, _ Cell) error {
 func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: denyOpencode,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: denyOpencode,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(opencodeCands(r)) != 0 {
 		t.Fatalf("opencode must be skipped entirely, got %s", runners(r))
@@ -709,7 +712,7 @@ func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
 	// overlay: copilot ahead of Go
 	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)
 	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" {
@@ -758,4 +761,13 @@ func BenchmarkPick(b *testing.B) {
 	for b.Loop() {
 		pickRepo(tb, "sonnet", st, true)
 	}
+}
+
+// testPolicy maps a persisted fallback mode to its typed routing rule.
+func testPolicy(mode string) Policy {
+	p, err := PolicyOf(mode, PolicyEnv)
+	if err != nil {
+		panic(err)
+	}
+	return p
 }

@@ -219,7 +219,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	c := Chain{Want: want}
 	if nativeLead {
 		c.Dispatches = append(c.Dispatches, Dispatch{Agent: newCLIEngine("opencode"), keepCaller: true, unroutedDispatch: true})
-		if mode == router.FallbackNone {
+		if o.Policy.Kind == router.PolicyNone {
 			return c, pick, nil
 		}
 	}
@@ -228,7 +228,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	family := providers.FamilyName(callerModel)
 	rc := routeCtx{ctx: ctx, tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, alias: alias, dispatchID: router.NonClaudeDispatchID(cmp.Or(exact, providers.FamilyDefaults[family]), explicitModel, pins[want].Model),
-		family: family, explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
+		family: family, explicitModel: explicitModel, native: native, policy: o.Policy, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
@@ -246,7 +246,7 @@ func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Cha
 	if len(models.AcceptedEfforts(agentid.Gemini, id)) == 0 { // agy serves no Claude for this alias
 		return c
 	}
-	o.Lead, o.Pins, o.Fallback = "", nil, router.FallbackNone
+	o.Lead, o.Pins, o.Policy = "", nil, router.Policy{Kind: router.PolicyNone}
 	cands := rc.tb.Pick(rc.ctx, alias, agentid.Gemini, loadState(), o).Candidates
 	i := slices.IndexFunc(cands, func(k router.Candidate) bool { return k.Agent == agentid.Gemini && k.Profile == "" })
 	if i < 0 {
@@ -267,7 +267,7 @@ func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Cha
 
 // noOverflow reports a dispatch the agy overflow must not extend: not claude, one-hop, typed, or a kept-out Google row.
 func noOverflow(rc routeCtx) bool {
-	return !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
+	return !VaultAgentIsClaude(rc.want) || rc.policy.Kind == router.PolicyNone || !rc.policy.Agents || rc.exact != "" ||
 		(rc.row != "" && rc.row != rc.current) || googleDropped(rc)
 }
 
@@ -346,7 +346,18 @@ func loadRegistryWarn() *providers.Registry {
 
 // routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins.
 func routePickOpts(ctx context.Context, o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
-	o.Fallback = mode
+	if plan, ok := PlanOf(ctx); ok {
+		o.Policy = plan.Fallback
+		if mode == router.FallbackNone {
+			o.Policy = router.Policy{Kind: router.PolicyNone, Source: plan.Fallback.Source}
+		}
+	} else {
+		var err error
+		o.Policy, err = router.PolicyOf(mode, router.PolicyTyped)
+		if err != nil {
+			return o, nil, err
+		}
+	}
 	if _, ok := proc.ValuesFromContext(ctx); ok && o.Account == nil {
 		o.Account = func(name string, cell router.Cell) (string, string) { return resolveAccountContext(ctx, name, cell) }
 	}
@@ -388,13 +399,13 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	if req >= 0 {
 		out = append(out, step{i: req, rc: rc})
 	}
-	if pin >= 0 && !VaultAgentIsClaude(rc.want) && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
+	if pin >= 0 && !VaultAgentIsClaude(rc.want) && rc.policy.Kind != router.PolicyNone && (pin != req || rc.explicitModel) {
 		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
 	}
 	if fb := rc.recordFallbackIndex(cands); fb >= 0 && fb != req && fb != pin {
 		out = append(out, step{i: fb, rc: rc.asPin(), pin: true})
 	}
-	if last := router.ClaudeBackstop(cands, req, rc.mode); last >= 0 {
+	if last := router.ClaudeBackstop(cands, req, rc.policy); last >= 0 {
 		out = append(out, step{i: last, rc: rc})
 	}
 	return out, req
@@ -403,7 +414,7 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 // recordFallbackIndex is the wanted agent's candidate on its record's fallback profile (after the pin); -1 = none.
 func (rc routeCtx) recordFallbackIndex(cands []router.Candidate) int {
 	fb := vault.GetAgentRecord(rc.want).EffectiveFallbackRoute().Profile
-	if fb == "" || rc.mode == router.FallbackNone || VaultAgentIsClaude(rc.want) {
+	if fb == "" || rc.policy.Kind == router.PolicyNone || VaultAgentIsClaude(rc.want) {
 		return -1
 	}
 	return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == rc.want && c.Profile == fb })
@@ -767,7 +778,7 @@ type routeCtx struct {
 	current, dispatchID, alias    string
 	family                        string // the caller's typed family name; forFamily makes it each candidate's id
 	explicitModel, native         bool
-	mode                          string     // --fallback: all = requested, pin, claude; agents = no claude
+	policy                        router.Policy
 	pf                            *Preflight // findings and notes the candidate checks add
 }
 

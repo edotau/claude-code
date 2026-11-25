@@ -408,7 +408,7 @@ func (t *RouteTable) gateRecordFallback(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	fb := spec.Fallback
-	if agent == "claude" || len(group) > 0 || fb == "" || fb == spec.Profile || o.Fallback == FallbackNone || o.Fallback == "" {
+	if agent == "claude" || len(group) > 0 || fb == "" || fb == spec.Profile || o.Policy.Kind == PolicyNone || o.Policy.Kind == 0 {
 		return nil
 	}
 	return t.gatePinned(ctx, pg.reg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res)

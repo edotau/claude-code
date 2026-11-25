@@ -107,7 +107,7 @@ func vendorPick(t *testing.T, want string, pinned bool, st State, lead string) P
 	t.Setenv("CLAUDE_PROFILE", "dev")
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	o := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
+	o := PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead}
 	if pinned {
 		o.Pins = map[string]PinSpec{"codex": {Profile: "dev"}, "copilot": {Profile: "dev"}}
 	}
@@ -175,7 +175,7 @@ func leadPick(t *testing.T, want, lead string) PickResult {
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
-		Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead})
+		Policy: testPolicy(FallbackAll), Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead})
 }
 
 func TestPickLeadPutsWantedAgentOnLeadProfileFirst(t *testing.T) {
@@ -374,7 +374,7 @@ func TestPickPinnedVendorOffersEveryLoginRow(t *testing.T) {
 		`"auth":{"type":"cli","login":"copilot"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", rows)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"copilot": {Profile: "dev"}}})
 	got := accountsOf(r, "copilot")
 	if !slices.Contains(got, "github·copilot") || !slices.Contains(got, "github·zz-second") {
@@ -397,7 +397,7 @@ func workspacePick(t *testing.T, want, lead, pin, fb string) []string {
 		vaulttest.Secret(t, "DATABRICKS_"+n+"_PAT", "dapi-test")
 	}
 	r := tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
-		Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead, Fallback: fb,
+		Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead, Policy: testPolicy(fb),
 		Pins: map[string]PinSpec{want: {Profile: pin}}})
 	var accts []string
 	for _, c := range r.Candidates {
@@ -444,7 +444,7 @@ func TestPickRecordFallbackRunsWithoutPin(t *testing.T) {
 		}
 		return nil
 	}
-	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: noOwnLogin, Fallback: FallbackAll,
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: noOwnLogin, Policy: testPolicy(FallbackAll),
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Fallback: "qa"}}})
 	if got := accountsOf(r, "codex"); !slices.Contains(got, "databricks·qa") {
 		t.Fatalf("codex accounts = %v, want the record fallback databricks·qa (skipped %+v)", got, r.Skipped)
@@ -461,7 +461,7 @@ func BenchmarkDatabricksPick(b *testing.B) {
 		b.Fatal(err)
 	}
 	o := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 },
-		Fallback: FallbackAll, WorkRepo: func() bool { return true }}
+		Policy: testPolicy(FallbackAll), WorkRepo: func() bool { return true }}
 	b.ReportAllocs()
 	for b.Loop() {
 		tb.Pick(context.Background(), "sonnet", "codex", nil, o)

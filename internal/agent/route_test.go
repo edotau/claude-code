@@ -747,7 +747,7 @@ func rungDispatches(ctx context.Context, reg *providers.Registry) []string {
 	if err != nil {
 		return chainModels(Chain{}, err)
 	}
-	pick := tb.Pick(ctx, "opus", "", loadState(), router.PickOpts{Fallback: router.FallbackAll, Configured: allConfigured})
+	pick := tb.Pick(ctx, "opus", "", loadState(), router.PickOpts{Policy: router.Policy{Kind: router.PolicyAnyInFence, Agents: true, OffArm: true}, Configured: allConfigured})
 	rc, out := routeCtx{ctx: ctx, tb: tb, reg: reg, want: "copilot"}, []string(nil)
 	for _, c := range pick.Candidates {
 		if providers.IsFamily(c.Model) {

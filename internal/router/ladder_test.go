@@ -26,7 +26,7 @@ func TestPickFollowsLadder(t *testing.T) {
 	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}}
 	pickAt := func(route string) PickResult {
 		confine(t, route)
-		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 			Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	}
 	order := func(r PickResult) []string {
@@ -58,7 +58,7 @@ func TestRungKeepsOpusTierGPT(t *testing.T) {
 		t.Fatal(err)
 	}
 	confine(t, "github")
-	got := tb.Pick(context.Background(), "opus", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+	got := tb.Pick(context.Background(), "opus", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	var models []string
 	for _, c := range got.Candidates {
@@ -77,7 +77,7 @@ func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
 		t.Fatal(err)
 	}
 	confine(t, "")
-	got := tb.Pick(context.Background(), "haiku", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+	got := tb.Pick(context.Background(), "haiku", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	for _, c := range got.Candidates {
 		if c.Agent == "copilot" && c.Model != "claude-haiku-5.5" {
@@ -94,7 +94,7 @@ func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
 func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 	tb := testTable(t)
 	confine(t, "")
-	opts := PickOpts{Fallback: FallbackNone, Configured: allConfigured,
+	opts := PickOpts{Policy: testPolicy(FallbackNone), Configured: allConfigured,
 		Now:     func() time.Time { return now0 },
 		Account: func(string, Cell) (string, string) { return "databricks·dev", BillCredits }}
 	baseline := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
@@ -114,7 +114,7 @@ func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
 	tb := testTable(t)
 	confine(t, "")
-	opts := PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	opts := PickOpts{Policy: testPolicy(FallbackAgents), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
 	baseline := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
 	isCodex := func(c Candidate) bool { return c.Agent == "codex" }
@@ -147,7 +147,7 @@ func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 	}
 	tb.Ladders = nil
 	confine(t, "anthropic:ultra")
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(FallbackAll), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(r.Candidates) != 1 || r.Candidates[0].Account != "anthropic·ultra" {
 		t.Errorf("candidates = %+v, want only anthropic·ultra with no ladder", r.Candidates)
@@ -183,7 +183,7 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 		t.Fatal(err)
 	}
 	confine(t, "databricks:dev")
-	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{Fallback: fallback, Configured: allConfigured,
+	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{Policy: testPolicy(fallback), Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
 		Pins: map[string]PinSpec{"codex": {Profile: "openai"}, "copilot": {Profile: "qa"}}})
 }
@@ -288,7 +288,7 @@ func chainOf(t *testing.T, q ChainReq) []string {
 	for _, h := range tb.Chain(reg, q) {
 		out = append(out, h.Agent+" "+h.Account+" "+h.Model+map[bool]string{true: " OFF-ARM"}[h.OffArm])
 	}
-	t.Logf("%s %v", q.Fallback, out)
+	t.Logf("%s %v", q.Policy.Mode(), out)
 	return out
 }
 
@@ -299,15 +299,15 @@ func TestChainOrder(t *testing.T) {
 		return len(slices.DeleteFunc(slices.Clone(got), func(s string) bool { return !strings.HasSuffix(s, "OFF-ARM") }))
 	}
 	q := base
-	q.Fallback = FallbackAgents
+	q.Policy = testPolicy(FallbackAgents)
 	if got := chainOf(t, q); len(got) != 3 || off(got) != 0 || !strings.HasPrefix(got[1], "pi databricks·qa") || !strings.HasPrefix(got[2], "claude databricks·dev") {
 		t.Errorf("agents chain = %v, want pi dev, pi qa, claude dev", got)
 	}
-	q.Fallback = FallbackAll
+	q.Policy = testPolicy(FallbackAll)
 	if got := chainOf(t, q); off(got) != 0 {
 		t.Errorf("inherited all chain = %v, want no off-arm hop", got)
 	}
-	q.TypedAll = true
+	q.Policy = Policy{Kind: PolicyAnyInFence, Agents: true, OffArm: true, Source: PolicyTyped}
 	if got := chainOf(t, q); off(got) != 1 || !strings.HasSuffix(got[len(got)-1], "OFF-ARM") {
 		t.Errorf("all chain = %v, want one off-arm hop, last", got)
 	}
@@ -315,7 +315,7 @@ func TestChainOrder(t *testing.T) {
 	if got := chainOf(t, q); off(got) != 0 {
 		t.Errorf("typed-model all chain = %v, want no off-arm hop", got)
 	}
-	q.Fallback = FallbackNone
+	q.Policy = testPolicy(FallbackNone)
 	if got := chainOf(t, q); len(got) != 1 {
 		t.Errorf("none chain = %v, want one hop", got)
 	}

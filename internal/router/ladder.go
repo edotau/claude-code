@@ -470,13 +470,12 @@ func ArmProfileContext(ctx context.Context) string {
 
 // ChainReq is one pi runner chain: the head hop's agent, workspace and model, the ask's alias and typed fallback mode.
 type ChainReq struct {
-	Agent, Profile, Model, Alias, Fallback string
+	Agent, Profile, Model, Alias string
+	Policy                       Policy
 	// Asked is the agent whose own CLI hop 3 runs; empty is claude for a pi head, else the head's own agent
 	Asked string
 	// TypedModel: the model was named on the command line, so no hop leaves the arm
 	TypedModel bool
-	// TypedAll: --fallback all was named on the command line, not inherited from the env default
-	TypedAll bool
 }
 
 // ChainHop is one hop of a chain; OffArm marks the hop that leaves the Databricks arm, taken only under a typed all.
@@ -491,7 +490,7 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 		return ChainHop{agent, profile, accountIn(reg)(profile), model, off}
 	}
 	out := []ChainHop{hop(q.Agent, q.Profile, q.Model, false)}
-	if q.Fallback == FallbackNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
+	if q.Policy.Kind == PolicyNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
 		return out
 	}
 	if !agentid.Routing(q.Agent).NoWorkspaceFallback {
@@ -499,7 +498,7 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 			out = append(out, hop(q.Agent, ws, q.Model, false))
 		}
 	}
-	if q.Fallback == FallbackPin {
+	if !q.Policy.Agents {
 		return out
 	}
 	own := chainOwn(q)
@@ -511,7 +510,7 @@ func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
 
 // offArm is the own-login hops that leave the arm: only for a typed all with no typed model.
 func offArm(reg *providers.Registry, q ChainReq, own string) (out []ChainHop) {
-	if q.Fallback != FallbackAll || !q.TypedAll || q.TypedModel {
+	if !q.Policy.OffArm || !q.Policy.Typed() || q.TypedModel {
 		return nil
 	}
 	for _, row := range ownRows(reg, own) {
