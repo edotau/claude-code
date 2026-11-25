@@ -150,6 +150,28 @@ func TestH7MissingPathsSkipsPlaceholders(t *testing.T) {
 	}
 }
 
+// H7 skips another OS's home root (shared memory bank) but still checks this machine's own home.
+func TestH7ForeignHomePathsSkipped(t *testing.T) {
+	home := t.TempDir()
+	for _, tc := range []struct {
+		name, goos, path string
+		want             int
+	}{
+		{"darwin skips /home", "darwin", "/home/edotau/worktrees/x/gone.md", 0},
+		{"linux skips /Users", "linux", "/Users/edotau/gone.md", 0},
+		{"windows skips /home", "windows", "/home/edotau/gone.md", 0},
+		{"windows skips /Users", "windows", "/Users/edotau/gone.md", 0},
+		{"darwin own home checked", "darwin", home + "/gone.md", 1},
+		{"linux own home checked", "linux", home + "/gone.md", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := missingPathsOn("memory-start", "see `"+tc.path+"` now", tc.goos, home); len(got) != tc.want {
+				t.Fatalf("findings = %q, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // H7's projection check renders the source in a scratch dir: stale or empty live homes pass, a broken source fails.
 func TestH7ProjectionRendersFromSourceNotLiveHomes(t *testing.T) {
 	root := t.TempDir()
