@@ -767,9 +767,7 @@ func stableTopK(all []scoredHit, k int) []scoredHit {
 	c := append([]scoredHit(nil), all...)
 	sort.SliceStable(c, func(i, j int) bool { return c[i].cos > c[j].cos })
 	var out []scoredHit
-	for _, a := range c[:min(max(k, 0), len(c))] {
-		out = append(out, a)
-	}
+	out = append(out, c[:min(max(k, 0), len(c))]...)
 	return out
 }
 
