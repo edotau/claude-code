@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -369,15 +370,42 @@ type dryKey struct{}
 
 // dryDoc is what --dry-run prints.
 type dryDoc struct {
-	Agent     string              `json:"agent"`
-	Model     string              `json:"model"`
-	Route     string              `json:"route"`
-	Hops      []string            `json:"hops"`
-	Overlay   agentconfig.Overlay `json:"overlay"`
-	Argv      string              `json:"argv"`
-	Preflight []string            `json:"preflight,omitempty"`
-	Skipped   []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
-	Terms     []contract.Term     `json:"terms,omitempty"`
+	Agent      string              `json:"agent"`
+	Model      string              `json:"model"`
+	Route      string              `json:"route"`
+	Hops       []string            `json:"hops"`
+	Overlay    agentconfig.Overlay `json:"overlay"`
+	Argv       string              `json:"argv"`
+	Preflight  []string            `json:"preflight,omitempty"`
+	Skipped    []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
+	Terms      []contract.Term     `json:"terms,omitempty"`
+	Plan       dryPlan             `json:"plan"`
+	Divergence []string            `json:"divergence"` // plan vs chain, null when they agree
+}
+
+// dryPlan is the route plan with its fallback policy spelled out; the shallower field wins the JSON name.
+type dryPlan struct {
+	agent.RoutePlan
+	Fallback dryFallback `json:"fallback"`
+}
+
+type dryFallback struct {
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+}
+
+func policyKind(k router.PolicyKind) string {
+	switch k {
+	case router.PolicyNone:
+		return "none"
+	case router.PolicySameWorkspace:
+		return "same-workspace"
+	}
+	return "any-in-fence"
+}
+
+func policySource(s router.PolicySource) string {
+	return [...]string{router.PolicyDefault: "default", router.PolicyEnv: "env", router.PolicyOverlay: "overlay", router.PolicyTyped: "typed"}[s]
 }
 
 // dryRun fills base (overlay, argv) with what the run would do; it stops before any record, claim, spawn or model call.
@@ -389,6 +417,12 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	doc := base
 	doc.Agent, doc.Model, doc.Hops = o.Agent, o.Model, ch.Hops()
 	doc.Skipped = ch.Skipped
+	plan, err := agent.PlanRoute(ctx, req, agent.ParentRoute{Fence: route.Fence{Open: true}})
+	if err != nil {
+		return failAskCode(format, req.Agent, err, prepareExitCode(err))
+	}
+	doc.Plan = dryPlan{RoutePlan: plan, Fallback: dryFallback{Kind: policyKind(plan.Fallback.Kind), Source: policySource(plan.Fallback.Source)}}
+	doc.Divergence = agent.Divergence(plan, ch)
 	r, ok, err := dryRoute(ctx, o, req)
 	if err != nil {
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))

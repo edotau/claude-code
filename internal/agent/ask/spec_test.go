@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -226,5 +227,23 @@ func TestWavesRefusesOverlayHost(t *testing.T) {
 	t.Cleanup(func() { Waves = prev })
 	if _, _, _, _, code, done := parseAsk("", []string{"--waves", "plan.md", "--fresh", "--overlay", `{"host":"auto"}`}); code != 2 || !done {
 		t.Fatalf("code=%d done=%v, want 2 true", code, done)
+	}
+}
+
+func TestSpecDryRunPrintsPlan(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	spec := `{"agent":"claude","fallback":"none","prompt":"say ok"}`
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--spec", spec, "--dry-run", "--format", "json"}) })
+	var doc struct {
+		Plan struct {
+			Runners  []agent.Runner `json:"runners"`
+			Fallback struct{ Source string }
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != 0 || len(doc.Plan.Runners) == 0 || doc.Plan.Fallback.Source != "typed" {
+		t.Fatalf("exit = %d, want plan.runners and plan.fallback.source (err %v)\nout=%s\nstderr=%s", code, err, out, stderr)
 	}
 }
