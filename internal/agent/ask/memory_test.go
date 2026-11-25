@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -173,12 +176,78 @@ func checkJobClasses(t *testing.T, reg *providers.Registry) {
 		class, fx string
 	}{
 		{providers.ErrNeedsLogin, memory.JobClassAuth, "claude-code databricks login --profile dev"},
-		{fmt.Errorf("x: %w", agent.ErrTreeBudget), memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot + " (outside the spent dispatch tree, or after raising the cap)"},
+		{fmt.Errorf("x: %w", agent.ErrTreeBudget), memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot},
 		{errors.New("boom"), memory.JobClassFailed, ""},
 	} {
 		if c, fix := jobClass(reg, "dev", tc.err); c != tc.class || fix != tc.fx {
 			t.Fatalf("jobClass(%v) = %q %q, want %q %q", tc.err, c, fix, tc.class, tc.fx)
 		}
+	}
+}
+
+// The persisted command is usable verbatim; the recovery guidance is a separate log note.
+func TestMemoryBudgetReceiptCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv(memory.UpdateChildEnv, "1") // no background embedding refresh
+	const session = "2bc8f390-6f7a-4acd-8209-ab02de2d1f87"
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(transcript, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var note bytes.Buffer
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		err := fmt.Errorf("spent: %w", agent.ErrTreeBudget)
+		reportFailure(memory.WithJobOutput(ctx, &note), &providers.Registry{}, attempt{err: err})
+		return "claude", err
+	}
+	err := memory.UpdateSession(memory.UpdateSessionOptions{CWD: dir, Session: session, Transcript: transcript, Run: run, Out: io.Discard})
+	if !errors.Is(err, agent.ErrTreeBudget) {
+		t.Fatalf("update error = %v, want tree budget", err)
+	}
+	data, err := os.ReadFile(filepath.Join(paths.MemoryStateDir(), "update-results", "update-result-"+session))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "claude-code memory update --session " + session
+	var fix string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if value, ok := strings.CutPrefix(line, "fix="); ok {
+			fix = value
+		}
+	}
+	if fix != want {
+		t.Fatalf("persisted fix = %q, want %q", fix, want)
+	}
+	if !strings.Contains(note.String(), "retry outside the spent dispatch tree, or after raising the cap") {
+		t.Fatalf("budget note = %q", note.String())
+	}
+	checkBudgetFixCommand(t, dir, fix, session)
+}
+
+// Use a fake executable so the printed line can be run without touching a real store.
+func checkBudgetFixCommand(t *testing.T, dir, fix, session string) {
+	t.Helper()
+	name, script := "claude-code", "#!/bin/sh\nprintf '%s\\n' \"$@\"\n"
+	if runtime.GOOS == "windows" {
+		name, script = "claude-code.cmd", "@echo off\r\necho %1\r\necho %2\r\necho %3\r\necho %4\r\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// Use the system shell directly; do not rely on the optional ComSpec or PATHEXT settings.
+		shell := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+		cmd = exec.Command(shell, "/d", "/c", fix)
+	} else {
+		cmd = exec.Command("/bin/sh", "-c", fix)
+	}
+	cmd.Env = append(os.Environ(), "PATH="+dir, "PATHEXT=.CMD;.EXE")
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.ReplaceAll(string(out), "\r\n", "\n") != "memory\nupdate\n--session\n"+session+"\n" {
+		t.Fatalf("running fix: output %q, error %v", out, err)
 	}
 }
 

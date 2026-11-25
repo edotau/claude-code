@@ -171,7 +171,7 @@ func jobClass(reg *providers.Registry, profile string, err error) (class, fix st
 		}
 		return memory.JobClassAuth, "claude-code doctor"
 	case errors.Is(err, agent.ErrTreeBudget):
-		return memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot + " (outside the spent dispatch tree, or after raising the cap)"
+		return memory.JobClassBudget, "claude-code memory update --session " + memory.FixSessionSlot
 	case e != nil && (e.Kind == retry.KindQuota || e.Kind == retry.KindRateLimit):
 		return memory.JobClassQuota, ""
 	}
@@ -250,6 +250,9 @@ func hopOptions(opts agent.RunOptions, hop route.Route) agent.RunOptions {
 // reportFailure files the terminal attempt's class, route and trust; an earlier hop's failure is history only.
 func reportFailure(ctx context.Context, reg *providers.Registry, a attempt) {
 	class, fix := jobClass(reg, a.profile, a.err)
+	if class == memory.JobClassBudget {
+		fmt.Fprintln(memory.JobOutput(ctx, os.Stderr), "memory job: retry outside the spent dispatch tree, or after raising the cap")
+	}
 	memory.ReportJob(ctx, memory.JobResult{Agent: cmp.Or(a.res.Agent, "claude"), Profile: a.profile, Model: a.res.Model,
 		Local: a.local, Class: class, Fix: fix})
 }
