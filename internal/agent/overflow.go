@@ -34,7 +34,7 @@ type overflowPlan struct {
 
 // overflowRefusal is err as a context overflow a re-pick answers: not a rate limit, a cancel, or text already streamed.
 func overflowRefusal(err error) string {
-	if err == nil || retry.Progressed(err) || rateLimitOnly(err) || retry.IsClientCancel(err) {
+	if err == nil || retry.Progressed(err) || rateLimitOnly(err) || !retry.MayRedispatch(err) {
 		return ""
 	}
 	low := strings.ToLower(err.Error())

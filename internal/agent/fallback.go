@@ -479,7 +479,7 @@ func modelRefusal(err error) bool {
 
 // dispatchUnavailableContext: a pre-answer auth failure or state refusal, or a failed hop that falls through.
 func dispatchUnavailableContext(ctx context.Context, r Engine, res wire.Result, err error) bool {
-	if requestFault(err) || autoStopped(err) || errors.Is(err, ErrPoolExhausted) {
+	if requestFault(err) || autoStopped(err) || errors.Is(err, ErrPoolExhausted) || !retry.MayRedispatch(err) {
 		return false
 	}
 	var ae *retry.Error
@@ -499,15 +499,12 @@ func HopFailed(res wire.Result, err error) bool {
 	if err == nil || res.Answer != "" || requestFault(err) || autoStopped(err) {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return false
-	}
-	return !retry.Progressed(err)
+	return !errors.Is(err, context.DeadlineExceeded) && retry.MayRedispatch(err) && !retry.Progressed(err)
 }
 
 func cutOffMidRunContext(ctx context.Context, r Engine, err error) bool {
 	e, ok := errors.AsType[*retry.Error](err)
-	if r == nil || !ok || !e.Progressed || requestFault(err) {
+	if r == nil || !ok || !e.Progressed || requestFault(err) || !retry.MayRedispatch(err) {
 		return false
 	}
 	if !fallsThroughContext(ctx, r) {
@@ -604,7 +601,7 @@ func (s *fallbackState) movesOn(ctx context.Context, c Chain) bool {
 
 // stopsBefore: the chain ends before the next hop (R8: a typed model unserved is never swapped; a caller yields).
 func (s *fallbackState) stopsBefore(ctx context.Context, c Chain, midRun bool) bool {
-	return s.modelGone() || c.yieldsFallback(s.req, s.res, s.err) || !midRun && !s.movesOn(ctx, c)
+	return !retry.MayRedispatch(s.err) || s.modelGone() || c.yieldsFallback(s.req, s.res, s.err) || !midRun && !s.movesOn(ctx, c)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
@@ -754,7 +751,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 // overflowFollows reports err at hop i as the quota failure the chain's overflow hop picks up.
 func overflowFollows(c Chain, i int, req RunOptions, err error) bool {
 	last := len(c.Dispatches) - 1
-	return i < last && c.Dispatches[last].quotaOverflow && quotaFailure(err) && !explicitBackend(req)
+	return i < last && c.Dispatches[last].quotaOverflow && retry.MayRedispatch(err) && quotaFailure(err) && !explicitBackend(req)
 }
 
 // lastHop reports that no dispatch can follow hop i.
@@ -899,7 +896,7 @@ func warnHold(account string, err error) {
 // holdable is err's *Error when it should bench the account: a quota, or a rate limit on a subscription plan.
 func holdable(disp Dispatch, err error) (*retry.Error, bool) {
 	var e *retry.Error
-	if disp.Account == "" || !errors.As(err, &e) {
+	if disp.Account == "" || !errors.As(err, &e) || !retry.MayRedispatch(err) {
 		return nil, false
 	}
 	switch e.Kind {
@@ -985,7 +982,7 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	if err == nil {
 		return ""
 	}
-	if retry.Progressed(err) || retry.IsClientCancel(err) {
+	if retry.Progressed(err) || !retry.MayRedispatch(err) {
 		return "" // text or tools already ran (a re-run would repeat them), or the client cancelled
 	}
 	auto := IsAuto(lreq.Model)

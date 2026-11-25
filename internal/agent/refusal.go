@@ -40,7 +40,7 @@ type refusedHop struct {
 
 // policyRefused reports in as a refusal on content grounds a re-pick may answer: not an auto, answered or streamed hop.
 func policyRefused(in refusedHop, ran string) bool {
-	return ran != "" && !IsAuto(ran) && in.res.Answer == "" && retry.IsPolicyRefusal(in.err) && !retry.Progressed(in.err)
+	return ran != "" && !IsAuto(ran) && in.res.Answer == "" && retry.MayRedispatch(in.err) && retry.IsPolicyRefusal(in.err) && !retry.Progressed(in.err)
 }
 
 // planRepick is planOverflow, or for a policy refusal the one re-pick to another family (never a second).

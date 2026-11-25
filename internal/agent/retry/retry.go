@@ -115,6 +115,8 @@ type Error struct {
 	PolicyRefusal bool
 	// ShouldRetry is the upstream's x-should-retry verdict; ShouldRetryNo ends the retries of this request.
 	ShouldRetry ShouldRetry
+	// Cancelled: the client cancelled (context.Canceled or a 499); nothing re-dispatches and no account cools.
+	Cancelled bool
 }
 
 // ShouldRetry is the typed x-should-retry response header: absent, true or false.
@@ -303,10 +305,23 @@ func IsClientCancel(err error) bool {
 	return false
 }
 
+// MayRedispatch is false for a client cancel: no next hop, policy or overflow re-pick, family or workspace move.
+func MayRedispatch(err error) bool {
+	if IsClientCancel(err) {
+		return false
+	}
+	for e, ok := errors.AsType[*Error](err); ok; e, ok = errors.AsType[*Error](e.Err) {
+		if e.Cancelled {
+			return false
+		}
+	}
+	return true
+}
+
 // clientCancel makes e Fatal with no retry, reroute, proxy hop, account mark or policy verdict on a client cancel.
 func (e *Error) clientCancel(err error) *Error {
 	if IsClientCancel(err) || e.Status == StatusClientClosed {
-		e.Kind, e.RetryAfter, e.RetryNow, e.Connect, e.ProxyDown = KindFatal, 0, false, false, false
+		e.Kind, e.RetryAfter, e.RetryNow, e.Connect, e.ProxyDown, e.Cancelled = KindFatal, 0, false, false, false, true
 		e.AuthReason, e.PolicyRefusal = "", false
 	}
 	return e

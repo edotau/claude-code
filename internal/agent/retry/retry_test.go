@@ -788,3 +788,15 @@ func TestDoNeverRetriesCancelOrOverflow(t *testing.T) {
 		}
 	}
 }
+
+// Classify marks a cancel or 499 Cancelled (never redispatched) and leaves a rate limit redispatchable.
+func TestClassifyMarksCancelled(t *testing.T) {
+	for name, err := range map[string]error{"cancel": context.Canceled, "499": statusErr{StatusClientClosed}} {
+		if e := Classify("x", err, false); !e.Cancelled || MayRedispatch(e) {
+			t.Errorf("%s: %+v, want Cancelled and no redispatch", name, e)
+		}
+	}
+	if e := Classify("x", statusErr{http.StatusTooManyRequests}, false); e.Cancelled || !MayRedispatch(e) {
+		t.Errorf("429: %+v, want redispatchable", e)
+	}
+}

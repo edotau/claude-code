@@ -21,7 +21,7 @@ func hopFamily(d Dispatch) string {
 
 // hopMoves: a failure at hop from that a later hop of c answers (unavailable, or a policy refusal to another family).
 func (c Chain) hopMoves(ctx context.Context, from int, req RunOptions, res wire.Result, err error) bool {
-	if from < 0 || from >= len(c.Dispatches) {
+	if from < 0 || from >= len(c.Dispatches) || !retry.MayRedispatch(err) {
 		return false
 	}
 	d := c.Dispatches[from]
@@ -46,7 +46,7 @@ func (c Chain) otherFamilyAfter(from int, refused string) bool {
 
 // skipsRefusedFamily: hop d runs the family a policy refusal at prev came from, so it would be refused again.
 func skipsRefusedFamily(prev, d Dispatch, req RunOptions, res wire.Result, err error) bool {
-	if !retry.IsPolicyRefusal(err) {
+	if !retry.MayRedispatch(err) || !retry.IsPolicyRefusal(err) {
 		return false
 	}
 	refused := models.FamilyName(refusedModel(prev, req, res))
