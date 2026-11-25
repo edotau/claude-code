@@ -1,11 +1,11 @@
 ---
 name: evaluate-code
-description: 'Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or
-PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a
-skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors.
-Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually
-verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt".'
-
+description: >-
+  Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or
+  PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a
+  skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors.
+  Triggers "review my code", "review this PR", "review my diff", "audit this", "judge this", "is that claim actually
+  verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow", "N+1", "tech debt".
 metadata:
   version: 4.0.0
 ---
@@ -16,10 +16,10 @@ Quality review plus the discipline lens for LLM-code failure modes. Read-only: f
 
 ## Pick your path
 
-- **Review a diff/PR** → [Review a diff](#review-a-diff).
-- **Audit a transcript** → [Audit a transcript](#audit-a-transcript).
+- **Review a diff/PR** → **Review a diff**.
+- **Audit a transcript** → **Audit a transcript**.
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not is the code good).
-- **Scan tech debt** → [Tech debt](#tech-debt).
+- **Scan tech debt** → the **Tech debt** section below.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (run by a carried `codex` ask).
 - **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `workflows/code-evaluator.js`).
 - **Vet a task brief or plan** → `references/task-review.md`.
@@ -29,7 +29,7 @@ Quality review plus the discipline lens for LLM-code failure modes. Read-only: f
 Grade the work against its brief's `Method:` per step: **followed**, **skipped**, or **faked** (claimed, not
 observed).
 
-1. Run the detectors first — [Detectors](#detectors).
+1. Run the detectors first — see the **Detectors** section below.
 2. For every skip or fake, name the concrete risk via `references/failure-modes.md`.
 3. Score on the 0–2 rubric in `references/judge.md`.
 4. Deliver a short table plus the one highest-value fix; apply only if asked.
