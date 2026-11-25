@@ -2,7 +2,10 @@ package memory
 
 import (
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const storeVersion = 4 // the "flat N" this binary writes
@@ -148,6 +151,20 @@ func dateHeading(lines []string, date string) []string {
 	out := slices.Clone(lines)
 	out[0] = "## " + date + " — " + strings.TrimPrefix(lines[0], "## ")
 	return out
+}
+
+// contentIDs mints upgrade ids from the file name and first line only, so every machine gives an entry the same id.
+func contentIDs(d Doc) func(int, string) string {
+	seen := map[string]int{}
+	return func(_ int, first string) string {
+		for {
+			seen[first]++
+			id := textutil.SHA256Hex([]byte(d.Name + "\x00" + first + "\x00" + strconv.Itoa(seen[first])))[:8]
+			if !d.hasID(id) {
+				return id
+			}
+		}
+	}
 }
 
 func identified(name string, idx int, lines []string, env Env) []string {

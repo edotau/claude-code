@@ -82,3 +82,25 @@ func TestUpgradeStepsOneMarker(t *testing.T) {
 		t.Errorf("want one marker, got %d: %q", n, got)
 	}
 }
+
+// Two machines upgrading the same entry at different times and positions must mint the same id.
+func TestUpgradeContentIDsMachineIndependent(t *testing.T) {
+	render := func(src string, now time.Time) string {
+		d := ParseDoc("conventions.md", []byte(src))
+		out, _ := applyUpgrade(d, upgradeSteps[0].Plan(d), Env{Now: now, NewID: contentIDs(d)})
+		return string(out.Render())
+	}
+	a := render("# Conventions\n\n- rule one\n", time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC))
+	b := render("# Conventions\n\n- other first\n- rule one\n", time.Date(2026, 11, 26, 9, 0, 0, 1, time.UTC))
+	line := func(s string) string {
+		for ln := range strings.SplitSeq(s, "\n") {
+			if strings.HasPrefix(ln, "- rule one") {
+				return ln
+			}
+		}
+		return ""
+	}
+	if line(a) == "" || !strings.Contains(line(a), "<!-- id:") || line(a) != line(b) {
+		t.Errorf("ids differ or missing: %q vs %q", line(a), line(b))
+	}
+}

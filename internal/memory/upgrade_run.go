@@ -272,7 +272,7 @@ func (u *upgrader) planFile(step upgradeStep, rel string) (out []byte, counts ma
 	if len(plan.Ops) == 0 {
 		return nil, nil, nil
 	}
-	nd, res := applyUpgrade(d, plan, Env{Now: u.now})
+	nd, res := applyUpgrade(d, plan, Env{Now: u.now, NewID: contentIDs(d)})
 	counts = map[string]int{}
 	for _, r := range res {
 		if r.Outcome != DreamOK {
