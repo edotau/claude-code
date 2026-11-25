@@ -16,10 +16,12 @@ func SafetyMessage(word, what, pattern, command, hint string) string {
 	})
 }
 
-func SafetyNoAsk(agent string) string { return renderSafety("no-ask.tmpl", tmplFields{"Agent": agent}) }
+func SafetyNoAsk(agent string) string {
+	return renderSafety("messages/no-ask", tmplFields{"Agent": agent})
+}
 
 func SafetyArgMissing(tool, key string) string {
-	return renderSafety("arg-missing.tmpl", tmplFields{"Tool": tool, "Key": key})
+	return renderSafety("messages/arg-missing", tmplFields{"Tool": tool, "Key": key})
 }
 
 func SafetyOwnerRoute() string { return string(read("files/safety/owner-route.txt")) }
@@ -50,12 +52,12 @@ func SafetyInterpreterHint() string { return string(read("files/safety/interpret
 
 func SafetyPathUnresolved() string { return string(read("files/safety/path-unresolved.txt")) }
 
-func RtkNote(word string) string { return renderRtk("note.tmpl", tmplFields{"Word": word}) }
+func RtkNote(word string) string { return renderRtk("notes/note", tmplFields{"Word": word}) }
 
-func RtkShadowNone(bin string) string { return renderRtk("shadow-none.tmpl", tmplFields{"Bin": bin}) }
+func RtkShadowNone(bin string) string { return renderRtk("notes/shadow-none", tmplFields{"Bin": bin}) }
 
 func RtkShadowFound(found string) string {
-	return renderRtk("shadow-found.tmpl", tmplFields{"Found": found})
+	return renderRtk("notes/shadow-found", tmplFields{"Found": found})
 }
 
 func ClaudePrintHint() string { return string(read("files/rtk/claude-print-hint.txt")) }
