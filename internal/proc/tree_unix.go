@@ -33,7 +33,10 @@ func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(slices.Clip(cmd.Env), tag+"=1")
+	// a marker inherited from a detached parent must not make this run's tool sessions look detached
+	cmd.Env = append(slices.DeleteFunc(slices.Clone(cmd.Env), func(kv string) bool {
+		return strings.HasPrefix(kv, detachedMarker+"=")
+	}), tag+"=1")
 	cmd.Cancel = func() error {
 		pid := cmd.Process.Pid
 		kids := Descendants(pid) // snapshot first: a killed parent reparents its children out of reach
@@ -41,7 +44,7 @@ func TreeCancel(cmd *exec.Cmd, grace time.Duration) {
 		for end := time.Now().Add(grace); time.Now().Before(end) && Alive(pid); {
 			time.Sleep(10 * time.Millisecond)
 		}
-		for _, k := range killable(append(kids, Descendants(pid)...), pid, getsid) {
+		for _, k := range killable(append(kids, Descendants(pid)...), pid, getsid, func(p int) bool { return hasTag(p, detachedMarker) }) {
 			if Alive(k) {
 				_ = SignalGroup(k, syscall.SIGKILL)  // a tool's own group (Pi's bash) is not ours
 				_ = syscall.Kill(k, syscall.SIGKILL) // not a group leader: the group signal missed it

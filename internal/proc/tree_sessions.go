@@ -1,10 +1,10 @@
 package proc
 
-// killable drops detached sessions (a setsid leader other than root, and its members) from kids; sid -1 keeps.
-func killable(kids []int, root int, sid func(int) int) []int {
+// killable drops Detach-started sessions (a marked setsid leader other than root, and its members); sid -1 keeps.
+func killable(kids []int, root int, sid func(int) int, marked func(int) bool) []int {
 	leaders := map[int]bool{}
 	for _, k := range kids {
-		if k != root && sid(k) == k {
+		if k != root && sid(k) == k && marked(k) {
 			leaders[k] = true
 		}
 	}

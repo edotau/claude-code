@@ -48,7 +48,7 @@ func TestDetachDropsTreeTag(t *testing.T) {
 	cmd := exec.Command("true")
 	cmd.Env = []string{"A=1", TreeTagPrefix + "abc=1", "B=2"}
 	Detach(cmd)
-	if want := []string{"A=1", "B=2"}; !slices.Equal(cmd.Env, want) {
+	if want := []string{"A=1", "B=2", detachedMarker + "=1"}; !slices.Equal(cmd.Env, want) {
 		t.Fatalf("Detach env = %q, want %q", cmd.Env, want)
 	}
 }
