@@ -496,13 +496,16 @@ func NoteProxy(id, label string) {
 	if id == "" || label == "" {
 		return
 	}
-	_, _, _ = updateRecord(id, func(r Record) (Record, bool) {
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
 		if r.Status != "running" || r.Proxy == label {
 			return r, false
 		}
 		r.Proxy = label
 		return r, true
 	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dispatch %s proxy %s not recorded: %v\n", id, label, err)
+	}
 }
 
 // withPick fills an unreported model of an auto hop from the pick NotePick stored.
@@ -518,14 +521,18 @@ func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result 
 // noteAccount charges the running dispatch ctx carries to account, so admission counts the account that runs it.
 func noteAccount(ctx context.Context, account string, notify func(string)) {
 	id := DispatchIDOf(ctx)
-	if id == "" || account == "" {
+	if id == "" {
 		return
 	}
+	// each real attempt starts with no proxy: a direct or own-login hop must not keep the last hop's route
 	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-		if r.Status != "running" || r.Account == account {
+		if r.Status != "running" || ((account == "" || r.Account == account) && r.Proxy == "") {
 			return r, false
 		}
-		r.Account = account
+		r.Proxy = ""
+		if account != "" {
+			r.Account = account
+		}
 		return r, true
 	})
 	if err != nil && notify != nil {

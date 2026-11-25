@@ -1465,6 +1465,20 @@ func TestTallyToolStats(t *testing.T) {
 	}
 }
 
+func TestNoteAccountClearsPreviousProxy(t *testing.T) {
+	setConfigDir(t)
+	rec := benchAskRecord(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC), 0)
+	rec.PID, rec.Proxy = os.Getpid(), "phase:w1"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	noteAccount(context.WithValue(context.Background(), dispatchIDKey{}, rec.ID), "", nil)
+	got, err := LoadRecord(rec.ID)
+	if err != nil || got.Proxy != "" {
+		t.Fatalf("Proxy = %q, err %v; want cleared at the next attempt", got.Proxy, err)
+	}
+}
+
 func TestNoteProxyStampsRunningRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := benchAskRecord(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC), 0)
