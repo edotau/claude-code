@@ -52,8 +52,8 @@ func TestRTKSkipsCodex(t *testing.T) {
 	}
 }
 
-// TestRTKAutoModeRewrites: auto mode rewrites in place with no decision, so the classifier still judges the call.
-func TestRTKAutoModeRewrites(t *testing.T) {
+// TestRTKAutoModeNotes: auto mode only notes the rtk form; a changed input would void the classifier's verdict.
+func TestRTKAutoModeNotes(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	auto := func(cmd string) core.Result {
@@ -61,8 +61,8 @@ func TestRTKAutoModeRewrites(t *testing.T) {
 		return RTKRewrite(core.ParseInput(strings.NewReader(in)))
 	}
 	res := auto("git log --oneline -20")
-	if got, _ := res.UpdatedInput["command"].(string); got != bin+" git log --oneline -20" || res.Decision != core.Allow {
-		t.Fatalf("auto mode = %+v, want the rtk form and no decision", res)
+	if res.UpdatedInput != nil || !strings.Contains(res.Context, bin+" git log --oneline -20") || res.Decision != core.Allow {
+		t.Fatalf("auto mode = %+v, want the rtk form as a note and no decision", res)
 	}
 	for _, cmd := range []string{bin + " git log --oneline -20", "go vet ./x"} {
 		if res := auto(cmd); res.UpdatedInput != nil || res.Decision != core.Allow {

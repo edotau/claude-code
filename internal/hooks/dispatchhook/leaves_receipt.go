@@ -484,8 +484,8 @@ func BashTimeoutMs(cmd string) (ms int, ok bool) {
 func BashTimeout(in *core.Input) core.Result {
 	ms, ok := BashTimeoutMs(in.ToolCommand())
 	updated := in.CloneToolInput()
-	if in.ToolName != "Bash" || !ok || updated == nil {
-		return core.Result{}
+	if bg, _ := updated["run_in_background"].(bool); in.ToolName != "Bash" || !ok || updated == nil || bg {
+		return core.Result{} // a background call has no foreground timeout to raise
 	}
 	have, set := updated["timeout"].(float64)
 	if !set {
@@ -493,6 +493,9 @@ func BashTimeout(in *core.Input) core.Result {
 	}
 	if int(have) >= ms {
 		return core.Result{}
+	}
+	if in.PermissionMode == "auto" { // a changed input voids the auto classifier's verdict and forces a re-issue
+		return core.Result{Context: fmt.Sprintf("set this call's timeout to %d next time", ms)}
 	}
 	updated["timeout"] = ms
 	return core.Result{UpdatedInput: updated}

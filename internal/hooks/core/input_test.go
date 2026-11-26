@@ -171,3 +171,11 @@ func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// permission_mode reaches Input, so hooks that only note in auto mode can see it.
+func TestParseInputPermissionMode(t *testing.T) {
+	in := ParseInputFor(strings.NewReader(`{"session_id":"s","permission_mode":"auto"}`), "")
+	if in.PermissionMode != "auto" {
+		t.Fatalf("PermissionMode = %q, want auto", in.PermissionMode)
+	}
+}

@@ -504,3 +504,20 @@ func TestHeldInfoOverlayCommandRoundTrip(t *testing.T) {
 	}
 	assertAskReaders(t, strings.TrimPrefix(cmd, "claude-code agents ask "), askLine{Agent: "codex", Model: rec.Request.Model}, "")
 }
+
+// in auto mode the timeout raise is a note, and a background call is left alone.
+func TestBashTimeoutAutoAndBackground(t *testing.T) {
+	parse := func(mode string, bg bool) *core.Input {
+		return core.ParseInputFor(strings.NewReader(fmt.Sprintf(`{"tool_name":"Bash","permission_mode":%q,`+
+			`"tool_input":{"command":"claude-code agents result -f j1","run_in_background":%t}}`, mode, bg)), "")
+	}
+	if r := BashTimeout(parse("default", false)); r.UpdatedInput["timeout"] == nil {
+		t.Fatalf("default mode: %+v, want the timeout raised", r)
+	}
+	if r := BashTimeout(parse("auto", false)); r.UpdatedInput != nil || !strings.Contains(r.Context, "timeout") {
+		t.Fatalf("auto mode: %+v, want only a note", r)
+	}
+	if r := BashTimeout(parse("default", true)); r.UpdatedInput != nil || r.Context != "" {
+		t.Fatalf("background call: %+v, want nothing", r)
+	}
+}

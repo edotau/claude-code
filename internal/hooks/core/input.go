@@ -97,6 +97,7 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 	in.StopHookActive, _ = in.doc["stop_hook_active"].(bool)
 	in.Prompt = in.Nested("prompt")
 	in.AgentID = in.Nested("agent_id")
+	in.PermissionMode = in.Nested("permission_mode")
 	in.Source = in.Nested("source")
 	in.AgentTranscriptPath = in.Nested("agent_transcript_path")
 	in.Trigger = in.Nested("trigger")
