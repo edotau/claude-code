@@ -17,6 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/github"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -349,6 +351,8 @@ func TestDatabricksRowAbsentWithoutCredentialedWorkspace(t *testing.T) {
 func TestOwnSignInReplacesWorkspacePin(t *testing.T) {
 	menuTestEnv(t)
 	d := worstCaseHomeDialog(t)
+	d.reg = addGithubProfiles(t, "octo")
+	copilotLoggedInAs(t, "octo")
 	for _, a := range setupAgentNames {
 		vaulttest.SetRecord(t, a, "profile", "qa")
 		rows := []billingRow{{label: "Login", run: func() bool { return false }}}
@@ -365,6 +369,87 @@ func TestOwnSignInReplacesWorkspacePin(t *testing.T) {
 		if got := vault.GetAgentRecord(a).Route.Profile; got != want || got == "qa" || got == "" {
 			t.Errorf("%s profile = %q, want own login %q", a, got, want)
 		}
+	}
+}
+
+// addGithubProfiles adds one github profile per login and returns the reloaded registry.
+func addGithubProfiles(t *testing.T, logins ...string) *providers.Registry {
+	t.Helper()
+	for _, u := range logins {
+		if err := providers.AddGithubAccount(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+// copilotLoggedInAs writes copilot's own stored login into a fresh COPILOT_HOME; "" leaves copilot logged out.
+func copilotLoggedInAs(t *testing.T, login string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("COPILOT_HOME", dir)
+	if login == "" {
+		return
+	}
+	body := "// written by copilot\n{\"lastLoggedInUser\":{\"login\":\"" + login + "\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A copilot sign-in pins the github profile of copilot's own login, never the first one, and keeps an account pin.
+func TestCopilotSignInPinsItsOwnLogin(t *testing.T) {
+	for _, tc := range []struct{ name, pin, login, want string }{
+		{"own login pinned, not the first profile", "", "xuser", "xuser"},
+		{"no matching profile pins nothing", "", "nobody", ""},
+		{"logged out pins nothing", "", "", ""},
+		{"explicit account pin kept", "auser", "xuser", "auser"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			menuTestEnv(t)
+			reg := addGithubProfiles(t, "auser", "xuser")
+			vaulttest.SetRecord(t, "copilot", "profile", tc.pin)
+			copilotLoggedInAs(t, tc.login)
+			d := &dialog{reg: reg, out: &bytes.Buffer{}}
+			rows := []billingRow{{label: "Login", run: func() bool { return true }}}
+			activateOnSignIn(d, "copilot", rows)
+			if !rows[0].run() {
+				t.Fatalf("sign-in reported failure: %s", d.out)
+			}
+			if got := vault.GetAgentRecord("copilot").Route.Profile; got != tc.want {
+				t.Errorf("copilot profile = %q, want %q; dialog said %q", got, tc.want, d.out)
+			}
+		})
+	}
+}
+
+// gh's active account is not copilot's login: the page and Set up see copilot as not signed in.
+func TestCopilotGHActiveIsNotCopilotsLogin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "fake gh is a sh script")
+	reg := menuTestEnv(t)
+	ghDir := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", ghDir)
+	hosts := "github.com:\n    users:\n        yuser:\n    user: yuser\n"
+	gh := "#!/bin/sh\n[ \"$1 $2\" = \"auth token\" ] && echo fixture-token && exit 0\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "gh"), []byte(gh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := github.GHActiveAccount(); got != "yuser" {
+		t.Fatalf("fixture: gh active = %q, want yuser", got)
+	}
+	copilotLoggedInAs(t, "")
+	if ok, _ := signedIn("copilot"); ok {
+		t.Error("signedIn(copilot) = true from gh's active account")
+	}
+	if st := copilotMenu(&dialog{reg: reg, out: discardWriter{}}).state; st.verified || st.mode == modeSubscription {
+		t.Errorf("copilot state = %+v, want not verified", st)
 	}
 }
 

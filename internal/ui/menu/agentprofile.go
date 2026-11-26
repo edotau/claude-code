@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
@@ -225,12 +226,28 @@ func signInProfile(d *dialog, agent string) string {
 	if agent == "opencode" {
 		return opencode.OwnLogin
 	}
+	if agent == "copilot" {
+		return copilotLoginProfile(d.reg, copilotauth.StoredLogin())
+	}
 	names := configure.SeedProfiles(d.reg, agent)
 	if len(names) == 0 || d.reg == nil {
 		return ""
 	}
 	if p := d.reg.Providers[names[0]]; p != nil && p.Auth.Login == agent {
 		return names[0]
+	}
+	return ""
+}
+
+// copilotLoginProfile is the github profile whose login is copilot's own login, "" when none matches.
+func copilotLoginProfile(reg *providers.Registry, login string) string {
+	if reg == nil || login == "" {
+		return ""
+	}
+	for _, n := range reg.ProfilesOf("github") {
+		if strings.EqualFold(reg.Providers[n].Login, login) {
+			return n
+		}
 	}
 	return ""
 }

@@ -177,16 +177,32 @@ func activateOnSignIn(d *dialog, internal string, rows []billingRow) {
 						agentActiveOn(d, internal)
 						return true
 					}
-					profile := signInProfile(d, internal)
-					if _, err := writeAgentField(d, internal, "PROFILE", profile); err != nil {
-						d.printf("%s: %v\n", internal, err)
-						return false
-					}
+					return pinOwnLogin(d, internal)
 				}
 				return ok
 			}
 		}
 	}
+}
+
+// pinOwnLogin pins internal's own-login profile after a sign-in; copilot keeps a GitHub account pin, never clears one.
+func pinOwnLogin(d *dialog, internal string) bool {
+	profile := signInProfile(d, internal)
+	if internal == "copilot" {
+		if pinned, _ := providers.CopilotLogin(d.reg); pinned != "" {
+			d.printf("copilot: pin kept on GitHub user %s\n", pinned)
+			return true
+		}
+		if profile == "" {
+			d.printf("copilot: no GitHub profile matches copilot's login; pin unchanged (pick one under GitHub user)\n")
+			return true
+		}
+	}
+	if _, err := writeAgentField(d, internal, "PROFILE", profile); err != nil {
+		d.printf("%s: %v\n", internal, err)
+		return false
+	}
+	return true
 }
 
 // agentMenuTitle is "<name> (current: <mode>[ · verified])".
@@ -203,11 +219,15 @@ func signIn(d *dialog, label string, argv []string) bool {
 	return runLoginChecked(d, argv, label, func() (bool, string) { return signedIn(label) })
 }
 
-// signedIn reads label's login fresh: gh through gh itself, an agent through its own status.
+// signedIn reads label's login fresh: gh through gh itself, copilot through its own stored login, else agent status.
 func signedIn(label string) (bool, string) {
-	if label == "gh" {
+	switch label {
+	case "gh":
 		st := configure.GHAuthCheck()
 		return st.LoggedIn, "account " + st.Account
+	case "copilot":
+		login := copilotauth.StoredLogin()
+		return login != "", "account " + login
 	}
 	st := agent.AuthStatus(label)
 	return st.Present, st.Label()
@@ -416,11 +436,18 @@ func codexUseKey(d *dialog) bool {
 
 func copilotMenu(d *dialog) agentMenu {
 	auth := agent.AuthStatus("copilot")
-	loggedIn := auth.Present
+	// the subscription is copilot's own login; gh's active account never counts as it
+	own := copilotauth.StoredLogin()
+	loggedIn := own != ""
 	ctx := context.Background()
 	plan := agent.AuthPlan(ctx, "copilot", auth)
 	auth.Account = cmp.Or(auth.Account, plan.Account)
-	st := loginOrKey(d, loggedIn, plan)
+	tier := plan
+	// the plan was looked up for the dispatch account; another account's plan is never shown as copilot's own
+	if !strings.EqualFold(plan.Account, own) {
+		tier = providers.Subscription{}
+	}
+	st := loginOrKey(d, loggedIn, tier)
 	if auth.Source == copilotauth.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
@@ -433,9 +460,9 @@ func copilotMenu(d *dialog) agentMenu {
 		who = auth.Account + " · " + copilotauth.ShortSource(auth.Source)
 	}
 	rows := []billingRow{
-		{"Subscription", strings.TrimSpace("GitHub Copilot "+plan.Name) + " " + bracket(loggedIn, who, "not logged in"), modeSubscription, func() bool {
+		{"Subscription", strings.TrimSpace("GitHub Copilot "+tier.Name) + " " + bracket(loggedIn, own+" · "+copilotauth.ShortSource(copilotauth.SrcCopilot), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
-				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
+				d.printf("%-10s logged in as %s, runs as %s (kept)\n", "copilot", own, auth.Label())
 				return true
 			}
 			return signIn(d, "copilot", []string{"copilot", "login"})
