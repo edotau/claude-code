@@ -242,3 +242,11 @@ func TestUpdateRoutingNamesUnknownStoredKey(t *testing.T) {
 		t.Fatalf("UpdateRouting = %v; want an error naming the unknown key wieghts", err)
 	}
 }
+
+func TestFormatUSD(t *testing.T) {
+	for v, want := range map[float64]string{0.0001: "$0.0001", 0: "$0.00", 0.01: "$0.01", 12.345: "$12.35"} {
+		if got := FormatUSD(v); got != want {
+			t.Errorf("FormatUSD(%v) = %q, want %q", v, got, want)
+		}
+	}
+}

@@ -196,15 +196,38 @@ func spendCapStatus(c providers.SpendCap, spent func() (float64, error)) (detail
 	if err != nil {
 		return "ledger unreadable: " + err.Error(), true
 	}
-	detail = fmt.Sprintf("today $%.2f", day)
+	detail = "today " + providers.FormatUSD(day)
 	if c.DayUSD != nil {
-		detail += fmt.Sprintf(" of $%.2f day cap", *c.DayUSD)
+		detail += " of " + providers.FormatUSD(*c.DayUSD) + " day cap"
 		bad = day >= *c.DayUSD
 	} else {
 		detail += "; day cap off"
 	}
 	if c.SessionUSD != nil {
-		detail += fmt.Sprintf("; session cap $%.2f", *c.SessionUSD)
+		detail += "; session cap " + providers.FormatUSD(*c.SessionUSD)
 	}
 	return detail, bad
+}
+
+// listProxyListeners is a test seam over proxy.Listeners.
+var listProxyListeners = proxy.Listeners
+
+// proxyListenerChecks: one row per port holder; a non-current one warns with its kill line.
+func proxyListenerChecks(ctx context.Context) []check {
+	ls, err := listProxyListeners(ctx, proxy.DefaultPort)
+	if err != nil {
+		return []check{{Name: "proxy listeners", OK: false, Detail: "inventory unavailable: " + err.Error()}}
+	}
+	if len(ls) == 0 {
+		return []check{{Name: "proxy listeners", OK: true, Detail: fmt.Sprintf("none on port %d", proxy.DefaultPort)}}
+	}
+	rows := make([]check, len(ls))
+	for i, l := range ls {
+		detail := fmt.Sprintf("pid %d exe %s started %s config %s installed=%t", l.PID, l.Exe, l.Started, l.ConfigDir, l.Installed)
+		if !l.Current {
+			detail += "; not the current proxy, stop it with: " + l.KillLine()
+		}
+		rows[i] = check{Name: "proxy listener", OK: l.Current, Detail: detail}
+	}
+	return rows
 }

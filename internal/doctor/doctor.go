@@ -134,7 +134,8 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.proxy {
 		detail, bad := proxyCheck(ctx)
-		return printChecks(o, []check{{Name: "proxy", OK: !bad, Detail: detail}}, !bad)
+		rows := append([]check{{Name: "proxy", OK: !bad, Detail: detail}}, proxyListenerChecks(ctx)...)
+		return printChecks(o, rows, !bad)
 	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -343,6 +344,7 @@ func TestDoctorProxyFlag(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
+	listProxyListeners = func(context.Context, int) ([]proxy.Listener, error) { return nil, nil }
 	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
 	os.Exit(hosttest.Main(m))
 }

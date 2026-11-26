@@ -543,9 +543,9 @@ func (r *Router) spendCapHit(in *http.Request, c providers.SpendCap) (string, bo
 	var hit, field string
 	switch {
 	case c.SessionUSD != nil && sess >= *c.SessionUSD:
-		hit, field = fmt.Sprintf("session spend $%.2f reached the sessionUSD cap $%.2f", sess, *c.SessionUSD), "sessionUSD"
+		hit, field = fmt.Sprintf("session spend %s reached the sessionUSD cap %s", providers.FormatUSD(sess), providers.FormatUSD(*c.SessionUSD)), "sessionUSD"
 	case c.DayUSD != nil && day >= *c.DayUSD:
-		hit, field = fmt.Sprintf("today's spend $%.2f reached the dayUSD cap $%.2f", day, *c.DayUSD), "dayUSD"
+		hit, field = fmt.Sprintf("today's spend %s reached the dayUSD cap %s", providers.FormatUSD(day), providers.FormatUSD(*c.DayUSD)), "dayUSD"
 	default:
 		return "", false
 	}

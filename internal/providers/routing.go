@@ -419,3 +419,11 @@ func RouteWeightsSource() string {
 	}
 	return "vault"
 }
+
+// FormatUSD prints dollars with two decimals, or four for a sub-cent value so a tiny cap is not shown as $0.00.
+func FormatUSD(v float64) string {
+	if v > 0 && v < 0.01 {
+		return fmt.Sprintf("$%.4f", v)
+	}
+	return fmt.Sprintf("$%.2f", v)
+}

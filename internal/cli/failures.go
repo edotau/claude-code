@@ -141,7 +141,7 @@ func failureFix(f worktree.Failure) (cmd, path string, err error) {
 	}
 	switch f.Kind {
 	case worktree.FailProxyDown, worktree.FailProxy5xx:
-		return "claude-code doctor", "", nil // plan: doctor --proxy, which does not exist yet
+		return "claude-code doctor --proxy", "", nil
 	case worktree.FailBench, worktree.FailHookP95:
 		return "claude-code agents ask --agent claude --tools -- " + textutil.QuoteSH(
 			fmt.Sprintf("Profile and fix the %s regression %s without dropping any check; evidence: %s", f.Kind, f.Subject, where)), "", nil

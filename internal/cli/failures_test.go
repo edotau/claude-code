@@ -65,3 +65,11 @@ func TestFailureFixBriefFile(t *testing.T) {
 	}
 	_ = os.Remove(path)
 }
+
+func TestFailureFixProxyKinds(t *testing.T) {
+	for _, k := range []worktree.FailureKind{worktree.FailProxyDown, worktree.FailProxy5xx} {
+		if cmd, _, err := failureFix(worktree.Failure{Kind: k}); err != nil || cmd != "claude-code doctor --proxy" {
+			t.Errorf("failureFix(%s) = %q, %v; want claude-code doctor --proxy", k, cmd, err)
+		}
+	}
+}
