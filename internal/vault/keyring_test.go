@@ -21,6 +21,7 @@ func fakeKeyringTool(t *testing.T, goos, script string) {
 		t.Skip("the stub keyring tool is a POSIX shell script")
 	}
 	stubKeyringGOOS(t, goos)
+	t.Cleanup(AllowKeyringInTest())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, KeyringTool()), []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -285,6 +286,31 @@ func TestKeyringOffNeverRunsTool(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the keyring tool ran despite HARNESS_KEYRING=off")
+	}
+}
+
+// A test binary never reaches the OS keyring tool unless a keyring test opts in: creating a fresh key runs nothing.
+func TestFreshKeyNeverRunsKeyringTool(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub keyring tool is a POSIX shell script")
+	}
+	t.Setenv("HARNESS_KEYRING", "")
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubKeyringGOOS(t, "darwin")
+	marker := filepath.Join(t.TempDir(), "ran")
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho ran >> \"" + marker + "\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "security"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	down.Store(false)
+	t.Cleanup(func() { down.Store(false) })
+	t.Cleanup(UseKeyringSeams(KeyringLookup, osKeyringSet))
+	EnsureKey() // the result is irrelevant; only whether the tool ran matters
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a test reached the real keyring tool without opting in")
 	}
 }
 

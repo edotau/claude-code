@@ -790,6 +790,20 @@ func RelWithin(root, abs string) (string, bool) {
 // SessionIDEnv is the env var Claude Code sets in every live session's tools.
 const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
 
+// protectedDBs are the state databases Protected and ProtectedDBs cover.
+var protectedDBs = []string{"vault.db", "memory.db"}
+
+// ProtectedDBs lists each state database Protected covers, then the state/backups/*.db snapshots that exist.
+func ProtectedDBs() []string {
+	state := filepath.Join(ConfigDir(), "state")
+	out := make([]string, 0, len(protectedDBs))
+	for _, db := range protectedDBs {
+		out = append(out, filepath.Join(state, db))
+	}
+	snaps, _ := filepath.Glob(filepath.Join(state, "backups", "*.db"))
+	return append(out, snaps...)
+}
+
 // Protected reports whether p is or holds a state database, one of its sidecars or a state/backups/*.db snapshot.
 func Protected(p string) bool {
 	state := filepath.Join(ConfigDir(), "state")
@@ -800,7 +814,7 @@ func Protected(p string) bool {
 	if snaps, _ := filepath.Glob(filepath.Join(backups, "*.db")); len(snaps) > 0 && SameFile(p, backups) {
 		return true
 	}
-	for _, db := range []string{"vault.db", "memory.db"} {
+	for _, db := range protectedDBs {
 		if InsideDir(filepath.Join(state, db), p) {
 			return true
 		}

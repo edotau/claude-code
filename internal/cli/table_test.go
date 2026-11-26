@@ -94,7 +94,7 @@ func TestCompletionExact(t *testing.T) {
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
 		{"theme flags", []string{"configure", "theme", "--"}, []string{"--palettes", "--reset"}},
 		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
-			"--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}},
+			"--prompts", "--proxy", "--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
 		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 		{"ask --model has no domain", []string{"agents", "ask", "--model", ""}, nil},

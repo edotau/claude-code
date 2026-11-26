@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -66,6 +67,15 @@ var errKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", Er
 // keyringGOOS picks the keyring plane's OS branch; tests swap it to run every branch on any host.
 var keyringGOOS = runtime.GOOS
 
+// keyringInTest lets this package's own fake-tool tests reach the keyring plane; any other test binary never does.
+var keyringInTest bool
+
+// AllowKeyringInTest lets a test that put its own fake tool on PATH reach the keyring plane; restore undoes it.
+func AllowKeyringInTest() (restore func()) {
+	keyringInTest = true
+	return func() { keyringInTest = false }
+}
+
 // KeyringTool returns the plane's binary name for this OS, or "" where none is wired up.
 func KeyringTool() string {
 	switch keyringGOOS {
@@ -80,7 +90,7 @@ func KeyringTool() string {
 
 // KeyringAvailable reports whether a keyring tool is on PATH for this OS; HARNESS_KEYRING=off forces false.
 func KeyringAvailable() bool {
-	if os.Getenv("HARNESS_KEYRING") == "off" {
+	if os.Getenv("HARNESS_KEYRING") == "off" || (testing.Testing() && !keyringInTest) {
 		return false
 	}
 	b := KeyringTool()

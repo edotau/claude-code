@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,7 +14,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
+	"github.com/edotau/claude-code/internal/memory/shadow"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/sqlite"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -198,6 +202,7 @@ func fakeRetiredKeyTool(t *testing.T, kid string) {
 		t.Fatal(err)
 	}
 	t.Setenv("HARNESS_KEYRING", "") // a caller's off value would hide the faked tool
+	t.Cleanup(vault.AllowKeyringInTest())
 	dir := t.TempDir()
 	tool := "secret-tool"
 	miss := "1"
@@ -299,5 +304,36 @@ func TestCheckMisfiled(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if rows := checkMisfiled(); len(rows) != 0 {
 		t.Fatalf("locked vault gave rows: %+v", rows)
+	}
+}
+
+func TestStateDBRows(t *testing.T) {
+	hermetic(t)
+	state := filepath.Join(paths.ConfigDir(), "state")
+	row := dbProtectRow()
+	if rows := dbVersionRows(); len(rows) != 0 || !strings.Contains(row.Detail, "vault.db absent, memory.db absent") { // no db created
+		t.Fatalf("empty state: %+v %+v", row, rows)
+	}
+	hosttest.WriteRel(t, state, "vault.db", "")
+	if got := dbVersionRows(); len(got) != 1 || !got[0].OK || got[0].Detail != "bbolt, no schema version" {
+		t.Fatalf("empty vault.db rows = %+v", got)
+	}
+	hosttest.WriteRel(t, state, "vault.db", "bolt")
+	hosttest.WriteRel(t, state, "backups/memory-v0-x.db", "")
+	db, err := sqlite.Open(filepath.Join(state, "memory.db"), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	code := shadow.SchemaVersion()
+	for v, want := range map[int]string{0: "claude-code memory shadow --rebuild", code: "matches code", code + 1: "install a newer claude-code"} {
+		_, err := db.Exec("PRAGMA user_version = " + strconv.Itoa(v))
+		got := fmt.Sprint(dbVersionRows())
+		if err != nil || !strings.Contains(got, want) || !strings.Contains(got, "bbolt, no schema version") {
+			t.Fatalf("v%d rows = %s, want %q (err %v)", v, got, want, err)
+		}
+	}
+	if row = dbProtectRow(); !strings.Contains(row.Detail, "vault.db 4 B, memory.db ") || !strings.HasSuffix(row.Detail, ", backups/memory-v0-x.db 0 B") {
+		t.Fatalf("protect row = %+v", row)
 	}
 }

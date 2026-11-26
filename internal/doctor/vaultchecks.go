@@ -2,15 +2,21 @@ package doctor
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/memory/shadow"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	secretredact "github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/sqlite"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -182,4 +188,74 @@ func checkMisfiled() []vaultCheck {
 		}
 	}
 	return out
+}
+
+// dbProtectRow lists paths.ProtectedDBs, the list paths.Protected checks, so it cannot drift from the rule.
+func dbProtectRow() check {
+	state := filepath.Join(paths.ConfigDir(), "state")
+	var parts []string
+	for _, p := range paths.ProtectedDBs() {
+		name, _ := filepath.Rel(state, p)
+		size := "absent"
+		if fi, err := os.Stat(p); err == nil {
+			size = textutil.HumanBytes(fi.Size())
+		}
+		parts = append(parts, filepath.ToSlash(name)+" "+size)
+	}
+	return check{Name: "state dbs", OK: true, Detail: "never removed by clean, sweep or nuke: " + strings.Join(parts, ", ")}
+}
+
+// dbVersionRows reports each existing state/*.db; it opens SQLite read-only and never creates a file.
+func dbVersionRows() []check {
+	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "state", "*.db"))
+	rows := make([]check, 0, len(files))
+	for _, f := range files {
+		rows = append(rows, dbVersionRow(f))
+	}
+	return rows
+}
+
+func dbVersionRow(path string) check {
+	name := filepath.Base(path)
+	row := check{Name: "db version " + name}
+	if name == "vault.db" {
+		row.OK, row.Detail = true, "bbolt, no schema version"
+		return row
+	}
+	if !isSQLite(path) {
+		row.OK, row.Detail = true, "not SQLite, no schema version"
+		return row
+	}
+	db, err := sqlite.Open(path, sqlite.Options{ReadOnly: true})
+	if err != nil {
+		row.Detail = "unreadable: " + err.Error()
+		return row
+	}
+	defer db.Close()
+	have, err := sqlite.Version(db)
+	switch code := shadow.SchemaVersion(); {
+	case err != nil:
+		row.Detail = "user_version unreadable: " + err.Error()
+	case name != "memory.db":
+		row.OK, row.Detail = true, fmt.Sprintf("SQLite v%d; this build has no migrations for it", have)
+	case have < code:
+		row.Detail = fmt.Sprintf("warn v%d, %d behind v%d; claude-code memory shadow --rebuild", have, code-have, code)
+	case have > code:
+		row.Detail = fmt.Sprintf("v%d newer than code v%d; install a newer claude-code", have, code)
+	default:
+		row.OK, row.Detail = true, fmt.Sprintf("v%d matches code", have)
+	}
+	return row
+}
+
+// isSQLite is true for an empty file or one with the SQLite header.
+func isSQLite(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 16)
+	n, _ := io.ReadFull(f, head)
+	return n == 0 || string(head[:n]) == "SQLite format 3\x00"
 }

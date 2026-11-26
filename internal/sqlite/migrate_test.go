@@ -3,11 +3,14 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	sqlite3 "modernc.org/sqlite"
 )
 
 const testYear = 2026
@@ -60,6 +63,62 @@ func TestFailedStepRollsBack(t *testing.T) {
 	if _, err = db.Exec("SELECT 1 FROM b"); err == nil {
 		t.Fatal("failed step left its table behind")
 	}
+}
+
+// TestKilledMigrationResumes stops after step 1 commits, then drops step 2's connection mid-transaction.
+func TestKilledMigrationResumes(t *testing.T) {
+	ctx := context.Background()
+	db, path := openTemp(t, Options{})
+	opts := MigrateOptions{Name: "m", SnapshotDir: t.TempDir(), Now: fixedNow(0)}
+	rep, err := Migrate(ctx, db, twoSteps()[:1], opts)
+	if err != nil || rep.To != 1 {
+		t.Fatalf("step 1: rep=%+v err=%v", rep, err)
+	}
+	db.Close() // the process stops between steps
+	dieMidTx(t, path, "BEGIN IMMEDIATE", "INSERT INTO a VALUES (1)", "PRAGMA user_version = 2")
+	db, _ = Open(path, Options{})
+	defer db.Close()
+	snap, _ := Open(rep.Snapshot, Options{ReadOnly: true})
+	defer snap.Close()
+	sv, _ := Version(snap)
+	if v, rows := versionRows(t, db); v != 1 || rows != 0 || sv != 0 {
+		t.Fatalf("after kill: v=%d rows=%d snapshot v=%d", v, rows, sv)
+	}
+	if rep, err = Migrate(ctx, db, twoSteps(), opts); err != nil || rep.From != 1 {
+		t.Fatalf("resume: rep=%+v err=%v", rep, err)
+	}
+	if v, rows := versionRows(t, db); v != 2 || rows != 1 {
+		t.Fatalf("resumed: v=%d rows=%d", v, rows)
+	}
+}
+
+// dieMidTx runs qs on a raw driver connection and closes it with no COMMIT, as a killed process leaves it.
+func dieMidTx(t *testing.T, path string, qs ...string) {
+	t.Helper()
+	c, err := (&sqlite3.Driver{}).Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range qs {
+		if _, err = c.(driver.ExecerContext).ExecContext(context.Background(), q, nil); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	if err = c.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func versionRows(t *testing.T, db *sql.DB) (v, rows int) {
+	t.Helper()
+	v, err := Version(db)
+	if err == nil {
+		err = db.QueryRow("SELECT count(*) FROM a").Scan(&rows)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v, rows
 }
 
 func TestDryRunWritesNothing(t *testing.T) {

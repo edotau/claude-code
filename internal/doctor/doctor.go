@@ -26,11 +26,14 @@ var doctorChecks = func(ctx context.Context) ([]check, bool) {
 	return append(checks, check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
 
+// proxyCheck is a test seam over proxyStatus for `doctor --proxy`.
+var proxyCheck = proxyStatus
+
 type doctorOpts struct {
-	format                                                          *string
-	auditMode, scan, gitScan, refresh, all, fix, prompts, list, mcp bool
-	days, since                                                     int
-	rev                                                             string
+	format                                                                 *string
+	auditMode, scan, gitScan, refresh, all, fix, prompts, list, mcp, proxy bool
+	days, since                                                            int
+	rev                                                                    string
 }
 
 var doctorPage = helptext.Page{
@@ -60,6 +63,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.list, "list", false, "with --prompts: list every embedded prompt text")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
+	fs.BoolVar(&o.proxy, "proxy", false, "run only the proxy check; exit 1 when it fails")
 	return fs, o
 }
 
@@ -103,7 +107,7 @@ func conflictingModes(o *doctorOpts) (string, bool) {
 		on   bool
 		name string
 	}{
-		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
+		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.proxy, "--proxy"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
 		{o.scan || o.gitScan || o.all, "--scan/--git/--secrets"},
 	} {
 		if m.on {
@@ -127,6 +131,10 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.mcp {
 		return doctorMCP(os.Stdout, mcpOptions(*o.format == helptext.JSON))
+	}
+	if o.proxy {
+		detail, bad := proxyCheck(ctx)
+		return printChecks(o, []check{{Name: "proxy", OK: !bad, Detail: detail}}, !bad)
 	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)
@@ -241,5 +249,5 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.BoolFlag("proxy"), helptext.CompletionFormatFlag()}}
 }

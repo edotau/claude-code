@@ -317,6 +317,30 @@ func TestDoctorRejectsConflictingModes(t *testing.T) {
 	}
 }
 
+func TestDoctorProxyFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := proxyCheck
+	t.Cleanup(func() { proxyCheck = orig })
+
+	for _, tc := range []struct {
+		name   string
+		detail string
+		bad    bool
+		want   int
+	}{
+		{name: "ok", detail: "not running; teams: 0 teams", bad: false, want: 0},
+		{name: "fail", detail: "proxy.json unreadable", bad: true, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proxyCheck = func(context.Context) (string, bool) { return tc.detail, tc.bad }
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--proxy"}) })
+			if code != tc.want || !strings.Contains(stdout, "proxy") || !strings.Contains(stdout, tc.detail) {
+				t.Fatalf("doctor --proxy = (%d, %q, %q), want exit %d with %q", code, stdout, stderr, tc.want, tc.detail)
+			}
+		})
+	}
+}
+
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
