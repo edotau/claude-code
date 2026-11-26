@@ -1,4 +1,4 @@
-// `agents fix`: the `make fmt` fixers, run only on the tracked files named by --path and not held by a peer.
+// `agents fix`: the `make format` fixers, run only on the tracked files named by --path and not held by a peer.
 
 package inspect
 

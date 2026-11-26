@@ -99,7 +99,7 @@ var agentsPage = helptext.Page{
 		{"codemode", "codemode on|off|status: this session's rtk-free shell"},
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
-		{"fix", "run the make fmt fixers on --path files only; --dry-run"},
+		{"fix", "run the make format fixers on --path files only; --dry-run"},
 		{"status", "dispatch state: status [<id>] [--agent A] [--all]"},
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
@@ -138,7 +138,7 @@ var agentsSubPages = map[string][3]string{
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
 		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing golangci-lint or mdsmith then fails); --all checks the whole " +
 		"tree. --verify <id> adds a dispatch's routing proof and flags pre-existing dirty files it touched outside --path. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
-	"fix": {"fix --path <p> [flags]", "Run the fixers make fmt runs (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on " +
+	"fix": {"fix --path <p> [flags]", "Run the fixers make format runs (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on " +
 		"the tracked files under each --path, and nothing else. Refuses no --path, an untracked or symlinked file, and a " +
 		"file a live session or leaf holds. --dry-run lists what would change.",
 		"Exit 0 fixed or clean, 1 skipped file, missing tool or failed fixer, 2 usage."},
@@ -464,7 +464,7 @@ func cmdAgentsDiff(args []string) int {
 		Out: os.Stdout, Err: os.Stderr})
 }
 
-// cmdAgentsFix is `agents fix`: the make fmt fixers, scoped to the --path files.
+// cmdAgentsFix is `agents fix`: the make format fixers, scoped to the --path files.
 func cmdAgentsFix(args []string) int {
 	fs := agentsFlags("fix")
 	var sel []string

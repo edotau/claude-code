@@ -364,7 +364,7 @@ decision:<id>|commit:<sha>|note:<path>` (no other reason or cite is accepted; qu
 The main shell stays at the repo root (use absolute paths, never a bare `cd`). Every brief says: never `git stash` /
 `checkout` / `reset` / `restore`; gate on a scoped target (a repo-wide red is
 a sibling's half-finished edit); run `claude-code agents diff --check --path <files>`, fix your own files
-(`agents fix --path <files>`), never `make fmt`, `audit` or `install`; edit files with Edit or Write, never a
+(`agents fix --path <files>`), never `make format`, `audit` or `install`; edit files with Edit or Write, never a
 `python3 -` script (`safety-scan` asks on interpreter writes); check writes with `rtk git diff --stat`; stage named
 files only.
 

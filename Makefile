@@ -34,7 +34,7 @@ STAMP_FILE       = $(dir $(BIN)).build-stamp
 # rtk shim (internal/rtkwrap): Pi's shim dir links each wrapped command here.
 RTKWRAP_BIN      = $(dir $(BIN)).rtkwrap
 PKGS            := ./...
-# Dirs that `make fmt` and lint run gofmt over.
+# Dirs that `make format` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs them all (DEV_TOOLS=0 skips).
@@ -60,7 +60,7 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 ##@ Go
 .PHONY: compile
-compile:  ## Compile bin/claude-code, bin/.hookd and bin/.rtkwrap, no install
+compile:  ## Build the bin/ binaries; no install
 	@mkdir -p $(dir $(BIN))
 	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)-$$$$"; tmp=".new.$$$$"; \
 	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
@@ -281,15 +281,14 @@ WHAT    ?= all
 SKIP    ?=
 C_COMMA := ,
 LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(filter $(WHAT),js settings),$(LINT_WHAT)))
-FMT_KINDS := $(filter go yaml docs $(filter settings,$(WHAT)),$(LINT_KINDS))
-.PHONY: fmt
-fmt:  ## Fix go, yaml, md, memory banks; then show what lint finds
+FMT_KINDS := $(filter go yaml docs settings,$(LINT_KINDS))
+.PHONY: format
+format:  ## Auto-fix go, yaml, md, settings, memory; checks nothing
 	@case "$(WHAT)" in go|md|js|settings|all) ;; *) echo "WHAT must be go|md|js|settings|all"; exit 1 ;; esac
 	$(GO) fmt $(PKGS) >/dev/null
 	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
 	@$(if $(FMT_KINDS),$(MAKE) --no-print-directory -k $(addprefix lint-,$(FMT_KINDS)) CHECK= || :)
-	@echo -e "$(C_OK)fmt applied; what lint still reports needs a hand fix"
-	@$(MAKE) --no-print-directory lint
+	@echo -e "$(C_OK)format applied; make lint shows what is left"
 
 .PHONY: lint
 lint:  ## Check only, never writes: go, shell, yaml, md, js, memory
@@ -402,7 +401,7 @@ verify: audit  ## audit + doctor + proxy status
 TARGET ?= nested-podman
 IMAGE ?= claude-code-harness:$(TARGET)
 .PHONY: image image-audit image-shell
-image:  ## Ubuntu image of non-ignored files (TARGET=base|nested-podman)
+image:  ## Ubuntu image (TARGET=base|nested-podman)
 	TARGET=$(TARGET) IMAGE=$(IMAGE) container/image.sh build
 
 image-audit: image  ## Run make audit inside a fresh Ubuntu container

@@ -18,7 +18,7 @@ paths:
   (review-simplicity hook) reports mdsmith findings on the Markdown lines an edit wrote (advisory). Gates:
   `claude-code agents diff --check --gates docs --path <files>` (mdsmith on changed `.md`, plus `mdlint.Parity` when
   a lint config changed or with `--all`); `make lint-docs CHECK=1` also runs markdownlint-cli2 (part of
-  `make audit`). Fix: `claude-code agents fix --path <files>` for yours; `rtk make fmt` is main session only.
+  `make audit`). Fix: `claude-code agents fix --path <files>` for yours; `rtk make format` is main session only.
 - **Naming and links** — lowercase-with-hyphens files, except the root anchors (`README.md`, `CLAUDE.md`,
   `AGENTS.md`, the set in `rules/harness/docs-placement.md`), `SKILL.md`, `agents/Plan.md` and the memory bank file
   names (`activeContext.md`); relative intra-repo links. A moved or renamed file means fixing every doc that points at

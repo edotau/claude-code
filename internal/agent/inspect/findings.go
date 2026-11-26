@@ -50,7 +50,7 @@ type step struct {
 	listsFiles bool   // the tool exits 0 and prints the files that need work (gofmt -l)
 	optional   bool   // a missing tool skips even under --gates, as the Makefile always did for it
 	parse      parseFn
-	fix        []string // the command `agents fix` runs on {files}, the one `make fmt` runs for this kind; nil: no fixer
+	fix        []string // the command `agents fix` runs on {files}, the one `make format` runs for this kind; nil: no fixer
 	dry        []string // what lists the files fix would rewrite, when cmd is not that (golangci-lint fmt -d)
 	dryParse   parseFn  // reads dry's output; parse when nil
 }

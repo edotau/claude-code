@@ -20,7 +20,7 @@ The lint step (`configure fmt`) reorders the live file's keys to schemastore ord
 | Reset settings.json to the clean template | `claude-code configure restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure restore --agent all` (or `--agent X`); never touches settings.json |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group (`hooks.md`) |
-| Lint and auto-fix | `rtk make fmt [WHAT=go\|md\|js\|all]` fixes and then prints what lint still finds (main session only), `rtk make lint [SKIP=<kind>,…]` only checks, except the settings step above (a leaf runs `claude-code agents diff --check --path <files>` and `agents fix --path <files>` on its own files from the output) |
+| Lint and auto-fix | `rtk make format [WHAT=go\|md\|js\|all]` runs every auto-fixer and checks nothing (main session only), `rtk make lint [SKIP=<kind>,…]` only checks, except the settings step above (a leaf runs `claude-code agents diff --check --path <files>` and `agents fix --path <files>` on its own files from the output) |
 
 ## Where settings come from
 

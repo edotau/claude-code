@@ -104,7 +104,7 @@ For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-mess
 | `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
 | `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
 | `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context | Ask in main; blocked in a leaf | main, leaves |
-| `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
+| `make audit`, `make install`, `make format` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
 | `agents ask` overlay `"tools":false` or `"noTools":true` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |
 | Unsetting or overriding the `HARNESS_DISPATCH_*` variables | Blocked, so a nested dispatch keeps its limits | leaves |
 | Writing `settings.json` from Bash or a leaf | Blocked | main (Bash) and leaves |
@@ -136,7 +136,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
 - **Models by alias, plus GPT family names**: ids go stale. `opus` follows the table, a family name such as `sol`
   resolves to the newest version in the list the harness keeps for that row, else a built-in default, and a concrete
   id pins one.
-- **`make fmt` fixes and `make lint` only checks**: a checker that edits files races with parallel agents, so only
+- **`make format` fixes and `make lint` only checks**: a checker that edits files races with parallel agents, so only
   the main session fixes and any agent can lint.
 - **Gates fix what is deterministic where a fix cannot stall the run, and block only when code cannot decide**: a
   rewrite stalls auto mode, so there the rtk hook blocks with the form to run instead.
@@ -149,7 +149,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
 ```bash
 go test ./internal/<pkg>   # while developing: only the package you touched
 make lint                  # checks only, edits no tracked file; any agent may run it
-make fmt                   # fixes go, yaml, markdown and memory banks; main session only
+make format                # fixes go, yaml, markdown, settings and memory banks; main session only
 make test                  # fast tier (go test -short)
 make audit                 # everything, including the pre-ship tests; run before every push (main session)
 ```
