@@ -131,6 +131,17 @@ func isLongSpec(p string) bool {
 // RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
 type RuleClassifier struct{}
 
+// DefaultEffortForTier maps a task tier to its default reasoning effort (fast/standard stay low to save decode time).
+func DefaultEffortForTier(tier string) string {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "deep", models.Opus:
+		return models.EffortHigh
+	case "fast", "standard", models.Haiku, models.Sonnet:
+		return models.EffortLow
+	}
+	return models.EffortMedium
+}
+
 // Alias maps task through EffortTierSignal and models.AliasModel.
 func (RuleClassifier) Alias(task string) string {
 	t, _ := EffortTierSignal(task)

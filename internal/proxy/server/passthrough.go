@@ -292,39 +292,47 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		cur, _ = r.tpmPassthroughHop(&tc, cur, "TPM cooling")
 	}
 	for { // each hop marks a new sibling tried, so passthroughFallback ends the loop
-		target := cur.target()
-		resp, body, retried, err := r.sendHop(in, cur, target, isChatCompletion(dialect, cur.path.Path))
+		hopIn := withFastHeader(in, len(tried) == 1 && sessionFailoverProvider(in) != "", cur.model)
+		resp, body, retried, err := r.sendHop(hopIn, cur, cur.target(), isChatCompletion(dialect, cur.path.Path))
 		if err != nil {
 			if next, ok := r.nextHop(in, p, cur, dialect, tried, 0, err, path, original); ok {
 				cur = next
 				continue
 			}
-			var fe *fallbackError
-			if errors.As(err, &fe) && fe.auth {
-				announceLocal(in, sw.Header(), cur.p.Name, fe.status, retry.ShouldRetryUnset)
-			}
-			writePassthroughSendError(sw, in, cur.p, err)
+			r.finishPassthroughSendErr(sw, in, cur.p, err)
 			return cur.model, "", cur.p.Name
 		}
 		cur.body = body
 		hint := retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry"))
-		if next, ok := r.after429(&tc, cur, resp, hint); ok {
+		if next, ok := r.retryPassthroughResp(&tc, in, p, cur, dialect, tried, path, original, resp, hint); ok {
 			_ = resp.Body.Close()
 			cur = next
 			continue
-		}
-		if passthroughRetryable(in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
-			if next, ok := r.nextHop(in, p, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original); ok {
-				_ = resp.Body.Close()
-				cur = next
-				continue
-			}
 		}
 		announceLocal(in, resp.Header, cur.p.Name, resp.StatusCode, hint)
 		defer resp.Body.Close()
 		extra := passthroughDiag(resp, len(cur.body), hint) + retried
 		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, extra)
 	}
+}
+
+func (r *Router) finishPassthroughSendErr(sw *statusWriter, in *http.Request, p *providers.Provider, err error) {
+	var fe *fallbackError
+	if errors.As(err, &fe) && fe.auth {
+		announceLocal(in, sw.Header(), p.Name, fe.status, retry.ShouldRetryUnset)
+	}
+	writePassthroughSendError(sw, in, p, err)
+}
+
+func (r *Router) retryPassthroughResp(tc *passthroughTPM, in *http.Request, origin *providers.Provider, cur passthroughHop,
+	dialect string, tried map[string]bool, path *url.URL, original []byte, resp *http.Response, hint retry.ShouldRetry) (passthroughHop, bool) {
+	if next, ok := r.after429(tc, cur, resp, hint); ok {
+		return next, true
+	}
+	if passthroughRetryable(in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
+		return r.nextHop(in, origin, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original)
+	}
+	return cur, false
 }
 
 // passthroughTPM is one passthrough's state for its single per-minute-token hop to another workspace.

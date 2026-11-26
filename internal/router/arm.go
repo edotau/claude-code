@@ -47,6 +47,7 @@ func armPicksFile() string { return filepath.Join(paths.StateDir(), "router", "r
 type WorkspaceQuery[F any] struct {
 	Provider         string // provider group to rank; empty defaults to databricks
 	AgentName, Model string
+	StickyKey        string // when non-empty, prefers one deterministic healthy sibling for prefix-cache locality
 	Strict           bool
 	PreferFresh      bool // a fresh served listing beats a stale one before load (after cooling)
 	Tried            []string
@@ -76,7 +77,7 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 	load := workspaceLoad(usable, q) // the marker and record scans stay out of the stamp lock
 	rankFrom := func() armPicks {
 		picks := readArmPicks()
-		rankWorkspaces(usable, cooling, stale, pendingLoad(load, &picks, now), picks)
+		rankWorkspaces(usable, cooling, stale, pendingLoad(load, &picks, now), picks, q.StickyKey)
 		order, live = names(usable), load[usable[0].Name]
 		return picks
 	}
@@ -141,7 +142,7 @@ func RankWorkspaces[F any](reg *providers.Registry, q WorkspaceQuery[F], now tim
 		return nil, skipped, err
 	}
 	picks := readArmPicks()
-	rankWorkspaces(usable, workspaceCooling(usable, q, now), workspaceStale(usable, q, now), pendingLoad(workspaceLoad(usable, q), &picks, now), picks)
+	rankWorkspaces(usable, workspaceCooling(usable, q, now), workspaceStale(usable, q, now), pendingLoad(workspaceLoad(usable, q), &picks, now), picks, q.StickyKey)
 	return names(usable), skipped, nil
 }
 
@@ -180,13 +181,35 @@ func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[str
 	return counts
 }
 
-func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, counts map[string]int, picks armPicks) map[string]int {
+// StickyOrder returns rows ordered deterministically for key so sequential work shares one warm prefix cache.
+func StickyOrder(key string, rows []string) []string {
+	out := slices.Clone(rows)
+	if key == "" || len(out) < 2 {
+		return out
+	}
+	slices.SortFunc(out, func(a, b string) int {
+		return cmp.Or(cmp.Compare(hostTie(key, a), hostTie(key, b)), cmp.Compare(a, b))
+	})
+	return out
+}
+
+func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, counts map[string]int, picks armPicks, stickyKey string) map[string]int {
 	dead := map[string]bool{}
 	for _, p := range ps {
 		dead[p.Name] = LoginDead(p)
 	}
 	host := armHost()
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
+		if stickyKey != "" {
+			return cmp.Or(
+				cmp.Compare(rank(dead[a.Name]), rank(dead[b.Name])),
+				cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])),
+				cmp.Compare(rank(stale[a.Name]), rank(stale[b.Name])),
+				cmp.Compare(counts[a.Name], counts[b.Name]),
+				cmp.Compare(hostTie(stickyKey, a.Name), hostTie(stickyKey, b.Name)),
+				cmp.Compare(a.Name, b.Name),
+			)
+		}
 		return cmp.Or(
 			cmp.Compare(rank(dead[a.Name]), rank(dead[b.Name])),
 			cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])),

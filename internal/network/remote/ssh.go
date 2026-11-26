@@ -59,18 +59,25 @@ const controlPathMax = 104 - 1 - 40 - 17
 // controlDir is where reused ssh master sockets live, "" when none is usable; tests swap it.
 var controlDir = defaultControlDir
 
-// defaultControlDir picks the first short-enough private dir: the harness state dir, then ~/.ssh/cc.
+// defaultControlDir picks the first short-enough private dir under the user's home: harness ssh dir, then ~/.ssh/cc.
 func defaultControlDir() string {
 	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
 	for _, dir := range []string{egress.SSHDir(), filepath.Join(home, ".ssh", "cc")} {
-		if home == "" || len(dir) > controlPathMax {
-			continue
-		}
-		if os.MkdirAll(dir, 0o700) == nil && os.Chmod(dir, 0o700) == nil {
+		if len(dir) <= controlPathMax && ensurePrivateDir(dir) {
 			return dir
 		}
 	}
 	return ""
+}
+
+func ensurePrivateDir(dir string) bool {
+	if fi, err := os.Lstat(dir); err == nil {
+		return fi.Mode()&os.ModeSymlink == 0 && fi.IsDir() && (fi.Mode().Perm() == 0o700 || os.Chmod(dir, 0o700) == nil)
+	}
+	return os.MkdirAll(dir, 0o700) == nil && os.Chmod(dir, 0o700) == nil
 }
 
 // reuseOpts multiplexes ssh calls to one host over a master kept 10 minutes; nil when opted out or no dir.

@@ -299,6 +299,9 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wir
 	ctx = DirectCtx(ctx, req)
 	forgetChosenProxy(ctx)       // a stale label from an earlier attempt must not reach this one
 	defer forgetChosenProxy(ctx) // a pre-stream failure leaves no entry behind
+	if res, handled, err := v.tryOneShotHTTP(ctx, req, sink); handled {
+		return res, err
+	}
 	p, err := v.prepare(ctx, req)
 	if p.Cleanup != nil {
 		defer p.Cleanup()
@@ -308,6 +311,20 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wir
 		return p.Result, err
 	}
 	return v.Exec(ctx, p, req, sink)
+}
+
+func (v cliEngine) tryOneShotHTTP(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, bool, error) {
+	if !req.HTTPDirect {
+		return wire.Result{}, false, nil
+	}
+	ctx, req.Values = RunValues(ctx, req.Values)
+	t, own, err := SchemaFor(v.Name()).TargetCtx(ctx, req)
+	if err != nil || own || !CanOneShotHTTP(t.Provider, t.Model, req) {
+		return wire.Result{}, false, nil
+	}
+	res, err := OneShotHTTP(ctx, t, req, sink)
+	res.Agent = v.Name()
+	return res, true, err
 }
 
 // NoTextAnswer is the answer of a run whose tool work completed but whose model sent no closing text.

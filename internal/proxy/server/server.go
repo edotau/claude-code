@@ -628,8 +628,9 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 			r.passthroughAuth(h, in, route)
 		}
 	}
-	resp, err := r.sendWithAuth(in, p, func(credential string) (*http.Response, error) {
-		return r.sendRequestBody(in, http.MethodPost, p, url, out, headers, credential)
+	hopIn := withFastHeader(in, !last, t.Model)
+	resp, err := r.sendWithAuth(hopIn, p, func(credential string) (*http.Response, error) {
+		return r.sendRequestBody(hopIn, http.MethodPost, p, url, out, headers, credential)
 	})
 	if err != nil {
 		return false, err
@@ -642,16 +643,20 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 		drain(resp)
 		return true, nil
 	}
+	r.relayAnthropic(w, in, p, resp, t.Model, count)
+	return true, nil
+}
+
+func (r *Router) relayAnthropic(w http.ResponseWriter, in *http.Request, p *providers.Provider, resp *http.Response, model string, count bool) {
 	if !count && metered(p) {
 		var capture headTailBuffer
 		orig := resp.Body
 		resp.Body = teeReadCloser{io.TeeReader(orig, &capture), orig}
 		relay(w, resp)
-		logLedgerUsage(in, p, t.Model, scrapeAnthropicUsage(capture.Bytes()))
-		return true, nil
+		logLedgerUsage(in, p, model, scrapeAnthropicUsage(capture.Bytes()))
+		return
 	}
 	relay(w, resp)
-	return true, nil
 }
 
 func anthropicBody(t providers.Target, body, out proxyBody) (proxyBody, error) {

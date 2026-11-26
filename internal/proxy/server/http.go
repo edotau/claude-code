@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
@@ -388,24 +389,56 @@ func (r *Router) sendRequestBody(in *http.Request, method string, p *providers.P
 	return resp, nil
 }
 
-// uploadTimeout bounds request write plus wait for response headers; a var so tests need not wait minutes.
-var uploadTimeout = 5 * time.Minute
+// uploadTimeout bounds request write plus wait for response headers; fastHeaderTimeout cuts wedged first hops sooner.
+var (
+	uploadTimeout     = 5 * time.Minute
+	fastHeaderTimeout = 35 * time.Second
+)
 
-// doBounded sends req and cancels it if headers, upload included, take longer than uploadTimeout.
+type headerTimeoutKey struct{}
+
+// withHeaderTimeout caps doBounded's header wait on ctx for non-deep failover hops.
+func withHeaderTimeout(ctx context.Context, d time.Duration) context.Context {
+	if d <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, headerTimeoutKey{}, d)
+}
+
+// withFastHeader caps header wait on a non-final, non-deep hop so wedged backends fail over sooner.
+func withFastHeader(in *http.Request, allow bool, model string) *http.Request {
+	low := strings.ToLower(model)
+	if !allow || strings.Contains(low, "opus") || strings.Contains(low, "fable") {
+		return in
+	}
+	return in.WithContext(withHeaderTimeout(in.Context(), fastHeaderTimeout))
+}
+
+// doBounded sends req and cancels it if headers, upload included, take longer than the active header timeout.
 func (r *Router) doBounded(req *http.Request) (*http.Response, error) {
+	limit := uploadTimeout
+	if d, ok := req.Context().Value(headerTimeoutKey{}).(time.Duration); ok && d > 0 && d < limit {
+		limit = d
+	}
 	ctx, cancel := context.WithCancel(req.Context())
-	timer := time.AfterFunc(uploadTimeout, cancel)
+	timer := time.AfterFunc(limit, cancel)
 	resp, err := r.client.Do(req.WithContext(ctx))
 	timedOut := !timer.Stop()
 	if timedOut {
 		cancel()
+		if h := egress.HostContext(req.Context()); h != "" {
+			egress.Invalidate(h)
+		}
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		return nil, fmt.Errorf("upstream sent no response within %s", uploadTimeout)
+		return nil, fmt.Errorf("upstream sent no response within %s", limit)
 	}
 	if err != nil {
 		cancel()
+		if h := egress.HostContext(req.Context()); h != "" {
+			egress.Invalidate(h)
+		}
 		return nil, err
 	}
 	resp.Body = cancelOnClose{resp.Body, cancel} // the body streams past the deadline, so cancel only on Close

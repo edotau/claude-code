@@ -38,13 +38,19 @@ func recallRows(terms []string) (map[string][]byte, bool) {
 		return nil, false
 	}
 	defer db.Close()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, false
+	}
+	defer conn.Close()
 	stop = memory.RecallStage("current")
-	current := recallCurrent(ctx, db, files) // before the tx: the pool may hold one connection
+	v1, v1OK := recallDataVersion(ctx, conn)
+	current := recallCurrent(ctx, db, files)
 	stop()
 	if !current {
 		return nil, false
 	}
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, false
 	}
@@ -52,9 +58,20 @@ func recallRows(terms []string) (map[string][]byte, bool) {
 	rendered, err := recallDocuments(ctx, tx, terms)
 	_ = tx.Rollback() // Read-only rollback only releases the snapshot and its connection.
 	stop()
+	if err != nil {
+		return nil, false
+	}
 	defer memory.RecallStage("current")()
-	// A rebuild that committed during the read moved the metadata: the rows may not be the ones checked.
-	return rendered, err == nil && recallCurrent(ctx, db, files)
+	// Skip the second full scan when PRAGMA data_version on the same pinned connection confirms no peer committed.
+	if v2, ok := recallDataVersion(ctx, conn); v1OK && ok && v1 == v2 {
+		return rendered, true
+	}
+	return rendered, recallCurrent(ctx, db, files)
+}
+
+func recallDataVersion(ctx context.Context, conn *sql.Conn) (int64, bool) {
+	var v int64
+	return v, conn.QueryRowContext(ctx, `PRAGMA data_version`).Scan(&v) == nil
 }
 
 func recallFiles(root string) (map[string]string, bool) {

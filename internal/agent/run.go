@@ -601,6 +601,7 @@ type RunOptions struct {
 	Runner                                              string     `json:"runner,omitempty"`          // the typed --runner (pi|cli), so a replay keeps it
 	GoogleTools                                         []string   `json:"google_tools,omitempty"`    // gemini: --google-tools
 	NoTools                                             bool       // claude only: answer from the provider directly, no claude process
+	HTTPDirect                                          bool       `json:"-"` // explicit --tools=false: prefer in-process HTTP one-shot when supported
 	NoPersist                                           bool       // claude, codex: no session persistence
 	DebugFile                                           string     // claude, gemini: debug log at <path>
 	SystemPrompt, AppendSystemPrompt                    string     // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere

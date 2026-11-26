@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -108,10 +109,18 @@ func JevPairs(ctx context.Context, tasks []string) []JevPair {
 	return out
 }
 
-// jevBrief is the part of a dispatch prompt Open-Jev judges: no review-loop goal, leaf rules or boilerplate.
+var (
+	jevRecallRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<memory-recall>.*?</memory-recall>`) })
+	jevMetaRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*(?:Workdir|HARD CAP):.*$`) })
+	jevBlankRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n{3,}`) })
+)
+
+// jevBrief keeps only the task text Open-Jev judges: no memory-recall, metadata headers, leaf rules or boilerplate.
 func jevBrief(prompt string) string {
-	text, _, _ := strings.Cut(WithoutReviewLoop(prompt), "\n## Leaf rules")
-	return strings.TrimSpace(boilerRe().ReplaceAllString(text, ""))
+	text := jevRecallRe().ReplaceAllString(WithoutReviewLoop(prompt), "")
+	text, _, _ = strings.Cut(text, "\n## Leaf rules")
+	text = jevMetaRe().ReplaceAllString(boilerRe().ReplaceAllString(text, ""), "")
+	return strings.TrimSpace(jevBlankRe().ReplaceAllString(text, "\n\n"))
 }
 
 // final is the pick R5's rule would act on: a confident Open-Jev, else fast on Qwen's say-so, else the keywords.

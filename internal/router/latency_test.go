@@ -93,3 +93,31 @@ func TestLatencyFallbacks(t *testing.T) {
 		t.Error("a now before the memo must reload")
 	}
 }
+
+func TestLatencyThroughputOverridesTTFT(t *testing.T) {
+	slow := tokenledger.LatencyKey{Provider: "ws", Profile: "a", Model: "m"}
+	fast := tokenledger.LatencyKey{Provider: "direct", Profile: "b", Model: "m"}
+	unmeasured := tokenledger.LatencyKey{Provider: "other", Profile: "c", Model: "m"}
+	got := latencyFromStats(map[tokenledger.LatencyKey]tokenledger.Latency{
+		slow:       {N: 10, FirstP50: 350, FirstP95: 450, OutTokPerSecP50: 50},
+		fast:       {N: 10, FirstP50: 1500, FirstP95: 1900, OutTokPerSecP50: 200},
+		unmeasured: {N: 10, FirstP50: 1000, FirstP95: 1000},
+	})
+	if got[latKey{"direct·b", "m"}] >= got[latKey{"ws·a", "m"}] {
+		t.Fatalf("expected faster decode route to have lower effective ms: got %v", got)
+	}
+	if got[latKey{"other·c", "m"}] <= got[latKey{"direct·b", "m"}] {
+		t.Fatalf("unmeasured throughput row must not undercut measured faster route via TTFT-only scale: got %v", got)
+	}
+}
+
+func TestStickyOrderAndDefaultEffort(t *testing.T) {
+	a := StickyOrder("repo-x", []string{"ws-a", "ws-b", "ws-c"})
+	b := StickyOrder("repo-x", []string{"ws-c", "ws-a", "ws-b"})
+	if len(a) != 3 || a[0] != b[0] || a[1] != b[1] || a[2] != b[2] {
+		t.Fatalf("StickyOrder not deterministic across input permutations: %v vs %v", a, b)
+	}
+	if DefaultEffortForTier("fast") != "low" || DefaultEffortForTier("standard") != "low" || DefaultEffortForTier("deep") != "high" {
+		t.Fatalf("unexpected DefaultEffortForTier mapping")
+	}
+}

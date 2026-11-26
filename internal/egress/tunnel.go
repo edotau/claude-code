@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -57,29 +58,75 @@ func reusable(ctx context.Context, path string) (Tunnel, bool) {
 	return t, ok && isTunnel(t) && answers(ctx, t.addr())
 }
 
+// tunnelMemoTTL avoids disk + loopback TCP probes on every proxy request; Invalidate clears it on dial errors.
+var tunnelMemoTTL = 5 * time.Second
+
+type cachedTunnel struct {
+	addr    string
+	expires time.Time
+}
+
+var tunnelMemo struct {
+	mu   sync.Mutex
+	rows map[string]cachedTunnel
+}
+
+// Invalidate drops host's memoized tunnel address so the next request re-probes or restarts ssh.
+func Invalidate(host string) {
+	tunnelMemo.mu.Lock()
+	delete(tunnelMemo.rows, host+"\x00"+recordPath(host))
+	tunnelMemo.mu.Unlock()
+}
+
+func memoGet(host, path string) (string, bool) {
+	if tunnelMemoTTL <= 0 {
+		return "", false
+	}
+	tunnelMemo.mu.Lock()
+	entry, ok := tunnelMemo.rows[host+"\x00"+path]
+	tunnelMemo.mu.Unlock()
+	return entry.addr, ok && time.Now().Before(entry.expires)
+}
+
+func memoSet(host, path string, t Tunnel) {
+	if tunnelMemoTTL <= 0 || t.PID <= 0 {
+		return
+	}
+	tunnelMemo.mu.Lock()
+	if tunnelMemo.rows == nil {
+		tunnelMemo.rows = map[string]cachedTunnel{}
+	}
+	tunnelMemo.rows[host+"\x00"+path] = cachedTunnel{addr: t.addr(), expires: time.Now().Add(tunnelMemoTTL)}
+	tunnelMemo.mu.Unlock()
+}
+
 // Ensure returns the loopback SOCKS5 address of host's tunnel, starting ssh when none answers.
 func Ensure(ctx context.Context, host string) (string, error) {
 	if err := Valid(host); err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
 	}
 	path := recordPath(host)
+	if addr, ok := memoGet(host, path); ok {
+		return addr, nil
+	}
 	if t, ok := reusable(ctx, path); ok {
+		memoSet(host, path, t)
 		return t.addr(), nil
 	}
 	if err := os.MkdirAll(SSHDir(), 0o700); err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
 	}
-	var addr string
+	var res Tunnel
 	err := paths.WithFileLock(path, func() error {
 		if t, ok := reusable(ctx, path); ok { // another process started it while we waited
-			addr = t.addr()
+			res = t
 			return nil
 		}
 		t, err := start(ctx, host, strings.TrimSuffix(path, ".json")+".log")
 		if err != nil {
 			return err
 		}
-		addr = t.addr()
+		res = t
 		if err := writeRecord(path, t); err != nil {
 			kill(t) // an unrecorded tunnel could never be stopped
 			return err
@@ -89,7 +136,8 @@ func Ensure(ctx context.Context, host string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
 	}
-	return addr, nil
+	memoSet(host, path, res)
+	return res.addr(), nil
 }
 
 func writeRecord(path string, t Tunnel) error {
@@ -231,6 +279,7 @@ func Tunnels() []Tunnel {
 
 // Stop kills host's recorded tunnel and drops its record; a missing record is not an error.
 func Stop(host string) error {
+	Invalidate(host)
 	path := recordPath(host)
 	t, ok := readRecord(path)
 	if !ok {

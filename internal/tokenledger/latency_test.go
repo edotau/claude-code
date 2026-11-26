@@ -60,6 +60,19 @@ func TestLatencyStatsPartialFirstLine(t *testing.T) {
 	}
 }
 
+func TestLatencyStatsThroughput(t *testing.T) {
+	withLedgerDir(t)
+	now := time.Now()
+	for range 5 {
+		Append(Entry{Ts: now, Provider: "p", Profile: "r", Model: "m", Output: 200, FirstMs: 500, TotalMs: 1500})
+	}
+	got, err := LatencyStats(now.Add(-time.Minute))
+	l := got[LatencyKey{"p", "r", "m"}]
+	if err != nil || l.OutTokPerSecP50 != 200 || l.EffectiveMs(1000) != 5500 {
+		t.Fatalf("got %+v effective=%d err=%v, want 200 tok/s and 5500ms", l, l.EffectiveMs(1000), err)
+	}
+}
+
 func appendRaw(t *testing.T, s string) {
 	t.Helper()
 	f, err := os.OpenFile(Path(), os.O_APPEND|os.O_WRONLY, 0o600)

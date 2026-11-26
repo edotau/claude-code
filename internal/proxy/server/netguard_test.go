@@ -155,6 +155,25 @@ func TestGuardedClientHeaderStallTimesOut(t *testing.T) {
 	}
 }
 
+func TestDoBoundedHeaderTimeoutOverride(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	r := newRouter("s")
+	req := testRequest(t, http.MethodGet, srv.URL, nil)
+	req = req.WithContext(withHeaderTimeout(req.Context(), 80*time.Millisecond))
+	start := time.Now()
+	resp, err := r.doBounded(req)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected fast header timeout error")
+	}
+	if time.Since(start) > 2*time.Second || !strings.Contains(err.Error(), "upstream sent no response within") {
+		t.Fatalf("err=%v elapsed=%v, want fast header timeout", err, time.Since(start))
+	}
+}
+
 // Finding 11: a repeated /d/ or /via/ prefix is a 400, never a silent replacement of the first.
 func TestStripViaRejectsDuplicatePrefix(t *testing.T) {
 	for _, path := range []string{"/d/a/d/b/p/x", "/via/h1/via/h2/p/x", "/d/a/via/h/d/b/p/x", "/via/h/d/a/via/h2/p/x"} {

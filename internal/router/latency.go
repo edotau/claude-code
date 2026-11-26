@@ -66,6 +66,7 @@ func withoutLatency(w map[string]float64) map[string]float64 {
 
 const (
 	latencyMinSamples = 5
+	latencyRefOutput  = 1000
 	latencyWindow     = 7 * 24 * time.Hour
 	latencyCacheTTL   = 30 * time.Second
 )
@@ -82,20 +83,42 @@ var loadLatency = func(now time.Time) latencyTable {
 	return latencyFromStats(stats)
 }
 
-// latencyFromStats keeps keys with enough samples; on a key collision more samples win, then the lower ms.
+// latencyFromStats keeps keys with enough samples; when any row measures decode tok/s, unmeasured rows use the median.
 func latencyFromStats(stats map[tokenledger.LatencyKey]tokenledger.Latency) latencyTable {
 	out, n := latencyTable{}, map[latKey]int{}
+	fallbackTPS := medianMeasuredTPS(stats)
 	for k, v := range stats {
 		if v.N < latencyMinSamples {
 			continue
 		}
 		key := latKey{cmp.Or(k.Provider, "databricks") + "·" + k.Profile, models.ModelKey(k.Model)}
-		ms := (v.FirstP50 + v.FirstP95) / 2
+		if v.OutTokPerSecP50 <= 0 && fallbackTPS > 0 {
+			v.OutTokPerSecP50 = fallbackTPS
+		}
+		ms := v.EffectiveMs(latencyRefOutput)
 		if v.N > n[key] || v.N == n[key] && ms < out[key] {
 			n[key], out[key] = v.N, ms
 		}
 	}
 	return out
+}
+
+func medianMeasuredTPS(stats map[tokenledger.LatencyKey]tokenledger.Latency) float64 {
+	var tps []float64
+	for _, v := range stats {
+		if v.N >= latencyMinSamples && v.OutTokPerSecP50 > 0 {
+			tps = append(tps, v.OutTokPerSecP50)
+		}
+	}
+	if len(tps) == 0 {
+		return 0
+	}
+	slices.Sort(tps)
+	mid := len(tps) / 2
+	if len(tps)%2 == 0 {
+		return (tps[mid-1] + tps[mid]) / 2
+	}
+	return tps[mid]
 }
 
 var latencyMemo struct {
