@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
@@ -25,7 +26,13 @@ const (
 // ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
 func ReviewSimplicity(in *core.Input) core.Result {
 	path := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
-	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || source.DetectLanguage(path) == "" {
+	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") {
+		return core.Result{}
+	}
+	if strings.HasSuffix(path, ".md") {
+		return markdownFeedback(in, path)
+	}
+	if source.DetectLanguage(path) == "" {
 		return core.Result{}
 	}
 	after, ok := readSmallFile(path)
@@ -111,11 +118,85 @@ func gitHeadContent(path string) (string, bool) {
 	return "", false
 }
 
+// markdownFeedback is mdsmith's findings on the lines the edit wrote (every line for a Write); advisory only.
+func markdownFeedback(in *core.Input, path string) core.Result {
+	root := mdlint.Root(path)
+	text, ok := readSmallFile(path)
+	if root == "" || !ok {
+		return core.Result{}
+	}
+	var edited map[int]bool // nil: a Write, every line counts
+	if in.ToolName == "Edit" {
+		if edited = editedLines(text, in.Nested("tool_input", "old_string"), in.Nested("tool_input", "new_string")); len(edited) == 0 {
+			return core.Result{}
+		}
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return core.Result{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	found, err := mdlint.CheckFile(ctx, root, rel)
+	if err != nil {
+		return core.Result{}
+	}
+	lines := strings.Split(text, "\n")
+	var kept []string
+	for _, f := range found {
+		if f.Line >= 1 && f.Line <= len(lines) && (edited == nil || edited[f.Line]) {
+			kept = append(kept, f.String())
+		}
+	}
+	if len(kept) == 0 {
+		return core.Result{}
+	}
+	return core.Result{Context: renderFindings(markdownHeader+rel+":", kept)}
+}
+
+// editedLines is the 1-based lines newStr changed from oldStr; none when newStr is empty or occurs more than once.
+func editedLines(text, oldStr, newStr string) map[int]bool {
+	if newStr == "" || strings.Count(text, newStr) != 1 {
+		return nil
+	}
+	oldL, newL := strings.Split(oldStr, "\n"), strings.Split(newStr, "\n")
+	head := 0
+	for head < min(len(oldL), len(newL)) && oldL[head] == newL[head] {
+		head++
+	}
+	tail := 0
+	for tail < min(len(oldL), len(newL))-head && oldL[len(oldL)-1-tail] == newL[len(newL)-1-tail] {
+		tail++
+	}
+	first, last := head, len(newL)-1-tail
+	out := map[int]bool{}
+	line, pos := 1, 0
+	for from := 0; ; {
+		i := strings.Index(text[from:], newStr)
+		if i < 0 {
+			return out
+		}
+		start := from + i
+		line += strings.Count(text[pos:start], "\n")
+		pos = start
+		for l := line + first; l <= line+last; l++ {
+			out[l] = true
+		}
+		from = start + len(newStr)
+	}
+}
+
+const markdownHeader = "markdown lint (fix these now; format-stop fixes spacing and markers at Stop): "
+
 // simplicityText renders the header plus up to simplicityMaxLines findings within simplicityMaxChars.
 func simplicityText(rel string, found []string) string {
+	return renderFindings(assets.HookSimplicityHeader(len(found), rel), found)
+}
+
+func renderFindings(header string, found []string) string {
 	n := len(found)
 	var b strings.Builder
-	b.WriteString(assets.HookSimplicityHeader(n, rel))
+	b.WriteString(header)
 	for i, f := range found {
 		line := "\n- " + f
 		if i >= simplicityMaxLines || b.Len()+len(line) > simplicityMaxChars {

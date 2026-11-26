@@ -14,9 +14,21 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/mdlint"
 )
 
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+func TestMain(m *testing.M) {
+	gateMdsmith = func(root string) string { // follows the gateLookPath fakes: root/bin first, then the PATH name
+		if local := filepath.Join(root, "bin", "mdsmith"); fileFound(local) {
+			return local
+		}
+		if _, err := gateLookPath("mdsmith"); err == nil {
+			return "mdsmith"
+		}
+		return ""
+	}
+	os.Exit(hosttest.Main(m))
+}
 
 type fakeGates struct {
 	mu      sync.Mutex
@@ -176,6 +188,48 @@ func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 	(&fakeGates{}).install(t)
 	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-2].Reason != "mdsmith not installed (make mdsmith)" {
 		t.Errorf("missing mdsmith: %+v", rs)
+	}
+}
+
+// A config-only change runs the real parity check; drift (MD013 line_length 100) fails the docs gate with Rule parity.
+func TestDocsGateParity(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	writeRepoFile(t, cfg, "bin/mdsmith", "#!/bin/sh\ncase \"$1\" in\ninit) echo 'note: MD010 option \"code_blocks\": none' >&2 ;;\n"+
+		"kinds) echo '{\"rules\":{\"line-length\":{\"leaves\":[{\"path\":\"max\",\"value\":120}]}}}' ;;\nesac\n")
+	if err := os.Chmod(filepath.Join(cfg, "bin", "mdsmith"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeRepoFile(t, root, mdlint.RulesFile, `{"MD013":{"line_length":100,"stern":true},"MD010":{"code_blocks":false}}`)
+	writeRepoFile(t, root, mdlint.CLI2File, `{"ignores":["internal/**/testdata/**"]}`)
+	writeRepoFile(t, root, mdlint.MdsmithFile, "files:\n  - '**/*.md'\nignore:\n  - 'internal/**/testdata/**'\n")
+	writeRepoFile(t, root, "README.md", "# Parity\n")
+	(&fakeGates{lint: true}).install(t)
+	rs := runGates(context.Background(), root, "HEAD", []DiffFile{{Path: mdlint.RulesFile, Status: "M"}})
+	r := rs[len(rs)-2]
+	if r.Name != "docs" || r.Status != "FAIL" || len(r.Findings) != 1 || r.Findings[0].Rule != "parity" ||
+		r.Findings[0].Path != mdlint.RulesFile || !strings.Contains(r.Findings[0].Message, "MD013.line_length: expected 120") {
+		t.Fatalf("docs gate = %+v; want one parity FAIL on MD013.line_length", r)
+	}
+	writeRepoFile(t, root, mdlint.RulesFile, `{"MD013":{"line_length":120,"stern":true},"MD010":{"code_blocks":false}}`)
+	rs = runGates(context.Background(), root, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}, {Path: mdlint.RulesFile, Status: "M"}})
+	if r = rs[len(rs)-2]; r.Status != "ok" {
+		t.Errorf("clean parity: %+v, want ok", r)
+	}
+	if in := newGateInput(root, "HEAD", []DiffFile{{Path: mdlint.CLI2File, Status: "D"}}); !parityDue(in) {
+		t.Error("a deleted lint config must trigger parity")
+	}
+	if in := newGateInput(t.TempDir(), "HEAD", []DiffFile{{Path: mdlint.RulesFile, Status: "M"}}); parityDue(in) {
+		t.Error("a repo without .mdsmith.yml must not run parity")
+	}
+	if err := os.Remove(filepath.Join(cfg, "bin", "mdsmith")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	rs = runGates(context.Background(), root, "HEAD", []DiffFile{{Path: mdlint.MdsmithFile, Status: "M"}})
+	if r = rs[len(rs)-2]; r.Status != "skip" || r.Reason != "mdsmith not installed (make mdsmith)" {
+		t.Errorf("no mdsmith: %+v, want the install skip", r)
 	}
 }
 

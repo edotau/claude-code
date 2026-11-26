@@ -56,12 +56,15 @@ func StopFormat(in *core.Input) core.Result {
 	if len(allow) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), stopFormatGitTimeout)
 		defer cancel()
-		changed := changedFiles(ctx, cwd, allow)
-		if ctx.Err() != nil { // a git timeout is not a clean tree: keep the stamps
+		changed, gitTimedOut := dirtyAndStore(ctx, cwd, allow)
+		if gitTimedOut && len(changed) == 0 { // a git timeout is not a clean tree: keep the stamps
 			return core.Result{}
 		}
 		var eligible []string
 		eligible, carry = selectForFormat(cwd, changed, prev.Stamps, allow) // nothing dirty drops the stale stamps
+		if gitTimedOut {
+			carry = maps.Clone(prev.Stamps)
+		}
 		var stamps map[string]string
 		stamps, missing = formatAll(eligible)
 		maps.Copy(carry, stamps)
@@ -75,6 +78,45 @@ func StopFormat(in *core.Input) core.Result {
 		}
 	}
 	return core.Result{SystemMessage: missingNotes(in.SessionID, missing)}
+}
+
+// dirtyAndStore is git's dirty files plus the store Markdown git cannot list; on a git timeout only the store files.
+func dirtyAndStore(ctx context.Context, cwd string, allow map[string]bool) (changed []string, timedOut bool) {
+	changed = changedFiles(ctx, cwd, allow)
+	if timedOut = ctx.Err() != nil; timedOut {
+		changed = nil
+	}
+	if extra := storeMarkdown(cwd, allow); len(extra) > 0 {
+		changed = slices.Compact(slices.Sorted(slices.Values(append(changed, extra...))))
+	}
+	return changed, timedOut
+}
+
+// storeMarkdown is the session-edited .md under plans/ and memory/, which git status never lists (ignored, nested).
+func storeMarkdown(cwd string, allow map[string]bool) []string {
+	var md []string
+	for full := range allow {
+		if strings.HasSuffix(full, ".md") {
+			md = append(md, full)
+		}
+	}
+	if md == nil {
+		return nil
+	}
+	cwd = paths.Real(cwd)
+	var out []string
+	for _, home := range []string{filepath.Join(paths.ConfigDir(), "plans"), paths.MemoryStoreDir()} {
+		for _, full := range md {
+			if !paths.InsideDir(full, home) {
+				continue
+			}
+			if rel, err := filepath.Rel(cwd, full); err == nil {
+				out = append(out, rel)
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // stampRescanSlack is how far the scan offset may lag unwritten; a rescan costs ~0.6 ms/MB, a write ~3.7 ms.

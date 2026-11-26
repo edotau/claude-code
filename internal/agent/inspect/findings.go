@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -150,6 +151,7 @@ var (
 	reLintTail  = lazyRE(`^(\d+ issues?:|\* [\w-]+: \d+)$`)
 	reMdsmith   = lazyRE(`^(.+?):(\d+):\d+ (MDS\d+) (.*)$`)
 	reTypos     = lazyRE(`^(.+?):(\d+):\d+: error: (.*)$`)
+	reParity    = lazyRE(`^mdlint/parity: (.*)$`)
 	reMemory    = lazyRE(`^(.+?\.md): memory fmt --check: (.*)$`)
 	reMdChrome  = lazyRE(`^(\s*\d+ \| ?.*|[·\s]*\^|stats: .*)$`)
 	reFmtDiff   = lazyRE(`^diff (.+)\.orig .+$`)
@@ -202,7 +204,10 @@ func parseGolangci(out string) []Finding {
 
 var parseDocs = parseLines("docs", reMdChrome,
 	lineRule{reMdsmith, func(m []string) Finding { return Finding{m[1], atoi(m[2]), "mdsmith", m[3], m[4]} }},
-	lineRule{reMemory, func(m []string) Finding { return Finding{Path: m[1], Tool: "memory-fmt", Message: m[2]} }})
+	lineRule{reMemory, func(m []string) Finding { return Finding{Path: m[1], Tool: "memory-fmt", Message: m[2]} }},
+	lineRule{reParity, func(m []string) Finding {
+		return Finding{Path: mdlint.RulesFile, Tool: "mdlint", Rule: "parity", Message: m[1]}
+	}})
 
 var parseTypos = parseLines("typos", nil,
 	lineRule{reTypos, func(m []string) Finding { return Finding{m[1], atoi(m[2]), "typos", "", m[3]} }})

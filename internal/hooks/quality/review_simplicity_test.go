@@ -158,3 +158,40 @@ func TestReviewSimplicityWriteWithoutEnglishGitErrors(t *testing.T) {
 		t.Errorf("untracked path with localized git: %q", got)
 	}
 }
+
+func TestReviewSimplicityMarkdown(t *testing.T) {
+	config := fakeMdsmith(t)
+	hosttest.WriteExec(t, filepath.Join(config, "bin", "mdsmith"), "#!/bin/sh\nprintf '%s' "+
+		"'[{\"file\":\"p.md\",\"line\":1,\"rule\":\"MDS002\",\"message\":\"old\"},"+
+		"{\"file\":\"p.md\",\"line\":3,\"rule\":\"MDS001\",\"message\":\"too long\"}]'\n")
+	p := filepath.Join(config, "plans", "p.md")
+	hosttest.WriteRel(t, config, "plans/p.md", "# Old\n\nnew long line\n")
+	out := rsRun(t, "Edit", p, "", "new long line")
+	if !strings.Contains(out, "MDS001") || strings.Contains(out, "MDS002") || !strings.Contains(out, "markdown lint") {
+		t.Errorf("Edit context = %q, want only the MDS001 row", out)
+	}
+	if out := rsRun(t, "Edit", p, "short", "long"); !strings.Contains(out, "MDS001") {
+		t.Errorf("one-word edit hid its line's finding: %q", out)
+	}
+	if out := rsRun(t, "Write", p, "", ""); !strings.Contains(out, "MDS002") {
+		t.Errorf("Write context = %q, want every finding", out)
+	}
+	hosttest.WriteRel(t, config, "plans/p.md", "# Old\n\nnew long line\nnew long line\n")
+	if out := rsRun(t, "Edit", p, "", "# Old"); strings.Contains(out, "MDS001") {
+		t.Errorf("edit of line 1 blamed line 3: %q", out)
+	}
+	hosttest.WriteRel(t, config, "plans/p.md", "# Old\n\nnew long line\ntail\n")
+	if out := rsRun(t, "Edit", p, "# Old\n\nnew short line\ntail", "# Old\n\nnew long line\ntail"); !strings.Contains(out, "MDS001") || strings.Contains(out, "MDS002") {
+		t.Errorf("multi-line edit changing line 3 = %q, want only MDS001", out)
+	}
+	if out := rsRun(t, "Edit", p, "# Old\n\nnew long line\nold tail", "# Old\n\nnew long line\ntail"); out != "" {
+		t.Errorf("unchanged lines of a multi-line edit were flagged: %q", out)
+	}
+	hosttest.WriteRel(t, config, "plans/p.md", "# Old\n\nnew long line\nnew long line\n")
+	if out := rsRun(t, "Edit", p, "short", "new long line"); out != "" {
+		t.Errorf("repeated new_string blamed a possibly pre-existing line: %q", out)
+	}
+	if out := rsRun(t, "Edit", p, "", "untouched"); out != "" {
+		t.Errorf("unrelated edit produced %q", out)
+	}
+}

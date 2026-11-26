@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
@@ -37,6 +38,7 @@ const (
 var (
 	gateRun      = runGateCmd
 	gateLookPath = exec.LookPath
+	gateMdsmith  = mdlint.Mdsmith
 	gateSimplify = source.RunSimplify
 	gateBlobs    = gitBlobs
 )
@@ -135,9 +137,9 @@ func runGateSet(ctx context.Context, defs []gateDef, in gateInput, res []GateRes
 	})...)
 }
 
-// appendDocs adds the docs gate after the others, only when the change set holds Markdown.
+// appendDocs adds the docs gate after the others, only when the change set holds Markdown or its lint config.
 func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResult {
-	if len(match(in.files, stepFor("docs").globs)) == 0 {
+	if len(match(in.files, stepFor("docs").globs)) == 0 && !parityDue(in) {
 		return res
 	}
 	return append(res, runGate(ctx, docsDef, in), runGate(ctx, spellDef, in))
@@ -312,8 +314,12 @@ func stepGate(st step) gateFn {
 	}
 }
 
-// findTool prefers the repo's bin/<tool> (make installs mdsmith there) over the PATH.
+// findTool prefers the repo's bin/<tool> over the PATH; mdsmith resolves through mdlint.Mdsmith.
 func findTool(root, tool string) (string, bool) {
+	if tool == "mdsmith" {
+		p := gateMdsmith(root)
+		return cmp.Or(p, tool), p != ""
+	}
 	if local := filepath.Join(root, "bin", tool); fileFound(local) {
 		return local, true
 	}
@@ -381,17 +387,58 @@ func testGate(ctx context.Context, in gateInput) (string, string, error) {
 	return out, "", err
 }
 
-// docsGate runs mdsmith (the `make lint-docs` check) and the memory formatter check on the changed Markdown.
+// docsGate runs mdsmith (the `make lint-docs` check), the memory formatter check and, when due, the lint-config parity.
 func docsGate(ctx context.Context, in gateInput) (string, string, error) {
-	if len(match(in.files, stepFor("docs").globs)) == 0 {
+	hasMd := len(match(in.files, stepFor("docs").globs)) > 0
+	if !hasMd && !parityDue(in) {
 		return "", "no markdown files", nil
 	}
-	out, skip, err := stepGate(stepFor("docs"))(ctx, in)
+	var out, skip string
+	var err error
+	if hasMd {
+		out, skip, err = stepGate(stepFor("docs"))(ctx, in)
+	}
 	memOut, memErr := memoryFmtGate(in)
-	if memErr != nil { // runGate lets skip win over an error, which would hide the memory failure
+	parOut, parSkip, parErr := parityGate(ctx, in)
+	if !hasMd || (err == nil && skip == "") { // parity unchecked and nothing else failed: report the skip
+		skip = parSkip
+	}
+	if memErr != nil || parErr != nil { // runGate lets skip win over an error, which would hide the failure
 		skip = ""
 	}
-	return out + memOut, skip, errors.Join(err, memErr)
+	return out + memOut + parOut, skip, errors.Join(err, memErr, parErr)
+}
+
+// parityDue: in a repo with a root .mdsmith.yml, --all or a changed (or deleted) lint config.
+func parityDue(in gateInput) bool {
+	cfgs := []string{mdlint.RulesFile, mdlint.CLI2File, mdlint.MdsmithFile}
+	touched := func(name string) bool {
+		isIt := func(p string) bool { return p == name || (name != mdlint.MdsmithFile && path.Base(p) == name) }
+		return slices.ContainsFunc(in.files, isIt) || slices.ContainsFunc(slices.Collect(maps.Values(in.old)), isIt)
+	}
+	if _, err := os.Stat(filepath.Join(in.root, mdlint.MdsmithFile)); err != nil && !touched(mdlint.MdsmithFile) {
+		return false
+	}
+	return in.whole || slices.ContainsFunc(cfgs, touched)
+}
+
+// parityGate runs mdlint.Parity; each drift line or error becomes an `mdlint/parity:` row for parseDocs.
+func parityGate(ctx context.Context, in gateInput) (string, string, error) {
+	if !parityDue(in) {
+		return "", "", nil
+	}
+	lines, err := mdlint.Parity(ctx, in.root)
+	switch {
+	case errors.Is(err, mdlint.ErrNoMdsmith) && in.strict:
+		return "mdlint/parity: mdsmith not installed (make mdsmith)\n", "", err
+	case errors.Is(err, mdlint.ErrNoMdsmith):
+		return "", "mdsmith not installed (make mdsmith)", nil
+	case err != nil:
+		return "mdlint/parity: " + err.Error() + "\n", "", err
+	case len(lines) == 0:
+		return "", "", nil
+	}
+	return "mdlint/parity: " + strings.Join(lines, "\nmdlint/parity: ") + "\n", "", errors.New("mdlint parity drift")
 }
 
 // memoryFmtGate runs `memory fmt --check`; it fails on the changed bank files it lists, or all of them with --all.

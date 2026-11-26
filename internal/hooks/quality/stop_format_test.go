@@ -178,3 +178,25 @@ func BenchmarkStopFormatSteady(b *testing.B) {
 		StopFormat(core.ParseInput(strings.NewReader(payload)))
 	}
 }
+
+func TestStopFormatStoreMarkdown(t *testing.T) {
+	config := fakeMdsmith(t)
+	cwd := t.TempDir()
+	plan := filepath.Join(config, "plans", "repo", "p.md")
+	other := filepath.Join(cwd, "other.md")
+	hosttest.WriteRel(t, config, "plans/repo/p.md", "# T\n\n+ one\n")
+	hosttest.WriteRel(t, cwd, "other.md", "# T\n\n+ one\n")
+	tr := filepath.Join(cwd, "t.jsonl")
+	var rec strings.Builder
+	for _, f := range []string{plan, other} {
+		fmt.Fprintf(&rec, `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", f)
+	}
+	hosttest.WriteRel(t, cwd, "t.jsonl", rec.String())
+	StopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, cwd, tr))))
+	if got, _ := os.ReadFile(plan); string(got) != "# T\n\n- one\n" {
+		t.Fatalf("store plan not formatted: %q", got)
+	}
+	if got, _ := os.ReadFile(other); string(got) != "# T\n\n+ one\n" {
+		t.Fatalf("untracked outside-store file was formatted: %q", got)
+	}
+}

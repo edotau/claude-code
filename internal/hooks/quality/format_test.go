@@ -335,3 +335,36 @@ func TestFormatGoInProcessFormatsAndSkipsBadSyntax(t *testing.T) {
 		t.Fatalf("parse error must leave the file untouched: %q", got)
 	}
 }
+
+// fakeMdsmith installs a mdsmith whose fix turns "+ " bullets into "- " under a config dir with .mdsmith.yml.
+func fakeMdsmith(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mdsmith is a /bin/sh script")
+	}
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	hosttest.WriteRel(t, config, ".mdsmith.yml", "rules: {}\n")
+	hosttest.WriteExec(t, filepath.Join(config, "bin", "mdsmith"),
+		"#!/bin/sh\n[ \"$1\" = fix ] || exit 0\nfor f; do :; done\n/usr/bin/sed 's/^+ /- /' \"$f\" > \"$f.tmp\" && /bin/mv \"$f.tmp\" \"$f\"\n")
+	return config
+}
+
+func TestFormatFileMarkdown(t *testing.T) {
+	config := fakeMdsmith(t)
+	md := filepath.Join(config, "plans", "p.md")
+	hosttest.WriteRel(t, config, "plans/p.md", "# T\n\n+ one\n")
+	if ok, missing := formatFile(md); !ok || missing != "" {
+		t.Fatalf("formatFile = %v, %q", ok, missing)
+	}
+	if got, _ := os.ReadFile(md); string(got) != "# T\n\n- one\n" {
+		t.Fatalf("not fixed: %q", got)
+	}
+	if err := os.Remove(filepath.Join(config, "bin", "mdsmith")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if ok, missing := formatFile(md); ok || missing != "mdsmith" {
+		t.Fatalf("absent mdsmith = %v, %q; want missing mdsmith", ok, missing)
+	}
+}

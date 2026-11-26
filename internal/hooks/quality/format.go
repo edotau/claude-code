@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -41,14 +42,43 @@ func formatFile(path string) (ok bool, missing string) {
 		return runTool("", "gofmt", "-w", path)
 	case "py":
 		return formatPython(path)
-	case "js", "jsx", "mjs", "cjs", "ts", "tsx", "json", "css", "scss", "html", "md", "yaml", "yml":
-		if root := prettierRoot(path); root != "" {
-			return runTool(root, "prettier", "--write", "--log-level", "warn", path)
-		}
+	case "js", "jsx", "mjs", "cjs", "ts", "tsx", "json", "css", "scss", "html", "yaml", "yml":
+		return formatPrettier(path)
+	case "md":
+		return formatMarkdown(path)
 	case "sh", "bash":
 		return runTool("", "shfmt", "-w", path)
 	}
 	return false, ""
+}
+
+// formatPrettier runs prettier where a prettier config governs path; else it leaves the file.
+func formatPrettier(path string) (ok bool, missing string) {
+	if root := prettierRoot(path); root != "" {
+		return runTool(root, "prettier", "--write", "--log-level", "warn", path)
+	}
+	return false, ""
+}
+
+// formatMarkdown is prettier where its config governs path, else mdsmith under the nearest .mdsmith.yml.
+func formatMarkdown(path string) (ok bool, missing string) {
+	if prettierRoot(path) != "" {
+		return formatPrettier(path)
+	}
+	root := mdlint.Root(path)
+	if root == "" {
+		return false, ""
+	}
+	if mdlint.Mdsmith(root) == "" {
+		return false, "mdsmith"
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false, ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
+	defer cancel()
+	return mdlint.FixFile(ctx, root, rel) == nil, ""
 }
 
 // gofmtMatchesRuntime reports whether the gofmt on PATH was built by this binary's Go version, checked once.
