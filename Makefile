@@ -104,7 +104,7 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		$(GO) install golang.org/x/perf/cmd/benchstat@$(BENCHSTAT_VERSION) || \
 		echo -e "$(C_NOTE)a dev tool failed to install (install itself succeeded)")
 	@$(if $(DEV_TOOLS_ON),$(MAKE) --no-print-directory tools-sync)
-	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
+	@$(BIN) configure theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@out="$$($(BIN) gateway proxy --restart --if-changed 2>&1)"; case "$$out" in \
 		*unchanged*|*"not running"*) ;; *restarted*) echo "$$out" ;; \
 		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line or the next fenced mint replaces it" ;; esac
