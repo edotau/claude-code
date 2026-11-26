@@ -259,13 +259,13 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(ctx, o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
 		Host: o.Host != "", Resumed: o.SessionID != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools,
-		FallbackDefaulted: o.FallbackDefaulted, Opts: o})
+		Opts: o})
 	return chain, err
 }
 
 func (c *Client) alias(ctx context.Context, prompt string) string {
-	if alias := tierAlias(ctx, prompt); alias != "" {
-		return alias
+	if plan, _ := PlanOf(ctx); plan.Tier.Alias != "" {
+		return plan.Tier.Alias
 	}
 	return HopAlias(prompt, c.Alias)
 }
@@ -349,44 +349,6 @@ func (c *Client) Run(ctx context.Context, o RunOptions, out wire.Sink) (wire.Res
 		c.Notify(fmt.Sprintf("dispatch %s record not saved before the run: %v", p.Record.ID, err))
 	}
 	return c.Exec(ctx, p, out, RunRecordedOpts{})
-}
-
-// Stream runs a dispatch and returns its buffered event stream.
-func (c *Client) Stream(ctx context.Context, o RunOptions) <-chan wire.Event {
-	return c.streamWith(ctx, cmp.Or(o.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
-		return c.Run(ctx, o, sink)
-	})
-}
-
-func (c *Client) streamWith(
-	ctx context.Context, agentName string, fn func(context.Context, wire.Sink) (wire.Result, error),
-) <-chan wire.Event {
-	ctx, cancel := context.WithCancelCause(ctx)
-	sink := newChanSink(cancel)
-	go func() {
-		defer close(sink.ch)
-		defer cancel(nil)
-		var err error
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("panic: %v", r)
-			}
-			sink.mu.Lock()
-			sawResult := sink.sawResult
-			sink.mu.Unlock()
-			if err != nil && !sawResult {
-				_ = sink.Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
-			}
-			sink.mu.Lock()
-			dropped := sink.dropped
-			sink.mu.Unlock()
-			if dropped > 0 && c.Notify != nil {
-				c.Notify(fmt.Sprintf("agent: stream dropped %d events", dropped))
-			}
-		}()
-		_, err = fn(ctx, sink)
-	}()
-	return sink.ch
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
@@ -725,65 +687,6 @@ func checkStructured(res *wire.Result, schema, agentName string) *retry.Error {
 		return e
 	}
 	return nil
-}
-
-const streamBuffer = 1024
-
-var streamStall = 2 * time.Minute
-
-// errStreamAbandoned is the cancellation cause when a stream stays full beyond streamStall.
-var errStreamAbandoned = errors.New("agent: stream consumer abandoned")
-
-type chanSink struct {
-	wire.Stamper
-	mu        sync.Mutex
-	ch        chan wire.Event
-	cancel    context.CancelCauseFunc
-	fullSince time.Time
-	dropped   int
-	sawResult bool
-}
-
-func newChanSink(cancel context.CancelCauseFunc) *chanSink {
-	return &chanSink{Stamper: wire.NewStamper(), ch: make(chan wire.Event, streamBuffer), cancel: cancel}
-}
-
-// Emit stamps ev and drops the oldest buffered event when the consumer falls behind.
-func (s *chanSink) Emit(ev wire.Event) error {
-	if ev.Type == wire.EventProgress || ev.Type == wire.EventUsage { // relay and activity marks, not events a Stream consumer reads
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Stamp(&ev)
-	if ev.Type == wire.EventResult {
-		s.sawResult = true
-	}
-	select {
-	case s.ch <- ev:
-		s.fullSince = time.Time{}
-		return nil
-	default:
-	}
-	s.replaceOldest(ev)
-	return nil
-}
-
-func (s *chanSink) replaceOldest(ev wire.Event) {
-	if s.fullSince.IsZero() {
-		s.fullSince = wire.Clock()
-	} else if wire.Clock().Sub(s.fullSince) > streamStall {
-		s.cancel(errStreamAbandoned)
-	}
-	select {
-	case <-s.ch:
-		s.dropped++
-	default:
-	}
-	select {
-	case s.ch <- ev:
-	default:
-	}
 }
 
 // packReserveTokens is the output headroom in the prompt-cap rule: window − 32k − 10%.

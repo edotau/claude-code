@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -579,51 +578,10 @@ func TestClientRunNotifiesUnsavedRecord(t *testing.T) {
 	}
 }
 
-// burstRunner emits n text events, then blocks on ctx when hold is set.
-type burstRunner struct {
-	n    int
-	hold bool
-	ctx  chan context.Context
-}
-
-func (*burstRunner) Name() string     { return "fake" }
-func (*burstRunner) Caps() Caps       { return Caps{} }
-func (*burstRunner) Available() error { return nil }
-func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.Result, error) {
-	for range b.n {
-		_ = w.Emit(wire.Event{Type: wire.EventText, Text: "x"})
-	}
-	if b.ctx != nil {
-		b.ctx <- ctx
-	}
-	if b.hold {
-		<-ctx.Done()
-		return wire.Result{}, context.Cause(ctx)
-	}
-	return wire.Result{Answer: "a"}, nil
-}
-
 func streamPrepared(t *testing.T, r Engine) *Prepared {
 	t.Helper()
 	setConfigDir(t)
 	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), Chain: Single(r)}
-}
-
-// streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
-func streamPreparedRun(c *Client, p *Prepared) <-chan wire.Event {
-	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
-		return c.Exec(ctx, p, sink, RunRecordedOpts{})
-	})
-}
-
-func drainEvents(ch <-chan wire.Event) (results int, last wire.Event) {
-	for ev := range ch {
-		if ev.Type == wire.EventResult {
-			results++
-		}
-		last = ev
-	}
-	return results, last
 }
 
 func waitGoroutines(t *testing.T, base int) {
@@ -634,85 +592,6 @@ func waitGoroutines(t *testing.T, base int) {
 		}
 	}
 	t.Fatalf("goroutines = %d, want <= %d: the run leaked", runtime.NumGoroutine(), base)
-}
-
-// Given a consumer that reads nothing, When the run emits 3x the buffer, Then the run still finishes and nothing leaks.
-func TestStreamConsumerReadsNothingStillFinishes(t *testing.T) {
-	p := streamPrepared(t, &burstRunner{n: 3 * streamBuffer})
-	base := runtime.NumGoroutine()
-	ch := streamPreparedRun(&Client{}, p)
-	// Under suite load other tests' goroutines can drop the count early, so wait for the full buffer too.
-	for end := time.Now().Add(5 * time.Second); len(ch) < streamBuffer && time.Now().Before(end); {
-		time.Sleep(10 * time.Millisecond)
-	}
-	waitGoroutines(t, base)
-	if len(ch) != streamBuffer {
-		t.Errorf("buffered = %d, want a full %d (oldest dropped)", len(ch), streamBuffer)
-	}
-}
-
-// Given a full buffer with drops, Then the stream still ends in exactly one result, as its last event.
-func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
-	notes := make(chan string, 2)
-	c := &Client{Notify: func(s string) { notes <- s }}
-	ch := streamPreparedRun(c, streamPrepared(t, &burstRunner{n: 2 * streamBuffer}))
-	select { // the note fires as the run ends with nobody reading, so drops are certain
-	case <-notes:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no dropped-events note within 5s")
-	}
-	results, last := drainEvents(ch)
-	if results != 1 || last.Type != wire.EventResult {
-		t.Errorf("results = %d, last = %q, want one result last", results, last.Type)
-	}
-	if len(notes) != 0 {
-		t.Errorf("extra notes = %d, want exactly one dropped-events note", len(notes)+1)
-	}
-}
-
-// Given a consumer stalled past streamStall, Then the run's ctx is cancelled with errStreamAbandoned.
-func TestStreamStalledConsumerCancelsRun(t *testing.T) {
-	orig := streamStall
-	streamStall = 20 * time.Millisecond
-	t.Cleanup(func() { streamStall = orig })
-	r := &burstRunner{n: streamBuffer, ctx: make(chan context.Context, 1)}
-	ch := (&Client{}).streamWith(context.Background(), "fake", func(ctx context.Context, w wire.Sink) (wire.Result, error) {
-		res, err := r.Run(ctx, RunOptions{}, w)
-		for ctx.Err() == nil {
-			_ = w.Emit(wire.Event{Type: wire.EventText})
-			time.Sleep(5 * time.Millisecond)
-		}
-		return res, err
-	})
-	ctx := <-r.ctx
-	select {
-	case <-ctx.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("ctx not cancelled by a stalled consumer")
-	}
-	if !errors.Is(context.Cause(ctx), errStreamAbandoned) {
-		t.Errorf("cause = %v, want errStreamAbandoned", context.Cause(ctx))
-	}
-	drainEvents(ch)
-}
-
-// Given Prepare fails, Then the stream carries one failure result and closes.
-func TestStreamPrepareFailureYieldsOneResult(t *testing.T) {
-	setConfigDir(t)
-	ch := (&Client{}).Stream(context.Background(), RunOptions{Agent: "no-such-agent", Prompt: "p"})
-	results, last := drainEvents(ch)
-	if results != 1 || last.Type != wire.EventResult || last.Status != wire.StatusError {
-		t.Errorf("results = %d, last = %+v, want one error result", results, last)
-	}
-}
-
-// The chanSink queues no progress mark for a Client stream.
-func TestChanSinkDropsProgressMark(t *testing.T) {
-	cs := newChanSink(func(error) {})
-	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
-	if len(cs.ch) != 0 {
-		t.Errorf("stream queued %d events; want none", len(cs.ch))
-	}
 }
 
 // RunOptions.Lead must reach the router pick: a lead naming no registry row is skipped by name.

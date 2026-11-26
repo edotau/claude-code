@@ -29,7 +29,7 @@ dispatch of any agent, `agents send <id> "<task>"` resumes its session and recor
 - **Local (`--profile local`: provider `magnitude`, Qwen 27B at 127.0.0.1:10100):** serves `pi` and `opencode` (a dry
   run also resolves `copilot`); every tier alias is that one model. `codex` is refused (`provider local serves no
   responses route`) and so is `gemini` (agy takes no custom base URL). A dispatch inside a Databricks fence cannot
-  leave it (`outside overlay databricks:prod`): start local asks from a session without one.
+  leave it (`outside overlay databricks·prod`): start local asks from a session without one.
 - **One local model serves every leaf.** Observed, not enforced by code: long research briefs sharing it timed out at
   15-20 min, so run one at a time or send research to Databricks. A `--session <id>` resume of a cut-off local pi run
   ended `pi ended without an answer` (no assistant message in the resumed stream): start a fresh ask instead

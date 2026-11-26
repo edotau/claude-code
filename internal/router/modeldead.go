@@ -10,9 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// ModelKey is the canonical model id, so marked ([1m]) and unmarked spellings of one model share a key.
-func ModelKey(model string) string { return models.ModelKey(model) }
-
 // MarkModelDead remembers account cannot use model until until; the longer hold wins and expired keys are pruned.
 func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
 	if providers.IsFamily(model) { // a family word names no endpoint: only the concrete id that failed is recorded

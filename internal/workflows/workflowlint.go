@@ -196,7 +196,7 @@ const stepChildScript = "code-workers.js"
 
 // stepRoute previews an external stage's route; a test swaps it (production reads the registry and route state).
 var stepRoute = func(who, model, profile, provider string) error {
-	chain, res, err := agent.Resolve(context.Background(), agent.RouteReq{Agent: who, Model: model, Profile: profile,
+	chain, res, err := agent.PreviewRoute(context.Background(), agent.RouteReq{Agent: who, Model: model, Profile: profile,
 		Provider: provider, Fallback: route.FallbackAgents, Preview: true})
 	if err != nil {
 		return err

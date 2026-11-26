@@ -24,8 +24,6 @@ func (c *Client) planChain(ctx context.Context, r Engine, o RunOptions) (Chain, 
 	}
 	ch = withLocal(ch, p, o)
 	p.Fallback = executablePolicy(p.Fallback)
-	p.Constraints = planConstraints(p, ch)
-	logDivergence(ctx, o.Agent, p.Constraints) // expected validation drops and ladder tails are not divergences
 	p = admittedPlan(p, ch)
 	ch.Plan = &p
 	return ch, nil
@@ -104,25 +102,6 @@ func planEngine(ctx context.Context, o RunOptions) (context.Context, RunOptions,
 		r, err = hostEngine(o)
 	}
 	return ctx, o, rotated, r, err
-}
-
-// planConstraints compares admitted hops to independent policy and runner intent, not to an echoed hop list.
-func planConstraints(p RoutePlan, ch Chain) []string {
-	var out []string
-	for i, d := range ch.Dispatches {
-		if p.Local.carries(d) {
-			continue // the local hop is planned as pi on its own row, outside the pool
-		}
-		if d.Agent.Name() == agentid.Pi && !slices.ContainsFunc(p.Runners, func(r Runner) bool { return r.Kind == RunnerPi }) {
-			out = append(out, fmt.Sprintf("hop %d: pi is not a planned runner", i+1))
-		}
-		if p.Fallback.Kind == router.PolicyNone || p.Fallback.Kind == router.PolicySameWorkspace {
-			if len(p.Pool) > 0 && p.Pool[0].Account != "" && d.Account != p.Pool[0].Account {
-				out = append(out, fmt.Sprintf("hop %d: account %s leaves planned workspace %s", i+1, d.Account, p.Pool[0].Account))
-			}
-		}
-	}
-	return out
 }
 
 // plannedRunnerHead reports a runner's lead-workspace hop, not a same-agent fallback on another account.

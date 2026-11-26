@@ -43,18 +43,36 @@ func Pick(layers ...Route) Route {
 	return Route{}
 }
 
-// ParseLegacy reads "provider:profile", "provider" or a bare profile; anything malformed is the zero route.
+// ParseLegacy reads an old record's "provider:profile", else FromWord's forms; anything malformed is the zero route.
 func ParseLegacy(s string) Route {
 	s = strings.TrimSpace(s)
 	provider, profile, named := strings.Cut(s, ":")
 	switch {
-	case s == "":
-	case !named && !slices.Contains(Providers, s):
-		return Route{Profile: s}
-	case slices.Contains(Providers, provider) && (!named || (profile != "" && !strings.Contains(profile, ":"))):
+	case !named:
+		return FromWord(s)
+	case slices.Contains(Providers, provider) && profile != "" && !strings.Contains(profile, ":"):
 		return Route{Provider: provider, Profile: profile}
 	}
 	return Route{}
+}
+
+// FromWord reads one typed word: a provider name, else a profile; the colon form is refused before it.
+func FromWord(s string) Route {
+	switch s = strings.TrimSpace(s); {
+	case s == "":
+		return Route{}
+	case slices.Contains(Providers, s):
+		return Route{Provider: s}
+	}
+	return Route{Profile: s}
+}
+
+// Label is r as users read it: provider·profile, or whichever of the two is set.
+func (r Route) Label() string {
+	if r.Provider == "" || r.Profile == "" {
+		return r.Provider + r.Profile
+	}
+	return r.Provider + "·" + r.Profile
 }
 
 // ColonForm reports a provider:profile value (an overlay preset); JSON, "-" and an existing file are not one.

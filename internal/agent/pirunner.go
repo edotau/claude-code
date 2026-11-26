@@ -21,11 +21,10 @@ func withPiRunner(ctx context.Context, q RouteReq, c Chain) Chain {
 	if q.Agent == agentid.Pi && len(c.Dispatches) > 0 {
 		return withPiClaudeHop(ctx, q, c)
 	}
-	plan, ok := PlanOf(ctx)
-	if !ok || len(c.Dispatches) == 0 {
+	if len(c.Dispatches) == 0 {
 		return c
 	}
-	if plan.Runners[0].Kind != RunnerPi {
+	if plan, _ := PlanOf(ctx); len(plan.Runners) == 0 || plan.Runners[0].Kind != RunnerPi {
 		return c.barredNote(q, plan)
 	}
 	return withPiHops(ctx, q, c)
@@ -126,8 +125,8 @@ func piRunnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead
 
 // piSiblings is the validated pi hops on the plan's pool workspaces after lead's own.
 func piSiblings(ctx context.Context, reg *providers.Registry, lead Dispatch, model string) ([]Dispatch, []string, string) {
-	plan, ok := PlanOf(ctx)
-	if !ok || staysOnWorkspace(plan, lead) {
+	plan, _ := PlanOf(ctx)
+	if staysOnWorkspace(plan, lead) {
 		return nil, nil, ""
 	}
 	_, profile, _ := strings.Cut(lead.Account, "·")
@@ -288,8 +287,9 @@ func agentModelOn(ctx context.Context, reg *providers.Registry, q RouteReq, mode
 
 // piChainMode is the mode a plain pi ask's chain follows, "" for one hop (a typed none or model).
 func piChainMode(ctx context.Context, q RouteReq) string {
-	plan, ok := PlanOf(ctx)
-	if !ok || q.Model != "" || q.AutoModel || q.Resumed || q.Native || plan.Fallback.Kind == router.PolicyNone {
+	plan, _ := PlanOf(ctx)
+	oneHop := plan.Fallback.Kind == 0 || plan.Fallback.Kind == router.PolicyNone // an undecided policy fails closed
+	if q.Model != "" || q.AutoModel || q.Resumed || q.Native || oneHop {
 		return ""
 	}
 	return plan.Fallback.Mode()

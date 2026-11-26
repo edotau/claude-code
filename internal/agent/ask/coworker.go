@@ -276,7 +276,7 @@ func checkArmRow(ctx context.Context, p string, explicit bool, fallback string) 
 func workspaceRefusal(name string) error {
 	reg, err := providers.Load()
 	if err != nil {
-		return fmt.Errorf("overlay databricks:%s: %w", name, err)
+		return fmt.Errorf("overlay databricks·%s: %w", name, err)
 	}
 	if fs := agent.CheckWorkspace(reg.Providers[name], router.LoadState(), time.Now()); len(fs) > 0 {
 		return &agent.PreflightError{Finding: fs[0]}
@@ -426,7 +426,7 @@ func pickWith(reg *providers.Registry, q armQuery, now time.Time) (string, int, 
 
 // errLeave refuses an overlay provider/profile that differs from the inherited confinement provider[:profile].
 func errLeave(provider, profile string) error {
-	return fmt.Errorf("overlay: cannot leave %s; drop --provider/--profile (parent fence)", route.Join(provider, profile))
+	return fmt.Errorf("overlay: cannot leave %s; drop --provider/--profile (parent fence)", route.Route{Provider: provider, Profile: profile}.Label())
 }
 
 // bareArm is the first of profile and the session's profile that names a Databricks row, else "".
@@ -453,7 +453,7 @@ func CheckArm(ctx context.Context, agentName, profile, provider, model string, d
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return fmt.Errorf("overlay databricks:%s: %w", arm, err)
+		return fmt.Errorf("overlay databricks·%s: %w", arm, err)
 	}
 	if !agent.VaultAgentIsClaude(agentName) { // claude has no own-cell hop; the chain's preflight validates every other agent
 		return nil
@@ -477,7 +477,7 @@ func checkNative(ctx context.Context, native bool) error {
 	case err != nil:
 		return err
 	case p != "":
-		return fmt.Errorf("--native: outside overlay %s", route.Join(p, prof))
+		return fmt.Errorf("--native: outside overlay %s", route.Route{Provider: p, Profile: prof}.Label())
 	}
 	return nil
 }
@@ -497,11 +497,11 @@ func isArm(profile, arm string) bool {
 func armFlags(arm, profile, provider string, direct bool) error {
 	switch {
 	case direct:
-		return fmt.Errorf("--direct: refused inside overlay databricks:%s", arm)
+		return fmt.Errorf("--direct: refused inside overlay databricks·%s", arm)
 	case profile != "" && !isArm(profile, arm) && profile != agent.LeadSession:
-		return fmt.Errorf("--profile %s: outside overlay databricks:%s", profile, arm)
+		return fmt.Errorf("--profile %s: outside overlay databricks·%s", profile, arm)
 	case provider != "" && provider != router.RouteDatabricks:
-		return fmt.Errorf("--provider %s: outside overlay databricks:%s", provider, arm)
+		return fmt.Errorf("--provider %s: outside overlay databricks·%s", provider, arm)
 	}
 	return nil
 }
@@ -509,7 +509,7 @@ func armFlags(arm, profile, provider string, direct bool) error {
 // confineFlags refuses a typed lead outside a non-Databricks confinement: another provider's or pinned profile's row.
 func confineFlags(ctx context.Context, profile, provider string) error {
 	cp, cprof := router.ConfinedContext(ctx)
-	label := "overlay " + route.Join(cp, cprof)
+	label := "overlay " + route.Route{Provider: cp, Profile: cprof}.Label()
 	switch {
 	case cp == "":
 		return nil

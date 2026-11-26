@@ -153,25 +153,26 @@ func TestPiChainModeDefault(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
 		q    RouteReq
+		def  bool
 		want string
 	}{
-		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, route.FallbackAgents},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackNone}, ""},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, Model: "m"}, ""},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackPin}, route.FallbackPin},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, Resumed: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true, AutoModel: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents, Native: true}, ""},
-		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents}, route.FallbackAgents},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone}, true, route.FallbackAgents},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone}, false, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, Model: "m"}, true, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackPin}, false, route.FallbackPin},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, Resumed: true}, true, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackNone, AutoModel: true}, true, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents, Native: true}, false, ""},
+		{RouteReq{Agent: "pi", Fallback: route.FallbackAgents}, false, route.FallbackAgents},
 	} {
-		pctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: c.q.Fallback, FallbackDefaulted: c.q.FallbackDefaulted})
+		pctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: c.q.Fallback, FallbackDefaulted: c.def})
 		if got := piChainMode(pctx, c.q); got != c.want {
 			t.Errorf("piChainMode(%+v) = %q, want %q", c.q, got, c.want)
 		}
 	}
 	t.Setenv(router.EnvFallback, route.FallbackNone)
 	nctx := withTestPlan(t, ctx, RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true})
-	if got := piChainMode(nctx, RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}); got != "" {
+	if got := piChainMode(nctx, RouteReq{Agent: "pi", Fallback: route.FallbackNone}); got != "" {
 		t.Errorf("an env none gave mode %q, want a one-hop chain", got)
 	}
 }
@@ -278,7 +279,7 @@ func TestWithPiClaudeHopPin(t *testing.T) {
 	if _, err := PlanRoute(bad, RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, ParentRoute{}); err == nil {
 		t.Fatal("a malformed overlay built a plan")
 	}
-	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, c) // no plan, no widening
+	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: route.FallbackNone}, c) // no plan, no widening
 	if len(one.Dispatches) != 1 {
 		t.Fatalf("a malformed overlay widened: %+v", one)
 	}

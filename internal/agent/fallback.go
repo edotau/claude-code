@@ -792,7 +792,7 @@ func accountRefused(disp Dispatch, model string) *retry.Error {
 	if e := st[disp.Account]; disp.Account != copilotLoginAccount() && e.Status(now) == router.StateExhausted {
 		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
 	}
-	if until := st[disp.Account].ModelDead[router.ModelKey(model)]; router.PerModelQuota(disp.Account) && until.After(now) {
+	if until := st[disp.Account].ModelDead[models.ModelKey(model)]; router.PerModelQuota(disp.Account) && until.After(now) {
 		err := fmt.Errorf("%s: %s quota-denied until %s", disp.Account, model, until.Local().Format("2006-01-02 15:04"))
 		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: err}
 	}

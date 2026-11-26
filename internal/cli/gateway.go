@@ -394,7 +394,7 @@ func resolveGatewayRoute(ctx context.Context, q agent.RouteReq, format string) i
 		return helptext.FailUsage(name+": %v", err)
 	}
 	q.Profile, q.Provider = router.ConfineLeadContext(ctx, q.Agent, q.Profile, q.Provider)
-	_, res, err := agent.Resolve(ctx, q)
+	_, res, err := agent.PreviewRoute(ctx, q)
 	if _, ok := errors.AsType[*agent.LeadError](err); ok {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 2

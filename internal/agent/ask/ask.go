@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 
-	// Vendor CLIs register their roster rows from package init; claude links via review.go, pi via vendors.go.
+	// Vendor CLIs register their roster rows from package init; claude links via review.go, pi via flags.go.
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"

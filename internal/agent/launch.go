@@ -566,7 +566,7 @@ func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) 
 	}
 	if field := fields[name]; field != nil {
 		if name == "--profile" {
-			return func(v string) { o.Provider, o.Route = v, route.ParseLegacy(v) }
+			return func(v string) { o.Provider, o.Route = v, route.FromWord(v) }
 		}
 		return func(v string) { *field = v }
 	}

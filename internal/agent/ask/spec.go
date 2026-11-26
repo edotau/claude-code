@@ -401,17 +401,16 @@ type dryKey struct{}
 
 // dryDoc is what --dry-run prints.
 type dryDoc struct {
-	Agent      string              `json:"agent"`
-	Model      string              `json:"model"`
-	Route      string              `json:"route"`
-	Hops       []string            `json:"hops"`
-	Overlay    agentconfig.Overlay `json:"overlay"`
-	Argv       string              `json:"argv"`
-	Preflight  []string            `json:"preflight,omitempty"`
-	Skipped    []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
-	Terms      []contract.Term     `json:"terms,omitempty"`
-	Plan       dryPlan             `json:"plan"`
-	Divergence []string            `json:"divergence"` // plan vs chain, null when they agree
+	Agent     string              `json:"agent"`
+	Model     string              `json:"model"`
+	Route     string              `json:"route"`
+	Hops      []string            `json:"hops"`
+	Overlay   agentconfig.Overlay `json:"overlay"`
+	Argv      string              `json:"argv"`
+	Preflight []string            `json:"preflight,omitempty"`
+	Skipped   []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
+	Terms     []contract.Term     `json:"terms,omitempty"`
+	Plan      dryPlan             `json:"plan"`
 }
 
 // dryPlan is the route plan with its fallback policy spelled out; the shallower field wins the JSON name.
@@ -451,7 +450,6 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	if ch.Plan != nil {
 		plan := *ch.Plan
 		doc.Plan = dryPlan{RoutePlan: plan, Fallback: dryFallback{Kind: policyKind(plan.Fallback.Kind), Source: policySource(plan.Fallback.Source)}}
-		doc.Divergence = agent.Divergence(plan, ch)
 	}
 	r, ok, err := dryRoute(ctx, o, req, ch)
 	if err != nil {

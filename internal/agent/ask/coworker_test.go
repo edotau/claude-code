@@ -63,8 +63,8 @@ func TestConfineLineRefusesOffRouteBatchLine(t *testing.T) {
 	vaulttest.Use(t)
 	confine(t, "databricks:dev")
 	if _, err := confineLine(t.Context(), "claude", agent.RunOptions{Provider: "qa"}); err == nil ||
-		!strings.Contains(err.Error(), "--profile qa: outside overlay databricks:dev") {
-		t.Errorf("off-workspace line: err = %v, want --profile qa: outside overlay databricks:dev", err)
+		!strings.Contains(err.Error(), "--profile qa: outside overlay databricks·dev") {
+		t.Errorf("off-workspace line: err = %v, want --profile qa: outside overlay databricks·dev", err)
 	}
 	confine(t, "openai")
 	if _, err := confineLine(t.Context(), "copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
@@ -198,7 +198,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
 		{"", "--model: not served to claude", // external agents' models are the chain's preflight
 			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},
-		{"databricks:dev", "cannot leave databricks:dev", []string{"--overlay", `{"provider":"openai","profile":"chatgpt"}`}},
+		{"databricks:dev", "cannot leave databricks·dev", []string{"--overlay", `{"provider":"openai","profile":"chatgpt"}`}},
 		{"openai:chatgpt", "cannot leave openai", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`}},
 		{"openai:chatgpt", "--profile dev: outside overlay openai", []string{"--profile", "dev"}},
 		{"anthropic:ultra", "codex has no anthropic account", nil},
@@ -531,7 +531,7 @@ func TestArmChildEnvFallbackNoneOneHop(t *testing.T) {
 func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 	dump := armChildEnvFixture(t)
 	for _, c := range []struct{ agent, overlay, want string }{
-		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks:dev"},
+		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks·dev"},
 		{"codex", `{"provider":"openai","profile":"chatgpt"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
 	} {
 		t.Setenv(route.OverlayVar, "")
@@ -766,7 +766,7 @@ func TestConfinementCarriesCaps(t *testing.T) {
 }
 
 func TestTypedWorkspace(t *testing.T) {
-	for profile, want := range map[string]string{"": "", "databricks:qa": "databricks:qa", "databricks:auto": "", "session": ""} {
+	for profile, want := range map[string]string{"": "", "databricks:qa": "", "databricks:auto": "", "session": ""} {
 		if got := TypedWorkspace(profile); got != want {
 			t.Errorf("TypedWorkspace(%q) = %q, want %q", profile, got, want)
 		}
@@ -787,7 +787,7 @@ func TestChildRouteFenceRespectsParentAuthority(t *testing.T) {
 		for _, profile := range []string{"dev", "qa", "prod"} {
 			ctx, err := ApplyRoute(t.Context(), route.Route{Provider: "databricks", Profile: profile}, "", "claude", "", route.FallbackAgents)
 			if parent == "databricks:dev" && profile != "dev" {
-				if err == nil || !strings.Contains(err.Error(), "cannot leave databricks:dev; drop --provider/--profile (parent fence)") {
+				if err == nil || !strings.Contains(err.Error(), "cannot leave databricks·dev; drop --provider/--profile (parent fence)") {
 					t.Fatalf("fenced dev -> %s: %v", profile, err)
 				}
 				continue

@@ -45,14 +45,14 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 		return q, "", nil
 	}
 	pin := agentModelPinContext(ctx, q.Agent)
-	chain, _, err := Resolve(PeekContext(ctx), RouteReq{Agent: q.Agent, AliasHint: aliasHint, Fallback: q.Fallback, Pinned: true})
+	chain, _, err := PreviewRoute(ctx, RouteReq{Agent: q.Agent, AliasHint: aliasHint, Fallback: q.Fallback, Pinned: true})
 	if err != nil {
 		return q, "", err
 	}
 	if len(chain.Dispatches) == 0 {
 		return q, "", fmt.Errorf("no route runs %s (%s)", q.Agent, strings.Join(chain.Skipped, "; "))
 	}
-	return labelHop(reg, q, pin, chain.Dispatches[0])
+	return labelHop(reg, q, pin, chain.Dispatches[max(chain.OwnHop(), 0)]) // the asked agent's own hop, not a pi runner's
 }
 
 // AutoRun reports a query whose run picks its own model: a typed or pinned auto, not a concrete model.

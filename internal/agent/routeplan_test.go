@@ -150,18 +150,12 @@ func checkResolveWorkspace(t *testing.T, p RoutePlan) {
 	if p.Tier != (Tier{}) {
 		t.Errorf("tier = %+v, want none for no brief", p.Tier)
 	}
-	if d := Divergence(p, planChainOf("codex@databricks·prod")); len(d) == 0 || !strings.Contains(d[0], "chain codex@databricks·prod") {
-		t.Errorf("divergence = %q, want the prod pick named", d)
-	}
 }
 
 // checkStandardAlias: baseline noted codex's opus alias while the hop ran the standard model.
 func checkStandardAlias(t *testing.T, p RoutePlan) {
 	if p.Tier.Asked != models.Sonnet || p.Tier.Alias != models.Sonnet || strings.Contains(p.Tier.Note, models.Opus) {
 		t.Errorf("tier = %+v, want sonnet with no opus alias note", p.Tier)
-	}
-	if d := Divergence(p, planChainOf("pi@databricks·dev", "codex@databricks·dev")); d != nil {
-		t.Errorf("divergence against the dry-run chain = %q, want none", d)
 	}
 }
 

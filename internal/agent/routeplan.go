@@ -72,19 +72,30 @@ type ParentRoute struct {
 	Replay  *RoutePlan
 }
 
+// parentRoute is what a dispatch inherits: an open fence, or a --retry plan's, and whether it is a carried child.
+func parentRoute(ctx context.Context) ParentRoute {
+	pr := ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")}
+	if r, ok := RetriedOf(ctx); ok && r.Plan != nil {
+		pr.Replay = r.Plan
+		if f := r.Plan.Fence; f.Open || len(f.Profiles) > 0 { // a zero fence is a plan that lacked one
+			pr.Fence = f
+		}
+	}
+	return pr
+}
+
 // RoutePlan is the one routing decision of a dispatch; every reader takes it, none re-derives it.
 type RoutePlan struct {
-	Agent       string        `json:"agent"`
-	Runners     []Runner      `json:"runners"`
-	Pool        []Workspace   `json:"pool"`
-	Tier        Tier          `json:"tier"`
-	Fence       route.Fence   `json:"fence"`
-	Fallback    router.Policy `json:"fallback"`
-	Barred      string        `json:"barred,omitempty"`      // why Runners lacks pi, said once
-	Constraints []string      `json:"constraints,omitempty"` // independent intent violations captured before admission
-	Admitted    []PlanHop     `json:"admitted,omitempty"`    // validated execution steps; nil before the single routing pass
-	Agents      []PlanHop     `json:"agents,omitempty"`      // the other-account and other-agent hops an agents or all policy adds
-	Local       *LocalHop     `json:"local,omitempty"`       // the last-resort row, run after every other hop at stage last
+	Agent    string        `json:"agent"`
+	Runners  []Runner      `json:"runners"`
+	Pool     []Workspace   `json:"pool"`
+	Tier     Tier          `json:"tier"`
+	Fence    route.Fence   `json:"fence"`
+	Fallback router.Policy `json:"fallback"`
+	Barred   string        `json:"barred,omitempty"`   // why Runners lacks pi, said once
+	Admitted []PlanHop     `json:"admitted,omitempty"` // validated execution steps; nil before the single routing pass
+	Agents   []PlanHop     `json:"agents,omitempty"`   // the other-account and other-agent hops an agents or all policy adds
+	Local    *LocalHop     `json:"local,omitempty"`    // the last-resort row, run after every other hop at stage last
 }
 
 type planKey struct{}
@@ -148,6 +159,26 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	}
 	p.Local = planLocal(ctx, reg, o, p)
 	return p, nil
+}
+
+// PreviewRoute is Resolve for a no-run preview under the plan a dispatch of q builds; the chain carries it.
+func PreviewRoute(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) {
+	ctx = PeekContext(ctx)
+	o := q.Opts
+	o.Agent, o.Model, o.Prompt, o.Lead, o.Fallback = q.Agent, q.Model, cmp.Or(o.Prompt, q.Task), q.Lead, q.Fallback
+	o.Provider, o.Native, o.AutoModel, o.Tools = cmp.Or(o.Provider, q.Profile), q.Native, q.AutoModel, q.Tools
+	if o.Lead == "" && q.Profile == "" && q.Provider != "" { // a provider-only preview plans on the lead Resolve picks
+		if lead, _, err := leadForContext(ctx, q); err == nil {
+			o.Lead = lead
+		}
+	}
+	p, err := PlanRoute(ctx, o, parentRoute(ctx))
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	ch, pick, err := Resolve(withPlan(ctx, p), q)
+	ch.Plan = &p
+	return ch, pick, err
 }
 
 // replayLead is the workspace a replayed plan ran first: its first admitted hop's, else its pool head.
@@ -412,48 +443,4 @@ func (p RoutePlan) Hops() []PlanHop {
 		out = append(out, h)
 	}
 	return out
-}
-
-// engineName is the CLI h launches, as a Dispatch's Agent.Name() spells it.
-func (h PlanHop) engineName() string {
-	if h.Runner.Kind == RunnerPi {
-		return agentid.Pi
-	}
-	return h.Runner.Agent
-}
-
-// Divergence is one line per hop where p and ch differ in agent or account; nil when they agree.
-func Divergence(p RoutePlan, ch Chain) []string {
-	hops := p.Hops()
-	out := slices.Clone(p.Constraints)
-	for i := range max(len(hops), len(ch.Dispatches)) {
-		plan, chain := "none", "none"
-		if i < len(hops) {
-			plan = hops[i].engineName() + "@" + cmp.Or(hops[i].Workspace.Account, hops[i].Workspace.Profile)
-		}
-		if i < len(ch.Dispatches) {
-			chain = ch.Dispatches[i].Agent.Name() + "@" + ch.Dispatches[i].Account
-		}
-		if i < len(hops) && i < len(ch.Dispatches) && sameHop(hops[i], ch.Dispatches[i]) {
-			continue
-		}
-		out = append(out, fmt.Sprintf("hop %d: plan %s, chain %s", i+1, plan, chain))
-	}
-	return appendNewLines(out, planConstraints(p, ch))
-}
-
-// sameHop compares agent and account; an own-login workspace with no row compares by agent only.
-func sameHop(h PlanHop, d Dispatch) bool {
-	acct := h.Workspace.Account
-	return h.engineName() == d.Agent.Name() && (acct == "" || acct == d.Account)
-}
-
-// appendNewLines preserves hop order while avoiding repeated captured/current intent violations.
-func appendNewLines(lines, more []string) []string {
-	for _, line := range more {
-		if !slices.Contains(lines, line) {
-			lines = append(lines, line)
-		}
-	}
-	return lines
 }

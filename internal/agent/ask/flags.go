@@ -844,9 +844,6 @@ func flagRoute(f *askFlags) route.Route {
 		if row := reg.Row(f.profile); row != nil {
 			return route.Route{Provider: row.Provider, Profile: f.profile}
 		}
-		if r := route.ParseLegacy(f.profile); r.Provider != "" && r.Profile != "" {
-			return r
-		}
 	case f.provider == router.RouteDatabricks:
 		return route.Route{Provider: f.provider, Profile: route.AutoArm}
 	case f.provider != "":

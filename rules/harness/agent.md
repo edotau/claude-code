@@ -184,9 +184,10 @@ paths:
   env names are refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.
 
   An object that sets any route key names provider AND profile (a github account route: provider `github` + `account`);
-  a partial object exits 2 naming the missing key. Shorthand: `--profile R` fills provider from R's own
-  registry row, never the session; `--provider P` = `{P, auto}`; `databricks` = the pool pick (least busy workspace
-  serving the model); `auto` is only an overlay `profile`: `ask --profile auto` and `label` refuse it. A flag and
+  a partial object exits 2 naming the missing key. Flags take the same pair: `--provider P --profile N`, or
+  `--overlay '{"provider":"P","profile":"N"}'`; a provider with profiles typed alone, or a registry profile typed
+  without its provider, exits 2; a provider with no profiles takes `--provider P` alone. The pool pick (least busy
+  workspace serving the model) is the overlay profile `auto`: `ask --profile auto` and `label` refuse it. A flag and
   `--overlay` setting one key differently on one command line exit 2 naming both; `--spec` stays a template typed
   flags beat. Interactive launchers accept route, `model` and `effort` in `--overlay`; `fallback`, budgets, caps,
   `codexNetwork` and `cloud` are refused naming the key. Held-job hints print `--overlay '<object>'`; batch lines take
