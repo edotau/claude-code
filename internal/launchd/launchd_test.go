@@ -191,12 +191,20 @@ func TestInstallReadErrorNotRewritten(t *testing.T) {
 
 // A launchctl failure with no output keeps the error without a dangling separator.
 func TestCtlEmptyOutputKeepsError(t *testing.T) {
-	err := joinCtl(errors.New("exit status 1"), nil)
-	if err == nil || strings.HasSuffix(err.Error(), ":") {
-		t.Fatalf("joinCtl = %q, want the error unchanged", err)
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a shell stub")
 	}
-	if got := joinCtl(errors.New("exit status 113"), []byte("  Could not find service\n")); !strings.Contains(got.Error(), "Could not find service") {
-		t.Fatalf("joinCtl output = %q", got)
+	dir := t.TempDir()
+	stub := "#!/bin/sh\nif [ \"$1\" = noisy ]; then echo '  Could not find service'; fi\nexit 113\n"
+	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := Ctl("quiet"); err == nil || strings.HasSuffix(err.Error(), ":") {
+		t.Fatalf("Ctl = %q, want the error unchanged", err)
+	}
+	if err := Ctl("noisy"); err == nil || !strings.Contains(err.Error(), "Could not find service") {
+		t.Fatalf("Ctl output = %q", err)
 	}
 }
 

@@ -223,6 +223,14 @@ func HookNoticeDrainWarn(err string) string {
 	return renderHook("notice/drain-warn", tmplFields{"Err": err})
 }
 
+func HookFailureLine(kind, body, holder string) string {
+	return renderHook("notice/failure-line", tmplFields{"Kind": kind, "Body": body, "Holder": holder})
+}
+
+func HookFailureClaim(id string) string {
+	return renderHook("notice/failure-claim", tmplFields{"ID": id})
+}
+
 func HookFailuresMore(more int) string {
 	return renderHook("notice/failures-more", tmplFields{"More": more})
 }

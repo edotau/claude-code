@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -148,7 +149,7 @@ func assertGradientRows(t *testing.T, wide string, lines []string, width int) {
 	t.Helper()
 	rest := wide
 	for _, line := range lines {
-		if visibleWidth(line) > width || strings.HasPrefix(line, " ") {
+		if textutil.DisplayWidth(line) > width || strings.HasPrefix(line, " ") {
 			t.Fatalf("width %d: row overflows or starts with a space: %q", width, line)
 		}
 		at := strings.Index(rest, line)
@@ -211,7 +212,7 @@ func BenchmarkRenderGradient(b *testing.B) {
 func BenchmarkVisibleWidth(b *testing.B) {
 	s := "\x1b[1;38;2;120;180;240medotau@host\x1b[0m: ~/src/claude-code \x1b[38;2;200;200;200m|\x1b[0m main"
 	for b.Loop() {
-		_ = visibleWidth(s)
+		_ = textutil.DisplayWidth(s)
 	}
 }
 

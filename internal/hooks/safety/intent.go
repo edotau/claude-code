@@ -260,7 +260,7 @@ var sudoPrefixes = sync.OnceValue(func() map[string]bool {
 // sudoLeads reports a token sequence whose command, past prefixes and wrappers, is sudo or runs a string holding it.
 func sudoLeads(toks []string, depth int) bool {
 	for len(toks) > 0 {
-		toks = shell.DropRtk(shellSkipAssign(toks))
+		toks = shell.DropRtk(dropEnvAssigns(toks))
 		if len(toks) == 0 {
 			return false
 		}
@@ -299,14 +299,6 @@ func skipPrefixOpts(name string, toks []string) []string {
 	}
 	toks = toks[1:]
 	for len(toks) > 0 && (strings.HasPrefix(toks[0], "-") || len(toks) > 1 && name == "timeout") {
-		toks = toks[1:]
-	}
-	return toks
-}
-
-// shellSkipAssign drops leading NAME=value words.
-func shellSkipAssign(toks []string) []string {
-	for len(toks) > 0 && envAssign().MatchString(toks[0]) {
 		toks = toks[1:]
 	}
 	return toks

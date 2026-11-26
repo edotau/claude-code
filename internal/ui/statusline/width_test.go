@@ -8,10 +8,12 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 func TestClipCountsWideCells(t *testing.T) {
-	if got := visibleWidth("界界"); got != 4 {
+	if got := textutil.DisplayWidth("界界"); got != 4 {
 		t.Errorf("wide text occupies %d columns, want 4", got)
 	}
 	if got := plain(clip("界界", 2)); got != "…" {

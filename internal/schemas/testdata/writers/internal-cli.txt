@@ -1,1 +1,2 @@
+internal/cli/failures.go:failureFix	unversioned: text: dispatch brief for a claimed failure
 internal/cli/menu.go:cmdMenuSVG	unversioned: foreign: -o output

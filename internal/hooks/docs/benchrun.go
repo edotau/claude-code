@@ -894,6 +894,9 @@ func benchFinish(in *core.Input) core.Result {
 	}
 	raw, _ := os.ReadFile(result)
 	lines := benchNoticeLines(raw)
+	if *m.Exit == 0 {
+		benchReportRegressions(raw, result)
+	}
 	if len(lines) > benchMaxLines {
 		lines = append(lines[:benchMaxLines-1], benchNoticeSummary(raw, len(lines)-benchMaxLines+1))
 	}
@@ -919,11 +922,17 @@ var benchSuffix = regexp.MustCompile(`-\d+$`)
 
 // Every comparison retains its own provenance and reason, including missing comparisons.
 func benchNoticeLines(raw []byte) []string {
+	lines, _ := benchComparisons(raw)
+	return lines
+}
+
+// benchComparisons returns the ranked notice lines and each line's "<pkg> <bench>" subject ("" for a missing one).
+func benchComparisons(raw []byte) (lines, subjects []string) {
 	var rep benchReport
 	if json.Unmarshal(raw, &rep) != nil {
-		return nil
+		return nil, nil
 	}
-	var lines []string
+	subject := map[string]string{}
 	for _, p := range rep.Packages {
 		baseline := p.Before.Commit
 		if baseline == "" {
@@ -938,14 +947,30 @@ func benchNoticeLines(raw []byte) []string {
 			}
 			parts := benchParts(rep.loaded(p), flags, b.Deltas)
 			name := benchSuffix.ReplaceAllString(b.Name, "")
-			lines = append(lines, prefix+name+" "+strings.Join(parts, "; "))
+			line := prefix + name + " " + strings.Join(parts, "; ")
+			lines, subject[line] = append(lines, line), p.Pkg+" "+name
 		}
 		for _, missing := range p.Missing {
 			lines = append(lines, prefix+"inconclusive ("+missing+"); rerun wanted")
 		}
 	}
 	slices.SortStableFunc(lines, func(a, b string) int { return benchNoticeRank(a) - benchNoticeRank(b) })
-	return lines
+	for _, l := range lines {
+		subjects = append(subjects, subject[l])
+	}
+	return lines, subjects
+}
+
+// benchReportRegressions sends each confirmed regression to the failure broadcast; inconclusive lines are not sent.
+func benchReportRegressions(raw []byte, result string) {
+	lines, subjects := benchComparisons(raw)
+	for i, line := range lines {
+		if subjects[i] == "" || benchNoticeRank(line) != 1 {
+			continue
+		}
+		_, _ = worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{
+			Kind: worktree.FailBench, Subject: subjects[i], Summary: line, Log: result, Time: time.Now().Unix()})
+	}
 }
 
 func benchNoticeRank(line string) int {

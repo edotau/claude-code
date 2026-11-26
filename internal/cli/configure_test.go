@@ -523,13 +523,13 @@ func TestConfigureRoutingAssign(t *testing.T) {
 		write bool // a successful apply, which may change the vault
 	}{
 		{[]string{"routing", "spendCap.dayUSD=50", "--dry-run"}, 0, "routing spendCap.dayUSD=50.00", false},
-		{[]string{"routing", "session_usd=5", "--check"}, 0, "routing spendCap.sessionUSD=5.00", false},
+		{[]string{"routing", "spendCap.sessionUSD=5", "--check"}, 0, "routing spendCap.sessionUSD=5.00", false},
 		{[]string{"routing", "nope=1"}, 2, "unknown routing key", false},
-		{[]string{"routing", "session_usd=5", "bad=1"}, 2, "unknown routing key", false},
-		{[]string{"routing", "session_usd=NaN"}, 2, "finite USD", false},
-		{[]string{"routing", "session_usd"}, 2, "must be key=value", false},
-		{[]string{"routing", "session_usd=5", "day_usd=20", "servedAware=true"}, 0, "", true},
-		{[]string{"routing", "session_usd=", "spendCap.sessionUSD=7"}, 0, "", true},
+		{[]string{"routing", "spendCap.sessionUSD=5", "bad=1"}, 2, "unknown routing key", false},
+		{[]string{"routing", "spendCap.sessionUSD=NaN"}, 2, "finite USD", false},
+		{[]string{"routing", "spendCap.sessionUSD"}, 2, "must be key=value", false},
+		{[]string{"routing", "spendCap.sessionUSD=5", "spendCap.dayUSD=20", "servedAware=true"}, 0, "", true},
+		{[]string{"routing", "spendCap.sessionUSD=", "spendCap.sessionUSD=7"}, 0, "", true},
 	} {
 		before := routingOverlayRaw(t)
 		code, out, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
@@ -545,8 +545,8 @@ func TestConfigureRoutingReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"routing", "session_usd=5", "day_usd=20", "servedAware=true"},
-		{"routing", "session_usd=", "spendCap.sessionUSD=7"},
+		{"routing", "spendCap.sessionUSD=5", "spendCap.dayUSD=20", "servedAware=true"},
+		{"routing", "spendCap.sessionUSD=", "spendCap.sessionUSD=7"},
 	} {
 		code, _, errout := hosttest.CaptureOutput(t, func() int { return run(args) })
 		if code != 0 {
@@ -556,7 +556,7 @@ func TestConfigureRoutingReset(t *testing.T) {
 	if got := spendCapText(t); got != "7 20" {
 		t.Fatalf("routing spend caps = %q", got)
 	}
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"routing", "session_usd="}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"routing", "spendCap.sessionUSD="}) })
 	if code != 0 || !strings.Contains(out, "=off") {
 		t.Fatalf("reset: %d %s %s", code, out, stderr)
 	}
@@ -600,8 +600,8 @@ func TestConfigureRoutingWeights(t *testing.T) {
 	for _, args := range [][]string{
 		{"routing", "weights.price=0.99", "weights.latency=0.2", "--dry-run"},
 		{"routing", "weights.price=0.99", "weights.latency=0.2"},
-		{"routing", "day_usd=5", "--list"},
-		{"routing", "day_usd=5", "--out", "unused.json"},
+		{"routing", "spendCap.dayUSD=5", "--list"},
+		{"routing", "spendCap.dayUSD=5", "--out", "unused.json"},
 	} {
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(args) })
 		if code != 2 {

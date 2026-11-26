@@ -914,3 +914,17 @@ func TestBenchCoverageCounts(t *testing.T) {
 		t.Fatalf("coverage = %q ok=%v\nwant %q, not ok", got, ok, want)
 	}
 }
+
+func TestBenchFailureReported(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	raw := strings.Replace(cannedBench, `"flags":["noisy"],`, "", 1)
+	benchReportRegressions([]byte(raw), "/r.json")
+	got, _, err := worktree.FailuresSince(worktree.FailuresDir(), "s", 5)
+	if err != nil || len(got) != 1 || got[0].Kind != worktree.FailBench || got[0].Subject != "internal/memory Noisy" {
+		t.Fatalf("regression report = %+v, %v", got, err)
+	}
+	benchReportRegressions([]byte(cannedBench), "/r.json") // the noisy comparison is inconclusive
+	if got, _, _ := worktree.FailuresSince(worktree.FailuresDir(), "t", 5); len(got) != 1 {
+		t.Fatalf("inconclusive run reported: %+v", got)
+	}
+}

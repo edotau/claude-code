@@ -99,7 +99,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs := helptext.NewFlagSet("configure", configurePage)
 	o := &configureOpts{}
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini, or all")
-	fs.StringVar(&o.auth, "auth", "", "with github: pin a GitHub account (login), or follow")
+	fs.StringVar(&o.auth, "auth", "", "with github: switch gh to this account (with --check, compare gh's active account)")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with restore)")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (not with restore|revert)")
 	fs.StringVar(&o.out, "out", "", "with restore|fmt: act on this file, not settings.json")
@@ -307,7 +307,7 @@ func applyRouting(r *providers.Routing, fields []configure.RoutingField, staged 
 func stageRoutingPairs(fields []configure.RoutingField, pairs []string) (map[string]string, map[string]bool, []configure.RoutingField, error) {
 	staged, resets := map[string]string{}, map[string]bool{}
 	var order []configure.RoutingField
-	known := []string{"session_usd", "day_usd"}
+	var known []string
 	for _, f := range fields {
 		known = append(known, f.Key)
 	}
@@ -315,12 +315,6 @@ func stageRoutingPairs(fields []configure.RoutingField, pairs []string) (map[str
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok {
 			return nil, nil, nil, fmt.Errorf("configure routing: %q must be key=value", pair)
-		}
-		switch key {
-		case "session_usd":
-			key = "spendCap.sessionUSD"
-		case "day_usd":
-			key = "spendCap.dayUSD"
 		}
 		i := slices.IndexFunc(fields, func(f configure.RoutingField) bool { return f.Key == key })
 		if i < 0 {
@@ -561,13 +555,13 @@ func unknownAgent(agents string) error {
 // agentNames are the values `configure --agent` takes: claude, the agents, and all.
 func agentNames() []string { return append([]string{"claude", "all"}, agent.DefaultAgents...) }
 
-// authNames are the GitHub accounts, plus "follow", for `configure github --auth`.
+// authNames are the GitHub accounts for `configure github --auth`.
 func authNames() []string {
 	reg, err := providers.Load()
 	if err != nil {
-		return []string{"follow"}
+		return nil
 	}
-	return append([]string{"follow"}, menu.GitHubAccounts(reg)...)
+	return menu.GitHubAccounts(reg)
 }
 
 // sections derives from menu.SectionNames, the package's own run order.

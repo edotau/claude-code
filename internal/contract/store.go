@@ -90,16 +90,21 @@ func Update(id string, fn func(Contract) (Contract, error)) (Contract, error) {
 		return Contract{}, err
 	}
 	var out Contract
+	var wasFailed bool
 	err = paths.WithFileLock(p, func() error {
 		c, err := load(p)
 		if err != nil {
 			return err
 		}
+		wasFailed = c.state == StateFailed
 		if out, err = fn(c); err != nil {
 			return err
 		}
 		return write(p, out)
 	})
+	if err == nil && !wasFailed && out.state == StateFailed && FailReporter != nil {
+		FailReporter(out)
+	}
 	return out, err
 }
 

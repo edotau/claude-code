@@ -50,16 +50,10 @@ func Do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, 
 			return status, body, hdr, err
 		}
 		if err := textutil.WaitRetry(ctx, attempt, c.Base, hdr, textutil.StatusError(status)); err != nil {
-			return 0, nil, nil, &RetryError{err}
+			return 0, nil, nil, err
 		}
 	}
 }
-
-// RetryError preserves the interrupted wait and its last response status.
-type RetryError struct{ Err error }
-
-func (e *RetryError) Error() string { return e.Err.Error() }
-func (e *RetryError) Unwrap() error { return e.Err }
 
 // DoJSON reads a bounded response, saving it in Response if requested, and decodes a successful response into out.
 func DoJSON(ctx context.Context, c Call, out any) (int, error) {

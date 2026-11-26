@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -84,19 +83,13 @@ func piReportPath(unit string) (string, error) {
 	if _, err := rand.Read(r[:]); err != nil {
 		return "", err
 	}
-	slug := strings.Trim(piSlugRe.ReplaceAllString(strings.ToLower(unit), "-"), "-")
-	slug = strings.Trim(slug[:min(len(slug), 60)], "-")
-	if slug == "" {
-		slug = "leaf"
-	}
+	slug := paths.Slug(unit, "", 60, "leaf")
 	dir := paths.MemorySubDir("reports")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, fmt.Sprintf("%s-%s-%x.md", time.Now().Format("2006-01-02"), slug, r)), nil
 }
-
-var piSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func strOf(v any) string { s, _ := v.(string); return s }
 

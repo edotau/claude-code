@@ -27,7 +27,15 @@ type Agent struct {
 const ctlTimeout = 30 * time.Second // bounds each launchctl call so a wedged launchd cannot hang install
 
 // Ctl runs launchctl with a timeout and folds its output into the error. Tests replace it.
-var Ctl = ctl
+var Ctl = func(args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ctlTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
+	if msg := bytes.TrimSpace(out); err != nil && len(msg) > 0 {
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return err
+}
 
 // Install writes and loads a, leaving an unchanged loaded plist alone; not macOS, it does nothing.
 func Install(w io.Writer, a Agent, dryRun bool) error {
@@ -161,25 +169,6 @@ func rowName(label string) string {
 		label = label[i+1:]
 	}
 	return label + " agent"
-}
-
-// ctl runs launchctl with a timeout and folds its output into the error.
-func ctl(args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), ctlTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
-	if err != nil {
-		return joinCtl(err, out)
-	}
-	return nil
-}
-
-// joinCtl appends launchctl's output to err; outputless failures keep err as it is.
-func joinCtl(err error, out []byte) error {
-	if msg := bytes.TrimSpace(out); len(msg) > 0 {
-		return fmt.Errorf("%w: %s", err, msg)
-	}
-	return err
 }
 
 // XMLText escapes s for a plist <string> body, so a path with & or < stays well-formed.

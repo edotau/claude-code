@@ -106,6 +106,8 @@ func TestHookTextMatchesOldLiterals(t *testing.T) {
 		{"notice", HookNoticeLine("kind", "txt"), "notice (kind): txt"},
 		{"drain", HookNoticeDrainWarn("e"), "notices: WARNING \u2014 could not drain this session's inbox (e); notices may " +
 			"be missing or repeat"},
+		{"failure-line", HookFailureLine("audit", "s: boom", "x"), "failure audit s: boom [claimed by x]"},
+		{"failure-claim", HookFailureClaim("abc"), "claim: claude-code failures claim abc"},
 		{"failures-more", HookFailuresMore(2), "notice (failures): 2 more failures: claude-code failures ls"},
 		{"failures-warn", HookFailuresWarn("e"), "\nnotices: WARNING \u2014 could not read failures (e); skipped"},
 		{"diverge-warn", HookNoticeDivergeWarn("e"), "\nnotices: WARNING \u2014 could not check branch divergence (e); skipped"},

@@ -22,6 +22,9 @@ var (
 	ErrInput = errors.New("bad argument")
 )
 
+// FailReporter, when set, gets each contract Update saved as failed; contract cannot import worktree.
+var FailReporter func(Contract)
+
 // TransitionError names the transition, the state it was called in and why it was refused.
 type TransitionError struct {
 	Op     string

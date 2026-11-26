@@ -24,6 +24,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -162,7 +163,7 @@ func TestWidthClip(t *testing.T) {
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Width = style, 40
 		for line := range strings.SplitSeq(render(sample(), cfg, theme.LoadPalettes()), "\n") {
-			if w := visibleWidth(line); w > 40 {
+			if w := textutil.DisplayWidth(line); w > 40 {
 				t.Errorf("%s: width %d > 40: %q", style, w, plain(line))
 			}
 			if !strings.HasSuffix(line, "\x1b[0m") {

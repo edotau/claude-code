@@ -380,8 +380,8 @@ vendor CLI untouched.
 - **No policy (R30).** No dispatch carries a permission policy: `--tools` gives the agent its tools whole
   (claude runs `bypassPermissions`), `--tools=false` turns them off, and only `safety-scan` (settings.json deny rules
   and the AI-attribution block) judges calls. `--workdir` is no write boundary for any agent.
-- **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools for a known job kind
-  (`memory.JobTools`) and no fallback to another vendor.
+- **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools
+  and no fallback to another vendor.
   Each hop runs at `--fallback none`: the pin, the other Databricks workspaces,
   then `magnitude`/`local` when its `/models` answers within 2 s; a local run is marked lower trust.
 

@@ -69,7 +69,7 @@ func planAgentBlock(in *core.Input) core.Result {
 		for _, path := range core.WrittenPathsPrecise(in.ToolCommand(), in.CWD) {
 			edits = append(edits, textutil.FileEdit{Path: path})
 		}
-	} else if p := planToolPath(in); p != "" || len(edits) == 0 { // EditedPaths drops file_path beside a patch key
+	} else if p := core.ToolPath(in.ToolInput()); p != "" || len(edits) == 0 { // EditedPaths drops file_path beside a patch key
 		edits = append(edits, textutil.FileEdit{Path: p})
 	}
 	home := filepath.Join(paths.ConfigDir(), "plans")
@@ -81,16 +81,6 @@ func planAgentBlock(in *core.Input) core.Result {
 		}
 	}
 	return core.Result{}
-}
-
-// planToolPath is an edit tool's own path key in any agent's shape ("" when it has none).
-func planToolPath(in *core.Input) string {
-	for _, key := range []string{"file_path", "filePath", "path"} {
-		if p := in.Nested("tool_input", key); p != "" {
-			return p
-		}
-	}
-	return ""
 }
 
 // Resolve existing prefixes before joining the next component, so a symlink's following .. uses its real parent.

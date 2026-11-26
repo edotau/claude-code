@@ -351,6 +351,8 @@ func hookRenderCases() []renderCase {
 		{"HookBusyPeer", "nolanes", func() string { return HookBusyPeer(BusyPeer{Comm: "claude", PID: 42, Branch: "main"}) }},
 		{"HookNoticeLine", "", func() string { return HookNoticeLine("peer", "text") }},
 		{"HookNoticeDrainWarn", "", func() string { return HookNoticeDrainWarn("e") }},
+		{"HookFailureLine", "", func() string { return HookFailureLine("audit", "s: boom", "x") }},
+		{"HookFailureClaim", "", func() string { return HookFailureClaim("abc") }},
 		{"HookFailuresMore", "", func() string { return HookFailuresMore(2) }},
 		{"HookFailuresWarn", "", func() string { return HookFailuresWarn("e") }},
 		{"HookNoticeDivergeWarn", "", func() string { return HookNoticeDivergeWarn("e") }},

@@ -10,3 +10,8 @@ notices: WARNING — could not check branch divergence ({{.Err}}); skipped{{end}
 
 {{define "failures-warn"}}{{/* fields: Err */}}
 notices: WARNING — could not read failures ({{.Err}}); skipped{{end}}
+
+
+{{define "failure-line"}}{{/* fields: Body Holder Kind */}}failure {{.Kind}} {{.Body}}{{if .Holder}} [claimed by {{.Holder}}]{{end}}{{end}}
+
+{{define "failure-claim"}}{{/* fields: ID */}}claim: claude-code failures claim {{.ID}}{{end}}

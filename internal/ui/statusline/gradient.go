@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -55,12 +56,12 @@ func writeUserHost(out *strings.Builder, v values, cfg config, pal theme.Palette
 		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
 	}
 	out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
-	return visibleWidth(v.userHost) + 1
+	return textutil.DisplayWidth(v.userHost) + 1
 }
 
 // writeVelocity appends +A/-D after sep, or alone on a new row when it would cross width.
 func writeVelocity(out *strings.Builder, vel, sep string, col, width int) {
-	if width > 0 && col > 0 && col+len(sepPath)+visibleWidth(vel) > width {
+	if width > 0 && col > 0 && col+len(sepPath)+textutil.DisplayWidth(vel) > width {
 		out.WriteByte('\n')
 	} else {
 		out.WriteString(sep)
@@ -102,17 +103,25 @@ func wrapSegments(out *strings.Builder, cells []cell, brks []brk, stops []ansi.R
 		}
 		rgb := ansi.GradAt(stops, easeAt(float64(i)/total, ease))
 		out.Write(appendPaintedCell(buf[:0], cells[i], mode, dim, rgb))
-		col += cellWidth(cells[i].ch)
+		col += runeCols(cells[i].ch)
 		i++
 	}
 	return col
+}
+
+// runeCols is one rune's columns; a lone flag indicator counts 1 so a pair sums to the 2 columns it draws.
+func runeCols(r rune) int {
+	if r >= 0x1f1e6 && r <= 0x1f1ff {
+		return 1
+	}
+	return textutil.DisplayWidth(string(r))
 }
 
 // cellsWidth is the terminal columns the cells occupy.
 func cellsWidth(cells []cell) int {
 	n := 0
 	for _, c := range cells {
-		n += cellWidth(c.ch)
+		n += runeCols(c.ch)
 	}
 	return n
 }

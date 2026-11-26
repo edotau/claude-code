@@ -232,7 +232,7 @@ func (in *Input) normalizeToolArgs() string {
 	if input == nil {
 		return ""
 	}
-	if path := toolPath(input); path != "" {
+	if path := ToolPath(input); path != "" {
 		input["file_path"] = paths.AnchorPath(path, in.CWD)
 	}
 	in.doc["tool_input"] = input
@@ -242,8 +242,8 @@ func (in *Input) normalizeToolArgs() string {
 // patchKeys are the tool_input keys an apply_patch body arrives under: opencode's, then codex's.
 var patchKeys = []string{"patchText", "patch", "input", "command"}
 
-// toolPath is a single-file edit tool's file: file_path (Claude, Gemini), filePath (OpenCode) or path (Copilot).
-func toolPath(input map[string]any) string {
+// ToolPath is a single-file edit tool's file: file_path (Claude, Gemini), filePath (OpenCode) or path (Copilot).
+func ToolPath(input map[string]any) string {
 	for _, key := range []string{"file_path", "filePath", "path"} {
 		if path, _ := input[key].(string); path != "" {
 			return path
@@ -266,7 +266,7 @@ func (in *Input) EditedPaths() []textutil.FileEdit {
 			return edits
 		}
 	}
-	if path := toolPath(in.ToolInput()); path != "" {
+	if path := ToolPath(in.ToolInput()); path != "" {
 		return []textutil.FileEdit{{Path: path, Kind: textutil.PatchUpdate}}
 	}
 	return nil
@@ -311,13 +311,7 @@ func (in *Input) ToolInput() map[string]any {
 
 // CloneToolInput preserves arguments while allowing a hook to replace individual keys.
 func (in *Input) CloneToolInput() map[string]any {
-	input := in.ToolInput()
-	if input == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(input)+1)
-	maps.Copy(clone, input)
-	return clone
+	return maps.Clone(in.ToolInput())
 }
 
 // ToolCommand is the Bash command under tool_input (a top-level .command is the fallback).
