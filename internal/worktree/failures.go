@@ -403,8 +403,38 @@ func autofixBranch(ctx context.Context, r Failure) bool {
 	if r.Repo == "" || !ok || len(sha) != 7 {
 		return false
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", r.Repo, "show-ref", "--verify", "--quiet", "refs/heads/worktree-autofix-"+sha)
+	ref := "refs/heads/worktree-autofix-" + sha
+	if found, ok := refInGitDir(filepath.Join(r.Repo, ".git"), ref); ok {
+		return found
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Repo, "show-ref", "--verify", "--quiet", ref)
 	return cmd.Run() == nil
+}
+
+// refInGitDir reads ref from a plain .git dir without a spawn; ok=false (ask git) for a .git file, reftable or error.
+func refInGitDir(gitDir, ref string) (found, ok bool) {
+	if st, err := os.Stat(gitDir); err != nil || !st.IsDir() {
+		return false, false
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "reftable")); err == nil {
+		return false, false
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "refs", "heads", strings.TrimPrefix(ref, "refs/heads/"))); err == nil {
+		return true, true
+	}
+	packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if os.IsNotExist(err) {
+		return false, true
+	}
+	if err != nil {
+		return false, false
+	}
+	for l := range bytes.SplitSeq(packed, []byte("\n")) {
+		if _, name, cut := strings.Cut(string(l), " "); cut && name == ref {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 // OfferResult is what one session gets of an open failure: nothing, the fix-now directive, or the plain fallback.

@@ -227,3 +227,29 @@ func TestNotePromptPrunesOnlyStaleStamps(t *testing.T) {
 		t.Fatalf("fresh stamp: %v, want kept", err)
 	}
 }
+
+func TestFailureRefInGitDir(t *testing.T) {
+	g := t.TempDir()
+	ref := "refs/heads/worktree-autofix-abc1234"
+	if found, ok := refInGitDir(g, ref); found || !ok {
+		t.Fatalf("empty = %v,%v", found, ok)
+	}
+	if err := os.WriteFile(filepath.Join(g, "packed-refs"), []byte("# pack\n1234 "+ref+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if found, ok := refInGitDir(g, ref); !found || !ok {
+		t.Fatalf("packed = %v,%v", found, ok)
+	}
+	if found, _ := refInGitDir(g, ref+"x"); found {
+		t.Fatal("prefix matched")
+	}
+	_ = os.Remove(filepath.Join(g, "packed-refs"))
+	_ = os.MkdirAll(filepath.Join(g, "refs", "heads"), 0o700)
+	_ = os.WriteFile(filepath.Join(g, "refs", "heads", "worktree-autofix-abc1234"), []byte("1\n"), 0o600)
+	if found, ok := refInGitDir(g, ref); !found || !ok {
+		t.Fatalf("loose = %v,%v", found, ok)
+	}
+	if _, ok := refInGitDir(filepath.Join(g, "nope"), ref); ok {
+		t.Fatal("missing dir must defer to git")
+	}
+}

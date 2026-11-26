@@ -279,8 +279,17 @@ const (
 
 // repoFailures keeps the records of the session's main checkout and those carrying no repo.
 func repoFailures(fails []worktree.Failure, top string) []worktree.Failure {
+	want, real := realDir(top), map[string]string{}
 	return slices.DeleteFunc(slices.Clone(fails), func(f worktree.Failure) bool {
-		return f.Repo != "" && realDir(f.Repo) != realDir(top)
+		if f.Repo == "" {
+			return false
+		}
+		r, ok := real[f.Repo]
+		if !ok {
+			r = realDir(f.Repo)
+			real[f.Repo] = r
+		}
+		return r != want
 	})
 }
 

@@ -782,3 +782,24 @@ func TestNoticeContextFailuresRepoAndClaim(t *testing.T) {
 		}
 	}
 }
+
+// TestBusyManyFailuresCost logs steady-state Busy cost over a 50-record failure log (-v).
+func TestBusyManyFailuresCost(t *testing.T) {
+	cwd := fixNowEnv(t)
+	kinds := []worktree.FailureKind{worktree.FailAudit, worktree.FailLaneGate, worktree.FailHookP95, worktree.FailContract, worktree.FailProxyDown}
+	for i := range 50 {
+		f := worktree.Failure{Kind: kinds[i%len(kinds)], Subject: fmt.Sprintf("lane%d@abc%04d", i, i), Summary: "boom", Repo: cwd}
+		if _, err := worktree.ReportFailure(worktree.FailuresDir(), f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := &core.Input{SessionID: "bench", CWD: cwd, Prompt: "hello"}
+	Busy(in)
+	var ds []time.Duration
+	for range 15 {
+		start := time.Now()
+		Busy(in)
+		ds = append(ds, time.Since(start))
+	}
+	t.Logf("busy steady-state runs: %v", ds)
+}
