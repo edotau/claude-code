@@ -225,8 +225,8 @@ func TestAutoRateLimitMovesBeforeAgentFallback(t *testing.T) {
 	dump := armRateFixture(t, []string{"dev"}, nil)
 	code, env, stderr := askAuto(t, "auto", "all")
 	bins, _ := armDumps(t, dump)
-	if code != 0 || env["agent"] != "codex" || env["fallback"] != nil {
-		t.Fatalf("exit %d agent %v fallback %v, want codex answering on qa with no fallback\n%s", code, env["agent"], env["fallback"], stderr)
+	if code != 0 || env["agent"] != "codex" || env["fallback_from"] != nil {
+		t.Fatalf("exit %d agent %v fallback %v, want codex answering on qa with no fallback\n%s", code, env["agent"], env["fallback_from"], stderr)
 	}
 	for _, b := range bins {
 		if b != "codex" {

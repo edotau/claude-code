@@ -161,6 +161,26 @@ type batchRun struct {
 	logM sync.Mutex
 	lim  *retry.Limiter
 	stop func() // cancels the batch
+	jev  map[string][]agent.JevPair
+}
+
+// jevByTask logs Open-Jev's shadow "does B need A" answers on both tasks' records; it orders nothing, 2s at most.
+func jevByTask(ctx context.Context, tasks []batchTask) map[string][]agent.JevPair {
+	if len(tasks) < 2 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	briefs := make([]string, len(tasks))
+	for i, t := range tasks {
+		briefs[i] = t.Req.Prompt
+	}
+	out := map[string][]agent.JevPair{}
+	for _, p := range agent.JevPairs(ctx, briefs) {
+		out[tasks[p.A].ID] = append(out[tasks[p.A].ID], p)
+		out[tasks[p.B].ID] = append(out[tasks[p.B].ID], p)
+	}
+	return out
 }
 
 // runTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
@@ -168,7 +188,7 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, defaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel}
+	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel, jev: jevByTask(bctx, tasks)}
 	allOK := true
 	emit := func(env wire.Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -286,6 +306,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env wire.Envelope, ok bool) {
 	rec := &p.Record
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
+	rec.JevPairs = b.jev[t.ID]
 	ctx = agent.WithBatchRun(ctx, b.lim)
 	if t.Group != "" {
 		ctx = agent.WithProxyGroup(ctx, t.Group)

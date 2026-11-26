@@ -191,3 +191,31 @@ func TestHandbackFooterIsCleanOnlyForDoneWithNoItems(t *testing.T) {
 		}
 	}
 }
+
+// An older envelope's `fallback` key still reads as fallback_from; the new one writes only fallback_from.
+func TestDecodeOldEnvelopeFallback(t *testing.T) {
+	var env Envelope
+	if err := json.Unmarshal([]byte(`{"agent":"codex","fallback":"claude"}`), &env); err != nil || env.Fallback == nil || *env.Fallback != "claude" {
+		t.Fatalf("old envelope = %+v err=%v", env, err)
+	}
+	var res Result
+	if err := json.Unmarshal([]byte(`{"agent":"codex","fallback":"claude"}`), &res); err != nil || res.Fallback != "claude" {
+		t.Fatalf("old result = %+v err=%v", res, err)
+	}
+	b, _ := json.Marshal(env)
+	if s := string(b); !strings.Contains(s, `"fallback_from":"claude"`) || strings.Contains(s, `"fallback":`) {
+		t.Errorf("encoded = %s", s)
+	}
+}
+
+// A present fallback_from, even null, wins over a stale older fallback key.
+func TestOldFallbackKeyNeverOverridesNew(t *testing.T) {
+	var env Envelope
+	if err := json.Unmarshal([]byte(`{"fallback_from":null,"fallback":"x"}`), &env); err != nil || env.Fallback != nil {
+		t.Errorf("envelope = %+v err=%v, want nil fallback", env, err)
+	}
+	var res Result
+	if err := json.Unmarshal([]byte(`{"fallback_from":"","fallback":"x"}`), &res); err != nil || res.Fallback != "" {
+		t.Errorf("result = %+v err=%v, want empty fallback", res, err)
+	}
+}

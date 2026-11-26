@@ -58,9 +58,9 @@ type Record struct {
 	Experiment     string      `json:"experiment,omitempty"` // the one trial the run carries (pi: rtk-wrap|codemode|none)
 	Role           string      `json:"role,omitempty"`       // owner | fleet, from a Tier: line in the prompt; "" for a no-model action
 	Error          string      `json:"error,omitempty"`
-	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality | policy | cancelled; empty when the run succeeded
-	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
-	Provider       string      `json:"provider,omitempty"`
+	FailKind       string      `json:"fail_kind,omitempty"`      // availability | quality | policy | cancelled; empty when the run succeeded
+	Cutoff         string      `json:"cutoff,omitempty"`         // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
+	Provider       string      `json:"-"`                        // the profile that answered; stored as ran_route.profile
 	Type           string      `json:"type,omitempty"`           // the agent type of the model that ran (models.AgentType)
 	Runner         string      `json:"runner,omitempty"`         // "pi" when the pi runner carried Agent's run; "" when Agent ran itself
 	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
@@ -75,11 +75,11 @@ type Record struct {
 	FallbackKind   string      `json:"fallback_kind,omitempty"` // the failure the local hop took over (retry.Kind.String())
 	RanAs          string      `json:"ran_as,omitempty"`        // the agent that answered, when a fallback dispatch did
 	Repo           string      `json:"repo,omitempty"`          // main checkout root the job belongs to
-	RanRoute       route.Route `json:"ran_route,omitzero"`      // the row that answered, as the ran-on line names it
-	RanIdentity    string      `json:"ran_identity,omitempty"`  // sp | user: the Databricks identity the proxy last served the run
+	RanRoute       route.Route `json:"ran_route,omitzero"`      // the row that answered: provider, profile, identity
+	RanIdentity    string      `json:"-"`                       // sp | user, the identity the proxy last served; stored as ran_route.identity
 	Attempts       []wire.Hop  `json:"attempts,omitempty"`      // every hop of a re-picked or moved run; absent for a one-hop run
 	Route          route.Route `json:"route,omitzero"`          // overlay confinement at launch, so a running job shows where it is going
-	Account        string      `json:"account,omitempty"`       // the account key the run is charged to; moves with the hop
+	Account        string      `json:"billing_key,omitempty"`   // the account key the run is charged to; moves with the hop
 	PID            int         `json:"pid,omitempty"`           // pid of the detached `claude-code agents ask --job` child
 	PPID           int         `json:"ppid,omitempty"`          // parent pid at launch or claim, before reparenting
 	PGID           int         `json:"pgid,omitempty"`          // process group at launch or claim
@@ -106,18 +106,16 @@ type Record struct {
 	TakeoverOf     string      `json:"takeover_of,omitempty"`   // a --carry takeover: the cut-off child dispatch this run finished
 	Report         string      `json:"report,omitempty"`        // absolute path of the report `memory report --job` stored
 	Jev            *JevShadow  `json:"jev,omitempty"`           // shadow tier pick of Open-Jev beside the keyword one; routes nothing
+	JevPairs       []JevPair   `json:"jev_pairs,omitempty"`     // shadow "does B need A" answers for a batch's tasks; orders nothing
 
-	Parent string `json:"parent,omitempty"`
-	Depth  int    `json:"depth,omitempty"`
-	// MaxDepth is the depth cap this dispatch ran under (0 = none); nil is a legacy record, read as the default cap.
-	MaxDepth *int `json:"max_depth,omitempty"`
-	// MaxChildren and MaxTreeTokens are the caps its children inherit; an env-wiped child reads them here.
-	MaxChildren   *int        `json:"max_children,omitempty"`
+	Parent        string      `json:"parent,omitempty"`
+	Depth         int         `json:"depth,omitempty"`
+	MaxDepth      *int        `json:"max_depth,omitempty"`    // the depth cap this dispatch ran under (0 = none); nil: a legacy record, default cap
+	MaxChildren   *int        `json:"max_children,omitempty"` // the caps its children inherit; an env-wiped child reads them here
 	MaxTreeTokens *int        `json:"max_tree_tokens,omitempty"`
 	Usage         *wire.Usage `json:"usage,omitempty"`
 
-	// PreDirtyTouched: files dirty before the run that differ after it; advisory, may be the dispatcher's own work.
-	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"`
+	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"` // files dirty before the run that differ after it; advisory
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
@@ -181,7 +179,6 @@ func (r Record) EventsPath() string {
 	return filepath.Join(paths.DispatchDir(), r.ID+paths.DispatchEventsSuffix)
 }
 
-// AgyLogSuffix is the file suffix of agy's own log for a dispatch, beside its record.
 const AgyLogSuffix = ".agy.log"
 
 // AgyLogPath is agy's own log for dispatch id, <id>.agy.log beside the record.
@@ -372,10 +369,7 @@ func ClaimDispatchID(path, id string) error {
 		return err
 	}
 	_, err = f.WriteString(id)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	return errors.Join(err, f.Close())
 }
 
 // claimRecord gives rec an unheld id by linking the running record to <id>.json (EEXIST bumps the stamp); fails open.
@@ -394,8 +388,7 @@ func claimRecord(rec Record) Record {
 			return rec
 		}
 		_, werr := tmp.Write(body)
-		cerr := tmp.Close()
-		err = cmp.Or(werr, cerr)
+		err = errors.Join(werr, tmp.Close())
 		if err == nil {
 			err = os.Link(tmp.Name(), filepath.Join(dir, rec.ID+".json"))
 		}
@@ -485,11 +478,11 @@ func updateRunning(id string, deadOnly bool, fix func(Record) Record) (Record, b
 func NotePick(ctx context.Context, model string) {
 	if id := DispatchIDOf(ctx); id != "" && model != "" && !Peeking(ctx) {
 		_, _, _ = updateRecord(id, func(r Record) (Record, bool) {
-			if r.Status != "running" || r.Model == model { // an unchanged pick writes nothing
-				return r, false
+			changed := r.Status == "running" && r.Model != model // an unchanged pick writes nothing
+			if changed {
+				r.Model = model
 			}
-			r.Model = model
-			return r, true
+			return r, changed
 		})
 	}
 }
@@ -500,11 +493,11 @@ func NoteProxy(id, label string) {
 		return
 	}
 	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-		if r.Status != "running" || r.Proxy == label {
-			return r, false
+		changed := r.Status == "running" && r.Proxy != label
+		if changed {
+			r.Proxy = label
 		}
-		r.Proxy = label
-		return r, true
+		return r, changed
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "dispatch %s proxy %s not recorded: %v\n", id, label, err)
@@ -651,9 +644,8 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked, r.Reported = res.Invoked, res.Reported
 	r.Usage = nil
-	if res.Usage != (wire.Usage{}) {
-		usage := res.Usage
-		r.Usage = &usage
+	if u := res.Usage; u != (wire.Usage{}) {
+		r.Usage = &u
 	}
 	r.RanRoute = ranRoute(res)
 	r.RanIdentity = ranIdentityOf(r.ID)
@@ -774,34 +766,38 @@ func ranRoute(res wire.Result) route.Route {
 	return route.Route{}
 }
 
-// UnmarshalJSON reads route and ran_route as an object or an older "provider:profile" string, and old fallback names.
+// MarshalJSON stores the answering route whole: provider and profile from the hops, identity from the proxy.
+func (r Record) MarshalJSON() ([]byte, error) {
+	type plain Record
+	r.RanRoute = cmp.Or(r.RanRoute, route.Route{Profile: r.Provider})
+	if r.RanRoute.Provider == "" || r.RanRoute.Provider == "databricks" { // only a Databricks row has an identity
+		r.RanRoute.Identity = cmp.Or(r.RanRoute.Identity, r.RanIdentity)
+	}
+	return json.Marshal(plain(r))
+}
+
+// UnmarshalJSON reads route as an object or a "provider:profile" string, and the keys fallback, provider, account.
 func (r *Record) UnmarshalJSON(b []byte) error {
 	type plain Record
 	aux := struct {
 		*plain
-		Route    legacyRoute `json:"route"`
-		RanRoute legacyRoute `json:"ran_route"`
-		OldFrom  string      `json:"fallback"`
-		OldMode  string      `json:"fallback_policy"`
+		Route       wire.LegacyRoute `json:"route"`
+		RanRoute    wire.LegacyRoute `json:"ran_route"`
+		OldFrom     string           `json:"fallback"`
+		OldMode     string           `json:"fallback_policy"`
+		OldProvider string           `json:"provider"`
+		OldIdentity string           `json:"ran_identity"`
+		OldAccount  string           `json:"account"`
 	}{plain: (*plain)(r)}
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
 	}
-	r.Fallback, r.FallbackPolicy = cmp.Or(r.Fallback, aux.OldFrom), cmp.Or(r.FallbackPolicy, aux.OldMode)
+	r.Fallback = wire.Older(b, "fallback_from", r.Fallback, aux.OldFrom)
+	r.FallbackPolicy = wire.Older(b, "fallback_mode", r.FallbackPolicy, aux.OldMode)
 	r.Route, r.RanRoute = route.Route(aux.Route), route.Route(aux.RanRoute)
+	r.Provider, r.Account = cmp.Or(r.RanRoute.Profile, aux.OldProvider), wire.Older(b, "billing_key", r.Account, aux.OldAccount)
+	r.RanIdentity = cmp.Or(r.RanRoute.Identity, aux.OldIdentity)
 	return nil
-}
-
-type legacyRoute route.Route
-
-func (l *legacyRoute) UnmarshalJSON(b []byte) error {
-	var s string
-	if json.Unmarshal(b, &s) == nil {
-		provider, profile, _ := strings.Cut(s, ":")
-		*l = legacyRoute{Provider: provider, Profile: profile}
-		return nil
-	}
-	return json.Unmarshal(b, (*route.Route)(l))
 }
 
 // RecordRefusal fails a never-launched ask refused at the route check: its job's record, else one new record.
@@ -884,9 +880,8 @@ func readRecord(path string) (Record, error) {
 	return decodeRecord(b)
 }
 
-func decodeRecord(b []byte) (Record, error) {
-	var r Record
-	_, err := schemas.Decode(dispatchFormat, b, &r)
+func decodeRecord(b []byte) (r Record, err error) {
+	_, err = schemas.Decode(dispatchFormat, b, &r)
 	return r, err
 }
 

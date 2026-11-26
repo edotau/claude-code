@@ -579,8 +579,8 @@ func TestEnvelopeHopsSingleDispatch(t *testing.T) {
 			if hops, _ := env["hops"].([]any); len(hops) != 1 {
 				t.Errorf("hops = %v, want one", env["hops"])
 			}
-			if env["fallback"] != nil {
-				t.Errorf("fallback = %v, want null", env["fallback"])
+			if env["fallback_from"] != nil {
+				t.Errorf("fallback = %v, want null", env["fallback_from"])
 			}
 		})
 	}
@@ -792,8 +792,8 @@ func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
 	}
 	env := envelopeMap(t, res, err)
 	assertTwoHops(t, env)
-	if fr, _ := env["fallback_reason"].(string); fr == "" || env["fallback"] != "claude" {
-		t.Errorf("fallback = %v reason = %q: hops must not replace the existing fallback fields", env["fallback"], fr)
+	if fr, _ := env["fallback_reason"].(string); fr == "" || env["fallback_from"] != "claude" {
+		t.Errorf("fallback = %v reason = %q: hops must not replace the existing fallback fields", env["fallback_from"], fr)
 	}
 }
 

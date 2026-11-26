@@ -54,6 +54,19 @@ func RouteObject(s string) *route.Route {
 	return &r
 }
 
+// LegacyRoute reads a route as an object or an older "provider:profile" string.
+type LegacyRoute route.Route
+
+func (l *LegacyRoute) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		provider, profile, _ := strings.Cut(s, ":")
+		*l = LegacyRoute{Provider: provider, Profile: profile}
+		return nil
+	}
+	return json.Unmarshal(b, (*route.Route)(l))
+}
+
 // LaunchedWindow is the context window model runs at on the provider row (a typed [1m] included); 0 without a model.
 func LaunchedWindow(provider, model string, typed1M bool) int {
 	if model == "" {
@@ -76,7 +89,7 @@ type Envelope struct {
 	Invoked         string          `json:"invoked_model"`
 	DispatchID      string          `json:"dispatch_id"` // the id `agents status|result` and `ask --retry` accept; "" before a log record exists
 	SessionID       string          `json:"session_id"`
-	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
+	Fallback        *string         `json:"fallback_from"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
 	FallbackKind    string          `json:"fallback_kind,omitempty"`   // the failure kind of the fallen hop (retry.Kind.String())
 	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered
@@ -164,6 +177,56 @@ const (
 	// VerifyNotRunUnread is a carried child's result event that could not be read: it may have run verify itself.
 	VerifyNotRunUnread = "child_result_unread"
 )
+
+// UnmarshalJSON reads the older `fallback` key as fallback_from; embedders decode Envelope on its own field.
+func (e *Envelope) UnmarshalJSON(b []byte) error {
+	type plain Envelope
+	aux := struct {
+		*plain
+		Old *string `json:"fallback"`
+	}{plain: (*plain)(e)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if !HasKey(b, "fallback_from") {
+		e.Fallback = aux.Old
+	}
+	return nil
+}
+
+// UnmarshalJSON reads the older `fallback` key as fallback_from.
+func (r *Result) UnmarshalJSON(b []byte) error {
+	type plain Result
+	aux := struct {
+		*plain
+		Old string `json:"fallback"`
+	}{plain: (*plain)(r)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if !HasKey(b, "fallback_from") {
+		r.Fallback = aux.Old
+	}
+	return nil
+}
+
+// Older is old when the JSON object b lacks key, else cur: a present new key, even empty, beats the older one.
+func Older(b []byte, key, cur, old string) string {
+	if HasKey(b, key) {
+		return cur
+	}
+	return old
+}
+
+// HasKey reports whether the JSON object b names key, even as null; the older-key readers use it to let a new key win.
+func HasKey(b []byte, key string) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(b, &m) != nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
+}
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
@@ -398,7 +461,7 @@ type Result struct {
 	Dropped         []string        `json:"dropped,omitempty"`
 	SchemaUnchecked []string        `json:"-"`                         // schema keywords the minimal validator does not enforce
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
-	Fallback        string          `json:"fallback,omitempty"`        // the requested agent when another agent or route answered; Agent is the answerer
+	Fallback        string          `json:"fallback_from,omitempty"`   // the requested agent when another agent or route answered; Agent is the answerer
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	FallbackKind    string          `json:"fallback_kind,omitempty"`   // retry.Kind.String() of the fallen hop; a string, not the enum, so the wire stays text
 	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered

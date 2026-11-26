@@ -1119,8 +1119,8 @@ func checkSuccessEnvelopeFields(t *testing.T, env map[string]any, name string) {
 
 func checkSuccessEnvelopeUsage(t *testing.T, env map[string]any, name string, noUsage bool) {
 	t.Helper()
-	if v, ok := env["fallback"]; !ok || v != nil {
-		t.Errorf("fallback = %v (present=%v), want explicit null", v, ok)
+	if v, ok := env["fallback_from"]; !ok || v != nil {
+		t.Errorf("fallback_from = %v (present=%v), want explicit null", v, ok)
 	}
 	if d, _ := env["duration_ms"].(float64); d <= 0 {
 		t.Errorf("duration_ms = %v, want > 0", env["duration_ms"])

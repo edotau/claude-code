@@ -1,17 +1,20 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // RecordsSince drops only files last written before since and keeps the rest newest first.
@@ -140,5 +143,53 @@ func BenchmarkRunningRecentAllRecords2000(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = RunningRecent(AllRecords)
+	}
+}
+
+// An older record's provider, ran_identity and fallback keys still read; a new one stores them in ran_route.
+func TestDecodeOldRecordKeys(t *testing.T) {
+	old := `{"id":"x","agent":"codex","provider":"dev","ran_identity":"sp","account":"acct","fallback":"claude","fallback_policy":"all","ran_route":"databricks:dev"}`
+	rec, err := decodeRecord([]byte(old))
+	if err != nil || rec.Provider != "dev" || rec.RanIdentity != "sp" || rec.Fallback != "claude" || rec.Account != "acct" || rec.FallbackPolicy != "all" {
+		t.Fatalf("old record = %+v err=%v", rec, err)
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(b); strings.Contains(s, `"provider":"dev"`) || strings.Contains(s, "ran_identity") || !strings.Contains(s, `"billing_key":"acct"`) || !strings.Contains(s, `"identity":"sp"`) {
+		t.Errorf("encoded = %s, want identity inside ran_route and no provider key", s)
+	}
+	again, err := decodeRecord(b)
+	if err != nil || again.RanRoute != (route.Route{Provider: "databricks", Profile: "dev", Identity: "sp"}) || again.Provider != "dev" || again.RanIdentity != "sp" {
+		t.Errorf("round trip = %+v err=%v", again, err)
+	}
+}
+
+// A provider that differs from ran_route.profile loses to the route; a legacy provider fills a route with no profile.
+func TestRecordRouteProfileBeatsLegacyProvider(t *testing.T) {
+	got, err := decodeRecord([]byte(`{"id":"x","provider":"qa","ran_route":{"provider":"databricks","profile":"dev"}}`))
+	if err != nil || got.Provider != "dev" {
+		t.Errorf("got %+v err=%v, want provider dev", got, err)
+	}
+	got, err = decodeRecord([]byte(`{"id":"x","provider":"qa","ran_route":{"provider":"databricks"}}`))
+	if err != nil || got.Provider != "qa" {
+		t.Errorf("got %+v err=%v, want legacy provider qa", got, err)
+	}
+}
+
+// A present canonical key beats the older alias; only a Databricks answer has an identity; a bare provider is a profile
+func TestRecordAliasesAndIdentityRules(t *testing.T) {
+	got, err := decodeRecord([]byte(`{"id":"x","billing_key":"","account":"old","fallback_from":"","fallback":"codex"}`))
+	if err != nil || got.Account != "" || got.Fallback != "" {
+		t.Errorf("got %+v err=%v, want the present empty canonical keys kept", got, err)
+	}
+	b, _ := json.Marshal(Record{ID: "x", Provider: "dev", RanIdentity: "sp", RanRoute: route.Route{Provider: "openai", Profile: "p"}})
+	if s := string(b); strings.Contains(s, `"identity"`) {
+		t.Errorf("encoded = %s, want no identity on an openai row", s)
+	}
+	b, _ = json.Marshal(Record{ID: "x", Provider: "dev"})
+	if s := string(b); !strings.Contains(s, `"ran_route":{"profile":"dev"}`) {
+		t.Errorf("encoded = %s, want ran_route holding the profile only", s)
 	}
 }

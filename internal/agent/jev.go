@@ -98,6 +98,9 @@ func JevPairs(ctx context.Context, tasks []string) []JevPair {
 	var out []JevPair
 	for i := range tasks {
 		for j := i + 1; j < len(tasks); j++ {
+			if ctx.Err() != nil {
+				return out
+			}
 			res, err := jev.Needs(ctx, tasks[i], tasks[j])
 			out = append(out, JevPair{A: i, B: j, Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Error: jev.Class(err)})
 		}

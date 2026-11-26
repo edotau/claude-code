@@ -186,3 +186,12 @@ func TestParseLoopPlanLenient(t *testing.T) {
 		t.Fatal("null required must error")
 	}
 }
+
+// reviewEnvelope decodes an older envelope's fallback key and still keeps its own findings.
+func TestDecodeOldReviewEnvelope(t *testing.T) {
+	var env reviewEnvelope
+	raw := `{"agent":"codex","fallback":"claude","findings":[{"claim":"x"}],"computed_verdict":"SHIP"}`
+	if err := json.Unmarshal([]byte(raw), &env); err != nil || env.Fallback == nil || len(env.Findings) == 0 || env.Computed != "SHIP" {
+		t.Fatalf("env = %+v err=%v", env, err)
+	}
+}

@@ -146,6 +146,21 @@ func settle(c contract.Contract, r contractReturn, now time.Time) (contract.Cont
 	return v.Close(res)
 }
 
+// init broadcasts every contract failure made in this process, since only dispatch hooks' Release did before.
+func init() {
+	contract.FailReporter = func(c contract.Contract) {
+		if c.Failed == contract.ReasonCancelled {
+			return
+		}
+		log, _ := contract.Path(c.ID)
+		cwd, _ := os.Getwd()
+		_, repo := paths.CheckoutOf(cwd)
+		_, _ = worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{
+			Kind: worktree.FailContract, Subject: c.ID, Summary: string(c.Failed), Log: log, Repo: repo,
+		})
+	}
+}
+
 // abandonContract fails id's contract when it is not yet terminal: the deferred call for a panic or a cancel.
 func abandonContract(id, holder string, why contract.Reason) (contract.Contract, error) {
 	c, err := contract.Update(id, func(c contract.Contract) (contract.Contract, error) {

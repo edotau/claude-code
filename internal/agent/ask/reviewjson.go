@@ -36,6 +36,22 @@ type reviewEnvelope struct {
 	reviewVerdict
 }
 
+// UnmarshalJSON decodes the embedded Envelope alone, so its promoted method never swallows findings or the verdict.
+func (e *reviewEnvelope) UnmarshalJSON(b []byte) error {
+	if err := json.Unmarshal(b, &e.Envelope); err != nil {
+		return err
+	}
+	rest := struct {
+		Findings json.RawMessage `json:"findings"`
+		*reviewVerdict
+	}{reviewVerdict: &e.reviewVerdict}
+	if err := json.Unmarshal(b, &rest); err != nil {
+		return err
+	}
+	e.Findings = rest.Findings
+	return nil
+}
+
 // reviewVerdict is computed from the findings alone (counts are of distinct findings), never from the stated word.
 type reviewVerdict struct {
 	Computed    string         `json:"computed_verdict,omitempty"` // SHIP | FIX REQUIRED | BLOCK | unjudged

@@ -153,7 +153,7 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 	mk := func(id, plan string, off int) batchTask {
-		return batchTask{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
+		return batchTask{ID: id, Agent: "codex", Plan: plan, Req: agent.RunOptions{Prompt: id}, Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
 			return &agent.Prepared{Record: rec}, nil
 		}}
@@ -172,6 +172,9 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	}
 	if b := got["b"]; b.BatchID != "batch-x" || b.PlanTask != "" {
 		t.Errorf("record b = batch %q plan %q, want batch-x and no plan", b.BatchID, b.PlanTask)
+	}
+	if a, b := got["a"], got["b"]; len(a.JevPairs) != 1 || len(b.JevPairs) != 1 || a.JevPairs[0].A != 0 || a.JevPairs[0].B != 1 {
+		t.Errorf("jev_pairs a = %+v, b = %+v, want the one a/b pair on both records", a.JevPairs, b.JevPairs)
 	}
 }
 
