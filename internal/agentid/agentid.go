@@ -57,7 +57,14 @@ func AgentOfType(subagentType string) string {
 }
 
 // Known reports whether name is a roster agent.
-func Known(name string) bool { return slices.Contains(All(), name) }
+func Known(name string) bool {
+	for _, agent := range roster {
+		if agent.name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // Binary is the executable an agent runs: gemini is agy, every other agent its own name.
 func Binary(name string) string { return cmp.Or(facts(name).binary, name) }
