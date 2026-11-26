@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -13,9 +14,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/review/planlint"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -28,6 +31,7 @@ var planPage = helptext.Page{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
 		{"tick", "tick tasks in --range <a>..<b>; --audit closes and archives plans"},
 		{"task", "tick, reopen or strike one task by hand"},
+		{"ready", "open tasks a leaf can take now, with the free dispatch slots"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
 	},
@@ -46,6 +50,8 @@ func cmdPlan(args []string) int {
 		return cmdPlanTick(args[1:])
 	case "task":
 		return cmdPlanTask(args[1:])
+	case "ready":
+		return cmdPlanReady(args[1:])
 	case "assumptions":
 		return planlint.RunAssumptions(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "goals":
@@ -98,6 +104,71 @@ func printPlanSummaries(summaries []plans.Summary) {
 		}
 	}
 }
+
+// cmdPlanReady is `plan ready`: open tasks whose blockers closed and whose owns no live party claims.
+func cmdPlanReady(args []string) int {
+	fs := helptext.NewFlagSet("plan ready", helptext.Page{Usage: "claude-code plan ready [flags]",
+		About: "List open tasks of this repo's active plans a leaf can take now, and the free dispatch slots."})
+	format := helptext.FormatFlag(fs)
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("plan ready: %v", err)
+	}
+	_, main := paths.CheckoutOf(cwd)
+	root := cmp.Or(main, cwd)
+	slots := make(chan int, 1)
+	go func() { slots <- freeSlots() }() // the registry read overlaps the plan and git reads
+	rep, err := plans.Ready(plans.ReadyInput{Root: root, Claims: readyClaims})
+	if err != nil {
+		return helptext.Fail("plan ready: %v", err)
+	}
+	rep.Slots = <-slots
+	if *format == helptext.JSON {
+		return helptext.WriteJSONOrFail("plan ready", rep)
+	}
+	printReady(rep)
+	return 0
+}
+
+// freeSlots is the in-flight cap less the live agents, as doctor counts them.
+func freeSlots() int { return max(router.CurrentLimits().Total-inflight.Count().Total, 0) }
+
+// readyClaims is every live claim but this session's own edits; a leaf's counts while its last edit is fresh.
+func readyClaims() map[string][]string {
+	src := callerClaims()
+	src.Leaf = func(c worktree.Claim) string {
+		if c.Agent == "" || time.Since(time.Unix(c.TS, 0)) > inflight.Idle {
+			return ""
+		}
+		return "leaf " + c.Agent[:min(8, len(c.Agent))]
+	}
+	hits, _ := worktree.LiveClaims(src) // an unreadable claims file drops only its own claims
+	out := make(map[string][]string, len(hits))
+	for p, hs := range hits {
+		for _, h := range hs {
+			out[p] = append(out[p], h.Who)
+		}
+	}
+	return out
+}
+
+func printReady(rep plans.ReadyReport) {
+	fmt.Printf("slots: %d free\n", rep.Slots)
+	fmt.Printf("ready (%d):\n", len(rep.Ready))
+	for _, t := range rep.Ready {
+		fmt.Printf("  %s %s  leaf: %s  brief: %s\n", planSlug(t.Plan), t.ID, cmp.Or(t.Leaf, "-"), t.Brief)
+		fmt.Printf("    owns: %s\n    verify: %s\n    next: %s\n", strings.Join(t.Owns, ", "), cmp.Or(t.Verify, "-"), t.Command)
+	}
+	fmt.Printf("not ready (%d):\n", len(rep.NotReady))
+	for _, t := range rep.NotReady {
+		fmt.Printf("  %s %s: %s\n", planSlug(t.Plan), t.ID, t.Reason)
+	}
+}
+
+func planSlug(plan string) string { return strings.TrimSuffix(filepath.Base(plan), ".md") }
 
 func cmdPlanTick(args []string) int {
 	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick (--range <a>..<b> | --audit) [flags]",
@@ -473,6 +544,7 @@ func planSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
 			helptext.CompletionFormatFlag()}},
+		"ready":       {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"assumptions": {Flags: []helptext.Flag{helptext.BoolFlag("json")}}, "goals": {Flags: []helptext.Flag{helptext.BoolFlag("json")}},
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
 			{Name: "all", IsBool: true}, {Name: "archive", IsBool: true},
