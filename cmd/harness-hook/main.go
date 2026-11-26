@@ -11,6 +11,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/memory/shadow"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	_ "github.com/edotau/claude-code/internal/pi"
 )

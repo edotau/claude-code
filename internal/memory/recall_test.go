@@ -44,6 +44,43 @@ func recallEnv(t *testing.T) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 }
 
+func TestRecallRowsSupplyCorpus(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "conventions.md", "# Conventions\n\n- diskonly body\n")
+	old := RowRecall
+	t.Cleanup(func() { RowRecall = old })
+	RowRecall = func([]string) (map[string][]byte, bool) {
+		return map[string][]byte{"conventions.md": []byte("# Conventions\n\n- Row zebrafish storage policy\n\n- Unmatched successor body\n")}, true
+	}
+	hits, files, segs := searchBankTerms(contentTerms("zebrafish"), 0)
+	if len(hits) != 1 || !strings.Contains(hits[0].Block, "Row zebrafish") {
+		t.Fatalf("recall did not rank row text: %+v", hits)
+	}
+	for i, f := range files {
+		if filepath.Base(f.Path) != "conventions.md" {
+			continue
+		}
+		if segs[i] == nil || segs[i].Docs() != 2 {
+			t.Fatal("row corpus lost the nonmatching segment needed by semantic recall and replacements")
+		}
+		block, _ := segs[i].Doc(1)
+		assertRowSemanticRecall(t, f, block, files, segs, hits)
+	}
+	if got := SearchBank("diskonly", 0); len(got) != 0 {
+		t.Fatalf("current rows fell back to Markdown: %+v", got)
+	}
+}
+
+func assertRowSemanticRecall(t *testing.T, f corpusFile, block string, files []corpusFile, segs []segView, hits []SearchHit) {
+	t.Helper()
+	h := SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block}
+	sem := newSemantic([]float32{1}, map[string]vectorRow{"semantic": {BlockHash: hitHash(h), Vec: encodeVec([]float32{1})}})
+	ranked, _, _, status := recallSemantic(semanticReady{sem: sem}, files, segs, nil, 1, hits, nil)
+	if len(ranked) != 2 || ranked[1].Block != block || status != "ran" {
+		t.Fatalf("semantic recall lost the nonmatching row: %+v (%s)", ranked, status)
+	}
+}
+
 // wantRecallBodies requires lines to lead with the 2 strongest matches as bodies, regardless of entry type.
 func wantRecallBodies(t *testing.T, got string, lines []string) {
 	t.Helper()
