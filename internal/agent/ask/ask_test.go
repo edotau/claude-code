@@ -1066,15 +1066,15 @@ func cliFakes(t *testing.T) {
 }
 
 var cliFakeBodies = map[string]string{
-	"claude": "cat > /dev/null; sleep 0.05\n" +
+	"claude": "cat > /dev/null\n" +
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"claude-sonnet-5-5"}'` + "\n" +
 		`printf '%s\n' '{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"hello"}]}}'` + "\n" +
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`,
-	"codex": `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }` + "\n" + "cat > /dev/null; sleep 0.05; echo hello",
-	"gemini": "cat > /dev/null; sleep 0.05\n" +
+	"codex": `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }` + "\n" + "cat > /dev/null; echo hello",
+	"gemini": "cat > /dev/null\n" +
 		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hello"}}'` + "\n" +
 		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"hello","num_turns":1,"usage":{"input_tokens":3,"output_tokens":2}}}'`,
-	"opencode": "sleep 0.05\n" +
+	"opencode": "true\n" +
 		`printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'` + "\n" +
 		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`,
 }
@@ -1146,8 +1146,9 @@ func checkSuccessEnvelopeUsage(t *testing.T, env map[string]any, name string, no
 	if v, ok := env["fallback_from"]; !ok || v != nil {
 		t.Errorf("fallback_from = %v (present=%v), want explicit null", v, ok)
 	}
-	if d, _ := env["duration_ms"].(float64); d <= 0 {
-		t.Errorf("duration_ms = %v, want > 0", env["duration_ms"])
+	// A fake run can finish in under 1 ms, so 0 is a valid truncated duration.
+	if d, ok := env["duration_ms"].(float64); !ok || d < 0 {
+		t.Errorf("duration_ms = %v, want a number >= 0", env["duration_ms"])
 	}
 	if noUsage {
 		if v, ok := env["usage"]; !ok || v != nil {

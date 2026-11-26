@@ -260,6 +260,9 @@ func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	}
 }
 
+// autoArm is the databricks:auto confinement the pool value and an auto batch both name.
+var autoArm = route.Route{Provider: router.RouteDatabricks, Profile: route.AutoArm}
+
 // poolValue sends --provider databricks and a typed model the pin lacks to the pool; the rest stays.
 func TestPoolValue(t *testing.T) {
 	vaulttest.Use(t)
@@ -270,19 +273,19 @@ func TestPoolValue(t *testing.T) {
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
-	auto := route.Join(router.RouteDatabricks, route.AutoArm)
+	auto := autoArm
 	cases := []struct {
 		name string
 		args []string
-		want string
+		want route.Route
 	}{
 		{"provider databricks", []string{"--provider", "databricks"}, auto},
-		{"typed profile", []string{"--provider", "databricks", "--profile", "dev"}, ""},
-		{"pin serves the model", []string{"--model", "claude-sonnet-5-5"}, ""},
+		{"typed profile", []string{"--provider", "databricks", "--profile", "dev"}, route.Route{}},
+		{"pin serves the model", []string{"--model", "claude-sonnet-5-5"}, route.Route{}},
 		{"pin lacks the model", []string{"--model", "kimi-k3"}, auto},
-		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, ""},
-		{"untyped model", nil, ""},
-		{"own-login model over the pin", []string{"--model", "opencode-go/kimi-k3.1-pro"}, ""},
+		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, route.Route{}},
+		{"untyped model", nil, route.Route{}},
+		{"own-login model over the pin", []string{"--model", "opencode-go/kimi-k3.1-pro"}, route.Route{}},
 	}
 	for _, c := range cases {
 		fs, f := askFlagSet()
@@ -290,8 +293,8 @@ func TestPoolValue(t *testing.T) {
 			t.Fatal(err)
 		}
 		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "opencode"}
-		if got := r.poolValue(""); got != c.want {
-			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
+		if got := r.poolValue(route.Route{}); got != c.want {
+			t.Errorf("%s: poolValue = %+v, want %q", c.name, got, c.want)
 		}
 		if own := strings.Contains(c.name, "own-login"); f.native != own {
 			t.Errorf("%s: native = %v, want %v", c.name, f.native, own)
@@ -313,13 +316,13 @@ func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 			if err := fs.Parse(parsed); err != nil {
 				t.Fatal(err)
 			}
-			want := route.Join(router.RouteDatabricks, route.AutoArm)
+			want := autoArm
 			if f.live || f.session != "" {
-				want = "databricks:dev"
+				want = route.Route{Provider: "databricks", Profile: "dev"}
 			}
 			r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: ag}
-			if got := r.poolValue(""); got != want {
-				t.Errorf("%s args %q: poolValue = %q, want %q", ag, parsed, got, want)
+			if got := r.poolValue(route.Route{}); got != want {
+				t.Errorf("%s args %q: poolValue = %+v, want %q", ag, parsed, got, want)
 			}
 		}
 	}

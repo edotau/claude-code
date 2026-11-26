@@ -145,7 +145,7 @@ func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	t.Setenv(route.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	t.Setenv(egress.EnvHost, "")
-	ctx, err := ApplyRouteOverlay(t.Context(), "openai", "", "", "", route.FallbackNone)
+	ctx, err := ApplyRouteOverlay(t.Context(), route.Route{Provider: "openai"}, "", "", "", route.FallbackNone)
 	if err == nil {
 		ctx, err = overlayEgress(ctx, "syn-host")
 	}
@@ -776,9 +776,9 @@ func TestConfinementCarriesCaps(t *testing.T) {
 }
 
 func TestTypedWorkspace(t *testing.T) {
-	for profile, want := range map[string]string{"": "", "databricks:qa": "", "databricks:auto": "", "session": ""} {
+	for profile, want := range map[string]route.Route{"": {}, "databricks:qa": {}, "databricks:auto": {}, "session": {}} {
 		if got := TypedWorkspace(profile); got != want {
-			t.Errorf("TypedWorkspace(%q) = %q, want %q", profile, got, want)
+			t.Errorf("TypedWorkspace(%q) = %+v, want %+v", profile, got, want)
 		}
 	}
 }

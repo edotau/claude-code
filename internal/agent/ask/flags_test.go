@@ -633,10 +633,10 @@ func TestFlagRouteTakenWhole(t *testing.T) {
 		t.Errorf("--profile dev under an ultra session = %+v, want {databricks dev}", flagRoute(f))
 	}
 	fs, f := parse("--provider", "databricks")
-	r := &askRun{ctx: t.Context(), fs: fs, f: f, ag: "opencode", recCoworker: "databricks:qa", flagRoute: true}
+	r := &askRun{ctx: t.Context(), fs: fs, f: f, ag: "opencode", recCoworker: route.Route{Provider: "databricks", Profile: "qa"}, flagRoute: true}
 	value, err := confinementValue(r)
-	if got := r.poolValue(value); err != nil || got != "databricks:auto" {
-		t.Errorf("record qa with --provider databricks: confinement %q (err %v), want databricks:auto", got, err)
+	if got := r.poolValue(value); err != nil || got != (route.Route{Provider: "databricks", Profile: "auto"}) {
+		t.Errorf("record qa with --provider databricks: confinement %+v (err %v), want databricks:auto", got, err)
 	}
 	ov := agentconfig.Overlay{Provider: "databricks", Profile: "dev"}
 	fs, f = parse("--profile", "dev")
@@ -863,5 +863,14 @@ func TestCheckRoutePair(t *testing.T) {
 	}
 	if route.ColonForm(filepath.Join(t.TempDir(), "x")) {
 		t.Error("a path is not a colon route")
+	}
+}
+
+func TestRecordConfinementDefaultIsNone(t *testing.T) {
+	if got, err := recordConfinement(route.Route{}, route.Route{Provider: "default"}); err != nil || !got.IsZero() {
+		t.Errorf("default record = %+v, %v; want none", got, err)
+	}
+	if _, err := recordConfinement(route.Route{}, route.Route{Provider: "retired", Profile: "x"}); err == nil {
+		t.Error("retired record accepted")
 	}
 }

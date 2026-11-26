@@ -40,7 +40,7 @@ func TestMemoryHopOptionsAgreeOnTarget(t *testing.T) {
 	base := memoryRunOptions(context.Background(), "p", "/w")
 	base.Lead, base.Account = "dev", "acct"
 	o := hopOptions(base, route.Route{Provider: "databricks", Profile: "qa"})
-	if o.Provider != "databricks:qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != route.RunnerOwn {
+	if o.Provider != "qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != route.RunnerOwn {
 		t.Fatalf("hopOptions = %+v, want one qa target with the own runner", o)
 	}
 }
@@ -61,10 +61,10 @@ func TestMemoryWalkClassifiesTerminalAttempt(t *testing.T) {
 	if _, err := memoryWalk(ctx, run, reg, memoryRunOptions(ctx, "p", "/w"), pin); err == nil {
 		t.Fatal("walk error = nil, want the joined failures")
 	}
-	if len(ran) != 1 || ran[0] != "databricks:prod" && ran[0] != "databricks:qa" {
+	if len(ran) != 1 || ran[0] != "prod" && ran[0] != "qa" {
 		t.Fatalf("hops run = %v, want one sibling then stop on progress", ran)
 	}
-	if rep.Class != memory.JobClassFailed || rep.Fix != "" || rep.Profile != strings.TrimPrefix(ran[0], "databricks:") {
+	if rep.Class != memory.JobClassFailed || rep.Fix != "" || rep.Profile != ran[0] {
 		t.Fatalf("report = %+v, want a retryable failed receipt on the terminal hop", *rep)
 	}
 }
