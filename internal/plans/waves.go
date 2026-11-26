@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -599,7 +600,7 @@ func manifestTask(t WaveTask) (WaveTask, error) {
 	return t, nil
 }
 
-// TaskLine renders t as one plan task line in the documented attribute order; Go writes it, the model gives fields.
+// TaskLine renders t as a wrapped plan task in the documented attribute order; Go writes it, the model gives fields.
 func TaskLine(t WaveTask) string {
 	parts := []string{"- [ ] " + t.ID + " — " + t.Task}
 	if t.Leaf != "" || t.Agent != "" {
@@ -623,7 +624,7 @@ func TaskLine(t WaveTask) string {
 	if len(t.Owns) > 0 {
 		parts = append(parts, "owns: "+strings.Join(t.Owns, ", "))
 	}
-	return strings.Join(parts, " — ")
+	return strings.Join(protectTaskContinuations(mdlint.WrapItem(strings.Join(parts, " — "))), "\n")
 }
 
 // checkNewTask refuses a task with no id or title, a field the line cannot hold, or an unlaunchable owns/verify.
@@ -724,8 +725,9 @@ func checkRendered(planPath, text string, t WaveTask, before int) error {
 // readsBack reports whether np holds exactly one new task whose parsed fields equal t's rendered line.
 func readsBack(np Plan, t WaveTask, before int) bool {
 	got, ok := findTask(np, t.ID)
+	_, title, _, _, _, _ := parseTaskText(strings.TrimPrefix(strings.Join(strings.Fields(TaskLine(t)), " "), "- [ ] "))
 	return ok && (got.ID == "" || got.ID == t.ID) && len(np.Tasks) == before+1 && slices.Equal(got.Owns, t.Owns) &&
-		got.Title == strings.TrimPrefix(TaskLine(t), "- [ ] ") && got.Sha == ""
+		got.Title == title && got.Sha == ""
 }
 
 // TaskVerify is the task line's `verify:` command, "" when it has none.

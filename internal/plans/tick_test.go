@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -178,6 +179,122 @@ func TestPlanTaskOps(t *testing.T) {
 	}
 	if _, err := MarkDone(plan, "1.3", ""); err != nil || Strike(plan, "1.3", "x") == nil {
 		t.Fatalf("a ticked task must refuse a strike (done err=%v)", err)
+	}
+}
+
+func assertTaskWidth(t *testing.T, text string) {
+	t.Helper()
+	for line := range strings.SplitSeq(text, "\n") {
+		if utf8.RuneCountInString(line) > mdlint.Width {
+			t.Errorf("line exceeds width: %q", line)
+		}
+	}
+}
+
+func assertTickText(t *testing.T, plan string, before Plan, out, sha string) {
+	t.Helper()
+	if strings.Count(out, "("+sha+")") != len(before.Tasks) {
+		t.Fatalf("missing sha on ticked tasks:\n%s", out)
+	}
+	assertTaskWidth(t, out)
+	after := parseBytes(plan, []byte(out))
+	if len(after.Tasks) != len(before.Tasks) {
+		t.Fatalf("task count changed: %+v", after.Tasks)
+	}
+	for i, task := range after.Tasks {
+		if !task.Done || task.Sha != sha || task.Title != before.Tasks[i].Title {
+			t.Errorf("task %d did not survive tick: before %+v, after %+v", i, before.Tasks[i], task)
+		}
+	}
+}
+
+func TestAuditAcceptsWrappedTick(t *testing.T) {
+	hermetic(t)
+	repo, commits := landRepo(t, "a.go")
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	original := "- [ ] 1.1 " + strings.Repeat("word ", 19) + "owns: a.go\n"
+	writeFile(t, plan, original)
+	if _, err := MarkDone(plan, "1.1", commits[0].Sha); err != nil {
+		t.Fatal(err)
+	}
+	edits, same := fileEdits(plan, []byte(original), []byte(readFile(t, plan)))
+	if !same || len(edits) != 1 || edits[0].after.End == edits[0].before.End {
+		t.Fatalf("expected a wrapped task edit: %+v, same=%v", edits, same)
+	}
+	v := verifier{ctx: context.Background(), root: repo, trunk: "main"}
+	if why := v.tick(edits[0]); why != "" {
+		t.Fatalf("valid wrapped tick refused: %s", why)
+	}
+}
+
+func TestTickWrappedListMarker(t *testing.T) {
+	hermetic(t)
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	text := "- [ ] 1.1 Task\n  " + strings.Repeat("a", 105) + " 1. do\n"
+	writeFile(t, plan, text)
+	before := parseBytes(plan, []byte(text)).Tasks[0]
+	if _, err := MarkDone(plan, "1.1", "abcdef123456"); err != nil {
+		t.Fatal(err)
+	}
+	written := readFile(t, plan)
+	got := parseBytes(plan, []byte(written)).Tasks
+	if len(got) != 1 || got[0].Title != before.Title || got[0].Sha != "abcdef123456" || !got[0].Done {
+		t.Fatalf("wrapped marker detached the sha or task: %+v\n%s", got, written)
+	}
+	assertTaskWidth(t, written)
+}
+
+func TestReopenNearWidthContinuation(t *testing.T) {
+	hermetic(t)
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	original := "- [ ] 1.1 Case\n  " + strings.Repeat("word ", 22) + "end\n"
+	writeFile(t, plan, original)
+	if _, err := MarkDone(plan, "1.1", "abcdef123456"); err != nil {
+		t.Fatal(err)
+	}
+	written := readFile(t, plan)
+	assertTaskWidth(t, written)
+	if got := parseBytes(plan, []byte(written)).Tasks; len(got) != 1 || got[0].Sha != "abcdef123456" || got[0].End == got[0].Start+1 {
+		t.Fatalf("expected a sha continuation: %+v\n%s", got, written)
+	}
+	if err := Reopen("", plan, "1.1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, plan); got != original {
+		t.Fatalf("reopen moved continuation words:\n%s", got)
+	}
+}
+
+func TestTickWrapsSha(t *testing.T) {
+	hermetic(t)
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	// Both tasks end near the limit; the first already has a continuation line.
+	first := strings.Join(mdlint.WrapItem("- [ ] 1.1 "+strings.Repeat("long task words ", 13)+"last"), "\n")
+	second := "- [ ] 1.2 " + strings.Repeat("word ", 21) + "end"
+	original := first + "\n" + second + "\n"
+	writeFile(t, plan, original)
+	before := parseBytes(plan, []byte(original))
+	sha := "abcdef123456"
+	message := "feat: tasks\n\nTask: plan 1.1\nTask: plan 1.2\n"
+	out, ticked, _, ids := tickText("", plan, original, Commit{Sha: sha, Message: message}, true, nil)
+	if len(ticked) != 2 || !slices.Equal(ids, []string{"1.1", "1.2"}) {
+		t.Fatalf("ticked %v, ids %v", ticked, ids)
+	}
+	assertTickText(t, plan, before, out, sha)
+	// Exercise the real writer and reverse a SHA-only continuation on the second task.
+	if _, err := MarkDone(plan, "1.2", sha); err != nil {
+		t.Fatal(err)
+	}
+	written := readFile(t, plan)
+	writtenTasks := parseBytes(plan, []byte(written)).Tasks
+	if len(writtenTasks) != 2 || writtenTasks[1].Sha != sha || writtenTasks[1].End == writtenTasks[1].Start {
+		t.Fatalf("written task lost its wrapped sha: %+v\n%s", writtenTasks, written)
+	}
+	if err := Reopen("", plan, "1.2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, plan); got != original {
+		t.Fatalf("reopen changed task lines:\n%s", got)
 	}
 }
 

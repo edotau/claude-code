@@ -104,7 +104,7 @@ func TestTickSpanning(t *testing.T) {
 		t.Fatalf("note must list the untouched owned files and the reopen route: %v", notes)
 	}
 	want := strings.Replace(tickPlan, "- [ ] 1.1 Build", "- [x] 1.1 Build", 1)
-	want = strings.Replace(want, "(verb row only)\n", "(verb row only) (aaaaaaa)\n", 1)
+	want = strings.Replace(want, "(verb row only)\n", "(verb row only)\n  (aaaaaaa)\n", 1)
 	want = strings.Replace(want, "- [ ] 1.2 Claimed task owns: internal/claimed/y.go <!-- working: alice on it -->\n",
 		"- [x] 1.2 Claimed task owns: internal/claimed/y.go (aaaaaaa)\n", 1)
 	wantBytes(t, path, "subset", want)

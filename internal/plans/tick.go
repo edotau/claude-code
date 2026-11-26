@@ -19,6 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -76,7 +77,8 @@ func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, ok, o
 // tickText ticks every open task c's trailers name, noting owned files c did not touch.
 func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task) bool) (out string, ticked, notes, ids []string) {
 	lines := strings.Split(text, "\n")
-	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
+	// A sha can add a continuation line; tick from the bottom so earlier spans keep their indexes.
+	for _, t := range slices.Backward(parseBytes(planPath, []byte(text)).Tasks) {
 		if !open(t) {
 			continue
 		}
@@ -84,13 +86,13 @@ func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task
 			continue
 		}
 		lines = markDone(lines, t, c.Sha)
-		ticked = append(ticked, t.Title)
-		ids = append(ids, t.ID)
+		ticked = append([]string{t.Title}, ticked...)
+		ids = append([]string{t.ID}, ids...)
 		if !dryRun {
 			forget(planPath, t.ID)
 		}
 		if missing := missingOwns(root, t.Owns, c.Files); len(missing) > 0 {
-			notes = append(notes, fmt.Sprintf("plans: %s ticked without owns: %s; `%s` if it is unfinished", t.ID, strings.Join(missing, ", "), reopenCmd(planPath, t.ID)))
+			notes = append([]string{fmt.Sprintf("plans: %s ticked without owns: %s; `%s` if it is unfinished", t.ID, strings.Join(missing, ", "), reopenCmd(planPath, t.ID))}, notes...)
 		}
 	}
 	return strings.Join(lines, "\n"), ticked, notes, ids
@@ -139,6 +141,41 @@ func markDone(lines []string, t Task, sha string) []string {
 	lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1}x${2}")
 	if sha != "" {
 		lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
+		// Only reflow the final line: preserve the existing first line and other continuations.
+		lines = slices.Concat(lines[:t.End], protectTaskContinuations(wrapTaskTail(lines[t.End], t.End > t.Start)), lines[t.End+1:])
+	}
+	return lines
+}
+
+// wrapTaskTail keeps every continuation indented past its checklist item.
+func wrapTaskTail(line string, continuation bool) []string {
+	if !continuation {
+		return mdlint.WrapItem(line)
+	}
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	// Use a dummy list prefix the same width as the continuation's indent.
+	prefix := strings.Repeat(" ", max(0, len(indent)-2)) + "- "
+	wrapped := mdlint.WrapItem(prefix + strings.TrimSpace(line))
+	for i := range wrapped {
+		if i == 0 {
+			wrapped[i] = indent + strings.TrimPrefix(wrapped[i], prefix)
+		} else {
+			wrapped[i] = indent + strings.TrimPrefix(wrapped[i], strings.Repeat(" ", len(prefix)))
+		}
+	}
+	return wrapped
+}
+
+// protectTaskContinuations masks wrapped list markers with an invisible comment stripped by parseTaskText.
+func protectTaskContinuations(lines []string) []string {
+	for i := 1; i < len(lines); i++ {
+		if !listLine().MatchString(lines[i]) {
+			continue
+		}
+		line := lines[i]
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		wrapped := wrapTaskTail(indent+"<!---->"+strings.TrimPrefix(line, indent), true)
+		lines = slices.Concat(lines[:i], wrapped, lines[i+1:])
 	}
 	return lines
 }
@@ -527,7 +564,7 @@ func reopenAt(planPath, taskID, at string, seen []string) error {
 		}
 		forget(planPath, t.ID)
 		lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1} ${2}")
-		lines[t.End] = shaTail().ReplaceAllString(lines[t.End], "$1")
+		lines = stripTaskSha(lines, &t)
 		if at != "" {
 			lines = dropComments(lines, t, reopenRe())
 			lines[t.End] = appendSuffix(lines[t.End], " <!-- reopened "+at+" -->")
@@ -538,6 +575,16 @@ func reopenAt(planPath, taskID, at string, seen []string) error {
 		return errStale
 	}
 	return err
+}
+
+// stripTaskSha removes the landing SHA and any continuation made solely to hold it.
+func stripTaskSha(lines []string, t *Task) []string {
+	lines[t.End] = shaTail().ReplaceAllString(lines[t.End], "$1")
+	if t.End > t.Start && strings.TrimSpace(lines[t.End]) == "" {
+		lines = slices.Delete(lines, t.End, t.End+1)
+		t.End--
+	}
+	return lines
 }
 
 // StrikeReasons are the reasons a strike by id may give.

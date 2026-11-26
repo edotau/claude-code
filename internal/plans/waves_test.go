@@ -268,6 +268,56 @@ func TestAddTaskRendersParsableLine(t *testing.T) {
 	}
 }
 
+// A line emitted by AddTask must survive both checklist and wave parsing after wrapping.
+func TestTaskLineWraps(t *testing.T) {
+	file := wavesFile(t, "## Tasks\n\n")
+	task := WaveTask{ID: "Phase 2.6", Task: strings.Repeat("implement wrapped plan tasks ", 6) + "and check the result",
+		Leaf: "claude", Agent: "pi", Owns: []string{"internal/plans/waves.go", "internal/plans/tick.go"}}
+	if err := AddTask(file, task); err != nil {
+		t.Fatal(err)
+	}
+	b := readFile(t, file)
+	assertTaskWidth(t, b)
+	if !strings.Contains(b, "\n      ") {
+		t.Fatalf("task was not wrapped:\n%s", b)
+	}
+	assertWaveTaskReadsBack(t, file, task)
+}
+
+func assertWaveTaskReadsBack(t *testing.T, file string, task WaveTask) {
+	t.Helper()
+	p, err := ParseWaves(file)
+	if err != nil || len(p.Waves) != 1 || len(p.Waves[0].Tasks) != 1 {
+		t.Fatalf("wave parse = %+v, %v", p, err)
+	}
+	got := p.Waves[0].Tasks[0]
+	if got.ID != task.ID || got.Agent != task.Agent || got.Leaf != task.Leaf || !slices.Equal(got.Owns, task.Owns) {
+		t.Fatalf("wave task changed on read: %+v", got)
+	}
+	assertChecklistTaskReadsBack(t, file, task)
+}
+
+func assertChecklistTaskReadsBack(t *testing.T, file string, task WaveTask) {
+	t.Helper()
+	checklist, err := Parse(file)
+	if err != nil || len(checklist.Tasks) != 1 || !strings.Contains(checklist.Tasks[0].Title, task.Task) ||
+		!slices.Equal(checklist.Tasks[0].Owns, task.Owns) {
+		t.Fatalf("checklist task changed on read: %+v, %v", checklist, err)
+	}
+}
+
+func TestTaskLineWrapsListMarker(t *testing.T) {
+	file := wavesFile(t, "## Tasks\n\n")
+	task := WaveTask{ID: "Phase 2.7", Task: strings.Repeat("a", 105) + " 1. do", Leaf: "claude", Agent: "pi", Owns: []string{"internal/plans/waves.go"}}
+	if err := AddTask(file, task); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Parse(file)
+	if err != nil || len(p.Tasks) != 1 || !strings.Contains(p.Tasks[0].Title, task.Task) || !slices.Equal(p.Tasks[0].Owns, task.Owns) {
+		t.Fatalf("wrapped marker detached the task: %+v, %v", p, err)
+	}
+}
+
 func TestVerifyShape(t *testing.T) {
 	for cmd, allowed := range map[string]bool{
 		"go test ./pkg":                            true,

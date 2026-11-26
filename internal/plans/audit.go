@@ -999,7 +999,8 @@ func (v *verifier) verify(e taskEdit) string {
 // tick holds when only the box and a sha changed, and the sha is on trunk touching one of the task's owns:.
 func (v *verifier) tick(e taskEdit) string {
 	sha := e.after.Sha
-	want := markDone(slices.Clone(e.lines), e.before, sha)[e.before.Start : e.before.End+1]
+	marked := markDone(slices.Clone(e.lines), e.before, sha)
+	want := marked[e.before.Start : e.before.End+1+len(marked)-len(e.lines)]
 	switch {
 	case sha == "":
 		return "no --sha"
