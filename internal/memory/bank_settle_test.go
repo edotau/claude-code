@@ -621,16 +621,21 @@ func TestPruneHeldDropsOldAndPastTwenty(t *testing.T) {
 	}
 }
 
+// indexClean runs the index over the test bank and fails on any error.
+func indexClean(t *testing.T) {
+	t.Helper()
+	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+}
+
 // A store with a leftover projectContext.md settles and indexes clean and never recreates it.
 func TestLeftoverProjectContextSettlesAndIndexes(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		left := Path("projectContext.md")
 		write(t, left, "# Project Context\n\nOld orientation.\n")
-		for range 2 {
-			if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
-				t.Fatalf("index with a leftover projectContext.md: %v", err)
-			}
-		}
+		indexClean(t)
+		indexClean(t)
 		if slices.Contains(BankFiles(), "projectContext.md") {
 			t.Fatal("projectContext.md is still a bank file")
 		}
@@ -645,9 +650,7 @@ func TestLeftoverProjectContextSettlesAndIndexes(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
-			t.Fatal(err)
-		}
+		indexClean(t)
 		if _, err := os.Stat(left); !os.IsNotExist(err) {
 			t.Errorf("projectContext.md was recreated (stat err=%v)", err)
 		}

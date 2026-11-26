@@ -416,23 +416,19 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	}
 	laneHead := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "HEAD"))
 	res, _, err := TickCommit(lane, laneHead, nil, nil)
-	if err != nil || len(res) != 1 || res[0].Lane != "lane" || strings.Contains(readFile(t, plan), "[x]") ||
-		!strings.Contains(readFile(t, plan), "1.3 Three owns: c.go <!-- lane lane: "+laneHead[:7]+" -->") {
-		t.Fatalf("a lane commit marks its task in the lane and ticks nothing: %+v %v\n%s", res, err, readFile(t, plan))
+	noErr(t, err)
+	if len(res) != 1 || res[0].Lane != "lane" {
+		t.Fatalf("a lane commit marks its task in the lane: %+v", res)
 	}
+	wantText(t, "a lane commit ticks nothing", readFile(t, plan), []string{"1.3 Three owns: c.go <!-- lane lane: " + laneHead[:7] + " -->"}, []string{"[x]"})
 	hosttest.In(t, repo, "cherry-pick", "lane~2")
 	hosttest.In(t, repo, "merge", "--squash", "lane~1")
 	hosttest.In(t, repo, "commit", "-q", "-m", "feat: squash\n\nTask: 2026-10-05-p 1.2")
-	got := ""
 	for sha := range strings.FieldsSeq(hosttest.In(t, repo, "rev-list", "--reverse", "-2", "HEAD")) {
-		if _, _, err := TickCommit(repo, sha, nil, nil); err != nil {
-			t.Fatal(err)
-		}
-		got = readFile(t, plan)
+		_, _, err := TickCommit(repo, sha, nil, nil)
+		noErr(t, err)
 	}
-	if !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "[x] 1.2") || strings.Contains(got, "[x] 1.3") {
-		t.Fatalf("cherry-pick and squash keep their trailers, the unlanded task stays open:\n%s", got)
-	}
+	wantText(t, "cherry-pick and squash keep their trailers, the unlanded task stays open", readFile(t, plan), []string{"[x] 1.1", "[x] 1.2"}, []string{"[x] 1.3"})
 	var out strings.Builder
 	if err := TickRange(context.Background(), lane, "lane", "main~1..HEAD", "", nil, false, &out); !errors.Is(err, ErrNotOnTrunk) {
 		t.Fatalf("a range tick from a lane must say why nothing ticked: %v", err)

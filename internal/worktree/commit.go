@@ -62,16 +62,10 @@ func (t commitTree) abs(rel string) string { return filepath.Join(t.top, rel) }
 
 // Commit commits the named files (else the caller's claimed dirty ones) in one pathspec commit and reports it.
 func Commit(ctx context.Context, req CommitRequest) error {
-	top, main := paths.CheckoutOf(req.Dir)
-	if top == "" {
-		return usage("not inside a git work tree: %s", req.Dir)
-	}
-	entries, err := readOnlyStatus(ctx, paths.Real(top))
+	tree, err := openTree(ctx, req.Dir)
 	if err != nil {
 		return err
 	}
-	tree := commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries),
-		linked: isLinked(top, main)}
 	message, err := commitSubject(req)
 	if err != nil {
 		return err
@@ -103,6 +97,19 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	fmt.Fprintln(req.Out, withoutShortstat(res))
 	tickPlans(ctx, req.Out, tree.top, set)
 	return nil
+}
+
+// openTree reads the work tree around dir: its root, status, dirty map and whether it is a linked worktree.
+func openTree(ctx context.Context, dir string) (commitTree, error) {
+	top, main := paths.CheckoutOf(dir)
+	if top == "" {
+		return commitTree{}, usage("not inside a git work tree: %s", dir)
+	}
+	entries, err := readOnlyStatus(ctx, paths.Real(top))
+	if err != nil {
+		return commitTree{}, err
+	}
+	return commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries), linked: isLinked(top, main)}, nil
 }
 
 // commitSubject is the message to commit: Type prefixes a bare description, or alone takes the one task's plan title.

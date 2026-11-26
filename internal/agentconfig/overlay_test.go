@@ -772,17 +772,21 @@ func TestDeriveLoneProfileTakesTheParentProvider(t *testing.T) {
 		t.Fatalf("a lone profile must parse: %v", err)
 	}
 	got, err := parent.Derive(lone, HopAppend)
-	if err != nil || got.Provider != "databricks" || got.Profile != "dev2" || got.Endpoint != "direct" {
-		t.Fatalf("child did not inherit the parent's provider and endpoint: %+v %v", got, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != "databricks" || got.Profile != "dev2" || got.Endpoint != "direct" {
+		t.Fatalf("child did not inherit the parent's provider and endpoint: %+v", got)
 	}
 	var nosuch Overlay
 	nosuch.Profile = "nosuch"
-	if _, err = parent.Derive(nosuch, HopAppend); err == nil ||
-		!strings.Contains(err.Error(), "provider: required") {
-		t.Errorf("a parent whose provider lacks the profile: err = %v", err)
-	}
-	if _, err = (Overlay{}).Derive(lone, HopAppend); err == nil || !strings.Contains(err.Error(), "provider: required") {
-		t.Errorf("no parent unit: err = %v, want provider: required", err)
+	for name, c := range map[string]struct{ parent, child Overlay }{
+		"a parent whose provider lacks the profile": {parent, nosuch},
+		"no parent unit": {Overlay{}, lone},
+	} {
+		if _, err := c.parent.Derive(c.child, HopAppend); err == nil || !strings.Contains(err.Error(), "provider: required") {
+			t.Errorf("%s: err = %v, want provider: required", name, err)
+		}
 	}
 	if lone.Provider != "" {
 		t.Error("Derive changed its argument")

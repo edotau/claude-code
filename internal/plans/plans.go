@@ -90,10 +90,13 @@ func Parse(path string) (Plan, error) {
 	return parseBytes(path, b), nil
 }
 
+// boxMarks are the checklist boxes a plan must hold at least one of to have tasks.
+var boxMarks = []string{"[ ] ", "[x] ", "[X] "}
+
 // parseBytes parses b; a checklist item runs from its bullet through its more-indented continuation lines.
 func parseBytes(path string, b []byte) Plan {
 	p := Plan{Path: path}
-	if !bytes.Contains(b, []byte("[ ] ")) && !bytes.Contains(b, []byte("[x] ")) && !bytes.Contains(b, []byte("[X] ")) {
+	if !slices.ContainsFunc(boxMarks, func(m string) bool { return bytes.Contains(b, []byte(m)) }) {
 		return p
 	}
 	lines := strings.Split(string(b), "\n")

@@ -162,16 +162,18 @@ const (
 func moveBankCopies(root string) error {
 	var found []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+		if err != nil {
 			return err
 		}
-		if rel, rerr := filepath.Rel(root, p); rerr == nil {
-			if _, ok := KeptCopyBase(filepath.ToSlash(rel)); ok {
-				found = append(found, filepath.ToSlash(rel))
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
 			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if _, ok := KeptCopyBase(filepath.ToSlash(rel)); d.Type().IsRegular() && rerr == nil && ok {
+			found = append(found, filepath.ToSlash(rel))
 		}
 		return nil
 	})
@@ -306,12 +308,9 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	if err := pruneHeld(time.Now()); err != nil { // retention runs on the clock, not the settle stamp
 		return rotated, fmt.Errorf("memory settle: prune held copies: %w", err)
 	}
-	rep, rerr := refreshIndexFiles(now, extra)
-	if rerr != nil && !errors.Is(rerr, errIndexProblem) {
-		return rotated, rerr
-	}
-	if rep.notable() {
-		fmt.Fprintln(os.Stderr, "memory index:", rep)
+	rerr, err := refreshIndexFiles(now, extra)
+	if err != nil {
+		return rotated, err
 	}
 	return rotated, errors.Join(commitBanks(subject), ierr, gerr, rerr)
 }
@@ -368,15 +367,22 @@ func guardPass(db ExportDB, root string) (indexErr error, conflicts []string, er
 	return nil, rep.Conflicts, err
 }
 
-// refreshIndexFiles writes catalog.md and refreshes MEMORY.md, after the alias check that guards both.
-func refreshIndexFiles(now time.Time, extra []string) (indexReport, error) {
+// refreshIndexFiles writes catalog.md and refreshes MEMORY.md; indexErr is soft, err stops the settle.
+func refreshIndexFiles(now time.Time, extra []string) (indexErr, err error) {
 	if err := checkIndexFiles(); err != nil {
-		return indexReport{}, err
+		return nil, err
 	}
 	if err := writeCatalog(now); err != nil {
-		return indexReport{}, err
+		return nil, err
 	}
-	return refreshNativeIndex(now, false, extra)
+	rep, err := refreshNativeIndex(now, false, extra)
+	if err != nil && !errors.Is(err, errIndexProblem) {
+		return nil, err
+	}
+	if rep.notable() {
+		fmt.Fprintln(os.Stderr, "memory index:", rep)
+	}
+	return err, nil
 }
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.

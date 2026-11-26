@@ -939,18 +939,9 @@ func TaskTrailers(root, plan string, ids []string) (trailer string, notes []stri
 	}
 	all := loadDatedPlans(entries, home, MirrorDests())
 	if plan != "" {
-		plan, err = ResolvePlan(root, plan)
-		if err != nil {
+		if all, err = scopePlan(root, plan, home, all); err != nil {
 			return "", nil, err
 		}
-		if slices.Contains(MirrorDests(), plan) {
-			return "", nil, fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
-		}
-		found := slices.IndexFunc(all, func(d datedPlan) bool { return paths.SamePath(d.path, plan) })
-		if found < 0 {
-			return "", nil, fmt.Errorf("plans: %s is not a dated plan in %s, the only place landing finds the plan its trailer names", plan, home)
-		}
-		all = all[found : found+1]
 	}
 	var trailers []string
 	for _, id := range ids {
@@ -969,6 +960,22 @@ func TaskTrailers(root, plan string, ids []string) (trailer string, notes []stri
 	}
 	slices.Sort(trailers)
 	return "\n\n" + strings.Join(slices.Compact(trailers), "\n"), notes, nil
+}
+
+// scopePlan narrows all to the one dated plan --plan names, refusing a draft mirror or a plan landing would not find.
+func scopePlan(root, plan, home string, all []datedPlan) ([]datedPlan, error) {
+	plan, err := ResolvePlan(root, plan)
+	if err != nil {
+		return nil, err
+	}
+	if slices.Contains(MirrorDests(), plan) {
+		return nil, fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
+	}
+	found := slices.IndexFunc(all, func(d datedPlan) bool { return paths.SamePath(d.path, plan) })
+	if found < 0 {
+		return nil, fmt.Errorf("plans: %s is not a dated plan in %s, the only place landing finds the plan its trailer names", plan, home)
+	}
+	return all[found : found+1], nil
 }
 
 // resolveTrailer finds the one open task id; a closed or unknown id is a note, so the commit goes on without it.

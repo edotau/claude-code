@@ -753,9 +753,8 @@ func checkRendered(planPath, text, base string, t WaveTask, before int) ([]strin
 		if !errors.As(err, &we) {
 			return notes, err
 		}
-		if we.ID == t.ID && (we.Reason == "missing Waves row" || strings.Contains(we.Reason, "membership")) {
-			return notes, fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
-				t.ID, strings.TrimPrefix(strings.SplitN(t.ID, ".", 2)[0], "Phase "))
+		if hint := wavesRowHint(t.ID, we); hint != nil {
+			return notes, hint
 		}
 		var old *WaveError
 		if _, berr := parseWavesBytes(planPath, []byte(base)); we.ID == t.ID || !errors.As(berr, &old) || *old != *we {
@@ -769,6 +768,15 @@ func checkRendered(planPath, text, base string, t WaveTask, before int) ([]strin
 		base, _ = dropWaveTask(planPath, base, we.ID)
 	}
 	return notes, nil
+}
+
+// wavesRowHint is the refusal for a new task id the "## Waves" table does not list; nil when we is some other error.
+func wavesRowHint(id string, we *WaveError) error {
+	if we.ID != id || we.Reason != "missing Waves row" && !strings.Contains(we.Reason, "membership") {
+		return nil
+	}
+	return fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
+		id, strings.TrimPrefix(strings.SplitN(id, ".", 2)[0], "Phase "))
 }
 
 // dropWaveTask is text without the lines of every task whose wave id is id; false when no task has it.
@@ -1040,12 +1048,7 @@ func spawnVerify(top, plan, sha string, ids []string, session string) (bool, err
 	}
 	PruneVerify(dir, "*.log*")
 	marker := filepath.Join(dir, sha[:min(12, len(sha))]+"-"+paths.Slug(filepath.Base(plan), "", 40, "plan")+".log")
-	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if errors.Is(err, fs.ErrExist) && staleMarker(marker) {
-		_ = os.Remove(marker + ".pid")
-		_ = os.Remove(marker)
-		f, err = os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // a peer that re-took it wins
-	}
+	f, err := claimMarker(marker)
 	if errors.Is(err, fs.ErrExist) {
 		return false, nil
 	}
@@ -1073,6 +1076,17 @@ func spawnVerify(top, plan, sha string, ids []string, session string) (bool, err
 	}
 	start, _ := proc.StartTime(pid)
 	return true, os.WriteFile(marker+".pid", []byte(strconv.Itoa(pid)+"\n"+start+"\n"), 0o600)
+}
+
+// claimMarker creates marker exclusively, first clearing one whose verifier died; fs.ErrExist means a peer holds it.
+func claimMarker(marker string) (*os.File, error) {
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, fs.ErrExist) && staleMarker(marker) {
+		_ = os.Remove(marker + ".pid")
+		_ = os.Remove(marker)
+		f, err = os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // a peer that re-took it wins
+	}
+	return f, err
 }
 
 // staleMarker is a marker whose verifier died before finishing (no "plans: " result line) and no live pid holds.

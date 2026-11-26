@@ -83,6 +83,29 @@ func wantBytes(t *testing.T, path, label, want string) {
 	}
 }
 
+// noErr fails the test on err.
+func noErr(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wantText fails unless got holds every has and none of lacks.
+func wantText(t *testing.T, label, got string, has, lacks []string) {
+	t.Helper()
+	for _, h := range has {
+		if !strings.Contains(got, h) {
+			t.Fatalf("%s: missing %q in:\n%s", label, h, got)
+		}
+	}
+	for _, l := range lacks {
+		if strings.Contains(got, l) {
+			t.Fatalf("%s: unexpected %q in:\n%s", label, l, got)
+		}
+	}
+}
+
 // wantTicks fails unless exactly nTicked tasks ticked (the first containing tickedSub) with nNotes notes.
 func wantTicks(t *testing.T, label string, ticked, notes []string, nTicked int, tickedSub string, nNotes int) {
 	t.Helper()

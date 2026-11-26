@@ -482,13 +482,9 @@ func releaseHold(db ExportDB, dest, rel, h, want string, cur []byte, rep *Export
 	disk, rerr := os.ReadFile(dest)
 	folded := false
 	if rerr == nil {
-		merged, ok := mergeSides(rel, historyVersion(root, rel, want), disk, cur)
-		if folded = ok && bytes.Equal(merged, disk); ok && !folded {
-			placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
-			if err != nil {
-				return err
-			}
-			folded = placed && stranded == ""
+		var err error
+		if folded, err = foldHold(dest, rel, historyVersion(root, rel, want), disk, cur, rep); err != nil {
+			return err
 		}
 	}
 	if folded || !worthKeeping(root, rel, cur, disk) {
@@ -506,6 +502,19 @@ func releaseHold(db ExportDB, dest, rel, h, want string, cur []byte, rep *Export
 		return err
 	}
 	return conflict(db, rel, "changed-during-export", rep)
+}
+
+// foldHold merges the held write cur into dest's current bytes disk; folded means dest then holds all of cur.
+func foldHold(dest, rel string, base, disk, cur []byte, rep *ExportReport) (folded bool, err error) {
+	merged, ok := mergeSides(rel, base, disk, cur)
+	if !ok {
+		return false, nil
+	}
+	if bytes.Equal(merged, disk) {
+		return true, nil
+	}
+	placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
+	return err == nil && placed && stranded == "", err
 }
 
 func removeHold(h string) error {
@@ -737,14 +746,9 @@ func mergeSides(rel string, base, file, other []byte) (merged []byte, ok bool) {
 	if f.dup || o.dup || b.dup {
 		return nil, false
 	}
-	pre := f.doc
-	if f.pre != o.pre {
-		switch {
-		case f.pre == b.pre:
-			pre = o.doc
-		case o.pre != b.pre:
-			return nil, false
-		}
+	pre, ok := mergePre(f, o, b)
+	if !ok {
+		return nil, false
 	}
 	var out []mergeEntry
 	for _, k := range mergeOrder(f, o) {
@@ -759,18 +763,37 @@ func mergeSides(rel string, base, file, other []byte) (merged []byte, ok bool) {
 	return renderMerged(pre, out, f, o), true
 }
 
+// mergePre picks the preamble: file's, or other's when only other changed it from base; ok is false when both did.
+func mergePre(f, o, b mergeSide) (Doc, bool) {
+	if f.pre == o.pre {
+		return f.doc, true
+	}
+	if f.pre == b.pre {
+		return o.doc, true
+	}
+	return f.doc, o.pre == b.pre
+}
+
+// holds reports whether the side has key k with exactly this body.
+func (s mergeSide) holds(k, body string) bool {
+	e, ok := s.ents[k]
+	return ok && e.body == body
+}
+
 // resolveEntry picks key k's entry three ways against base b; keep is false for a one-sided delete.
 func resolveEntry(k string, f, o, b mergeSide) (e mergeEntry, keep, ok bool) {
 	fe, inF := f.ents[k]
 	oe, inO := o.ents[k]
-	be, inB := b.ents[k]
+	_, inB := b.ents[k]
+	fSame, oSame := inF && b.holds(k, fe.body), inO && b.holds(k, oe.body) // the side left it as base had it
 	switch {
-	case inF && inO && (fe.body == oe.body || (inB && oe.body == be.body)):
-		return fe, true, true
 	case inF && inO:
-		return oe, true, inB && fe.body == be.body
+		if fe.body == oe.body || oSame {
+			return fe, true, true
+		}
+		return oe, true, fSame
 	case inB: // one side dropped it: fine only when the other left it as it was
-		return mergeEntry{}, false, (inF && fe.body == be.body) || (inO && oe.body == be.body)
+		return mergeEntry{}, false, fSame || oSame
 	case inF:
 		return fe, true, true
 	}

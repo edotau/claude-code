@@ -265,28 +265,30 @@ func TestExportGuardRebuildHoldsBankLock(t *testing.T) {
 	}
 }
 
+// noErr fails the test on err.
+func noErr(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExportClearConflictRemovesOnlyNamedCopy(t *testing.T) {
 	_, _, db := setupShadowExport(t)
 	held := filepath.Join(memory.HeldDir(), "notes")
-	if err := os.MkdirAll(held, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	noErr(t, os.MkdirAll(held, 0o700))
 	keep := filepath.Join(held, "y.md.outside-abcdef012345-1")
 	other := filepath.Join(held, "y.md.outside-fedcba012345-2")
 	for _, p := range []string{keep, other} {
-		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		noErr(t, os.WriteFile(p, []byte("x"), 0o600))
 	}
-	if err := db.RecordConflict("notes/y.md", "changed-during-export"); err != nil {
-		t.Fatal(err)
+	noErr(t, db.RecordConflict("notes/y.md", "changed-during-export"))
+	got, err := ExportConflicts()
+	noErr(t, err)
+	if !slices.Contains(got, "copy notes/y.md.outside-abcdef012345-1") {
+		t.Fatalf("listing = %q, want the kept copy", got)
 	}
-	if got, err := ExportConflicts(); err != nil || !slices.Contains(got, "copy notes/y.md.outside-abcdef012345-1") {
-		t.Fatalf("listing = %q (%v), want the kept copy", got, err)
-	}
-	if err := ClearExportConflict("notes/y.md.outside-abcdef012345-1"); err != nil {
-		t.Fatal(err)
-	}
+	noErr(t, ClearExportConflict("notes/y.md.outside-abcdef012345-1"))
 	if _, err := os.Stat(keep); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("cleared copy remains: %v", err)
 	}

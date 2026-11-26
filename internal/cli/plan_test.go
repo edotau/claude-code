@@ -82,27 +82,29 @@ func TestPlanTaskLaneMarkAndIndex(t *testing.T) {
 	const name = "2026-11-01-a.md"
 	repo := planRepo(t, map[string]string{name: "## Tasks\n\n- [ ] 1.1 First\n- [ ] 1.2 Second\n- [ ] Phase 7.2 x — owns: c.go\n"})
 	file := filepath.Join(plans.Home(repo), name)
-	for _, args := range [][]string{{"plan", "task", "#1", "--lane", "lane-a", "--sha", "abc1234", "--plan", file},
-		{"plan", "task", "#2", "--done", "--sha", "def5678", "--plan", file}} {
-		if code, _, stderr := runCLI(t, args...); code != 0 {
-			t.Fatalf("%q: exit %d %q", args, code, stderr)
+	for _, c := range []struct {
+		args []string
+		code int
+		want string // in stdout or stderr
+	}{
+		{[]string{"plan", "task", "#1", "--lane", "lane-a", "--sha", "abc1234", "--plan", file}, 0, ""},
+		{[]string{"plan", "task", "#2", "--done", "--sha", "def5678", "--plan", file}, 0, ""},
+		{[]string{"plan", "status"}, 0, "1.1: in lane lane-a (abc1234)"},
+		{[]string{"plan", "task", "#1", "--done"}, 1, "pass --plan"},
+		{[]string{"plan", "task", "1.1", "--lane", "lane-a"}, 2, ""}, // --lane without --sha is a usage error
+		{[]string{"plan", "task", "Phase 7.9", "--add", "--plan", file, "--title", "New", "--leaf", "claude", "--agent", "pi", "--owns", "d.go"}, 0,
+			"Phase 7.2: missing leaf:"}, // an old malformed line is a note on --add
+	} {
+		code, out, stderr := runCLI(t, c.args...)
+		if code != c.code || !strings.Contains(out+stderr, c.want) {
+			t.Fatalf("%q: exit %d, want %d with %q:\n%s%s", c.args, code, c.code, c.want, out, stderr)
 		}
 	}
-	if got := readPlan(t, repo, name); !strings.Contains(got, "- [ ] 1.1 First <!-- lane lane-a: abc1234 -->\n- [x] 1.2 Second (def5678)\n") {
-		t.Fatalf("plan:\n%s", got)
-	}
-	if code, out, _ := runCLI(t, "plan", "status"); code != 0 || !strings.Contains(out, "1.1: in lane lane-a (abc1234)") {
-		t.Fatalf("status: exit %d\n%s", code, out)
-	}
-	if code, _, stderr := runCLI(t, "plan", "task", "#1", "--done"); code == 0 || !strings.Contains(stderr, "pass --plan") {
-		t.Fatalf("an index without --plan: exit %d %q", code, stderr)
-	}
-	if code, _, _ := runCLI(t, "plan", "task", "1.1", "--lane", "lane-a"); code != 2 {
-		t.Fatal("--lane without --sha must be a usage error")
-	}
-	code, _, stderr := runCLI(t, "plan", "task", "Phase 7.9", "--add", "--plan", file, "--title", "New", "--leaf", "claude", "--agent", "pi", "--owns", "d.go")
-	if code != 0 || !strings.Contains(stderr, "Phase 7.2: missing leaf:") || !strings.Contains(readPlan(t, repo, name), "Phase 7.9 — New") {
-		t.Fatalf("an old malformed line must be a note on --add: exit %d %q\n%s", code, stderr, readPlan(t, repo, name))
+	got := readPlan(t, repo, name)
+	for _, want := range []string{"- [ ] 1.1 First <!-- lane lane-a: abc1234 -->\n- [x] 1.2 Second (def5678)\n", "Phase 7.9 — New"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("plan lacks %q:\n%s", want, got)
+		}
 	}
 }
 

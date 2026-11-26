@@ -436,9 +436,8 @@ func cmdPlanTask(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	id, one := oneID("", pos)
-	byID := *reason != "" || *evidence != ""
-	if !one || id == "" || taskModes(*done, *lane != "", *reopen, *strike != "", byID, *add) != 1 || (*sha != "" && !*done && *lane == "") ||
-		(*lane != "" && *sha == "") {
+	m := taskMode{done: *done, lane: *lane, reopen: *reopen, strike: *strike, sha: *sha, reason: *reason, evidence: *evidence, add: *add}
+	if !one || id == "" || !m.valid() {
 		return helptext.FailUsage("plan task: give <id> and exactly one of --done, --lane <w> --sha <s>, --reopen, --strike <why>, --reason with --evidence or --add")
 	}
 	if *add {
@@ -451,23 +450,43 @@ func cmdPlanTask(args []string) int {
 		}
 		return helptext.Fail("plan task: %v", err)
 	}
-	switch {
-	case *done:
-		_, err = plans.MarkDone(path, id, *sha)
-	case *lane != "":
-		_, err = plans.MarkLane(path, id, *lane, *sha)
-	case *reopen:
-		err = reopenTask(path, id)
-	case byID:
-		_, err = plans.StrikeWith(path, id, *reason, *evidence)
-	default:
-		err = plans.Strike(path, id, *strike)
-	}
-	if err != nil {
+	if err = m.apply(path, id); err != nil {
 		return helptext.Fail("plan task: %v", err)
 	}
 	fmt.Printf("plans: %s updated in %s\n", id, filepath.Base(path))
 	return 0
+}
+
+// taskMode is the action `plan task` was asked for, from its flags.
+type taskMode struct {
+	done, reopen, add                   bool
+	lane, strike, sha, reason, evidence string
+}
+
+// valid reports whether exactly one action is chosen and --sha rides only with the two that take it.
+func (m taskMode) valid() bool {
+	byID := m.reason != "" || m.evidence != ""
+	if taskModes(m.done, m.lane != "", m.reopen, m.strike != "", byID, m.add) != 1 {
+		return false
+	}
+	return (m.sha == "" || m.done || m.lane != "") && (m.lane == "" || m.sha != "")
+}
+
+// apply performs the chosen action on id in the plan at path.
+func (m taskMode) apply(path, id string) (err error) {
+	switch {
+	case m.done:
+		_, err = plans.MarkDone(path, id, m.sha)
+	case m.lane != "":
+		_, err = plans.MarkLane(path, id, m.lane, m.sha)
+	case m.reopen:
+		err = reopenTask(path, id)
+	case m.reason != "" || m.evidence != "":
+		_, err = plans.StrikeWith(path, id, m.reason, m.evidence)
+	default:
+		err = plans.Strike(path, id, m.strike)
+	}
+	return err
 }
 
 // leadingID splits a first argument that is not a flag off args.

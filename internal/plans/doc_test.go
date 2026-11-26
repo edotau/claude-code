@@ -1,6 +1,7 @@
 package plans
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,14 +34,13 @@ func TestMarkLaneReplacesAndTickDrops(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "2026-10-05-p.md")
 	writeFile(t, plan, "- [ ] 1.1 One\n  owns: a.go\n- [ ] 1.2 Two\n")
 	for _, sha := range []string{"abc1234def", "def5678abc"} {
-		if wrote, err := MarkLane(plan, "#1", "lane-a", sha); !wrote || err != nil {
-			t.Fatalf("mark %s: %v %v", sha, wrote, err)
+		wrote, err := MarkLane(plan, "#1", "lane-a", sha)
+		noErr(t, err)
+		if !wrote {
+			t.Fatalf("mark %s wrote nothing", sha)
 		}
 	}
-	want := "- [ ] 1.1 One\n  owns: a.go <!-- lane lane-a: def5678 -->\n- [ ] 1.2 Two\n"
-	if got := readFile(t, plan); got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
+	wantBytes(t, plan, "lane mark", "- [ ] 1.1 One\n  owns: a.go <!-- lane lane-a: def5678 -->\n- [ ] 1.2 Two\n")
 	if wrote, _ := MarkLane(plan, "1.1", "lane-a", "def5678abc"); wrote {
 		t.Fatal("the same mark wrote again")
 	}
@@ -48,21 +48,16 @@ func TestMarkLaneReplacesAndTickDrops(t *testing.T) {
 		t.Fatal("a lane with a space was accepted")
 	}
 	s := summarize(ParseDoc(plan, []byte(readFile(t, plan))).Plan)
-	if s.Total != 2 || s.Ticked != 0 || len(s.Lanes) != 1 || s.Lanes[0] != "1.1: in lane lane-a (def5678)" {
+	if got := fmt.Sprintf("%d %d %q", s.Total, s.Ticked, s.Lanes); got != `2 0 ["1.1: in lane lane-a (def5678)"]` {
 		t.Fatalf("summary %+v", s)
 	}
-	if _, err := MarkDone(plan, "1.1", "fedcba9"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := MarkLane(plan, "1.2", "lane-b", "1234567"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := StrikeWith(plan, "1.2", "obsolete", "note:x"); err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, plan); strings.Contains(got, "lane") || !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "~~") {
-		t.Fatalf("tick and strike must drop the lane mark:\n%s", got)
-	}
+	_, err := MarkDone(plan, "1.1", "fedcba9")
+	noErr(t, err)
+	_, err = MarkLane(plan, "1.2", "lane-b", "1234567")
+	noErr(t, err)
+	_, err = StrikeWith(plan, "1.2", "obsolete", "note:x")
+	noErr(t, err)
+	wantText(t, "tick and strike must drop the lane mark", readFile(t, plan), []string{"[x] 1.1", "~~"}, []string{"lane"})
 }
 
 // A lane commit naming a task marks it in that lane with its sha; the main commit that lands it ticks it.
@@ -78,27 +73,21 @@ func TestLaneCommitMarksThenMainTicks(t *testing.T) {
 	hosttest.In(t, lane, "commit", "-q", "-m", "feat: a\n\nTask: 2026-10-05-p 1.1")
 	sha := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "HEAD"))
 	pending, _, err := PendingCommit(lane, sha, nil)
-	if err != nil || len(pending) != 1 || pending[0].Lane != "lane-x" || strings.Join(pending[0].IDs, ",") != "1.1" {
-		t.Fatalf("pending %+v, %v", pending, err)
+	noErr(t, err)
+	if len(pending) != 1 || pending[0].Lane != "lane-x" || strings.Join(pending[0].IDs, ",") != "1.1" {
+		t.Fatalf("pending %+v", pending)
 	}
-	if readFile(t, plan) != "- [ ] 1.1 Lane task owns: a.go\n- [ ] 1.2 Other owns: b.go\n" {
-		t.Fatal("the dry run wrote")
-	}
+	wantBytes(t, plan, "the dry run", "- [ ] 1.1 Lane task owns: a.go\n- [ ] 1.2 Other owns: b.go\n")
 	got, _, err := TickCommit(lane, sha, nil, nil) // what the verifier does when green
-	if err != nil || len(got) != 1 || !strings.Contains(strings.Join(got[0].Lines(sha), "\n"), "1.1 marked in lane lane-x ("+sha[:7]+")") {
-		t.Fatalf("lane tick %+v, %v", got, err)
+	noErr(t, err)
+	if len(got) != 1 || !strings.Contains(strings.Join(got[0].Lines(sha), "\n"), "1.1 marked in lane lane-x ("+sha[:7]+")") {
+		t.Fatalf("lane tick %+v", got)
 	}
-	want := "- [ ] 1.1 Lane task owns: a.go <!-- lane lane-x: " + sha[:7] + " -->\n- [ ] 1.2 Other owns: b.go\n"
-	if readFile(t, plan) != want {
-		t.Fatalf("got %q, want %q", readFile(t, plan), want)
-	}
+	wantBytes(t, plan, "lane mark", "- [ ] 1.1 Lane task owns: a.go <!-- lane lane-x: "+sha[:7]+" -->\n- [ ] 1.2 Other owns: b.go\n")
 	hosttest.In(t, repo, "merge", "-q", "--ff-only", "lane-x")
-	if _, _, err := TickCommit(repo, sha, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, plan); got != "- [x] 1.1 Lane task owns: a.go ("+sha[:7]+")\n- [ ] 1.2 Other owns: b.go\n" {
-		t.Fatalf("main tick must replace the mark with the sha: %q", got)
-	}
+	_, _, err = TickCommit(repo, sha, nil, nil)
+	noErr(t, err)
+	wantBytes(t, plan, "main tick replaces the mark with the sha", "- [x] 1.1 Lane task owns: a.go ("+sha[:7]+")\n- [ ] 1.2 Other owns: b.go\n")
 }
 
 // A closed line without leaf: or an older malformed open line never blocks an add; a new break still refuses.
