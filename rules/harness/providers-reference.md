@@ -364,6 +364,32 @@ for reads with no uncached input), and one hint line naming `options.prices` whe
 print). System tables are dropped: `usage --cost` stays an estimate, never request grants, and Databricks needs
 use the paired SPs.
 
+**Ledger stamps.** Every metered row of `state/usage/ledger.jsonl` also carries `first_ms` (send to the first client
+byte), `total_ms` (send to the ledger write) and `cost_usd`, all of the attempt that served. `cost_usd` is the profile's
+`options.prices` row for the served model, else the Databricks list price, else 0 (another provider's list price is not
+used). A row with no token counts is not written. Older rows omit the three fields.
+
+**Route weights.** The pick scores price, headroom and latency, default 0.4, 0.4 and 0.2 (set with
+`configure routing weights.price=<0-1>` and `weights.latency=<0-1>`; headroom is what remains so the three sum to 1).
+Latency is the blended first-event time, (p50+p95)/2 of `first_ms`, over the last 7 days and at least 5 rows in the
+ledger's last 2 MiB: the fastest measured candidate scores 1 and a slower one scores fastest/own. With no measured
+candidate the latency weight drops out and price and headroom are rescaled, so the order is the two-weight one. An
+unmeasured candidate among measured ones ties at 1. A weights map saved before latency existed still loads (missing
+latency is 0). Commands: `rules/harness/commands.md` → Setup.
+
+**Spend cap.** `routing.spendCap.sessionUSD` and `spendCap.dayUSD` cap metered USD per session and per local day. Both
+are off until set (`configure routing spendCap.sessionUSD=<usd>` and `spendCap.dayUSD=<usd>`; empty clears one).
+A set value must be in (0, 1000000]. When the session spend (or the day's spend) reaches its cap, the proxy drops
+metered rows from the attempt ladder and attempts any remaining unmetered `cli` subscription rows. It refuses with 402
+`billing_error` and `X-Claude-Code-Proxy-Refusal: spend-cap` if no unmetered row remains at this check. Each metered
+failover hop also rechecks the cap before calling upstream; a cap newly reached during failover refuses the request
+with 402 and terminates the attempt ladder. Subscription rows and `count_tokens` are unaffected; a request with no
+session id is held only by the day cap. A ledger read error fails open and logs `proxy: spend cap unchecked`.
+`claude-code doctor` shows a `spend cap` row: off names the day command, and a set cap prints today's spend against it
+(bad once today's spend reaches the day cap). The check is before the call and the cost lands after, so in-flight
+requests can pass the cap by their own cost. Commands:
+`rules/harness/commands.md` → Setup.
+
 **Gemini built-in tools.** `claude-code configure provider <p> options.google_tools=url,code` records the built-ins a
 Databricks row serves, from a probe (`search|url|code`; empty clears it). Unset means unprobed: the proxy sends
 what the caller asked (no warning) and the upstream answers. Chat routes strip and ignore the Google tools

@@ -45,6 +45,12 @@ claude-code configure codex           # codex effort, verbosity, config_route (v
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure provider <p> options.warehouse_id=<id> options.prices='{"<model>":{"input":0,...}}'
                                       # a Databricks profile's cost keys (USD per million tokens)
+claude-code configure routing weights.price=0.4 weights.latency=0.2
+                                      # price, headroom, latency (default 0.4/0.4/0.2); headroom fills to 1
+claude-code configure routing spendCap.sessionUSD=<usd> spendCap.dayUSD=<usd>
+                                      # metered proxy cap, off until set; empty value clears. At cap,
+                                      # keep unmetered subscription/cli rows; 402 if none remains. See
+                                      # rules/harness/providers-reference.md → Spend cap
 claude-code configure restore [--agent a|all]   # reset settings.json to the template (backup first) + agent configs
 claude-code configure revert [--agent a,b]        # restore agent CLI configs from backup
 ```

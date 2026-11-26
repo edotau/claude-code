@@ -291,6 +291,12 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	}
 	ladder := r.attempts(in, reg, target, clientAuth)
 	ladder.spendCap = reg.Routing.SpendCap
+	if !count {
+		var ok bool
+		if ladder, ok = r.capLadder(w, in, ladder); !ok {
+			return target.Provider.Name, target.Model, 0
+		}
+	}
 	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
 

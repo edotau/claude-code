@@ -19,10 +19,11 @@ func (r *Router) noteUnserved(p *providers.Provider, resp *http.Response) {
 	if !ok {
 		return
 	}
-	row := r.registryRow(p.Name) // the picker scope hashes the registry row, never a routed copy
-	if row == nil {
+	reg, err := r.registry()
+	if err != nil || reg.Providers[p.Name] == nil {
 		return
 	}
+	row := reg.Providers[p.Name] // the picker scope hashes the registry row, never a routed copy
 	key := p.Name + ":" + id
 	r.mu.Lock()
 	seen := r.deprecated[key]
@@ -43,13 +44,4 @@ func (r *Router) noteUnserved(p *providers.Provider, resp *http.Response) {
 			fmt.Fprintf(r.log, "proxy: %s answered %s is %s; dropped from the picker and rotation pool\n", p.Name, id, reason)
 		}
 	})
-}
-
-// registryRow is the registry's row for name, the same value the CLI's readers hash; nil when it is gone.
-func (r *Router) registryRow(name string) *providers.Provider {
-	reg, err := r.registry()
-	if err != nil {
-		return nil
-	}
-	return reg.Providers[name]
 }

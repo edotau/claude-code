@@ -939,17 +939,30 @@ func TestSpendCapSessionAndCountExempt(t *testing.T) {
 	}
 }
 
-func TestSpendCapRefusesFailoverToMeteredHop(t *testing.T) {
-	cli := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(503) })
-	met := newUpstream(t, ok)
+func capLadderSetup(t *testing.T, cliHandler func(http.ResponseWriter, *http.Request, int)) (cli, met *upstream, url string) {
+	t.Helper()
+	cli, met = newUpstream(t, cliHandler), newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "k1")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
 	cliRow := strings.Replace(anthropicProvider(cli.URL, "UP1_KEY", `{"opus":"m1"}`), `"auth":{"type":"key","header":"x-api-key","env":"UP1_KEY"}`, `"auth":{"type":"cli"}`, 1)
 	srv := setup(t, `{"default":"cli","fallback":["met"],"routing":{"spendCap":{"dayUSD":0.5}},"providers":{"anthropic":{"cli":`+
 		cliRow+`,"met":`+anthropicProvider(met.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
 	tokenledger.Append(tokenledger.Entry{Ts: time.Now(), Provider: "met", Model: "m1", CostUSD: 0.75})
-	resp := post(t, srv.URL+"/p/cli/v1/messages", `{"model":"m1"}`, map[string]string{"Authorization": "Bearer c"})
-	if resp.StatusCode != 402 || resp.Header.Get(proxy.RefusalHeader) != proxy.RefusalSpendCap || met.hits.Load() != 0 || cli.hits.Load() == 0 {
+	return cli, met, srv.URL + "/p/cli/v1/messages"
+}
+
+func TestCapLadderKeepsCLIRows(t *testing.T) {
+	cli, met, url := capLadderSetup(t, ok)
+	resp := post(t, url, `{"model":"m1"}`, map[string]string{"Authorization": "Bearer c"})
+	if resp.StatusCode != 200 || cli.hits.Load() != 1 || met.hits.Load() != 0 {
+		t.Fatalf("got %d cli=%d met=%d", resp.StatusCode, cli.hits.Load(), met.hits.Load())
+	}
+}
+
+func TestSpendCapNeverFailsOverToMeteredHop(t *testing.T) {
+	cli, met, url := capLadderSetup(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(503) })
+	resp := post(t, url, `{"model":"m1"}`, map[string]string{"Authorization": "Bearer c"})
+	if resp.StatusCode == 200 || met.hits.Load() != 0 || cli.hits.Load() == 0 {
 		t.Fatalf("got %d %v cli=%d met=%d", resp.StatusCode, resp.Header, cli.hits.Load(), met.hits.Load())
 	}
 }

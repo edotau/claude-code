@@ -529,15 +529,16 @@ func unservedMessage(p *providers.Provider, requested, wire string, now time.Tim
 	return msg + "; served Claude endpoints: " + strings.Join(claude, ", ")
 }
 
-// spendCapRefused answers a metered call with 402 once the session or day USD cap is spent; true when it answered.
-func (r *Router) spendCapRefused(w http.ResponseWriter, in *http.Request, c providers.SpendCap, p *providers.Provider) bool {
+// spendCapHit is the 402 text once the session or day USD cap is spent; false when none is or the ledger is unreadable.
+func (r *Router) spendCapHit(in *http.Request, c providers.SpendCap) (string, bool) {
 	session := in.Header.Get("X-Claude-Code-Session-Id")
-	if !c.On() || !metered(p) || (c.DayUSD == nil && session == "") {
-		return false
+	if !c.On() || (c.DayUSD == nil && session == "") {
+		return "", false
 	}
 	sess, day, err := tokenledger.SpendTotals(session, r.now())
 	if err != nil {
-		return false // an unreadable ledger never blocks a call; doctor reports it
+		fmt.Fprintf(r.log, "proxy: spend cap unchecked: %v\n", err) // fails open; doctor reports it
+		return "", false
 	}
 	var hit, field string
 	switch {
@@ -546,10 +547,49 @@ func (r *Router) spendCapRefused(w http.ResponseWriter, in *http.Request, c prov
 	case c.DayUSD != nil && day >= *c.DayUSD:
 		hit, field = fmt.Sprintf("today's spend $%.2f reached the dayUSD cap $%.2f", day, *c.DayUSD), "dayUSD"
 	default:
+		return "", false
+	}
+	return "proxy: " + hit + " (" + proxy.RefusalSpendCap + "; raise it with claude-code configure routing spendCap." + field + "=<usd>)", true
+}
+
+func writeSpendCap(w http.ResponseWriter, msg string) {
+	w.Header().Set(proxy.RefusalHeader, proxy.RefusalSpendCap)
+	writeError(w, http.StatusPaymentRequired, msg)
+}
+
+// spendCapRefused answers a metered call with 402 once a cap is spent; true when it answered.
+func (r *Router) spendCapRefused(w http.ResponseWriter, in *http.Request, c providers.SpendCap, p *providers.Provider) bool {
+	if !metered(p) {
 		return false
 	}
-	w.Header().Set(proxy.RefusalHeader, proxy.RefusalSpendCap)
-	writeError(w, http.StatusPaymentRequired, "proxy: "+hit+" ("+proxy.RefusalSpendCap+
-		"; raise it with claude-code configure routing spendCap."+field+"=<usd>)")
-	return true
+	msg, hit := r.spendCapHit(in, c)
+	if hit {
+		writeSpendCap(w, msg)
+	}
+	return hit
+}
+
+// capLadder drops metered rows once a cap is spent; false means none was left and the 402 is written.
+func (r *Router) capLadder(w http.ResponseWriter, in *http.Request, l attemptLadder) (attemptLadder, bool) {
+	msg, hit := r.spendCapHit(in, l.spendCap)
+	if !hit {
+		return l, true
+	}
+	var kept []providers.Target
+	cooling := 0
+	for i, t := range l.rows {
+		if metered(t.Provider) {
+			continue
+		}
+		kept = append(kept, t)
+		if i < l.coolingFrom {
+			cooling++
+		}
+	}
+	if len(kept) == 0 {
+		writeSpendCap(w, msg)
+		return l, false
+	}
+	l.rows, l.coolingFrom = kept, cooling
+	return l, true
 }
