@@ -232,30 +232,39 @@ func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 	return infos, note
 }
 
-// ValidateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
+// ValidateRoutingInput checks input against a blank Routing; prefer ValidateRoutingInputOn.
 func ValidateRoutingInput(f RoutingField, input string) error {
-	var scratch providers.Routing
-	return f.Set(&scratch, input)
+	return ValidateRoutingInputOn(f, input, providers.Routing{})
+}
+
+// ValidateRoutingInputOn runs f.Set on a copy of cur, so a bad value is reported before staging.
+func ValidateRoutingInputOn(f RoutingField, input string, cur providers.Routing) error {
+	return f.Set(&cur, input)
+}
+
+// ApplyStagedRouting applies the staged values and resets to r in module order, the order SaveRouting writes them.
+func ApplyStagedRouting(r *providers.Routing, staged map[string]string, resetKeys map[string]bool) error {
+	for _, m := range Modules() {
+		for _, f := range m.Fields() {
+			switch {
+			case resetKeys[f.Key]:
+				if err := f.Set(r, ""); err != nil {
+					return err
+				}
+			case staged[f.Key] != "":
+				if err := f.Set(r, staged[f.Key]); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // SaveRouting applies staged values and resets to the overlay routing object in one transaction.
 func SaveRouting(staged map[string]string, resetKeys map[string]bool) error {
 	return providers.UpdateRouting(func(r *providers.Routing) error {
-		for _, m := range Modules() {
-			for _, f := range m.Fields() {
-				switch {
-				case resetKeys[f.Key]:
-					if err := f.Set(r, ""); err != nil {
-						return err
-					}
-				case staged[f.Key] != "":
-					if err := f.Set(r, staged[f.Key]); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		return nil
+		return ApplyStagedRouting(r, staged, resetKeys)
 	})
 }
 

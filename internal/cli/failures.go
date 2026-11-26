@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -140,6 +141,12 @@ func failureFix(f worktree.Failure) (cmd, path string, err error) {
 		where = f.Log
 	}
 	switch f.Kind {
+	case worktree.FailDegraded:
+		reason, _, _ := strings.Cut(f.Subject, " ")
+		if slices.Contains([]string{health.ProxyDown, health.ProxyUnhealthy, health.RouterSecret, health.EnsureFailed}, reason) {
+			return "claude-code doctor --proxy", "", nil
+		}
+		return health.Notice(reason), "", nil // a task-local reason: the main session takes over, nothing to dispatch
 	case worktree.FailProxyDown, worktree.FailProxy5xx:
 		return "claude-code doctor --proxy", "", nil
 	case worktree.FailBench, worktree.FailHookP95:

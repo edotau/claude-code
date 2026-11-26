@@ -7,16 +7,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // doctorChecks is a test seam over the probing runChecks plus the soft, config-only MCP row.
@@ -33,7 +38,7 @@ type doctorOpts struct {
 	format                                                                 *string
 	auditMode, scan, gitScan, refresh, all, fix, prompts, list, mcp, proxy bool
 	days, since                                                            int
-	rev                                                                    string
+	rev, agent                                                             string
 }
 
 var doctorPage = helptext.Page{
@@ -45,7 +50,7 @@ var doctorPage = helptext.Page{
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
 		"and exit 1 on any finding. --secrets --fix masks idle transcript stores in place; paths restrict this pass. --mcp prints every MCP server's live health, cross-scope drift " +
 		"and inline secrets; exits 1 on a failed server, an inline secret or an unreadable config. " +
-		"--prompts audits the instruction path; with --list it lists every embedded prompt text. The mode flags cannot be combined.",
+		"--agent <name> prints that agent's binary, login, route and projection rows and exits 1 when its binary or login fails; its JSON is {ok, checks:[{name, ok, detail}]}, with hard added on hard checks only. --prompts audits the instruction path; with --list it lists every embedded prompt text. The mode flags cannot be combined.",
 }
 
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
@@ -63,6 +68,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.list, "list", false, "with --prompts: list every embedded prompt text")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
+	fs.StringVar(&o.agent, "agent", "", "one agent's binary, login, route and projection rows: "+strings.Join(agent.RosterNames(), "|"))
 	fs.BoolVar(&o.proxy, "proxy", false, "run only the proxy check; exit 1 when it fails")
 	return fs, o
 }
@@ -107,7 +113,7 @@ func conflictingModes(o *doctorOpts) (string, bool) {
 		on   bool
 		name string
 	}{
-		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.proxy, "--proxy"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
+		{o.agent != "", "--agent"}, {o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.proxy, "--proxy"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
 		{o.scan || o.gitScan || o.all, "--scan/--git/--secrets"},
 	} {
 		if m.on {
@@ -126,6 +132,9 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: %s", msg)
 		return 2
 	}
+	if o.agent != "" {
+		return runAgent(ctx, o)
+	}
 	if o.prompts {
 		return runPrompts(o)
 	}
@@ -134,6 +143,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.proxy {
 		detail, bad := proxyCheck(ctx)
+		clearDegraded(ctx, bad)
 		rows := append([]check{{Name: "proxy", OK: !bad, Detail: detail}}, proxyListenerChecks(ctx)...)
 		return printChecks(o, rows, !bad)
 	}
@@ -160,7 +170,7 @@ func printChecks(o *doctorOpts, checks []check, ok bool) int {
 			return code
 		}
 	} else {
-		printCheckLines(os.Stdout, checks)
+		printCheckLines(os.Stdout, clipAgentRows(o, checks))
 	}
 	if !ok {
 		return 1
@@ -250,5 +260,89 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.BoolFlag("proxy"), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.BoolFlag("proxy"), helptext.ValuedFlag("agent", agent.RosterNames), helptext.CompletionFormatFlag()}}
+}
+
+// runAgent is `doctor --agent <name>`: that agent's rows; exit 1 when a hard row (binary, login) fails.
+func runAgent(ctx context.Context, o *doctorOpts) int {
+	s, ok := agent.LookupSchema(o.agent)
+	if !ok {
+		return helptext.FailUsage("doctor: unknown agent %q (%s)", o.agent, strings.Join(agent.RosterNames(), "|"))
+	}
+	rows := agentRows(ctx, s)
+	pass := true
+	for _, r := range rows {
+		pass = pass && (r.OK || !r.Hard)
+	}
+	return printChecks(o, rows, pass)
+}
+
+// agentRows are s's binary, login, route and projection rows; claude's are the same four names.
+func agentRows(ctx context.Context, s agent.Schema) []check {
+	if !s.External() {
+		return claudeRows(ctx, s)
+	}
+	rows := []check{{Name: s.Name + " binary", Hard: true}, {Name: s.Name + " login", Hard: true}}
+	p, err := paths.AgentBin(s.Name)
+	rows[0].OK, rows[0].Detail = err == nil, orErr(p, err)
+	rows[1].OK, rows[1].Detail = s.LoginPresent(), s.Name+" login present"
+	if !rows[1].OK {
+		rows[1].Detail = "no " + s.Name + " login found (claude-code vault set / agent's own login)"
+	}
+	return append(rows, routeRow(ctx, s), projectionRow(s))
+}
+
+func claudeRows(ctx context.Context, s agent.Schema) []check {
+	bin, err := claude.ClaudeBinary()
+	rows := []check{{Name: "claude binary", OK: err == nil, Hard: true, Detail: orErr(bin, err)}}
+	login := check{Name: "claude login", OK: true, Detail: "not used by claude"}
+	if reg, sel, serr, ok := agent.LoadSelection(); ok && serr == nil {
+		if cr := providerCredentialChecks(ctx, reg, sel, serr, []string{sel.Provider.Name}); len(cr) == 1 {
+			login = check{Name: "claude login", OK: cr[0].OK, Hard: cr[0].Hard, Detail: cr[0].Detail}
+		}
+	}
+	route := check{Name: "claude route", OK: true, Detail: "not used by claude"}
+	if _, ok := s.Eng().RouteDetail(ctx); ok {
+		route = routeRow(ctx, s)
+	}
+	return append(rows, login, route, check{Name: "claude projection", OK: true, Detail: "not used by claude"})
+}
+
+// routeRow is s's route detail; soft, and "warn" when copilot is off its pinned route.
+func routeRow(ctx context.Context, s agent.Schema) check {
+	detail, ok := s.Eng().RouteDetail(ctx)
+	switch {
+	case !ok:
+		return check{Name: s.Name + " route", Detail: "warn no route check for " + s.Name}
+	case s.RouteWarn(ctx):
+		return check{Name: s.Name + " route", Detail: "warn " + detail}
+	}
+	return check{Name: s.Name + " route", OK: true, Detail: detail}
+}
+
+// projectionRow says whether state/projections/<agent>/agents has any rendered agents; soft.
+func projectionRow(s agent.Schema) check {
+	dir := project.Dir(paths.ConfigDir(), s.Name)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		return check{Name: s.Name + " projection", Detail: "warn no rendered agents at " + dir + " (claude-code agents sync)"}
+	}
+	return check{Name: s.Name + " projection", OK: true, Detail: fmt.Sprintf("%d agent(s) at %s", len(entries), dir)}
+}
+
+// clipAgentRows cuts each --agent row's middle to 80 cells, keeping its trailing (claude-code …) repair.
+func clipAgentRows(o *doctorOpts, checks []check) []check {
+	if o.agent == "" {
+		return checks
+	}
+	out := slices.Clone(checks)
+	for i, c := range out {
+		budget := 80 - textutil.DisplayWidth("✗ "+c.Name+": ")
+		head, tail := c.Detail, ""
+		if j := strings.LastIndex(c.Detail, " (claude-code "); j > 0 && strings.HasSuffix(c.Detail, ")") {
+			head, tail = c.Detail[:j], c.Detail[j:]
+		}
+		out[i].Detail = table.TruncateMiddle(head, max(budget-textutil.DisplayWidth(tail), 12)) + tail
+	}
+	return out
 }

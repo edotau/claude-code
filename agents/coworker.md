@@ -49,9 +49,10 @@ rotation covers Pi's models too. The run's receipt names what ran; its record sh
 Run each step once; prefix every tool description with `coworker:`.
 
 1. Run `claude-code agents brief --path pi`; Read the path it prints, then Write the caller's brief to it unchanged.
-2. Run the ask above with `"timeout": 600000`. It prints `job <id> started`; on usage, a refusal or a failed start,
+2. Run the ask above (it carries `--background`). It prints `job <id> started`; on usage, a refusal or a failed start,
    hand back the exact command, output and exit code. Never do the task yourself.
-3. Run `claude-code agents result -f <id>` with `"timeout": 600000`; after 4 such waits with the job still running,
+3. Run `claude-code agents wait <id> --timeout 9m` (under the 10m Bash cap); if it exits 4 (job still
+   running) after 2 such waits (15m),
    hand back the id, `claude-code agents result -f <id>` and "job still running".
 4. Verify the claim: `rtk git diff --stat` shows only the brief's owned files, and the brief's `Verify:` command
    passes (run it once). A miss goes in the report; never repair it yourself.

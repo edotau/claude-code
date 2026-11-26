@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -26,6 +27,10 @@ func init() {
 		_, err := ReportFailure(FailuresDir(), Failure{Kind: FailureKind(kind), Subject: subject, Summary: detail,
 			Log: filepath.Join(paths.StateDir(), "hooks"), Time: time.Now().Unix()})
 		return err
+	}
+	health.Report = func(reason, subject string) {
+		_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailDegraded, Subject: reason + " " + subject,
+			Summary: health.Notice(reason), Log: filepath.Join(paths.StateDir(), "agent", "health.json"), Time: time.Now().Unix()})
 	}
 }
 
@@ -42,11 +47,12 @@ const (
 	FailProxyDown FailureKind = "proxy_down"
 	FailProxy5xx  FailureKind = "proxy_5xx"
 	FailHookP95   FailureKind = "hook_p95"
+	FailDegraded  FailureKind = "dispatch_degraded"
 )
 
 // FailureKinds lists every valid kind, in display order.
 var FailureKinds = []FailureKind{FailAudit, FailLaneGate, FailPlanCheck, FailBench, FailDispatch, FailContract,
-	FailProxyDown, FailProxy5xx, FailHookP95}
+	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded}
 
 // Failure is one broadcast record; Time is unix seconds; Seq grows by one per appended record.
 type Failure struct {

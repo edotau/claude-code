@@ -12,6 +12,7 @@ import (
 
 	bolterrors "go.etcd.io/bbolt/errors"
 
+	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
@@ -160,6 +161,19 @@ func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	}
 	return detail + "; teams: " + td, bad || tbad
 }
+
+// clearDegraded ends the dispatch-down state only when the proxy check passed and the daemon answers.
+func clearDegraded(ctx context.Context, proxyBad bool) {
+	if proxyBad {
+		return
+	}
+	if _, up := proxyRunning(ctx); up {
+		health.ClearDown()
+	}
+}
+
+// proxyRunning is a test seam over proxy.Running.
+var proxyRunning = proxy.Running
 
 // flaggedLines keeps the lines scopeReport flagged: over reserved, or not serving.
 func flaggedLines(lines []string) []string {

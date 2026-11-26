@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -385,11 +386,21 @@ func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource s
 	rec.a.Tests += tally.passed
 	rec.a.FailedPkgs = append(rec.a.FailedPkgs, tally.failed...)
 	if err != nil {
+		rec.gateFail = gateFailText(gate, err)
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", at.Lane)
 		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}
 	fmt.Fprintf(req.Out, "verify: passed (%s)\n", gateSource)
 	return nil
+}
+
+// gateFailText is "verify `<cmd>` exited <code>", the command cut so the broadcast summary stays within its 160 bytes.
+func gateFailText(gate string, err error) string {
+	code := "with an error"
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		code = "exited " + strconv.Itoa(ee.ExitCode())
+	}
+	return "verify `" + oneLine(gate, 60) + "` " + code
 }
 
 // PlanOrResolve runs Preflight; a predicted conflict proceeds to the lane rebase; nil plan = blocked.

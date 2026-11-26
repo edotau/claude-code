@@ -404,7 +404,7 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	}
 }
 
-// RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep
+// RouteDetail is the per-agent shim `doctor --agent` reads instead of the whole doctor sweep
 func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "not a credential!")

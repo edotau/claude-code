@@ -73,6 +73,7 @@ func reapLost(r Record) Record {
 				c.Error += "; worker " + rc
 			}
 		}
+		c.NoteHealth(nil) // a lost run is a failed attempt, counted before its record is visible
 		return c, true
 	})
 	if err != nil {

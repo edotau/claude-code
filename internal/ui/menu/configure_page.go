@@ -3,9 +3,11 @@ package menu
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -20,7 +22,9 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
@@ -554,20 +558,70 @@ func runAgents(d *dialog) bool {
 		return false
 	}
 	ok := true
-	for _, name := range agentList {
+	reported := agentList
+	if d.o.Agent == "" {
+		reported = append([]string{"claude"}, agentList...)
+	}
+	for _, name := range reported {
 		if !reportAgentRoute(d, name, sel) {
 			ok = false
 		}
 	}
-	return ok
+	return reportAgentLaunchEnv(d, reported) && ok
 }
+
+type launchDoc struct {
+	Launch *vault.AgentLaunch `json:"launch"`
+}
+
+// reportAgentLaunchEnv prints each launch.env name an overlay or record sets, and whether it holds a value.
+func reportAgentLaunchEnv(d *dialog, agents []string) bool {
+	raw, err := vaultdoc.Export()
+	if err != nil {
+		d.println(err)
+		return false
+	}
+	var doc vaultdoc.Doc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		d.println(err)
+		return false
+	}
+	var top struct{ Agents, Records map[string]launchDoc }
+	if len(doc.Agents) > 0 {
+		if err := json.Unmarshal(doc.Agents, &top); err != nil {
+			d.println(err)
+			return false
+		}
+	}
+	rows := map[string]string{}
+	for _, name := range agents {
+		launch := top.Records[name].Launch
+		if o := top.Agents[name].Launch; o != nil { // the overlay is the later layer and replaces launch whole
+			launch = o
+		}
+		if launch == nil {
+			continue
+		}
+		for _, e := range launch.Env {
+			k, v, _ := strings.Cut(e, "=")
+			rows[name+".launch.env."+k] = map[bool]string{true: "set", false: "empty"}[v != ""]
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(rows)) {
+		d.println(table.TruncateMiddle(k, rowMax-2-len(rows[k])) + "  " + rows[k])
+	}
+	return true
+}
+
+// rowMax is the widest a page row may be, label column included.
+const rowMax = 80
 
 // reportAgentRoute prints where name routes (configuring it unless read-only); false when it needs a fix.
 func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
 	s, _ := agent.LookupSchema(name)
 	target, note, err := s.ResolveTarget(context.Background(), agent.RunOptions{}, d.reg, sel, false)
 	if errors.Is(err, agent.ErrOwnLogin) {
-		d.printf("%-10s runs on %s\n", name, configure.AfterUsing(note))
+		d.println(table.TruncateMiddle(fmt.Sprintf("%-10s runs on %s", name, configure.AfterUsing(note)), rowMax))
 		return true
 	}
 	if err != nil {
@@ -579,14 +633,14 @@ func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
 		_, _, err = s.Configure(context.Background(), target)
 	}
 	if errors.Is(err, agent.ErrOwnLogin) {
-		d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
+		d.println(table.TruncateMiddle(fmt.Sprintf("%-10s runs on its own %s login (%s)", name, target.Provider.Name, target.Model), rowMax))
 		return true
 	}
 	if err != nil {
 		d.printf("%-10s FIX: %v; %s\n", name, err, s.CLI.ConfigureHint)
 		return false
 	}
-	d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
+	d.println(table.TruncateMiddle(fmt.Sprintf("%-10s routes to %s (%s)", name, target.Provider.Name, target.Model), rowMax))
 	return true
 }
 
@@ -672,6 +726,9 @@ func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 		for _, f := range fields {
 			d.println(f.Key + "  " + f.Get(r) + "  " + routingSource(f, overlay))
 		}
+		if m.Name() == "routing" {
+			d.println("fallback  " + fallbackValue())
+		}
 	}
 	return true
 }
@@ -690,7 +747,13 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 		}
 		start = idx
 		f := fields[idx]
-		input, ok := editRoutingField(d, f)
+		if f.Key == fallbackRowKey {
+			editFallbackMode(d, staged)
+			continue
+		}
+		cur := r
+		_ = configure.ApplyStagedRouting(&cur, staged, resetKeys) // a staged value already passed validation
+		input, ok := editRoutingField(d, f, cur)
 		if !ok {
 			continue
 		}
@@ -715,11 +778,44 @@ func routingSections(r, overlay providers.Routing, staged map[string]string, res
 			rows = append(rows, [2]string{f.Key, val + "  " + source})
 			fields = append(fields, f)
 		}
+		if m.Name() == "routing" {
+			fb := fallbackValue()
+			if v := staged[fallbackRowKey]; v != "" {
+				fb = v + " (staged)"
+			}
+			rows = append(rows, [2]string{fallbackRowKey, fb})
+			fields = append(fields, configure.RoutingField{Key: fallbackRowKey})
+		}
 		if len(rows) > 0 {
 			sections = append(sections, tui.Section{Title: heading(m.Name()), Rows: rows})
 		}
 	}
 	return sections, fields
+}
+
+// fallbackRowKey is the routing page's row for the dispatch fallback mode, which lives in the vault env.
+const fallbackRowKey = "fallback"
+
+// fallbackValue is the effective fallback mode with the layer it came from, as `vault ls routing` prints it.
+func fallbackValue() string {
+	mode, origin := router.EffectiveFallback(context.Background(), "", providers.CustomEnv())
+	return mode + " (" + origin + ")"
+}
+
+// editFallbackMode stages a picked mode under fallbackRowKey; saveRouting writes it to the vault env.
+func editFallbackMode(d *dialog, staged map[string]string) {
+	env := providers.CustomEnv()
+	if v := staged[fallbackRowKey]; v != "" {
+		env[fallbackEnv] = v
+	}
+	e, ok := pickFallbackMode(d, env)
+	switch {
+	case !ok:
+	case e.raw == router.ParseFallback(providers.CustomEnv()[fallbackEnv]):
+		delete(staged, fallbackRowKey) // back to the saved mode: nothing to save
+	default:
+		staged[fallbackRowKey] = e.raw
+	}
 }
 
 // stageRoutingField records one edit.
@@ -734,19 +830,19 @@ func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f co
 }
 
 // editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise.
-func editRoutingField(d *dialog, f configure.RoutingField) (string, bool) {
+func editRoutingField(d *dialog, f configure.RoutingField, cur providers.Routing) (string, bool) {
 	switch f.Kind {
 	case configure.RoutingBool:
-		return editRoutingChoice(d, f, []string{"true", "false"})
+		return editRoutingChoice(d, f, []string{"true", "false"}, cur)
 	case configure.RoutingEnum:
-		return editRoutingChoice(d, f, f.Values)
+		return editRoutingChoice(d, f, f.Values, cur)
 	default:
-		return editRoutingText(d, f)
+		return editRoutingText(d, f, cur)
 	}
 }
 
 // editRoutingChoice is the on/off or enum picker, with a trailing "reset to default" row.
-func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (string, bool) {
+func editRoutingChoice(d *dialog, f configure.RoutingField, values []string, cur providers.Routing) (string, bool) {
 	rows := make([][2]string, 0, len(values)+1)
 	for _, v := range values {
 		rows = append(rows, [2]string{v, ""})
@@ -760,7 +856,7 @@ func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (st
 	if idx == resetIdx {
 		return "", true
 	}
-	if err := configure.ValidateRoutingInput(f, values[idx]); err != nil {
+	if err := configure.ValidateRoutingInputOn(f, values[idx], cur); err != nil {
 		d.printf("%s: %v\n", f.Key, err)
 		return "", false
 	}
@@ -768,7 +864,7 @@ func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (st
 }
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
-func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
+func editRoutingText(d *dialog, f configure.RoutingField, cur providers.Routing) (string, bool) {
 	for {
 		raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
 		if !ok {
@@ -779,7 +875,7 @@ func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
 		if input == "" {
 			return "", true
 		}
-		if err := configure.ValidateRoutingInput(f, input); err != nil {
+		if err := configure.ValidateRoutingInputOn(f, input, cur); err != nil {
 			d.printf("%s: %v\n", f.Key, err)
 			continue
 		}
@@ -797,7 +893,13 @@ func saveRouting(d *dialog, staged map[string]string, resetKeys map[string]bool)
 		d.printf("routing: %d change(s) discarded\n", n)
 		return
 	}
-	err := configure.SaveRouting(staged, resetKeys)
+	fields := maps.Clone(staged)
+	mode := fields[fallbackRowKey]
+	delete(fields, fallbackRowKey)
+	err := configure.SaveRouting(fields, resetKeys)
+	if err == nil && mode != "" {
+		err = configure.SaveEnvEdit(fallbackEnv, mode, "")
+	}
 	if err != nil {
 		d.printf("routing: %v\n", err)
 		return

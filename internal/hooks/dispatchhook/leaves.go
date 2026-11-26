@@ -120,14 +120,17 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {
-	reportFailedJobs(in)
+	res := core.Result{Context: reportFailedJobs(in)}
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
 		if core.SpawnTools[in.ToolName] { // only a spawn claims a plan task; a failed one never reaches SubagentStop
-			return core.WithStderr(core.Result{}, docs.ClearPlanClaim(in.CWD, id))
+			res = core.WithStderr(res, docs.ClearPlanClaim(in.CWD, id))
 		}
 	}
-	return core.Result{}
+	if core.SpawnTools[in.ToolName] { // after the release: the freed slot and cleared claim count
+		res.Context = core.JoinContext(res.Context, readyNotice(in.CWD))
+	}
+	return res
 }
 
 // reapLeaf kills the stopping leaf's leftover background shells; a seam for tests.

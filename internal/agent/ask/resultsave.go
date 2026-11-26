@@ -46,7 +46,9 @@ func resultText(rec agent.Record, log string) string {
 	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(&b, "session: %s\n", rec.SessionID)
-		fprintResumeHint(&b, rec.Agent, rec.SessionID)
+		if !rec.Degraded() { // R34: no resume command for a degraded run
+			fprintResumeHint(&b, rec.Agent, rec.SessionID)
+		}
 	}
 	return b.String()
 }

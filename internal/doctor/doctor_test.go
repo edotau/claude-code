@@ -13,8 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
+	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -347,4 +349,62 @@ func TestMain(m *testing.M) {
 	listProxyListeners = func(context.Context, int) ([]proxy.Listener, error) { return nil, nil }
 	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
 	os.Exit(hosttest.Main(m))
+}
+
+func TestDoctorAgentRows(t *testing.T) {
+	doctorScratch(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "codex"}) })
+	if code != 1 {
+		t.Errorf("exit %d, want 1 (binary and login missing in a scratch dir)", code)
+	}
+	for _, want := range []string{"codex binary", "codex login", "codex route", "codex projection",
+		"claude-code install --tools=codex", "agents sync"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("missing row %q in %q (stderr %q)", want, stdout, stderr)
+		}
+	}
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "nope"}) }); code != 2 ||
+		!strings.Contains(stderr, "unknown agent") {
+		t.Errorf("unknown agent: exit %d, stderr %q, want 2 naming the roster", code, stderr)
+	}
+}
+
+func TestDoctorAgentHealthy(t *testing.T) {
+	doctorScratch(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\necho Logged in using ChatGPT\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(paths.AgentBinDirEnv, bin)
+	proj := project.Dir(paths.ConfigDir(), "codex")
+	if err := os.MkdirAll(proj, 0o755); err != nil || os.WriteFile(filepath.Join(proj, "a.md"), nil, 0o644) != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "codex", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("healthy codex exit %d, want 0: %s %s", code, stdout, stderr)
+	}
+	var got struct {
+		OK     bool
+		Checks []struct {
+			Name   string
+			OK     bool
+			Detail string
+		}
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || !got.OK || len(got.Checks) != 4 {
+		t.Fatalf("envelope = %q (%v), want ok with 4 checks", stdout, err)
+	}
+	if d := got.Checks[1].Detail; d != "codex login present" {
+		t.Errorf("login detail = %q", d)
+	}
+	if d := got.Checks[3].Detail; !strings.HasPrefix(d, "1 agent(s) at ") {
+		t.Errorf("projection detail = %q", d)
+	}
+	_, text, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "claude"}) })
+	for _, want := range []string{"claude binary", "claude login", "claude route", "claude projection"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("claude rows lack %q: %q", want, text)
+		}
+	}
 }

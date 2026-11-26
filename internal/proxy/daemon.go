@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -155,13 +156,32 @@ func Ensure(ctx context.Context) (string, error) {
 	return ensure(ctx, 0)
 }
 
+// EnsureError is a failed ensure; Reason is its dispatch-health reason (ensure_failed or proxy_unhealthy).
+type EnsureError struct {
+	Reason string
+	Err    error
+}
+
+func (e *EnsureError) Error() string { return e.Err.Error() }
+func (e *EnsureError) Unwrap() error { return e.Err }
+
 func ensure(ctx context.Context, port int) (string, error) {
+	base, err := ensureRun(ctx, port)
+	if ee, ok := errors.AsType[*EnsureError](err); ok {
+		health.Degrade(ee.Reason)
+	} else if err == nil {
+		health.ClearDown() // a passing probe is the one clear point: every launch passes through ensure
+	}
+	return base, err
+}
+
+func ensureRun(ctx context.Context, port int) (string, error) {
 	release() // any start, by hand or by a launch, ends a deliberate --stop
 	if st, ok := Running(ctx); ok {
 		return Base(st.Port), nil
 	}
 	if _, err := ClientSecret(); err != nil {
-		return "", err
+		return "", &EnsureError{Reason: health.EnsureFailed, Err: err}
 	}
 	var base string
 	err := paths.WithFileLock(filepath.Join(paths.StateDir(), "router.spawn"), func() error {
@@ -171,7 +191,10 @@ func ensure(ctx context.Context, port int) (string, error) {
 		}
 		reportDeadDaemon()
 		if err := spawnDaemon(port); err != nil {
-			return err
+			if errors.Is(err, ErrTestBinary) {
+				return err
+			}
+			return &EnsureError{Reason: health.EnsureFailed, Err: err}
 		}
 		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
 			if st, ok := Running(ctx); ok {
@@ -184,8 +207,12 @@ func ensure(ctx context.Context, port int) (string, error) {
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-		return fmt.Errorf("proxy did not become healthy within 3s (see %s)", logFile())
+		return &EnsureError{Reason: health.ProxyUnhealthy,
+			Err: fmt.Errorf("proxy did not become healthy within 3s (see %s)", logFile())}
 	})
+	if _, typed := errors.AsType[*EnsureError](err); err != nil && !typed && !errors.Is(err, ErrTestBinary) && ctx.Err() == nil {
+		err = &EnsureError{Reason: health.EnsureFailed, Err: err} // the spawn lock could not be taken
+	}
 	return base, err
 }
 

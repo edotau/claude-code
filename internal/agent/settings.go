@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -102,12 +103,27 @@ func ValidateRecord(agentName string, r vault.AgentRecord) error {
 	return err
 }
 
+// recordSettings is r as route.AgentSettings: model_verbosity is Verbosity, config_route "session" is ConfigRoute.
+func recordSettings(r vault.AgentRecord) route.AgentSettings {
+	s := route.AgentSettings{Model: r.Model, Effort: r.Effort, Context: r.Context, Verbosity: r.Extras["model_verbosity"]}
+	if !r.Route.IsZero() {
+		s.Route = &r.Route
+	}
+	if !r.FallbackRoute.IsZero() {
+		s.FallbackRoute = &r.FallbackRoute
+	}
+	if r.Extras["config_route"] == route.ConfigRouteSession {
+		s.ConfigRoute = &route.ConfigRoute{Session: true}
+	}
+	return s
+}
+
 func validateRecord(agentName string, r vault.AgentRecord) (Settings, error) {
 	var st Settings
 	if !agentid.Known(agentName) {
 		return st, fmt.Errorf("unknown agent %q (%s)", agentName, strings.Join(agentid.All(), "|"))
 	}
-	if err := r.Settings().Validate(); err != nil {
+	if err := recordSettings(r).Validate(); err != nil {
 		return st, err
 	}
 	for _, f := range recordFieldOwners {

@@ -127,7 +127,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(route.Codemodes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
 	fs.StringVar(&f.runner, "runner", "", strings.Join(route.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
 	fs.StringVar(&f.googleTools, "google-tools", "", "gemini: Google built-ins, comma list (search,url,code)")
-	fs.DurationVar(&f.timeout, "timeout", 9*time.Minute+30*time.Second, "per-attempt deadline, under the 10m Bash cap")
+	fs.DurationVar(&f.timeout, "timeout", agent.DefaultToolsTimeout, "per-attempt deadline; a foreground ask past the 10m Bash cap runs --background")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
@@ -565,7 +565,7 @@ type askState struct {
 	replayed *agent.RunOptions
 }
 
-// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 9m30s.
+// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
 func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
 	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
 		return agent.DefaultToolsTimeout
@@ -616,6 +616,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	moved := moveOffCutoff(fs, s, rec, os.Stderr, "")
+	ctx = withPlanTask(ctx, cmp.Or(planTaskOf(ctx), rec.PlanTask)) // the retry counts against the same task
 	return agent.WithRetried(ctx, agent.Retried{ID: rec.ID, Plan: replayPlan(fs, rec, moved)}), 0, false
 }
 

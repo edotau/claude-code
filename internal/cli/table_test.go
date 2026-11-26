@@ -93,7 +93,7 @@ func TestCompletionExact(t *testing.T) {
 		{"gemini catalog despite bare launcher", []string{"gemini", "ca"}, []string{"catalog"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
 		{"theme flags", []string{"configure", "theme", "--"}, []string{"--palettes", "--reset"}},
-		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
+		{"doctor flags", []string{"doctor", "--"}, []string{"--agent", "--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
 			"--prompts", "--proxy", "--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
 		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
@@ -131,7 +131,7 @@ func TestCompletionContains(t *testing.T) {
 		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
 		{"agents cancel flags", []string{"agents", "cancel", "--"}, []string{"--dry-run", "--lost"}},
 		{"vendor profile flags", []string{"codex", "profile", "--"}, []string{"--clear", "--off"}},
-		{"vendor setup flag", []string{"codex", "setup", "--"}, []string{"--format"}},
+		{"doctor --agent values", []string{"doctor", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := candidates(tc.words...)

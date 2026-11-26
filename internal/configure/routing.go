@@ -52,7 +52,7 @@ func (routingModule) Name() string { return "routing" }
 
 func (routingModule) Fields() []RoutingField {
 	// Latency rescales first; an explicit price then wins in a multi-key patch.
-	return []RoutingField{weightsLatencyField(), weightsPriceField(), servedAwareField(),
+	return []RoutingField{weightsLatencyField(), weightsPriceField(), weightsHeadroomField(), servedAwareField(),
 		spendCapField("sessionUSD", func(r *providers.Routing) **float64 { return &r.SpendCap.SessionUSD }),
 		spendCapField("dayUSD", func(r *providers.Routing) **float64 { return &r.SpendCap.DayUSD })}
 }
@@ -81,13 +81,19 @@ func weightsPriceField() RoutingField {
 				return fmt.Errorf("weights.price: %v out of [0,1]", v)
 			}
 			l := latencyWeight(*r)
-			if v > 1-l {
+			rest, ok := weightRoom(l, v)
+			if !ok {
 				return fmt.Errorf("weights.price: %v leaves no room for latency %v", v, l)
 			}
-			r.Weights = map[string]float64{"price": v, "headroom": 1 - l - v, "latency": l}
+			r.Weights = map[string]float64{"price": v, "headroom": rest, "latency": l}
 			return nil
 		},
 	}
+}
+
+// weightRoom is what latency l and weight v leave of 1 (never below 0); ok is false past a rounding epsilon.
+func weightRoom(l, v float64) (rest float64, ok bool) {
+	return max(0, 1-l-v), v <= 1-l+1e-9
 }
 
 // latencyWeight respects an explicitly stored weights map, including a missing (zero) latency.
@@ -96,6 +102,36 @@ func latencyWeight(r providers.Routing) float64 {
 		return providers.DefaultRouting().Weights["latency"]
 	}
 	return r.Weights["latency"]
+}
+
+func weightsHeadroomField() RoutingField {
+	return RoutingField{
+		Key: "weights.headroom", Kind: RoutingNumber,
+		Get: func(r providers.Routing) string {
+			if r.Weights == nil {
+				r.Weights = providers.DefaultRouting().Weights
+			}
+			return strconv.FormatFloat(r.Weights["headroom"], 'g', -1, 64)
+		},
+		IsSet: func(r providers.Routing) bool { return r.Weights != nil },
+		Set: func(r *providers.Routing, input string) error {
+			if input == "" {
+				r.Weights = nil
+				return nil
+			}
+			h, err := strconv.ParseFloat(input, 64)
+			if err != nil || math.IsNaN(h) || h < 0 || h > 1 {
+				return fmt.Errorf("weights.headroom: %q must be in [0,1]", input)
+			}
+			l := latencyWeight(*r)
+			rest, ok := weightRoom(l, h)
+			if !ok {
+				return fmt.Errorf("weights.headroom: %v leaves no room for latency %v", h, l)
+			}
+			r.Weights = map[string]float64{"price": rest, "headroom": h, "latency": l}
+			return nil
+		},
+	}
 }
 
 func weightsLatencyField() RoutingField {

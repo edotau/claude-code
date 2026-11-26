@@ -34,7 +34,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
   --tools` with the chain of `skills/problem-solving/references/verify.md`, scoped to the touched packages; never a
   gate it did not run. Handing a session over: `claude-code codex transfer`.
 - Account and pin: `claude-code configure agents --agent codex`, model ids from `codex debug models`; `codex profile
-  <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `codex setup` checks.
+  <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `doctor --agent codex` checks.
 - `--tools` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault readable; empty
   means `workspace-write`, which blocks sockets, `ps` and the vault; no allow rule changes that). An invalid value is
   refused before launch; a nested `--tools` Codex dispatch inherits it.
@@ -52,7 +52,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt flags and
   `--env` are native; no `cost_usd`. `copilot --docs` prints vendor help; `copilot -- <native args>` forces passthrough.
 - Account and pin: `claude-code configure agents --agent copilot` picks the account, `configure github` signs in;
-  `copilot profile <p>` pins (`--off` stops routing, `--clear` resumes its own login), `copilot setup` checks.
+  `copilot profile <p>` pins (`--off` stops routing, `--clear` resumes its own login), `doctor --agent copilot` checks.
   An unbillable account temporarily disables the agent without changing its pin. Routes and quota handoffs:
   `rules/harness/agent.md` → Dispatch behavior; `cost-routing.md` → Fallback.
 

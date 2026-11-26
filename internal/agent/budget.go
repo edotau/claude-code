@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
@@ -192,15 +193,19 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 		return err
 	}
 	who := cmp.Or(res.Agent, rec.Agent)
-	next := "claude-code agents ask --retry " + rec.ID
+	next := "continue with: claude-code agents ask --retry " + rec.ID
 	if res.SessionID != "" {
-		next = "claude-code agents ask --agent " + who + " --session " + res.SessionID + " 'finish from what you have'"
+		next = "continue with: claude-code agents ask --agent " + who + " --session " + res.SessionID + " 'finish from what you have'"
+	}
+	reason := rec.degradedReason() // R34: a degraded task offers no resend, only the notice
+	if reason != "" {
+		next = health.Notice(reason)
 	}
 	lost := "no answer"
 	if n := t.text.Load(); n > 0 {
 		lost = fmt.Sprintf("%d B of text streamed", n)
 	}
-	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
+	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; %s",
 		who, kind, took.Round(time.Second), t.toolCount(), lost, next)
 	if rec.RanIdentity == "" {
 		rec.RanIdentity = ranIdentityOf(rec.ID)
@@ -208,7 +213,9 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	if rec.RanIdentity != "" {
 		hint += "; ran as the " + rec.RanIdentity + " identity"
 	}
-	hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
+	if reason == "" {
+		hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
+	}
 	if who == "gemini" {
 		hint += "; agy log: " + AgyLogPath(rec.ID)
 	}

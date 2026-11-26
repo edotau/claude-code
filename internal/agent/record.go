@@ -151,6 +151,9 @@ func ResumeHint(r Record) string {
 	case "running":
 		return "Resume with: claude-code agents wait " + r.ID
 	}
+	if n := r.degradedHint(); n != "" {
+		return n
+	}
 	if r.BudgetKind != "" {
 		return "Budget end: " + r.TakeOverHint()
 	}
@@ -782,6 +785,7 @@ func isPolicyRefusal(err error) bool {
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {
 	r.Error = ""
 	r.Finish(res, err, took)
+	r.NoteHealth(err) // before the terminal record is visible: a reader of it sees this failure counted
 	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
 		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
 		if err != nil && current.Failed() && current.Error != "" && current.Error != r.Error {

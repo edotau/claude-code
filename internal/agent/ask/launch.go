@@ -114,28 +114,6 @@ func modelsLaunchArgs(argv []string, profile string) []string {
 	return append([]string{"--profile", profile}, argv...)
 }
 
-// Setup is `<agent> setup`: check name's binary, login, route and projection; exit 1 when one fails.
-func Setup(name, format string) int {
-	row, ok := agent.LookupSchema(name)
-	if !ok {
-		row = agent.Schema{Name: name} // reported as an unknown agent, by name
-	}
-	rep := row.Setup()
-	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return helptext.Fail("%s setup: %v", name, err)
-		}
-	} else {
-		for _, c := range rep.Checks {
-			fmt.Printf("%s  %s  %s  %s\n", rep.Agent, c.Name, c.State, c.Detail)
-		}
-	}
-	if !rep.OK {
-		return 1
-	}
-	return 0
-}
-
 // WireUI installs the terminal and sign-in UI the agent package calls but does not import.
 func WireUI() {
 	agent.StdinIsTerminal = tui.StdinIsTerminal

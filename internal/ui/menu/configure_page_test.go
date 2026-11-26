@@ -14,12 +14,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
@@ -335,7 +335,7 @@ func TestEditRoutingTextReasksOnInvalid(t *testing.T) {
 	}
 	var out strings.Builder
 	d := &dialog{out: &out, br: bufio.NewReader(strings.NewReader("abc\n0.5\n"))}
-	got, ok := editRoutingText(d, f)
+	got, ok := editRoutingText(d, f, providers.Routing{})
 	if !ok || got != "0.5" {
 		t.Fatalf("editRoutingText = %q, %v; want 0.5, true (output %q)", got, ok, out.String())
 	}
@@ -343,6 +343,12 @@ func TestEditRoutingTextReasksOnInvalid(t *testing.T) {
 
 // lsRows is the `vault ls` section as cell rows, laid out by the function `vault ls` prints through.
 func lsRows(t *testing.T, section string) [][]string {
+	t.Helper()
+	return lsRowsAfter(t, section, 0)
+}
+
+// lsRowsAfter is the section's cell rows in its skip-th blank-line-separated block (0 = the table).
+func lsRowsAfter(t *testing.T, section string, skip int) [][]string {
 	t.Helper()
 	raw, err := vaultdoc.Export()
 	if err != nil {
@@ -360,7 +366,13 @@ func lsRows(t *testing.T, section string) [][]string {
 	var rows [][]string
 	for _, line := range strings.Split(text, "\n")[1:] {
 		if strings.TrimSpace(line) == "" {
-			break
+			if skip--; skip < 0 {
+				break
+			}
+			continue
+		}
+		if skip > 0 {
+			continue
 		}
 		rows = append(rows, regexp.MustCompile(`\s{2,}`).Split(strings.TrimSpace(line), -1))
 	}
@@ -422,12 +434,12 @@ func pageTestEnv(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// Every `vault ls routing` row but the fallback mode (the environment page owns it) is on the routing page.
+// Every `vault ls routing` row, the fallback mode included, is on the routing page.
 func TestRoutingPageShowsVaultLsRows(t *testing.T) {
 	pageTestEnv(t)
-	// gap: no weights.headroom row on the page, so no weights are seeded (overlay plan)
 	vaulttest.Put(t, vault.Overlay, "providers",
-		`{"routing":{"servedAware":true,"spendCap":{"dayUSD":5.25},"opencode":{"freeTiers":["haiku"],"freeFirstOutput":"45s"}}}`)
+		`{"routing":{"weights":{"latency":0.3,"price":0.2,"headroom":0.5},"servedAware":true,"spendCap":{"dayUSD":5.25},"opencode":{"freeTiers":["haiku"],"freeFirstOutput":"45s"}}}`)
+	vaulttest.Put(t, vault.Env, "AGENT_ERROR_FALLBACK", "all")
 	d, out := newDialog("")
 	d.o.Interactive = false
 	if !runRouting(d) {
@@ -435,13 +447,10 @@ func TestRoutingPageShowsVaultLsRows(t *testing.T) {
 	}
 	var wants []string
 	for _, r := range lsRows(t, "routing") {
-		// gap: the routing page has no fallback row (the environment page owns it)
 		if len(r) != 2 {
 			t.Fatalf("routing row %q, want key and value", r)
 		}
-		if r[0] != "fallback" {
-			wants = append(wants, regexp.MustCompile(`\[\d+\]$`).ReplaceAllString(r[0], "")+"\t"+r[1])
-		}
+		wants = append(wants, regexp.MustCompile(`\[\d+\]$`).ReplaceAllString(r[0], "")+"\t"+r[1])
 	}
 	pageCheck(t, out.String(), wants)
 }
@@ -471,11 +480,12 @@ func TestSecretsPageShowsVaultLsRows(t *testing.T) {
 	pageCheck(t, out.String(), wants)
 }
 
-// Every `vault ls agents` table row of an agent the page covers (not claude) is on the agents page, profile included.
+// Every `vault ls agents` table row is on the agents page, profile included, and each overlay launch.env name too.
 func TestAgentsPageShowsVaultLsRows(t *testing.T) {
 	reg := pageTestEnv(t)
 	vaulttest.SetRecord(t, "codex", "profile", "ultra")
 	vaulttest.SetRecord(t, "gemini", "profile", "ultra")
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"launch":{"env":["X_Y=hidden-value","Z_W="]}}}}`)
 	d, out := newDialog("")
 	d.o.Interactive = false
 	d.o.DryRun = true
@@ -485,14 +495,102 @@ func TestAgentsPageShowsVaultLsRows(t *testing.T) {
 	var wants []string
 	for _, r := range lsRows(t, "agents") {
 		name := strings.TrimSuffix(r[0], " (off)")
-		// gap: the page omits claude; overlay rows follow the table's blank line, where lsRows stops (overlay plan)
-		if !slices.Contains(agent.DefaultAgents, name) {
-			continue
-		}
 		if slices.Contains(r[1:], "ultra") { // the page shows the resolved profile, not the record's model
 			name += "\tultra"
 		}
 		wants = append(wants, name)
 	}
+	for _, r := range lsRowsAfter(t, "agents", 1) {
+		if len(r) != 3 || r[1] != "launch.env" {
+			t.Fatalf("overlay row %q, want agent, launch.env, entries", r)
+		}
+		for e := range strings.SplitSeq(r[2], ", ") {
+			k, v, _ := strings.Cut(e, "=")
+			wants = append(wants, r[0]+".launch.env."+k+"\t"+map[bool]string{true: "set", false: "empty"}[v != ""])
+		}
+	}
 	pageCheck(t, out.String(), wants)
+	if strings.Contains(out.String(), "hidden-value") {
+		t.Errorf("agents page prints an env value:\n%s", out)
+	}
+}
+
+// The interactive routing page offers every field and the fallback row, shows a staged fallback, fits 80 columns.
+func TestRoutingMenuShowsEveryRow(t *testing.T) {
+	pageTestEnv(t)
+	orig := pickMenu
+	t.Cleanup(func() { pickMenu = orig })
+	var rows [][2]string
+	pickMenu = func(_ string, secs []tui.Section, _ [2]string, _ int) (int, error) {
+		for _, s := range secs {
+			rows = append(rows, s.Rows...)
+		}
+		return -1, nil
+	}
+	runRoutingMenu(&dialog{out: discardWriter{}}, providers.DefaultRouting(), providers.Routing{})
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r[0]] = true
+	}
+	want := []string{fallbackRowKey}
+	for _, m := range configure.Modules() {
+		for _, f := range m.Fields() {
+			want = append(want, f.Key)
+		}
+	}
+	for _, k := range want {
+		if !got[k] {
+			t.Errorf("routing page lacks the %q row: %q", k, rows)
+		}
+	}
+	if !got["weights.headroom"] {
+		t.Error("no weights.headroom row")
+	}
+	secs, _ := routingSections(providers.DefaultRouting(), providers.Routing{}, map[string]string{fallbackRowKey: "all"}, nil)
+	if v := secs[0].Rows[len(secs[0].Rows)-1]; v != [2]string{fallbackRowKey, "all (staged)"} {
+		t.Errorf("staged fallback row = %q", v)
+	}
+	assertFitsEighty(t, "routing page", rows)
+}
+
+// Weight edits validate against the current weights, with a float-safe bound.
+func TestRoutingWeightEditsUseCurrentWeights(t *testing.T) {
+	cur := providers.Routing{Weights: map[string]float64{"latency": 0.8, "price": 0.1, "headroom": 0.1}}
+	field := func(key string) configure.RoutingField {
+		for _, f := range configure.Modules()[0].Fields() {
+			if f.Key == key {
+				return f
+			}
+		}
+		t.Fatalf("no field %s", key)
+		return configure.RoutingField{}
+	}
+	if err := configure.ValidateRoutingInputOn(field("weights.price"), "0.2", cur); err != nil {
+		t.Errorf("price 0.2 with latency 0.8 rejected: %v", err)
+	}
+	if err := configure.ValidateRoutingInputOn(field("weights.headroom"), "0.3", cur); err == nil {
+		t.Error("headroom 0.3 with latency 0.8 accepted")
+	}
+}
+
+// Agents page rows stay within 80 columns for a 60-character env name and a long profile, and the overlay wins.
+func TestAgentsPageRowsFitAndOverlayWins(t *testing.T) {
+	reg := pageTestEnv(t)
+	long := strings.Repeat("N", 56) + "TAIL"
+	vaulttest.SetRecord(t, "codex", "profile", "ultra")
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"launch":{"env":["`+long+`=v"]}}}}`)
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"OLD_NAME=v"}}}); err != nil {
+		t.Fatal(err)
+	}
+	d, out := newDialog("")
+	d.o.Interactive, d.o.DryRun, d.o.Home, d.reg = false, true, os.Getenv("HOME"), reg
+	runAgents(d)
+	for l := range strings.SplitSeq(out.String(), "\n") {
+		if (strings.Contains(l, "launch.env") || strings.Contains(l, "routes to")) && textutil.DisplayWidth(l) > 80 {
+			t.Errorf("row of %d cells: %q", textutil.DisplayWidth(l), l)
+		}
+	}
+	if !strings.Contains(out.String(), "TAIL  set") || !strings.Contains(out.String(), "codex.launch.env.N") || strings.Contains(out.String(), "OLD_NAME") {
+		t.Errorf("overlay launch must win over the record:\n%s", out)
+	}
 }

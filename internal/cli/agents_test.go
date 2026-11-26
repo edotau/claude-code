@@ -243,7 +243,7 @@ func writeDispatch(t *testing.T, id, status string, pid int, age time.Duration) 
 
 // The core sub-verbs stay routed (presence, not exact membership): a renamed or dropped one silently stops routing.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"setup", "catalog", "review", "transfer", "profile"} {
+	for _, w := range []string{"catalog", "review", "transfer", "profile"} {
 		if _, ok := agentSubPages[w]; !ok {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
@@ -274,7 +274,7 @@ func TestVendorVerbRouting(t *testing.T) {
 			`codex: unknown subcommand "explore"`, ""},
 		{"native flag stops the scan", notAVendor, []string{"--native", "ask"}, -1, false, false, "unknown agent", "unknown subcommand"},
 		{"bare word launches", notAVendor, []string{"--native-flag", "x"}, -1, false, false, "unknown agent", ""},
-		{"setup", notAVendor, []string{"setup"}, -1, true, false, notAVendor + "  agent  fail", ""},
+		{"setup is retired", "codex", []string{"setup"}, 2, false, false, `codex: unknown subcommand "setup"`, ""},
 		{"catalog extra arg", "codex", []string{"catalog", "unexpected"}, 2, false, false, "codex catalog: unexpected argument", ""},
 		{"catalog help", "codex", []string{"catalog", "--help"}, 0, false, true, "usage: claude-code codex catalog", ""},
 	} {

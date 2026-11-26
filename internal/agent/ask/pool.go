@@ -370,6 +370,7 @@ func (b *batchRun) recoverTask(t batchTask, rec *agent.Record, start time.Time, 
 	}
 	err := retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
 	rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
+	rec.NoteHealth(err)
 	if serr := rec.Save(); serr != nil {
 		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, serr)
 	}

@@ -390,8 +390,9 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
   the Agent tool with a harness type (`claude`, Pi first by default; external work agents as their own type or
   carried, Pi as a plain ask). A job expected to outlast a Bash call (~10 minutes) may instead be started by the main
-  session itself with `claude-code agents ask --background`, then `agents wait <id>... --timeout 9m` and `agents result
-  <id>`: no leaf sits waiting on a shell. A long ask started from a leaf carries `--background` too: the stop gate
+  session itself with `claude-code agents ask --background`, then `agents wait <id>... --timeout 9m` (repeat to
+  cover 15m) and `agents result <id>`: no leaf sits waiting on a shell. A long ask started from a leaf carries
+  `--background` too: the stop gate
   holds the leaf until the job ends (`dispatch-stop`, `dispatch-handback`), whereas a shell-backgrounded ask dies when
   the leaf stops. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager

@@ -3,6 +3,7 @@ package worktree
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,4 +65,12 @@ func readAttempts(t *testing.T) []LandAttempt {
 		t.Fatal(err)
 	}
 	return parseAttempts(raw)
+}
+
+// A gate that is not a Go package gate names its command and exit code in the broadcast summary.
+func TestGateFailTextNamesCommandAndExit(t *testing.T) {
+	err := exec.Command("sh", "-c", "exit 3").Run()
+	if got := gateFailText("false", err); got != "verify `false` exited 3" {
+		t.Fatalf("gateFailText = %q", got)
+	}
 }

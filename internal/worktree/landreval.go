@@ -19,8 +19,9 @@ var errTargetMoved = errors.New("target moved")
 
 // attempt times one land attempt and writes its LandAttempt record.
 type attempt struct {
-	a LandAttempt
-	t time.Time
+	a        LandAttempt
+	t        time.Time
+	gateFail string // what the last failed gate ran and how it ended, for a non-Go-package failure
 }
 
 func startAttempt(repo *Repo, req LandRequest) *attempt {
@@ -55,7 +56,7 @@ func (r *attempt) next(o Outcome) {
 	}
 	r.a = LandAttempt{Time: time.Now().Unix(), Repo: r.a.Repo, Lane: r.a.Lane, Attempt: r.a.Attempt + 1, By: r.a.By,
 		Scope: r.a.Scope, Packages: r.a.Packages, Reval: RevalNone, Reason: o}
-	r.t = time.Now()
+	r.t, r.gateFail = time.Now(), ""
 }
 
 // reportGate broadcasts a failed lane gate once per lane and integrated sha (the failure id dedupes).
@@ -65,7 +66,7 @@ func (r *attempt) reportGate() {
 		subject += "@" + r.a.IntegratedOID[:min(7, len(r.a.IntegratedOID))]
 	}
 	_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailLaneGate, Repo: r.a.Repo, Subject: subject,
-		Summary: "lane gate failed: " + strings.Join(r.a.FailedPkgs, " "), Log: LandAttemptsFile()})
+		Summary: "lane gate failed: " + cmp.Or(strings.Join(r.a.FailedPkgs, " "), r.gateFail), Log: LandAttemptsFile()})
 }
 
 func outcomeOf(err error) Outcome {

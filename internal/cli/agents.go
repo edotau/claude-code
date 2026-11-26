@@ -72,7 +72,6 @@ func agentNode(name string) *helptext.Node {
 			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model"), flag("overlay"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
 		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
-		"setup":    {Flags: []helptext.Flag{formatFlag()}},
 		"catalog":  catalogSpec(name),
 	}}
 	if name == "codex" {
@@ -564,7 +563,7 @@ func cmdAgentsWait(args []string) int {
 	return agent.WaitExit(rows)
 }
 
-// waitDefaultTimeout keeps one wait call under the 600000 ms Bash cap.
+// waitDefaultTimeout keeps one wait call under the 600000 ms Bash cap; repeat it to cover a 15m dispatch.
 const waitDefaultTimeout = 570 * time.Second
 
 // printResumeHints prints each unfinished or failed wait row's resume line on stderr.
@@ -577,8 +576,10 @@ func printResumeHints(rows []agent.WaitResult) {
 			fmt.Fprintf(os.Stderr, "%s: still running, re-run `claude-code agents result -f %s`\n", r.ID, r.ID)
 			continue
 		}
-		if rec, err := agent.LoadRecord(r.ID); err == nil && agent.ResumeHint(rec) != "" {
-			fmt.Fprintln(os.Stderr, agent.ResumeHint(rec))
+		if rec, err := agent.LoadRecord(r.ID); err == nil {
+			if hint := agent.ResumeHint(rec); hint != "" { // the degraded notice (R34) replaces the resend line
+				fmt.Fprintln(os.Stderr, hint)
+			}
 		}
 	}
 }
@@ -693,7 +694,6 @@ func agentPage(name string) helptext.Page {
 	rows := [][2]string{
 		{"review", "diff review; --adversarial"},
 		{"transfer", "hand this Claude session to " + name + "; --source"},
-		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "model catalog; on Databricks: list|check|sync"},
 		{"profile", "show or set " + name + "'s profile; --clear = own login; --off"},
 	}
@@ -751,7 +751,6 @@ func launchFlags(name string) *flag.FlagSet {
 
 // agentSubPages maps each sub-verb to its synopsis tail and blurb; %s is the agent name.
 var agentSubPages = map[string][2]string{
-	"setup":   {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
 	"catalog": {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
 	"review":  {"review [flags] [focus…]", "Review a diff with %s; flag-like focus words go after --."},
 	"profile": {"profile [<profile>|--clear|--off]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login, " +
@@ -775,7 +774,7 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 }
 
 // retiredAgentVerbs are refused, not forwarded to the agent CLI; their jobs moved to agents verbs and ask --session.
-var retiredAgentVerbs = []string{"ask", "explore", "resume", "status", "tail", "result", "cancel", "on", "off"}
+var retiredAgentVerbs = []string{"ask", "explore", "resume", "status", "tail", "result", "cancel", "on", "off", "setup"}
 
 // retiredVerb is the retired verb args open with past the harness launch flags; else "" (a native flag stops it).
 func retiredVerb(name string, args []string) string {
@@ -865,26 +864,16 @@ func cmdAgentVerb(name string, args []string) int {
 	return agentLaunch(name, args)
 }
 
-// agentSub dispatches an agent's subverbs (setup, catalog, transfer, profile, review).
+// agentSub dispatches an agent's subverbs (catalog, transfer, profile, review).
 func agentSub(name string, args []string) int {
 	handlers := map[string]func(string, []string) int{
-		"setup": agentSetup, "catalog": agentCatalog,
+		"catalog":  agentCatalog,
 		"transfer": agentTransfer, "profile": agentProfile, "review": agentReview,
 	}
 	if run := handlers[args[0]]; run != nil {
 		return run(name, args[1:])
 	}
 	return helptext.Fail("%s: unknown subcommand %q", name, args[0])
-}
-
-// agentSetup is `<v> setup [--format text|json]`.
-func agentSetup(name string, args []string) int {
-	fs := newAgentFlags(name, "setup")
-	format := helptext.FormatFlag(fs)
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	return ask.Setup(name, *format)
 }
 
 // agentReview is `<v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.

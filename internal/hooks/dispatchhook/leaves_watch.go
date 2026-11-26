@@ -115,7 +115,7 @@ func watchTickLocked(key string, owner int, now time.Time, mode string) core.Res
 		res.Context = core.JoinNonEmpty("\n", res.Context, "watch: job "+q.ID+" "+q.Line())
 	}
 	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
-		res.Context = core.JoinNonEmpty("\n", res.Context, hb)
+		res.Context = core.JoinNonEmpty("\n", res.Context, core.JoinNonEmpty("; ", hb, degradedNote("", "")))
 	}
 	return res
 }
@@ -260,6 +260,11 @@ func watchLine(s agent.StaleJob, mode string) string {
 		agent.ShortDur(s.Age), agent.ShortDur(s.Silence))
 	if s.LastLine != "" && s.Reason == agent.WatchSilent {
 		head += "; last log line: " + s.LastLine
+	}
+	if rec, err := loadDispatch(s.ID); err == nil { // R34: no resume, no resend line while the task is degraded
+		if n := degradedNote(rec.Request.Prompt, rec.PlanTask); n != "" {
+			return head + "; " + n
+		}
 	}
 	if s.Resumable() {
 		return head + "; " + resumeOnce(s, mode)
