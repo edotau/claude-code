@@ -139,7 +139,7 @@ func TestPlanTaskOps(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	long := strings.Repeat("word ", 20) + "tail"
 	writeFile(t, plan, "- [ ] 1.1 Manual step <!-- working: x -->\n- [ ] 1.2 Two lines "+long+"\n  second line "+long+"\n- [ ] 1.3 Next\n")
-	if err := MarkDone(plan, "1.1", "abc1234"); err != nil {
+	if _, err := MarkDone(plan, "1.1", "abc1234"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, plan); !strings.HasPrefix(got, "- [x] 1.1 Manual step (abc1234)\n") {
@@ -176,7 +176,7 @@ func TestPlanTaskOps(t *testing.T) {
 	if Strike(plan, "1.1", "") == nil {
 		t.Fatal("a strike needs a reason")
 	}
-	if err := MarkDone(plan, "1.3", ""); err != nil || Strike(plan, "1.3", "x") == nil {
+	if _, err := MarkDone(plan, "1.3", ""); err != nil || Strike(plan, "1.3", "x") == nil {
 		t.Fatalf("a ticked task must refuse a strike (done err=%v)", err)
 	}
 }
@@ -442,11 +442,11 @@ func TestStrikeWith(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "2026-11-24-x.md")
 	writeFile(t, plan, "- [ ] 1.1 Task\n")
 	for _, c := range [][2]string{{"bogus", "note:a.md"}, {"obsolete", "junk"}, {"obsolete", "note:a.md x"}, {"obsolete", "note:a\u00a0b"}, {"obsolete", "commit:nothex"}} {
-		if StrikeWith(plan, "1.1", c[0], c[1]) == nil {
+		if _, err := StrikeWith(plan, "1.1", c[0], c[1]); err == nil {
 			t.Errorf("StrikeWith(%q, %q) = nil, want error", c[0], c[1])
 		}
 	}
-	if err := StrikeWith(plan, "1.1", "obsolete", "note:a.md"); err != nil {
+	if _, err := StrikeWith(plan, "1.1", "obsolete", "note:a.md"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(plan)
@@ -607,7 +607,7 @@ func TestCandidateMemoResetsAndIsCapped(t *testing.T) {
 	if !announce(plan, "1.1", false) || announce(plan, "1.1", false) {
 		t.Fatal("a candidate is announced once")
 	}
-	if err := MarkDone(plan, "1.1", ""); err != nil {
+	if _, err := MarkDone(plan, "1.1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !announce(plan, "1.1", false) {

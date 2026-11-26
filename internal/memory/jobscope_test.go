@@ -58,12 +58,14 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 	work, plan, good, side := planFixture(t)
 	task := "claude-code plan task "
 	calls := []planCall{
-		{task + "'Phase 1.1' --done --sha " + good + " --plan " + plan, func() error { return plans.MarkDone(plan, "Phase 1.1", good) }},
+		{task + "'Phase 1.1' --done --sha " + good + " --plan " + plan, func() error { _, err := plans.MarkDone(plan, "Phase 1.1", good); return err }},
 		{task + "'Phase 1.2' --strike 'moot — evidence: note:feedback/x.md' --plan " + plan,
 			func() error { return plans.Strike(plan, "Phase 1.2", "moot — evidence: note:feedback/x.md") }},
-		{task + "'Phase 1.3' --done --sha " + side + " --plan " + plan, func() error { return plans.MarkDone(plan, "Phase 1.3", side) }},
+		{task + "'Phase 1.3' --done --sha " + side + " --plan " + plan, func() error { _, err := plans.MarkDone(plan, "Phase 1.3", side); return err }},
 	}
 	prompt := ""
+	// The plan phase belongs to the legacy dream, so the store is stamped flat 3.
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", "flat 3\n")
 	run := func(_ context.Context, p, _ string) (string, error) {
 		prompt = p
 		for _, c := range calls {

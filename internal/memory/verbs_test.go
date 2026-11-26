@@ -161,7 +161,8 @@ func TestStewardRejectsCollidingSession(t *testing.T) {
 	now := time.Now()
 	write(t, handoffDoneMarker("12345678-mine"), "12345678-mine\n"+stewardHandoffPath("12345678-mine", now)+"\nrequest")
 	write(t, stewardHandoffPath("12345678-mine", now), "<!-- session: 12345678-peer -->\npeer body")
-	if got := StewardHandoffBody("12345678-mine", now); got != "" {
+	const budget = 9000
+	if got := StewardHandoffBodyBudget("12345678-mine", now, budget); got != "" {
 		t.Fatalf("injected colliding session: %s", got)
 	}
 }

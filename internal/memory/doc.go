@@ -1,13 +1,9 @@
 package memory
 
 import (
-	"errors"
-	"fmt"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"unicode"
 )
 
 // Grammar says which lines start an entry; chosen from the file name, never guessed from content.
@@ -53,12 +49,9 @@ type Ref struct {
 	Alias   string // slug a model or a hand wrote after "-"; Go never mints one
 }
 
-// noteFront is the typed view of a note's frontmatter; other keys stay untouched in Doc.Front.
-type noteFront struct{ Name, Description, Type string }
-
 // GrammarOf picks the grammar from the file name: idFiles and archives first, else GrammarSections.
 func GrammarOf(name string) Grammar {
-	if src, ok := archiveSource(filepath.Base(name)); ok { // an archive parses with its source file's grammar
+	if src, ok := ArchiveSource(filepath.Base(name)); ok { // an archive parses with its source file's grammar
 		name = src + ".md"
 	}
 	switch logicalName(name) {
@@ -275,59 +268,6 @@ func marker(line string) (r Ref, lo, hi int, ok bool) {
 	}
 }
 
-// errFrontFlow is returned when a type change would have to edit an inline (flow-style) metadata map.
-var errFrontFlow = errors.New("memory: frontmatter metadata is not a block map; edit it by hand")
-
-// frontFields reads name, description and metadata.type from the front block; false when there is none.
-func (d Doc) frontFields() (noteFront, bool, error) {
-	if d.Front == nil {
-		return noteFront{}, false, nil
-	}
-	f, err := readFront(d.Front)
-	return f, true, err
-}
-
-// readFront reads the three typed scalars from front lines (fences included); a malformed quoted value is an error.
-func readFront(front []string) (noteFront, error) {
-	var f noteFront
-	if len(front) < 2 {
-		return f, nil
-	}
-	body := front[1 : len(front)-1]
-	for i := 0; i < len(body); i++ {
-		key, val, ok := splitKey(body[i])
-		if !ok {
-			continue
-		}
-		j := continuationEnd(body, i+1)
-		if err := f.set(key, val, body[i+1:j]); err != nil {
-			return noteFront{}, fmt.Errorf("frontmatter %s: %w", key, err)
-		}
-		i = j - 1
-	}
-	return f, nil
-}
-
-// continuationEnd is the index after the indented lines that start at from.
-func continuationEnd(lines []string, from int) int {
-	for from < len(lines) && strings.TrimSpace(lines[from]) != "" && (lines[from][0] == ' ' || lines[from][0] == '\t') {
-		from++
-	}
-	return from
-}
-
-func (f *noteFront) set(key, val string, cont []string) (err error) {
-	switch key {
-	case "name":
-		f.Name, err = foldedScalar(val, cont)
-	case "description":
-		f.Description, err = foldedScalar(val, cont)
-	case "metadata":
-		f.Type, err = metaType(val, cont)
-	}
-	return err
-}
-
 // splitKey splits a top-level "key: value" line; ok is false for indented, comment or non-key lines.
 func splitKey(ln string) (key, val string, ok bool) {
 	if ln == "" || ln[0] == ' ' || ln[0] == '\t' || ln[0] == '#' {
@@ -338,188 +278,6 @@ func splitKey(ln string) (key, val string, ok bool) {
 		return "", "", false
 	}
 	return strings.TrimSpace(k), v, true
-}
-
-// foldedScalar reads a value and, for a plain or block scalar, folds its indented continuation lines in.
-func foldedScalar(val string, cont []string) (string, error) {
-	s, plain, err := scalar(val)
-	if err != nil || !plain {
-		return s, err
-	}
-	for _, c := range cont {
-		if t := strings.TrimSpace(c); t != "" {
-			s = strings.TrimSpace(s + " " + t)
-		}
-	}
-	return s, nil
-}
-
-// metaType reads metadata.type from a block map (the indented lines) or a one-line flow map.
-func metaType(val string, cont []string) (string, error) {
-	if t := strings.TrimSpace(val); strings.HasPrefix(t, "{") {
-		cont = strings.Split(strings.TrimSuffix(strings.TrimPrefix(t, "{"), "}"), ",")
-	}
-	for _, c := range cont {
-		if k, v, ok := strings.Cut(strings.TrimSpace(c), ":"); ok && strings.TrimSpace(k) == "type" {
-			s, _, err := scalar(v)
-			return s, err
-		}
-	}
-	return "", nil
-}
-
-// scalar reads one value: quoted, else plain up to " #"; plain is false for a quoted one.
-func scalar(val string) (s string, plain bool, err error) {
-	val = strings.TrimSpace(val)
-	switch {
-	case val == "" || val[0] == '#' || val[0] == '|' || val[0] == '>':
-		return "", true, nil
-	case val[0] == '"' || val[0] == '\'':
-		s, err = unquote(val)
-		return s, false, err
-	}
-	val, _, _ = strings.Cut(val, " #")
-	return strings.TrimSpace(val), true, nil
-}
-
-// unquote reads a quoted scalar; text after the closing quote must be a comment.
-func unquote(val string) (string, error) {
-	q := val[0]
-	var b strings.Builder
-	for i := 1; i < len(val); i++ {
-		c := val[i]
-		switch {
-		case q == '"' && c == '\\' && i+1 < len(val):
-			i++
-			b.WriteString(escaped(val[i]))
-		case c == q && q == '\'' && i+1 < len(val) && val[i+1] == q:
-			b.WriteByte(q) // a doubled single quote is one quote
-			i++
-		case c == q:
-			return b.String(), afterClose(val[i+1:])
-		default:
-			b.WriteByte(c)
-		}
-	}
-	return "", fmt.Errorf("unterminated quote in %q", val)
-}
-
-// escaped is a double-quoted backslash pair: \\ and \" unescape, any other pair stays as written.
-func escaped(c byte) string {
-	if c == '\\' || c == '"' {
-		return string(c)
-	}
-	return "\\" + string(c)
-}
-
-func afterClose(rest string) error {
-	if rest = strings.TrimSpace(rest); rest != "" && rest[0] != '#' {
-		return fmt.Errorf("text after the closing quote: %q", rest)
-	}
-	return nil
-}
-
-// encodeScalar writes v so readFront returns it unchanged: plain when safe, else double-quoted.
-func encodeScalar(v string) (string, error) {
-	for _, r := range v {
-		if r != '\t' && unicode.IsControl(r) {
-			return "", fmt.Errorf("frontmatter value %q holds a control character or newline", v)
-		}
-	}
-	if plainSafe(v) {
-		return v, nil
-	}
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`, nil
-}
-
-// plainSafe reports whether v reads back as the same string and type when written unquoted.
-func plainSafe(v string) bool {
-	if v == "" || v != strings.TrimSpace(v) || strings.Contains(v, "\t") {
-		return false
-	}
-	if strings.ContainsRune("[{*&!|>'\"%@`#,", rune(v[0])) || strings.Contains(v+" ", ": ") || strings.Contains(v, " #") {
-		return false
-	}
-	if strings.ContainsRune("-?:", rune(v[0])) && (len(v) == 1 || v[1] == ' ') {
-		return false
-	}
-	return plainTyped(v)
-}
-
-// plainTyped is false for a string YAML would read as a bool, null or number.
-func plainTyped(v string) bool {
-	low := strings.ToLower(v)
-	switch low {
-	case "true", "false", "yes", "no", "on", "off", "y", "n", "null", "~":
-		return false
-	}
-	_, err := strconv.ParseFloat(v, 64)
-	return err != nil && !strings.HasPrefix(low, "0x") && !strings.HasPrefix(low, "0o")
-}
-
-// withFront returns a copy whose front lines carry f; only changed name, description and type lines are rewritten.
-func (d Doc) withFront(f noteFront) (Doc, error) {
-	cur, _, err := d.frontFields()
-	if err != nil {
-		return d, err
-	}
-	lines := slices.Clone(d.Front)
-	if lines == nil {
-		lines = []string{"---", "---"}
-	}
-	for _, kv := range [][3]string{{"name", cur.Name, f.Name}, {"description", cur.Description, f.Description}} {
-		if kv[1] == kv[2] {
-			continue
-		}
-		enc, err := encodeScalar(kv[2])
-		if err != nil {
-			return d, err
-		}
-		lines = setFrontLine(lines, "", kv[0], enc)
-	}
-	if cur.Type != f.Type {
-		enc, err := encodeScalar(f.Type)
-		if err != nil {
-			return d, err
-		}
-		if slices.ContainsFunc(lines, inlineMetadata) {
-			return d, errFrontFlow
-		}
-		lines = setFrontLine(lines, "  ", "type", enc)
-	}
-	out := d
-	out.Front = lines
-	return out, nil
-}
-
-func inlineMetadata(ln string) bool {
-	rest, ok := strings.CutPrefix(ln, "metadata:")
-	rest = strings.TrimSpace(rest)
-	return ok && rest != "" && rest[0] != '#'
-}
-
-// setFrontLine replaces the "<indent>key:" line (and a top-level key's continuation lines), or inserts one.
-func setFrontLine(lines []string, indent, key, val string) []string {
-	want := indent + key + ": " + val
-	for i, ln := range lines {
-		if strings.HasPrefix(ln, indent+key+":") && (indent != "" || !strings.HasPrefix(ln, " ")) {
-			end := i + 1
-			if indent == "" {
-				end = continuationEnd(lines[:len(lines)-1], end)
-			}
-			return slices.Replace(lines, i, end, want)
-		}
-	}
-	at := len(lines) - 1
-	if indent != "" {
-		for i, ln := range lines {
-			if strings.HasPrefix(ln, "metadata:") {
-				return slices.Insert(lines, i+1, want)
-			}
-		}
-		return slices.Insert(lines, at, "metadata:", want)
-	}
-	return slices.Insert(lines, at, want)
 }
 
 // Section is the entry range [lo, hi) under the "## heading" entry; -1, -1 when absent.

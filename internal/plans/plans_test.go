@@ -592,75 +592,12 @@ func TestDirOwnsNeverComplete(t *testing.T) {
 	}
 }
 
-// TestSelectPicksOwningPlan: only the plan whose open task owns a touched file is selected; a dir-only touch is not.
-func TestSelectPicksOwningPlan(t *testing.T) {
-	hermetic(t)
-	home := t.TempDir()
-	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
-	writeFile(t, filepath.Join(home, "2026-10-01-gateway.md"), "- [ ] 2.1 Proxy owns: internal/proxy\n- [ ] 2.2 Other owns: internal/gw/g.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go", "internal/proxy/h.go"}}}
-	plan, tied, _ := Select(home, "", "", nil, commits)
-	if len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-roles.md" || tied != nil {
-		t.Fatalf("plan=%q tied=%v", plan, tied)
-	}
-}
-
-// TestSelectTieRule: plans owning the same file are all updated and named in tied; a worktree claim keeps one.
-func TestSelectTieRule(t *testing.T) {
-	hermetic(t)
-	home := t.TempDir()
-	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
-	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go"}}}
-	if plan, tied, _ := Select(home, "", "", nil, commits); len(plan) != 2 || len(tied) != 2 {
-		t.Fatalf("a tie with no claim must update both: plan=%v tied=%v", plan, tied)
-	}
-	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go <!-- working: x · worktree wt -->\n")
-	if plan, tied, _ := Select(home, "", "wt", nil, commits); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-dup.md" || tied != nil {
-		t.Fatalf("worktree claim should break the tie: plan=%v tied=%v", plan, tied)
-	}
-	day := "2026-10-05"
-	writeFile(t, filepath.Join(home, day+"-a.md"), "- [ ] 1.1 A owns: shared.go <!-- working: x · worktree wt -->\n")
-	writeFile(t, filepath.Join(home, day+"-b.md"), "- [ ] 2.1 B owns: shared.go\n- [ ] 2.2 U owns: unique.go\n")
-	both := []Commit{{Sha: "abc1234", Files: []string{"shared.go", "unique.go"}}}
-	plan, _, allow := Select(home, "", "wt", nil, both)
-	b := filepath.Join(home, day+"-b.md")
-	if !slices.Contains(plan, b) {
-		t.Fatalf("independent unique.go task excluded with its entire plan: %v", plan)
-	}
-	shared, _ := findTask(parseBytes(b, []byte(readFile(t, b))), "2.1")
-	unique, _ := findTask(parseBytes(b, []byte(readFile(t, b))), "2.2")
-	if allow[b](shared) || !allow[b](unique) {
-		t.Fatalf("the claim must hold shared.go only: shared=%v unique=%v", allow[b](shared), allow[b](unique))
-	}
-}
-
-// TestSelectOlderPlanWhileNewerIsOpen: a commit advances a task in an older plan though a newer plan has open tasks.
-func TestSelectOlderPlanWhileNewerIsOpen(t *testing.T) {
-	hermetic(t)
-	home := t.TempDir()
-	writeFile(t, filepath.Join(home, "2026-10-01-old.md"), "- [ ] 1.1 Old owns: internal/a/a.go\n")
-	writeFile(t, filepath.Join(home, "2026-10-09-new.md"), "- [ ] 2.1 New owns: internal/b/b.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go", "internal/b/b.go"}}}
-	plan, tied, _ := Select(home, "", "", nil, commits)
-	if len(plan) != 2 || tied != nil {
-		t.Fatalf("both plans advance, no tie: plan=%v tied=%v", plan, tied)
-	}
-	if plan, _, _ := Select(home, "", "", nil, []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-old.md" {
-		t.Fatalf("older plan not selected: %v", plan)
-	}
-}
-
 // TestStruckTaskIsClosed: a struck task is never selected, ticked or noted, and does not keep a plan active.
 func TestStruckTaskIsClosed(t *testing.T) {
 	home := hermetic(t)
 	dir := filepath.Join(home, "plans")
 	struck := filepath.Join(dir, "2026-10-01-struck.md")
 	writeFile(t, struck, "- [ ] ~~1.1 Old owns: internal/a/a.go~~ — superseded: gone <!-- working: x · worktree wt -->\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}
-	if plan, _, _ := Select(dir, "", "wt", nil, commits); plan != nil {
-		t.Fatalf("struck task selected: %v", plan)
-	}
 	if _, _, ok := Active(dir, "wt", nil); ok {
 		t.Fatal("a plan whose only open task is struck must not be active")
 	}
@@ -683,22 +620,6 @@ func TestClaimsWorktreeMatchesWholeName(t *testing.T) {
 	}
 }
 
-func TestSelectAbbreviatedSubsetOwns(t *testing.T) {
-	hermetic(t)
-	home := t.TempDir()
-	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
-	writeFile(t, planPath, "- [ ] 1.1 Parser owns: internal/plans/plans.go, tick.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}, Message: "feat: x\n\nTask: 2026-11-05-abbreviated 1.1"}}
-	plan, tied, _ := Select(home, "", "", nil, commits)
-	if len(plan) != 1 || plan[0] != planPath || len(tied) != 0 {
-		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
-	}
-	results, err := tickCommits("", plan[0], commits, false, nil)
-	if err != nil || len(results) != 1 || len(results[0].Ticked) != 1 || len(results[0].Notes) != 1 || !strings.Contains(results[0].Notes[0], "internal/plans/plans.go") {
-		t.Fatalf("a named subset commit ticks and names the missing owned file: results=%+v err=%v", results, err)
-	}
-}
-
 func TestCoversAbsoluteOwnsMatchRepoRelativeFiles(t *testing.T) {
 	files := []string{"internal/plans/tick.go"}
 	if all, any := covers("/home/x/repo", []string{"/home/x/repo/internal/plans/tick.go"}, files); !all || !any {
@@ -715,32 +636,6 @@ func TestCoversAbsoluteOwnsMatchRepoRelativeFiles(t *testing.T) {
 	}
 	if _, any := covers("/home/y/wt", []string{"/home/x/repo/internal/plans/"}, files); !any {
 		t.Error("absolute entry from another checkout still covers by suffix")
-	}
-}
-
-func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
-	hermetic(t)
-	repo, _ := tickRangeRepo(t)
-	writeFile(t, filepath.Join(repo, "foo.go"), "unchanged\n")
-	hosttest.In(t, repo, "add", "foo.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "ordinary path")
-	writeFile(t, filepath.Join(repo, "\nfoo.go"), "changed\n")
-	hosttest.In(t, repo, "add", "\nfoo.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "newline path")
-	files, err := CommitFiles(context.Background(), repo, "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(files, []string{"\nfoo.go"}) {
-		t.Fatalf("CommitFiles = %q, want only the newline-prefixed path", files)
-	}
-	plan := filepath.Join(t.TempDir(), "plan.md")
-	body := "- [ ] 1.1 Ordinary file owns: foo.go\n"
-	writeFile(t, plan, body)
-	ticked, notes := tickOK(t, plan, "abc1234", files...)
-	wantTicks(t, "unchanged ordinary path", ticked, notes, 1, "1.1 Ordinary", 1)
-	if got := readFile(t, plan); !strings.HasPrefix(got, "- [x] 1.1 Ordinary file owns: foo.go (abc1234)") {
-		t.Fatalf("a named task ticks even when its commit missed the owned file:\n%s", got)
 	}
 }
 
@@ -869,7 +764,7 @@ func TestDecisionItemIsAnOwnerTask(t *testing.T) {
 	if err != nil || len(pl.Tasks) != 2 || pl.Tasks[0].ID != "D2" || !ownerStep(pl.Tasks[0]) || judgeable(pl.Tasks[0]) {
 		t.Fatalf("D2 must parse as an owner item: %+v %v", pl.Tasks, err)
 	}
-	if err := MarkDone(p, "D2", ""); err != nil || !strings.Contains(readFile(t, p), "- [x] D2 — Pick") {
+	if _, err := MarkDone(p, "D2", ""); err != nil || !strings.Contains(readFile(t, p), "- [x] D2 — Pick") {
 		t.Fatalf("MarkDone D2: %v", err)
 	}
 }

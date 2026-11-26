@@ -48,9 +48,6 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 
 func TestSplitOverflowSurfacesReadErrorNotAbsence(t *testing.T) {
 	isolatedConfig(t)
-	if _, _, _, err := splitOverflow(Path("absent.md"), 5); err != nil {
-		t.Errorf("absent file: err = %v, want nil", err)
-	}
 	if err := os.MkdirAll(Path("decisionLog.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}

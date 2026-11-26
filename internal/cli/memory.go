@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/shadow"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -43,7 +45,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, path, report, fmt, watch,\n" +
-		"          import, sandbox, upgrade, extract (off menu)\n" +
+		"          import, sandbox, upgrade, extract, shadow (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -66,6 +68,7 @@ var memoryPlumbing = map[string][2]string{
 	"sandbox": {"", "create a disposable memory config"},
 	"upgrade": {"[--dry-run] [--to N]", "bring every memory file to the current store version, one commit per step"},
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
+	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -177,6 +180,27 @@ func cmdMemoryUpgrade(args []string) int {
 	return 0
 }
 
+// cmdMemoryShadow exits 1 when a file's render from rows is not byte-equal to it.
+func cmdMemoryShadow(args []string) int {
+	fs := memoryFlagSet("shadow")
+	rebuild := fs.Bool("rebuild", false, "import every in-scope memory file into state/memory.db")
+	if code, done := memoryParseNoArgs(fs, "shadow", args); done {
+		return code
+	}
+	if !*rebuild {
+		return helptext.FailUsage("memory shadow: name the action: --rebuild")
+	}
+	rep, err := shadow.RebuildShadow(context.Background())
+	if err != nil {
+		return helptext.Fail("memory shadow: %v", err)
+	}
+	fmt.Printf("shadow: %d docs, %d entries, %d not byte-equal\n", rep.Docs, rep.Entries, len(rep.Mismatched))
+	if len(rep.Mismatched) > 0 {
+		return helptext.Fail("memory shadow: render differs for %s", strings.Join(rep.Mismatched[:min(5, len(rep.Mismatched))], ", "))
+	}
+	return 0
+}
+
 func cmdMemoryWatch(args []string) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
 		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
@@ -215,6 +239,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"sandbox": cmdMemorySandbox,
 		"upgrade": cmdMemoryUpgrade,
 		"extract": cmdMemoryExtract,
+		"shadow":  cmdMemoryShadow,
 	}
 }
 
@@ -259,6 +284,7 @@ func memorySpec() *helptext.Node {
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to")}},
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
+		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},

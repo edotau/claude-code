@@ -204,6 +204,8 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	ranAgent := false
+	// The lock is held only for the legacy run (the typed model call runs outside it), so stamp flat 3.
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), "flat 3\n")
 	run := func(context.Context, string, string) (string, error) {
 		ranAgent = true
 		got, err := paths.TryFileLock(lockPathOf()+".lock", 0, func() error { return nil })

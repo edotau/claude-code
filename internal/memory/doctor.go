@@ -276,7 +276,7 @@ func updateProblems(now time.Time) []string {
 		}
 		fix := ""
 		if r.Fix != "" {
-			fix = " — fix: " + r.Fix
+			fix = " — fix: " + r.fixNote()
 		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
 			updateLogNote(r.Log)+fix+" (claude-code memory update --session "+id+")")

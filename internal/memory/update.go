@@ -87,6 +87,7 @@ type UpdateResult struct {
 	Log             string
 	Class, Fix, Ran string
 	Local           bool
+	Typed           string // "ok" when the op batch applied, "fallback" when the tools-on run did the work
 }
 
 func resultPath(sessionID string) string {
@@ -140,7 +141,7 @@ func writeUpdateResult(sessionID string, r UpdateResult) error {
 	var body strings.Builder
 	fmt.Fprintf(&body, "status=%s\ntime=%s\nbank_updated=%t\nlog=%s\n",
 		r.Status, r.Time.Format(time.RFC3339Nano), r.BankUpdated, r.Log)
-	for _, field := range []struct{ key, value string }{{"class", r.Class}, {"fix", r.Fix}, {"ran", r.Ran}} {
+	for _, field := range []struct{ key, value string }{{"class", r.Class}, {"fix", r.Fix}, {"ran", r.Ran}, {"typed", r.Typed}} {
 		if field.value != "" {
 			fmt.Fprintf(&body, "%s=%s\n", field.key, field.value)
 		}
@@ -174,7 +175,7 @@ func readUpdateResult(sessionID string) (UpdateResult, bool) {
 		return UpdateResult{}, false
 	}
 	r := UpdateResult{Status: m["status"], Time: t, Log: m["log"], BankUpdated: m["bank_updated"] == "true",
-		Class: m["class"], Fix: m["fix"], Ran: m["ran"], Local: m["local"] == "true"}
+		Class: m["class"], Fix: m["fix"], Ran: m["ran"], Local: m["local"] == "true", Typed: m["typed"]}
 	return r, r.Status != ""
 }
 
@@ -495,8 +496,14 @@ func update(o updateOptions) error {
 	prior, _ := readUpdateResult(o.Session)
 	var run updateRun
 	record := func(status string, updated bool) error {
-		return recordUpdateResult(o.Session, prior.Log, status, updated, run.report)
+		return recordUpdateResult(o.Session, prior.Log, status, updated, &run)
 	}
+	if o.Historical {
+		snap := snapshotFiles(currentStateFiles)
+		defer warnChanged(o.Out, snap)
+	}
+	run.before = newestMtime()
+	run.typedPass(o) // the model runs outside the store lock; only ApplyBatch and the settle take it
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
 	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
@@ -535,14 +542,25 @@ func auditUpdatePlans(o updateOptions) {
 // FixSessionSlot in a runner's fix command is replaced with the session id when the receipt is written.
 const FixSessionSlot = "<session-id>"
 
+const budgetFixGuidance = "retry outside the spent dispatch tree, or after raising the cap"
+
+// fixNote is the receipt's fix for the owner; a budget failure also says where a retry can run.
+func (r UpdateResult) fixNote() string {
+	if r.Fix == "" || r.Class != JobClassBudget || strings.Contains(r.Fix, "outside the spent dispatch tree") {
+		return r.Fix
+	}
+	return r.Fix + " (" + budgetFixGuidance + ")"
+}
+
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
-func recordUpdateResult(session, log, status string, updated bool, rep JobResult) error {
+func recordUpdateResult(session, log, status string, updated bool, run *updateRun) error {
+	rep, typed := run.report, run.typed
 	ran := strings.Join([]string{rep.Agent, rep.Profile, rep.Model}, "·")
 	if rep.Agent == "" && rep.Profile == "" && rep.Model == "" {
 		ran = ""
 	}
 	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log,
-		Class: rep.Class, Fix: strings.ReplaceAll(rep.Fix, FixSessionSlot, session), Ran: ran, Local: rep.Local})
+		Class: rep.Class, Fix: strings.ReplaceAll(rep.Fix, FixSessionSlot, textutil.QuoteSH(session)), Ran: ran, Local: rep.Local, Typed: typed})
 	if err != nil {
 		return fmt.Errorf("record update result: %w", err)
 	}
@@ -579,6 +597,7 @@ type updateRun struct {
 	runErr, settleErr error
 	updated           bool
 	report            JobResult
+	typed             string // "ok" or "fallback"; "" when the typed pass never ran
 }
 
 // finish settles under the writer lock and reports whether the update wrote the bank.
@@ -607,16 +626,13 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions) {
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o updateOptions) error {
-	if o.Historical {
-		snap := snapshotFiles(currentStateFiles)
-		defer warnChanged(o.Out, snap)
+	if r.typed != "ok" {
+		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+		defer cancel()
+		ctx, rep := WithJobReport(ctx)
+		r.runAgent(ctx, o)
+		r.report = *rep
 	}
-	r.before = newestMtime()
-	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
-	defer cancel()
-	ctx, rep := WithJobReport(ctx)
-	r.runAgent(ctx, o)
-	r.report = *rep
 	r.updated, r.settleErr = r.finish(o)
 	return nil
 }
@@ -637,6 +653,154 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
 	return errors.Join(fileErr, err)
+}
+
+// maxListedEntries and maxListedRunes cap what the model sees of each file and entry.
+const (
+	maxListedEntries = 60
+	maxListedRunes   = 120
+)
+
+// typedStoreReady reports whether the store is stamped with this binary's schema; a var so tests can stand in.
+var typedStoreReady = func() bool {
+	b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
+	return strings.TrimSpace(string(b)) == "flat "+strconv.Itoa(storeVersion)
+}
+
+// typedPass runs the model outside the store lock and applies its op batch; no usable answer leaves typed "fallback".
+func (r *updateRun) typedPass(o updateOptions) {
+	if !typedStoreReady() { // an older store keeps the untyped run until `memory upgrade` migrates it
+		fmt.Fprintln(o.Out, "memory update: store is not on the current schema; run `claude-code memory upgrade` to enable typed updates")
+		return
+	}
+	if o.Handoff.block != "" { // a handoff needs a file the tools-off run cannot write
+		r.typed = "fallback"
+		return
+	}
+	var fileErr error
+	if o.Session != "" {
+		fileErr = fileDecisionEvents(o.Session, time.Now())
+	}
+	listing, base, err := bankListing(o.Historical)
+	if err != nil {
+		r.typed = "fallback"
+		r.runErr = err
+		return
+	}
+	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
+	if err != nil {
+		r.typed = "fallback"
+		return
+	}
+	prompt += filedByGoBlock(o.Session) + listing
+	b, ok := r.askBatch(o, prompt)
+	if !ok {
+		r.typed = "fallback"
+		return
+	}
+	r.typed = "ok"
+	b.Ops = append(tagOps(o.Session, o.Historical), b.Ops...)
+	if o.Historical {
+		b.Ops = slices.DeleteFunc(b.Ops, func(op Op) bool { return slices.Contains(currentStateTargets, op.Target) })
+	}
+	r.runErr = errors.Join(fileErr, applyTyped(o, b, base))
+	RefreshStaleEmbeddings(o.CWD)
+}
+
+// currentStateTargets are the op targets an older session must never write.
+var currentStateTargets = []string{"activeContext", "progress", "conventions", "projectContext"}
+
+// askBatch runs the model with the batch schema, retrying once with the rejection message on an invalid answer.
+func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {
+	for range 2 {
+		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+		ctx, rep := WithJobReport(ctx)
+		ctx, answer := WithJobAnswer(ctx, BatchSchema())
+		who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD)
+		cancel()
+		r.report = *rep
+		fmt.Fprintln(o.Out, "memory update: ran on", who)
+		if err != nil {
+			return Batch{}, false
+		}
+		b, err := decodeBatch(*answer)
+		if err == nil {
+			return b, true
+		}
+		prompt += "\n\nYour previous answer was rejected: " + err.Error() + "\nReturn a corrected batch."
+	}
+	return Batch{}, false
+}
+
+// decodeBatch parses the model's answer strictly and validates it.
+func decodeBatch(answer string) (Batch, error) {
+	if strings.TrimSpace(answer) == "" {
+		return Batch{}, errors.New("no answer")
+	}
+	dec := json.NewDecoder(strings.NewReader(answer))
+	dec.DisallowUnknownFields()
+	var b Batch
+	if err := dec.Decode(&b); err != nil {
+		return Batch{}, err
+	}
+	return b, b.Validate()
+}
+
+// applyTyped applies b with the refs the model was shown; failed ops are reported and nothing is written.
+func applyTyped(o updateOptions, b Batch, base Versions) error {
+	results, err := newBankStore(false).Apply(b, base, time.Now())
+	for i, res := range results {
+		if res.Outcome == DreamFailed {
+			fmt.Fprintf(o.Out, "memory update: op %d (%s) failed: %s\n", i, res.Op.Op, res.Reason)
+		}
+	}
+	return err
+}
+
+// tagOps files the session's NEXT, BUG and NOTE events without the model; invalid ones are dropped.
+func tagOps(session string, historical bool) []Op {
+	var ops []Op
+	for _, t := range typedTags(session) {
+		var op Op
+		switch t.Kind {
+		case "NEXT":
+			op = Op{Op: "add", Target: "activeContext", Section: "Next Steps", Text: t.Text}
+		case "BUG":
+			op = Op{Op: "add", Target: "progress", Section: "Known Issues", Text: t.Text}
+		case "NOTE":
+			op = Op{Op: "add", Target: "note", Text: t.Text}
+		default:
+			continue
+		}
+		if historical && slices.Contains(currentStateTargets, op.Target) {
+			continue
+		}
+		if op.check() == nil {
+			ops = append(ops, op)
+		}
+	}
+	return ops
+}
+
+// bankListing shows each bank entry as "ref · first line" and returns the store's versions as the apply base.
+func bankListing(historical bool) (string, Versions, error) {
+	docs, base, err := newBankStore(false).Load()
+	if err != nil {
+		return "", nil, err
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\nBank entries (ref · first line); an op's id is one of these refs:\n")
+	for _, name := range bankFiles {
+		d := docs[name]
+		if historical && slices.Contains(currentStateTargets, d.Name) {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n%s:\n", d.Name)
+		for _, e := range d.Entries[:min(len(d.Entries), maxListedEntries)] {
+			fmt.Fprintf(&sb, "- %s · %s\n", e.refOf(), textutil.CapRunes(e.Lines[0], maxListedRunes, "…"))
+		}
+	}
+	return sb.String(), base, nil
 }
 
 type childEnvKey struct{}
@@ -675,10 +839,7 @@ const (
 
 var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 
-// extractTags returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT text blocks only.
-func extractTags(r io.Reader) ([]tag, error) { return extractTagsExcept(r, nil) }
-
-// extractTagsExcept is extractTags minus the tags skip names, dropped before the cap so they never evict a pending one.
+// extractTagsExcept returns ASSISTANT-only tag lines minus skip, dropped before the cap so none evicts a pending one.
 func extractTagsExcept(r io.Reader, skip func(tag) bool) ([]tag, error) {
 	var tags []tag
 	seen := map[string]bool{}

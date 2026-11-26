@@ -564,100 +564,6 @@ func touchesEntry(root, entry, dir string, files []string) bool {
 	return false
 }
 
-// touchedFiles is the set of files an open owned task of plan names through a file entry.
-func touchedFiles(root string, plan Plan, files []string) map[string]bool {
-	out := map[string]bool{}
-	for _, t := range plan.Tasks {
-		if !open(t) || len(t.Owns) == 0 {
-			continue
-		}
-		for _, entry := range ownEntries(t.Owns, files) {
-			if isDirOwn(entry) {
-				continue
-			}
-			for _, f := range files {
-				if touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), []string{f}) {
-					out[f] = true
-				}
-			}
-		}
-	}
-	return out
-}
-
-// selectCand is one plan's eligible tasks that touch a commit's files, with each task's touched set.
-type selectCand struct {
-	path    string
-	elig    func(Task) bool
-	tasks   []Task
-	touched []map[string]bool
-}
-
-// selectCands loads the plans' touched tasks plus, per plan, the files its worktree-claimed tasks touch.
-func selectCands(home, root, worktree string, skip, files []string) (cands []selectCand, claimed []map[string]bool) {
-	entries, err := os.ReadDir(home)
-	if err != nil {
-		return nil, nil
-	}
-	for _, d := range loadPlans(entries, home, skip, mayHaveOpenOwned) { // touchedFiles keeps only open owned tasks
-		c, mine := selectCand{path: d.path, elig: eligible(d.path, worktree)}, map[string]bool{}
-		for _, t := range d.plan.Tasks {
-			tf := touchedFiles(root, Plan{Tasks: []Task{t}}, files)
-			if !c.elig(t) || len(tf) == 0 {
-				continue
-			}
-			c.tasks, c.touched = append(c.tasks, t), append(c.touched, tf)
-			if worktree != "" && claimNamesWorktree(t.Claim, worktree) {
-				maps.Copy(mine, tf)
-			}
-		}
-		if len(c.tasks) > 0 {
-			cands, claimed = append(cands, c), append(claimed, mine)
-		}
-	}
-	return cands, claimed
-}
-
-// Select returns plans with an open task owning a touched file, each plan's tickable tasks; a claim wins ties per task.
-func Select(home, root, worktree string, skip []string, commits []Commit) (selected, tied []string, allow map[string]func(Task) bool) {
-	var files []string
-	for _, c := range commits {
-		files = append(files, c.Files...)
-	}
-	cands, claimed := selectCands(home, root, worktree, skip, files)
-	won := make([]map[string]bool, len(cands))
-	allow = map[string]func(Task) bool{}
-	for i, c := range cands {
-		won[i] = map[string]bool{}
-		var lost []string
-		for k, t := range c.tasks {
-			contested := false
-			for j, m := range claimed {
-				contested = contested || j != i && sharesFile(c.touched[k], m)
-			}
-			if contested && !claimNamesWorktree(t.Claim, worktree) {
-				lost = append(lost, t.Title)
-				continue
-			}
-			maps.Copy(won[i], c.touched[k])
-		}
-		allow[c.path] = func(t Task) bool { return c.elig(t) && !slices.Contains(lost, t.Title) }
-	}
-	for i, c := range cands {
-		if len(won[i]) == 0 {
-			continue
-		}
-		selected = append(selected, c.path)
-		for j := range won {
-			if j != i && sharesFile(won[i], won[j]) {
-				tied = append(tied, c.path)
-				break
-			}
-		}
-	}
-	return selected, tied, allow
-}
-
 // recentDays is how many days old a plan's file-name date may be for a commit to tick or annotate it.
 const recentDays = 7
 
@@ -669,16 +575,6 @@ func eligible(planPath, worktree string) func(Task) bool {
 	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
 	recent := len(filepath.Base(planPath)) >= 10 && filepath.Base(planPath)[:10] >= cutoff
 	return func(t Task) bool { return recent || claimNamesWorktree(t.Claim, cmp.Or(worktree, "main")) }
-}
-
-// sharesFile reports whether two file sets intersect.
-func sharesFile(a, b map[string]bool) bool {
-	for f := range a {
-		if b[f] {
-			return true
-		}
-	}
-	return false
 }
 
 type datedPlan struct {
@@ -807,15 +703,6 @@ func summarize(plan Plan) Summary {
 // TemplatePath is the plan template every plan starts from, under the harness config dir.
 func TemplatePath(configDir string) string {
 	return filepath.Join(configDir, "docs", "templates", "plan.md")
-}
-
-// CommitFiles lists the files sha changed in the repo at dir.
-func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
-	raw, err := proc.RunGitInherit(ctx, dir, "show", "-z", "--name-only", "--format=", sha)
-	if err != nil {
-		return nil, fmt.Errorf("git show %s: %w", sha, err)
-	}
-	return textutil.SplitNUL(raw), nil
 }
 
 // rangeCommits lists rng's commits oldest first, merges included (one may carry the trailer), each with its files.

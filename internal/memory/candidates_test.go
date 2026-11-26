@@ -210,11 +210,12 @@ func TestCandidatesEndToEnd(t *testing.T) {
 	good := `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"change":"Add a hook.","target":"unknown","kind":"hook","size":"small"}` + "\n" +
 		`{"id":"fc-b","evidence":["feedback/feedback-b.md"],"repeats":3,"change":"Add a verb flag.","target":"rules/standards/x.md","kind":"verb","size":"medium"}`
 	file := func(rows string) string { return "# Candidates\n\n```jsonl\n" + rows + "\n```\n" }
-	run := func(_ context.Context, prompt, _ string) (string, error) {
+	run := func(ctx context.Context, prompt, _ string) (string, error) {
 		if !strings.Contains(prompt, filepath.Join("feedback", "feedback-a.md")) {
 			t.Errorf("dream prompt does not list the changed feedback note: %s", prompt)
 		}
 		write(t, candidates, file(good))
+		AnswerJob(ctx, `{"ops":[]}`)
 		return "stub", nil
 	}
 	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {

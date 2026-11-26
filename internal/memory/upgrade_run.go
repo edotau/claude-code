@@ -119,7 +119,7 @@ func upgradeRewritable(rel string) bool {
 		return slices.Contains(upgradeBankFiles, top)
 	}
 	if top == "archive" {
-		_, ok := archiveSource(rest)
+		_, ok := ArchiveSource(rest)
 		return ok && !strings.Contains(rest, "/")
 	}
 	return slices.Contains(upgradeDirs, top)

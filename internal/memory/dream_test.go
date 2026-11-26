@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 )
 
 // A failed run's retry deadline is independent of changes to either bank.
@@ -67,9 +70,9 @@ func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 	}
 	write(t, Path("conventions.md"), conv.String()+"\n")
 	write(t, Path("sessionHistory.md"), hist.String())
-	_, _, overflow, err := splitOverflow(Path("conventions.md"), archiveCaps["conventions.md"])
-	if err != nil || len(overflow) == 0 {
-		t.Fatalf("fixture has no conventions overflow: %v", err)
+	_, _, overflow := overflowSplit("conventions.md", conv.String()+"\n", archiveCaps["conventions.md"])
+	if len(overflow) == 0 {
+		t.Fatal("fixture has no conventions overflow")
 	}
 	reads := countBankReads(t)
 	p := previewDream()
@@ -203,7 +206,10 @@ func TestDreamRecordsEveryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := func(context.Context, string, string) (string, error) { return "stub", errors.New("boom\nsecond line") }
-	idle := func(context.Context, string, string) (string, error) { return "stub", nil }
+	idle := func(ctx context.Context, _, _ string) (string, error) {
+		AnswerJob(ctx, `{"ops":[]}`)
+		return "stub", nil
+	}
 	runs := []dreamOptions{
 		{CWD: root, Run: fail, Trigger: "manual", Forced: true},
 		{CWD: root, Run: idle, IfDue: true, Trigger: "schedule"},
@@ -262,6 +268,7 @@ func TestDreamLogCapturesCatchupAndRunnerOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, _, _ string) (string, error) {
+		AnswerJob(ctx, `{"ops":[]}`)
 		fmt.Fprintln(JobOutput(ctx, io.Discard), "hop-receipt-line")
 		return "stub", nil
 	}
@@ -301,5 +308,439 @@ func TestDreamPruneKeepsNamedLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(other); err == nil {
 		t.Error("unnamed log kept")
+	}
+}
+
+// A canned typed answer applies outside the runner's lock scope and records only successful batches.
+func TestDreamAppliesTypedBatch(t *testing.T) {
+	t.Run("post-commit result", dreamTestPostCommit)
+	t.Run("mechanical archive", dreamTestArchive)
+	t.Run("snapshot limits and ambiguity", dreamTestSnapshot)
+	cases := []struct {
+		name, answer string
+		changed      []string
+		fail, race   bool
+	}{
+		{"apply", `{"ops":[{"op":"update","id":"UPDATE","read":"UPDATE","text":"Keep the verified next step"},{"op":"close","id":"CLOSE","read":"CLOSE","reason":"done"},{"op":"supersede","id":"1234abcd","read":"RULE","text":"Prefer the verified workflow"},{"op":"noop"}]}`, []string{"conventions.md", "progress.md"}, false, false},
+		{"identical update", `{"ops":[{"op":"update","id":"UPDATE","text":"Pending work"}]}`, nil, false, false},
+		{"add rejected", `{"ops":[{"op":"add","target":"conventions","text":"Unrequested addition"}]}`, nil, true, false},
+		{"unknown id", `{"ops":[{"op":"close","id":"z00000000","reason":"done"}]}`, nil, true, false},
+		{"unknown by", `{"ops":[{"op":"close","id":"CLOSE","reason":"superseded-by","by":"deadbeef"}]}`, nil, true, false},
+		{"snapshot mismatch", `{"ops":[{"op":"update","id":"1234abcd","read":"z00000000","text":"Wrong read"}]}`, nil, true, false},
+		{"stored id race", `{"ops":[{"op":"update","id":"1234abcd","read":"RULE","text":"Wrong write"}]}`, nil, true, true},
+		{"noop", `{"ops":[{"op":"noop","note":"Nothing justified"}]}`, nil, false, false},
+		{"empty", `{"ops":[]}`, nil, false, false},
+		{"invalid", `{"ops":[{"op":"close","id":"CLOSE","reason":"guess"}]}`, nil, true, false},
+		{"no answer", ``, nil, true, false},
+		{"target rejected", `{"ops":[{"op":"update","target":"progress","id":"UPDATE","text":"Wrong routing"}]}`, nil, true, false},
+		{"missing", `{"ops":`, nil, true, false},
+		{"unknown field", `{"ops":[],"edits":[]}`, nil, true, false},
+		{"trailing object", `{"ops":[]} {}`, nil, true, false},
+		{"atomic failure", `{"ops":[{"op":"close","id":"CLOSE","reason":"done"},{"op":"update","id":"UPDATE","text":"bad\n~~~"}]}`, nil, true, false},
+		{"changed since read", `{"ops":[{"op":"update","id":"UPDATE","text":"Overwrite concurrent work"}]}`, nil, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			isolatedConfig(t)
+			shortBankWait(t)
+			initTypedStore(t)
+			progress, conventions := dreamTestFixture(t)
+			write(t, Path("progress.md"), progress)
+			write(t, Path("conventions.md"), conventions)
+			refs := dreamTestRefs(t, progress, conventions)
+			answer := strings.NewReplacer("UPDATE", refs[0], "CLOSE", refs[1], "RULE", refs[2]).Replace(tc.answer)
+			run := dreamTestRunner(t, answer, refs, tc.race)
+			err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Trigger: "manual", Forced: true})
+			if (err != nil) != tc.fail {
+				t.Fatalf("%s: dream = %v, want failure %t", tc.name, err, tc.fail)
+			}
+			dreamTestResult(t, tc.changed, tc.fail, tc.name)
+			dreamTestContents(t, tc.name, tc.race, progress, conventions)
+		})
+	}
+}
+
+func dreamTestFixture(t *testing.T) (string, string) {
+	t.Helper()
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	return "# Progress\n\n## In Progress\n\n- Pending work\n- Completed work\n",
+		"# Conventions\n\n- Prefer the old workflow <!-- id:1234abcd -->\n"
+}
+
+func dreamTestContents(t *testing.T, name string, race bool, progress, conventions string) {
+	t.Helper()
+	if name == "apply" {
+		dreamTestApplied(t)
+		return
+	}
+	if race {
+		progress = "# Progress\n\n## In Progress\n\n- Concurrent work\n- Completed work\n"
+		conventions = "# Conventions\n\n- Concurrent rule <!-- id:1234abcd -->\n"
+	}
+	for file, want := range map[string]string{"progress.md": progress, "conventions.md": conventions} {
+		if b, _ := os.ReadFile(Path(file)); string(b) != want {
+			t.Errorf("%s changed on %s: %s", file, name, b)
+		}
+	}
+}
+
+func dreamTestRefs(t *testing.T, progress, conventions string) []string {
+	t.Helper()
+	p := ParseDoc("progress.md", []byte(progress))
+	c := ParseDoc("conventions.md", []byte(conventions))
+	return []string{contentRef(p.Entries[1].block()), contentRef(p.Entries[2].block()), contentRef(c.Entries[0].block())}
+}
+
+func dreamTestRunner(t *testing.T, answer string, refs []string, race bool) AgentFunc {
+	t.Helper()
+	return func(ctx context.Context, prompt, _ string) (string, error) {
+		if JobAnswerSchema(ctx) != DreamBatchSchema() {
+			t.Error("runner did not receive Batch schema")
+		}
+		for _, ref := range append(refs, `"id":"1234abcd"`) {
+			if !strings.Contains(prompt, ref) {
+				t.Errorf("snapshot missing %s", ref)
+			}
+		}
+		// Taking the same store lock in the runner proves the model is not run under it.
+		if err := withFlatLock(BankLockWait, func() error {
+			if race {
+				write(t, Path("progress.md"), "# Progress\n\n## In Progress\n\n- Concurrent work\n- Completed work\n")
+				write(t, Path("conventions.md"), "# Conventions\n\n- Concurrent rule <!-- id:1234abcd -->\n")
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("store lock held during agent run: %v", err)
+		}
+		ReportJob(ctx, JobResult{Agent: "stub", Profile: "qa", Model: "canned"})
+		AnswerJob(ctx, answer)
+		return "stub", nil
+	}
+}
+
+func dreamTestResult(t *testing.T, changed []string, fail bool, name string) {
+	t.Helper()
+	records, err := LastDreamResults(2)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records = %v, %v", records, err)
+	}
+	r := records[0]
+	want := DreamNoop
+	if fail {
+		want = DreamFailed
+	} else if len(changed) > 0 {
+		want = DreamOK
+	}
+	if r.Outcome != want || !slices.Equal(r.Changed, changed) {
+		t.Errorf("result = %+v, want %s, changed %v", r, want, changed)
+	}
+	if want == DreamNoop && r.Reason != "no bank change" {
+		t.Errorf("noop reason = %q", r.Reason)
+	}
+	dreamTestDiagnostics(t, r, name, fail)
+}
+
+func dreamTestDiagnostics(t *testing.T, r DreamResult, name string, fail bool) {
+	t.Helper()
+	log := mustRead(t, r.Log)
+	if !strings.Contains(log, "ran on stub") {
+		t.Errorf("missing runner receipt: %s", log)
+	}
+	if !fail && name != "empty" && !strings.Contains(log, "op 0:") {
+		t.Errorf("missing op diagnostics: %s", log)
+	}
+	if strings.Contains(log, "op 0: noop") && !strings.Contains(log, "note: Nothing justified") {
+		t.Errorf("noop note not logged: %s", log)
+	}
+	if r.Agent != "stub" || r.Profile != "qa" || r.Model != "canned" {
+		t.Errorf("route report lost: %+v", r)
+	}
+}
+
+func dreamTestApplied(t *testing.T) {
+	t.Helper()
+	p, _ := os.ReadFile(Path("progress.md"))
+	c, _ := os.ReadFile(Path("conventions.md"))
+	if !strings.Contains(string(p), "Keep the verified next step") || strings.Contains(string(p), "Completed work") {
+		t.Errorf("progress batch not applied: %s", p)
+	}
+	for _, want := range []string{"Prefer the verified workflow", "Replaced by", "Supersedes 1234abcd"} {
+		if !strings.Contains(string(c), want) {
+			t.Errorf("conventions missing %q: %s", want, c)
+		}
+	}
+}
+
+func dreamTestPostCommit(t *testing.T) {
+	isolatedConfig(t)
+	initTypedStore(t)
+	write(t, Path("conventions.md"), "# Conventions\n\n- Old rule <!-- id:1234abcd -->\n")
+	_, base, files, docs, err := dreamListing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: string(base["1234abcd"]), Text: "New rule"}}}
+	duplicate := dreamRan{base: Versions{"1234abcd": ""}, files: map[string]string{"1234abcd": ""}}
+	if err := duplicate.checkBatch(batch); err == nil {
+		t.Fatal("ambiguous snapshot ref accepted")
+	}
+	now := time.Now()
+	planned := maps.Clone(docs)
+	based, err := withBase(batch, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runBatchOps(planned, based, now)
+	results, err := ApplyBatch(batch, base, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := dreamRan{base: base, files: files, docs: docs}
+	current, _ := os.ReadFile(Path("conventions.md"))
+	write(t, Path("conventions.md"), string(current)+"\n- Unrelated concurrent rule <!-- id:5678abcd -->\n")
+	r.recordApplied(results, planned, errors.New("post-commit settlement failed"))
+	if !slices.Equal(r.changed, []string{"conventions.md"}) {
+		t.Errorf("committed changes lost after settlement error: %v", r.changed)
+	}
+	write(t, Path("conventions.md"), string(docs["conventions.md"].Render()))
+	r.changed = nil
+	r.recordApplied(results, planned, errors.New("commit failed before writing"))
+	if len(r.changed) != 0 {
+		t.Errorf("uncommitted changes recorded: %v", r.changed)
+	}
+}
+
+func dreamTestArchive(t *testing.T) {
+	isolatedConfig(t)
+	initTypedStore(t)
+	var rules strings.Builder
+	rules.WriteString("# Conventions\n")
+	for i := range 90 {
+		fmt.Fprintf(&rules, "\n- Invented rule %d <!-- id:%08x -->\n", i, i+1)
+	}
+	write(t, Path("conventions.md"), rules.String())
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		AnswerJob(ctx, `{"ops":[]}`)
+		return "stub", nil
+	}
+	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := LastDreamResults(1)
+	if err != nil || len(records) != 1 || records[0].Archived == 0 || records[0].Outcome != DreamOK {
+		t.Fatalf("mechanical archive did not run: %v, %v", records, err)
+	}
+	if len(records[0].Changed) != 0 {
+		t.Errorf("noop batch invented changed files: %v", records[0].Changed)
+	}
+}
+
+func dreamTestSnapshot(t *testing.T) {
+	isolatedConfig(t)
+	initTypedStore(t)
+	write(t, Path("progress.md"), "# Progress\n\n## In Progress\n\n- Duplicate\n- Duplicate\n- Unique <path> & value\n")
+	listing, base, files, _, err := dreamListing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := contentRef("- Duplicate")
+	if _, exists := base[ref]; !exists || base[ref] != "" || files[ref] != "" {
+		t.Fatalf("duplicate snapshot ref was not marked ambiguous: %v / %v", base, files)
+	}
+	r := dreamRan{base: base, files: files}
+	for _, op := range []Op{
+		{Op: "close", ID: ref, Reason: "done"},
+		{Op: "close", ID: contentRef("- Unique <path> & value"), Reason: "superseded-by", By: ref},
+	} {
+		if err := r.checkBatch(Batch{Ops: []Op{op}}); err == nil || !strings.Contains(err.Error(), "ambiguous snapshot") {
+			t.Errorf("expected snapshot ambiguity, got %v", err)
+		}
+	}
+	dreamTestListingText(t, listing)
+	write(t, Path("progress.md"), "# Progress\n\n- "+strings.Repeat("x", 256*1024)+"\n")
+	if _, _, _, _, err := dreamListing(); err == nil {
+		t.Error("oversized model snapshot accepted")
+	}
+}
+
+func dreamTestListingText(t *testing.T, listing string) {
+	t.Helper()
+	if !strings.Contains(listing, `"writable":false`) || !strings.Contains(listing, `"writable":true`) {
+		t.Error("snapshot does not distinguish ambiguous refs")
+	}
+	if !strings.Contains(listing, "<path> & value") || strings.Contains(listing, `\u003c`) {
+		t.Error("snapshot HTML-escapes entry text")
+	}
+	if !strings.Contains(listing, `"file":"progress.md"`) {
+		t.Error("snapshot lacks lowercase field names")
+	}
+}
+
+// initTypedStore makes a temp store stamped flat 4, the only layout the typed dream path runs on.
+func initTypedStore(t *testing.T) {
+	t.Helper()
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	storeFlat() // memoize the lock check while the stamp is flat 3; the collapse makes the stamps agree
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), fmt.Sprintf("flat %d\n", storeVersion))
+}
+
+// An older store keeps the in-place legacy run, never receives a typed schema, and its log names the upgrade verb.
+func TestDreamLegacyStoreKeepsLegacyPath(t *testing.T) {
+	isolatedConfig(t)
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), "flat 3\n")
+	var out strings.Builder
+	run := func(ctx context.Context, prompt, _ string) (string, error) {
+		if JobAnswerSchema(ctx) != "" {
+			t.Error("legacy store received a typed schema")
+		}
+		if strings.Contains(prompt, "Bank entries (JSON snapshot") {
+			t.Error("legacy prompt carries the typed snapshot")
+		}
+		AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`)
+		return "stub", nil
+	}
+	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Out: &out, Forced: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "claude-code memory upgrade") {
+		t.Errorf("log lacks the upgrade note: %s", out.String())
+	}
+}
+
+func TestDreamApplySideProposesCandidatesAndTests(t *testing.T) {
+	isolatedConfig(t)
+	write(t, filepath.Join(paths.MemoryStoreDir(), "feedback", "feedback-a.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "notes", "note-c.md"), "x\n")
+	if err := EnsureBank(""); err != nil {
+		t.Fatal(err)
+	}
+	good := candidate{ID: "fc-a", Evidence: []string{"feedback/feedback-a.md", "notes/note-c.md"}, Repeats: 1, Change: "Add a hook.", Target: "unknown", Kind: "hook", Size: "small"}
+	bad := good
+	bad.ID, bad.Kind = "fc-b", "nonsense"
+	var out strings.Builder
+	var r dreamRan
+	r.applySide(Batch{Candidates: []candidate{bad, good}, TestProposals: []testProposal{
+		{Pkg: "internal/x", Case: "empty input", Reason: "nil path"}, {Pkg: "internal/x", Case: "no reason"}}}, &out)
+	data := mustRead(t, filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
+	if !strings.Contains(data, `"fc-a"`) || strings.Contains(data, "fc-b") {
+		t.Errorf("candidates file: %s", data)
+	}
+	tests := mustRead(t, testProposalsFile())
+	if !strings.Contains(tests, "empty input") || strings.Contains(tests, "no reason") || !strings.Contains(tests, `"source":"dream"`) {
+		t.Errorf("test proposals: %s", tests)
+	}
+	if !slices.Equal(r.changed, []string{candidatesRel, "techdebt/tests.jsonl"}) {
+		t.Errorf("changed = %v, want the candidates and test-proposal files", r.changed)
+	}
+	for _, want := range []string{"candidate fc-b: rejected", "test proposal no reason: rejected"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("log lacks %q: %s", want, out.String())
+		}
+	}
+}
+
+func TestDreamApplySidePlanTasks(t *testing.T) {
+	isolatedConfig(t)
+	work := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "proj"))
+	plan := filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-side.md")
+	write(t, plan, "# P\n\n- [ ] Phase 1.1 One\n- [ ] Phase 1.2 Two\n")
+	plan = plans.OpenTasks(work)[0].Plan // the listed spelling, not the temp dir's symlinked one
+	r := dreamRan{plan: startPlanPhase(work)}
+	var out strings.Builder
+	r.applySide(Batch{PlanTasks: []PlanTaskOp{
+		{Plan: plan, ID: "Phase 1.2", Action: "done", Sha: "abc1234"},
+		{Plan: plan, ID: "Phase 9.9", Action: "done", Sha: "abc1234"},
+		{Plan: plan + ".other", ID: "Phase 1.1", Action: "done", Sha: "abc1234"},
+		{Plan: plan, ID: "Phase 1.1", Action: "strike", Reason: "obsolete", Evidence: "trust me"},
+		{Plan: plan, ID: "Phase 1.1", Action: "done"},
+	}}, &out)
+	body := mustRead(t, plan)
+	if !strings.Contains(body, "[x] Phase 1.2") || strings.Contains(body, "[x] Phase 1.1") || strings.Contains(body, "~~") {
+		t.Errorf("plan after side ops:\n%s", body)
+	}
+	if n := strings.Count(out.String(), "rejected"); n != 4 {
+		t.Errorf("%d rejections, want 4: %s", n, out.String())
+	}
+	out.Reset()
+	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.2", Action: "done", Sha: "abc1234"}}}, &out)
+	if !strings.Contains(out.String(), "already closed") {
+		t.Errorf("a closed task was accepted again: %s", out.String())
+	}
+	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "strike", Reason: "obsolete", Evidence: "note:feedback/x.md"}}}, &out)
+	if !strings.Contains(mustRead(t, plan), "~~") || !slices.Contains(r.changed, "plans/"+filepath.Base(plan)) {
+		t.Errorf("strike not applied or not counted (changed %v):\n%s", r.changed, mustRead(t, plan))
+	}
+}
+
+func TestDreamPlanTaskClosedByPeerIsNotOurs(t *testing.T) {
+	isolatedConfig(t)
+	work := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "proj"))
+	plan := filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-first.md")
+	write(t, plan, "# P\n\n- [ ] Phase 1.1 One\n")
+	plan = plans.OpenTasks(work)[0].Plan
+	r := dreamRan{plan: startPlanPhase(work)}
+	if _, err := plans.MarkDone(plan, "Phase 1.1", "abc1234"); err != nil { // the peer, after the prompt listed it
+		t.Fatal(err)
+	}
+	wrote, err := plans.MarkDone(plan, "Phase 1.1", "abc1234")
+	if wrote || err != nil {
+		t.Fatalf("MarkDone on a closed task = %v, %v; want false, nil", wrote, err)
+	}
+	r.plan.open = []plans.OpenTask{{Plan: plan, ID: "Phase 1.1"}} // stale list, as after a peer's write
+	var out strings.Builder
+	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}, &out)
+	if len(r.plan.wrote) != 0 || len(r.changed) != 0 {
+		t.Errorf("a peer's closure was recorded as ours: wrote %v changed %v", r.plan.wrote, r.changed)
+	}
+}
+
+// A peer's edit during the run is never undone; a run's own unproven write is, until a peer touches the plan too.
+func TestDreamFinishLeavesPeerPlanEdits(t *testing.T) {
+	isolatedConfig(t)
+	work := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "proj"))
+	plan := filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-peer.md")
+	write(t, plan, "# P\n\n- [ ] Phase 1.1 One\n- [ ] Phase 1.2 Two\n- [ ] Phase 1.3 Three\n- [ ] Phase 1.4 Four\n")
+	plan = plans.OpenTasks(work)[0].Plan
+	d := startPlanPhase(work)
+	d.typed = true
+	r := dreamRan{plan: d}
+	var out strings.Builder
+	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}, &out)
+	peer := strings.Replace(mustRead(t, plan), "- [ ] Phase 1.2 Two", "- [x] Phase 1.2 Two (abc1234)", 1)
+	write(t, plan, peer)
+	d.finish(&out)
+	body := mustRead(t, plan)
+	if body != peer || !strings.Contains(out.String(), "flagged") {
+		t.Errorf("peer edit or own write was reverted (want both left, logged as flagged):\n%s\n%s", body, out.String())
+	}
+	r2 := dreamRan{plan: startPlanPhase(work)}
+	r2.plan.typed = true
+	r2.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.3", Action: "done", Sha: "abc1234"}, {Plan: plan, ID: "Phase 1.4", Action: "done", Sha: "abc1234"}}}, &out)
+	r2.dropReverted(r2.plan.finish(&out))
+	if slices.Contains(r2.changed, "plans/"+filepath.Base(plan)) {
+		t.Errorf("reverted writes still counted as changed: %v", r2.changed)
+	}
+	if strings.Contains(mustRead(t, plan), "[x] Phase 1.3") || strings.Contains(mustRead(t, plan), "[x] Phase 1.4") {
+		t.Errorf("an unproven write of this run stayed:\n%s", mustRead(t, plan))
+	}
+}
+
+func TestDreamBatchSchemaCarriesSideArrays(t *testing.T) {
+	if strings.Contains(BatchSchema(), "plan_tasks") || !strings.Contains(DreamBatchSchema(), "plan_tasks") {
+		t.Error("only the dream schema carries the side arrays")
+	}
+	typed := dreamProcedure(true)
+	for _, phase := range []string{"## Phase 5b", "## Phase 5c", "## Phase 5d"} {
+		if strings.Count(typed, phase) != 1 {
+			t.Errorf("typed procedure lacks %q exactly once", phase)
+		}
 	}
 }

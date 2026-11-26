@@ -237,14 +237,6 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 	return strings.Join(parts, "; ")
 }
 
-// handoffBodyMax caps the injected steward handoff in bytes.
-const handoffBodyMax = 9000
-
-// StewardHandoffBody is this session's steward handoff text, capped, for the post-compact start; "" when none.
-func StewardHandoffBody(sessionID string, now time.Time) string {
-	return StewardHandoffBodyBudget(sessionID, now, handoffBodyMax)
-}
-
 // StewardHandoffBodyBudget reserves the path and truncation notice within the caller's remaining byte budget.
 func StewardHandoffBodyBudget(sessionID string, now time.Time, budget int) string {
 	p := StewardHandoff(sessionID, now)

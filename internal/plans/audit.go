@@ -513,7 +513,7 @@ func (a *auditRun) tick(plan string, t *Task, sha, rule string) error {
 		a.report(plan, id, "reopened after this commit; a new commit naming it or --done ticks it", sha)
 		return nil
 	}
-	ok, err := a.apply(Change{Plan: plan, ID: id, Action: "tick", Rule: rule, Evidence: sha}, func() error { return MarkDone(plan, id, sha) })
+	ok, err := a.apply(Change{Plan: plan, ID: id, Action: "tick", Rule: rule, Evidence: sha}, func() error { _, err := MarkDone(plan, id, sha); return err })
 	if ok {
 		t.Done, t.Sha = true, sha
 	}
@@ -841,6 +841,14 @@ func (e taskEdit) action() string {
 
 // RecheckJob reopens each failed task and logs each verdict, trying all despite errors; prose is flagged, not restored.
 func RecheckJob(ctx context.Context, root, job string, before Snapshot, cite Cite) (JobReport, error) {
+	return RecheckOwned(ctx, root, job, before, cite, nil)
+}
+
+// leaveWhy is the verdict of an edit the job did not make: logged and left as it is.
+const leaveWhy = "not an edit this run made"
+
+// RecheckOwned is RecheckJob limited to tasks own accepts (nil: all); other changed tasks are left and logged.
+func RecheckOwned(ctx context.Context, root, job string, before Snapshot, cite Cite, own func(plan, id string) bool) (JobReport, error) {
 	var rep JobReport
 	edits, dirty := planEdits(before, TakeSnapshot(root))
 	rep.TextChanged = len(dirty) > 0
@@ -851,15 +859,21 @@ func RecheckJob(ctx context.Context, root, job string, before Snapshot, cite Cit
 		c := Change{Time: now().UTC(), Plan: p, ID: "plan text", Action: "text", Rule: job, Job: job, Verdict: "flagged: plan text outside task lines changed"}
 		errs = append(errs, appendAuditLog(c))
 	}
-	for i, e := range edits {
+	counted := 0 // a left edit is no change of this job, so it takes no place under the cap
+	for _, e := range edits {
 		var why string
 		switch {
+		case own != nil && !own(e.plan, cmp.Or(e.before.ID, e.before.Title)):
+			why = leaveWhy
 		case rep.TextChanged:
 			why = "plan text outside task lines changed"
-		case i >= JobChangeCap:
+		case counted >= JobChangeCap:
 			why = fmt.Sprintf("over the cap of %d changes", JobChangeCap)
 		default:
 			why = v.verify(e)
+		}
+		if why != leaveWhy {
+			counted++
 		}
 		errs = append(errs, rep.settle(e, job, why))
 	}
@@ -878,9 +892,12 @@ func (r *JobReport) settle(e taskEdit, job, why string) error {
 	case why == "":
 		c.Verdict, c.Reopen = "kept", reopenCmd(c.Plan, c.ID)
 		r.Kept = append(r.Kept, c)
-	case open(e.before):
+	case open(e.before) && why != leaveWhy:
 		c.Verdict = "reverted: " + why
-		if rerr = reopenAt(e.plan, c.ID, e.before.Reopened); rerr != nil { // restore the marker the tick stripped
+		if rerr = reopenAt(e.plan, c.ID, e.before.Reopened, e.span); errors.Is(rerr, errStale) { // a peer edited it since
+			c.Verdict, rerr = "flagged: "+leaveWhy, nil
+			r.Flagged = append(r.Flagged, c)
+		} else if rerr != nil { // restore the marker the tick stripped
 			c.Verdict = "revert failed: " + why
 			r.Failed = append(r.Failed, c)
 			rerr = fmt.Errorf("revert %s: %w", c.ID, rerr)

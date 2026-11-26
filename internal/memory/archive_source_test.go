@@ -28,9 +28,9 @@ func TestArchiveSource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			src, ok := archiveSource(tt.file)
+			src, ok := ArchiveSource(tt.file)
 			if src != tt.wantSrc || ok != tt.wantOK {
-				t.Errorf("archiveSource(%q) = %q, %v; want %q, %v", tt.file, src, ok, tt.wantSrc, tt.wantOK)
+				t.Errorf("ArchiveSource(%q) = %q, %v; want %q, %v", tt.file, src, ok, tt.wantSrc, tt.wantOK)
 			}
 		})
 	}

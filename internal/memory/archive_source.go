@@ -15,8 +15,8 @@ var archiveNameRE = regexp.MustCompile(`^(?:` + archiveSrc + `-` + archiveMonth 
 	archiveSrc + `-archive|` +
 	archiveDate + `-` + archiveSrc + `-overflow(?:-` + archiveSlug + `)?)\.md$`)
 
-// archiveSource maps an archive file name to its bank source; ok is false for any other name.
-func archiveSource(name string) (src string, ok bool) {
+// ArchiveSource maps an archive file name to its bank source; ok is false for any other name.
+func ArchiveSource(name string) (src string, ok bool) {
 	m := archiveNameRE.FindStringSubmatch(name)
 	if m == nil {
 		return "", false

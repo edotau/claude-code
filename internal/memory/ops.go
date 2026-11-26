@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -59,8 +60,23 @@ type Op struct {
 
 // Batch is the model's whole answer.
 type Batch struct {
-	Ops []Op `json:"ops"`
+	Ops           []Op           `json:"ops"`
+	Candidates    []candidate    `json:"candidates,omitempty"`     // dream 5b: feedback candidates, proposed by Go
+	TestProposals []testProposal `json:"test_proposals,omitempty"` // dream 5c: tests proposed, not written
+	PlanTasks     []PlanTaskOp   `json:"plan_tasks,omitempty"`     // dream 5d: open plan tasks to tick or strike
 }
+
+// PlanTaskOp closes one open plan task: Action done (Sha optional) or strike (Reason and Evidence).
+type PlanTaskOp struct {
+	Plan     string `json:"plan"`
+	ID       string `json:"id"`
+	Action   string `json:"action"`
+	Sha      string `json:"sha,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
+const maxSideOps = 10 // each of candidates, test_proposals and plan_tasks
 
 // OpResult is what Go did with one op; Outcome is DreamOK, DreamNoop or DreamFailed.
 type OpResult struct {
@@ -84,6 +100,9 @@ func (b Batch) Validate() error {
 	}
 	if len(b.Ops) > maxBatchOps {
 		return fmt.Errorf("%d ops, at most %d", len(b.Ops), maxBatchOps)
+	}
+	if max(len(b.Candidates), len(b.TestProposals), len(b.PlanTasks)) > maxSideOps {
+		return fmt.Errorf("candidates, test_proposals and plan_tasks take at most %d entries each", maxSideOps)
 	}
 	for i, o := range b.Ops {
 		if err := o.check(); err != nil {
@@ -703,8 +722,40 @@ func opRulesSchema() []schemaObj {
 	}
 }
 
-// BatchSchema is the JSON Schema of Batch, built from Op's json fields and the enum lists above.
-func BatchSchema() string {
+// BatchSchema is the JSON Schema of Batch's ops, built from Op's json fields and the enum lists above.
+func BatchSchema() string { return jsonString(batchSchema(nil)) }
+
+// DreamBatchSchema is BatchSchema plus the dream-only candidates, test_proposals and plan_tasks arrays.
+func DreamBatchSchema() string { return jsonString(batchSchema(dreamSideSchema())) }
+
+func strField(rules schemaObj) schemaObj {
+	f := schemaObj{"type": "string", "pattern": oneLinePattern}
+	maps.Copy(f, rules)
+	return f
+}
+
+func sideArray(required []string, props schemaObj) schemaObj {
+	item := schemaObj{"type": "object", "additionalProperties": false, "required": required, "properties": props}
+	return schemaObj{"type": "array", "maxItems": maxSideOps, "items": item}
+}
+
+// dreamSideSchema types the three dream-only arrays; Go writes every file from them.
+func dreamSideSchema() schemaObj {
+	return schemaObj{
+		"candidates": sideArray([]string{"id", "evidence", "repeats", "change", "target", "kind", "size"}, schemaObj{
+			"id": strField(schemaObj{"pattern": `^fc-[a-z0-9][a-z0-9-]*$`}), "repeats": schemaObj{"type": "integer", "minimum": 0},
+			"evidence": schemaObj{"type": "array", "maxItems": 8, "items": strField(nil)},
+			"change":   strField(schemaObj{"maxLength": candidateMaxText}), "target": strField(nil),
+			"kind": schemaObj{"enum": candidateKinds}, "size": schemaObj{"enum": candidateSizes}}),
+		"test_proposals": sideArray([]string{"pkg", "case", "reason"}, schemaObj{
+			"pkg": strField(nil), "case": strField(nil), "reason": strField(nil), "runtime": strField(nil)}),
+		"plan_tasks": sideArray([]string{"plan", "id", "action"}, schemaObj{
+			"plan": strField(nil), "id": strField(nil), "action": schemaObj{"enum": []string{"done", "strike"}},
+			"sha": strField(nil), "reason": schemaObj{"enum": plans.StrikeReasons}, "evidence": strField(nil)}),
+	}
+}
+
+func batchSchema(side schemaObj) schemaObj {
 	props := schemaObj{}
 	for _, tag := range opTags() {
 		p := schemaObj{"type": "string"}
@@ -715,11 +766,12 @@ func BatchSchema() string {
 		"type": "object", "additionalProperties": false, "required": []string{"op"},
 		"properties": props, "allOf": opRulesSchema(),
 	}
-	return jsonString(schemaObj{
+	batch := schemaObj{"ops": schemaObj{"type": "array", "maxItems": maxBatchOps, "items": op}}
+	maps.Copy(batch, side)
+	return schemaObj{
 		"$schema": schemaDraft, "type": "object", "additionalProperties": false,
-		"required":   []string{"ops"},
-		"properties": schemaObj{"ops": schemaObj{"type": "array", "maxItems": maxBatchOps, "items": op}},
-	})
+		"required": []string{"ops"}, "properties": batch,
+	}
 }
 
 func jsonString(v any) string {
@@ -734,7 +786,7 @@ func jsonString(v any) string {
 var beforeBatchCommit = func() {}
 
 // ApplyBatch applies b to the bank files under the bank lock; nothing is written unless every op passes.
-func ApplyBatch(b Batch, base map[string]string, now time.Time) ([]OpResult, error) {
+func ApplyBatch(b Batch, base Versions, now time.Time) ([]OpResult, error) {
 	var results []OpResult
 	err := withFlatLock(BankLockWait, func() error {
 		var err error
@@ -745,7 +797,7 @@ func ApplyBatch(b Batch, base map[string]string, now time.Time) ([]OpResult, err
 }
 
 // applyBatchLocked is ApplyBatch for a caller already holding the bank lock.
-func applyBatchLocked(b Batch, base map[string]string, now time.Time) ([]OpResult, error) {
+func applyBatchLocked(b Batch, base Versions, now time.Time) ([]OpResult, error) {
 	b, err := withBase(b, base)
 	if err == nil {
 		err = b.Validate()
@@ -768,10 +820,10 @@ func applyBatchLocked(b Batch, base map[string]string, now time.Time) ([]OpResul
 }
 
 // withBase fills each op's empty Read from base and refuses a Read that disagrees with it; b is not modified.
-func withBase(b Batch, base map[string]string) (Batch, error) {
+func withBase(b Batch, base Versions) (Batch, error) {
 	ops := slices.Clone(b.Ops)
 	for i, o := range ops {
-		want := base[o.ID]
+		want := string(base[o.ID])
 		switch {
 		case want == "":
 		case o.Read == "":

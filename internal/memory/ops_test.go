@@ -630,14 +630,14 @@ func TestApplyBatchFillsReadFromBase(t *testing.T) {
 	batchStore(t)
 	ref := contentRef(ParseDoc("decisionLog.md", []byte(datedIn)).Entries[0].block())
 	upd := Op{Op: "update", Target: "decisionLog", ID: "0a1b2c3d", Text: "new body"} // conventions.md shares the id
-	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, map[string]string{"0a1b2c3d": ref}, testEnv().Now); err != nil {
+	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, Versions{"0a1b2c3d": Version(ref)}, testEnv().Now); err != nil {
 		t.Fatalf("base did not fill read: %v", err)
 	}
 	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, "new body") {
 		t.Errorf("update not written:\n%s", got)
 	}
 	upd.Read = "z00000000"
-	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, map[string]string{"0a1b2c3d": ref}, testEnv().Now); err == nil ||
+	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, Versions{"0a1b2c3d": Version(ref)}, testEnv().Now); err == nil ||
 		!strings.Contains(err.Error(), "disagrees") {
 		t.Errorf("a read that disagrees with base: err = %v", err)
 	}

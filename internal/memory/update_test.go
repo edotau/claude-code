@@ -240,6 +240,10 @@ func TestUpdateReceiptRoundTripsClassAndFix(t *testing.T) {
 		t.Fatalf("legacy receipt: %+v, ok=%t", got, ok)
 	}
 	assertReportedUpdate(t, id, JobClassBudget)
+	b := UpdateResult{Class: JobClassBudget, Fix: "claude-code memory update --session 'x'"}
+	if got := b.fixNote(); !strings.HasSuffix(got, "("+budgetFixGuidance+")") {
+		t.Fatalf("budget fix note: %q", got)
+	}
 }
 
 // assertReceiptFields checks that all typed keys survive a write and read.
@@ -476,7 +480,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
-	ref := assets.MemoryDreamProcedure()
+	ref := dreamProcedure(dreamTyped())
 	if !strings.Contains(got, ref) {
 		t.Errorf("prompt missing the embedded dream reference:\n%s", got)
 	}
@@ -490,7 +494,11 @@ func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 	clearChildEnv(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ran := false
-	run := func(context.Context, string, string) (string, error) { ran = true; return "stub", nil }
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		ran = true
+		AnswerJob(ctx, `{"ops":[]}`)
+		return "stub", nil
+	}
 	done := make(chan error, 1)
 	go func() { done <- dream(dreamOptions{CWD: t.TempDir(), Run: run}) }()
 	select {
@@ -584,7 +592,11 @@ func TestDreamPassesChildEnvWithoutMutatingParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	run := func(ctx context.Context, _, _ string) (string, error) { got = ChildEnv(ctx); return "stub", nil }
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		got = ChildEnv(ctx)
+		AnswerJob(ctx, `{"ops":[]}`)
+		return "stub", nil
+	}
 	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +639,7 @@ func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
 	transcript := strings.Join([]string{
 		assistantLine("DECISION: use bbolt — rejected sqlite because no cgo\nBUG: update hangs → missing timeout\nNEXT: add retry\nNOTE: vault key lives in keyring"),
 	}, "\n")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -649,7 +661,7 @@ func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
 		toolResultLine("DECISION: this came from a tool result and must not be filed"),
 		systemLine("DECISION: this came from a system message and must not be filed"),
 	}, "\n")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -661,7 +673,7 @@ func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
 func TestExtractTags_OptionalBulletPrefix(t *testing.T) {
 	t.Parallel()
 	transcript := assistantLine("- DECISION: bulleted tag still counts")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -676,7 +688,7 @@ func TestExtractTags_ExactRepeatsDeduped(t *testing.T) {
 		assistantLine("NOTE: same fact twice"),
 		assistantLine("NOTE: same fact twice"),
 	}, "\n")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -689,7 +701,7 @@ func TestExtractTags_OverLongCapped(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", 500)
 	transcript := assistantLine("NOTE: " + long)
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -708,7 +720,7 @@ func TestExtractTags_OverCountKeepsNewest(t *testing.T) {
 		lines = append(lines, assistantLine("NOTE: fact "+string(rune('a'+i))))
 	}
 	transcript := strings.Join(lines, "\n")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -727,7 +739,7 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 		"{not valid json",
 		assistantLine("NOTE: survives the bad line before it"),
 	}, "\n")
-	tags, err := extractTags(strings.NewReader(transcript))
+	tags, err := extractTagsExcept(strings.NewReader(transcript), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -738,7 +750,7 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 
 func TestExtractTags_EmptyTranscript(t *testing.T) {
 	t.Parallel()
-	tags, err := extractTags(strings.NewReader(""))
+	tags, err := extractTagsExcept(strings.NewReader(""), nil)
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
@@ -917,5 +929,87 @@ func TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle(t *testing.T) {
 	}
 	if got := filedByGoBlock("s5"); !strings.Contains(got, "- 2026-11-20 — use X — because Y (id 12345678)") {
 		t.Fatalf("filedByGoBlock = %q", got)
+	}
+}
+
+// typedStore stands in for the schema stamp so the typed path runs on a fresh test store.
+func typedStore(t *testing.T, ready bool) {
+	t.Helper()
+	old := typedStoreReady
+	typedStoreReady = func() bool { return ready }
+	t.Cleanup(func() { typedStoreReady = old })
+}
+
+func TestUpdateAppliesTypedBatch(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	typedStore(t, true)
+	good := `{"ops":[{"op":"add","target":"sessionHistory","title":"typed arc","text":"- shipped typed update"},` +
+		`{"op":"add","target":"activeContext","section":"Next Steps","text":"verify the typed path"}]}`
+	calls := 0
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		calls++
+		AnswerJob(ctx, good)
+		return "stub", nil
+	}
+	if err := update(updateOptions{Run: run, CWD: root, Session: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := readUpdateResult("t1"); r.Status != updateOK || r.Typed != "ok" || calls != 1 {
+		t.Errorf("typed result %+v after %d runs", r, calls)
+	}
+	hist, _ := os.ReadFile(Path("sessionHistory.md"))
+	active, _ := os.ReadFile(Path("activeContext.md"))
+	if !strings.Contains(string(hist), "typed arc") || !strings.Contains(string(active), "verify the typed path") {
+		t.Errorf("ops not written:\n%s\n%s", hist, active)
+	}
+	assertTypedFallback(t, root)
+}
+
+// assertTypedFallback: an invalid answer is retried once with the message, then the tools-on run takes over.
+func assertTypedFallback(t *testing.T, root string) {
+	t.Helper()
+	calls := 0
+	var prompts []string
+	bad := func(ctx context.Context, p, _ string) (string, error) {
+		calls++
+		prompts = append(prompts, p)
+		AnswerJob(ctx, `{"ops":[{"op":"bogus"}]}`)
+		return "stub", nil
+	}
+	if err := update(updateOptions{Run: bad, CWD: root, Session: "t2"}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := readUpdateResult("t2"); r.Typed != "fallback" || calls != 3 || !strings.Contains(prompts[1], "previous answer was rejected") {
+		t.Errorf("fallback result %+v after %d runs", r, calls)
+	}
+}
+
+func TestUpdateOlderStoreKeepsUntypedPath(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	typedStore(t, false)
+	calls := 0
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		calls++
+		if JobAnswerSchema(ctx) != "" {
+			t.Error("a v3 store must not ask for a typed answer")
+		}
+		return "stub", nil
+	}
+	var out bytes.Buffer
+	if err := update(updateOptions{Run: run, CWD: root, Session: "t3", Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := readUpdateResult("t3"); r.Typed != "" || calls != 1 || !strings.Contains(out.String(), "memory upgrade") {
+		t.Errorf("old-store result %+v after %d runs, out %q", r, calls, out.String())
 	}
 }

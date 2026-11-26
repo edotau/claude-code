@@ -83,6 +83,25 @@ func memEngine() helptext.Engine {
 	}
 }
 
+func TestMemoryShadowRebuild(t *testing.T) {
+	cfg := memCfg(t)
+	for args, want := range map[string]int{"shadow": 2, "shadow --bogus": 2, "shadow --rebuild": 1} { // 1: no store yet
+		if code, _, _ := memCLI(t, strings.Fields(args)...); code != want {
+			t.Errorf("memory %s: code %d, want %d", args, code, want)
+		}
+	}
+	memMust(t, os.MkdirAll(filepath.Join(cfg, "memory"), 0o700))
+	memMust(t, os.WriteFile(filepath.Join(cfg, "memory", "decisionLog.md"), []byte("# D\n\n## 2026-01-01 — a\n"), 0o600))
+	first, second := memCLIOK(t, "shadow", "--rebuild"), memCLIOK(t, "shadow", "--rebuild")
+	if first != "shadow: 1 docs, 1 entries, 0 not byte-equal\n" || second != first {
+		t.Fatalf("rebuild output %q then %q", first, second)
+	}
+	snaps, err := filepath.Glob(filepath.Join(cfg, "state", "backups", "memory-v0-*.db"))
+	if _, serr := os.Stat(filepath.Join(cfg, "state", "memory.db")); serr != nil || err != nil || len(snaps) != 1 {
+		t.Fatalf("db %v, snapshots %v (%v)", serr, snaps, err)
+	}
+}
+
 func TestMemoryCLIRejections(t *testing.T) {
 	memCfg(t)
 	cases := []struct {

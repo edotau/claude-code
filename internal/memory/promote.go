@@ -43,20 +43,7 @@ func archivePath(name string, now time.Time) string {
 	return paths.MemorySub("archive", strings.TrimSuffix(name, ".md")+"-"+now.Format("2006-01")+".md")
 }
 
-// splitOverflow reads path and splits off its oldest blocks beyond capLines; an absent or in-cap file has none.
-func splitOverflow(path string, capLines int) (header string, keep, overflow []string, err error) {
-	data, err := readFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			err = nil
-		}
-		return "", nil, nil, err
-	}
-	header, keep, overflow = overflowSplit(logicalName(path), string(data), capLines)
-	return header, keep, overflow, nil
-}
-
-// overflowSplit is splitOverflow on typed file base's bytes already read; an in-cap body has no overflow.
+// overflowSplit splits off the oldest blocks of file base's body beyond capLines; an in-cap body has no overflow.
 func overflowSplit(base, body string, capLines int) (header string, keep, overflow []string) {
 	if logicalLineCount(body) <= capLines {
 		return "", nil, nil

@@ -28,7 +28,7 @@ const (
 	queueMaxAttempts = 3
 )
 
-var queueKinds = []string{"update", "watch", "dream", "catchup", "embed", "learn-routing", "learn-recall"}
+var queueKinds = []string{"update", "dream"}
 
 // job is one queued background task; Kind+Key name its file, so a duplicate enqueue coalesces.
 type job struct {

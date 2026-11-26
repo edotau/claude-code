@@ -476,15 +476,17 @@ func TaskPlans(home string, skip []string, id string, want func(Task) bool) []st
 	return out
 }
 
-// MarkDone ticks taskID by hand (a task with no owns:), appending sha when given; a ticked task stays as it is.
-func MarkDone(planPath, taskID, sha string) error {
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+// MarkDone ticks taskID by hand, appending sha when given; wrote is false when the task was already closed.
+func MarkDone(planPath, taskID, sha string) (wrote bool, err error) {
+	err = editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Done || t.Dropped {
 			return lines
 		}
+		wrote = true
 		forget(planPath, t.ID)
 		return markDone(lines, t, strings.TrimSpace(sha))
 	})
+	return wrote && err == nil, err
 }
 
 // shaTail matches the landing sha of a ticked task, ahead of any trailing comments.
@@ -498,11 +500,21 @@ var struckLine = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // Reopen unticks taskID, drops its sha and marks root's trunk tip so only a later commit re-ticks it; or unstrikes it.
-func Reopen(root, planPath, taskID string) error { return reopenAt(planPath, taskID, trunkSha(root)) }
+func Reopen(root, planPath, taskID string) error {
+	return reopenAt(planPath, taskID, trunkSha(root), nil)
+}
 
-// reopenAt is Reopen marking sha at ("" writes no marker and keeps any the line has).
-func reopenAt(planPath, taskID, at string) error {
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+// errStale is a guarded reopen that found the task's lines no longer as the caller saw them.
+var errStale = errors.New("plans: task lines changed since they were read")
+
+// reopenAt is Reopen marking sha at ("" keeps the line's marker); a non-nil seen must still match its lines.
+func reopenAt(planPath, taskID, at string, seen []string) error {
+	stale := false
+	err := editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if seen != nil && !slices.Equal(lines[t.Start:t.End+1], seen) {
+			stale = true
+			return lines
+		}
 		if t.Dropped {
 			span := slices.DeleteFunc(slices.Clone(lines[t.Start:t.End+1]), func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "— superseded:") })
 			for i, l := range span {
@@ -522,21 +534,25 @@ func reopenAt(planPath, taskID, at string) error {
 		}
 		return lines
 	})
+	if err == nil && stale {
+		return errStale
+	}
+	return err
 }
 
 // StrikeReasons are the reasons a strike by id may give.
 var StrikeReasons = []string{"superseded", "duplicate", "obsolete", "out_of_scope"}
 
-// StrikeWith strikes taskID with an enum reason and a decision:|commit:|note: cite, written in the audited form.
-func StrikeWith(planPath, taskID, reason, evidence string) error {
+// StrikeWith strikes taskID with an enum reason and a decision:|commit:|note: cite; wrote is false if already closed.
+func StrikeWith(planPath, taskID, reason, evidence string) (bool, error) {
 	if !slices.Contains(StrikeReasons, reason) {
-		return fmt.Errorf("plans: --reason %q is not one of %s", reason, strings.Join(StrikeReasons, ", "))
+		return false, fmt.Errorf("plans: --reason %q is not one of %s", reason, strings.Join(StrikeReasons, ", "))
 	}
 	m := citeRe().FindStringSubmatch(evidence)
 	if m == nil || m[0] != evidence || len(strings.Fields(evidence)) != 1 || m[1] == "commit" && !shaHex().MatchString(m[2]) {
-		return fmt.Errorf("plans: --evidence %q is not decision:<id>, commit:<sha> or note:<path>", evidence)
+		return false, fmt.Errorf("plans: --evidence %q is not decision:<id>, commit:<sha> or note:<path>", evidence)
 	}
-	return Strike(planPath, taskID, reason+" — evidence: "+evidence)
+	return strikeWrote(planPath, taskID, reason+" — evidence: "+evidence)
 }
 
 // strikeWidth is the column cap of a struck task's lines.
@@ -544,12 +560,17 @@ const strikeWidth = 120
 
 // Strike wraps taskID's text in ~~…~~, one wrapped line each, and appends " — superseded: <reason>".
 func Strike(planPath, taskID, reason string) error {
+	_, err := strikeWrote(planPath, taskID, reason)
+	return err
+}
+
+func strikeWrote(planPath, taskID, reason string) (wrote bool, err error) {
 	reason = strings.Join(strings.Fields(reason), " ")
 	if reason == "" {
-		return errors.New("plans: a strike needs a reason")
+		return false, errors.New("plans: a strike needs a reason")
 	}
 	ticked := false
-	err := editTask(planPath, taskID, func(t Task, lines []string) []string {
+	err = editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Dropped {
 			return lines
 		}
@@ -557,13 +578,14 @@ func Strike(planPath, taskID, reason string) error {
 			ticked = true
 			return lines
 		}
+		wrote = true
 		lines = removeNotes(lines, t)
 		return slices.Concat(lines[:t.Start], struckLines(lines[t.Start:t.End+1], reason), lines[t.End+1:])
 	})
 	if err == nil && ticked {
-		return fmt.Errorf("plans: task %q is ticked; reopen it before striking", taskID)
+		return false, fmt.Errorf("plans: task %q is ticked; reopen it before striking", taskID)
 	}
-	return err
+	return wrote && err == nil, err
 }
 
 // struckLines re-flows a task's lines into ~~-wrapped lines of at most strikeWidth columns, ending in the reason.
