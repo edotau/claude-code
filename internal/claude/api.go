@@ -231,23 +231,31 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string, 
 		*served = chunk.Model
 	}
 	chunk.foldUsage(usage)
-	limit := false
-	for _, c := range chunk.Choices {
-		if c.FinishReason != "" {
-			*finished = true
-			limit = limit || c.FinishReason == "length"
-		}
-		if c.Delta.Content == "" {
-			continue
-		}
-		if _, err := io.WriteString(w, c.Delta.Content); err != nil {
-			return false, err
-		}
+	limit, err := chunk.write(w, finished)
+	if err != nil {
+		return false, err
 	}
 	if limit {
 		return false, outputLimit()
 	}
 	return false, nil
+}
+
+// write copies the chunk's content to w; limit reports a finish_reason of length.
+func (c chatChunk) write(w io.Writer, finished *bool) (limit bool, _ error) {
+	for _, ch := range c.Choices {
+		if ch.FinishReason != "" {
+			*finished = true
+			limit = limit || ch.FinishReason == "length"
+		}
+		if ch.Delta.Content == "" {
+			continue
+		}
+		if _, err := io.WriteString(w, ch.Delta.Content); err != nil {
+			return limit, err
+		}
+	}
+	return limit, nil
 }
 
 // outputLimit is the failure of a direct API answer cut off at the model's output token limit.

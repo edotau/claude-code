@@ -130,14 +130,19 @@ func resendLeaf(ctx context.Context, k contract.Contract, send sendFunc, tries m
 		return
 	}
 	delete(tries, k.ID)
-	_, err = contract.Update(k.ID, func(k contract.Contract) (contract.Contract, error) {
+	reassignLeaf(k.ID, holder, next)
+}
+
+// reassignLeaf hands leaf id from holder to next when holder is still its working holder.
+func reassignLeaf(id, holder, next string) {
+	_, err := contract.Update(id, func(k contract.Contract) (contract.Contract, error) {
 		if k.State() != contract.StateWorking || k.Holders[len(k.Holders)-1] != holder {
 			return k, nil
 		}
 		return k.Reassign(next)
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ask: leaf %s: re-assign to %s: %v\n", k.ID, next, err)
+		fmt.Fprintf(os.Stderr, "ask: leaf %s: re-assign to %s: %v\n", id, next, err)
 	}
 }
 

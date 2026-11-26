@@ -280,13 +280,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
-		if !res.NotStarted && plan.spend(ctx, auto) {
-			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
-		}
-		res.Invoked = invoked
-		if plan.model != "" && overflowRefusal(err) != "" { // a second overflow after the one window re-pick ends the task
-			err = retry.WithBudget(err, retry.BudgetContext)
-		}
+		res, lreq, err = settleRepick(ctx, plan, auto, invoked, lreq, res, err)
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
 			noteFailure(disp, lreq, ran, first)
 		}
@@ -295,6 +289,18 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		err = finishRepicks(append(tried, ranModel(disp, lreq, res)), err)
 	}
 	return res, lreq, hops, refusedTwice(ctx, hops, err)
+}
+
+// settleRepick books the re-pick just run: spends its budget, restores Invoked, and ends the task on a second overflow.
+func settleRepick(ctx context.Context, plan repickPlan, auto bool, invoked string, lreq RunOptions, res wire.Result, err error) (wire.Result, RunOptions, error) {
+	if !res.NotStarted && plan.spend(ctx, auto) {
+		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
+	}
+	res.Invoked = invoked
+	if plan.model != "" && overflowRefusal(err) != "" { // a second overflow after the one window re-pick ends the task
+		err = retry.WithBudget(err, retry.BudgetContext)
+	}
+	return res, lreq, err
 }
 
 type triedCarryKey struct{}

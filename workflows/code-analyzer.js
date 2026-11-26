@@ -937,8 +937,6 @@ const recordPartition = async (partition, byPkg, confirmed, gate) => {
 }
 // The find lens prompt: the first call differs by mode; a failed scope agent leaves the auditor to list its own files.
 
-
-
 // Batched per PACKAGE, ≤ REFUTE_BATCH findings each (round 11: per-file refuters grew to 24 agents / 7.9M reads).
 const refuteBatches = fresh => {
   const byPkg = new Map()
