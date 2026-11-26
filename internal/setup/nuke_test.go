@@ -597,3 +597,16 @@ func TestTarWriteFileSkipsDirAndDanglingSymlinks(t *testing.T) {
 		t.Fatal("archive holds an entry, want none for skipped symlinks")
 	}
 }
+
+// TestNukePlanNamesMemoryDatabase: the printed plan names state/memory.db and keep-memory archives it.
+func TestNukePlanNamesMemoryDatabase(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	write(t, filepath.Join(dir, "state", "memory.db"), "data")
+	var out bytes.Buffer
+	if err := nuke(nukeOpts{Dir: dir, KeepMemory: true, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "state/memory.db") < 2 {
+		t.Errorf("plan does not name state/memory.db as archived:\n%s", out.String())
+	}
+}

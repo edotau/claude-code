@@ -1231,3 +1231,43 @@ func TestKeepPiSlotWhileARunIsLive(t *testing.T) {
 		t.Error("a slot was prunable while a pi run is live")
 	}
 }
+
+// TestCleanRefusesStateDatabases: a glob over both databases and sidecars removes only the unprotected sibling.
+func TestCleanRefusesStateDatabases(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	state := filepath.Join(dir, "state")
+	names := []string{"memory.db", "memory.db-wal", "memory.db-shm", "vault.db"}
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	for _, n := range append(names, "scratch.tmp") {
+		write(t, filepath.Join(state, n), "data")
+		if err := os.Chtimes(filepath.Join(state, n), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var errw bytes.Buffer
+	hit, _, failed := pruneAgedTo(&errw, []string{filepath.Join(state, "*")}, time.Now(), true, nil)
+	if failed != 0 || len(hit) != 1 || exists(t, filepath.Join(state, "scratch.tmp")) {
+		t.Errorf("hit=%v failed=%d, want only scratch.tmp removed", hit, failed)
+	}
+	for _, n := range names {
+		p := filepath.Join(state, n)
+		if !exists(t, p) || !strings.Contains(errw.String(), "refused: "+p+" is protected") {
+			t.Errorf("%s: survived=%v, errw:\n%s", n, exists(t, p), errw.String())
+		}
+	}
+}
+
+func TestCleanKeepsDatabaseSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	state := filepath.Join(dir, "state")
+	var errw bytes.Buffer
+	snap := filepath.Join(state, "backups", "memory-v1-20261125.db")
+	write(t, snap, "data")
+	write(t, filepath.Join(state, "backups", "old.json"), "data")
+	pruneAgedTo(&errw, []string{filepath.Join(state, "backups", "*"), filepath.Join(state, "backups")}, time.Now().Add(time.Hour), true, nil)
+	if !exists(t, snap) || exists(t, filepath.Join(state, "backups", "old.json")) {
+		t.Errorf("snapshot survived=%v, want it kept and old.json removed; errw:\n%s", exists(t, snap), errw.String())
+	}
+}

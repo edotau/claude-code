@@ -790,6 +790,28 @@ func RelWithin(root, abs string) (string, bool) {
 // SessionIDEnv is the env var Claude Code sets in every live session's tools.
 const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
 
+// Protected reports whether p is or holds a state database, one of its sidecars or a state/backups/*.db snapshot.
+func Protected(p string) bool {
+	state := filepath.Join(ConfigDir(), "state")
+	backups := filepath.Join(state, "backups")
+	if SameFile(filepath.Dir(p), backups) && strings.HasSuffix(FoldCase(filepath.Base(p)), ".db") {
+		return true
+	}
+	if snaps, _ := filepath.Glob(filepath.Join(backups, "*.db")); len(snaps) > 0 && SameFile(p, backups) {
+		return true
+	}
+	for _, db := range []string{"vault.db", "memory.db"} {
+		if InsideDir(filepath.Join(state, db), p) {
+			return true
+		}
+		base := FoldCase(filepath.Base(p))
+		if SameFile(filepath.Dir(p), state) && (strings.HasPrefix(base, db+".") || slices.Contains([]string{"-wal", "-shm", "-journal"}, strings.TrimPrefix(base, db))) {
+			return true
+		}
+	}
+	return false
+}
+
 // MemoryStoreDir is the memory store root and the work tree of the local memory repo.
 func MemoryStoreDir() string { return filepath.Join(ConfigDir(), "memory") }
 

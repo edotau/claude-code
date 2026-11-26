@@ -4,7 +4,7 @@
 // previews without deleting.
 //
 // Invariants, in order of importance:
-//  1. Credentials are NEVER touched: the vault (state/vault.db), settings.json, .credentials.json.
+//  1. Credentials are NEVER touched: the vault (state/vault.db), settings.json, .credentials.json; paths.Protected refuses state/*.db.
 //  2. The memory store (memory/** — the local memory Git repo incl. .git, raw archives)
 //     and bank state (state/harness/memory/journal, bank.lock) are NEVER targets. Access state is protected except the two named orphan logs.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
@@ -36,7 +36,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // target is one sweepable family.
@@ -268,6 +267,7 @@ func Clean(args []string, out, errw io.Writer) int {
 		for _, t := range all {
 			fmt.Fprintf(out, "%-16s %s\n", t.name, t.doc)
 		}
+		fmt.Fprintln(out, "state/vault.db and state/memory.db are never cleaned.")
 		return 0
 	}
 	return runClean(all, cleanOpts{want: *want, olderThan: *olderThan, apply: !*dryRun, yes: *yesFlag}, errw)
@@ -520,6 +520,10 @@ func pruneAgedTo(errw io.Writer, patterns []string, cutoff time.Time, apply bool
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
 		for _, m := range matches {
+			if paths.Protected(m) {
+				fmt.Fprintf(errw, "refused: %s is protected\n", m)
+				continue
+			}
 			sz, ok, err := pruneMatch(m, cutoff, apply, keep)
 			if err != nil {
 				fmt.Fprintf(errw, "clean: could not remove %s: %v\n", m, err)
@@ -575,14 +579,10 @@ func underLinkedDir(p string) bool {
 
 // protected guards the vault, the memory store and anything reached through a symlinked dir behind the sweep globs.
 func protected(p string) bool {
-	if underLinkedDir(p) {
+	if underLinkedDir(p) || paths.Protected(p) {
 		return true
 	}
 	p = filepath.Clean(p)
-	vaultPath := filepath.Clean(vault.Path())
-	if p == vaultPath || strings.HasPrefix(p, vaultPath+".") {
-		return true
-	}
 	if p == filepath.Clean(memory.BankLockPath()) {
 		return true
 	}

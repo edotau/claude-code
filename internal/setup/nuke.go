@@ -229,6 +229,9 @@ func printPlan(w io.Writer, plan nukePlan) {
 	if plan.HasSecrets {
 		fmt.Fprintf(w, "secrets present (names only, never values): %s\n", strings.Join(plan.SecretNames, ", "))
 	}
+	if db := memoryDBRels(plan.Dir); len(db) > 0 {
+		fmt.Fprintf(w, "memory database (archived only with --keep-memory): %s\n", strings.Join(db, ", "))
+	}
 	if plan.Unpushed {
 		fmt.Fprintln(w, "commits on no remote to archive as "+unpushedBundle)
 	}
@@ -519,7 +522,7 @@ func keepMemoryPaths(dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	out := memoryDBRels(dir)
 	for _, root := range roots {
 		files, err := regularFilesUnder(dir, root)
 		if err != nil {
@@ -528,6 +531,17 @@ func keepMemoryPaths(dir string) ([]string, error) {
 		out = append(out, files...)
 	}
 	return out, nil
+}
+
+// memoryDBRels lists the memory SQLite store and its sidecars that exist under dir, as slash paths.
+func memoryDBRels(dir string) (out []string) {
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		rel := "state/memory.db" + suffix
+		if paths.FileExists(filepath.Join(dir, filepath.FromSlash(rel))) {
+			out = append(out, rel)
+		}
+	}
+	return out
 }
 
 // memoryRoots returns the existing real (non-symlink) directories under dir that keepMemoryPaths archives.
