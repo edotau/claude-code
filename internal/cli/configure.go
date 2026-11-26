@@ -88,8 +88,7 @@ var configurePage = helptext.Page{
 
 // configureOpts are cmdConfigure's flag values; restore, revert and allAgents come from the page word and --agent all.
 type configureOpts struct {
-	agent, out, auth               string
-	authSet                        bool
+	agent, out                     string
 	dryRun, check, restore, revert bool
 	allAgents, all                 bool
 	format                         *string
@@ -99,7 +98,6 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs := helptext.NewFlagSet("configure", configurePage)
 	o := &configureOpts{}
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini, or all")
-	fs.StringVar(&o.auth, "auth", "", "with github: switch gh to this account (with --check, compare gh's active account)")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with restore)")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (not with restore|revert)")
 	fs.StringVar(&o.out, "out", "", "with restore|fmt: act on this file, not settings.json")
@@ -158,9 +156,6 @@ func cmdConfigure(args []string) int {
 	if section == "fmt" {
 		return configureFmt(fs, o, pos)
 	}
-	if err := checkAuthFlag(fs, o, section); err != nil {
-		return helptext.Fail("configure: %v", err)
-	}
 	return configureRun(o, section, pos)
 }
 
@@ -191,15 +186,6 @@ func configureRoute(args []string) (code int, ok bool) {
 		return helptext.FailUsage("configure: %s is removed; use `claude-code %s`", arg, use), true
 	}
 	return 0, false
-}
-
-// checkAuthFlag records whether --auth was passed (an empty value is meaningful) and refuses it off the github page.
-func checkAuthFlag(fs *flag.FlagSet, o *configureOpts, section string) error {
-	fs.Visit(func(f *flag.Flag) { o.authSet = o.authSet || f.Name == "auth" })
-	if o.authSet && section != "github" {
-		return errors.New("--auth needs the github page")
-	}
-	return nil
 }
 
 // configureAllProfile validates --all's combinations and returns its optional <profile>.
@@ -368,7 +354,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 
 func configureMenu(o *configureOpts, section, profile string) int {
 	return menu.Run(menu.Options{
-		Agent: o.agent, Auth: o.auth, AuthSet: o.authSet, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
+		Agent: o.agent, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
 		JSON: *o.format == helptext.JSON, Interactive: proc.IsTerminal(os.Stdin) && proc.IsTerminal(os.Stderr),
 	}, section)
 }
@@ -555,15 +541,6 @@ func unknownAgent(agents string) error {
 // agentNames are the values `configure --agent` takes: claude, the agents, and all.
 func agentNames() []string { return append([]string{"claude", "all"}, agent.DefaultAgents...) }
 
-// authNames are the GitHub accounts for `configure github --auth`.
-func authNames() []string {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	return menu.GitHubAccounts(reg)
-}
-
 // sections derives from menu.SectionNames, the package's own run order.
 func sections() []string {
 	return append(append([]string{}, menu.SectionNames...), "desktop")
@@ -572,7 +549,7 @@ func sections() []string {
 // configureSpec is the completion node for the configure verb.
 func configureSpec() *helptext.Node {
 	fs, _ := configureFlags()
-	flags := helptext.FlagsOf(fs, map[string]func() []string{"agent": agentNames, "auth": authNames})
+	flags := helptext.FlagsOf(fs, map[string]func() []string{"agent": agentNames})
 	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: flags,
 		Sub: map[string]*helptext.Node{"history": historySpec(), "theme": themeSpec(), "vscode": vscode.Spec(),
 			"restore": {Flags: flags}, "revert": {Flags: flags}, "fmt": {Flags: flags}}}

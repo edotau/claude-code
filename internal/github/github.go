@@ -48,18 +48,6 @@ func GHActiveAccount() string {
 	return account
 }
 
-// SwitchGH makes login gh's active account (`gh auth switch`); a seam so tests never touch the real gh.
-var SwitchGH = func(login string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "auth", "switch", "--hostname", "github.com", "--user", login).CombinedOutput()
-	ghActiveTokenMemo.Drop()
-	if err != nil {
-		return fmt.Errorf("gh auth switch --user %s: %w: %s", login, err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
 type ghActiveTokenKey struct {
 	env     [5]string
 	path    string
@@ -70,7 +58,7 @@ type ghActiveTokenKey struct {
 // ghActive is gh's active account and, unless env overrides gh's default, that account's token.
 type ghActive struct{ account, token string }
 
-// ghActiveTokenMemo keeps a found account until SwitchGH, a `gh auth token` failure for authMemoNegativeTTL.
+// ghActiveTokenMemo keeps a found account while hosts.yml is unchanged, a gh token failure for authMemoNegativeTTL.
 var ghActiveTokenMemo = paths.NewMemo[ghActiveTokenKey, ghActive]("github.activetoken")
 
 // errGHTokenFailed is a `gh auth token` failure that is not a timeout, so it is worth remembering.

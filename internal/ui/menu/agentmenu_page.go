@@ -637,7 +637,7 @@ func ghUserRows(gh []string, active, inUse string) [][2]string {
 // pinCopilotProfile pins the profile behind GitHub account user, creating it on first use; "" is refused.
 func pinCopilotProfile(d *dialog, user string) bool {
 	if user == "" {
-		d.printf("copilot: pick an account; gh's active account is GitHub auth (configure github)\n")
+		d.printf("copilot: pick an account\n")
 		return false
 	}
 	reg, err := providers.Load()

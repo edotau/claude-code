@@ -28,10 +28,11 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
   `SHIP | FIX REQUIRED | BLOCK` first, then each issue with file, line and fix; adversarial lists CRITICAL→LOW or
   `VERDICT: no actionable findings`. Hunt what a same-family review waves through (a plausible rationale over
   a wrong assumption, convention drift, scope creep) and the frauds in `skills/evaluate-code/references/judge.md`.
-- Plan or brief vetting: `claude-code codex ask` with `skills/evaluate-code/references/task-review.md`. Skill or plugin
-  audit: `codex ask` with `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate run: `codex ask --tools`
-  with the chain of `skills/problem-solving/references/verify.md`, scoped to the touched packages; never a gate it did
-  not run. Handing a session over: `claude-code codex transfer`.
+- Plan or brief vetting: `claude-code agents ask --agent codex` with `skills/evaluate-code/references/task-review.md`.
+  Skill or plugin audit: `claude-code agents ask --agent codex` with
+  `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate run: `claude-code agents ask --agent codex
+  --tools` with the chain of `skills/problem-solving/references/verify.md`, scoped to the touched packages; never a
+  gate it did not run. Handing a session over: `claude-code codex transfer`.
 - Account and pin: `claude-code configure agents --agent codex`, model ids from `codex debug models`; `codex profile
   <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `codex setup` checks.
 - `--tools` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault readable; empty
@@ -50,7 +51,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - `ask --fleet` uses Copilot's experimental SDK subagents for requested scans; verify the diff.
 - `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt flags and
   `--env` are native; no `cost_usd`. `copilot --docs` prints vendor help; `copilot -- <native args>` forces passthrough.
-- Account and pin: `claude-code configure agents --agent copilot`, `configure github` for the account;
+- Account and pin: `claude-code configure agents --agent copilot` picks the account, `configure github` signs in;
   `copilot profile <p>` pins (`--off` stops routing, `--clear` resumes its own login), `copilot setup` checks.
   An unbillable account temporarily disables the agent without changing its pin. Routes and quota handoffs:
   `rules/harness/agent.md` → Dispatch behavior; `cost-routing.md` → Fallback.

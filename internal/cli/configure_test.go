@@ -174,27 +174,6 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 	}
 }
 
-// TestConfigureAuthRejectedOutsideGithubPage: --auth is refused before the restore branch can drop it.
-func TestConfigureAuthRejectedOutsideGithubPage(t *testing.T) {
-	resetEnv(t)
-	cases := []struct {
-		name string
-		args []string
-	}{
-		{"restore", []string{"restore", "--auth", "follow"}},
-		{"revert", []string{"revert", "--auth", "follow"}},
-		{"json list", []string{"provider", "--auth", "follow", "--format", "json"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
-			if code != 1 || !strings.Contains(stderr, "--auth needs the github page") {
-				t.Errorf("exit %d, stderr %q; want 1 and the --auth refusal", code, stderr)
-			}
-		})
-	}
-}
-
 // TestConfigureRemovedFormsExitTwoWithHint: a retired flag exits 2 and names its replacement.
 func TestConfigureRemovedFormsExitTwoWithHint(t *testing.T) {
 	resetEnv(t)

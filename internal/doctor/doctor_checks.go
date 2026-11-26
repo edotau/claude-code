@@ -340,7 +340,7 @@ func quotaDoctorRows(now time.Time) []check {
 func quotaFix(key string) string {
 	switch {
 	case strings.HasPrefix(key, "github·"):
-		return "routed around; `claude-code configure github` is the only way to change the Copilot account"
+		return "routed around; only `claude-code configure agents --agent copilot` changes the Copilot account"
 	case strings.HasPrefix(key, "opencode·"):
 		return "routed around; `opencode auth login` changes opencode's login"
 	}

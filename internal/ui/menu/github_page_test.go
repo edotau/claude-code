@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -57,46 +56,15 @@ done
 	}
 }
 
-func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *bytes.Buffer) {
-	t.Helper()
+// The copilot account row only reads; it names copilot's account, never gh's active one.
+func TestCopilotAccountLineIsReadOnly(t *testing.T) {
 	hosttest.GithubScratch(t)
 	vaulttest.UseKeyring(t)
-	var switched []string
-	orig := github.SwitchGH
-	github.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
-	t.Cleanup(func() { github.SwitchGH = orig })
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github", Login: "wl"}}}
-	o.Auth, o.AuthSet = auth, true
 	var out bytes.Buffer
-	return &dialog{reg: reg, out: &out, o: o}, &switched, &out
-}
-
-func TestRunGithubAuthFlagOnlySwitchesGH(t *testing.T) {
-	d, switched, out := authFlagDialog(t, "wl", Options{})
-	if !runGithubAuthFlag(d) || strings.Join(*switched, ",") != "wl" {
-		t.Errorf("switched=%v out=%s", *switched, out)
-	}
-}
-
-func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
-	d, switched, out := authFlagDialog(t, "nope", Options{})
-	if runGithubAuthFlag(d) || !strings.Contains(out.String(), "valid:") || len(*switched) != 0 {
-		t.Errorf("unknown name must fail listing valid names: %s", out)
-	}
-	d, switched, _ = authFlagDialog(t, "wl", Options{DryRun: true})
-	if !runGithubAuthFlag(d) || len(*switched) != 0 {
-		t.Errorf("dry-run switched: %v", *switched)
-	}
-}
-
-func TestCopilotAccountLineIsReadOnly(t *testing.T) {
-	d, switched, out := authFlagDialog(t, "", Options{})
-	copilotAccountLine(d)
+	copilotAccountLine(&dialog{reg: reg, out: &out})
 	if got := out.String(); !strings.HasPrefix(got, "copilot account ") || strings.Contains(got, "gh active") {
 		t.Errorf("output = %q, want one copilot account row", got)
-	}
-	if len(*switched) != 0 {
-		t.Errorf("status lines switched gh: %v", *switched)
 	}
 }
 

@@ -402,7 +402,8 @@ func (t *RouteTable) gateAccount(
 	ctx context.Context, name string, c Cell, billing string, st State, o PickOpts, now time.Time, res *PickResult,
 ) (Candidate, bool) {
 	if c.Account == copilotUnpinned {
-		res.Skipped = append(res.Skipped, Skip{name, gateAccount, "no pinned Copilot account (claude-code configure github)"})
+		res.Skipped = append(res.Skipped,
+			Skip{name, gateAccount, "no pinned Copilot account (claude-code configure agents --agent copilot)"})
 		return Candidate{}, false
 	}
 	if reason, marked := st.authMarkedVia(accountFrom(ctx), c.Account, now); marked {

@@ -74,7 +74,7 @@ func opencodeAccountLine(reg *providers.Registry) string {
 		return "signed in, account not readable"
 	}
 	parts := []string{ansi.SpanOK + cur + ansi.SpanEnd}
-	for _, a := range GitHubAccounts(reg) {
+	for _, a := range githubAccounts(reg) {
 		if a != cur {
 			parts = append(parts, ansi.SpanOff+a+ansi.SpanEnd)
 		}
@@ -88,28 +88,8 @@ func copilotAccountLine(d *dialog) {
 	d.printf("%-16s %s\n", "copilot account", cmp.Or(login, "gh's active account"))
 }
 
-// pickGitHubAccount lists the GitHub accounts; a pick runs `gh auth switch` and nothing else.
-func pickGitHubAccount(d *dialog) {
-	accounts := GitHubAccounts(d.reg)
-	idx, err := d.shell().Pick("GitHub auth — gh's active account", ghUserRows(accounts, github.GHActiveAccount(), ""))
-	if err != nil || idx < 0 {
-		return
-	}
-	switchGH(d, accounts[idx])
-}
-
-// switchGH runs `gh auth switch` to login.
-func switchGH(d *dialog, login string) bool {
-	if err := github.SwitchGH(login); err != nil {
-		d.printf("github auth: %v\n", err)
-		return false
-	}
-	d.printf("github auth: gh active is now %s\n", login)
-	return true
-}
-
-// GitHubAccounts are the logins `--auth` and the pickers accept.
-func GitHubAccounts(reg *providers.Registry) []string {
+// githubAccounts are the known GitHub logins: the github profiles' first, then gh's signed-in ones.
+func githubAccounts(reg *providers.Registry) []string {
 	var out []string
 	if reg != nil {
 		for _, n := range reg.ProfilesOf("github") {
@@ -138,30 +118,8 @@ func githubProfile(reg *providers.Registry, login string) (string, error) {
 	return login, providers.AddGithubAccount(login)
 }
 
-// runGithubAuthFlag is `configure github --auth ACCOUNT`: it compares or switches gh's active account only.
-func runGithubAuthFlag(d *dialog) bool {
-	name := d.o.Auth
-	if valid := GitHubAccounts(d.reg); !slices.Contains(valid, name) {
-		d.printf("github auth: %q is not a known GitHub account; valid: %s\n", name, strings.Join(valid, ", "))
-		return false
-	}
-	if d.o.Check {
-		cur := github.GHActiveAccount()
-		d.printf("github auth: gh active is %q, want %q\n", cur, name)
-		return cur == name
-	}
-	if d.o.DryRun {
-		d.printf("github auth: would switch gh to %s\n", name)
-		return true
-	}
-	return switchGH(d, name)
-}
-
 // runGithub is the github section: opencode's Copilot fallback ladder (login state, routes; on a terminal a fix menu).
 func runGithub(d *dialog) bool {
-	if d.o.AuthSet {
-		return runGithubAuthFlag(d)
-	}
 	if d.interactive() {
 		return githubMenu(d)
 	}
@@ -188,8 +146,6 @@ func githubMenu(d *dialog) bool {
 			login("Log in to Copilot", "copilot login", "copilot", as("copilot"), "copilot", "login"),
 			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", opencodeSignedIn,
 				"opencode", "auth", "login"),
-			{Name: "GitHub auth", Detail: "switch gh's active account",
-				Run: func() bool { pickGitHubAccount(d); return false }},
 			{Name: "Pick fallback models", Detail: "set github-copilot opus/sonnet/haiku for opencode",
 				Run: func() bool { pickCopilotModels(d); return false }},
 		}
